@@ -47,7 +47,10 @@ Scenarios:
     send time as the event timestamp, so that the action signposts carry an input age;
   - every `--chord-every` (10) keys, one action pair: Cmd-T/Cmd-W, Cmd-D/Cmd-W, or next/previous
     workspace (Ctrl-Cmd-] / Ctrl-Cmd-[).
-- `light-storm`: the same in the launch workspace, without STRESS.
+- `light-storm`: the light session instead of STRESS (`perf-stress-session.py` `build_light`: a new
+  workspace, shown, split once, with Chromium, Chromium, WebKit, agent chat and terminal tabs), plus
+  4 background workspaces that the storm moves, tags, groups and pills. Then the same storm, typing and
+  chords. A run whose storm has no target workspace says so (`WARNING` in the summary).
 - Wrap mode, for scripts that launch their own app (the every-action sweep, `sidebar-churn-typing.py`).
   The recording runs while the command runs:
   ```bash
@@ -57,7 +60,15 @@ Scenarios:
   Wrap mode records the stack samples and the signposts only. The command builds its own app
   environment, so its app gets no DevTools port and no daemon spans. Add `--socket S` for the stall
   track. Keep the command short (`--only`), because an all-process recording grows by about 50 MB a
-  second.
+  second. The command runs in its own process group. On a timeout, an error or a signal, the group gets
+  SIGTERM, then time for its own teardown (the wrapper's `BenchApp.stop` and `TagTeardown`), then
+  SIGKILL; then the bundle's tag teardown (pass `--bundle`) ends the daemons it left. When the
+  recording is complete, the exit code is the command's own.
+
+The app under trace activates, and its window is key where the host allows it (`CMUX_NEXT_NO_ACTIVATE`
+is removed, as `pane-perf-terminal.py` does). The window goes on the main screen at the STRESS size
+(`place_window`). The summary prints whether the window was key and where it was placed. A run whose
+window was not key is labelled `<scenario>-inactive`; do not compare it with a key-window run.
 
 Options: `--system-trace` (thread states: why a thread was off CPU, and which stack blocked;
 heavier), `--recorder sample` (no xctrace: `/usr/bin/sample` of the app and the daemon, aggregate stacks
@@ -66,20 +77,40 @@ in `sample-*.txt`, no flame timeline), `--no-cef`, `--hang-ms N`, `--keep` (leav
 
 `trace.py export DIR` builds `trace.json.gz` and the summary again from the raw files in DIR
 (`signposts.ndjson`, `xctrace-*.xml`, `hangs.json`, `daemon-spans-stamped.jsonl`, `chromium-trace.json`,
-`driver.json`, `processes.json`, `meta.json`). Use it after you change the merge. `trace.py summary DIR`
-prints the summary again. `trace.py --self-test` checks the parsers and the merge.
+`driver.json`, `processes.json`, `meta.json`). Use it after you change the merge. Each table is exported
+to a `.part.xml` file and renamed only when xctrace exits 0, so an `xctrace-*.xml` file is always
+complete. A table that does not parse (from an older trace.py) is skipped, and the summary names it.
+`trace.py summary DIR` prints the summary again.
+
+`trace.py --self-test` runs each check on its own and prints `ok` or `FAIL` for each: the parsers on
+hand-written export shapes, the merge, the xctrace clock (a signpost match, a count mismatch that falls
+back to the start date with a warning, the start date's precision, the recorder start), the
+`debug.cef` validity, the stage bounds and errors, a source whose stop raises or hangs, a wrapped
+command's process group, and the export's part files. It has no real xctrace export yet: the
+time-profile, os-signpost and syscall column tags are not checked against xctrace 15, 16, 26 or 27. If
+the os-signpost columns differ, the clock falls back to the start date, and the summary prints a
+`WARNING` with the columns that it saw.
 
 ### Stage bounds (no silent hours)
 
-Each stage of a recording has a bound (`STAGE_BOUNDS_S` in trace.py): launch, STRESS build, storm setup,
-recorders start, the window (`--seconds` + 120 s), each source's stop, the xctrace save, the export and the
-build. A stage that runs longer than 60 s prints `stage X still running after N s` once a minute. A stage
-that passes its bound prints `STAGE X PASSED ITS BOUND`, stops what it started (it kills a wrapped command
-or xctrace, and drops the DevTools connection), and the recording goes on to the next stage. The trace and
-`SUMMARY.txt` are always written; the summary starts with `INCOMPLETE: stage(s) ...` and lists the time of
-each stage. The exit code is 3. Where a stage was measured, the bound is about 2.5 times the measurement (the
-STRESS build took 691 s on cmux-lawrence-2). Otherwise, it is the sum of the stage's own inner timeouts. The
-bounds catch a hung stage; they are not targets.
+Each stage of a recording has a bound (`STAGE_BOUNDS_S` in trace.py): launch, STRESS or light build,
+storm setup, recorders start, the window (`--seconds` + 92 s), the stop of each source (one stage per
+source), the xctrace save, the app stop, the export and the build. A stage that runs longer than 60 s
+prints `stage X still running after N s` once a minute. A stage that passes its bound prints
+`STAGE X PASSED ITS BOUND`; a stage that raises an error (a CDP error, a socket timeout, a failed launch)
+prints `STAGE X FAILED`. Either way, the stage's cleanup stops what it started (SIGKILL of that source's
+process, the wrapped command's process group, or the app and the bundle's processes by exact PID; it drops
+the DevTools connection), and the recording goes on to the next stage. Every recorder is held before its
+process starts, so the stop path reaches it even when its start passed the bound. The trace and
+`SUMMARY.txt` are always written; the summary lists `INCOMPLETE: stage(s) ...` and `ERROR: stage X
+failed: ...` lines and the time of each stage. The exit code is 3. SIGTERM or SIGHUP stops every recorder
+and the app, writes `SUMMARY.txt` without an export, and exits 128 + the signal.
+
+A stage that owns processes or must finish a cleanup has a bound above the sum of its inner timeouts, so
+it fires only when an inner timeout failed to. The build stages run hundreds of socket actions with 120 s
+timeouts (a sum of hours) and own no process: their bound is about 2.5 times a measurement (the STRESS
+build took 691 s on cmux-lawrence-2), and the light build's is estimated from the same rate. The bounds
+catch a hung stage; they are not targets.
 
 Job 7 (2026-10-23) shows why. Its STRESS build finished, and then the job printed nothing for over an hour.
 Two causes: the all-process recording ran while the Chromium trace (then a 400 MB buffer with IPC
@@ -155,5 +186,7 @@ Classes: `lock` (mutex, unfair lock, dispatch_sync, semaphore), `daemon` (the ap
   the reason (thread states with the blocking stack).
 - The Chromium trace needs a Debug build of a development bundle (`CMUX_NEXT_CEF_EXTRA_SWITCHES` is
   `#if DEBUG`). A Release trace has every other source.
-- The trace does not prove that Chromium pages were real Chromium. The summary prints `chromium valid`
-  from `debug.cef` (no `unavailable` or `fallback`).
+- The trace does not prove each page was Chromium. After the session is built, the summary prints
+  `chromium valid` from `debug.cef`, with the check that STRESS uses (`cef_problems`): start state
+  `ready`, `unavailable` and `fallback` null, no dev-server `web-dev.json`. Otherwise it lists the
+  problems.

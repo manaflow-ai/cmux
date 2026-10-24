@@ -33,10 +33,22 @@ Scenarios (record --scenario):
                  move, task status, group add, status pill, as sidebar-churn-typing.py does) while keys are
                  typed into the focused terminal every --key-interval s, with an action chord pair every
                  --chord-every keys (Cmd-T/Cmd-W, Cmd-D/Cmd-W, next/previous workspace) through `debug.key`
-  light-storm    the same in the launch workspace, without STRESS
+  light-storm    the light session instead of STRESS (perf-stress-session.py build_light: a shown workspace split
+                 once, Chromium, WebKit, chat and terminal tabs, plus LIGHT_BACKGROUND workspaces for the storm
+                 to rearrange), then the same storm, typing and chords
   -- COMMAND     wrap mode: record while COMMAND runs (the every-action sweep or sidebar-churn-typing.py, which
                  launch their own app): time profile and signposts only (COMMAND's app gets no CDP port, no
-                 daemon spans and no hang drain; pass --socket S for the hang drain)
+                 daemon spans and no hang drain; pass --socket S for the hang drain). COMMAND runs in its own
+                 process group: on a timeout, an error or a signal the group gets SIGTERM, time for its own
+                 teardown, then SIGKILL, and the bundle's tag teardown ends what it left
+
+The app under trace activates and its window is key where the host allows it (CMUX_NEXT_NO_ACTIVATE is removed,
+as pane-perf-terminal.py does); the window goes on the main screen at the STRESS size (`place_window`). Whether
+the window was key is recorded: a run whose window was not key is labelled `<scenario>-inactive`.
+
+Exit code: 0; 3 when a stage passed its bound or failed (the trace and SUMMARY.txt are still written, with an
+INCOMPLETE or ERROR line); wrap mode with a complete recording: the command's own nonzero exit code; 128 + N
+when signal N (SIGTERM, SIGHUP) ended the run (every recorder and the app are stopped first; no export).
 
 Usage (a fleet GUI host, never Lawrence's Mac):
   nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA -- \\
@@ -46,20 +58,24 @@ Usage (a fleet GUI host, never Lawrence's Mac):
   trace.py record --bundle APP --out DIR [--socket S] [--seconds-cap 600] -- python3 scripts/cmux-next/every-action-sweep.py ...
   trace.py export DIR          rebuild DIR/trace.json.gz and the summary from DIR's raw files
   trace.py summary DIR         print DIR's summary again
-  trace.py --self-test         check the parsers and the merge on built-in samples
+  trace.py --self-test         check the parsers (hand-written export shapes, not yet a real xctrace export),
+                               the merge, the clock alignment, the stage bounds, the stop path and the export
 
 Docs: plans/cmux-next/trace.md (how to record, open in ui.perfetto.dev, read it). Not a CI gate.
 """
-import argparse, collections, gzip, importlib.util, json, os, re, signal, statistics, subprocess, sys, tempfile, threading, time
+import argparse, collections, contextlib, gzip, importlib.util, json, os, re, select, shutil, signal, statistics, \
+    subprocess, sys, tempfile, threading, time
 import xml.etree.ElementTree as ET
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+from bench_launch import LaunchError  # noqa: E402  (a failed launch is a SystemExit subclass: a stage error, not a signal)
+
 SUBSYSTEM = "com.cmuxterm.app.next"
 SYNTHETIC_TID = 1 << 40  # tracks that are not OS threads (signpost lanes, daemon spans, stalls, driver)
 DRIVER_PID = 0  # Perfetto shows pid 0 as its own process: the scenario driver's own events
-FLAME_DEPTH = 120
-EXPORT_TIMEOUT_S = 900  # one table export at most: a stuck export must not hold the GUI host (no export measured yet)  # root-most frames kept per sample (deeper Swift stacks are rare; the leaf is in args)
+FLAME_DEPTH = 120  # root-most frames kept per sample (deeper Swift stacks are rare; the leaf is in args)
+LIGHT_BACKGROUND = 4  # light-storm: workspaces besides the shown one, for the storm to move, tag, group and pill
 # Chromium categories: tasks (toplevel), input and frame latency, GPU and compositor frames, browser UI and
 # navigation. Not mojom/ipc (one event per message: tens of MB a second with 40 pages animating) and not the
 # devtools timeline. The ring buffer keeps the last CHROME_BUFFER_KB of events, so a long window stays bounded.
@@ -80,6 +96,7 @@ def load(name, file):
 
 
 signposts_lib = load("perf_signposts", "perf-signposts.py")
+stress_lib = load("perf_stress_session", "perf-stress-session.py")
 
 
 def uptime_us():
@@ -114,26 +131,68 @@ def pct(values):
 
 # ---------------------------------------------------------------- stages
 
-# Each stage of a recording has a bound. A stage that passes it ends the recording at once, loudly, and the
-# trace and summary are still written from what was recorded (job 7 on 2026-10-23 sat silent for over an hour
-# after its STRESS build). The bounds catch a hung stage; they are not expectations. Where a stage was
-# measured the bound is about 2.5 times the measurement; otherwise it is the sum of the stage's own inner
-# timeouts with a margin, so it fires only when an inner timeout failed to.
+# Inner timeouts of the stages (each blocking call in a stage has its own); the stage bounds below are sums of them.
+STAGE_MARGIN_S = 30  # added to a sum of inner timeouts: process start-up, `ps`, Python around the bounded calls
+RPC_SHORT_S = 10  # a socket read that answers at once (debug.hangs clear, debug.window_list)
+RPC_S = 20  # a socket read that walks the app's state (snapshot.get, debug.cef, debug.frames, debug.timings)
+CLI_SETUP_S = 20  # one CLI call of the storm setup (a group create), as the storm's own calls
+LOG_ATTACH_S = 15  # `log stream` prints its filter line
+XCTRACE_START_S = 120  # xctrace prints "Starting recording"
+XCTRACE_SAVE_S = 900  # xctrace processes and saves the recording after SIGINT
+CDP_CONNECT_S = 20 + 5 + 15  # the connect loop's deadline, plus one attempt begun at it (urlopen 5 s, socket 15 s)
+CDP_START_S = 30 + 10  # Tracing.start, Tracing.recordClockSyncMarker
+SAMPLER_WAIT_S = 120  # every /usr/bin/sample of the window ends (they run at once, one shared deadline)
+EXPORT_TOC_S = 300  # `xctrace export --toc`
+EXPORT_TIMEOUT_S = 900  # one table export at most: a stuck export must not hold the GUI host (no export measured yet)
+EXPORT_SCHEMAS = ("time-profile", "os-signpost", "syscall")
+# BenchApp.stop (debug.quit 10 s, 30 s for the quit, 15 s after TERM) and TagTeardown.end for one acpmux home
+# (`daemon shutdown` 30 s, again 30 s on a build before --end-agents) and one cmux-tui session (30 s), then its
+# 15 s + 5 s + 0.5 s waits for the bundle's processes.
+APP_STOP_S = 10 + 30 + 15 + 2 * 30 + 30 + 15 + 5 + 1
+WRAP_GRACE_S = APP_STOP_S + STAGE_MARGIN_S  # a wrapped command's own teardown after SIGTERM (its BenchApp.stop)
+
+# Each stage of a recording has a bound. A stage that passes it ends loudly, its cleanup (`on_abort`) stops what
+# it started, and the trace and summary are still written from what was recorded (job 7 on 2026-10-23 sat silent
+# for over an hour after its STRESS build). The bounds catch a hung stage; they are not expectations.
+# - A stage that owns processes or must finish a cleanup (recorders, each source's stop, the app's stop, the
+#   export) has a bound above the sum of its inner timeouts, so it fires only when an inner timeout failed to;
+#   its cleanup is bounded by construction (SIGKILL by exact PID or process group, no unbounded wait).
+# - The build stages run hundreds of socket actions with 120 s timeouts each (a sum of hours) and own no process:
+#   their bound comes from a measurement (about 2.5 times it), and a cut ends the recording (fatal) with nothing
+#   left behind.
 STAGE_BOUNDS_S = {
-    "launch": 300,           # BenchApp.launch waits 180 s for the socket, then up to 10 s for a crash report
+    # BenchApp.launch: 180 s for the socket, 10 s for a crash report, a 60 s main-thread sample of a silent app.
+    "launch": 180 + 10 + 60 + STAGE_MARGIN_S,
     "stress-build": 1800,    # measured 691 s on cmux-lawrence-2 (macOS 27.0.1), 2026-10-23
-    "storm-setup": 180,      # 4 CLI calls and 2 socket reads, each bounded by its own timeout
-    "recorders-start": 300,  # log stream attach 15 s, xctrace start 120 s (and 120 s for its fallback), CDP 20 s
-    "window-margin": 120,    # added to --seconds: the typist and storm joins (30 s each) after the window
-    "teardown-rpc": 60,      # debug.frames stop and debug.timings: 20 s socket timeouts
-    "chromium-stop": 600,    # Tracing.end, then IO.read of at most a 128 MB buffer; every call bounded (not measured)
-    "drains-stop": 120,      # hang drain, span follower, sampler and log stream joins (15 s each)
-    "xctrace-save": 960,     # XcTrace.stop waits 900 s for xctrace to save
-    "app-stop": 180,         # debug.quit, 30 s wait, TERM, 15 s, the tag teardown
-    "export": 1800,          # every table export, each bounded by EXPORT_TIMEOUT_S
+    # Not measured: about 13 actions (4 workspaces, 1 workspace shown and split, 5 tabs, window placement) where
+    # the STRESS build ran about 200 in 691 s (3.5 s each on a loaded host), so ~45 s, plus a cold Chromium start
+    # (the first Chromium tab), times 2.5.
+    "light-build": 300,
+    # 4 group creates (CLI_SETUP_S each), snapshot.get, debug.cef, debug.window_list.
+    "storm-setup": 4 * CLI_SETUP_S + 2 * RPC_S + RPC_SHORT_S + STAGE_MARGIN_S,
+    # log stream attach, xctrace start (and its --attach fallback), CDP connect and Tracing.start, debug.hangs clear.
+    "recorders-start": LOG_ATTACH_S + 2 * XCTRACE_START_S + CDP_CONNECT_S + CDP_START_S + RPC_SHORT_S + STAGE_MARGIN_S,
+    # Added to --seconds (or --seconds-cap): the window's 2 s of settle and the typist's and storm's joins (30 s each,
+    # after the call each has in flight). Also xctrace's own --time-limit past the window.
+    "window-margin": 2 + 30 + 30 + STAGE_MARGIN_S,
+    "driver-stop": 30 + 30 + STAGE_MARGIN_S,   # the typist's and the storm's joins
+    "wrap-stop": WRAP_GRACE_S + 10 + STAGE_MARGIN_S,  # SIGTERM, the command's grace, SIGKILL and its reap
+    "teardown-rpc": RPC_S + STAGE_MARGIN_S,  # debug.frames stop, debug.timings
+    # Tracing.end, then IO.read of at most a 128 MB buffer; every call bounded (not measured). A cut drops the
+    # DevTools socket (no process of ours) and loses only the Chromium events.
+    "chromium-stop": 600,
+    "stop-hangs": 15 + RPC_SHORT_S + STAGE_MARGIN_S,  # the drain thread's join, the last drain
+    "stop-spans": 1 + 10 + 10 + STAGE_MARGIN_S,  # tail -F: the last line's arrival, TERM and its exit, the reader's join
+    "stop-sampler": SAMPLER_WAIT_S + 5 + STAGE_MARGIN_S,
+    "stop-signposts": 15 + 15 + STAGE_MARGIN_S,  # log stream: SIGINT and its exit, the reader's join
+    "xctrace-save": XCTRACE_SAVE_S + 30 + STAGE_MARGIN_S,  # XcTrace.stop: the save, then its reader's end
+    "raw-files": 30 + STAGE_MARGIN_S,  # the end `ps` snapshot and the driver's events
+    "app-stop": APP_STOP_S + STAGE_MARGIN_S,
+    "export": EXPORT_TOC_S + len(EXPORT_SCHEMAS) * EXPORT_TIMEOUT_S + STAGE_MARGIN_S,
     "build": 900,            # the merge and the summary (Python over the exported XML)
 }
 HEARTBEAT_S = 60  # a stage that runs longer prints that it is still running once a minute
+STAGE_ERRORS = (Exception, LaunchError)  # a stage's own failure; a signal's SystemExit and Ctrl-C end the run
 
 
 class StageTimeout(Exception):
@@ -148,24 +207,57 @@ class Stages:
     """Runs each stage of a recording under its bound, with a heartbeat, and records it in `meta`.
 
     `run(name, bound)` arms SIGALRM for the bound (main thread only, one stage at a time): when it fires, the
-    blocking call in the stage raises StageTimeout, `on_timeout` cleans up what the stage started, and the
-    stage ends. A fatal stage re-raises (nothing after it can run); any other stage is noted and the recording
-    goes on with its next stage.
+    blocking call in the stage raises StageTimeout. A stage whose body raises an error (STAGE_ERRORS: a CDP
+    error, a socket timeout, a failed launch, a wrong STRESS shape) is recorded the same way in
+    `meta["errors"]`. Either way `on_abort` cleans up what the stage started (it runs with no timer armed and
+    must be bounded by construction) and the stage ends. A fatal stage re-raises (nothing after it can run);
+    any other stage lets the recording go on with its next stage. A signal's SystemExit or Ctrl-C passes
+    through unrecorded.
+
+    `hold()` defers the bound across a spawn and the assignment that records the child on its owner: a bound
+    that fires there raises when the hold ends, so no child is ever started that the cleanup cannot see.
     """
 
     def __init__(self, meta, heartbeat_s=HEARTBEAT_S, log=None):
         self.meta, self.heartbeat_s, self.log = meta, heartbeat_s, log or note
         meta.setdefault("stages", [])
         meta.setdefault("timed_out", [])
+        meta.setdefault("errors", [])
         self.active = None
+        self.held = 0
+        self.pending = None
+        self.failures = []  # the exceptions already recorded (`note_error` records each one once)
 
     def _alarm(self, _signum, _frame):
+        if self.held:
+            self.pending = self.active
+            return
         name, bound = self.active
         raise StageTimeout(name, bound)
 
+    @contextlib.contextmanager
+    def hold(self):
+        self.held += 1
+        try:
+            yield
+        finally:
+            self.held -= 1
+            if not self.held and self.pending:
+                (name, bound), self.pending = self.pending, None
+                raise StageTimeout(name, bound)
+
+    def note_error(self, stage, error):
+        """Records `error` once (a fatal stage's error passes this way twice: from the stage, then the run)."""
+        if any(error is seen for seen in self.failures):
+            return
+        self.failures.append(error)
+        text = f"{type(error).__name__}: {error}".strip()[:600]
+        self.meta["errors"].append({"stage": stage, "error": text})
+        self.log(f"STAGE {stage.upper()} FAILED: {text}")
+
     class _Run:
-        def __init__(self, stages, name, bound, fatal, on_timeout):
-            self.stages, self.name, self.bound, self.fatal, self.on_timeout = stages, name, bound, fatal, on_timeout
+        def __init__(self, stages, name, bound, fatal, on_abort):
+            self.stages, self.name, self.bound, self.fatal, self.on_abort = stages, name, bound, fatal, on_abort
 
         def __enter__(self):
             stages = self.stages
@@ -191,24 +283,31 @@ class Stages:
             self.done.set()
             stages = self.stages
             stages.active = None
+            stages.pending = None
             seconds = round(time.monotonic() - self.started, 1)
             timed_out = isinstance(error, StageTimeout)
-            stages.meta["stages"].append({"stage": self.name, "seconds": seconds, "bound_s": self.bound,
-                                          "timed_out": timed_out})
-            if not timed_out:
+            failed = not timed_out and isinstance(error, STAGE_ERRORS)
+            row = {"stage": self.name, "seconds": seconds, "bound_s": self.bound, "timed_out": timed_out}
+            if failed:
+                row["error"] = f"{type(error).__name__}: {error}"[:300]
+            stages.meta["stages"].append(row)
+            if not (timed_out or failed):
                 return False
-            stages.meta["timed_out"].append(self.name)
-            stages.log(f"STAGE {self.name.upper()} PASSED ITS BOUND OF {self.bound:g} s: ending it; the trace and "
-                       f"summary are written from what was recorded")
-            if self.on_timeout:
+            if timed_out:
+                stages.meta["timed_out"].append(self.name)
+                stages.log(f"STAGE {self.name.upper()} PASSED ITS BOUND OF {self.bound:g} s: ending it; the trace "
+                           f"and summary are written from what was recorded")
+            else:
+                stages.note_error(self.name, error)
+            if self.on_abort:
                 try:
-                    self.on_timeout()
-                except Exception as cleanup:  # the cleanup of a hung stage must not hide the timeout itself
-                    stages.log(f"stage {self.name}: cleanup after the timeout failed: {cleanup!r}")
+                    self.on_abort()
+                except Exception as cleanup:  # recorded, so a failed cleanup never hides the stage's own end
+                    stages.note_error(f"{self.name} cleanup", cleanup)
             return not self.fatal
 
-    def run(self, name, bound=None, fatal=False, on_timeout=None):
-        return self._Run(self, name, STAGE_BOUNDS_S[name] if bound is None else bound, fatal, on_timeout)
+    def run(self, name, bound=None, fatal=False, on_abort=None):
+        return self._Run(self, name, STAGE_BOUNDS_S[name] if bound is None else bound, fatal, on_abort)
 
 
 # ---------------------------------------------------------------- processes
@@ -288,16 +387,14 @@ class SignpostStream:
     """`log stream --signpost` of the cmux subsystem, every process, drained to a file on a reader thread."""
 
     def __init__(self, path):
-        self.path, self.proc, self.reader = path, None, None
+        self.path, self.proc, self.reader, self.file = path, None, None, None
         self.attached = threading.Event()
 
-    def start(self, timeout=15):
+    def start(self, timeout=LOG_ATTACH_S, hold=contextlib.nullcontext):
         timebase = signposts_lib.local_timebase()
         self.file = open(self.path, "w")
         if timebase:
             self.file.write(f"#timebase {timebase[0]}/{timebase[1]}\n")
-        self.proc = subprocess.Popen(["/usr/bin/log", "stream", "--signpost", "--style", "ndjson", "--predicate",
-                                      f'subsystem == "{SUBSYSTEM}"'], stdout=subprocess.PIPE, text=True, bufsize=1)
 
         def drain():
             # Reads for the whole run: a full pipe would block `log stream` and logd would drop events.
@@ -306,8 +403,11 @@ class SignpostStream:
                 self.attached.set()
             self.attached.set()
 
-        self.reader = threading.Thread(target=drain, name="signposts", daemon=True)
-        self.reader.start()
+        with hold():
+            self.proc = subprocess.Popen(["/usr/bin/log", "stream", "--signpost", "--style", "ndjson", "--predicate",
+                                          f'subsystem == "{SUBSYSTEM}"'], stdout=subprocess.PIPE, text=True, bufsize=1)
+            self.reader = threading.Thread(target=drain, name="signposts", daemon=True)
+            self.reader.start()
         if not self.attached.wait(timeout):  # the tool prints its filter line once attached
             note(f"log stream printed nothing in {timeout} s; recording anyway")
 
@@ -321,7 +421,18 @@ class SignpostStream:
                 self.proc.wait()
         if self.reader:
             self.reader.join(timeout=15)
-        self.file.close()
+        if self.file:
+            self.file.close()
+
+    def kill(self):
+        """Ends `log stream` at once (its stop passed the bound)."""
+        if self.proc and self.proc.poll() is None:
+            self.proc.kill()
+            self.proc.wait()
+        if self.reader:
+            self.reader.join(timeout=5)
+        if self.file:
+            self.file.close()
 
 
 class XcTrace:
@@ -345,11 +456,10 @@ class XcTrace:
             command += ["--instrument", instrument]
         return command
 
-    def start(self, timeout=120):
+    def start(self, timeout=XCTRACE_START_S, hold=contextlib.nullcontext):
         if os.path.exists(self.path):
-            subprocess.run(["rm", "-rf", self.path])
+            shutil.rmtree(self.path, ignore_errors=True)
         log = open(self.log_path, "w")
-        self.proc = subprocess.Popen(self.command(), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
 
         def read():
             for line in self.proc.stdout:
@@ -361,7 +471,10 @@ class XcTrace:
             self.ended.set()
             self.started.set()
 
-        threading.Thread(target=read, name="xctrace", daemon=True).start()
+        with hold():
+            self.proc = subprocess.Popen(self.command(), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                                         bufsize=1)
+            threading.Thread(target=read, name="xctrace", daemon=True).start()
         self.started.wait(timeout)
         if self.proc.poll() is not None:
             raise RuntimeError(f"xctrace record exited {self.proc.returncode}: {open(self.log_path).read()[-800:]}")
@@ -380,7 +493,9 @@ class XcTrace:
             self.proc.kill()
             self.proc.wait()
 
-    def stop(self, timeout=900):
+    def stop(self, timeout=XCTRACE_SAVE_S):
+        if self.proc is None:
+            return False
         self.interrupt()
         try:
             self.proc.wait(timeout=timeout)
@@ -398,19 +513,29 @@ class Sampler:
     def __init__(self, out):
         self.out, self.procs = out, []
 
-    def start(self, pids, seconds):
+    def start(self, pids, seconds, hold=contextlib.nullcontext):
         for pid, role in pids:
             path = os.path.join(self.out, f"sample-{role}-{pid}.txt")
-            self.procs.append((subprocess.Popen(["/usr/bin/sample", str(pid), str(max(1, int(seconds))), "1", "-mayDie",
-                                                 "-file", path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL),
-                               path))
+            with hold():
+                self.procs.append((subprocess.Popen(["/usr/bin/sample", str(pid), str(max(1, int(seconds))), "1",
+                                                     "-mayDie", "-file", path], stdout=subprocess.DEVNULL,
+                                                    stderr=subprocess.DEVNULL), path))
 
-    def stop(self):
+    def stop(self, timeout=SAMPLER_WAIT_S):
+        deadline = time.monotonic() + timeout  # they run at once: one deadline for all, not one per process
         for proc, _ in self.procs:
             try:
-                proc.wait(timeout=120)
+                proc.wait(timeout=max(0.0, deadline - time.monotonic()))
             except subprocess.TimeoutExpired:
-                proc.terminate()
+                proc.kill()
+                proc.wait(timeout=5)
+
+    def kill(self):
+        """Ends every sample at once (their stop passed the bound)."""
+        for proc, _ in self.procs:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait()
 
 
 class FileFollower:
@@ -418,13 +543,11 @@ class FileFollower:
     with the time it arrived: the daemon's debug spans carry durations only, no clock."""
 
     def __init__(self, source, stamped):
-        self.source, self.stamped, self.proc, self.thread = source, stamped, None, None
+        self.source, self.stamped, self.proc, self.thread, self.out = source, stamped, None, None, None
 
-    def start(self):
+    def start(self, hold=contextlib.nullcontext):
         open(self.source, "a").close()
         self.out = open(self.stamped, "w")
-        self.proc = subprocess.Popen(["/usr/bin/tail", "-F", "-n", "+1", self.source], stdout=subprocess.PIPE, text=True,
-                                     bufsize=1, stderr=subprocess.DEVNULL)
 
         def read():
             for line in self.proc.stdout:
@@ -433,8 +556,11 @@ class FileFollower:
                     self.out.write(json.dumps({"at_us": uptime_us(), "line": line}) + "\n")
                     self.out.flush()
 
-        self.thread = threading.Thread(target=read, name="spans", daemon=True)
-        self.thread.start()
+        with hold():
+            self.proc = subprocess.Popen(["/usr/bin/tail", "-F", "-n", "+1", self.source], stdout=subprocess.PIPE,
+                                         text=True, bufsize=1, stderr=subprocess.DEVNULL)
+            self.thread = threading.Thread(target=read, name="spans", daemon=True)
+            self.thread.start()
 
     def stop(self):
         time.sleep(0.3)  # the last line written before the stop reaches tail (one kqueue wakeup)
@@ -443,7 +569,18 @@ class FileFollower:
             self.proc.wait(timeout=10)
         if self.thread:
             self.thread.join(timeout=10)
-        self.out.close()
+        if self.out:
+            self.out.close()
+
+    def kill(self):
+        """Ends `tail -F` at once (its stop passed the bound or failed)."""
+        if self.proc and self.proc.poll() is None:
+            self.proc.kill()
+            self.proc.wait()
+        if self.thread:
+            self.thread.join(timeout=5)
+        if self.out:
+            self.out.close()
 
 
 class HangDrain(threading.Thread):
@@ -476,9 +613,19 @@ class HangDrain(threading.Thread):
 
     def stop(self):
         self.stop_flag.set()
-        self.join(timeout=15)
+        if self.is_alive():
+            self.join(timeout=15)
         self.drain()
-        write_json(self.path, {"records": self.records, "dropped": self.gaps, "summary": getattr(self, "summary", None)})
+        self.save()
+
+    def kill(self):
+        """Ends the drain without a last read (its stop passed the bound or failed): saves what it read."""
+        self.stop_flag.set()
+        self.save()
+
+    def save(self):
+        write_json(self.path, {"records": list(self.records), "dropped": self.gaps,
+                               "summary": getattr(self, "summary", None)})
 
 
 class ChromiumTracer:
@@ -644,35 +791,166 @@ class Typist(threading.Thread):
         self.join(timeout=30)
 
 
-def storm_setup(app, rpc, stress):
+def storm_setup(app, rpc):
     """Groups for the storm and the workspace ids it rearranges (all but the shown one)."""
     groups = []
     for index in range(4):
         name = f"trace group {index}"
-        if app.cli_run("workspace", "group", "create", "--name", name).returncode == 0:
+        if app.cli_run("workspace", "group", "create", "--name", name, timeout=CLI_SETUP_S).returncode == 0:
             groups.append(name)
-    topology = (rpc("snapshot.get") or {}).get("topology") or {}
+    reply = rpc("snapshot.get", timeout=RPC_S)
+    topology = (reply.get("topology") or {}) if isinstance(reply, dict) else {}
     shown = (topology.get("focus") or {}).get("workspace")
     workspaces = [w["id"] for w in topology.get("workspaces") or [] if w.get("id") and w.get("id") != shown]
     return groups, workspaces
 
 
+def cef_validity(reply, web_dev_config=None):
+    """Measurement validity (perf-lead brief) from a `debug.cef` reply: valid when Chromium's start state is
+    `ready`, `unavailable` and `fallback` are null and no dev-server config routes the pages
+    (`cef_problems` of perf-stress-session.py, the check STRESS itself uses). The reply always carries the keys
+    `unavailable` and `fallback` (null when healthy) and the pump's `fallback_ms`, so their names alone say
+    nothing."""
+    problems = stress_lib.cef_problems(reply, web_dev_config)
+    return {"valid": not problems, "problems": problems,
+            "state": reply.get("state") if isinstance(reply, dict) else None,
+            "excerpt": json.dumps(reply, default=str)[:400]}
+
+
+def window_state(rpc):
+    """Whether the app's main window is key now (`debug.window_list`; a key window means an active app), as
+    pane-perf-terminal.py reads it; None when the app does not say."""
+    reply = rpc("debug.window_list", timeout=RPC_SHORT_S)
+    windows = reply.get("windows") if isinstance(reply, dict) else None
+    if not isinstance(windows, list):
+        return {"window_key": None}
+    return {"window_key": any(w.get("key") for w in windows if w.get("kind") == "main" and w.get("visible"))}
+
+
+def read_probe(path):
+    import csv
+    try:
+        with open(path) as f:
+            return list(csv.DictReader(f))
+    except OSError:
+        return []
+
+
+# ---------------------------------------------------------------- wrapped command
+
+def wait_exits(pids, timeout):
+    """Waits until every pid in `pids` (processes that are not our children) exits, or `timeout` passes, on
+    kqueue NOTE_EXIT (no polling). Returns the set still running."""
+    alive = set()
+    kq = select.kqueue()
+    try:
+        for pid in pids:
+            try:
+                kq.control([select.kevent(pid, select.KQ_FILTER_PROC, select.KQ_EV_ADD | select.KQ_EV_ONESHOT,
+                                          select.KQ_NOTE_EXIT)], 0)
+                alive.add(pid)
+            except OSError:  # ESRCH: it already exited
+                pass
+        deadline = time.monotonic() + timeout
+        while alive:
+            left = deadline - time.monotonic()
+            if left <= 0:
+                break
+            for event in kq.control(None, len(alive), left):
+                alive.discard(event.ident)
+    finally:
+        kq.close()
+    return alive
+
+
+class WrappedCommand:
+    """Wrap mode's COMMAND, in a session and process group of its own (its pid is the group id).
+
+    `stop()` ends the whole group: SIGTERM, up to `grace` seconds for every member to exit (a wrapper such as
+    every-action-sweep.py then runs its own teardown: BenchApp.stop and TagTeardown), then SIGKILL to the
+    group. The app a wrapper launches is in the group; daemons that start a session of their own are not (the
+    bundle's tag teardown after a stopped command ends those, `Recording.stop_app`).
+    """
+
+    def __init__(self, argv, grace=WRAP_GRACE_S):
+        self.argv, self.grace = list(argv), grace
+        self.proc, self.exit, self.signalled = None, None, False
+
+    def start(self, hold=contextlib.nullcontext):
+        with hold():
+            self.proc = subprocess.Popen(self.argv, start_new_session=True)
+
+    def wait(self):
+        self.exit = self.proc.wait()
+        return self.exit
+
+    def members(self):
+        """PIDs in the command's process group that still run, its leader included while it runs."""
+        if self.proc is None:
+            return []
+        out = subprocess.run(["ps", "-axo", "pid=,pgid=,stat="], capture_output=True, text=True, timeout=30).stdout
+        found = []
+        for line in out.splitlines():
+            parts = line.split()
+            # A zombie (stat Z) has exited and runs nothing; its parent or launchd reaps it.
+            if len(parts) == 3 and parts[1] == str(self.proc.pid) and parts[0].isdigit() and not parts[2].startswith("Z"):
+                found.append(int(parts[0]))
+        return found
+
+    def _signal_group(self, number):
+        try:
+            os.killpg(self.proc.pid, number)  # the group this script started (start_new_session), never a pattern
+        except ProcessLookupError:
+            pass
+
+    def stop(self):
+        """Ends the group and returns a record for meta, or None when the command and every process of its group
+        already ended (nothing to stop)."""
+        if self.proc is None:
+            return None
+        others = [pid for pid in self.members() if pid != self.proc.pid]
+        if self.proc.poll() is not None and not others:
+            return None
+        self.signalled = True
+        note(f"wrap: stopping the command's process group {self.proc.pid} (SIGTERM, {self.grace:g} s for its "
+             f"own teardown, then SIGKILL)")
+        deadline = time.monotonic() + self.grace
+        self._signal_group(signal.SIGTERM)
+        try:
+            self.proc.wait(timeout=self.grace)
+        except subprocess.TimeoutExpired:
+            pass
+        left = wait_exits(others, max(0.0, deadline - time.monotonic()))
+        killed = sorted(left | {pid for pid in self.members() if pid != self.proc.pid})
+        if self.proc.poll() is None or killed:
+            self._signal_group(signal.SIGKILL)
+            self.proc.wait(timeout=10)
+            wait_exits(killed, 5)
+        self.exit = self.proc.returncode
+        return {"exit": self.exit, "signalled": True, "killed": killed[:20]}
+
+
 # ---------------------------------------------------------------- the app
 
 class TraceApp:
-    """The tagged app under trace: BenchApp plus the trace's environment and the bundled CLI."""
+    """The tagged app under trace: BenchApp plus the trace's environment and the bundled CLI.
+
+    The app activates and its window becomes key where the host allows it (no CMUX_NEXT_NO_ACTIVATE, as
+    pane-perf-terminal.py): an inactive window's key routing and frame pacing are not a person's. Without
+    no-activate the app reads no test window frame, so the window is placed through the socket
+    (`place_window`, the STRESS size on the main screen)."""
 
     def __init__(self, path, out, opts):
         from bench_launch import BenchApp
         self.spans = os.path.join(out, "daemon-spans.jsonl")
         self.probe = os.path.join(out, "typing.csv")
         env = {"CMUX_NEXT_HANG_THRESHOLD_MS": str(opts.hang_ms), "CMUX_NEXT_TYPING_PROBE": self.probe,
-               "CMUX_TUI_DEBUG_SPANS": self.spans}
+               "CMUX_TUI_DEBUG_SPANS": self.spans, "CMUX_NEXT_NO_ACTIVATE": None}
         self.cdp_port = None
         if not opts.no_cef:
             self.cdp_port = opts.cdp_port or free_port()
             env["CMUX_NEXT_CEF_EXTRA_SWITCHES"] = f"remote-debugging-port={self.cdp_port}:remote-allow-origins=*"
-        self.bench = BenchApp(path, out=out, env=env, window=(80, 40, 1600, 1000))
+        self.bench = BenchApp(path, out=out, env=env, window=None, screen=None)
 
     def rpc(self, method, params=None, timeout=60):
         return self.bench.rpc(method, params, timeout)
@@ -696,250 +974,424 @@ def free_port():
 
 
 def record(opts):
-    """Records one scenario; returns 0, or 3 when a stage passed its bound (the trace and summary still written)."""
+    """Records one scenario; returns the exit code (the module doc): the trace and summary are always written."""
     out = os.path.abspath(opts.out)
     os.makedirs(out, exist_ok=True)
     bundle = os.path.realpath(opts.app or opts.bundle).rstrip("/") if (opts.app or opts.bundle) else None
     meta = {"host": os.uname().nodename, "macos": subprocess.run(["sw_vers", "-productVersion"], capture_output=True,
                                                                  text=True).stdout.strip(),
             "bundle": bundle, "scenario": "wrap" if opts.command else opts.scenario, "seconds": opts.seconds,
-            "argv": sys.argv[1:], "recorder": None, "sources": {}}
+            "argv": sys.argv[1:], "recorder": None, "sources": {}, "warnings": []}
     recorder = opts.recorder
     if recorder == "auto":
         recorder = "xctrace" if subprocess.run(["xcrun", "xctrace", "version"], capture_output=True).returncode == 0 else "sample"
     meta["recorder"] = recorder
-    stages = Stages(meta)
-    app = rpc = xc = sampler = spans = hangs = chromium = signposts = None
-    groups, workspaces, driver_events, processes = [], [], [], {}
-    frames_started, probe_before = None, 0
-    try:
+    return Recording(opts, out, meta, Stages(meta), bundle, recorder).record()
+
+
+class Recording:
+    """One `record` run. Everything it starts (the app, each recorder, the wrapped command, the storm and the
+    typist) is held here before its process or thread starts, so `stop()` always reaches it, whichever stage
+    passed its bound or failed (a stage's cleanup cannot see a local its blocking call never returned)."""
+
+    def __init__(self, opts, out, meta, stages, bundle, recorder):
+        self.opts, self.out, self.meta, self.stages, self.bundle, self.recorder = opts, out, meta, stages, bundle, recorder
+        self.app = self.rpc = self.xc = self.sampler = self.spans = self.hangs = self.chromium = None
+        self.signposts = self.wrapped = self.storm = self.typist = self.stress = self.phase = None
+        self.groups, self.workspaces, self.driver_events, self.processes = [], [], [], {}
+        self.frames_started, self.probe_before = None, 0
+        self.xctrace_factory = XcTrace  # the self-test passes a stand-in
+        self.stopping = False
+        self.terminated = None  # the exit code of a SIGTERM or SIGHUP that ended the run
+
+    # The run.
+
+    def record(self):
+        meta, stages = self.meta, self.stages
+        self.install_signals()
         try:
-            if opts.app:
-                app = TraceApp(opts.app, out, opts)
-                with stages.run("launch", fatal=True):
-                    app.bench.launch()
-                rpc = app.rpc
-                meta["app_pid"] = app.bench.process.pid
-                meta["tag"] = app.bench.tag
-                if opts.scenario == "stress-storm":
-                    with stages.run("stress-build", fatal=True):
-                        build_stress(rpc, meta)
-                with stages.run("storm-setup", fatal=True):
-                    groups, workspaces = storm_setup(app, rpc, opts.scenario == "stress-storm")
-                    meta["cef"] = cef_validity(rpc)
-            if opts.socket and not rpc:
-                rpc = load("perf_stress_session", "perf-stress-session.py").socket_rpc(opts.socket)
-            with stages.run("recorders-start", fatal=True,
-                            on_timeout=lambda: xc and xc.interrupt()):
-                note("recorders starting")
-                processes["start"] = ps_snapshot(bundle)
-                signposts = SignpostStream(os.path.join(out, "signposts.ndjson"))
-                signposts.start()
-                if recorder == "xctrace":
-                    xc = start_xctrace(out, opts, meta)
-                if app:
-                    spans = FileFollower(app.spans, os.path.join(out, "daemon-spans-stamped.jsonl"))
-                    spans.start()
-                if rpc:
-                    rpc("debug.hangs", {"clear": True})
-                    hangs = HangDrain(rpc, os.path.join(out, "hangs.json"))
-                    hangs.start()
-                if app and app.cdp_port:
-                    chromium = ChromiumTracer(app.cdp_port, out)
-                    try:
-                        chromium.start()
-                    except (RuntimeError, OSError, ConnectionError) as error:
-                        note(f"no Chromium trace: {error}")
-                        meta["sources"]["chromium_error"] = str(error)[:300]
-                        chromium = None
-                if recorder == "sample":
-                    sampler = Sampler(out)
-                    pids = [(pid, info["role"]) for pid, info in processes["start"].items() if info["role"] in ("app", "daemon")]
-                    sampler.start(pids, opts.seconds)
-            meta["window_start_us"] = uptime_us()
-            note(f"window starts: scenario {meta['scenario']} " +
-                 (f"(at most {opts.seconds_cap:g} s)" if opts.command else f"for {opts.seconds:g} s"))
-            meta["load_at_start"] = [round(x, 1) for x in os.getloadavg()]  # a loaded host stretches every number
-            frames_started = rpc and rpc("debug.frames", {"action": "start"}, timeout=20)
-            probe_before = len(read_probe(app.probe)) if app else 0
-            bound = (opts.seconds_cap if opts.command else opts.seconds) + STAGE_BOUNDS_S["window-margin"]
-            with stages.run("window", bound):
-                run_window(opts, app, rpc, groups, workspaces, driver_events, meta)
+            self.setup_and_window()
         except StageTimeout:
-            pass  # a fatal stage: Stages noted it; what was recorded is still written below
+            pass  # a fatal stage: Stages recorded it; what was recorded is still written below
+        except STAGE_ERRORS as error:
+            stages.note_error("record", error)  # once: a fatal stage's error is already recorded
+        except SystemExit as error:  # SIGTERM or SIGHUP (a fleet cancel, an SSH drop): stop everything, no export
+            self.terminated = error.code if isinstance(error.code, int) else 1
         finally:
+            self.stopping = True  # a signal from here on waits for the stop (`install_signals`)
             meta["window_end_us"] = uptime_us()
             if meta.get("window_start_us"):
                 note("window ends")
-            stop_recording(stages, opts, meta, app, rpc, xc, sampler, spans, hangs, chromium, signposts, frames_started,
-                           probe_before, processes, bundle, driver_events, out)
-    finally:
-        write_json(os.path.join(out, "meta.json"), meta)
-        if app and not opts.keep:
-            with stages.run("app-stop"):
-                app.bench.stop()
-            write_json(os.path.join(out, "meta.json"), meta)
-    if recorder == "xctrace":
-        with stages.run("export"):
-            export_xctrace(out)
-        if not opts.keep_recording:
-            subprocess.run(["rm", "-rf", os.path.join(out, "recording.trace")])  # GBs; the exported tables stay
-    write_json(os.path.join(out, "meta.json"), meta)
-    summary = None
-    with stages.run("build"):
-        summary = build(out)
-    if summary is None:
-        summary = {"timed_out": meta["timed_out"], "stages": meta["stages"]}
-        write_json(os.path.join(out, "summary.json"), summary)
-    else:
-        # The build reads meta.json before the build stage ends; add its own row.
-        summary["stages"], summary["timed_out"] = meta["stages"], meta["timed_out"]
-        write_json(os.path.join(out, "summary.json"), summary)
-        with open(os.path.join(out, "SUMMARY.txt"), "w") as f:
-            f.write(summary_text(summary) + "\n")
-    print(summary_text(summary), flush=True)
-    return 3 if meta["timed_out"] else 0
+            try:
+                self.stop()
+            finally:
+                write_json(os.path.join(self.out, "meta.json"), meta)
+                self.stop_app()
+                write_json(os.path.join(self.out, "meta.json"), meta)
+        if self.terminated is not None:
+            note(f"ended by a signal (exit {self.terminated}): recorders and app stopped; no export")
+            self.write_summary(None)
+            return self.terminated
+        self.finish()
+        return self.exit_code()
 
+    def install_signals(self):
+        """SIGTERM and SIGHUP end the run through its stop path (BenchApp.launch installs TagTeardown's handler,
+        so this runs again after the launch). While the stop runs, a signal is recorded and the stop finishes."""
+        def on_signal(signum, _frame):
+            if self.stopping:
+                self.terminated = 128 + signum
+                note(f"signal {signum}: the recorders and the app are stopping first")
+                return
+            raise SystemExit(128 + signum)
+        for number in (signal.SIGTERM, signal.SIGHUP):
+            signal.signal(number, on_signal)
 
-def build_stress(rpc, meta):
-    """STRESS through perf-stress-session.py; a session that misses the shape is traced and says so."""
-    builder = load("perf_stress_session", "perf-stress-session.py")
-    started = time.monotonic()
-    meta["stress"] = builder.Stress(rpc, log=note).build(check=False)
-    try:
-        builder.Stress.check(meta["stress"])
-    except builder.StressShapeError as error:
-        # A trace of a session that is not quite STRESS still answers "why did this lag"; it says so.
-        meta["stress"]["shape_error"] = str(error)[:600]
-        note(f"STRESS shape: {error}")
-    note(f"STRESS built in {time.monotonic() - started:.0f} s: {json.dumps(meta['stress'])}")
+    def warn(self, text):
+        self.meta["warnings"].append(text)
+        note(f"WARNING: {text}")
 
+    def setup_and_window(self):
+        opts, meta, stages = self.opts, self.meta, self.stages
+        if opts.app:
+            self.app = TraceApp(opts.app, self.out, opts)
+            with stages.run("launch", fatal=True):
+                self.app.bench.launch()
+            self.install_signals()
+            self.rpc = self.app.rpc
+            meta.update(app_pid=self.app.bench.process.pid, tag=self.app.bench.tag,
+                        launched_env=self.app.bench.launched_env)
+            if opts.scenario == "stress-storm":
+                with stages.run("stress-build", fatal=True):
+                    self.build_stress()
+            else:
+                with stages.run("light-build", fatal=True):
+                    self.build_light()
+            with stages.run("storm-setup"):
+                self.groups, self.workspaces = storm_setup(self.app, self.rpc)
+                meta["storm_targets"] = {"workspaces": len(self.workspaces), "groups": len(self.groups)}
+                meta["cef"] = cef_validity(self.rpc("debug.cef", timeout=RPC_S), stress_lib.WEB_DEV_CONFIG)
+                meta["window_state"] = window_state(self.rpc)
+            key = (meta.get("window_state") or {}).get("window_key")
+            meta["scenario_label"] = opts.scenario + ("" if key else "-inactive" if key is False else "-key-unknown")
+            if opts.storm_hz > 0 and not self.workspaces:
+                self.warn("the CLI storm has no target workspace (only the shown one exists): storm_ops will be empty")
+            if meta.get("cef") and not meta["cef"]["valid"]:
+                self.warn(f"Chromium is not valid for a measurement: {'; '.join(meta['cef']['problems'])}")
+            if key is not True:
+                self.warn(f"the app's window was not key (window_key {key}): rows are labelled {meta['scenario_label']}")
+        if opts.socket and not self.rpc:
+            self.rpc = stress_lib.socket_rpc(opts.socket)
+        with stages.run("recorders-start", fatal=True):
+            self.start_recorders()
+        meta["window_start_us"] = uptime_us()
+        note(f"window starts: scenario {meta['scenario']} " +
+             (f"(at most {opts.seconds_cap:g} s)" if opts.command else f"for {opts.seconds:g} s"))
+        meta["load_at_start"] = [round(x, 1) for x in os.getloadavg()]  # a loaded host stretches every number
+        self.frames_started = self.rpc and self.rpc("debug.frames", {"action": "start"}, timeout=RPC_S)
+        self.probe_before = len(read_probe(self.app.probe)) if self.app else 0
+        bound = (opts.seconds_cap if opts.command else opts.seconds) + STAGE_BOUNDS_S["window-margin"]
+        with stages.run("window", bound, on_abort=self.end_window):
+            self.run_window()
 
-def start_xctrace(out, opts, meta):
-    """Starts the all-process recording, or the app process only when xctrace refuses --all-processes."""
-    xc = XcTrace(out, system_trace=opts.system_trace,
-                 cap_s=(opts.seconds_cap if opts.command else opts.seconds) + STAGE_BOUNDS_S["window-margin"])
-    try:
-        xc.start()
-    except RuntimeError as error:
-        if not meta.get("app_pid"):
-            raise
-        note(f"{error}; recording the app process only")
-        xc = XcTrace(out, system_trace=opts.system_trace, cap_s=opts.seconds + STAGE_BOUNDS_S["window-margin"])
-        xc.attach = meta["app_pid"]
-        xc.start()
-    note(f"xctrace recording ({' '.join(xc.command()[3:7])})")
-    meta["xctrace"] = {"command": xc.command(), "started_us": xc.started_us, "started_wall": xc.started_wall}
-    return xc
+    def build_stress(self):
+        """STRESS through perf-stress-session.py; a session that misses the shape is traced and says so. The
+        builder stays alive through the window: it serves the pages."""
+        started = time.monotonic()
+        self.stress = stress_lib.Stress(self.rpc, log=note)
+        self.meta["stress"] = self.stress.build(check=False)
+        try:
+            stress_lib.Stress.check(self.meta["stress"])
+        except stress_lib.StressShapeError as error:
+            # A trace of a session that is not quite STRESS still answers "why did this lag"; it says so.
+            self.meta["stress"]["shape_error"] = str(error)[:600]
+            self.warn(f"NOT the STRESS shape: {error}")
+        note(f"STRESS built in {time.monotonic() - started:.0f} s: {json.dumps(self.meta['stress'])}")
 
+    def build_light(self):
+        """The light session: the window placed at the STRESS size, LIGHT_BACKGROUND workspaces (targets of the
+        storm), then build_light's shown workspace split once with Chromium, WebKit, chat and terminal tabs."""
+        started = time.monotonic()
+        self.stress = stress_lib.Stress(self.rpc, log=note)
+        reply, problem = stress_lib.place_window(self.rpc)
+        self.meta["window"] = stress_lib.window_on_screen(reply) if isinstance(reply, dict) else {"window_problem": problem}
+        if problem:
+            self.warn(f"window placement: {problem}")
+        background = self.stress.build_background(count=LIGHT_BACKGROUND, chromium=0)
+        workspace, panes = self.stress.build_light()
+        self.meta["light"] = {"workspace": workspace, "panes": len(panes), "background": len(background),
+                              "refusals": self.stress.refusals[:6], "build_s": round(time.monotonic() - started, 1)}
+        note(f"light session built: {json.dumps(self.meta['light'])}")
 
-def run_window(opts, app, rpc, groups, workspaces, driver_events, meta):
-    """The measured window: the wrapped command, or the storm and the typist for --seconds."""
-    if opts.command:
-        note(f"wrap: running {' '.join(opts.command)[:200]}")
-        meta["command_exit"] = subprocess.run(opts.command).returncode
-        return
-    storm = Storm(app.cli_run, workspaces, groups, opts.storm_hz, driver_events) if opts.storm_hz > 0 else None
-    typist = Typist(rpc, opts.key_interval, opts.chord_every, driver_events)
-    time.sleep(1.0)  # the recorders' first second is their own start-up cost; the scenario starts after it
-    phase = {"kind": "phase", "name": f"scenario {opts.scenario}", "start_us": uptime_us(), "end_us": None, "args": {}}
-    driver_events.append(phase)
-    try:
-        if storm:
-            storm.start()
-        typist.start()
+    def start_recorders(self):
+        opts, meta, hold = self.opts, self.meta, self.stages.hold
+        note("recorders starting")
+        self.processes["start"] = ps_snapshot(self.bundle)
+        self.signposts = SignpostStream(os.path.join(self.out, "signposts.ndjson"))
+        self.signposts.start(hold=hold)
+        if self.recorder == "xctrace":
+            self.start_xctrace()
+        if self.app:
+            self.spans = FileFollower(self.app.spans, os.path.join(self.out, "daemon-spans-stamped.jsonl"))
+            self.spans.start(hold=hold)
+        if self.rpc:
+            self.rpc("debug.hangs", {"clear": True}, timeout=RPC_SHORT_S)
+            self.hangs = HangDrain(self.rpc, os.path.join(self.out, "hangs.json"))
+            self.hangs.start()
+        if self.app and self.app.cdp_port:
+            self.chromium = ChromiumTracer(self.app.cdp_port, self.out)
+            try:
+                self.chromium.start()
+            except (RuntimeError, OSError, ConnectionError) as error:
+                note(f"no Chromium trace: {error}")
+                meta["sources"]["chromium_error"] = str(error)[:300]
+                self.chromium.close()
+                self.chromium = None
+        if self.recorder == "sample":
+            self.sampler = Sampler(self.out)
+            pids = [(pid, info["role"]) for pid, info in self.processes["start"].items() if info["role"] in ("app", "daemon")]
+            self.sampler.start(pids, opts.seconds, hold=hold)
+
+    def start_xctrace(self):
+        """The all-process recording, or the app process only when xctrace refuses --all-processes. Each XcTrace
+        is held on `self.xc` before its process starts, so the stop path always reaches it."""
+        opts = self.opts
+        cap = (opts.seconds_cap if opts.command else opts.seconds) + STAGE_BOUNDS_S["window-margin"]
+        self.xc = self.xctrace_factory(self.out, system_trace=opts.system_trace, cap_s=cap)
+        try:
+            self.xc.start(hold=self.stages.hold)
+        except RuntimeError as error:
+            if not self.meta.get("app_pid"):
+                raise
+            note(f"{error}; recording the app process only")
+            self.xc = self.xctrace_factory(self.out, system_trace=opts.system_trace, cap_s=cap)
+            self.xc.attach = self.meta["app_pid"]
+            self.xc.start(hold=self.stages.hold)
+        note(f"xctrace recording ({' '.join(self.xc.command()[3:7])})")
+        self.meta["xctrace"] = {"command": self.xc.command(), "started_us": self.xc.started_us,
+                                "started_wall": self.xc.started_wall}
+
+    def run_window(self):
+        """The measured window: the wrapped command, or the storm and the typist for --seconds."""
+        opts, meta = self.opts, self.meta
+        if opts.command:
+            note(f"wrap: running {' '.join(opts.command)[:200]}")
+            self.wrapped = WrappedCommand(opts.command)
+            self.wrapped.start(hold=self.stages.hold)
+            meta["command_exit"] = self.wrapped.wait()
+            return
+        if opts.storm_hz > 0:
+            self.storm = Storm(self.app.cli_run, self.workspaces, self.groups, opts.storm_hz, self.driver_events)
+        self.typist = Typist(self.rpc, opts.key_interval, opts.chord_every, self.driver_events)
+        time.sleep(1.0)  # the recorders' first second is their own start-up cost; the scenario starts after it
+        self.phase = {"kind": "phase", "name": f"scenario {opts.scenario}", "start_us": uptime_us(), "end_us": None,
+                      "args": {}}
+        self.driver_events.append(self.phase)
+        if self.storm:
+            self.storm.start()
+        self.typist.start()
         time.sleep(opts.seconds)  # the measured window itself
-    finally:
-        typist.stop()
-        if storm:
-            storm.stop()
-        phase["end_us"] = uptime_us()
-        meta["storm_ops"] = dict(storm.ops) if storm else {}
-        meta["keys"] = typist.keys
-        meta["chords"] = dict(typist.chords)
-    time.sleep(1.0)  # the last action's frames and replies land inside the window
+        self.stop_driver()
+        time.sleep(1.0)  # the last action's frames and replies land inside the window
 
+    def stop_driver(self):
+        """Ends the storm and the typist and records what they did. Both stop flags are set before either join,
+        so a bound that fires during one join never leaves the other running; it runs again from `stop()`."""
+        threads = [t for t in (self.typist, self.storm) if t]
+        for thread in threads:
+            thread.stop_flag.set()
+        for thread in threads:
+            if thread.is_alive():
+                thread.join(timeout=30)
+        if self.phase and self.phase["end_us"] is None:
+            self.phase["end_us"] = uptime_us()
+        if self.typist:
+            self.meta.update(keys=self.typist.keys, chords=dict(self.typist.chords))
+            self.meta["storm_ops"] = dict(self.storm.ops) if self.storm else {}
 
-def stop_recording(stages, opts, meta, app, rpc, xc, sampler, spans, hangs, chromium, signposts, frames_started,
-                   probe_before, processes, bundle, driver_events, out):
-    """Stops every source, each stage under its own bound, so one hung source never holds the others."""
-    if xc:
-        # The recording ends with the window: every other source stops after it (the Chromium trace's transfer
-        # takes minutes), and an all-process recording that ran through those minutes would take as long again
-        # to save and export.
-        xc.interrupt()
-    if rpc and frames_started is not None:
-        with stages.run("teardown-rpc"):
-            meta["frames"] = rpc("debug.frames", {"action": "stop"}, timeout=20)
-    if chromium:
-        with stages.run("chromium-stop", on_timeout=chromium.close):
-            note("chromium trace stopping")
-            meta["sources"]["chromium"] = chromium.stop()
-            note(f"chromium trace saved: {os.path.getsize(chromium.path) / 1e6:.0f} MB" if os.path.exists(chromium.path)
-                 else "chromium trace: nothing saved")
-    with stages.run("drains-stop"):
-        for source in (hangs, spans, sampler, signposts):
+    def end_window(self):
+        """The window stage passed its bound or failed: end what it drives (bounded by construction)."""
+        for thread in (self.typist, self.storm):
+            if thread:
+                thread.stop_flag.set()
+        if self.wrapped:
+            stopped = self.wrapped.stop()
+            if stopped:
+                self.meta["wrapped"] = stopped
+
+    # The stop.
+
+    def stop(self):
+        """Stops every source, each under its own stage and bound, so one hung or failing source never keeps
+        the others running; a source whose stop passes its bound or raises is killed (`kill`)."""
+        stages, meta = self.stages, self.meta
+        if self.wrapped:
+            with stages.run("wrap-stop"):
+                stopped = self.wrapped.stop()
+                if stopped:
+                    meta["wrapped"] = stopped
+        if self.typist or self.storm:
+            with stages.run("driver-stop"):
+                self.stop_driver()
+        if self.xc:
+            # The recording ends with the window: every other source stops after it (the Chromium trace's transfer
+            # takes minutes), and an all-process recording that ran through those minutes would take as long again
+            # to save and export.
+            with stages.run("xctrace-end", bound=RPC_SHORT_S):
+                self.xc.interrupt()
+        if self.rpc and self.frames_started is not None:
+            with stages.run("teardown-rpc"):
+                meta["frames"] = self.rpc("debug.frames", {"action": "stop"}, timeout=RPC_S)
+        if self.chromium:
+            chromium = self.chromium
+            with stages.run("chromium-stop", on_abort=chromium.close):
+                note("chromium trace stopping")
+                meta["sources"]["chromium"] = chromium.stop()
+                note(f"chromium trace saved: {os.path.getsize(chromium.path) / 1e6:.0f} MB" if os.path.exists(chromium.path)
+                     else "chromium trace: nothing saved")
+        for name, source in (("hangs", self.hangs), ("spans", self.spans), ("sampler", self.sampler),
+                             ("signposts", self.signposts)):
             if source:
-                source.stop()
-    if xc:
-        with stages.run("xctrace-save", on_timeout=xc.kill):
-            note("xctrace stopping (it processes the recording before it saves)")
-            started = time.monotonic()
-            meta["sources"]["xctrace_saved"] = xc.stop()
-            note(f"xctrace saved in {time.monotonic() - started:.0f} s")
-    processes["end"] = ps_snapshot(bundle)
-    write_json(os.path.join(out, "processes.json"), processes)
-    write_json(os.path.join(out, "driver.json"), driver_events)
-    if app and rpc and meta.get("window_start_us"):
-        rows = read_probe(app.probe)[probe_before:]
-        complete = [r for r in rows if r.get("complete") == "1" and r.get("contents_ms")]
-        meta["key_to_frame_ms"] = pct([float(r["contents_ms"]) for r in complete])
-        with stages.run("teardown-rpc"):
-            meta["timings"] = rpc("debug.timings", timeout=20)
+                with stages.run(f"stop-{name}", on_abort=source.kill):
+                    source.stop()
+        if self.xc:
+            with stages.run("xctrace-save", on_abort=self.xc.kill):
+                note("xctrace stopping (it processes the recording before it saves)")
+                started = time.monotonic()
+                meta["sources"]["xctrace_saved"] = self.xc.stop()
+                note(f"xctrace saved in {time.monotonic() - started:.0f} s")
+        with stages.run("raw-files"):
+            self.processes["end"] = ps_snapshot(self.bundle)
+            write_json(os.path.join(self.out, "processes.json"), self.processes)
+            write_json(os.path.join(self.out, "driver.json"), self.driver_events)
+        if self.app and self.rpc and meta.get("window_start_us"):
+            rows = read_probe(self.app.probe)[self.probe_before:]
+            complete = [r for r in rows if r.get("complete") == "1" and r.get("contents_ms")]
+            meta["key_to_frame_ms"] = pct([float(r["contents_ms"]) for r in complete])
+            with stages.run("teardown-rpc"):
+                meta["timings"] = self.rpc("debug.timings", timeout=RPC_S)
 
+    def stop_app(self):
+        """Quits the app this run launched (unless --keep), or after a wrapped command that had to be stopped,
+        runs the bundle's tag teardown (its own teardown may not have finished). Then the pages' server."""
+        stages = self.stages
+        launched = self.app and self.app.bench.process is not None
+        if launched and not self.opts.keep:
+            with stages.run("app-stop", on_abort=self.kill_bundle):
+                self.app.bench.stop()
+        elif self.wrapped and self.wrapped.signalled and self.bundle:
+            from tag_teardown import TagTeardown
+            with stages.run("app-stop", on_abort=self.kill_bundle):
+                TagTeardown(self.bundle, log=note).end()
+        if self.stress:
+            self.stress.close()
 
-def cef_validity(rpc):
-    """Measurement validity (perf-lead brief): Chromium really ran, no unavailable or fallback state."""
-    reply = rpc("debug.cef", timeout=20)
-    text = json.dumps(reply)[:200000] if reply is not None else ""
-    return {"unavailable_or_fallback": bool(re.search(r"unavailable|fallback", text, re.I)),
-            "excerpt": text[:400]}
+    def kill_bundle(self):
+        """The app's stop passed its bound or failed: SIGKILL the app this run launched and every process of the
+        bundle still running (the tag's daemons and Chromium helpers), each by its exact PID, never a pattern.
+        Bounded: one `ps` and the kills."""
+        from tag_teardown import TagTeardown
+        process = self.app.bench.process if self.app else None
+        if process and process.poll() is None:
+            process.kill()
+            process.wait()
+        left = TagTeardown(self.bundle).processes()
+        for pid, _ in left:
+            try:
+                os.kill(pid, signal.SIGKILL)  # an exact PID inside the bundle this run started
+            except ProcessLookupError:
+                pass
+        self.meta["killed_after_app_stop"] = len(left)
 
+    # After the stop.
 
-def read_probe(path):
-    import csv
-    try:
-        with open(path) as f:
-            return list(csv.DictReader(f))
-    except OSError:
-        return []
+    def finish(self):
+        """Exports the recording and builds the trace and the summary; SUMMARY.txt is always written."""
+        stages = self.stages
+        if self.recorder == "xctrace":
+            with stages.run("export"):
+                export_xctrace(self.out)
+            if not self.opts.keep_recording:
+                shutil.rmtree(os.path.join(self.out, "recording.trace"), ignore_errors=True)  # GBs; the tables stay
+        write_json(os.path.join(self.out, "meta.json"), self.meta)
+        summary = None
+        with stages.run("build"):
+            summary = build(self.out)
+        return self.write_summary(summary)
+
+    def write_summary(self, summary):
+        """summary.json and SUMMARY.txt from the build's summary, or from meta alone when the build did not
+        finish; the stage rows, errors and warnings are the run's final ones (the build read meta before)."""
+        meta = self.meta
+        if summary is None:
+            summary = {k: meta.get(k) for k in ("host", "macos", "tag", "scenario", "scenario_label", "stress", "light",
+                                                 "window", "window_state", "cef", "launched_env")}
+            summary["no_trace"] = "the build did not finish" if self.terminated is None else "ended by a signal"
+        summary.update(stages=meta["stages"], timed_out=meta["timed_out"], errors=meta["errors"],
+                       warnings=meta.get("warnings") or [], wrapped=meta.get("wrapped"),
+                       command_exit=meta.get("command_exit"), terminated=self.terminated)
+        summary["exit_code"] = self.terminated if self.terminated is not None else self.exit_code()
+        write_json(os.path.join(self.out, "summary.json"), summary)
+        text = summary_text(summary)
+        with open(os.path.join(self.out, "SUMMARY.txt"), "w") as f:
+            f.write(text + "\n")
+        print(text, flush=True)
+        return summary
+
+    def exit_code(self):
+        """3 when a stage passed its bound or failed; else wrap mode's own nonzero exit (128 + N for a signal N);
+        else 0."""
+        if self.meta["timed_out"] or self.meta["errors"]:
+            return 3
+        code = self.meta.get("command_exit")
+        if code:
+            return 128 - code if code < 0 else code
+        return 0
 
 
 # ---------------------------------------------------------------- xctrace export and parse
 
-def export_xctrace(out):
-    """Exports the recording's tables to XML files beside it (once; `export` reuses them)."""
+def export_file(command, path, timeout, name, to_stdout=False):
+    """Runs one `xctrace export` into `<path>.part.xml` and renames it to `path` only when xctrace exited 0, so
+    `path` is always a complete export (a later `trace.py export DIR` reuses it). The part file is removed on
+    every other end: a nonzero exit, the export's timeout, or a stage bound that fires inside the run (which
+    kills the export, `subprocess.run`)."""
+    part = path[:-len(".xml")] + ".part.xml"
+    try:
+        if to_stdout:
+            with open(part, "w") as f:
+                done = subprocess.run(command, stdout=f, stderr=subprocess.DEVNULL, timeout=timeout)
+        else:
+            done = subprocess.run([*command, "--output", part], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                  timeout=timeout)
+        if done.returncode == 0 and os.path.exists(part):
+            os.replace(part, path)
+            return True
+        note(f"export of {name} exited {done.returncode}; the trace has no {name} table")
+    except subprocess.TimeoutExpired:
+        note(f"export of {name} took over {timeout} s; the trace has no {name} table")
+    finally:
+        if os.path.exists(part):
+            os.unlink(part)
+    return False
+
+
+def export_xctrace(out, xctrace=("xcrun", "xctrace")):
+    """Exports the recording's tables to XML files beside it (once; `export` reuses complete ones)."""
     trace = os.path.join(out, "recording.trace")
     if not os.path.exists(trace):
         return {}
     toc_path = os.path.join(out, "xctrace-toc.xml")
-    with open(toc_path, "w") as f:
-        subprocess.run(["xcrun", "xctrace", "export", "--input", trace, "--toc"], stdout=f, stderr=subprocess.DEVNULL)
+    export_file([*xctrace, "export", "--input", trace, "--toc"], toc_path, EXPORT_TOC_S, "toc", to_stdout=True)
     toc = parse_toc(toc_path)
     exported = {}
     for schema in toc["schemas"]:
-        if schema not in ("time-profile", "os-signpost", "syscall"):
+        if schema not in EXPORT_SCHEMAS:
             continue
         path = os.path.join(out, f"xctrace-{schema}.xml")
         if not os.path.exists(path):
-            try:
-                subprocess.run(["xcrun", "xctrace", "export", "--input", trace, "--xpath",
-                                f'/trace-toc/run[@number="1"]/data/table[@schema="{schema}"]', "--output", path],
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=EXPORT_TIMEOUT_S)
-            except subprocess.TimeoutExpired:
-                note(f"export of {schema} took over {EXPORT_TIMEOUT_S} s; the trace has no {schema} table")
-                if os.path.exists(path):
-                    os.unlink(path)  # a partial XML file would not parse
+            export_file([*xctrace, "export", "--input", trace, "--xpath",
+                         f'/trace-toc/run[@number="1"]/data/table[@schema="{schema}"]'], path, EXPORT_TIMEOUT_S, schema)
         if os.path.exists(path):
             exported[schema] = path
             note(f"exported {schema}: {os.path.getsize(path) / 1e6:.0f} MB")
@@ -1053,19 +1505,33 @@ def time_profile_samples(path):
     return samples
 
 
-def xctrace_signposts(path):
-    """[(t_ns, name, event type, message)] of the cmux subsystem from the os-signpost table, for the clock."""
-    found = []
+def text(value):
+    """A string column's value: the element's text, else its `fmt` (an export may carry a string either way)."""
+    if isinstance(value, tuple):
+        return value[0] if value[0] not in (None, "") else value[1]
+    return value
+
+
+def xctrace_signposts(path, stats=None):
+    """[(t_ns, name, event type, identifier)] of the cmux subsystem from the os-signpost table, for the clock.
+    `stats` (a dict) gets the rows read, the cmux rows and the column tags seen, so a table whose columns are
+    not the ones read here is named in the summary instead of silently matching nothing."""
+    found, rows, columns = [], 0, set()
     for row in xctrace_rows(path):
-        subsystem = scalar(row.get("subsystem"))
+        rows += 1
+        if len(columns) < 64:
+            columns.update(row)
+        subsystem = text(row.get("subsystem"))
         if subsystem != SUBSYSTEM:
             continue
-        t = scalar(row.get("time") or row.get("event-time") or row.get("start"))
-        name = scalar(row.get("name") or row.get("signpost-name"))
-        kind = scalar(row.get("event-type"))
+        t = scalar(row.get("time") or row.get("event-time") or row.get("start") or row.get("start-time"))
+        name = text(row.get("name") or row.get("signpost-name"))
+        kind = text(row.get("event-type"))
         identifier = scalar(row.get("identifier") or row.get("signpost-identifier") or row.get("os-signpost-identifier"))
         if isinstance(t, int) and name:
             found.append((t, str(name), str(kind or ""), identifier))
+    if stats is not None:
+        stats.update(rows=rows, cmux_rows=len(found), columns=sorted(columns))
     return found
 
 
@@ -1086,40 +1552,60 @@ def syscall_waits(path, min_ns=1_000_000):
     return found
 
 
-def xctrace_offset_us(out, toc, signposts, meta):
-    """Microseconds to add to an xctrace time (ns since its start / 1000) for CLOCK_UPTIME_RAW: from the same
-    signposts in both recordings (begin events matched by name in order), else the recording's start date."""
-    path = os.path.join(out, "xctrace-os-signpost.xml")
-    if os.path.exists(path) and signposts:
-        xc = sorted((t, n, k) for t, n, k, _ in xctrace_signposts(path) if k.lower().startswith("begin"))
+def start_date_precision(date):
+    """The precision of an ISO start date in words: its fractional seconds digits (none: a whole second)."""
+    match = re.search(r"T\d\d:\d\d:\d\d(?:\.(\d+))?", date or "")
+    digits = len(match.group(1)) if match and match.group(1) else 0
+    return {0: "1 s", 1: "100 ms", 2: "10 ms", 3: "1 ms"}.get(digits, "under 1 ms")
+
+
+def xctrace_offset_us(xc_signposts, toc, signposts, meta, stats=None):
+    """(offset, how, warning): microseconds to add to an xctrace time (ns since its start / 1000) for
+    CLOCK_UPTIME_RAW. From the same signposts in both recordings (begin events matched by name in order, at
+    least 3, spread under 2 ms), else the recording's start date (as precise as the date's fractional digits),
+    else the recorder's start. `warning` says why the signposts did not decide it when both recordings had
+    some (`xc_signposts` is None when there is no os-signpost table; `stats` from `xctrace_signposts`)."""
+    warning = None
+    if xc_signposts is not None and signposts:
+        xc = sorted((t, n, k) for t, n, k, _ in xc_signposts if k.lower().startswith("begin"))
         by_name = collections.defaultdict(list)
         for t, name, _ in xc:
             by_name[name].append(t / 1000.0)
         log = collections.defaultdict(list)
         for interval in signposts:
             log[interval["name"]].append(interval["start_us"])
-        candidates = []
+        candidates, mismatched = [], []
         for name, xs in by_name.items():
             ls = sorted(log.get(name) or [])
             if len(ls) == len(xs):
                 candidates += [l - x for l, x in zip(ls, xs)]
+            else:
+                mismatched.append(f"{name} {len(xs)} vs {len(ls)}")
+        spread = None
         if len(candidates) >= 3:
             median = statistics.median(candidates)
             spread = max(abs(c - median) for c in candidates)
             if spread < 2000:
-                return median, f"signposts ({len(candidates)} matched, spread {spread:.0f} us)"
+                return median, f"signposts ({len(candidates)} matched, spread {spread:.0f} us)", None
+        stats = stats or {}
+        warning = (f"the xctrace clock is not from the signposts: {len(xc)} cmux begin events in the os-signpost "
+                   f"table ({stats.get('rows', '?')} rows; columns {stats.get('columns', '?')}) against "
+                   f"{len(signposts)} log signposts; {len(candidates)} matched by name and count"
+                   + (f", spread {spread:.0f} us (over 2000)" if spread is not None else "")
+                   + (f"; counts differ: {', '.join(mismatched[:4])}" if mismatched else ""))
     started = (meta.get("xctrace") or {}).get("started_us")
     if toc.get("start_date") and started:
         from datetime import datetime
         try:
             start_wall = datetime.fromisoformat(toc["start_date"].replace("Z", "+00:00")).timestamp()
             wall = meta["xctrace"]["started_wall"]
-            return started - (wall - start_wall) * 1e6, "start date (about 1 ms)"
+            return (started - (wall - start_wall) * 1e6,
+                    f"start date (about {start_date_precision(toc['start_date'])})", warning)
         except (ValueError, KeyError):
             pass
     if started:
-        return started, "recorder start (about 100 ms)"
-    return 0.0, "none"
+        return started, "recorder start (about 100 ms)", warning
+    return 0.0, "none", warning
 
 
 # ---------------------------------------------------------------- building the trace
@@ -1329,15 +1815,29 @@ def build(out):
             known[int(pid)] = info
     signposts = read_signposts(os.path.join(out, "signposts.ndjson"))
     toc = parse_toc(os.path.join(out, "xctrace-toc.xml"))
-    offset_us, offset_how = xctrace_offset_us(out, toc, signposts["intervals"], meta)
-    samples = []
-    tp = next((os.path.join(out, f"xctrace-{s}.xml") for s in ("time-profile", "time-sample")
-               if os.path.exists(os.path.join(out, f"xctrace-{s}.xml"))), None)
-    if tp:
-        samples = time_profile_samples(tp)
-    states = []
-    if os.path.exists(os.path.join(out, "xctrace-syscall.xml")):
-        states = syscall_waits(os.path.join(out, "xctrace-syscall.xml"))
+    unreadable = {}
+
+    def table(schema, reader, *args):
+        """One exported table's rows, or None without the file. A file that does not parse (an export of a
+        trace.py before the part files, a disk that filled) is skipped and named in the summary."""
+        path = os.path.join(out, f"xctrace-{schema}.xml")
+        if not os.path.exists(path):
+            return None
+        try:
+            return reader(path, *args)
+        except ET.ParseError as error:
+            unreadable[schema] = f"{error} (delete {os.path.basename(path)} and run `trace.py export` again)"
+            note(f"xctrace {schema} table does not parse, skipped: {error}")
+            return None
+
+    signpost_stats = {}
+    xc_signposts = table("os-signpost", xctrace_signposts, signpost_stats)
+    offset_us, offset_how, clock_warning = xctrace_offset_us(xc_signposts, toc, signposts["intervals"], meta,
+                                                             signpost_stats)
+    samples = table("time-profile", time_profile_samples)
+    if samples is None:
+        samples = table("time-sample", time_profile_samples) or []
+    states = table("syscall", syscall_waits) or []
     # Processes and threads the trace names.
     names, threads_by_pid = {}, collections.defaultdict(dict)
     for _, _, thread, _ in samples:
@@ -1462,6 +1962,7 @@ def build(out):
     summary["sources"] = {
         "trace": trace_path, "trace_bytes": os.path.getsize(trace_path), "events": len(events),
         "samples": len(samples), "sampled_processes": len(names), "xctrace_clock": offset_how,
+        "xctrace_clock_warning": clock_warning, "unreadable_tables": unreadable,
         "signpost_intervals": len(signposts["intervals"]), "signposts_lost": signposts["lost"],
         "system_trace_states": len(states), "hang_records": len(stall_records), "hangs_dropped": hangs.get("dropped"),
         "daemon_span_lines": span_info["lines"], "chromium": chrome_info, "processes": dict(collections.Counter(roles.values())),
@@ -1651,9 +2152,13 @@ def summarize(meta, roles, app_pid, samples, offset_us, signposts, stalls, block
     window_s = max(1e-9, ((meta.get("window_end_us") or start) - start) / 1e6)
     return {
         "host": meta.get("host"), "macos": meta.get("macos"), "tag": meta.get("tag"), "scenario": meta.get("scenario"),
+        "scenario_label": meta.get("scenario_label"),
         "window_s": round(window_s, 1), "load_at_start": meta.get("load_at_start"), "stress": meta.get("stress"), "storm_ops": meta.get("storm_ops"),
+        "light": meta.get("light"), "storm_targets": meta.get("storm_targets"),
         "keys": meta.get("keys"), "chords": meta.get("chords"), "key_to_frame_ms": meta.get("key_to_frame_ms"),
-        "frames": meta.get("frames"), "cef": meta.get("cef"),
+        "frames": meta.get("frames"), "cef": meta.get("cef"), "window_state": meta.get("window_state"),
+        "window": meta.get("window"), "launched_env": meta.get("launched_env"),
+        "errors": meta.get("errors") or [], "warnings": meta.get("warnings") or [],
         "top_stalls": top, "stall_count": len([s for s in stalls if s["kind"] == "stall"]),
         "actions": dict(per_action),
         "waits": {k: {**v, "ms": round(v["ms"], 1), "max_ms": round(v["max_ms"], 1)} for k, v in waits.items()},
@@ -1680,21 +2185,49 @@ def unobserved(roles, signposts, span_rows):
 
 
 def summary_text(s):
-    lines = [f"TRACE {s.get('scenario')} on {s.get('host')} (macOS {s.get('macos')}), tag {s.get('tag')}, window {s.get('window_s')} s, "
-             f"load average at start {s.get('load_at_start')}"]
+    lines = [f"TRACE {s.get('scenario_label') or s.get('scenario')} on {s.get('host')} (macOS {s.get('macos')}), tag {s.get('tag')}, "
+             f"window {s.get('window_s')} s, load average at start {s.get('load_at_start')}"
+             + (f", exit code {s['exit_code']}" if s.get("exit_code") is not None else "")]
+    if s.get("terminated") is not None:
+        lines.append(f"  TERMINATED by a signal (exit {s['terminated']}): recorders and app stopped, nothing exported")
     if s.get("timed_out"):
         lines.append(f"  INCOMPLETE: stage(s) {', '.join(s['timed_out'])} passed their bound; the trace holds what was recorded")
+    for error in s.get("errors") or []:
+        lines.append(f"  ERROR: stage {error.get('stage')} failed: {error.get('error')}")
+    for warning in s.get("warnings") or []:
+        lines.append(f"  WARNING: {warning}")
+    if s.get("no_trace"):
+        lines.append(f"  no trace file: {s['no_trace']}")
+    if s.get("wrapped"):
+        lines.append(f"  wrapped command stopped: {s['wrapped']}")
+    if s.get("command_exit") is not None:
+        lines.append(f"  wrapped command exit {s['command_exit']}")
     if s.get("stages"):
         lines.append("  stages (s): " + ", ".join(f"{x['stage']} {x['seconds']}" + (" TIMED OUT" if x["timed_out"] else "")
-                                             for x in s["stages"]))
+                                             + (" FAILED" if x.get("error") else "") for x in s["stages"]))
     src = s.get("sources") or {}
-    lines.append(f"  file {src.get('trace')} ({(src.get('trace_bytes') or 0) / 1e6:.1f} MB, {src.get('events')} events); "
-                 f"open it in https://ui.perfetto.dev")
-    lines.append(f"  sources: {src.get('samples')} stack samples over {src.get('sampled_processes')} processes "
-                 f"(clock: {src.get('xctrace_clock')}); {src.get('signpost_intervals')} signpost intervals "
-                 f"(lost {src.get('signposts_lost')}); {src.get('hang_records')} watchdog records; "
-                 f"{src.get('daemon_span_lines')} daemon span lines; {((src.get('chromium') or {}).get('events'))} Chromium events; "
-                 f"{src.get('system_trace_states')} System Trace syscall waits")
+    if src:
+        lines.append(f"  file {src.get('trace')} ({(src.get('trace_bytes') or 0) / 1e6:.1f} MB, {src.get('events')} events); "
+                     f"open it in https://ui.perfetto.dev")
+        lines.append(f"  sources: {src.get('samples')} stack samples over {src.get('sampled_processes')} processes "
+                     f"(clock: {src.get('xctrace_clock')}); {src.get('signpost_intervals')} signpost intervals "
+                     f"(lost {src.get('signposts_lost')}); {src.get('hang_records')} watchdog records; "
+                     f"{src.get('daemon_span_lines')} daemon span lines; {((src.get('chromium') or {}).get('events'))} Chromium events; "
+                     f"{src.get('system_trace_states')} System Trace syscall waits")
+        if src.get("xctrace_clock_warning"):
+            lines.append(f"  WARNING: {src['xctrace_clock_warning']}")
+        for schema, error in (src.get("unreadable_tables") or {}).items():
+            lines.append(f"  WARNING: xctrace table {schema} skipped: {error}")
+    env = s.get("launched_env")
+    state = s.get("window_state") or {}
+    window = s.get("window") or {}
+    if env is not None or state or window:
+        no_activate = "set" if isinstance(env, dict) and "CMUX_NEXT_NO_ACTIVATE" in env else "unset" if env is not None else "?"
+        lines.append(f"  window key {state.get('window_key')} (CMUX_NEXT_NO_ACTIVATE {no_activate}); placement "
+                     f"{window.get('window_problem') or ('on its screen' if window else 'by the STRESS builder')}"
+                     + (f", bottom Dock over {window['dock_overlap_pt']} pt" if window.get("dock_overlap_pt") else ""))
+    if s.get("light"):
+        lines.append(f"  light session: {s['light']}")
     if s.get("stress"):
         st = s["stress"]
         lines.append(f"  STRESS: {st.get('workspaces')} workspaces, {st.get('measured_panes')} panes, tabs {st.get('measured_tabs')}, "
@@ -1708,7 +2241,13 @@ def summary_text(s):
         lines.append("  display frames: " + ", ".join(f"{k} {round(frames[k], 2) if isinstance(frames.get(k), float) else frames.get(k)}"
                                                     for k in keys if k in frames))
     if s.get("cef"):
-        lines.append(f"  chromium valid: {not s['cef'].get('unavailable_or_fallback')}")
+        cef = s["cef"]
+        if "valid" in cef:
+            lines.append(f"  chromium valid: {cef['valid']}" + (f" ({'; '.join(cef['problems'])})" if cef.get("problems") else ""))
+        else:
+            lines.append("  chromium valid: unknown (recorded by a trace.py before the debug.cef parse)")
+    if s.get("storm_targets"):
+        lines.append(f"  storm targets: {s['storm_targets']}")
     lines.append(f"  CPU seconds by process role: {s.get('cpu_s_by_role')}")
     lines.append(f"Top main-thread stalls ({s.get('stall_count')} over the watchdog threshold):")
     for n, stall in enumerate(s.get("top_stalls") or [], 1):
@@ -1750,16 +2289,19 @@ def summary_text(s):
 
 # ---------------------------------------------------------------- self-test
 
-def self_test():
-    with tempfile.TemporaryDirectory() as out:
-        # A Time Profiler export shape: refs, thread fmt, leaf-first frames.
-        xml = """<?xml version="1.0"?><trace-query-result><node xpath="x"><schema name="time-profile"/>
+TP_XML = """<?xml version="1.0"?><trace-query-result><node xpath="x"><schema name="time-profile"/>
 <row><sample-time id="1" fmt="00:00.001">1000000</sample-time><thread id="2" fmt="Main Thread  0x1a (cmux DEV, pid: 42)"><tid id="3" fmt="0x1a">26</tid><process id="4" fmt="cmux DEV (42)"><pid id="5" fmt="42">42</pid></process></thread><weight id="6" fmt="1.00 ms">1000000</weight><backtrace id="7"><frame id="8" name="leafA"/><frame id="9" name="mid"/><frame id="10" name="main"/></backtrace></row>
 <row><sample-time id="11" fmt="00:00.002">2000000</sample-time><thread ref="2"/><weight ref="6"/><backtrace id="12"><frame id="13" name="leafB"/><frame ref="9"/><frame ref="10"/></backtrace></row>
 <row><sample-time id="14" fmt="00:00.010">10000000</sample-time><thread ref="2"/><weight ref="6"/><backtrace ref="12"/></row>
 </node></trace-query-result>"""
+
+
+def check_parsers_and_merge():
+    """The hand-written export shapes (not a real xctrace export): refs, thread fmt, leaf-first frames, the
+    flame slices, lanes, roles, wait classes, and a whole build from raw files."""
+    with tempfile.TemporaryDirectory() as out:
         path = os.path.join(out, "tp.xml")
-        open(path, "w").write(xml)
+        open(path, "w").write(TP_XML)
         samples = time_profile_samples(path)
         assert len(samples) == 3, samples
         assert samples[0][2] == {"tid": 26, "name": "Main Thread", "pid": 42, "process": "cmux DEV"}, samples[0]
@@ -1771,10 +2313,8 @@ def self_test():
         # main and mid run 0-3 ms (two adjacent samples), then the thread is off CPU until 10 ms.
         assert by["main"] == [(1100.0, 2000.0), (10100.0, 1000.0)], by
         assert by["leafA"] == [(1100.0, 1000.0)] and by["leafB"][0] == (2100.0, 1000.0), by
-        # Lanes nest or split.
         lanes = Lanes()
         assert [lanes.place(0, 10), lanes.place(1, 5), lanes.place(4, 12), lanes.place(11, 13)] == [0, 0, 1, 0]
-        # Roles.
         bundle = "/x/cmux DEV t.app"
         assert role_of(bundle + "/Contents/MacOS/cmux DEV", bundle) == "app"
         assert role_of(bundle + "/Contents/Resources/bin/cmux-tui server run --session s", bundle) == "daemon"
@@ -1782,11 +2322,9 @@ def self_test():
         assert role_of(bundle + "/Contents/Frameworks/cmux DEV Helper (Renderer).app/Contents/MacOS/x --type=renderer", bundle) == "cef-renderer"
         assert role_of(bundle + "/Contents/Resources/bin/cmux workspace x", bundle) == "cli"
         assert role_of("/usr/bin/true", bundle) is None
-        # Wait classes.
         assert wait_class(["__psynch_mutexwait", "DaemonClient.send"]) == "lock"
         assert wait_class(["read", "DaemonClient.request"]) == "daemon"
         assert wait_class(["mach_msg2_trap", "CA::Transaction::commit()"]) == "windowserver"
-        # A whole build from raw files: signposts, hangs, spans, Chromium, driver.
         open(os.path.join(out, "signposts.ndjson"), "w").write(signposts_lib.SAMPLE.replace('"processID":1', '"processID":42'))
         write_json(os.path.join(out, "meta.json"), {"app_pid": 42, "window_start_us": 900000.0, "window_end_us": 9e6,
                                                      "scenario": "self-test"})
@@ -1804,7 +2342,7 @@ def self_test():
         write_json(os.path.join(out, "driver.json"), [{"kind": "key", "name": "key a", "start_us": 1000.0, "end_us": 1500.0}])
         # Two main-thread samples inside the stall (at 1.001 s and 1.002 s on the trace clock).
         open(os.path.join(out, "xctrace-time-profile.xml"), "w").write(
-            xml.replace(">1000000</sample-time>", ">1001000000</sample-time>").replace(">2000000</sample-time>", ">1002000000</sample-time>"))
+            TP_XML.replace(">1000000</sample-time>", ">1001000000</sample-time>").replace(">2000000</sample-time>", ">1002000000</sample-time>"))
         summary = build(out)
         with gzip.open(os.path.join(out, "trace.json.gz"), "rt") as f:
             trace = json.load(f)
@@ -1818,18 +2356,20 @@ def self_test():
         span = next(e for e in trace["traceEvents"] if e.get("name") == "daemon new-tab")
         assert span["ts"] == 2000.0 and span["dur"] == 3000.0, span
         assert summary["sources"]["chromium"]["clock"]["offset_us"] == 0.0, summary["sources"]["chromium"]
-        # Chromium's main-thread task is named in the stall (CrBrowserMain is the app's Main Thread), on its own track.
         assert summary["top_stalls"][0]["chromium_main_thread"][0]["event"].startswith("ThreadControllerImpl::RunTask (OnFrame)"), summary
         task = next(e for e in trace["traceEvents"] if e.get("name") == "ThreadControllerImpl::RunTask")
         assert task["tid"] == 259, task
         assert {"frame": "mid", "samples": 2} in summary["top_stalls"][0]["sampled_frames"], summary["top_stalls"]
-        print(summary_text(summary))
-    # Stages: a stage past its bound ends at its bound (the blocking call raises), runs its cleanup and is recorded;
-    # a non-fatal one lets the recording go on, a fatal one re-raises.
+        summary_text(summary)
+
+
+def check_stage_bounds():
+    """A stage past its bound ends at its bound (the blocking call raises), runs its cleanup and is recorded; a
+    non-fatal one lets the recording go on, a fatal one re-raises."""
     meta, lines, cleaned = {}, [], []
     stages = Stages(meta, heartbeat_s=0.1, log=lines.append)
     started = time.monotonic()
-    with stages.run("window", bound=0.3, on_timeout=lambda: cleaned.append("window")):
+    with stages.run("window", bound=0.3, on_abort=lambda: cleaned.append("window")):
         time.sleep(5)
     assert time.monotonic() - started < 2, "the stage did not end at its bound"
     assert meta["timed_out"] == ["window"] and cleaned == ["window"], (meta, cleaned)
@@ -1845,8 +2385,323 @@ def self_test():
     assert [x["timed_out"] for x in meta["stages"]] == [True, True, False], meta["stages"]
     assert signal.getitimer(signal.ITIMER_REAL) == (0.0, 0.0), "a stage left its timer armed"
     assert "INCOMPLETE: stage(s) window, launch" in summary_text({"timed_out": meta["timed_out"], "stages": meta["stages"]})
-    print("self-test ok")
-    return 0
+
+
+def check_stage_errors():
+    """Review 1: an error that is not a timeout (a CDP RuntimeError, a socket timeout, a failed launch) is
+    recorded, its cleanup runs and a non-fatal stage lets the recording go on; a fatal one re-raises; a
+    signal's SystemExit passes through unrecorded."""
+    meta, cleaned = {}, []
+    stages = Stages(meta, heartbeat_s=60, log=lambda line: None)
+    with stages.run("chromium-stop", bound=5, on_abort=lambda: cleaned.append("closed")):
+        raise RuntimeError("CDP error -32000: Tracing is not started")
+    assert cleaned == ["closed"], cleaned
+    assert meta["errors"] and meta["errors"][0]["stage"] == "chromium-stop" and "Tracing" in meta["errors"][0]["error"], meta
+    assert meta["stages"][-1].get("error") and not meta["timed_out"], meta
+    with stages.run("stop-signposts", bound=5):
+        raise TimeoutError("timed out")  # socket.timeout
+    try:
+        with stages.run("launch", bound=5, fatal=True):
+            raise LaunchError("tag-in-use", {"detail": "an app of the tag runs"})
+        raise AssertionError("a fatal stage's error must re-raise")
+    except LaunchError as error:
+        stages.note_error("record", error)  # the run records it again: once only
+    try:
+        with stages.run("window", bound=5):
+            raise SystemExit(143)
+        raise AssertionError("a signal's SystemExit must pass through")
+    except SystemExit as error:
+        assert error.code == 143
+    assert [e["stage"] for e in meta["errors"]] == ["chromium-stop", "stop-signposts", "launch"], meta["errors"]
+    assert "ERROR: stage chromium-stop failed" in summary_text({"errors": meta["errors"]})
+
+
+def check_hold_defers_the_bound():
+    """Review 1: a bound that fires between a spawn and its assignment raises only once the child is held."""
+    meta = {}
+    stages = Stages(meta, heartbeat_s=60, log=lambda line: None)
+    held = []
+    try:
+        with stages.run("recorders-start", bound=0.2, fatal=True):
+            with stages.hold():
+                time.sleep(0.5)  # the alarm fires in here
+                held.append("child")
+            raise AssertionError("the deferred bound must raise when the hold ends")
+    except StageTimeout:
+        pass
+    assert held == ["child"] and meta["timed_out"] == ["recorders-start"], (held, meta)
+
+
+class FakeSource:
+    """A recorder stand-in for the stop path: `behavior` is ok, raise or hang."""
+
+    def __init__(self, name, log, behavior="ok"):
+        self.name, self.log, self.behavior, self.path = name, log, behavior, "/nonexistent/chromium-trace.json"
+
+    def stop(self):
+        self.log.append(f"{self.name} stop")
+        if self.behavior == "raise":
+            raise RuntimeError("CDP error: tracingComplete never came")
+        if self.behavior == "hang":
+            time.sleep(5)
+        return True
+
+    def kill(self):
+        self.log.append(f"{self.name} kill")
+
+    close = kill
+
+
+def fake_opts(**overrides):
+    import types
+    values = dict(command=None, seconds=1, seconds_cap=10, system_trace=False, keep=False, keep_recording=False,
+                  storm_hz=0, app=None, socket=None, scenario="light-storm", key_interval=0.1, chord_every=0)
+    values.update(overrides)
+    return types.SimpleNamespace(**values)
+
+
+def quiet_recording(out, recorder="sample", **overrides):
+    meta = {"host": "self-test", "scenario": "self-test", "sources": {}, "warnings": []}
+    stages = Stages(meta, heartbeat_s=60, log=lambda line: None)
+    return Recording(fake_opts(**overrides), out, meta, stages, None, recorder)
+
+
+def check_stop_survives_a_failing_source():
+    """Review 1: a source whose stop raises (a CDP error) or hangs is recorded and killed, every other source
+    still stops, and the summary (SUMMARY.txt with an ERROR line) and exit code 3 are still written."""
+    saved = STAGE_BOUNDS_S["stop-spans"]
+    STAGE_BOUNDS_S["stop-spans"] = 0.3
+    try:
+        with tempfile.TemporaryDirectory() as out:
+            log = []
+            rec = quiet_recording(out)
+            rec.chromium = FakeSource("chromium", log, "raise")
+            rec.hangs = FakeSource("hangs", log)
+            rec.spans = FakeSource("spans", log, "hang")
+            rec.signposts = FakeSource("signposts", log)
+            rec.stop()
+            assert log == ["chromium stop", "chromium kill", "hangs stop", "spans stop", "spans kill", "signposts stop"], log
+            assert [e["stage"] for e in rec.meta["errors"]] == ["chromium-stop"], rec.meta["errors"]
+            assert rec.meta["timed_out"] == ["stop-spans"], rec.meta["timed_out"]
+            rec.finish()
+            text = open(os.path.join(out, "SUMMARY.txt")).read()
+            assert "ERROR: stage chromium-stop failed" in text and "INCOMPLETE: stage(s) stop-spans" in text, text
+            assert rec.exit_code() == 3 and read_json(os.path.join(out, "summary.json"))["exit_code"] == 3
+    finally:
+        STAGE_BOUNDS_S["stop-spans"] = saved
+
+
+def check_record_ends_cleanly():
+    """Review 1: an error outside any stage still stops every source and writes SUMMARY.txt with exit 3; a
+    signal's SystemExit (TagTeardown's SIGTERM handler) stops every source, writes SUMMARY.txt without an
+    export and exits 128 + N."""
+    for raised, code, line in ((RuntimeError("size_window: the display cannot hold STRESS"), 3, "ERROR: stage record failed"),
+                               (SystemExit(143), 143, "TERMINATED by a signal (exit 143)")):
+        with tempfile.TemporaryDirectory() as out:
+            log = []
+            rec = quiet_recording(out)
+            rec.signposts = FakeSource("signposts", log)
+
+            def setup(error=raised):
+                raise error
+            rec.setup_and_window = setup
+            previous = {number: signal.getsignal(number) for number in (signal.SIGTERM, signal.SIGHUP)}
+            try:
+                assert rec.record() == code
+            finally:
+                for number, handler in previous.items():
+                    signal.signal(number, handler)
+            assert log == ["signposts stop"], log
+            text = open(os.path.join(out, "SUMMARY.txt")).read()
+            assert line in text, text
+
+
+def check_xctrace_held_before_start():
+    """Review 1: when recorders-start passes its bound inside xctrace's start, the stop path still reaches that
+    xctrace (it is held before its process starts) and ends it."""
+
+    class SlowXcTrace:
+        made = []
+
+        def __init__(self, out, system_trace=False, cap_s=0):
+            self.events, self.attach = [], None
+            SlowXcTrace.made.append(self)
+
+        def start(self, hold=contextlib.nullcontext):
+            with hold():
+                self.events.append("spawned")
+            time.sleep(5)  # xctrace waits for an authorization prompt nobody answers
+
+        def interrupt(self):
+            self.events.append("interrupt")
+
+        def stop(self):
+            self.events.append("stop")
+            return False
+
+        def kill(self):
+            self.events.append("kill")
+
+    with tempfile.TemporaryDirectory() as out:
+        rec = quiet_recording(out, recorder="xctrace")
+        rec.xctrace_factory = SlowXcTrace
+        try:
+            with rec.stages.run("recorders-start", bound=0.3, fatal=True):
+                rec.start_xctrace()
+        except StageTimeout:
+            pass
+        assert rec.xc is SlowXcTrace.made[0], (rec.xc, SlowXcTrace.made)
+        rec.stop()
+        assert rec.xc.events == ["spawned", "interrupt", "stop"], rec.xc.events
+
+
+def check_wrapped_group_ends():
+    """Review 1: a wrapped command that passes the window's bound ends with every process of its group (a
+    child it started, as a wrapper starts its app); a group that ignores SIGTERM gets SIGKILL after the grace;
+    the run's exit code carries the command's own exit."""
+    meta = {}
+    stages = Stages(meta, heartbeat_s=60, log=lambda line: None)
+    wrapped = WrappedCommand(["/bin/sh", "-c", "sleep 30 & sleep 30"], grace=5)
+    started = time.monotonic()
+    with stages.run("window", bound=0.5, on_abort=lambda: meta.update(wrapped=wrapped.stop())):
+        wrapped.start(hold=stages.hold)
+        wrapped.wait()
+    assert wrapped.members() == [], f"processes of the wrapped group still run: {wrapped.members()}"
+    assert meta["wrapped"]["signalled"] and time.monotonic() - started < 4, meta
+    with tempfile.TemporaryDirectory() as scratch:
+        ready = os.path.join(scratch, "ready")
+        os.mkfifo(ready)
+        stubborn = WrappedCommand(["/bin/sh", "-c", 'trap "" TERM; sleep 30 & echo ready > "$0"; wait', ready], grace=0.5)
+        stubborn.start()
+        with open(ready) as fifo:  # the shell ignores TERM and has started its child once it writes here
+            fifo.read()
+        record = stubborn.stop()
+    assert stubborn.members() == [] and record["killed"], (stubborn.members(), record)
+    assert stubborn.stop() is None, "a second stop of an ended group does nothing"
+    with tempfile.TemporaryDirectory() as out:
+        rec = quiet_recording(out)
+        rec.meta.update(timed_out=[], errors=[], command_exit=2)
+        assert rec.exit_code() == 2
+        rec.meta["command_exit"] = -15
+        assert rec.exit_code() == 143
+        rec.meta["timed_out"] = ["window"]
+        assert rec.exit_code() == 3
+
+
+FAKE_XCTRACE = r'''
+import os, sys, time
+args = sys.argv[1:]
+mode = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "mode")).read().strip()
+if "--toc" in args:
+    sys.stdout.write('<?xml version="1.0"?><trace-toc><run number="1"><info><summary><start-date>2026-10-23T10:00:00.250-07:00</start-date></summary></info><data><table schema="time-profile"/><table schema="os-signpost"/></data></run></trace-toc>')
+    sys.exit(0)
+output = args[args.index("--output") + 1]
+if "os-signpost" in args[args.index("--xpath") + 1]:
+    open(output, "w").write('<?xml version="1.0"?><trace-query-result><node><schema name="os-signpost"/></node></trace-query-result>')
+    sys.exit(0)
+open(output, "w").write('<?xml version="1.0"?><trace-query-result><node><row><sample-time>1')  # cut short
+if mode == "hang":
+    time.sleep(30)
+sys.exit(1)
+'''
+
+
+def check_export_part_files():
+    """Review 1: a table export that exits nonzero or is killed by the export stage's bound leaves no file (no
+    partial XML that a later build or `trace.py export` would reuse); a complete one is kept; a broken table
+    left by an older run is skipped by the build, not fatal."""
+    with tempfile.TemporaryDirectory() as tools, tempfile.TemporaryDirectory() as out:
+        fake = os.path.join(tools, "fake_xctrace.py")
+        open(fake, "w").write(FAKE_XCTRACE)
+        open(os.path.join(tools, "mode"), "w").write("fail")
+        os.makedirs(os.path.join(out, "recording.trace"))
+        exported = export_xctrace(out, xctrace=(sys.executable, "-I", fake))
+        assert set(exported) == {"os-signpost"}, exported
+        leftovers = [f for f in os.listdir(out) if f.endswith(".part.xml") or f == "xctrace-time-profile.xml"]
+        assert not leftovers, leftovers
+        open(os.path.join(tools, "mode"), "w").write("hang")
+        meta = {}
+        stages = Stages(meta, heartbeat_s=60, log=lambda line: None)
+        with stages.run("export", bound=1.0):
+            export_xctrace(out, xctrace=(sys.executable, "-I", fake))
+        assert meta["timed_out"] == ["export"], meta
+        leftovers = [f for f in os.listdir(out) if f.endswith(".part.xml") or f == "xctrace-time-profile.xml"]
+        assert not leftovers, leftovers
+        # An older run's broken table: the build skips it and says so.
+        open(os.path.join(out, "xctrace-time-profile.xml"), "w").write('<?xml version="1.0"?><trace-query-result><node><row>')
+        summary = build(out)
+        assert "time-profile" in summary["sources"]["unreadable_tables"], summary["sources"]
+        assert "xctrace table time-profile skipped" in summary_text(summary)
+
+
+def check_xctrace_clock():
+    """Review 1: the xctrace clock from matched signposts; a count mismatch falls back to the start date and
+    says why; the start date's precision comes from its digits; the recorder start is the last resort; a
+    string column given only as fmt still reads."""
+    xc = [(1_000_000 * i, "action.perform", "Begin", i) for i in (1, 2, 3)]
+    log = [{"name": "action.perform", "start_us": 1000.0 * i + 5000.0} for i in (1, 2, 3)]
+    offset, how, warning = xctrace_offset_us(xc, {}, log, {})
+    assert offset == 5000.0 and how.startswith("signposts (3 matched") and warning is None, (offset, how, warning)
+    wall = 1_800_000_000.0
+    meta = {"xctrace": {"started_us": 1e6, "started_wall": wall}}
+    from datetime import datetime, timezone
+    date = datetime.fromtimestamp(wall - 0.5, timezone.utc).isoformat(timespec="milliseconds")
+    offset, how, warning = xctrace_offset_us(xc, {"start_date": date}, log[:2], meta, {"rows": 3, "columns": ["name"]})
+    assert abs(offset - 500000.0) < 1 and how == "start date (about 1 ms)", (offset, how)
+    assert warning and "counts differ: action.perform 3 vs 2" in warning, warning
+    whole = datetime.fromtimestamp(wall - 1, timezone.utc).isoformat(timespec="seconds")
+    assert xctrace_offset_us(None, {"start_date": whole}, log, meta)[1:] == ("start date (about 1 s)", None)
+    assert xctrace_offset_us(None, {}, log, meta)[:2] == (1e6, "recorder start (about 100 ms)")
+    with tempfile.TemporaryDirectory() as out:
+        path = os.path.join(out, "sp.xml")
+        open(path, "w").write(
+            '<?xml version="1.0"?><trace-query-result><node><schema name="os-signpost"/>'
+            f'<row><time id="1">7000</time><event-type id="2" fmt="Begin"/><name id="3" fmt="action.perform"/>'
+            f'<subsystem id="4" fmt="{SUBSYSTEM}"/></row>'
+            '<row><time>8000</time><event-type ref="2"/><name ref="3"/><subsystem id="5" fmt="com.apple.other"/></row>'
+            '</node></trace-query-result>')
+        stats = {}
+        assert xctrace_signposts(path, stats) == [(7000, "action.perform", "Begin", None)], stats
+        assert stats["rows"] == 2 and stats["cmux_rows"] == 1 and "subsystem" in stats["columns"], stats
+
+
+def check_cef_validity():
+    """Review 1: debug.cef always carries `unavailable: null`, `fallback: null` and the pump's `fallback_ms`, so
+    a healthy reply is valid; a fallback, an unavailable reason or a state other than ready is not."""
+    healthy = {"state": "ready", "unavailable": None, "fallback": None, "pump": {"fallback_ms": 16.7},
+               "default_engine": "chromium"}
+    assert cef_validity(healthy) == {"valid": True, "problems": [], "state": "ready",
+                                     "excerpt": json.dumps(healthy)[:400]}, cef_validity(healthy)
+    fallback = dict(healthy, fallback={"count": 2, "reason": "startFailed", "source": "newTab", "notified": True})
+    assert not cef_validity(fallback)["valid"] and "WebKit fallbacks" in cef_validity(fallback)["problems"][0]
+    assert not cef_validity(dict(healthy, unavailable="downloading"))["valid"]
+    assert not cef_validity(dict(healthy, state="idle"))["valid"]
+    assert not cef_validity({"error": "timed out"})["valid"]
+    assert "chromium valid: True" in summary_text({"cef": cef_validity(healthy)})
+    assert "chromium valid: False (WebKit fallbacks" in summary_text({"cef": cef_validity(fallback)})
+
+
+SELF_TESTS = [check_parsers_and_merge, check_stage_bounds, check_stage_errors, check_hold_defers_the_bound,
+              check_stop_survives_a_failing_source, check_record_ends_cleanly, check_xctrace_held_before_start,
+              check_wrapped_group_ends,
+              check_export_part_files, check_xctrace_clock, check_cef_validity]
+
+
+def self_test():
+    """Runs every check on its own (one failure does not hide the next) and prints one line each."""
+    import io
+    failed = []
+    for check in SELF_TESTS:
+        captured = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(captured):
+                check()
+            print(f"ok   {check.__name__}")
+        except Exception as error:  # reported per check; the self-test exits 1
+            failed.append(check.__name__)
+            print(f"FAIL {check.__name__}: {type(error).__name__}: {str(error)[:600]}")
+    print("self-test ok" if not failed else f"self-test FAILED: {', '.join(failed)}")
+    return 1 if failed else 0
 
 
 def main():
