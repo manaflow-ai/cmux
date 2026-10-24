@@ -549,6 +549,12 @@
       "allow": 2,
       "why": "method v5 places the local package closure's targets (architecture-layers.json): CmuxNextBridge (domain) -> CmuxAgentBrands (ui) and CmuxMobileRPC (domain) -> CmuxMobileSupport (ui, test-only link) were always there, now visible; lead's decision 2026-10-24, PL-arch may override",
       "applied_sha": "98b020961a613c685cf7016ff7b295838102b89a"
+    },
+    {
+      "date": "2026-10-24",
+      "row": "stateful_singletons",
+      "allow": 1,
+      "why": "CmuxNextCompat BlockingViolationTable.shared: one process-wide table of main-thread blocking call sites; the main thread writes a fixed call-site index (128 sites) and a lock-free single-producer ring (64), and a utility drain queue resolves frames and calls the installed sink; touched only on the violation path; blocking calls happen in any module with no injection point; other modules hold a BlockingDetector handle that only the composition root makes (BlockingDetector.forProcess()), tests bind their own table through a task-local. Approved by the Performance Lead with PL-arch, 2026-10-24."
     }
   ],
   "observer_wrappers": [

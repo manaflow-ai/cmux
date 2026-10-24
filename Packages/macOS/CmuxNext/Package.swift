@@ -1324,6 +1324,7 @@ let package = Package(
         .testTarget(
             name: "CmuxNextDesignTests",
             dependencies: [
+                "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextDesignTokens",
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
