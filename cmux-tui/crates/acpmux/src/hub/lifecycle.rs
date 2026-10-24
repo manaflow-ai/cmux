@@ -496,7 +496,7 @@ impl Hub {
                 .filter(|_| meta.claude_profile.as_deref().is_none_or(|p| p == meta.harness))
         });
         if let (Some(store), Some(sid)) = (claude_store, resumes) {
-            self.restore_claude_transcript(session, store, sid).await;
+            self.restore_claude_transcript(session, store, sid, fork_from.is_none()).await;
         }
         // Resume a Claude conversation only from a store that has it: one
         // that never finished a turn may not be stored at all, and one that

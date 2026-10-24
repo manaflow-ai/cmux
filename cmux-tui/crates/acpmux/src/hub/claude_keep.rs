@@ -52,12 +52,15 @@ impl Hub {
 
     /// Before `session` starts Claude on `store` to resume (or fork)
     /// conversation `sid`: puts a transcript Claude deleted back, from this
-    /// chat's folder or the one of the chat it forks, and keeps it.
+    /// chat's folder or the one of the chat it forks, and keeps it when it is
+    /// this chat's `own` (a fork keeps the conversation it starts, not its
+    /// parent's: that one goes with the parent).
     pub(super) async fn restore_claude_transcript(
         &self,
         session: &Session,
         store: PathBuf,
         sid: String,
+        own: bool,
     ) {
         let Some(dir) = self.store.session_dir(&session.id) else { return };
         let id = session.id.clone();
@@ -66,7 +69,7 @@ impl Hub {
                 tracing::warn!(session = %id, agent_session = %sid, "putting the Claude transcript back: {e}");
                 false
             });
-            if restored && let Err(e) = keep(&dir, &store, &sid) {
+            if restored && own && let Err(e) = keep(&dir, &store, &sid) {
                 tracing::warn!(session = %id, agent_session = %sid, "keeping the Claude transcript: {e}");
             }
         })
@@ -131,9 +134,10 @@ pub(super) fn keep(session_dir: &Path, store: &Path, sid: &str) -> io::Result<()
         return replace(&live, &kept);
     }
     if first.is_empty() || holds_line(&kept, &first)? {
-        // Nothing written yet, or lines the kept file already has: appending
-        // them would put them in twice.
-        return Ok(());
+        // Nothing written yet, or lines the kept file already has (a merge
+        // whose rename failed): appending them would put them in twice, so
+        // Claude's name only points at the kept file again.
+        return if first.is_empty() { Ok(()) } else { replace(&kept, &live) };
     }
     // Claude started its file again: what it holds came after the kept lines.
     let mut whole = OpenOptions::new().append(true).open(&kept)?;
