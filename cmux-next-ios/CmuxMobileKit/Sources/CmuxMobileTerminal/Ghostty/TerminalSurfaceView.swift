@@ -96,7 +96,7 @@ final class TerminalSurfaceView: UIView {
         config.platform_tag = GHOSTTY_PLATFORM_IOS
         config.platform = ghostty_platform_u(ios: ghostty_platform_ios_s(uiview: Unmanaged.passUnretained(self).toOpaque()))
         config.userdata = Unmanaged.passUnretained(box).toOpaque()
-        config.scale_factor = Double(window?.screen.scale ?? 3)
+        config.scale_factor = Double(renderScale)
         fontSize = CmuxMobilePreferences.terminalFontSize()
         config.font_size = Float(fontSize)
         config.io_mode = GHOSTTY_SURFACE_IO_MANUAL_MIRROR
@@ -152,6 +152,15 @@ final class TerminalSurfaceView: UIView {
     }
 
     private var lastPixelSize: (UInt32, UInt32) = (0, 0)
+    private var lastScale: CGFloat = 0
+    /// The scale the surface draws at: its window's screen, else the last
+    /// one it had in a window, so a page out of its window keeps the scale
+    /// its cells were measured at (a 2x device never falls back to 3x).
+    var renderScale: CGFloat {
+        if let scale = window?.screen.scale { return scale }
+        if lastScale > 0 { return lastScale }
+        return UIScreen.main.scale
+    }
 
     /// Bumped by everything here that can move Ghostty's viewport (a scroll
     /// binding, a resize, a font size): a frame after a bump may show
@@ -165,12 +174,13 @@ final class TerminalSurfaceView: UIView {
     /// at the phone's 49 wrapped every row of htop, PR #24650 live rig).
     private func syncSize() {
         guard let surface else { return }
-        let scale = window?.screen.scale ?? (traitCollection.displayScale > 0 ? traitCollection.displayScale : 3)
+        let scale = renderScale
         let size = (UInt32(bounds.width * scale), UInt32(bounds.height * scale))
-        guard size.0 > 0, size.1 > 0, size != lastPixelSize else { return }
+        guard size.0 > 0, size.1 > 0, size != lastPixelSize || scale != lastScale else { return }
         lastPixelSize = size
         viewportEpoch += 1
-        ghostty_surface_set_content_scale(surface, scale, scale)
+        if scale != lastScale { ghostty_surface_set_content_scale(surface, scale, scale) }
+        lastScale = scale
         ghostty_surface_set_size(surface, size.0, size.1)
         if let pinnedRow { scrollViewport(pinnedRow) }
         // Out of a window nothing shows: the next frame in one draws it.
@@ -221,7 +231,7 @@ final class TerminalSurfaceView: UIView {
             return CGSize(width: metrics.cell_width, height: metrics.cell_height)
         }
         let size = ghostty_surface_size(surface)
-        let scale = window?.screen.scale ?? 3
+        let scale = renderScale
         return CGSize(width: CGFloat(size.cell_width_px) / scale, height: CGFloat(size.cell_height_px) / scale)
     }
 

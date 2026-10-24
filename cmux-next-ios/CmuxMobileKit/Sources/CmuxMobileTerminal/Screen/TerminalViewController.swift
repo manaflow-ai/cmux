@@ -1436,7 +1436,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         let screen = view.window?.screen
         let rows = screen == nil && surfaceRows > 0 ? surfaceRows
             : TerminalMirrorRows.rows(pageHeight: bounds.height, screenSize: screen?.bounds.size ?? bounds.size,
-                                      cellHeight: cellHeight, scale: screen?.scale ?? 3, marginRows: Self.marginRows)
+                                      cellHeight: cellHeight, scale: screen?.scale ?? surface.renderScale, marginRows: Self.marginRows)
         if rows != surfaceRows {
             sizingLog.notice("mirror rows \(self.surfaceRows, privacy: .public) -> \(rows, privacy: .public) cause=layout page \(Int(bounds.height), privacy: .public)pt")
             surfaceRows = rows
@@ -1656,7 +1656,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // A TUI's screen has no scroll: the held frame goes once the replay drew.
         if model.isTUI, freezeView != nil, heldFrameMayGo() { unfreeze() }
         guard !model.isTUI, cell.height > 0 else { return }
-        let scale = view.window?.screen.scale ?? 3
+        let scale = view.window?.screen.scale ?? surface.renderScale
         let rowPixels = Int((cell.height * scale).rounded())
         var top = scrollbar.offset
         #if DEBUG
@@ -2502,7 +2502,7 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
     var hostLayout: TerminalHostGridLayout {
         let remoteColumns = appliedHostColumns ?? model.session.remoteColumns
         return TerminalHostGridLayout(viewportWidth: view.bounds.width - 2 * Self.sidePadding, cell: cell,
-                                      scale: view.window?.screen.scale ?? 3, hostColumns: remoteColumns,
+                                      scale: view.window?.screen.scale ?? surface.renderScale, hostColumns: remoteColumns,
                                       hostRows: remoteColumns == nil ? nil : appliedHostRows ?? model.session.remoteRows,
                                       visibleRows: tuiRows)
     }
