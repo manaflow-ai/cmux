@@ -49,9 +49,9 @@ final class WindowRecordSaver {
     /// commit that shows it ran (speed-of-sound-DESIGN.md 3.2): the save builds every window's records on
     /// the main actor, so it never runs between a switch and its frame. The ticket opens now, so the
     /// action that made the change still answers once the record is stored.
-    func stateDidChange(_ state: WindowState) {
+    func stateDidChange(_ state: WindowState, focusing: Bool = false) {
         guard manager.restored, !manager.isTerminating else { return }
-        guard let host = manager.controller(for: state.id)?.window?.contentView?.layer else { return requestSave() }
+        guard focusing, let host = manager.controller(for: state.id)?.window?.contentView?.layer else { return requestSave() }
         if let ticket = services.daemon.openTicket() { commitTickets.append(ticket) }
         guard !awaitingCommit else { return }
         awaitingCommit = true
@@ -77,7 +77,7 @@ final class WindowRecordSaver {
     func focusDidSettle(_ state: WindowState, pane: String?) {
         guard state.savedFocusedPane != pane else { return }
         state.savedFocusedPane = pane
-        stateDidChange(state)
+        stateDidChange(state, focusing: true)
     }
 
     /// The commit that shows a change ran (or its deadline passed): the save it waited for starts.

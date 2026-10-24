@@ -41,9 +41,7 @@ extension WindowManager {
         }
         // The room's colors, then its workspace, in this turn (I6), as a workspace switch swaps its content: no frame
         // shows the new room's sidebar over the old room's workspace; the window's room and show observers find both applied.
-        window?.applyRoomTheme()
         select(remembered ?? visible.first, in: state)
-        window?.showWorkspace(requested: state.workspaceID)
     }
 
     /// Next (+1) or previous (-1) profile of the local daemon, clamped at
