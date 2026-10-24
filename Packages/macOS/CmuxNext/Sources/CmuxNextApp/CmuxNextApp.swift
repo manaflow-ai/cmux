@@ -7,6 +7,7 @@ import CmuxNextMallocZone
 import CmuxNextSidebar
 import CmuxNextTerminal
 import CmuxNextCompat
+import os
 
 /// Entry point called from the Xcode target's `App/main.swift`.
 public struct CmuxNextApp {
@@ -26,8 +27,10 @@ public struct CmuxNextApp {
         ChildSignalDefaults.installAppSignalPolicy()
         // The open-file limit before CefInitialize (OpenFileLimit: launchd's 256 stopped the app at
         // 80-100 Chromium tabs). One log line on every launch: raised, kept, refused or unknown.
+        // The throwing write: a stderr pipe whose reader is gone (SIGPIPE is ignored) gives EPIPE,
+        // which the non-throwing write raises as an uncaught exception before NSApp exists.
         let openFiles = OpenFileLimit().raise()
-        FileHandle.standardError.write(Data((openFiles.line + "\n").utf8))
+        try? FileHandle.standardError.write(contentsOf: Data((openFiles.line + "\n").utf8))
         // Before any thread starts or anything reads the environment: drop
         // cmux variables inherited from a shell inside another cmux, so they
         // cannot pick this app's socket, tag, or daemon session.
@@ -36,6 +39,8 @@ public struct CmuxNextApp {
         // This process's only environment writes, then the freeze: a write
         // after it stops a debug build (ProcessEnvironmentGuard).
         Self.prepareLaunchEnvironment()
+        // The unified log keeps the limit line for a Finder or Dock launch, whose stderr is /dev/null.
+        Logger(subsystem: "com.cmuxterm.app.next", category: "launch").notice("\(openFiles.line, privacy: .public)")
         // Pure launch work (action catalog, string tables) overlaps AppKit's start.
         LaunchWarmup.start()
         DebugTimings.markLaunch("main.warmup_started")
