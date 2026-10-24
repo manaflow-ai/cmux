@@ -763,8 +763,10 @@ async fn dispatch(client: Arc<Client>, args: DispatchArgs, json_out: bool) -> Re
     } else {
         std::fs::read_to_string(&args.brief)?
     };
-    let mut p = json!({"brief":brief,"host":args.host});
-    let obj = p.as_object_mut().unwrap();
+    let mut obj = serde_json::Map::from_iter([
+        ("brief".into(), json!(brief)),
+        ("host".into(), json!(args.host)),
+    ]);
     for (key, value) in [
         ("title", args.title),
         ("to", args.to),
@@ -780,7 +782,7 @@ async fn dispatch(client: Arc<Client>, args: DispatchArgs, json_out: bool) -> Re
     if let Some(cwd) = args.cwd {
         obj.insert("cwd".into(), json!(cwd));
     }
-    let v = client.request(crate::rpc::method::MUX_DISPATCH, p).await?;
+    let v = client.request(crate::rpc::method::MUX_DISPATCH, Value::Object(obj)).await?;
     if json_out {
         print_json(&v);
     } else {
