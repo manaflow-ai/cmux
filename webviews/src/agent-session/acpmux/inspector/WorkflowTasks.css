@@ -3,7 +3,6 @@
 .acpmux-workflow-tasks {
   display: flex;
   flex-direction: column;
-  gap: 2px;
   padding-bottom: 4px;
 }
 .acpmux-workflow-tasks__group {
@@ -16,8 +15,7 @@
 .acpmux-workflow-task {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 4px 0 6px;
+  padding: 4px 0 8px;
 }
 .acpmux-workflow-task + .acpmux-workflow-task {
   border-top: 1px solid var(--agent-hairline, color-mix(in oklab, currentColor 10%, transparent));
@@ -25,8 +23,8 @@
 .acpmux-workflow-task__head {
   display: flex;
   align-items: center;
-  gap: 6px;
-  min-height: 26px;
+  gap: 8px;
+  min-height: 28px;
   padding: 0 4px 0 8px;
 }
 .acpmux-workflow-task__name {
@@ -58,10 +56,10 @@
 .acpmux-workflow-phase__head {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   width: 100%;
   min-height: 24px;
-  padding: 2px 8px;
+  padding: 0 8px;
   box-sizing: border-box;
   border: 0;
   border-radius: var(--acpmux-inspector-row-radius);
@@ -94,12 +92,15 @@
 .acpmux-workflow-dots {
   display: flex;
   flex-wrap: wrap;
-  gap: 3px;
-  padding: 0 8px 2px;
+  padding: 0 8px;
+  margin-bottom: 2px;
 }
+/* A glyph, not a control: sized by its width, spaced by its margin. */
 .acpmux-workflow-dot {
+  flex: none;
   width: 6px;
-  height: 6px;
+  aspect-ratio: 1;
+  margin: 0 3px 3px 0;
   box-sizing: border-box;
   border-radius: 1.5px;
   border: 1px solid color-mix(in oklab, var(--agent-muted) 70%, transparent);
@@ -121,15 +122,15 @@
 /* Indented under the phase; each agent's time lines up under the phase's counts (the chevron's room). */
 .acpmux-workflow-phase__agents {
   padding-left: 16px;
-  padding-right: 20px;
+  padding-right: 24px;
 }
 .acpmux-workflow-phase__model {
-  padding: 2px 8px;
+  padding: 0 8px;
   color: var(--agent-muted);
   font-size: var(--text-detail);
 }
 .acpmux-workflow-agent {
-  min-height: 22px;
+  min-height: 24px;
 }
 .acpmux-workflow-agent__icon {
   flex: none;
