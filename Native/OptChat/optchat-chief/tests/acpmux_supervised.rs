@@ -145,3 +145,72 @@ fn a_local_host_starts_acpmux_in_its_acpmux_home() {
         std::fs::canonicalize(home).unwrap()
     );
 }
+
+/// An update hands the Chief to a new host while the old host's acpmux
+/// daemon still stops and holds `daemon.lock`, so the daemon the new host
+/// starts exits at once ("another acpmux daemon holds ..."). The new host
+/// waits for the old daemon to let the lock go and starts acpmux again.
+/// Before, it exited; with the watch's restarts that was three exits in a
+/// minute, and the Chief stayed silent until the next ask (2026-10-20).
+#[test]
+fn a_local_host_starts_acpmux_once_a_stopping_daemon_lets_its_lock_go() {
+    use std::os::unix::io::AsRawFd;
+    // It locks the daemon home's lock: never a real home's.
+    if std::env::var_os("ACPMUX_HOME").is_some() || std::env::var_os("ACPMUX_SOCKET").is_some() {
+        eprintln!("skipped: ACPMUX_HOME or ACPMUX_SOCKET is set");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().to_owned();
+    let first = dir.path().join("first-run");
+    let second = dir.path().join("second-run");
+    let bin = dir.path().join("fake-acpmux");
+    // Its first run fails as acpmux does while another daemon holds the
+    // lock; the next one runs, and the test binds its socket.
+    exe::write_executable(
+        &bin,
+        &format!(
+            "#!/bin/sh\nif [ ! -e '{first}' ]; then touch '{first}'; exit 1; fi\ntouch '{second}'\nsleep 5\n",
+            first = first.display(),
+            second = second.display()
+        ),
+    );
+    let lock = std::fs::File::create(home.join("daemon.lock")).unwrap();
+    // SAFETY: flock on a descriptor this test owns.
+    assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
+    let socket = dir.path().join("acpmux.sock");
+    let (path, first_seen, second_seen) = (socket.clone(), first.clone(), second.clone());
+    let old_daemon = std::thread::spawn(move || {
+        let wait_for = |file: &std::path::Path| {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while !file.exists() && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            file.exists()
+        };
+        assert!(wait_for(&first_seen), "the first start ran");
+        // The old daemon ends a moment after the first start failed.
+        std::thread::sleep(Duration::from_millis(300));
+        // SAFETY: as above.
+        unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) };
+        drop(lock);
+        if !wait_for(&second_seen) {
+            return;
+        }
+        let listener = UnixListener::bind(&path).unwrap();
+        let _ = listener.accept();
+        std::thread::sleep(Duration::from_millis(200));
+    });
+    let seen = AtomicBool::new(false);
+    let r = ensure_with(
+        &socket,
+        Mode::Local,
+        &seen,
+        Some(bin.to_str().unwrap()),
+        Duration::from_secs(1),
+        &|_| {},
+    );
+    old_daemon.join().unwrap();
+    assert!(matches!(r, Ok(Some(_))), "started on the second try: {r:?}");
+    assert!(second.exists(), "it started acpmux again");
+}

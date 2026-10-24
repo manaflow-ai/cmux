@@ -1215,7 +1215,8 @@ fn start(
         env!("CARGO_PKG_VERSION"),
     ));
     if route == CompactRoute::Acpmux {
-        // Bounded: acpmux_daemon::ensure gives a starting daemon 30 s.
+        // Bounded: acpmux_daemon::ensure gives a starting daemon up to 60 s
+        // (SPAWN_LIMIT), and query_harnesses ran it before this wait.
         let (lock, cv) = &*first_link;
         let linked = lock
             .lock()
