@@ -1,3 +1,4 @@
+public import CmuxNextCompat
 public import CmuxNextLayout
 
 /// Keyboard pane resizing and column navigation over one screen's layout.

@@ -1,5 +1,6 @@
 public import Foundation
 public import Observation
+public import CmuxNextCompat
 public import CmuxNextDesign
 
 /// Input and output of the layout engine for one workspace.
