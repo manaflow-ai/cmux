@@ -18,6 +18,7 @@ import Foundation
 struct AgentChatUploads {
     private struct Stage { var folder: URL; var file: URL; var name: String; var size: Int; var received: Int; var session: String }
     private static var stages: [String: Stage] = [:]
+    private static var batches: [String: (session: String, remaining: [(String, Int)])] = [:]
     /// How long an upload is kept: acpmux's `uploadsMaxAgeDays` default for its own (`config.rs`).
     nonisolated static let maximumAge: TimeInterval = 30 * 24 * 60 * 60
     /// The folder under ``root`` that holds a folder per chat (session ids are UUIDs, as upload
@@ -54,19 +55,36 @@ struct AgentChatUploads {
         return { request, sessionID in
             guard sessionID == nil || sessionID == session else { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
             switch request {
-            case .begin(let name, let size, _, _):
+            case .begin(let name, let size, let batchToken, let manifest):
+                if let batchToken {
+                    guard let batch = batches[batchToken], batch.session == session, batch.remaining.first?.0 == name, batch.remaining.first?.1 == size else { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
+                    batches[batchToken] = (session, Array(batch.remaining.dropFirst()))
+                }
                 guard size <= 1 * 1024 * 1024 * 1024 else { return AgentPaneReply.failure(code: "upload_refused", message: AgentChatUploadStrings.failed) }
                 let token = UUID().uuidString.lowercased(), folder = root.appending(path: "staged-" + token, directoryHint: .isDirectory), file = folder.appending(path: name)
                 do { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700]); guard FileManager.default.createFile(atPath: file.path, contents: nil, attributes: [.posixPermissions: 0o600]) else { throw CocoaError(.fileWriteUnknown) } } catch { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
                 stages[token] = Stage(folder: folder, file: file, name: name, size: size, received: 0, session: session)
-                return AgentPaneReply.success(["token": token, "size": size, "chunkSize": 512 * 1024])
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(10 * 60))
+                    if let expired = stages.removeValue(forKey: token) { try? FileManager.default.removeItem(at: expired.folder) }
+                }
+                var reply: [String: Any] = ["token": token, "size": size, "chunkSize": 512 * 1024]
+                if let manifest, batchToken == nil, manifest.count > 1 { let id = UUID().uuidString.lowercased(); batches[id] = (session, Array(manifest.dropFirst())); reply["batchToken"] = id }
+                return AgentPaneReply.success(reply)
             case .chunk(let token, let offset, let data):
                 guard var stage = stages[token], stage.session == session, stage.received == offset, offset + data.count <= stage.size, data.count <= 512 * 1024 else { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
                 do { let handle = try FileHandle(forWritingTo: stage.file); try handle.seekToEnd(); try handle.write(contentsOf: data); try handle.close() } catch { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
                 stage.received += data.count; stages[token] = stage; return AgentPaneReply.success(["offset": stage.received])
             case .finish(let token):
                 guard let stage = stages.removeValue(forKey: token), stage.session == session, stage.received == stage.size else { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
-                return AgentPaneReply.success(["path": stage.file.path])
+                let base = session == "new" ? root : chatFolder(session, in: root)
+                let destination = base.appending(path: UUID().uuidString.lowercased(), directoryHint: .isDirectory).appending(path: "0", directoryHint: .isDirectory).appending(path: stage.name)
+                do {
+                    try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+                    try FileManager.default.moveItem(at: stage.file, to: destination)
+                    try? FileManager.default.removeItem(at: stage.folder)
+                } catch { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
+                return AgentPaneReply.success(["path": destination.path])
             case .cancel(let token):
                 if let stage = stages.removeValue(forKey: token) { try? FileManager.default.removeItem(at: stage.folder) }
                 return AgentPaneReply.success()
