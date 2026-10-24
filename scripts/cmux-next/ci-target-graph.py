@@ -139,6 +139,13 @@ def literal_reads(source_dir: Path) -> list[str]:
                 relative = repo_relative(candidate)
                 if relative is None or relative in ("", "."):
                     continue
+                # Git's own metadata is not a repository file, and no pull
+                # request changes it. It is also shaped by the checkout: a
+                # directory in a clone, a file in a worktree. Counting it (a
+                # fixture's ".git/config" literal) made the graph differ
+                # between the two.
+                if relative.split("/", 1)[0] == ".git":
+                    continue
                 # Reads inside the target itself are already its sources.
                 if (relative + "/").startswith(repo_relative(source_dir) + "/"):
                     continue
