@@ -1724,7 +1724,21 @@ body[data-loading="true"] #status::before {
 .diff-git-tools {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 6px;
+}
+/* Commit and Push are glossy chips, like the source, base and jump chips beside them. */
+.diff-git-tools .acpmux-git-tool {
+  border-radius: 7px;
+  background: var(--cmux-diff-pill-bg);
+  box-shadow: var(--cmux-diff-pill-rim);
+  color: var(--cmux-diff-fg);
+}
+.diff-git-tools .acpmux-git-tool:hover:not(:disabled) {
+  background: var(--cmux-diff-pill-hover-bg);
+}
+/* The commit form is open: the accent tint, as an open base picker. */
+.diff-git-tools .acpmux-git-tool[aria-expanded="true"] {
+  background: var(--cmux-diff-accent-tint);
 }
 .diff-git-bar {
   display: flex;
