@@ -61,3 +61,7 @@ function chatMarkdown(rows: readonly AcpmuxRow[]): string {
   }
   return blocks.join("\n\n");
 }
+
+export function conversationMarkdown(_rows: readonly AcpmuxRow[]): string {
+  return "";
+}
