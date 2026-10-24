@@ -105,7 +105,12 @@ function groupNode(
       );
     case "message":
       return (
-        <MessageCard key={group.item.tool!.id || index} item={group.item} message={group.message} messageAt={rowAt} />
+        <MessageCard
+          key={group.item.tool!.id || index}
+          item={group.item}
+          message={group.message}
+          messageAt={group.item.tool!.startedAt ?? rowAt}
+        />
       );
     case "dispatch":
       return <DispatchCard key={group.item.tool!.id || index} item={group.item} call={group.call} />;

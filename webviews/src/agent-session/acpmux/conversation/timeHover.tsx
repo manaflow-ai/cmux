@@ -1,5 +1,7 @@
 import { useMinuteClock } from "../clock";
 import { usePaneLanguage } from "../i18n";
+import { textLinks } from "../chips/paths";
+import { Tooltip } from "../../../ui/Tooltip";
 import { relativeTime } from "./relativeTime";
 import type { ReactNode } from "react";
 
@@ -42,6 +44,21 @@ export function decorateTimes(text: string, messageAt?: number): string {
 
 function decorateProse(text: string, messageAt?: number): string {
   if (!text || (!text.includes("Z") && !text.includes("UTC") && !text.includes("T"))) return text;
+  const links = textLinks(text);
+  if (links.length) {
+    let out = "";
+    let from = 0;
+    for (const link of links) {
+      out += decorateProseSegment(text.slice(from, link.start), messageAt);
+      out += text.slice(link.start, link.end);
+      from = link.end;
+    }
+    return out + decorateProseSegment(text.slice(from), messageAt);
+  }
+  return decorateProseSegment(text, messageAt);
+}
+
+function decorateProseSegment(text: string, messageAt?: number): string {
   DETECT.lastIndex = 0;
   let out = "";
   let from = 0;
@@ -142,17 +159,16 @@ export function TimeHover({ token }: { token: TimeToken }): ReactNode {
   const locale = usePaneLanguage();
   const label = timestampHoverLabel(token.at, now, locale);
   return (
-    <time
-      className="cv-time-hover"
-      dateTime={new Date(token.at).toISOString()}
-      // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- timestamp tooltips are keyboard-focusable without an action
-      tabIndex={0}
-      aria-label={`${token.source}, ${label}`}
-      /* tooltip-allow: a written UTC time is less useful than its local time and age on hover */
-      title={label}
-      data-tooltip-side="top"
-    >
-      {token.source}
-    </time>
+    <Tooltip label={label} side="top">
+      <time
+        className="cv-time-hover"
+        dateTime={new Date(token.at).toISOString()}
+        // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- timestamp tooltips are keyboard-focusable without an action
+        tabIndex={0}
+        aria-label={`${token.source}, ${label}`}
+      >
+        {token.source}
+      </time>
+    </Tooltip>
   );
 }

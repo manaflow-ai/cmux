@@ -22,7 +22,6 @@ test("renders clock times, ISO timestamps, and UTC labels as hoverable times", (
   expect((html.match(/class="[^"]*cv-time-hover[^"]*"/g) ?? []).length).toBe(5);
   expect((html.match(/tabindex="0"/g) ?? []).length).toBe(5);
   expect(html).toContain('aria-label="05:21Z,');
-  expect(html).toContain('title="');
   expect(html).toContain("2026-10-24T05:21:00.000Z");
   expect(html).toContain("2026-10-24T05:21:28.000Z");
   expect(html).toContain("2026-10-24T12:21:28.000Z");
@@ -46,4 +45,16 @@ test("leaves inline and fenced code timestamps unchanged", () => {
   expect(html).toContain("05:23Z");
   expect(html).not.toContain('cv-time-hover">05:22Z');
   expect(html).not.toContain('cv-time-hover">05:23Z');
+});
+
+test("does not decorate timestamps inside Markdown or bare URL destinations", () => {
+  const html = renderToStaticMarkup(
+    <Markdown messageAt={messageAt}>
+      {"[logs](https://example.com/2026-10-24T05:21:28Z) https://example.com/2026-10-24T05:22:28Z"}
+    </Markdown>,
+  );
+
+  expect(html).toContain('href="https://example.com/2026-10-24T05:21:28Z"');
+  expect(html).toContain('href="https://example.com/2026-10-24T05:22:28Z"');
+  expect(html).not.toContain("%EE%80%80");
 });
