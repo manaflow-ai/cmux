@@ -59,7 +59,7 @@ function GalleryEditorFindBar({ text, query, replace }: Props) {
 }
 
 const replaceAll: Play = async (ctx) => {
-  await ctx.waitFor(() => ctx.document.querySelector('button[aria-label="All"]'));
+  await ctx.waitFor(() => ctx.document.querySelector(".find-pill__replace-all"));
   await ctx.click({ role: "button", name: "All" });
   await ctx.waitFor(() => ctx.find({ selector: ".find-pill__count" }).textContent === "No matches");
 };
