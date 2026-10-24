@@ -70,7 +70,7 @@ final class ShellModel {
     /// The Macs' terminal sizing policies (Settings and Connected Devices).
     var sizingService: (any TerminalSizingService)? { live }
     /// DEBUG mock mode (Settings → Developer → Mock): sample content only.
-    private let mockMode: Bool
+    let mockMode: Bool
     /// The team an email invite is being written for (live mode).
     var invitingTeam: Team?
     var isFetchingInvite = false
