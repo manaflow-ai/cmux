@@ -40,7 +40,20 @@ check("name: cmux-next-dev-handoff-${{ inputs.dev_daily_sha }}" in source_workfl
       "the source handoff must retain an exact-SHA receipt artifact")
 check('"queue_ms"' in source_workflow and '"runner_labels"' in source_workflow,
       "the handoff receipt must include queue and runner evidence")
+handoff = re.search(r"^  request-cmux-next-dev-publish:\n    needs: cmux-scheme-compile\n    if: (.*)$",
+                    source_workflow, re.MULTILINE)
+handoff_if = handoff.group(1) if handoff else ""
+check(handoff_if.startswith("${{ !cancelled() && "),
+      "the handoff must not inherit success() over the skipped jobs upstream of the DEV compile "
+      "(it was skipped on every run until 2026-10-24)")
+check("needs.cmux-scheme-compile.result == 'success'" in handoff_if,
+      "the handoff must still require the DEV Release compile to succeed")
 text = WORKFLOW.read_text()
+triggers = re.search(r"^on:\n((?:  .*\n)+)", text, re.MULTILINE)
+triggers = triggers.group(1) if triggers else ""
+check("  push:\n    branches: [feat-cmux-next]\n" in triggers,
+      "a feat-cmux-next merge must dispatch its DEV build at once (push trigger)")
+check("  schedule:\n" in triggers, "the schedule must stay as the backstop for a lost push dispatch")
 schedule = re.findall(r'^    - cron: "([^"]+)"$', text, re.MULTILINE)
 check(schedule == ["2-59/5 * * * *"],
       f"the dev dispatcher must run every five minutes, got {schedule}")

@@ -1,11 +1,20 @@
 name: cmux NEXT DEV daily dispatcher
 
 # The feat-cmux-next push lane is intentionally cheap and can be superseded by
-# the next merge. This schedule snapshots the current branch tip and asks the
-# source workflow for one Release cmux NEXT DEV artifact every five minutes.
-# The source run builds only that SHA (cmux-next.yml checks github.sha) and
-# never cancels another run.
+# the next merge. This workflow snapshots the current branch tip and asks the
+# source workflow for one Release cmux NEXT DEV artifact. The source run builds
+# only that SHA (cmux-next.yml checks github.sha) and never cancels another run.
+#
+# A feat-cmux-next push runs it at once (this branch's copy of the file), so a
+# merge starts its DEV build within a minute instead of at the next tick. The
+# schedule runs from main and stays as the self-healing backstop: it catches a
+# tip whose push run was lost, evicted or failed, and retries a lost publisher
+# handoff. Both share one non-cancelling group, so they never run at the same
+# time, and each reads the live tip and skips a SHA that already has an active
+# or successful source run: a SHA is built once however many runs ask for it.
 on:
+  push:
+    branches: [feat-cmux-next]
   schedule:
     - cron: "2-59/5 * * * *"
   workflow_dispatch:
