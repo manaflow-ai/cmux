@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cmux-ci-runner"
+version = "0.1.0"
+description = "Bounded command execution with capacity slots and JSON receipts"
+requires-python = ">=3.10"
+readme = "README.md"
+license = {text = "GPL-3.0-or-later"}
+
+[project.scripts]
+cmux-ci-run = "cmux_ci:main"
+
+[tool.setuptools]
+py-modules = ["cmux_ci"]
