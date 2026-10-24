@@ -76,7 +76,7 @@ public final class AgentPaneNewTabFrame {
             settle.schedule(after: .milliseconds(400)) { @MainActor in
                 withExtendedLifetime(settle) {}
                 defer { redraw?.givesNewTabFrame = false }
-                guard let self, let view, let host, let redraw, view.model.newTab != nil, view.snapshotKeepsClearAreas, view.isDescendant(of: host),
+                guard let self, let view, let host, let redraw, view.model.newTab != nil, !view.pageDrawsOverCovers, view.isDescendant(of: host),
                       view.window != nil, !view.isHiddenOrHasHiddenAncestor else { return }
                 let size = host.bounds.size, appearance = host.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])
                 let takenAt = self.generation, before = self.shows(view.model)

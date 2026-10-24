@@ -119,7 +119,7 @@ public final class AgentPageRedraw {
         // Only a page that draws today's chats and model (`AgentPaneNewTabFrame`).
         guard let model = (pane as? AgentPaneView)?.model, AgentPaneNewTabFrame.shared.shows(model).0 else { return }
         // A Chromium picture draws the page's clear areas black (``PageWebView/snapshotKeepsClearAreas``):
-        // checked before and after, as the page can leave Chromium while its picture decodes.
+        // checked before and after, as the page can move to or from Chromium while its picture is taken.
         guard page?.snapshotKeepsClearAreas ?? true else { return }
         let (size, place, generation) = (pane.frame.size, pane.superview, AgentPaneNewTabFrame.shared.generation)
         // task-owner: one snapshot; dropped when the page moved or resized meanwhile
