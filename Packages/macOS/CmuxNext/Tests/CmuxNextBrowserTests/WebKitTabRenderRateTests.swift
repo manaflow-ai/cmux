@@ -5,14 +5,14 @@ import Testing
 import WebKit
 
 /// A WebKit browser tab renders at the display's full rate, set once when it is made, and nothing
-/// rewrites it later (perf-lead row 23). In Low Power Mode WebKit halves every page's rate by itself
+/// rewrites it later (perf-lead row 28). In Low Power Mode WebKit halves every page's rate by itself
 /// (`ThrottlingReason::LowPowerMode` in the web process, live, in both directions), so the engine
 /// takes no Low Power Mode input: the near-60 preference it once added there held a tab made in
 /// Low Power Mode at 30 fps on a 120 Hz display, and its live switch (write the preference, then
 /// hide and re-show the tab under a snapshot) did not reach a shown page's cadence: on cmux20
 /// (macOS 27, 120 Hz) a page switched to near60 that way still rendered at 120 fps. These read the
 /// WebKit preference with Low Power Mode as the host has it, so on a host not in Low Power Mode
-/// they pass on the engine before row 23 too (it read `LowPowerMode.system`). The Low Power Mode
+/// they pass on the engine before row 28 too (it read `LowPowerMode.system`). The Low Power Mode
 /// guard for tabs is the runtime one: `scripts/cmux-next/bench-page-cadence.py`'s `tab-low-power`
 /// (a tab made in Low Power Mode renders at half the display's rate, not a quarter) and `tab-full`
 /// (Low Power Mode off again with that tab shown: the display's rate), on an exclusive 120 Hz worker

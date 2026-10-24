@@ -2,7 +2,7 @@
 import CmuxNextSettings
 import Testing
 
-/// The summary `debug.page {action: frames}` gives a bench (perf-lead row 23): a page at the full
+/// The summary `debug.page {action: frames}` gives a bench (perf-lead row 28): a page at the full
 /// rate of a 120 Hz display shows no long frames, a page held near 60 shows every interval long.
 struct PageFrameCadenceTests {
     @Test func fullRateOn120HzHasNoLongFrames() {

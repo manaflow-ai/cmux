@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""WebKit page frame cadence bench (perf-lead row 23: every scroll at the display's full refresh).
+"""WebKit page frame cadence bench (perf-lead row 28: every scroll at the display's full refresh).
 
 What it guards, with the page on screen in one launch:
 
   full        Low Power Mode off: a WebKit page renders at the display's rate (120 fps on 120 Hz,
-              about 8.3 ms per frame, no long frames). Before row 23 every page but the agent chat
+              about 8.3 ms per frame, no long frames). Before row 28 every page but the agent chat
               kept WebKit's default, the display-rate divisor nearest 60 fps: 60 fps on 120 Hz.
   low-power   macOS Low Power Mode switched on with the page on screen: WebKit halves the page's rate
               by itself (its LowPowerMode throttling reason, live): 60 fps on 120 Hz. Before, cmux also
@@ -28,7 +28,7 @@ Then the same on a WebKit browser tab (the engine path, WebKitEngine.prepare), r
 own requestAnimationFrame intervals (`browser.page.eval`):
 
   tab-low-power  macOS Low Power Mode on, then a new WebKit tab opened: WebKit halves it by itself,
-                 60 fps on 120 Hz. Before row 23 the engine also gave a tab made in Low Power Mode
+                 60 fps on 120 Hz. Before row 28 the engine also gave a tab made in Low Power Mode
                  the near-60 preference: 30 fps.
   tab-full       Low Power Mode switched off with that tab on screen: the display's rate. Before,
                  the engine's live switch (write the preference, re-show the tab) did not reach the
@@ -103,7 +103,7 @@ TAB_LEGS_FULL_ONLY = [("tab-full", False, 1, True)]
 # exclusive); the worker exports it to the step as CMUX_CI_STEP_CLASS.
 EXCLUSIVE_CLASS = "exclusive"
 # Every rate WebKit can give a page on a display: full, half (near 60 on 120 Hz, or Low Power Mode),
-# and a quarter (near 60 and Low Power Mode together, the behavior before row 23 in Low Power Mode).
+# and a quarter (near 60 and Low Power Mode together, the behavior before row 28 in Low Power Mode).
 DIVISORS = (1, 2, 4)
 
 
@@ -199,7 +199,7 @@ def measure(app, opts, page, selector, low_power, divisor):
         reply = frames_window(app, params)
         first = first or reply
         if reply.get("engine") != "webkit":
-            raise Unmeasurable(f"the page shows in {reply.get('engine')}, not WebKit: this measures nothing for row 23")
+            raise Unmeasurable(f"the page shows in {reply.get('engine')}, not WebKit: this measures nothing for row 28")
         if reply.get("low_power_mode") is not low_power:
             raise Unmeasurable(f"the app reports low_power_mode {reply.get('low_power_mode')}, the leg needs {low_power}")
         if (reply.get("scrolled_px") or 0) <= 0:
@@ -264,7 +264,7 @@ def measure_tab(app, opts, display, low_power, divisor):
     def window():
         started = tab_eval(app, TAB_SAMPLE_START.replace("PIXELS", repr(float(opts.scroll_px))))
         if not isinstance(started, dict) or started.get("chromium"):
-            raise Unmeasurable(f"the tab shows in Chromium (or did not answer: {started}): this measures nothing for row 23")
+            raise Unmeasurable(f"the tab shows in Chromium (or did not answer: {started}): this measures nothing for row 28")
         time.sleep(WINDOW_MS / 1000)  # bench: the probe window itself, sampled by the tab's own rAF
         read = tab_eval(app, TAB_SAMPLE_READ)
         if not isinstance(read, dict):

@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { useWorkingLook } from "../../shared/workingLook";
 
-// SPINNERS-OFF-MAIN (perf-lead row 23). The words of a transcript row (`cv-tool__text`). While the
+// SPINNERS-OFF-MAIN (perf-lead row 28). The words of a transcript row (`cv-tool__text`). While the
 // row runs (`working`), the working look "shimmer" (Debug Settings, `data-working-look`) sweeps a
 // light band across them the way the Thinking line does (ShimmerText.tsx): the words rest in the
 // dim color, and a band (`cv-tool__shine`, masked to a soft stripe) slides across them while its lit
