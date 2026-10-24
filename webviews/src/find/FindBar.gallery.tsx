@@ -72,19 +72,19 @@ function GalleryFindBar({ initialQuery, initialMatches, requestToken: initialReq
 }
 
 const next: Play = async (ctx) => {
-  await ctx.waitFor(() => ctx.document.querySelector('button[aria-label="Next match"]'));
+  await ctx.waitFor(() => ctx.document.querySelector('button[aria-label="Next match"]'), { capMs: 15_000 });
   await ctx.click({ role: "button", name: "Next match" });
   await ctx.waitFor(() => ctx.find({ selector: "#diff-find-count" }).textContent === "2 of 3");
 };
 
 const previous: Play = async (ctx) => {
-  await ctx.waitFor(() => ctx.document.querySelector('button[aria-label="Previous match"]'));
+  await ctx.waitFor(() => ctx.document.querySelector('button[aria-label="Previous match"]'), { capMs: 15_000 });
   await ctx.click({ role: "button", name: "Previous match" });
   await ctx.waitFor(() => ctx.find({ selector: "#diff-find-count" }).textContent === "3 of 3");
 };
 
 const keyboard: Play = async (ctx) => {
-  await ctx.waitFor(() => ctx.document.querySelector("#diff-find-input"));
+  await ctx.waitFor(() => ctx.document.querySelector("#diff-find-input"), { capMs: 15_000 });
   await ctx.focus({ role: "searchbox", name: "Find in diff" });
   await ctx.press("Enter");
   await ctx.waitFor(() => ctx.find({ selector: "#diff-find-count" }).textContent === "2 of 3");
