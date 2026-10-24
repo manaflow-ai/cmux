@@ -14,12 +14,15 @@ nonisolated protocol MarkdownGitRunning: Sendable {
 }
 
 /// `/usr/bin/git` with no prompts and no optional locks (a status never takes the index lock an
-/// editor or agent may hold), stopped at a deadline so a hung filesystem never holds the bar.
+/// editor or agent may hold), stopped at a deadline so a hung filesystem never holds the bar. The
+/// whole run, the fork and exec included, happens off the caller's actor (`@concurrent`): callers
+/// are on the main actor.
 nonisolated struct ProcessMarkdownGitRunner: MarkdownGitRunning {
     var timeout: Duration = .seconds(5)
     /// Starts the process (`Process.run()`); tests pass one that records where it ran.
     var launch: @Sendable (Process) throws -> Void = { try $0.run() }
 
+    @concurrent
     func run(_ arguments: [String], in folder: String) async -> MarkdownGitOutput? {
         guard folder.hasPrefix("/"), !folder.contains("\0") else { return nil }
         let process = Process()
@@ -41,8 +44,9 @@ nonisolated struct ProcessMarkdownGitRunner: MarkdownGitRunning {
         deadline.schedule(after: timeout) { if running.isRunning { running.terminate() } }
         defer { deadline.cancel() }
         return await Task.detached(priority: .utility) {
-            // concurrency-allow: blocking read and wait inside this detached utility task; git's
-            // output for one file is small, and the deadline above ends a hung run.
+            // concurrency-allow: blocking read and wait inside this detached utility task (not the
+            // concurrent pool thread the run started on); git's output for one file is small, and
+            // the deadline above ends a hung run.
             let data = FileHandle(fileDescriptor: descriptor, closeOnDealloc: false).readDataToEndOfFile()
             // concurrency-allow: git closed its output (EOF above), so it has exited or is exiting.
             running.waitUntilExit()
