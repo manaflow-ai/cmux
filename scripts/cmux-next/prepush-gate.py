@@ -149,6 +149,15 @@ RESERVED_SCRIPT = SCRIPTS + "/check-ghostty-reserved-keys.py"
 RESERVED_LIST = "schemas/keybindings/ghostty-reserved-keys.json"
 RESERVED_SURFACES = "plans/cmux-next/action-surfaces.json"
 RESERVED_OK = re.compile(r"^Ghostty-defaults-OK:\s*\S", re.MULTILINE)
+# A reviewed crash allowlist or baseline raise (lead 2026-10-24: the hook runs the INSTALLED crash data, so a
+# reviewed entry, PL-blocking's Debug trap, could not pass it): a commit's `Crash-allow-OK: <reviewer or review id>`
+# trailer lets the hook read that commit's own additions to crash-allowlist.json (entries added or with a higher
+# count) and crash-safety-baseline.json (rows raised), and nothing else; CI names each commit that adds an allowlist
+# entry without one (CRASH_ALLOW_CHECK).
+CRASH_ALLOWLIST = SCRIPTS + "/crash-allowlist.json"
+CRASH_BASELINE = SCRIPTS + "/crash-safety-baseline.json"
+CRASH_OK = re.compile(r"^Crash-allow-OK:[ \t]*(\S.*)$", re.MULTILINE)
+CRASH_ALLOW_CHECK = "Crash allowlist review (Crash-allow-OK trailer)"
 
 # Reviewed escapes the CI scanners honor, per ast-grep rule (same line or the comment block above).
 ESCAPES = {
@@ -337,6 +346,11 @@ def build_trees(repo: Path, base: str, head: str, changed: list[str], work: Path
         write_tree(repo, dest, files)
         if trusted_scripts:
             shutil.copytree(trusted_scripts, dest / SCRIPTS, dirs_exist_ok=True)
+            if side == "head":
+                taken = apply_reviewed_crash_data(repo, base, head, dest / SCRIPTS)
+                if taken:
+                    log("prepush-gate: Crash safety reads these reviewed raises of the pushed crash data:\n  "
+                        + "\n  ".join(taken))
         trees.append(dest)
     return trees[0], trees[1]
 
@@ -469,6 +483,94 @@ def swiftlint(binary: Path, config: Path, tree: Path, swift: list[str]) -> str:
 
 # ---------------------------------------------------------------- gate
 
+def _json_at(repo: Path, rev: str, path: str) -> dict:
+    result = subprocess.run(["git", "-C", str(repo), "show", f"{rev}:{path}"], capture_output=True)
+    try:
+        value = json.loads(result.stdout) if result.returncode == 0 else {}
+    except ValueError:
+        value = {}
+    return value if isinstance(value, dict) else {}
+
+
+def _allow_entries(data: dict) -> dict[tuple, dict]:
+    return {(e.get("path"), e.get("class")): e for e in data.get("allow") or [] if isinstance(e, dict)}
+
+
+def _rows(data: object, prefix: tuple = ()) -> dict[tuple, int]:
+    """The baseline's leaves {(section, ..., module): hits}."""
+    if isinstance(data, dict):
+        out = {}
+        for key, value in data.items():
+            if not str(key).startswith("_"):
+                out.update(_rows(value, prefix + (str(key),)))
+        return out
+    return {prefix: data} if isinstance(data, int) and not isinstance(data, bool) else {}
+
+
+def crash_raises(repo: Path, base: str, head: str) -> list[tuple[str, str, str | None, dict, dict]]:
+    """Per non-merge commit of BASE..HEAD that changes the crash data: (sha, subject, its Crash-allow-OK trailer or
+    None, {allowlist key: entry added or raised}, {baseline row: value raised}), against the commit's own parent."""
+    out = git(repo, "log", "--reverse", "--no-merges", "--format=%x1e%H%x1f%B", f"{base}..{head}", "--",
+              CRASH_ALLOWLIST, CRASH_BASELINE, check=False).decode(errors="replace")
+    found = []
+    for record in out.split("\x1e")[1:]:
+        sha, _, message = record.partition("\x1f")
+        sha = sha.strip()
+        if not re.fullmatch(r"[0-9a-f]{40}", sha):
+            continue
+        old, new = _allow_entries(_json_at(repo, sha + "^", CRASH_ALLOWLIST)), _allow_entries(_json_at(repo, sha, CRASH_ALLOWLIST))
+        allow = {k: e for k, e in new.items() if k not in old or (e.get("count") or 0) > (old[k].get("count") or 0)}
+        old_rows, new_rows = _rows(_json_at(repo, sha + "^", CRASH_BASELINE)), _rows(_json_at(repo, sha, CRASH_BASELINE))
+        rows = {k: v for k, v in new_rows.items() if v > old_rows.get(k, 0)}
+        if allow or rows:
+            trailer = CRASH_OK.search(message)
+            subject = message.strip().splitlines()[0] if message.strip() else ""
+            found.append((sha, subject, trailer.group(1).strip() if trailer else None, allow, rows))
+    return found
+
+
+def apply_reviewed_crash_data(repo: Path, base: str, head: str, scripts_dir: Path) -> list[str]:
+    """Write into SCRIPTS_DIR (the head tree's installed scripts) the crash data raises of the pushed commits that
+    carry a Crash-allow-OK trailer, over the installed files; a raise without one stays out, so it is still refused.
+    Returns what was taken, one line each, for the gate to print."""
+    taken: list[str] = []
+    allow_path, baseline_path = scripts_dir / Path(CRASH_ALLOWLIST).name, scripts_dir / Path(CRASH_BASELINE).name
+    try:
+        allow_data = json.loads(allow_path.read_text()) if allow_path.is_file() else {"banned": [], "allow": []}
+        baseline = json.loads(baseline_path.read_text()) if baseline_path.is_file() else {}
+    except (OSError, ValueError):
+        return taken
+    changed = False
+    for sha, subject, trailer, allow, rows in crash_raises(repo, base, head):
+        if trailer is None:
+            continue
+        entries = [e for e in allow_data.setdefault("allow", []) if isinstance(e, dict)]
+        for key, entry in allow.items():
+            entries = [e for e in entries if (e.get("path"), e.get("class")) != key] + [entry]
+            taken.append(f"{sha[:11]} (Crash-allow-OK: {trailer[:60]}): allow {key[1]} in {key[0]} count {entry.get('count')}")
+        allow_data["allow"] = entries
+        for row, value in rows.items():
+            node = baseline
+            for part in row[:-1]:
+                node = node.setdefault(part, {}) if isinstance(node, dict) else None
+            if isinstance(node, dict) and value > (node.get(row[-1]) or 0):
+                node[row[-1]] = value
+                taken.append(f"{sha[:11]} (Crash-allow-OK: {trailer[:60]}): baseline {'.'.join(row)} -> {value}")
+        changed = changed or bool(allow or rows)
+    if changed:
+        allow_path.write_text(json.dumps(allow_data, indent=1) + "\n")
+        baseline_path.write_text(json.dumps(baseline, indent=1, sort_keys=True) + "\n")
+    return taken
+
+
+def crash_allow_unreviewed(repo: Path, base: str, head: str) -> list[str]:
+    """Each commit of BASE..HEAD that adds or raises a crash allowlist entry without a Crash-allow-OK trailer."""
+    return [f"{sha[:11]} {subject[:70]}: adds {', '.join(f'{k[1]} in {k[0]}' for k in list(allow)[:3])}"
+            f"{f' and {len(allow) - 3} more' if len(allow) > 3 else ''} to {CRASH_ALLOWLIST} without a "
+            "`Crash-allow-OK: <reviewer or review id>` trailer"
+            for sha, subject, trailer, allow, _ in crash_raises(repo, base, head) if allow and trailer is None]
+
+
 def reserved_keys(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
     """What head adds to the Ghostty-default keys check (RESERVED_CHECK) over base."""
     def blob(rev: str, path: str) -> bytes | None:
@@ -587,6 +689,10 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         owner = sidebar_owner(repo, base, head, ack_rev)
         if owner:
             reserved.append((SIDEBAR_CHECK, owner))
+    if only is None or "crash-allow" in only:
+        unreviewed = crash_allow_unreviewed(repo, base, head)
+        if unreviewed:
+            reserved.append((CRASH_ALLOW_CHECK, unreviewed))
     # The git-only checks above need no trees: a run of only those (CI's sidebar sweep) stops here.
     if only is not None and not only & {"scanners", "ast-grep", "swiftformat", "swiftlint"}:
         return reserved
@@ -860,7 +966,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--pre-push", action="store_true", help="read pre-push stdin (the hook)")
     parser.add_argument("--trusted-scripts-dir", help="installed reviewed checker snapshot (required with --pre-push)")
     parser.add_argument("--commits", help="CI: check each non-merge commit of RANGE against its first parent")
-    parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,swiftlint,reserved,conflicts,sidebar")
+    parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,swiftlint,reserved,conflicts,"
+                                       "sidebar,crash-allow")
     parser.add_argument("--timings", action="store_true")
     parser.add_argument("--no-guardrails", action="store_true", help="skip guardrails.py and its arch ratchet (they never run on CI)")
     args = parser.parse_args(argv)
