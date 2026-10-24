@@ -296,15 +296,30 @@ def incomplete_rows(rows, baseline, manifest, only):
         sample = current.get(name)
         if sample is None or sample.get("p95") is None:
             missing.append({"name": name, "reason": "missing current p95"})
-    for pattern in selected:
-        matched = [name for name in current if re.fullmatch(pattern, name)]
-        if not matched or not any(current[name].get("p95") is not None for name in matched):
-            # A baseline row with a missing current value already has a concrete
-            # reason above; otherwise retain the manifest-level reason so a new
-            # baseline cannot be written from a partial run.
-            if any(name in baseline for name in matched) or any(re.fullmatch(pattern, name) for name in baseline):
-                continue
-            missing.append({"name": pattern, "reason": "manifest row not measured"})
+    # A baseline with at least one concrete row for a benchmark part is the
+    # source of truth for that part's shape. Older baselines can legitimately
+    # contain only one family (for example the sidebar switch row); requiring
+    # every manifest family in that case would turn an otherwise concrete
+    # current-value check into a false incomplete result. A part with no
+    # baseline rows still needs its manifest families to prove that the bench
+    # produced data at all.
+    baseline_parts = {
+        part for part in only
+        if any(any(re.fullmatch(pattern, name) for pattern in manifest.get(part, []))
+               for name in baseline)
+    }
+    for part in only:
+        if part in baseline_parts:
+            continue
+        for pattern in manifest.get(part, []):
+            matched = [name for name in current if re.fullmatch(pattern, name)]
+            if not matched or not any(current[name].get("p95") is not None for name in matched):
+                # A baseline row with a missing current value already has a concrete
+                # reason above; otherwise retain the manifest-level reason so a new
+                # baseline cannot be written from a partial run.
+                if any(name in baseline for name in matched) or any(re.fullmatch(pattern, name) for name in baseline):
+                    continue
+                missing.append({"name": pattern, "reason": "manifest row not measured"})
     return missing
 
 
