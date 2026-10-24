@@ -1377,7 +1377,9 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextDaemonTests",
-            dependencies: ["CmuxNextDaemon"],
+            // CmuxNextCompat: the tests import it directly (Mutex); undeclared, an incremental build kept a
+            // test object compiled against its older interface (an undefined Mutex.withLock symbol at link).
+            dependencies: ["CmuxNextCompat", "CmuxNextDaemon"],
             swiftSettings: daemonSwiftSettings
         ),
         // Links libghostty (GhosttyNextKit, whose macOS archive has the lib
