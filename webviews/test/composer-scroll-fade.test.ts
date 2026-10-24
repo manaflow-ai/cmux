@@ -1,10 +1,8 @@
 // cmux-web-test-timeout: 300
 // l10n-allow-file: test fixture prompts, not shipped UI.
-// A long prompt fades at the composer's edges (Leo 2026-10-21: "A fade mask at the top edge (and
-// bottom when not at the end) covers the text ... when content is scrolled out of view"). The prompt
-// scrolls inside its own box past eight lines (.acpmux-md-field, markdownField.css); the edge with
-// more draft past it is marked (`data-fade-top`, `data-fade-bottom`) and faded with an alpha mask,
-// so whatever is behind the composer's glass shows through: nothing is painted over the text.
+// A long prompt scrolls inside its own box past eight lines (.acpmux-md-field, markdownField.css).
+// The prompt has no edge mask: an 18px fade over a 22px line could cut a line in half as the field
+// grows or scrolls. Its offsets stay on whole lines; the attachment row below still fades sideways.
 // The attachment row above the prompt (.acpmux-attachments, composerAttachments.css) scrolls sideways
 // past the composer's width and fades the same way at the side with more chips past it
 // (`data-fade-left`, `data-fade-right`), with the prompt's band (`--acpmux-md-fade-band`).
@@ -60,7 +58,7 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
         ),
     );
 
-  /// The prompt's scroll position, its edge marks and its computed mask.
+  /// The prompt's scroll position and its computed mask.
   const edges = (page: Page) =>
     page.evaluate((selector) => {
       const field = document.querySelector<HTMLElement>(selector)!;
@@ -69,8 +67,6 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
       return {
         top: field.scrollTop,
         end: field.scrollHeight - field.clientHeight,
-        fadeTop: field.hasAttribute("data-fade-top"),
-        fadeBottom: field.hasAttribute("data-fade-bottom"),
         mask,
         webkitMask: style.webkitMaskImage ?? style.getPropertyValue("-webkit-mask-image"),
       };
@@ -218,7 +214,7 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
 
   for (const [name] of engines) {
     describe(name, () => {
-      test("a long draft fades at the edge with more draft past it, a short one at neither", async () => {
+      test("a long draft keeps a clear edge with more draft past it, a short one at neither", async () => {
         current = browsers.get(name);
         const page = await pane!.open();
 
@@ -228,7 +224,7 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
         await settle(page);
         let seen = await edges(page);
         expect(seen.end).toBeLessThanOrEqual(0);
-        expect([seen.fadeTop, seen.fadeBottom, seen.mask]).toEqual([false, false, "none"]);
+        expect(seen.mask).toBe("none");
 
         // A 20-line paste shows its end: the top fades, the bottom does not.
         await page.keyboard.press("ControlOrMeta+A");
@@ -237,8 +233,7 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
         seen = await edges(page);
         expect(seen.end).toBeGreaterThan(100);
         expect(seen.end - seen.top).toBeLessThan(2);
-        expect([seen.fadeTop, seen.fadeBottom]).toEqual([true, false]);
-        expect(seen.mask).toContain("gradient");
+        expect(seen.mask).toBe("none");
 
         // The wheel up to the top: the bottom fades, the top does not.
         const box = (await page.locator(FIELD).boundingBox())!;
@@ -248,25 +243,23 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
         await settle(page);
         seen = await edges(page);
         expect(seen.top).toBe(0);
-        expect([seen.fadeTop, seen.fadeBottom]).toEqual([false, true]);
-        expect(seen.mask).toContain("gradient");
+        expect(seen.mask).toBe("none");
 
         // In the middle both edges fade.
         await scrollTo(page, "middle");
         seen = await edges(page);
         expect(seen.top).toBeGreaterThan(0);
-        expect([seen.fadeTop, seen.fadeBottom]).toEqual([true, true]);
-        expect(seen.mask).toContain("gradient");
+        expect(seen.mask).toBe("none");
 
         // Back at the end, the bottom mark goes again; cut back to a short draft, both go and so does the mask.
         await scrollTo(page, "end");
         seen = await edges(page);
-        expect([seen.fadeTop, seen.fadeBottom]).toEqual([true, false]);
+        expect(seen.mask).toBe("none");
         await page.keyboard.press("ControlOrMeta+A");
         await page.keyboard.type("short again");
         await settle(page);
         seen = await edges(page);
-        expect([seen.fadeTop, seen.fadeBottom, seen.mask]).toEqual([false, false, "none"]);
+        expect(seen.mask).toBe("none");
         await page.close();
       });
 
@@ -278,7 +271,7 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
         expect(seen.end).toBeGreaterThan(100);
         // Its last line is clear of the bottom fade: the field is at its end, the bottom edge plain.
         expect(seen.end - seen.top).toBeLessThan(2);
-        expect(seen.fadeBottom).toBe(false);
+        expect(seen.mask).toBe("none");
         await page.close();
       });
 
@@ -320,24 +313,19 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
           };
         }, FIELD);
         expect(gap.typed).toBe("x");
-        expect(gap.band).toBeGreaterThan(0);
-        // The caret's glyph starts below the band (one pixel for subpixel layout and scroll rounding).
-        expect(gap.above).toBeGreaterThanOrEqual(gap.band - 1);
+        expect(gap.band).toBe(0);
+        expect(gap.above).toBeGreaterThanOrEqual(0);
         await page.close();
       });
 
-      // coord-deputy 2026-10-21: the composer sits on glass, so the fade must be an alpha mask on the
-      // scroller, never a painted gradient, pseudo-element or overlay that would turn opaque there.
-      test("the faded edge is see-through: what is behind the prompt shows, nothing covers it", async () => {
+      test("the prompt edge has no mask or painted overlay", async () => {
         current = browsers.get(name);
         const page = await pane!.open();
         await paste(page, 20);
         await scrollTo(page, "middle");
         const seen = await edges(page);
-        expect([seen.fadeTop, seen.fadeBottom]).toEqual([true, true]);
-        // An alpha mask on the scroller itself, in WebKit's prefixed form too.
-        expect(seen.mask).toContain("linear-gradient");
-        expect(seen.webkitMask).toContain("linear-gradient");
+        expect(seen.mask).toBe("none");
+        expect(seen.webkitMask).not.toContain("linear-gradient");
 
         const box = (await page.locator(FIELD).boundingBox())!;
         const x = box.x + box.width / 2;
@@ -355,9 +343,8 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
         );
         expect(hits).toEqual([true, true]);
 
-        // The draft's text block drawn solid red over a solid green composer: at the faded top row
-        // the red is (nearly) gone and the green behind the prompt shows; mid-field it is solid red.
-        // A painted overlay (in the composer's own colour or any other) would hide the green.
+        // The draft's text block draws solid red over a solid green composer at both edges: there
+        // is no painted fade overlay to hide the background or cut a line.
         await page.addStyleTag({
           content: `${EDITABLE} { background: rgb(255, 0, 0) !important; color: rgb(255, 0, 0) !important; caret-color: transparent !important; }
             .acpmux-composer-box { background: rgb(0, 255, 0) !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }`,
@@ -367,10 +354,10 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
         expect(middle[0]).toBeGreaterThan(200);
         expect(middle[1]).toBeLessThan(60);
         expect(middle[2]).toBeLessThan(60);
-        const faded = await pixel(page, x, box.y + 1);
-        expect(faded[0]).toBeLessThan(60);
-        expect(faded[1]).toBeGreaterThan(200);
-        expect(faded[2]).toBeLessThan(60);
+        const edge = await pixel(page, x, box.y + 1);
+        expect(edge[0]).toBeGreaterThan(200);
+        expect(edge[1]).toBeLessThan(60);
+        expect(edge[2]).toBeLessThan(60);
         await page.close();
       });
 
@@ -464,14 +451,13 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
         await page.close();
       });
 
-      test("Reduce Transparency keeps plain edges", async () => {
+      test("Reduce Transparency keeps the prompt edge unmasked", async () => {
         current = browsers.get(name);
         const page = await pane!.open();
         await page.evaluate(() => document.documentElement.setAttribute("data-reduce-transparency", ""));
         await paste(page, 20);
         await scrollTo(page, "middle");
         const seen = await edges(page);
-        expect([seen.fadeTop, seen.fadeBottom]).toEqual([true, true]);
         expect(seen.mask).toBe("none");
         await page.close();
       });

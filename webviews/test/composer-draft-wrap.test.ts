@@ -299,4 +299,40 @@ await requireBrowserLane("composer-draft-wrap.test.ts", async () => {
       expect(blurredOver!.cutters).toEqual([]);
     });
   }
+
+  for (const [engine] of engines) {
+    test(`${engine}: the chat composer snaps 1-12 wrapped and unwrapped lines to its line grid`, async () => {
+      const surface = surfaces[1]!;
+      for (const width of [300, 760]) {
+        const page = await open(engine, surface, width);
+        for (const wrapping of [false, true]) {
+          for (let count = 1; count <= 12; count++) {
+            await page.keyboard.press("ControlOrMeta+A");
+            await page.keyboard.press("Backspace");
+            const line = wrapping ? `line ${"word ".repeat(24)}` : "short line";
+            await page.keyboard.insertText(Array.from({ length: count }, (_, index) => `${line} ${index}`).join("\n"));
+            await painted(page);
+            const grid = await page.evaluate((selector) => {
+              const field = document.querySelector<HTMLElement>(selector)!;
+              const style = getComputedStyle(field);
+              const lineHeight = parseFloat(style.lineHeight);
+              const padding = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
+              const maxHeight = parseFloat(style.maxHeight);
+              return {
+                lineHeight,
+                scrollTop: field.scrollTop,
+                maxHeight,
+                contentHeight: field.scrollHeight - padding,
+                maxContent: maxHeight - padding,
+              };
+            }, surface.scroller);
+            expect(Math.abs(grid.scrollTop % grid.lineHeight)).toBeLessThan(1.1);
+            expect(Math.abs(grid.contentHeight % grid.lineHeight)).toBeLessThan(1.1);
+            expect(Math.abs(grid.maxContent % grid.lineHeight)).toBeLessThan(1.1);
+          }
+        }
+        await page.close();
+      }
+    });
+  }
 });

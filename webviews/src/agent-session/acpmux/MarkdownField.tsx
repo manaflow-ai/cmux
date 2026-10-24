@@ -5,7 +5,6 @@ import { liftInlineImages, withoutMarkdownImages } from "./inlineImages";
 import { isImeKeyEvent } from "../../pages/shared/imeKeys";
 import { activeFormats, applyFormat, type MarkdownFormat } from "./markdownFormat";
 import "./markdownField.css";
-import { followScrollEdges } from "./summary/scrollEdges";
 import { followActionsWidth } from "./composerScrollLane";
 import { MINIMAL_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
 import {
@@ -255,11 +254,20 @@ const COMMIT_RETURN_MS = 500;
 /** Return or keypad Enter, also when an input method reports its key as "Process". */
 const isReturnKey = (event: KeyboardEvent) =>
   event.key === "Enter" || event.code === "Enter" || event.code === "NumpadEnter";
-/// The soft band at a long draft's scrolled edges (markdownField.css reads it as
-/// `--acpmux-md-fade-band`). The caret reveal keeps the caret this far from the field's edge, so the
-/// caret's line never sits in the fade. The attachment row above the prompt fades its scrolled sides
-/// by the same band (composer/attachmentIntake.tsx).
+/// The attachment row above the prompt keeps its own horizontal fade band.
 export const FADE_BAND_PX = 18;
+
+/** Aligns a draft's scroll offset to its line grid, leaving padding at the field's edges intact. */
+export function snapMarkdownScroll(node: HTMLElement): number {
+  const style = getComputedStyle(node);
+  const line = parseFloat(style.lineHeight) || 22;
+  const max = Math.max(0, node.scrollHeight - node.clientHeight);
+  const end = Math.max(0, Math.round(max / line) * line);
+  const target =
+    node.scrollTop >= max - line / 2 ? max : Math.min(end, Math.max(0, Math.round(node.scrollTop / line) * line));
+  if (Math.abs(target - node.scrollTop) > 0.5) node.scrollTop = target;
+  return target;
+}
 
 /** The document as the prompt's markdown, keeping the spaces typed at its end. */
 function promptMarkdown(editor: Editor | undefined, view: EditorView): string {
@@ -433,14 +441,16 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     // Set from a passed-on Return the field took until its key comes up: the paragraph an input
     // method may still insert for that key is the same Return, not a second one.
     let returnTaken = false;
-    // A paste that ends the draft shows the field's whole end, its bottom inset too: the caret
-    // reveal stops a margin short in WebKit, which would leave the last line under the bottom fade
-    // (markdownField.css). Every paste path ends here.
+    // A paste that ends the draft shows the field's whole end, including its bottom inset. Every
+    // paste path ends here.
     const showPastedEnd = (state: EditorState) => {
       if (Selection.atEnd(state.doc).to !== state.selection.to) return;
       requestAnimationFrame(() => {
         const field = root.parentElement;
-        if (!disposed && field) field.scrollTop = field.scrollHeight;
+        if (!disposed && field) {
+          field.scrollTop = field.scrollHeight;
+          snapMarkdownScroll(field);
+        }
       });
     };
     // Keys reach the composer first, as a textarea's keydown would.
@@ -704,15 +714,14 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         }));
         // The field fills a box (the composer, a prompt editor) and its caret shows focus: a text
         // field is :focus-visible on every focus, so desktop.css's ring drew a rectangle inside it.
-        // The scroll margin covers the field's own padding and the fade band at a scrolled edge, so a
-        // long draft scrolls the caret's whole line into view, clear of the fade.
+        // Scroll offsets are snapped to the line grid after ProseMirror reveals the caret.
         ctx.update(editorViewOptionsCtx, (options) => ({
           ...options,
           attributes: { class: "acpmux-md", "data-focus-ring": "none" },
           // A copy's plain text is the lines as shown, not Milkdown's markdown (which writes a blank
           // line as `<br />`); a view prop, so it comes before the clipboard plugin's.
           clipboardTextSerializer: copiedText,
-          scrollMargin: FADE_BAND_PX,
+          scrollMargin: 0,
         }));
       })
       .use(composerKeys)
@@ -778,16 +787,27 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   useLayoutEffect(applyAttributes);
 
   const wrapper = useRef<HTMLDivElement | null>(null);
-  // A long draft scrolls inside this box past its cap (markdownField.css): the edge with more draft
-  // past it is marked, and the CSS fades it (Leo 2026-10-21). A DOM with no layout (the jsdom and
-  // happy-dom unit tests) has no observers and nothing scrolls there.
-  useEffect(
-    () =>
-      wrapper.current && typeof ResizeObserver === "function" && typeof MutationObserver === "function"
-        ? followScrollEdges(wrapper.current)
-        : undefined,
-    [],
-  );
+  // A long draft scrolls inside this box past its cap (markdownField.css). Scroll offsets stay on
+  // the line grid, so growth and wheel scrolling never leave a half line at an edge. A DOM with
+  // no layout (the jsdom and happy-dom unit tests) has no observers and nothing scrolls there.
+  useEffect(() => {
+    const node = wrapper.current;
+    if (!node || typeof MutationObserver !== "function") return;
+    let frame = 0;
+    const settle = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => snapMarkdownScroll(node));
+    };
+    const content = new MutationObserver(settle);
+    content.observe(node, { childList: true, characterData: true, subtree: true });
+    node.addEventListener("scroll", settle, { passive: true });
+    settle();
+    return () => {
+      cancelAnimationFrame(frame);
+      content.disconnect();
+      node.removeEventListener("scroll", settle);
+    };
+  }, []);
   // In the composer's box, its scrollbar runs down the box's right edge, clear of the actions
   // (composerScrollLane.ts).
   useEffect(
@@ -795,7 +815,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     [],
   );
   // Under the scrollbar fade (agentPane.debug.scrollerFade, on by default since Lawrence 2026-10-23)
-  // a long draft's thumb fades in and out with the scrolling marks, as the transcript's does.
+  // a long draft's thumb fades in and out while it scrolls, as the transcript's does.
   useEffect(() => (wrapper.current ? followShownScrollerFade(wrapper.current) : undefined), []);
   const handle = useRef<MarkdownFieldHandle>(undefined);
   useImperativeHandle(
@@ -944,8 +964,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   return (
     <div
       className={`acpmux-md-field ${className ?? ""}`}
-      // A long draft's thin scrollbar (scrollers.ts): kept while it overflows, or under the fade
-      // shown while it scrolls and while the pointer is near its edge.
+      // A long draft's thin scrollbar (scrollers.ts): kept while it overflows and while the pointer
+      // is near the edge.
       {...{ [MINIMAL_SCROLLER_ATTRIBUTE]: "" }}
       style={{ "--acpmux-md-fade-band": `${FADE_BAND_PX}px` } as React.CSSProperties}
       ref={(element: MarkdownFieldElement | null) => {
