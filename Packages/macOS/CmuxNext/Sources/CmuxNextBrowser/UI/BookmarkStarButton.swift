@@ -79,7 +79,7 @@ final class BookmarkStarButton: NSView, PointerHoverReporting {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        hover?.refresh()
+        hover?.ownerDidMoveToWindow()
     }
 
     nonisolated override var wantsUpdateLayer: Bool { true }

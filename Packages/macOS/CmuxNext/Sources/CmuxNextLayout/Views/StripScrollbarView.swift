@@ -174,6 +174,7 @@ final class StripScrollbarView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         syncOccluder()
+        pointerHover?.ownerDidMoveToWindow()
     }
 
     /// The shown thumb's band (full band height, so hover thickening stays inside it) in window

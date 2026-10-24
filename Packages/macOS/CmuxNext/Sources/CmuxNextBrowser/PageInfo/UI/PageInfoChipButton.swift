@@ -115,7 +115,7 @@ final class PageInfoChipButton: NSView, PointerHoverReporting {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        hover?.refresh()
+        hover?.ownerDidMoveToWindow()
     }
 
     /// The page a drag that starts on the chip carries; nil: no drag.
