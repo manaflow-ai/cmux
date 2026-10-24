@@ -70,7 +70,8 @@ import Testing
         // The pool still runs a burst of short tasks (one per core and more) while every lane slot is blocked.
         let count = ProcessInfo.processInfo.activeProcessorCount * 4
         let done = await withTaskGroup(of: Int.self) { group in
-            for index in 0..<count { group.addTask { index } }
+            // At userBlocking's priority: the pool is per QoS, and userBlocking items are among the blocked ones.
+            for index in 0..<count { group.addTask(priority: .high) { index } }
             var finished = 0
             for await _ in group { finished += 1 }
             return finished

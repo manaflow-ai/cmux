@@ -68,13 +68,23 @@ import Testing
         await #expect(throws: CancellationError.self) { try await run.value }
     }
 
+    @Test func aCallerCancelledAsItStartsEndsAtOnce() async {
+        // Cancel races the run's start: every run ends (none hangs), whichever side wins.
+        for _ in 0..<200 {
+            let run = Task { try await processes.run(Self.tool("/bin/sleep", "30")) }
+            run.cancel()
+            _ = try? await run.value
+        }
+    }
+
     @Test func manyRunningChildrenLeaveTheCooperativePoolFree() async throws {
         // More waiting children than the pool has threads: with waitUntilExit inside tasks they would hold
         // every pool thread, and the task group below would never run.
         let count = ProcessInfo.processInfo.activeProcessorCount * 2
-        let runs = (0..<count).map { _ in Task { try await processes.run(Self.tool("/bin/sleep", "30")) } }
+        let runs = (0..<count).map { _ in Task(priority: .high) { try await processes.run(Self.tool("/bin/sleep", "30")) } }
         let done = await withTaskGroup(of: Int.self) { group in
-            for index in 0..<(count * 4) { group.addTask { index } }
+            // At the runs' priority: the pool is per QoS, so only same-priority work would starve.
+            for index in 0..<(count * 4) { group.addTask(priority: .high) { index } }
             var finished = 0
             for await _ in group { finished += 1 }
             return finished

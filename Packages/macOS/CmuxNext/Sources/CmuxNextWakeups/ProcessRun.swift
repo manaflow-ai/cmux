@@ -12,6 +12,8 @@ final class ProcessRun: Sendable {
     private struct State {
         var continuation: CheckedContinuation<ProcessOutcome, any Error>?
         var resolved = false
+        /// A stop that came before ``start(_:)`` had the continuation: start resumes with it and launches nothing.
+        var early: Result<ProcessOutcome, any Error>?
         var output = Data()
         var errorOutput = Data()
         var sources: [any DispatchSourceRead] = []
@@ -33,7 +35,12 @@ final class ProcessRun: Sendable {
     }
 
     func start(_ continuation: CheckedContinuation<ProcessOutcome, any Error>) {
-        state.withLock { $0.continuation = continuation }
+        let early = state.withLock { state -> Result<ProcessOutcome, any Error>? in
+            if state.resolved { return state.early ?? .failure(CancellationError()) }
+            state.continuation = continuation
+            return nil
+        }
+        if let early { return continuation.resume(with: early) }
         let process = Process()
         process.executableURL = request.executable
         process.arguments = request.arguments
@@ -110,15 +117,16 @@ final class ProcessRun: Sendable {
 
     @discardableResult
     private func resolve(_ result: Result<ProcessOutcome, any Error>) -> Bool {
-        let continuation = state.withLock { state -> CheckedContinuation<ProcessOutcome, any Error>? in
-            guard !state.resolved else { return nil }
+        let (resolved, continuation) = state.withLock { state -> (Bool, CheckedContinuation<ProcessOutcome, any Error>?) in
+            guard !state.resolved else { return (false, nil) }
             state.resolved = true
+            // Before start: start resumes with it.
+            if state.continuation == nil { state.early = result }
             defer { state.continuation = nil }
-            return state.continuation
+            return (true, state.continuation)
         }
-        guard let continuation else { return false }
-        continuation.resume(with: result)
-        return true
+        continuation?.resume(with: result)
+        return resolved
     }
 
     /// A read source on `fd`, which it makes non-blocking, so the exit drain never blocks on a pipe a
