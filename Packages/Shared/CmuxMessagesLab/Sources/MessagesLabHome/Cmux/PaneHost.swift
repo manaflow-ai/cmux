@@ -74,8 +74,13 @@ final class HostView: NSView {
     /// MessagesLab b6760b6: the window's update observer and the window place the rows last read
     /// (PaneHost+WindowPlace.swift).
     var windowPlaceObserver: NSObjectProtocol?
+    /// cmux (perf100): the window's occlusion observer (PaneHost+WindowPlace.swift).
+    var occlusionObserver: NSObjectProtocol?
     var lastWindowPlace: (origin: CGPoint, axis: CGPoint)?
-    deinit { windowPlaceObserver.map(NotificationCenter.default.removeObserver) }
+    deinit {
+        windowPlaceObserver.map(NotificationCenter.default.removeObserver)
+        occlusionObserver.map(NotificationCenter.default.removeObserver)
+    }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -206,6 +211,7 @@ final class HostView: NSView {
         super.viewDidMoveToWindow()
         controller?.windowChanged()
         observeWindowPlace()  // MessagesLab b6760b6: another window, another place (PaneHost+WindowPlace.swift)
+        controller?.intents?.shownChanged()
         restoreClipMaskOutsideLiveResize()
     }
 
@@ -255,7 +261,16 @@ final class HostView: NSView {
     }
 
     /// A tab shown again (it or a container was hidden): it may have missed a scale change while hidden.
-    override func viewDidUnhide() { super.viewDidUnhide(); controller?.followWindowScale() }
+    /// cmux (perf100): shown or hidden, the live line's seconds start or stop (ChatIntents.shownChanged).
+    override func viewDidUnhide() { super.viewDidUnhide(); controller?.followWindowScale(); controller?.intents?.shownChanged() }
+    override func viewDidHide() { super.viewDidHide(); controller?.intents?.shownChanged() }
+
+    /// cmux (perf100): on screen: in a window that is not fully covered, minimized or on another Space, and
+    /// neither it nor a container hidden (another tab, another workspace).
+    var isShownOnScreen: Bool {
+        guard let window, window.occlusionState.contains(.visible) else { return false }
+        return !isHiddenOrHasHiddenAncestor
+    }
 
     // MARK: Events outside the transcript (the header and compose bar)
 

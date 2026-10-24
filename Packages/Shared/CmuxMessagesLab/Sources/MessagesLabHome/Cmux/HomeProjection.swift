@@ -141,6 +141,10 @@ final class HomeProjection: @preconcurrency ChatIntents {
         controller.intents = self
         liveLine.dispatch = { [weak controller] text in if controller?.store != nil { controller?.dispatch(.setNotice(text)) } }
         liveLine.onTick = { [weak self] in self?.turnPopover?.refresh() }
+        // An open turn popover is its own window: its seconds keep counting while it shows.
+        liveLine.isShown = { [weak self, weak controller] in
+            (controller?.host.isShownOnScreen ?? false) || self?.turnPopover?.isShown == true
+        }
         liveLine.onClose = { [weak self] in self?.turnPopover?.close() }
         video.controller = controller
         // A finished picture redraws only the rows that show it (not every attachment row shown).
@@ -786,6 +790,11 @@ final class HomeProjection: @preconcurrency ChatIntents {
 
     func rowsPlaced() {
         video.place()
+    }
+
+    /// cmux (perf100): the live line's seconds run only while the pane shows.
+    func shownChanged() {
+        liveLine.shownChanged()
     }
 
     func scrolled() {
