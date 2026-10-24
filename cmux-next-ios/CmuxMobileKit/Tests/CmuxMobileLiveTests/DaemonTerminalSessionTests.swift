@@ -193,6 +193,8 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         let session = DaemonTerminalSession(surface: 7) {
             DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
         }
+        // A frozen clock: a slow host must not age these sends past `inputStallLimit`.
+        session.now = { 1000 }
         session.start { _ in }
         try await waitUntil { session.isAttached }
         let sends = { daemon.recorded.filter { $0["cmd"] as? String == "send" }
@@ -222,6 +224,8 @@ final class FakeTerminalDaemon: @unchecked Sendable {
             return DaemonClient(channel: channel)
         }
         var events: [TerminalSessionEvent] = []
+        // A frozen clock: a slow host must not age these sends past `inputStallLimit`.
+        session.now = { 1000 }
         session.start { events.append($0) }
         try await waitUntil { session.isAttached }
         let sends = { daemon.recorded.filter { $0["cmd"] as? String == "send" }.count }
@@ -276,6 +280,8 @@ final class FakeTerminalDaemon: @unchecked Sendable {
             DaemonClient(channel: GatedChannel(try await link.openChannel(service: "daemon", args: [:]), gate: gate))
         }
         var events: [TerminalSessionEvent] = []
+        // A frozen clock: a slow host must not age these sends past `inputStallLimit`.
+        session.now = { 1000 }
         session.start { events.append($0) }
         try await waitUntil { session.isAttached }
         session.send(Data("a".utf8))
@@ -306,6 +312,8 @@ final class FakeTerminalDaemon: @unchecked Sendable {
             DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
         }
         session.tailProbeDelay = .milliseconds(30)
+        // A frozen clock: a slow host must not age these sends past `inputStallLimit`.
+        session.now = { 1000 }
         session.start { _ in }
         try await waitUntil { session.isAttached }
         session.send(Data("a".utf8))
