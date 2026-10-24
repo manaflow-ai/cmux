@@ -2181,6 +2181,7 @@
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
+          "equalizeSplitsOnDividerDoubleClick": "عند التفعيل، يؤدي النقر المزدوج على فاصل إلى جعل الأجزاء في صفه أو عموده متساوية الحجم. تحتفظ الصفوف والأعمدة الأخرى بأحجامها.",
           "confirmQuit": "يتحكم في وقت طلب cmux التأكيد قبل الإنهاء. تنتهي إصدارات DEV فوراً دائماً بغض النظر عن هذا الإعداد. يظل app.warnBeforeQuit القديم مقبولاً كخيار احتياطي منطقي.",
           "windowTitleTemplate": "قالب اختياري لعنوان NSWindow. اتركه فارغاً للحفاظ على سلوك العنوان الافتراضي الحالي في cmux، بما في ذلك الرجوع إلى الدليل الحالي. العناصر النائبة المدعومة: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "devWindowDisplay": "اسم عرض يُستخدم فقط في إصدارات DEBUG عند فتح نوافذ جديدة. تستخدم القيمة الفارغة الإعداد الافتراضي للنظام.",

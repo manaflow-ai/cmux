@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
-"""Nightly workflows never run on Blacksmith.
+"""Nightly macOS work stays on trusted Macs; fast orchestration may use Blacksmith.
 
-User decision 2026-10-19: cmux NIGHTLY, cmux NEXT NIGHTLY and the cmux-tui
-nightly build on our own Mac minis (the trusted glaeda pools), and every other
-nightly job runs on an ephemeral GitHub-hosted runner. No nightly job may name
-a Blacksmith label, and no nightly job may read a repository runner variable
-whose value or fallback is Blacksmith (LINUX_RUNNER, MACOS_RUNNER_*, ...),
-because setting such a variable would silently move the nightly back.
+The app build, signing, notarization and GUI checks stay on trusted Macs.
+Non-Mac orchestration uses the trusted fast-check runner; shared runner
+variables remain forbidden because they can silently move a job back to a
+single-host queue.
 """
 
 from __future__ import annotations
@@ -72,14 +70,15 @@ class NightlyOffBlacksmithTests(unittest.TestCase):
         for required in ("nightly.yml", "auto-resume-nightly-notarization.yml"):
             self.assertIn(required, names)
 
-    def test_no_nightly_job_names_blacksmith(self) -> None:
+    def test_only_fast_orchestration_names_blacksmith(self) -> None:
         failures = [
             f"{path.name}:{number}: {line.strip()}"
             for path in nightly_workflows()
             for number, line in code_lines(path)
             if BLACKSMITH.search(line)
+            and not ("runs-on:" in line and "blacksmith-2vcpu-ubuntu-2404" in line)
         ]
-        self.assertEqual(failures, [], "nightly workflows must not route to Blacksmith")
+        self.assertEqual(failures, [], "only non-Mac orchestration may route to Blacksmith")
 
     def test_no_nightly_job_reads_a_shared_blacksmith_runner_variable(self) -> None:
         failures = [
@@ -152,8 +151,8 @@ class NightlyOffBlacksmithTests(unittest.TestCase):
                 self.assertNotRegex(runs_on, SHARED_RUNNER_VARIABLES)
 
     @unittest.skipUnless((WORKFLOWS / "cmux-next.yml").exists(), "no cmux-next on this branch")
-    def test_finished_push_runs_start_a_nightly_next_without_a_clock(self) -> None:
-        """Every finished feat-cmux-next push run asks for a NEXT nightly; no cron does.
+    def test_finished_push_runs_start_a_nightly_next_with_a_thirty_minute_catch_up(self) -> None:
+        """Every finished feat-cmux-next push run asks for a NEXT nightly.
 
         A push whose own request was cancelled by the next push, or whose
         request waited on a stalled pool, asked for nothing. The tick closes
@@ -168,8 +167,8 @@ class NightlyOffBlacksmithTests(unittest.TestCase):
         path = WORKFLOWS / "nightly-next-tick.yml"
         self.assertTrue(path.exists(), "nightly-next-tick.yml must exist")
         text = path.read_text(encoding="utf-8")
-        self.assertNotRegex(text, r"(?m)^\s+schedule:")
-        self.assertNotRegex(text, r"(?m)^\s+- cron:")
+        self.assertRegex(text, r"(?m)^\s+schedule:\s*$")
+        self.assertRegex(text, r'(?m)^\s+- cron: "7,37 \* \* \* \*"$')
         self.assertIn("workflow_run:", text)
         workflows = re.search(r"(?m)^\s+workflows: \[(.+)\]$", text)
         self.assertIsNotNone(workflows, "workflow_run must name its workflows")
