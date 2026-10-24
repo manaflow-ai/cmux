@@ -15,7 +15,6 @@ policy = "ask"
 
 [capabilities]
 effort = ["low", "medium", "high"]
-permission_modes = true
 resume = true
 
 [models]
