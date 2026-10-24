@@ -1070,6 +1070,7 @@ async fn dispatch_request(
                 trust_gate: super::trust_gate::gated(conn.origin, &params),
                 steer_only: flag("steerOnly") == Some(true),
                 interrupt: steer && flag("interrupt") == Some(true),
+                interrupt_turn: None,
                 provenance,
                 agent,
                 after_turn: None,
