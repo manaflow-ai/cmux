@@ -215,6 +215,7 @@ import UniformTypeIdentifiers
     /// the CI runner's Home cache and Home list. Only the real app process names the launch's Chief
     /// home (`AppEnvironment.launchChiefHome`, set in `main`); then the reads are that home's.
     @Test func aServicesGraphBuiltOutsideTheLaunchReadsNoHomeFile() throws {
+        _ = NSApplication.shared  // the services graph is the app process's: it needs the app object
         let services = AppServices(environment: AppEnvironment.current([:]))
         #expect(services.launchFiles.home == nil, "a graph built outside the launch read the real Chief home's Home files")
 

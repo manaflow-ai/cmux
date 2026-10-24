@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextAgentPane
 import Foundation
 import Testing
@@ -53,6 +54,7 @@ struct UnsentDraftTests {
 
         var environment = AppEnvironment.current([:])
         environment.sidebarSnapshotFile = SidebarSnapshotFile(url: directory.appending(path: SidebarSnapshotFile.fileName))
+        _ = NSApplication.shared  // the services graph is the app process's: it needs the app object
         let services = AppServices(environment: environment)
         await services.launchFiles.agent.unsentDrafts.backgroundReadFinished()
         // The file is gone before the store is made: the store holds what the launch read.
