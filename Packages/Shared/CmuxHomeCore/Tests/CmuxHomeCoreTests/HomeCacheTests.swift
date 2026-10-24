@@ -61,7 +61,7 @@ import CmuxHomeCoreTestSupport
             return message
         }
         snapshot.windows[Self.austin] = edited
-        try cache.save(snapshot)
+        try await cache.save(snapshot)
         let store = HomeStore(source: MockHomeSource(options: .immediate), cache: cache, cacheWriteDelay: .zero)
         store.start()
         #expect(!texts(store, Self.austin).isEmpty && texts(store, Self.austin).allSatisfy { $0 == "stale copy" })
@@ -112,7 +112,7 @@ import CmuxHomeCoreTestSupport
         var snapshot = try #require(cache.load())
         snapshot.sends = [HomeCachedSend(key: key, conversation: Self.austin, text: "sent before quitting",
                                          issuedAt: Date(timeIntervalSince1970: 1_791_000_000), failed: false)]
-        try cache.save(snapshot)
+        try await cache.save(snapshot)
         let source = MockHomeSource(options: .immediate)
         let store = HomeStore(source: source, cache: cache, cacheWriteDelay: .zero)
         store.start()
@@ -133,7 +133,7 @@ import CmuxHomeCoreTestSupport
         var snapshot = try #require(cache.load())
         snapshot.sends = [HomeCachedSend(key: key, conversation: Self.austin, text: "did not go",
                                          issuedAt: Date(timeIntervalSince1970: 1_791_000_000), failed: true)]
-        try cache.save(snapshot)
+        try await cache.save(snapshot)
         var offline = MockHomeSource.Options.immediate
         offline.startsOnline = false
         let store = HomeStore(source: MockHomeSource(options: offline), cache: cache, cacheWriteDelay: .zero)
