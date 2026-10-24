@@ -438,3 +438,4 @@ the gap, no row left out of place after drop or cancel).
 - 2026-10-23: Leo's 441 follow-up keeps the group rail on the header's left edge and adds only the tapered top cut where the rail leaves the bar.
 
 - 2026-10-23: Follow-up repair keeps the tapered rail mask taller than both old and destination bounds during collapse springs.
+- 2026-10-24: Codex #24700 keeps the two-point rail's left edge straight and gives its right edge a six-point Chrome-style taper into the header, with the view frame clipping retained spring coverage.
