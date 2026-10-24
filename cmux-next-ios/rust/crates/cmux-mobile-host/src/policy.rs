@@ -1424,6 +1424,19 @@ mod tests {
         assert_eq!(sent["id"], "c1");
     }
 
+    /// A relay sub-view's identity from a phone never names a user or a
+    /// device (review 2 finding 1): the daemon gives it its own key.
+    #[test]
+    fn phone_sub_view_identity_names_no_user_or_device() {
+        let line = br#"{"cmd":"resize-attached-view","id":"r1","surface":7,"view":"v","cols":40,"rows":20,"identity":{"user_id":"u","device_id":"ipad-1","device_kind":"ipad","device_name":"iPad"}}"#;
+        let Verdict::Rewrite(sent) = policy().evaluate(line) else { panic!("not rewritten") };
+        let sent: Value = serde_json::from_slice(&sent).unwrap();
+        assert_eq!(sent["identity"], serde_json::json!({"device_kind":"ipad","device_name":"iPad"}));
+        assert_eq!(sent["cols"], 40);
+        let bare = br#"{"cmd":"resize-attached-view","id":"r2","surface":7,"view":"v","cols":40,"rows":20}"#;
+        assert_eq!(policy().evaluate(bare), Verdict::Forward);
+    }
+
     #[test]
     fn mirrors_the_swift_allowlist() {
         let swift = include_str!(

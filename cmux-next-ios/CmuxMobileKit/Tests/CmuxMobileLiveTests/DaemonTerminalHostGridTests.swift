@@ -37,14 +37,18 @@ import Testing
         session.start { seen.append($0) }
         session.handle(FakeTerminalDaemon.line(["event": "vt-state", "surface": 7, "cols": 120, "rows": 40,
                                                 "data": Data("wide".utf8).base64EncodedString()]))
-        let columns = seen.firstIndex(of: .hostColumns(120))
+        let columns = seen.firstIndex(of: .hostGrid(columns: 120, rows: 40))
         let bytes = seen.firstIndex(of: .output(Data("wide".utf8)))
         #expect(columns != nil && bytes != nil && columns! < bytes!)
         seen.removeAll()
         session.handle(FakeTerminalDaemon.line(["event": "vt-state", "surface": 7, "cols": 120, "rows": 40, "data": ""]))
-        #expect(!seen.contains(.hostColumns(120)), "the same columns again is not a change")
+        #expect(!seen.contains(.hostGrid(columns: 120, rows: 40)), "the same grid again is not a change")
         session.handle(FakeTerminalDaemon.line(["event": "vt-state", "surface": 7, "cols": 90, "rows": 40, "data": ""]))
-        #expect(seen.contains(.hostColumns(90)))
+        #expect(seen.contains(.hostGrid(columns: 90, rows: 40)))
+        // Review 2 finding 6: the rows travel with the columns, in byte order.
+        seen.removeAll()
+        session.handle(FakeTerminalDaemon.line(["event": "vt-state", "surface": 7, "cols": 90, "rows": 20, "data": ""]))
+        #expect(seen.contains(.hostGrid(columns: 90, rows: 20)), "a rows change alone is a grid change")
     }
 
     /// Review finding 7: the letterbox note follows the size state, not the

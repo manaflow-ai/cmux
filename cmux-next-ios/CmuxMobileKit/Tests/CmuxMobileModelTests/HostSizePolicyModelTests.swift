@@ -15,10 +15,16 @@ import Testing
         var waiting: [(HostSizePolicy, CheckedContinuation<Void, any Error>)] = []
         var sent: [HostSizePolicy] = []
         var loads = 0
+        /// While set, each `hostPolicy` reads the Mac's policy, then waits
+        /// here before it answers (a slow reload).
+        var holdsLoads = false
+        var waitingLoads: [CheckedContinuation<Void, Never>] = []
 
         func hostPolicy(macID: String, surface: Int?) async throws -> HostSizePolicyInfo {
             loads += 1
-            return HostSizePolicyInfo(policy: stored)
+            let read = stored
+            if holdsLoads { await withCheckedContinuation { waitingLoads.append($0) } }
+            return HostSizePolicyInfo(policy: read)
         }
 
         func setHostPolicy(macID: String, policy: HostSizePolicy) async throws -> HostSizePolicy {
@@ -108,6 +114,39 @@ import Testing
         #expect(model.info?.policy == HostSizePolicy(mode: .mac))
         mac.answer()
         await settle()
+    }
+
+    /// Review 2 finding 2: a reload that read the Mac before a save and
+    /// answers after it ends never puts the older policy back on screen.
+    @Test func aReloadOlderThanASaveDoesNotShowTheOldPolicy() async {
+        let mac = SlowMac()
+        let model = HostSizePolicyModel(macID: "m", service: mac)
+        await model.reload()
+        mac.holdsLoads = true
+        Task { await model.reload() }
+        await settle()
+        Task { await model.save(HostSizePolicy(mode: .mac)) }
+        await settle()
+        mac.answer()
+        await settle()
+        #expect(model.saving == false)
+        mac.waitingLoads.removeFirst().resume()
+        await settle()
+        #expect(model.info?.policy == HostSizePolicy(mode: .mac))
+    }
+
+    /// A refusal from a Mac whose cmux lets no phone change the policy
+    /// reads as that, not as the daemon's error text.
+    @Test func aMacThatRefusesPhonesSaysSo() async {
+        let mac = SlowMac()
+        let model = HostSizePolicyModel(macID: "m", service: mac)
+        await model.reload()
+        Task { await model.save(HostSizePolicy(mode: .mac)) }
+        await settle()
+        let (_, continuation) = mac.waiting.removeFirst()
+        continuation.resume(throwing: HostSizePolicyError.refused("forbidden: set-host-size-policy needs the cmux app or a phone lane"))
+        await settle()
+        #expect(model.saveError == HostSizePolicyModel.phoneRefusedMessage)
     }
 
     @Test func thePriorityOrderHoldsOnlyTokensTheMacAccepts() throws {

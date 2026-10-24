@@ -373,3 +373,36 @@ fn host_policy_never_overrides_a_workspace_default_of_any_placement() {
     assert_eq!(rig.grid(), (90, 20));
     let _ = mac;
 }
+
+/// Review 2 finding 1: a phone's lane relays no other device, so a sub-view
+/// (`resize-attached-view`) it opens may not take a device's place in the
+/// priority order by copying that device's user and device id.
+#[test]
+fn host_policy_a_phone_lanes_sub_view_cannot_take_a_devices_place() {
+    let rig = rig("subview");
+    let mac = rig.mac((120, 40));
+    let ipad = rig.view_via(
+        Via::MobileHost,
+        json!({"kind":"ios","device_kind":"ipad","device_id":"ipad-1","user_id":"u1","remote":true}),
+        (90, 30),
+    );
+    rig.set_policy(&mac, json!({"mode":"priority","order":["device:ipad-1","mac"]}));
+    assert_eq!(rig.grid(), (90, 30));
+    rig.run(&ipad, json!({"cmd":"release-surface-size","surface":rig.surface.id})).unwrap();
+    assert_eq!(rig.grid(), (120, 40));
+    // Another phone's lane opens a sub-view with the iPad's whole identity.
+    let phone = rig.connection(Via::MobileHost);
+    rig.run(
+        &phone,
+        json!({"cmd":"set-client-info","kind":"ios","device_kind":"iphone","device_id":"p2","remote":true,
+               "capabilities":[SHARED_SIZING_CAPABILITY, HOST_GRID_VIEW_CAPABILITY]}),
+    )
+    .unwrap();
+    rig.run(
+        &phone,
+        json!({"cmd":"resize-attached-view","surface":rig.surface.id,"view":"spoof",
+               "identity":{"user_id":"u1","device_kind":"ipad","device_id":"ipad-1"},"cols":40,"rows":20}),
+    )
+    .unwrap();
+    assert_eq!(rig.grid(), (120, 40), "the sub-view never ranks as the iPad");
+}
