@@ -14,31 +14,45 @@ final class PaletteKeycapsView: NSView {
 
     nonisolated override var isFlipped: Bool { true }
 
-    /// theme-scoped: read inside `performWithTheme` (draw) or for measuring.
-    private var attributes: [NSAttributedString.Key: Any] {
-        [.font: Typography.shortcut, .foregroundColor: Palette.textSecondary]
+    /// The last measured size and what it was measured for: a palette lays out every row's caps
+    /// on each open, scroll and density change, and each cap built the theme's attributes and
+    /// measured its text again (sweep 2026-10-23: 86 ms of main thread in one density change).
+    private var measured: (keycaps: [String], metrics: CapMetrics, size: NSSize)?
+
+    /// What a measured size depends on besides the keys: the font and the density's metrics.
+    private struct CapMetrics: Equatable {
+        let font: NSFont, cap: CGFloat, padding: CGFloat, gap: CGFloat
     }
 
-    private func capWidth(_ cap: String) -> CGFloat {
-        let text = (cap as NSString).size(withAttributes: attributes).width
+    /// The cap of `text` in `font`: at least a square, else the text with its padding.
+    private func capWidth(_ cap: String, font: NSFont) -> CGFloat {
+        let text = (cap as NSString).size(withAttributes: [.font: font]).width
         return max(PaletteLayout.keycapSize, ceil(text) + Metrics.space2 * 2)
     }
 
     override var intrinsicContentSize: NSSize {
         guard !keycaps.isEmpty else { return .zero }
-        let widths = keycaps.map(capWidth)
-        return NSSize(width: widths.reduce(0, +) + Metrics.space1 * CGFloat(keycaps.count - 1), height: PaletteLayout.keycapSize)
+        let metrics = CapMetrics(font: Typography.shortcut, cap: PaletteLayout.keycapSize, padding: Metrics.space2, gap: Metrics.space1)
+        if let measured, measured.keycaps == keycaps, measured.metrics == metrics { return measured.size }
+        let widths = keycaps.map { capWidth($0, font: metrics.font) }
+        let size = NSSize(width: widths.reduce(0, +) + metrics.gap * CGFloat(keycaps.count - 1), height: metrics.cap)
+        measured = (keycaps, metrics, size)
+        return size
     }
 
     override func draw(_ dirtyRect: NSRect) {
         var x: CGFloat = 0
         let size = PaletteLayout.keycapSize
         let y = (bounds.height - size) / 2
+        // theme-scoped: the colors are read inside `performWithTheme`.
         performWithTheme {
+            let font = Typography.shortcut
+            let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: Palette.textSecondary]
+            let fill = Palette.hoverFill
             for cap in keycaps {
-                let width = capWidth(cap)
+                let width = capWidth(cap, font: font)
                 let rect = NSRect(x: x, y: y, width: width, height: size)
-                Palette.hoverFill.setFill()
+                fill.setFill()
                 NSBezierPath(roundedRect: rect, xRadius: PaletteLayout.keycapCornerRadius, yRadius: PaletteLayout.keycapCornerRadius).fill()
                 let text = cap as NSString
                 let textSize = text.size(withAttributes: attributes)
