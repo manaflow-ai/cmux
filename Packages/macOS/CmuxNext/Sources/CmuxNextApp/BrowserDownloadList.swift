@@ -24,6 +24,9 @@ final class BrowserDownloadList {
     /// Newest last; at most `limit`.
     private(set) var items: [BrowserDownload] = []
     static let limit = 100
+    /// The toolbar's Downloads popup over this list: one per list, so one per app
+    /// (`BrowserToolbarHandlers.showDownloads`). Made at its first show.
+    @ObservationIgnored private(set) lazy var popup = BrowserDownloadsPopup()
     /// The newest download a site's automatic-downloads setting blocked:
     /// that site and the tab it came from. `browser.download.openBlocked
     /// SiteSettings` opens that site's Site settings from it.
