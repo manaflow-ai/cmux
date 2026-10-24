@@ -1633,9 +1633,11 @@ def module_of(path: str) -> str:
 # Every off-main task and queue states its priority on purpose (Lawrence's threading items 3 and 5,
 # plans/cmux-next/PATTERNS.md P14): a detached Task names `priority:`, a global queue its `qos:`, a new serial
 # queue its `qos:` or its `target:`. A plain `Task { }` is not counted: it inherits its caller's priority and actor,
-# which is right in almost every case (lead, 2026-10-24). The argument list is read to its closing parenthesis, so a
-# call split over lines counts by what it names.
-TASK_CALL = re.compile(r"\bTask\.detached\s*[({]|\bDispatchQueue\.global\(|\bDispatchQueue\(\s*label:")
+# which is right in almost every case (lead, 2026-10-24). The call is read across lines from its first token to its
+# closing parenthesis, so `DispatchQueue(\n label: ...)`, `Task.detached\n{` and `Task\n.detached(` count by what they
+# name like a one-line call.
+TASK_CALL = re.compile(r"\bTask\s*\.\s*detached\b|^\s*\.detached\b|\bDispatchQueue\s*\.\s*global\b|\bDispatchQueue\s*\(")
+TASK_OPEN = re.compile(r"(?:\bTask\s*\.\s*detached|\s*\.detached|\bDispatchQueue\s*\.\s*global|\bDispatchQueue)\s*([({])")
 STATED = re.compile(r"\b(priority|qos|target):")
 RESERVED_LEVEL = re.compile(r"\b(priority|qos):\s*(\.|\w+\.)?(userInteractive|unspecified|background)\b")
 QOS_ALLOW = "qos-allow:"
@@ -1643,26 +1645,34 @@ TASK_ARGS_MAX_LINES = 8  # an argument list longer than this is not a queue or t
 
 
 def unstated_priority(version: Version, index: int) -> tuple[bool, list[int]]:
-    """Whether the detached Task or queue call on line INDEX names no priority, QoS or target, or names a level the
-    model keeps for other work: `.userInteractive` (the main thread and the threads a frame waits for only),
-    `.unspecified` (unstated in effect) or `.background` (work nothing ever waits for: say so in the escape)."""
+    """Whether the detached Task or queue call that starts on line INDEX names no priority, QoS or target, or names
+    a level the model keeps for other work: `.userInteractive` (the main thread and the threads a frame waits for
+    only), `.unspecified` (unstated in effect) or `.background` (work nothing ever waits for: say so in the
+    escape). The call may span lines: its text is read from its first token to its closing parenthesis."""
     code = code_of(version.lines[index])
     match = TASK_CALL.search(code)
     if match is None:
         return False, []
-    rest = code[min(i for i in (code.find("(", match.start()), code.find("{", match.start())) if i >= 0):]
-    if rest.startswith("{"):
-        return True, []
-    args, depth = "", 0
-    lines = [rest] + [code_of(line) for line in version.lines[index + 1:index + TASK_ARGS_MAX_LINES]]
-    for line in lines:
-        for i, c in enumerate(line):
-            depth += c == "("
-            depth -= c == ")"
-            if depth == 0:
-                args += line[:i + 1]
-                return not STATED.search(args) or bool(RESERVED_LEVEL.search(args)), []
-        args += line + "\n"
+    if match.group(0).lstrip().startswith(".detached"):
+        previous = next((code_of(line) for line in reversed(version.lines[max(0, index - 3):index])
+                         if code_of(line).strip()), "")
+        if not re.search(r"\bTask\s*$", previous):
+            return False, []  # `.detached` of something else
+    text = "\n".join([code[match.start():]] + [code_of(line) for line in
+                                               version.lines[index + 1:index + TASK_ARGS_MAX_LINES]])
+    opened = TASK_OPEN.match(text)
+    if opened is None:
+        return False, []  # a reference (`DispatchQueue.global` passed on), not a call
+    if opened.group(1) == "{":
+        return True, []  # a trailing closure only: nothing stated
+    depth = 0
+    for i in range(opened.start(1), len(text)):
+        depth += text[i] == "("
+        depth -= text[i] == ")"
+        if depth == 0:
+            args = text[opened.start(1):i + 1]
+            return not STATED.search(args) or bool(RESERVED_LEVEL.search(args)), []
+    args = text[opened.start(1):]
     return not STATED.search(args) or bool(RESERVED_LEVEL.search(args)), []
 
 
@@ -1916,13 +1926,14 @@ def main_actor_scope():
 
 
 def ui_targets() -> set[str]:
-    """The targets HEAD's manifest builds with `uiSwiftSettings` (main-actor by default), as check-concurrency.sh
-    reads them."""
+    """The targets HEAD's manifest builds main-actor by default (`uiSwiftSettings`), each target call read alone
+    by balanced parentheses (swift_scope.package_targets). A regex across the file ran from a target with no
+    swiftSettings into the next one's: CmuxNextMallocZone took CmuxNextHome's uiSwiftSettings, and CmuxNextHome
+    (and every main-blocking call in it) was missed."""
     if "ui_targets" not in BLOCKING_CONTEXT:
         manifest = BLOCKING_CONTEXT.get("manifest")
-        found = re.findall(r'\.(?:target|executableTarget)\(\s*name:\s*"([^"]+)".*?swiftSettings:\s*(\w+)',
-                           manifest if isinstance(manifest, str) else "", re.S)
-        BLOCKING_CONTEXT["ui_targets"] = {name for name, settings in found if settings == "uiSwiftSettings"}
+        targets = swift_scope.package_targets(manifest if isinstance(manifest, str) else "")
+        BLOCKING_CONTEXT["ui_targets"] = {target.name for target in targets if target.main}
     return BLOCKING_CONTEXT["ui_targets"]
 
 
@@ -2098,12 +2109,17 @@ def undocumented_threads(changes: list[FileChange], moved: collections.Counter) 
     listed: dict[str, object] = {}
 
     def doc() -> dict[str, object]:
-        """The doc's labels and allowances, read when a push adds a thread, queue or allowance to judge."""
+        """The doc's labels and allowances, read when a push adds a thread, queue or allowance to judge. A doc or
+        section that is gone lists nothing (every new thread, queue and allowance is refused, with the reason)."""
         if not listed:
             text = BLOCKING_CONTEXT.get("threading_doc")
             if not isinstance(text, str):
-                raise RuntimeError(f"{THREADING_DOC} could not be read at the pushed head")
-            listed.update(labels=doc_labels(text), allowances=set(re.findall(r"^\|\s*`(\w+)`\s*\|", text, re.M)))
+                listed.update(labels=[], allowances=set(), missing=f"{THREADING_DOC} is missing at the pushed head")
+            elif THREADING_DOC_SECTION not in text:
+                listed.update(labels=[], allowances=set(),
+                              missing=f"{THREADING_DOC} has no \"{THREADING_DOC_SECTION}\" heading")
+            else:
+                listed.update(labels=doc_labels(text), allowances=set(re.findall(r"^\|\s*`(\w+)`\s*\|", text, re.M)))
         return listed
 
     def judge(version: Version, index: int, code: str) -> bool:
@@ -2125,11 +2141,18 @@ def undocumented_threads(changes: list[FileChange], moved: collections.Counter) 
                 return literal is not None and not label_listed(literal[1:-1], doc()["labels"])
         return True  # an unnamed thread or queue: name it and list it
 
-    return changed_debt(changes, judge)
+    hits = changed_debt(changes, judge)
+    missing = listed.get("missing")
+    if missing:
+        # Fail closed with the cause first, so the refusal says what to restore (fail open only on a rule error).
+        hits = [Added(h.path, h.number, f"[{missing}; restore it, then list this label] {h.text.strip()}")
+                for h in hits]
+    return hits
 
 
 def load_blocking_context(texts: dict[tuple[str, str], str], head: str) -> None:
-    """Keeps HEAD's threading doc and package manifest for the rules above (a missing doc fails thread-doc open)."""
+    """Keeps HEAD's threading doc and package manifest for the rules above (a missing doc or section makes
+    thread-doc refuse every new thread, queue and allowance, naming the cause)."""
     for key in ("threading_doc", "manifest", "ui_targets"):
         BLOCKING_CONTEXT.pop(key, None)
     for key, path in (("threading_doc", THREADING_DOC), ("manifest", PACKAGE_MANIFEST)):

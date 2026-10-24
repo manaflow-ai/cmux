@@ -28,6 +28,13 @@ REFUSED = [
     "let q = DispatchQueue(label: \"com.x.y\", qos: .unspecified)",
     "DispatchQueue.global(qos: .background).async {",
     "Task.detached(priority: .background) {",
+    # Split over lines: read to the call's closing parenthesis, from its first token.
+    "let q = DispatchQueue(\n        label: \"com.x.y\")",
+    "let q = DispatchQueue(\n        label: \"com.x.y\",\n        qos: .userInteractive)",
+    "Task.detached\n    {",
+    "let t = Task\n        .detached {",
+    "Task.detached(\n        name: \"x\"\n    ) {",
+    "Task\n        .detached(priority: .background) {",
 ]
 ALLOWED = [
     "Task.detached(priority: .utility) {",
@@ -46,6 +53,10 @@ ALLOWED = [
     "Task.detached(priority: .background) { // qos-allow: telemetry upload, nothing waits for it",
     "let q = DispatchQueue(\n        label: \"com.x.y\",\n        qos: .utility)",
     "Task.detached(\n        priority: .utility\n    ) {",
+    "let t = Task\n        .detached(priority: .utility) {",
+    "let q = DispatchQueue(\n        label: \"com.x.y\",\n        target: other)",
+    "let pick = DispatchQueue.global",
+    "rows\n        .detached()",
 ]
 
 

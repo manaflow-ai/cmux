@@ -252,17 +252,59 @@ class BlockingRuleTests(unittest.TestCase):
         self.commit("edits elsewhere and adds seams")
         self.assertEqual(self.refused_ids(), [])
 
-    def test_a_missing_doc_fails_thread_doc_open_and_keeps_the_others(self):
-        self.git("rm", "--quiet", "plans/cmux-next/threading-model.md")
-        self.write(f"{SERVICE}/Added.swift", 'let q = DispatchQueue(label: "x")\nfunc f() { Thread.sleep(forTimeInterval: 1) }\n')
-        self.commit("drops the doc")
-        saved = {k: os.environ.pop(k) for k in list(os.environ) if k.startswith("GIT_")}
-        try:
-            refusals, warnings = guardrails.check(self.repo, self.base, "HEAD")
-        finally:
-            os.environ.update(saved)
-        self.assertIn("main-blocking", [r.id for r, _ in refusals])
-        self.assertTrue(any(kind == "guardrails" and "thread-doc" in text for kind, text in warnings))
+    def test_a_missing_doc_or_section_refuses_a_new_queue_with_its_cause(self):
+        """The doc gone, or its heading renamed: thread-doc refuses (it used to fail open) and says what to restore."""
+        moved = DOC.replace("## Registered threads and queues", "## Threads")
+        for change, cause in ((lambda: self.git("rm", "--quiet", "plans/cmux-next/threading-model.md"), "is missing"),
+                              (lambda: self.write("plans/cmux-next/threading-model.md", moved), "has no")):
+            with self.subTest(cause=cause):
+                self.git("reset", "--quiet", "--hard", self.base)
+                change()
+                self.write(f"{SERVICE}/Added.swift",
+                           'let q = DispatchQueue(label: "com.cmuxterm.next.known")\nfunc f() { Thread.sleep(forTimeInterval: 1) }\n')
+                self.commit("drops the doc's section")
+                saved = {k: os.environ.pop(k) for k in list(os.environ) if k.startswith("GIT_")}
+                try:
+                    refusals, warnings = guardrails.check(self.repo, self.base, "HEAD")
+                finally:
+                    os.environ.update(saved)
+                found = {rule.id: hits for rule, hits in refusals}
+                self.assertIn("main-blocking", found)
+                self.assertIn("thread-doc", found)
+                texts = [hit.text for hit in found["thread-doc"]]
+                self.assertTrue(texts and all(cause in t and "threading-model.md" in t for t in texts), texts)
+                self.assertEqual([w for w in warnings if w[0] == "guardrails"], [], "thread-doc failed open")
+
+    def test_each_target_call_is_read_alone_so_a_ui_target_after_a_bare_one_is_main_actor(self):
+        """The real manifest's shape: a target with no swiftSettings (CmuxNextMallocZone) before a UI one. A regex
+        across the file gave the bare target the UI one's settings and missed the UI target."""
+        manifest = """// swift-tools-version: 6.2
+let package = Package(name: "CmuxNext", targets: [
+    // Chromium's EarlyMallocZoneRegistration, run first thing in main.
+    .target(name: "CmuxNextMallocZone"),
+    .target(name: "CmuxNextRemoteLayer", linkerSettings: [.linkedFramework("QuartzCore")]),
+    .target(
+        name: "CmuxNextUIKit",
+        dependencies: [
+            "CmuxNextMallocZone", .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
+        ],
+        resources: [.copy("Shim/a (b).h")],
+        swiftSettings: uiSwiftSettings
+    ),
+    .target(
+        name: "CmuxNextService",
+        swiftSettings: daemonSwiftSettings
+    ),
+])
+"""
+        guardrails.BLOCKING_CONTEXT.update(manifest=manifest)
+        guardrails.BLOCKING_CONTEXT.pop("ui_targets", None)
+        self.assertEqual(guardrails.ui_targets(), {"CmuxNextUIKit"})
+        self.git("reset", "--quiet", "--hard", self.base)
+        self.write(f"{PKG}/Package.swift", manifest)
+        self.write(f"{UI}/Added.swift", "func load() -> Data? {\n    try? Data(contentsOf: url)\n}\n")
+        self.commit("a UI target after a bare one")
+        self.assertIn("main-blocking", self.refused_ids())
 
     def test_the_blocking_rules_stay_fast_on_a_large_keyword_heavy_push(self):
         """60,000 added lines in main-actor code, a third of them blocking calls (no escape, so every one goes
