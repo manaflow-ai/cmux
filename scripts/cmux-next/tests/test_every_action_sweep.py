@@ -14,11 +14,16 @@
    row of that action, not a failed session, in light and STRESS alike.
 4. An unreadable closed history before the input reopens nothing (older cleanup groups never come back), and an
    app that does not come back at a relaunch (LaunchError) is a failed session in the report, not a lost report.
+5. The tab path keeps the builder's books true (the real perf-stress-session summary judges them): a lost first
+   terminal comes back as one terminal, a lost busy terminal comes back busy under its new id. A cleanup close whose
+   history entry lands after the next mark is never reopened for the next input. An interaction whose restore failed
+   gets the same relaunch and build() as an action's. A failed run prints its report into the step log, and --merge
+   reads it back from there.
 
 No app, GUI or build: the module's socket helper is replaced by a model of the topology, focus and closed history.
 Run: python3 -I scripts/cmux-next/tests/test_every_action_sweep.py
 """
-import copy, importlib.util, itertools, json, os, shutil, sys, tempfile, unittest
+import contextlib, copy, importlib.util, io, itertools, json, os, shutil, sys, tempfile, unittest
 from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -49,13 +54,19 @@ class NoProcess:
 
 class FakeApp:
     """One window's workspaces, focus and closed history, as snapshot.get, action.run and history.list show them.
-    A reopen lands `lag` snapshots after its reply (the store applies the daemon's reply later). A reopened pane
-    or tab gets new ids; its terminal keeps its process (the reopen attaches inside the reap grace)."""
+    A reopen lands `lag` snapshots after its reply (the store applies the daemon's reply later). A closed entry
+    lands in the history `history_lag` reads (snapshot.get or history.list) after its close: the daemon's closed
+    history reaches the app on its own event stream, after the topology shows the close. A reopened pane or tab
+    gets new ids; its terminal keeps its process (the reopen attaches inside the reap grace)."""
 
-    def __init__(self, lag=0):
+    def __init__(self, lag=0, history_lag=0):
         self.ids = itertools.count(100)
         self.lag = lag
+        self.history_lag = history_lag
         self.pending = []  # [snapshots left, apply]
+        self.history_pending = []  # [reads left, closed entry]
+        self.sent = []  # (tab id, text) of each terminal.sendText
+        self.reopened_items = []  # the closed entries history.reopen brought back, in order
         self.closed = []  # newest first
         self.workspaces = []
         self.focus = {"window": "win_1"}
@@ -97,7 +108,18 @@ class FakeApp:
 
     def record(self, item):
         item["id"] = "daemon:" + self.new_id("closed")
-        self.closed.insert(0, item)
+        if self.history_lag:
+            self.history_pending.append([self.history_lag, item])
+        else:
+            self.closed.insert(0, item)
+
+    def tick_history(self):
+        """One read of the app: closed entries whose time came land in the history (newest first)."""
+        for entry in list(self.history_pending):
+            entry[0] -= 1
+            if entry[0] <= 0:
+                self.history_pending.remove(entry)
+                self.closed.insert(0, entry[1])
 
     def close_pane(self, pane_id):
         workspace, screen, index = self.find_pane(pane_id)
@@ -164,6 +186,8 @@ class FakeApp:
 
     def rpc(self, method, params=None, timeout=60):
         params = params or {}
+        if method in ("snapshot.get", "history.list"):
+            self.tick_history()
         if method == "snapshot.get":
             for entry in list(self.pending):
                 entry[0] -= 1
@@ -197,7 +221,9 @@ class FakeApp:
         elif action == "test.closeDoomedTab":
             self.close_tab(self.doomed_tab)
         elif action == "newSurface":
-            self.add_tab(target, "terminal")
+            self.add_tab(target or self.focus["pane"], "terminal")
+        elif action == "terminal.sendText":
+            self.sent.append((target, args.get("text")))
         elif action in ("openBrowser.chromium", "openBrowser.webkit"):
             self.add_tab(target, "browser", engine=action.partition(".")[2], url=args.get("url"))
         elif action == "palette.newAgentChat":
@@ -213,6 +239,7 @@ class FakeApp:
                 return {"error": {"code": "not_found", "message": "the entry is gone"}}
             self.closed.remove(item)
             self.reopened.append(item["id"])
+            self.reopened_items.append(item)
             self.reopen(item)
         elif action == "pane.focus":
             found = self.find_pane(target)
@@ -285,6 +312,28 @@ class ReopenTests(unittest.TestCase):
         self.assertEqual(fake.reopened, [])
         self.assertEqual(layout(fake, base["id"]), want)
         self.assertTrue(any("closed history unread" in d for d in row["drift"]), row["drift"])
+
+    def test_a_cleanup_entry_that_lands_after_the_next_mark_is_not_the_next_inputs(self):
+        # Row N adds a terminal tab; its restore closes that tab, and the close's history entry lands late (after
+        # row N+1's mark under the old code). Row N+1 closes a terminal tab of the base pane. Only that tab's own
+        # entry may come back: reopening the cleanup entry would put the sweep's cleanup shell in the base.
+        fake = FakeApp(history_lag=3)
+        measured = fake.pane(0, ["terminal", "browser", "terminal"])
+        base = fake.workspace([measured, fake.pane(1, ["terminal"])])
+        fake.focus_on(base, measured)
+        doomed = measured["tabs"][0]["id"]
+        with mock.patch.object(sweep_mod, "rpc", fake.rpc):
+            sweep = self.sweep(fake, base)
+            want = layout(fake, base["id"])
+            sweep.run_action({"id": "newSurface", "title": "New Terminal Tab"})
+            fake.doomed_tab = doomed
+            row = sweep.run_action({"id": "test.closeDoomedTab", "title": "Close one tab"})
+            for _ in range(6):
+                fake.rpc("snapshot.get")
+        self.assertEqual([item["tab"]["id"] for item in fake.reopened_items], [doomed], row["drift"])
+        self.assertEqual(layout(fake, base["id"]), want)
+        # The cleanup entry stays in the history.
+        self.assertEqual(len([c for c in fake.closed if c["kind"] == "tab"]), 1, fake.closed)
 
     def test_a_pane_closed_in_another_workspace_comes_back_there(self):
         fake = FakeApp()
@@ -423,6 +472,47 @@ class FailedSessionTests(unittest.TestCase):
         self.assertIn("FAILED", md)
         self.assertIn("the app exited at launch (code -11)", md)
 
+    def test_a_failed_run_prints_its_report_into_the_step_log_and_merge_reads_it_back(self):
+        # The controller returns --artifact files only when the step passes: a run that exits FAILED_SESSION_EXIT
+        # must still give back the finished light session's rows and the failed STRESS session's, from its log.
+        class Sweep(sweep_mod.Sweep):
+            def run(self, actions):
+                self.validity, self.idle, self.summary = {"chromium_ok": True}, {"frames": {}}, {}
+                self.rows.append({"session": self.session, "kind": "action", "id": f"{self.session}.splitRight",
+                                  "frames": {"missed": 0}, "check": "ok"})
+                if self.session == "stress":
+                    raise sweep_mod.SessionShapeError("STRESS session has the wrong shape: 11 panes, not 14")
+                return self
+
+        log = io.StringIO()
+        with contextlib.redirect_stdout(log):
+            code, report, md = self.run_main("light,stress", Sweep)
+        self.assertEqual(code, sweep_mod.FAILED_SESSION_EXIT)
+        self.assertIn("11 panes, not 14", log.getvalue())
+        folder = tempfile.mkdtemp(prefix="every-action-log-", dir=OUT)
+        path = os.path.join(folder, "step.log")
+        with open(path, "w") as f:
+            # The log store puts its own prefix before every line.
+            f.write("".join(f"2026-10-24T03:00:00Z [step] {line}\n" for line in log.getvalue().splitlines()))
+        out = os.path.join(folder, "every-action.json")
+        with self.assertRaises(SystemExit) as raised:
+            sweep_mod.merge(out, [path])
+        self.assertEqual(raised.exception.code, sweep_mod.FAILED_SESSION_EXIT)
+        with open(out) as f:
+            merged = json.load(f)
+        self.assertEqual([s["name"] for s in merged["sessions"]], ["light", "stress"])
+        self.assertEqual([[r["id"] for r in s["rows"]] for s in merged["sessions"]], [["light.splitRight"], ["stress.splitRight"]])
+        self.assertEqual([f["name"] for f in merged["failed_sessions"]], ["stress"])
+
+    def test_a_step_log_without_a_whole_report_is_an_error(self):
+        folder = tempfile.mkdtemp(prefix="every-action-log-", dir=OUT)
+        path = os.path.join(folder, "step.log")
+        with open(path, "w") as f:
+            f.write("every-action: FAILED\nEVERY-ACTION-REPORT 1/2 H4sIAAAA\n")
+        with self.assertRaises(SystemExit) as raised:
+            sweep_mod.report_from(path)
+        self.assertIn("not a step log with one whole report", str(raised.exception.code))
+
     def test_a_session_that_failed_partway_is_marked_in_the_markdown(self):
         failure = {"name": "stress", "error": "RuntimeError('the app exited (code -11)')", "rows": 1}
         report = {"env": ENV, "sessions": [session("stress", [{"id": "closePane"}], [failure])], "failed_sessions": [failure]}
@@ -472,19 +562,33 @@ class StressShapeTests(unittest.TestCase):
         return fake, base
 
     def patched(self, fake, summary):
+        """The STRESS builder's slow halves stubbed over `fake`; `summary` replaces Stress.summary, or None keeps the
+        real summary (the per-pane mix and the busy count from the builder's own books)."""
         def build_measured(builder):
             pane = fake.pane(0, ["terminal", "browser"])
             workspace = fake.workspace([pane])
             fake.focus_on(workspace, pane)
             builder.measured = workspace["id"]
             return workspace["id"]
-        return [mock.patch.object(sweep_mod, "rpc", fake.rpc),
-                mock.patch.object(stress_mod.Stress, "build_background", lambda builder, *a, **k: []),
-                mock.patch.object(stress_mod.Stress, "build_measured", build_measured),
-                mock.patch.object(stress_mod.Stress, "summary", lambda builder: dict(summary)),
-                # The window is STRESS's size: the build gets to its shape check.
-                mock.patch.object(stress_mod.Stress, "size_window", lambda builder: {"frame": list(stress_mod.WINDOW)}),
-                mock.patch("time.sleep")]
+        patches = [mock.patch.object(sweep_mod, "rpc", fake.rpc),
+                   mock.patch.object(stress_mod.Stress, "build_background", lambda builder, *a, **k: []),
+                   mock.patch.object(stress_mod.Stress, "build_measured", build_measured),
+                   # The window is STRESS's size: the build gets to its shape check.
+                   mock.patch.object(stress_mod.Stress, "size_window", lambda builder: {"frame": list(stress_mod.WINDOW)}),
+                   mock.patch("time.sleep")]
+        if summary is not None:
+            patches.append(mock.patch.object(stress_mod.Stress, "summary", lambda builder: dict(summary)))
+        return patches
+
+    def real_summary(self, fake, checked):
+        """patched() with the real Stress.summary; Stress.check only keeps each summary in `checked` (the one-pane
+        model is not 60 workspaces): a test reads the pane mix and the busy count the check would judge."""
+        return self.patched(fake, None) + [
+            mock.patch.object(stress_mod.Stress, "check", staticmethod(lambda summary: checked.append(summary)))]
+
+    def tabs_of(self, fake, pane_id):
+        _, screen, index = fake.find_pane(pane_id)
+        return screen["panes"][index]["tabs"]
 
     def run_patched(self, patches, body):
         for patch in patches:
@@ -534,8 +638,7 @@ class StressShapeTests(unittest.TestCase):
     def test_a_lost_webkit_tab_comes_back_as_webkit_and_the_tab_path_checks_the_shape(self):
         fake = FakeApp()
         checked = []
-        patches = self.patched(fake, STRESS_OK) + [
-            mock.patch.object(stress_mod.Stress, "check", staticmethod(lambda summary: checked.append(summary)))]
+        patches = self.real_summary(fake, checked)
 
         def body():
             sweep, pane = self.webkit_pane(fake)
@@ -551,6 +654,53 @@ class StressShapeTests(unittest.TestCase):
         self.assertEqual(sorted(kind for kind, _ in sweep.builder.made[pane]),
                          ["chat", "chromium", "chromium", "terminal", "webkit"])
         self.assertEqual(len(checked), 1)
+        self.assertEqual(checked[0]["pane_problems"], [])
+
+    def test_a_lost_first_terminal_comes_back_as_one_terminal(self):
+        # The pane's first terminal is the one tab the builder has no entry for (summary() counts it by itself).
+        # Its replacement must not count as a third terminal on a pane that has its 6 tabs again.
+        fake = FakeApp()
+        checked = []
+
+        def body():
+            sweep, pane = self.webkit_pane(fake)
+            recorded = {tab for _, tab in sweep.builder.made[pane]}
+            first = next(t["id"] for t in self.tabs_of(fake, pane) if t["id"] not in recorded)
+            fake.close_tab(first)
+            sweep.rebuild({"tabs": 1})
+            return sweep, pane
+        sweep, pane = self.run_patched(self.real_summary(fake, checked), body)
+        self.assertEqual(sorted(t["kind"] for t in self.tabs_of(fake, pane)),
+                         ["browser", "browser", "browser", "conversation", "terminal", "terminal"])
+        self.assertEqual(len(checked), 1)
+        self.assertEqual(checked[0]["pane_problems"], [])
+
+    def test_a_lost_busy_terminal_comes_back_busy_under_a_new_id(self):
+        # The mark before the input is unreadable, so nothing is reopened and the tab path brings the busy terminal
+        # back: as a busy terminal (BUSY_COMMAND sent, its id in the builder's busy list), never as an idle shell
+        # while the dead id still counts as busy.
+        fake = FakeApp()
+        checked = []
+
+        def body():
+            sweep, pane = self.webkit_pane(fake)
+            busy = next(tab for kind, tab in reversed(sweep.builder.made[pane]) if kind == "terminal")
+            sweep.builder.busy = [busy]
+            sweep.snapshot_base(sweep.base["workspace"])
+            fake.doomed_tab = busy
+            fake.history_errors = 1
+            row = sweep.run_action({"id": "test.closeDoomedTab", "title": "Close the busy terminal"})
+            return sweep, pane, busy, row
+        sweep, pane, busy, row = self.run_patched(self.real_summary(fake, checked), body)
+        self.assertTrue(any("no reopen" in d for d in row["drift"]), row["drift"])
+        self.assertEqual(len(sweep.builder.busy), 1)
+        new = sweep.builder.busy[0]
+        self.assertNotEqual(new, busy)
+        self.assertIn(new, [t["id"] for t in self.tabs_of(fake, pane)])
+        self.assertIn((new, stress_mod.BUSY_COMMAND), fake.sent)
+        self.assertEqual(len(sweep.base["busy"]), 1)
+        self.assertEqual([c["busy_terminals"] for c in checked], [1])
+        self.assertEqual(checked[0]["pane_problems"], [])
 
     def test_a_tab_restore_of_another_shape_fails_the_session(self):
         fake = FakeApp()
@@ -673,15 +823,46 @@ class StressShapeTests(unittest.TestCase):
         self.assertIn("focus never reached pane", sweep.rows[0]["errors"][0])
         self.assertEqual(relaunches, [1])
 
-    def test_an_interaction_whose_restore_times_out_on_focus_keeps_the_error_and_goes_on(self):
-        sweep = sweep_mod.Sweep(NoProcess(), "stress", stress_mod)
+    def test_an_interaction_whose_restore_times_out_on_focus_relaunches_and_builds_the_session(self):
+        # The same recovery as after an action's restore: the row keeps the error, then a relaunch and build()
+        # (whose shape check fails a session that does not come back as STRESS). The next interaction never runs
+        # on a half-restored layout.
+        events = []
+
+        class App:
+            process = None
+
+            def relaunch(self):
+                events.append("relaunch")
+
+        sweep = sweep_mod.Sweep(App(), "stress", stress_mod)
 
         def restore(action_id, toggled):
             raise stress_mod.StressShapeError("focus never reached pane pane_7")
         with mock.patch.object(sweep_mod, "rpc", lambda method, params=None, timeout=60: {"entries": []}), \
-                mock.patch.object(sweep, "restore", restore):
+                mock.patch.object(sweep, "restore", restore), mock.patch.object(sweep, "build", lambda: events.append("build")):
             sweep.interaction("click.pane", lambda: {"commit_ms": 4.0})
         self.assertIn("focus never reached pane", sweep.interactions[0]["restore_error"])
+        self.assertEqual(events, ["relaunch", "build"])
+
+    def test_an_interaction_whose_rebuild_after_a_failed_restore_is_not_stress_fails_the_session(self):
+        class App:
+            process = None
+
+            def relaunch(self):
+                pass
+
+        sweep = sweep_mod.Sweep(App(), "stress", stress_mod)
+
+        def restore(action_id, toggled):
+            raise stress_mod.StressShapeError("focus never reached pane pane_7")
+
+        def build():
+            raise stress_mod.StressShapeError("STRESS session has the wrong shape: 11 panes, not 14")
+        with mock.patch.object(sweep_mod, "rpc", lambda method, params=None, timeout=60: {"entries": []}), \
+                mock.patch.object(sweep, "restore", restore), mock.patch.object(sweep, "build", build):
+            with self.assertRaises(stress_mod.StressShapeError):
+                sweep.interaction("click.pane", lambda: {"commit_ms": 4.0})
 
     def test_an_interaction_whose_restore_rebuilt_another_shape_fails_the_session(self):
         sweep = sweep_mod.Sweep(NoProcess(), "stress", stress_mod)
