@@ -29,6 +29,14 @@ Read [references/repl-guide.md](references/repl-guide.md) (the REPL's own
 guide) before the first call. What it gives you that the per-tab commands
 below do not:
 
+- Aside scripts: `listBrowserTabs()`, `attachBrowserTab(id)`,
+  `attachActiveBrowserTab()`, `getTabByTargetId(id)`, `openTab(url)`,
+  `closeTab(tab)`, `annotatedScreenshot(page)`, `pwd` and
+  `snapshot(page, { ref, selector })` work as in `aside repl` (thin wrappers
+  over `tabs.*` and `screenshot`), so a script written for Aside runs unchanged.
+- Engine: where the cmux app runs, a named session drives the app's in-app
+  Chromium (the person's window shows the tabs); `cmux mcp` names an agent
+  chat's session for it. No app, or the implicit `default` session: headless.
 - Tabs: `tabs.list()` reads every tab without waking it; `tabs.open(url, {
   incognito: true })` opens a tab that keeps no cookie, history or state;
   `session.configure({ incognito: true })` makes every later tab of the
