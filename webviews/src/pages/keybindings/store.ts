@@ -28,7 +28,9 @@ import {
 export type Connection = "connecting" | "connected" | "disconnected";
 
 /** Where recorded strokes go: the search field, or a new key for one row. */
-export type Recording = { target: "search" } | { target: "row"; row: string; binding: Binding; display: string };
+export type Recording =
+  | { target: "search" }
+  | { target: "row"; row: string; binding: Binding; key: string; display: string };
 
 export type Notice = { kind: "unsupported" } | { kind: "failed"; message: string };
 
@@ -233,11 +235,19 @@ export class KeybindingsStore {
     if (this.snapshot.recording) this.endRecording();
     const row = identity(binding);
     this.set({ editing: undefined, selection: row });
-    await this.beginRecording({ target: "row", row, binding, display: "" });
+    await this.beginRecording({ target: "row", row, binding, key: "", display: "" });
   }
 
   stopRecording(): void {
     if (this.snapshot.recording) this.endRecording();
+  }
+
+  /** The recorder's Save button: the keys recorded so far become the row's keys (as Return). */
+  saveRecording(): void {
+    const recording = this.snapshot.recording;
+    if (recording?.target !== "row" || !recording.key) return;
+    this.endRecording();
+    this.saveKeys(recording.binding, recording.key);
   }
 
   private async beginRecording(recording: Recording): Promise<void> {
@@ -263,14 +273,17 @@ export class KeybindingsStore {
       return;
     }
     if (!finished) {
-      this.set({ recording: { ...recording, display: event.display } });
+      this.set({ recording: { ...recording, key: event.key, display: event.display } });
       return;
     }
     this.endRecording();
-    const same = !recording.binding.unset && keyMatches(event.key, { key: recording.binding.key, exact: true });
-    if (event.done && event.key && !same) {
-      void this.write(KeybindingOps.set, this.setParams(recording.binding, event.key, recording.binding.when));
-    }
+    if (event.done && event.key) this.saveKeys(recording.binding, event.key);
+  }
+
+  /** Writes recorded keys as the row's new keys, unless they are the keys it has. */
+  private saveKeys(binding: Binding, key: string): void {
+    if (!binding.unset && keyMatches(key, { key: binding.key, exact: true })) return;
+    void this.write(KeybindingOps.set, this.setParams(binding, key, binding.when));
   }
 
   /** Ends the capture on both sides; the app may have ended it already (stop is idempotent). */

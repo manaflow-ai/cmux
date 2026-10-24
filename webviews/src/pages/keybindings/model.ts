@@ -36,6 +36,28 @@ export function canEditWhen(binding: Pick<Binding, "source" | "removed" | "unset
   return !isReadOnly(binding) && binding.unset !== true;
 }
 
+/** The active rows a recording on `binding` would share `key` with: the same keys and a `when`
+ *  that can hold with its own (no condition on either side, or the same one). The provider's
+ *  conflict facts come after a write; this is the recorder's warning before it. */
+export function sameKeys(bindings: readonly Binding[], binding: Binding, key: string): Binding[] {
+  if (!strokes(key).length) return [];
+  return bindings.filter(
+    (other) =>
+      !other.removed &&
+      !other.unset &&
+      identity(other) !== identity(binding) &&
+      keyMatches(other.key, { key, exact: true }) &&
+      (other.when === null || binding.when === null || other.when === binding.when),
+  );
+}
+
+/** One keycap per modifier and one for the key ("⌃⌥↑" -> ⌃ ⌥ ↑), for the recorder's large caps. */
+export function strokeCaps(stroke: string): string[] {
+  const mods = stroke.match(/^[⌃⌥⇧⌘]*/)?.[0] ?? "";
+  const key = stroke.slice(mods.length);
+  return [...mods.split(""), ...(key ? [key] : [])];
+}
+
 /** A row's identity across re-lists (ids are positions and move when the table changes). */
 export function identity(binding: Pick<Binding, "source" | "command" | "key" | "when" | "removed">): string {
   return [binding.removed ? "removed" : binding.source, binding.command, binding.key, binding.when ?? ""].join(

@@ -151,6 +151,7 @@ const clickKeys: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".keys-key-button"));
   await ctx.click({ selector: ".keys-key-button" });
   await ctx.waitFor(() => ctx.document.querySelector(".keys-row.recording .keys-key-button[aria-pressed='true']"));
+  await ctx.waitFor(() => ctx.document.querySelector(".keys-recorder"));
 };
 
 const searchReadOnly: Play = async (ctx) => {
@@ -222,7 +223,7 @@ export default keybindingsPageEntry({
       bindings,
     },
     "click-keys": {
-      note: "A click on a row's keys records new keys for that row.",
+      note: "A click on a row's keys opens the recorder popover over them.",
       bindings,
       play: clickKeys,
     },

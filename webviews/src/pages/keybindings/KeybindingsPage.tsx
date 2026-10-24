@@ -1,10 +1,21 @@
 // The Keyboard Shortcuts page (plans/cmux-next/keybindings.md 8). State lives in
 // `KeybindingsStore`; this file only renders it and turns plain keys and clicks into store
 // intents. Cmd/Ctrl chords never reach page handlers; recording goes through the app's dispatcher.
-import { useSyncExternalStore, type KeyboardEvent } from "react";
+import { useState, useSyncExternalStore, type KeyboardEvent } from "react";
+import { DialogButton } from "../../ui/DialogButton";
+import { Popover } from "../../ui/Popover";
 import type { Strings } from "../shared/i18n";
-import { canEditWhen, displayStrokes, identity, isReadOnly, moveSelection, sourceLabel } from "./model";
-import type { KeybindingsStore } from "./store";
+import {
+  canEditWhen,
+  displayStrokes,
+  identity,
+  isReadOnly,
+  moveSelection,
+  sameKeys,
+  sourceLabel,
+  strokeCaps,
+} from "./model";
+import type { KeybindingsStore, Recording } from "./store";
 import type { Binding } from "./types";
 
 const focusOnMount = (node: HTMLInputElement | null) => node?.focus();
@@ -142,11 +153,7 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
           >
             {t("keybindings.page.conflictsOnly")}
           </button>
-          {snap.recording && (
-            <span className="keys-hint">
-              {t(snap.recording.target === "row" ? "keybindings.page.recordRowHint" : "keybindings.page.recordHint")}
-            </span>
-          )}
+          {searchRecording && <span className="keys-hint">{t("keybindings.page.recordHint")}</span>}
           <span className="keys-spacer" />
           <button
             type="button"
@@ -229,13 +236,12 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
                   <BindingRow
                     key={row}
                     binding={binding}
+                    bindings={snap.bindings}
                     strings={strings}
                     selected={row === snap.selection}
                     editing={row === snap.editing}
-                    recordingDisplay={
-                      snap.recording?.target === "row" && snap.recording.row === row
-                        ? snap.recording.display
-                        : undefined
+                    recording={
+                      snap.recording?.target === "row" && snap.recording.row === row ? snap.recording : undefined
                     }
                     resettable={snap.resettable.has(binding.command)}
                     store={store}
@@ -250,20 +256,108 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
   );
 }
 
+type RowRecording = Extract<Recording, { target: "row" }>;
+
+/** The recorder over a row's keys while it records: the keys so far as large caps, a warning when
+ *  another action has them, and Cancel / Save with the keys that press them (the app's recorder
+ *  answers Escape and Return; the buttons are the same intents). Focus stays where it was. */
+function Recorder({
+  anchor,
+  binding,
+  bindings,
+  recording,
+  strings,
+  store,
+}: {
+  anchor: HTMLElement;
+  binding: Binding;
+  bindings: readonly Binding[];
+  recording: RowRecording;
+  strings: Strings;
+  store: KeybindingsStore;
+}) {
+  const { t } = strings;
+  const others = sameKeys(bindings, binding, recording.key);
+  return (
+    <Popover
+      open
+      anchor={anchor}
+      label={t("keybindings.page.change")}
+      className="keys-recorder"
+      initialFocus={false}
+      finalFocus={false}
+      onOpenChange={(open) => {
+        if (!open) store.stopRecording();
+      }}
+    >
+      <div className="keys-recorder-title">{binding.title}</div>
+      <div className="keys-recorder-keys" aria-live="polite">
+        {recording.display ? (
+          displayStrokes(recording.display).map((stroke, index) => (
+            // oxlint-disable-next-line react/no-array-index-key
+            <span key={index} className="keys-recorder-stroke">
+              {strokeCaps(stroke).map((cap, capIndex) => (
+                // oxlint-disable-next-line react/no-array-index-key
+                <kbd key={capIndex} className="keys-recorder-cap">
+                  {cap}
+                </kbd>
+              ))}
+            </span>
+          ))
+        ) : (
+          <span className="keys-placeholder">{t("keybindings.page.pressKeys")}</span>
+        )}
+      </div>
+      {others.length > 0 && (
+        <output className="keys-recorder-conflict">
+          <Icon name="conflict" />
+          <span>{strings.format("keybindings.page.alsoUsedBy", others.map((other) => other.title).join(", "))}</span>
+        </output>
+      )}
+      <div className="keys-recorder-actions">
+        <DialogButton dialogKey="escape" className="keys-recorder-button" onClick={() => store.stopRecording()}>
+          {t("keybindings.page.cancel")}
+        </DialogButton>
+        <DialogButton
+          dialogKey="return"
+          className="keys-recorder-button keys-recorder-save"
+          disabled={!recording.key}
+          onClick={() => store.saveRecording()}
+        >
+          {t("keybindings.page.save")}
+        </DialogButton>
+      </div>
+    </Popover>
+  );
+}
+
 interface RowProps {
   binding: Binding;
+  /** The whole table, for the recorder's same-keys warning. */
+  bindings: readonly Binding[];
   strings: Strings;
   selected: boolean;
   editing: boolean;
-  /** Set while this row records its new keys ("" before the first stroke). */
-  recordingDisplay?: string;
+  /** Set while this row records its new keys. */
+  recording?: RowRecording;
   resettable: boolean;
   store: KeybindingsStore;
 }
 
-function BindingRow({ binding, strings, selected, editing, recordingDisplay, resettable, store }: RowProps) {
+function BindingRow({
+  binding,
+  bindings,
+  strings,
+  selected,
+  editing,
+  recording: rowRecording,
+  resettable,
+  store,
+}: RowProps) {
   const { t } = strings;
-  const recording = recordingDisplay !== undefined;
+  const recording = rowRecording !== undefined;
+  const recordingDisplay = rowRecording?.display;
+  const [keysButton, setKeysButton] = useState<HTMLButtonElement | null>(null);
   const classes = ["keys-row", selected && "selected", binding.removed && "removed", recording && "recording"];
   return (
     <tr
@@ -282,6 +376,7 @@ function BindingRow({ binding, strings, selected, editing, recordingDisplay, res
         ) : (
           // The keys are the control: a click records new ones (Return on the row does too).
           <button
+            ref={setKeysButton}
             type="button"
             className="keys-key-button"
             aria-label={
@@ -307,6 +402,16 @@ function BindingRow({ binding, strings, selected, editing, recordingDisplay, res
               <Keycaps display={binding.display} />
             )}
           </button>
+        )}
+        {rowRecording && keysButton && (
+          <Recorder
+            anchor={keysButton}
+            binding={binding}
+            bindings={bindings}
+            recording={rowRecording}
+            strings={strings}
+            store={store}
+          />
         )}
         {binding.conflicts.length > 0 && !binding.removed && (
           <button

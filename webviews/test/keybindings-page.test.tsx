@@ -8,20 +8,34 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 
 const scope = globalThis as Record<string, unknown>;
-const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;
-const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
+let saved: Array<readonly [string, boolean, unknown]> = [];
 let root: Root | undefined;
 let host: HTMLElement;
 
 beforeAll(() => {
-  const { window } = new JSDOM("<!doctype html><div id=root></div>");
-  Object.assign(scope, {
+  // The recorder popover (Base UI) measures, observes and schedules frames: the DOM globals it reads.
+  const { window } = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true });
+  const replacements: Record<string, unknown> = {
     window,
     document: window.document,
     navigator: window.navigator,
     HTMLElement: window.HTMLElement,
+    Element: window.Element,
+    Node: window.Node,
+    DOMRect: window.DOMRect,
+    MutationObserver: window.MutationObserver,
+    ResizeObserver: class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+    getComputedStyle: window.getComputedStyle.bind(window),
+    requestAnimationFrame: window.requestAnimationFrame.bind(window),
+    cancelAnimationFrame: window.cancelAnimationFrame.bind(window),
     IS_REACT_ACT_ENVIRONMENT: true,
-  });
+  };
+  saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
+  Object.assign(scope, replacements);
   host = window.document.getElementById("root")!;
 });
 
@@ -131,19 +145,46 @@ test("a click on a row's keys records new ones, and Remove keeps the action list
   };
   const lastSet = () => provider.calls.filter(({ op }) => op === KeybindingOps.set).at(-1)?.params;
 
-  // The keys are the control: no pencil button, and a click records the row's new keys.
+  const doc = host.ownerDocument;
+  // The keys are the control: no pencil button, and a click records the row's new keys in the
+  // recorder popover, focus staying where it was.
   expect(host.querySelector(".keys-change")).toBeNull();
   await click(row("Go to File")?.querySelector(".keys-key-button"));
   expect(provider.recording).toBe(true);
   expect(row("Go to File")?.classList.contains("recording")).toBe(true);
-  await record("cmd+j");
+  const recorder = () => doc.querySelector<HTMLElement>(".keys-recorder");
+  expect(recorder()?.querySelector(".keys-recorder-title")?.textContent).toBe("Go to File");
+  const save = () => recorder()?.querySelector<HTMLButtonElement>(".keys-recorder-save");
+  expect(save()?.disabled).toBe(true);
+
+  // Keys another action has: the recorder names it before anything is saved; Save saves them.
+  await act(async () => {
+    provider.press("cmd+shift+p");
+    await Promise.resolve();
+  });
+  expect(recorder()?.querySelectorAll(".keys-recorder-cap").length).toBe(3);
+  expect(recorder()?.querySelector(".keys-recorder-conflict")?.textContent).toContain("Open Command Palette");
+  await click(save());
+  await act(async () => store.reload());
+  expect(provider.recording).toBe(false);
+  expect(recorder()).toBeNull();
   expect(lastSet()).toEqual({
     command: "palette.files",
-    key: "cmd+j",
+    key: "cmd+shift+p",
     when: null,
     replaces: { key: "cmd+p", when: null },
     idempotency_key: "key",
   });
+
+  // Return in the app's recorder saves too; Cancel ends a recording with no write.
+  await click(row("Go to File")?.querySelector(".keys-key-button"));
+  await record("cmd+j");
+  expect(lastSet()).toMatchObject({ command: "palette.files", key: "cmd+j", replaces: { key: "cmd+shift+p" } });
+  const writes = provider.calls.filter(({ op }) => op === KeybindingOps.set).length;
+  await click(row("Go to File")?.querySelector(".keys-key-button"));
+  await click(recorder()?.querySelector(".keys-recorder-button:not(.keys-recorder-save)"));
+  expect(provider.recording).toBe(false);
+  expect(provider.calls.filter(({ op }) => op === KeybindingOps.set).length).toBe(writes);
 
   // Remove says what it does, and on the action's only key the action stays, with no keys.
   const remove = row("Open Command Palette")?.querySelector(".keys-remove");
