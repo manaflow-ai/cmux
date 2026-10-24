@@ -6,13 +6,14 @@ blocks (`base::ScopedBlockingCall`, `base::ThreadRestrictions`), each thread own
 between threads as messages, and every queue has a bound and a back-pressure rule.
 
 How it is enforced:
-- **Runtime (the real guard).** Every blocking primitive cmux uses goes through a checked seam in
-  `CmuxNextCompat/Threading` (`FileManager.checked`, `Data(blockingContentsOf:)`,
+- **Runtime (the real guard).** The checked seams in `CmuxNextCompat/Threading` wrap the blocking primitives
+  (`FileManager.checked`, `Data(blockingContentsOf:)`,
   `String(blockingContentsOf:)`, `URL.blockingResourceValues`, `FileHandle.blocking*`,
   `blockingRead/Recv/Write/Send`, `DispatchSemaphore/DispatchGroup/NSCondition/DispatchWorkItem.blockingWait`,
   `DispatchQueue.blockingSync`, `Process.blockingWaitUntilExit`, `blockingXPCSendWithReply`, and a contended
-  `Mutex` wait over 2 ms). On the main thread outside `allowBlocking(<reason>)` the seam is a violation,
-  recorded once per call site (`#fileID:#line`). Debug: one unified-log line per call site
+  `Mutex` wait over 2 ms); code that calls them is checked, and slice (c) moves the raw calls onto them (see
+  the next item). On the main thread outside `allowBlocking(<reason>)` a seam call is a violation, recorded once
+  per call site (`#fileID:#line`; two seam calls on one line share a site). Debug: one unified-log line per call site
   (`log stream --predicate 'category == "blocking"'`), the Debug menu's "Main-Thread Blocking (N)" and the
   `debug.blocking` socket command; launch with `CMUX_BLOCKING_TRAP=1` to stop at the call (a contended `Mutex`
   wait is always recorded only: it is measured on the wall clock). Bench builds (`reload.sh --config bench`,
@@ -23,16 +24,21 @@ How it is enforced:
   raw call that does not go through a seam (today almost all of them: `FileManager.default`, `Data(contentsOf:)`
   and so on), `NSXPCConnection.synchronousRemoteObjectProxy`, `DispatchQueue.asyncAndWait`, semaphore and group
   `wait(wallTimeout:)`, `Operation`/`OperationQueue` waits, `NSConditionLock`, `pthread_cond_wait`,
-  `pthread_join`, raw `os_unfair_lock`/`OSAllocatedUnfairLock`/`NSLock` contention,
+  `pthread_join`, raw `os_unfair_lock`/`OSAllocatedUnfairLock`/`NSLock` contention, raw writes
+  (`Data.write(to:)`, `String.write(to:)`),
   `NSData`/`NSString`/`NSDictionary`/`NSArray`/`NSImage(contentsOf:)`, `FileHandle.readData(ofLength:)`,
   `open`/`stat`/`fsync`/`connect`/`accept`/`poll`, `getaddrinfo`, synchronous Security and Launch Services
   calls, and blocking inside Apple frameworks. `scripts/measure/blocking-probe.sh` (a measurement-only
   interposer on the fleet) finds these in a running app.
 - **Pre-push (the early warning).** `scripts/cmux-next/guardrails.py` refuses, in added lines only:
-  `main-blocking` (a blocking call, raw or seam, in main-isolated code; `DispatchQueue.main.sync`;
-  `Thread.sleep`/`usleep`), `raw-blocking` (a raw blocking primitive anywhere in Sources: use the seam so the
-  runtime check sees it) and `thread-doc` (a new thread, queue or `BlockingAllowance` that this page does not
-  list). Escape: `// blocking-allow: <why>` (counted by the arch ratchet's `blocking_allow_escapes` row).
+  `main-blocking` (a blocking call, raw or seam, directly in main-actor code: explicit `@MainActor` code and
+  the function bodies of main-actor-by-default UI targets, not closures inside them, which may run later or
+  elsewhere; `DispatchQueue.main.sync`, `Thread.sleep` and `usleep` anywhere), `raw-blocking` (a raw blocking
+  primitive elsewhere in Sources: use the seam, so the runtime check sees it if it ever runs on main) and
+  `thread-doc` (a new thread, queue or `BlockingAllowance` whose literal label this page's "Registered threads
+  and queues" does not list; a label that is a variable is not judged). A `.wait(` with `await` before it in its
+  statement is an async wait and is not refused. Escape: `// blocking-allow: <why>` (to be counted by the arch
+  ratchet's `blocking_allow_escapes` row: to come, PL-arch).
 
 ## Threads and queues
 
@@ -125,11 +131,17 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   `debug.window_record`
 - Launch and misc: `cmux-next resource bundle warm-up`, `cmux-next launch warm-up`, `cmux.updates.network`,
   `cmux.home.fixture.video`
+- Unnamed today (base debt; name and list them when you touch them): the URLSession delegate
+  `OperationQueue`s in AcpmuxPaneSocket.swift, AgentChatPullRequestReader.swift,
+  URLSessionChromiumRuntimeDownloader.swift and HomePromisedFiles.swift, and WebKitSetupGate.swift's
+  `Thread.detachNewThread`.
 
 ## Reviewed blocking allowances
 
 `allowBlocking(<reason>)` lets the main thread block for one of these reasons only (Chrome's
-`ScopedAllowBlocking` friend list). A new `BlockingAllowance` needs a row here in the same push.
+`ScopedAllowBlocking` friend list). A new `BlockingAllowance` needs a row here in the same push. It is not for
+hot paths: in Debug, bench and Nightly builds each outermost scope adds and removes one `CFRunLoopObserver` (it
+holds the allowance back while a nested run of the main run loop runs other work).
 
 | Reason | Why the wait cannot move off the main thread |
 |---|---|

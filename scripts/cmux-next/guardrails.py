@@ -1797,8 +1797,10 @@ RULES = (
 # ---------------------------------------------------------------- main-blocking / thread-doc (PL-blocking)
 # plans/cmux-next/threading-model.md: the main thread never blocks (Chrome's ScopedBlockingCall). The runtime
 # detector (CmuxNextCompat/Threading) is the real guard; these rules are the early warning on what a push adds.
+# They judge only the lines the push changed (no whole-file context scan), so the gate stays fast.
 # The block owns its lines from here to `RULES += BLOCKING_RULES`; other rules go above it.
 THREADING_DOC = "plans/cmux-next/threading-model.md"
+THREADING_DOC_SECTION = "## Registered threads and queues"
 PACKAGE_MANIFEST = "Packages/macOS/CmuxNext/Package.swift"
 # The seams themselves (and Mutex, which reports contended waits) wrap the raw primitives on purpose.
 BLOCKING_SEAMS = (SOURCES + "CmuxNextCompat/Threading/", SOURCES + "CmuxNextCompat/Mutex.swift")
@@ -1807,13 +1809,14 @@ FILE_OPS = (r"fileExists|isReadableFile|isWritableFile|isExecutableFile|createDi
             r"subpathsOfDirectory|enumerator|createFile|contents|contentsEqual|attributesOfItem|attributesOfFileSystem|"
             r"setAttributes|moveItem|copyItem|linkItem|replaceItemAt|destinationOfSymbolicLink|createSymbolicLink|"
             r"trashItem|url")
-# Raw blocking primitives: each has a checked seam in CmuxNextCompat/Threading.
+# Raw blocking primitives: each has a checked seam in CmuxNextCompat/Threading. A `.wait(` preceded by `await`
+# in its statement is an async wait (Backoff.wait, a continuation), never a blocking one: see blocking_match.
 RAW_BLOCKING = re.compile(
     r"\bData\(contentsOf:|\bString\(contentsOf(File)?:|\bNS(Data|String|Dictionary|Array|Image)\(contentsOf(File|URL)?:"
     r"|\bFileManager\.default\.(" + FILE_OPS + r")\("
-    r"|\.waitUntilExit\(\)|\.readDataToEndOfFile\(\)|\.readToEnd\(\)|\.availableData\b|\.readData\(ofLength:"
+    r"|\.write\(to:|\.waitUntilExit\(\)|\.readDataToEndOfFile\(\)|\.readToEnd\(\)|\.availableData\b|\.readData\(ofLength:"
     r"|\.resourceValues\(forKeys:|\bxpc_connection_send_message_with_reply_sync\("
-    r"|(?<!await )(?<=[\w)\]])\.wait\((timeout:|wallTimeout:|until:)?[^)]*\)"
+    r"|(?P<wait>(?<=[\w)\]])\.wait\((timeout:|wallTimeout:|until:)?[^)]*\))"
     r"|\.sync\s*(\{|\(execute:)")
 # The checked seams: fine off the main thread, a violation on it.
 SEAM_BLOCKING = re.compile(
@@ -1822,12 +1825,60 @@ SEAM_BLOCKING = re.compile(
 # Never on any thread of the app: a main-queue sync hop deadlocks from main and stalls it from elsewhere; a
 # sleep holds a thread to wait for time.
 ALWAYS_BLOCKING = re.compile(r"DispatchQueue\.main\.sync\b|\bThread\.sleep\b|(?<![\w.])(usleep|nanosleep)\(")
-THREAD_CREATE = re.compile(r"\bDispatchQueue\(\s*label:|\bThread\s*(\{|\(block:|\(target:)|\bThread\.detachNewThread\b"
-                           r"|\bOperationQueue\(\)|\bpthread_create\(|\bDispatchSerialQueue\(|\bDispatchWorkloop\(")
-THREAD_NAME = re.compile(r'(\.name\s*=|label:)\s*"((?:\\.|[^"\\])*)"')
+# A new thread or queue. `extension Thread {` and a type annotation are not one.
+THREAD_CREATE = re.compile(r"\bDispatchQueue\(\s*label:|(?<!extension )(?<![:\w.])Thread\s*(\{|\(block:|\(target:)"
+                           r"|\bThread\.detachNewThread\b|\bOperationQueue\(\)|\bpthread_create\(|\bDispatchSerialQueue\("
+                           r"|\bDispatchWorkloop\(")
+THREAD_NAME = re.compile(r'(\.name\s*=|label:)\s*(?P<literal>"((?:\\.|[^"\\])*)")?')
 ALLOWANCE_DECL = re.compile(r"\bstatic\s+let\s+(\w+)\s*=\s*BlockingAllowance\(")
-# HEAD's threading doc and package manifest; check() fills it for each run.
+THREAD_BINDING = re.compile(r"\b(?:let|var)\s+(\w+)\s*(?::\s*\w+\s*)?=\s*(?:Thread\b|OperationQueue\(\))")
+THREAD_NAME_WINDOW = 80  # lines after `let thread = Thread {` that its `thread.name = "..."` may follow
+AWAIT = re.compile(r"\bawait\b")
+STATEMENT_START = re.compile(r"[;{}]")
+# A block opener that runs its body later or elsewhere (a closure, an escaping handler), as opposed to a control
+# statement or a declaration body: `queue.async {`, `handler = {`, `Thread {`, `.setEventHandler {`.
+CONTROL_OPENER = re.compile(r"\b(if|else|guard|for|while|repeat|switch|case|default|do|catch|defer|func|init|deinit|"
+                            r"get|set|willSet|didSet|var|let|class|struct|enum|actor|extension|protocol)\b[^{]*\{\s*$|"
+                            r"^\s*\{\s*$")
+DECL_STOP = re.compile(r"\b(func|init|deinit)\b[^{]*\{|\b(get|set|willSet|didSet)\s*\{")
+# HEAD's threading doc and package manifest, and loaded helpers; check() refreshes the doc and manifest per run.
 BLOCKING_CONTEXT: dict[str, object] = {}
+
+
+class Prefiltered:
+    """PATTERN behind one literal-keyword search: most lines hold none of KEYS, and that search costs a tenth of
+    the full alternation."""
+
+    def __init__(self, pattern: re.Pattern, keys: tuple[str, ...]) -> None:
+        self.pattern = pattern
+        self.keys = re.compile("|".join(re.escape(key) for key in keys))
+
+    def search(self, text: str):
+        return self.pattern.search(text) if self.keys.search(text) else None
+
+
+BLOCKING_KEYS = ("contentsOf", "FileManager", ".wait(", "waitUntilExit", ".sync", "readToEnd", "availableData", "readData",
+                 "esourceValues", "xpc_", "blocking", "write(to:")
+RAW_SCAN = Prefiltered(RAW_BLOCKING, BLOCKING_KEYS)
+MAIN_SCAN = Prefiltered(re.compile(RAW_BLOCKING.pattern + "|" + SEAM_BLOCKING.pattern), BLOCKING_KEYS)
+ALWAYS_SCAN = Prefiltered(ALWAYS_BLOCKING, ("main.sync", "sleep"))
+THREAD_SCAN = Prefiltered(re.compile(THREAD_CREATE.pattern + "|" + ALLOWANCE_DECL.pattern),
+                          ("Thread", "Queue", "pthread_", "Workloop", "BlockingAllowance"))
+
+
+def blocking_match(scan: Prefiltered, code: str) -> bool:
+    """Whether CODE holds a blocking call SCAN names. A `.wait(` whose statement has an `await` before it is an
+    async wait (`try await backoff.wait(owner:)`), not a blocking one."""
+    match = scan.search(code)
+    while match is not None:
+        if match.groupdict().get("wait") is None:
+            return True
+        before = code[:match.start()]
+        statement = before[max((m.end() for m in STATEMENT_START.finditer(before)), default=0):]
+        if not AWAIT.search(statement):
+            return True
+        match = scan.pattern.search(code, match.end())
+    return False
 
 
 def main_actor_scope():
@@ -1838,17 +1889,6 @@ def main_actor_scope():
         spec.loader.exec_module(module)
         BLOCKING_CONTEXT["scope"] = module
     return BLOCKING_CONTEXT["scope"]
-
-
-def main_isolated(version: Version, index: int) -> tuple[bool, list[int]]:
-    """Whether VERSION's line INDEX is main-actor code: a uiSwiftSettings target's default isolation or
-    `@MainActor`, minus nonisolated / @concurrent / actor / Task.detached scopes (check-main-actor-work.py)."""
-    if "main_lines" not in version.memo:
-        scope = main_actor_scope()
-        module = version.path[len(SOURCES):].split("/", 1)[0] if version.path.startswith(SOURCES) else ""
-        version.memo["main_lines"] = scope.main_actor_lines(version.lines, module in ui_targets())
-    lines = version.memo["main_lines"]
-    return (index < len(lines) and lines[index]), []
 
 
 def ui_targets() -> set[str]:
@@ -1862,51 +1902,80 @@ def ui_targets() -> set[str]:
     return BLOCKING_CONTEXT["ui_targets"]
 
 
-def off_main(version: Version, index: int) -> tuple[bool, list[int]]:
-    return not main_isolated(version, index)[0], []
+def runs_on_main(version: Version, index: int) -> bool:
+    """Whether VERSION's line INDEX runs on the main thread for sure: main-actor code (a uiSwiftSettings target's
+    default or `@MainActor`, minus nonisolated / @concurrent / actor / Task.detached scopes, as
+    check-main-actor-work.py reads them) directly in a function body, not inside a closure that may run later
+    or on another thread (`queue.async {`, `terminationHandler = {`, `Thread {`, `setEventHandler {`)."""
+    if "main_lines" not in version.memo:
+        module = version.path[len(SOURCES):].split("/", 1)[0] if version.path.startswith(SOURCES) else ""
+        version.memo["main_lines"] = main_actor_scope().main_actor_lines(version.lines, module in ui_targets())
+    lines = version.memo["main_lines"]
+    if not (index < len(lines) and lines[index]):
+        return False
+    code = code_of(version.lines[index])
+    match = MAIN_SCAN.search(code)
+    prefix = code[:match.start()] if match else ""
+    for opener, _ in enclosing_openers(version.lines, index, DECL_STOP, prefix):
+        if DECL_STOP.search(opener):
+            return True
+        if not CONTROL_OPENER.search(opener):
+            return False  # inside a closure
+    return True
+
+
+def changed_debt(changes: list[FileChange], judge: Callable[[Version, int, str], bool]) -> list[Added]:
+    """New debt among the lines the push changed, as matcher_rule counts it (a per-file count ratchet with moves),
+    without matcher_rule's scan of unchanged lines: JUDGE(version, 0-based line, code) decides a changed line."""
+    def debt(version: Version, changed: list[Added]) -> list[Added]:
+        out = []
+        for line in changed:
+            index = line.number - 1
+            if index < len(version.lines) and escaped(version.lines, index, BLOCKING_ALLOW):
+                continue
+            if judge(version, index, code_of(line.text)):
+                out.append(line)
+        return out
+    return resolve([(debt(c.head, c.added), debt(c.base, c.removed)) for c in changes])
 
 
 def outside_seams(changes: list[FileChange]) -> list[FileChange]:
     return [c for c in changes if not c.path.startswith(BLOCKING_SEAMS)]
 
 
-class Prefiltered:
-    """PATTERN behind one literal-keyword search: most lines hold none of KEYS, and that search costs a tenth of
-    the full alternation (the gate stays under 1 s on a 240k-line push)."""
-
-    def __init__(self, pattern: re.Pattern, keys: tuple[str, ...]) -> None:
-        self.pattern = pattern
-        self.keys = re.compile("|".join(re.escape(key) for key in keys))
-
-    def search(self, text: str):
-        return self.pattern.search(text) if self.keys.search(text) else None
-
-
-BLOCKING_KEYS = ("contentsOf", "FileManager", ".wait(", "waitUntilExit", ".sync", "readToEnd", "availableData", "readData",
-                 "esourceValues", "xpc_", "blocking")
-RAW_SCAN = Prefiltered(RAW_BLOCKING, BLOCKING_KEYS)
-MAIN_BLOCKING = Matcher(Prefiltered(re.compile(RAW_BLOCKING.pattern + "|" + SEAM_BLOCKING.pattern), BLOCKING_KEYS),
-                        BLOCKING_ALLOW, main_isolated)
-
-
 def blocking_on_main(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
-    """Added lines that block on the main thread: any blocking call (raw or seam) in main-isolated code, and
-    a main-queue sync hop or a sleep anywhere."""
-    scoped = outside_seams(changes)
-    always = matcher_rule(Matcher(Prefiltered(ALWAYS_BLOCKING, ("main.sync", "sleep(")), BLOCKING_ALLOW))(scoped, moved)
-    seen = {(h.path, h.number) for h in always}
-    return always + [h for h in matcher_rule(MAIN_BLOCKING)(scoped, moved) if (h.path, h.number) not in seen]
+    """Added lines that block on the main thread: a blocking call (raw or seam) that surely runs on main
+    (runs_on_main), and a main-queue sync hop or a sleep anywhere."""
+    def judge(version: Version, index: int, code: str) -> bool:
+        if ALWAYS_SCAN.search(code):
+            return True
+        return blocking_match(MAIN_SCAN, code) and index < len(version.lines) and runs_on_main(version, index)
+    return changed_debt(outside_seams(changes), judge)
 
 
 def raw_blocking(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
-    """Added raw blocking primitives outside main-isolated code (main-blocking reports those)."""
-    return matcher_rule(Matcher(RAW_SCAN, BLOCKING_ALLOW, off_main))(outside_seams(changes), moved)
+    """Added raw blocking primitives that main-blocking does not report (off the main thread, or in a closure)."""
+    def judge(version: Version, index: int, code: str) -> bool:
+        return (blocking_match(RAW_SCAN, code) and not ALWAYS_SCAN.search(code)
+                and not (index < len(version.lines) and runs_on_main(version, index)))
+    return changed_debt(outside_seams(changes), judge)
 
 
 def doc_labels(doc: str) -> list[re.Pattern]:
-    """The thread and queue labels the threading doc lists in backticks, each `<x>` a wildcard."""
-    return [re.compile("^" + ".*".join(re.escape(part) for part in re.split(r"<[^>]*>", token)) + "$")
-            for token in re.findall(r"`([^`\n]+)`", doc)]
+    """The thread and queue labels the threading doc's "Registered threads and queues" section lists in
+    backticks, each `<x>` inside a label a wildcard (a token that is only a placeholder lists nothing)."""
+    start = doc.find(THREADING_DOC_SECTION)
+    if start < 0:
+        raise RuntimeError(f"{THREADING_DOC} has no \"{THREADING_DOC_SECTION[3:]}\" section")
+    end = doc.find("\n## ", start + len(THREADING_DOC_SECTION))
+    section = doc[start:end if end >= 0 else len(doc)]
+    patterns = []
+    for token in re.findall(r"`([^`\n]+)`", section):
+        literal = re.sub(r"<[^>]*>", "", token)
+        if len(literal.strip(" .-_")) < 3:
+            continue  # `<x>`, `<pid>`: a placeholder, not a label
+        patterns.append(re.compile("^" + ".+".join(re.escape(part) for part in re.split(r"<[^>]*>", token)) + "$"))
+    return patterns
 
 
 def label_listed(label: str, patterns: list[re.Pattern]) -> bool:
@@ -1915,7 +1984,8 @@ def label_listed(label: str, patterns: list[re.Pattern]) -> bool:
 
 
 def undocumented_threads(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
-    """Added threads, queues and BlockingAllowance reasons that plans/cmux-next/threading-model.md does not list."""
+    """Added threads, queues and BlockingAllowance reasons that plans/cmux-next/threading-model.md does not list.
+    A thread or queue whose label is not a string literal (a variable) is not judged."""
     listed: dict[str, object] = {}
 
     def doc() -> dict[str, object]:
@@ -1927,21 +1997,26 @@ def undocumented_threads(changes: list[FileChange], moved: collections.Counter) 
             listed.update(labels=doc_labels(text), allowances=set(re.findall(r"^\|\s*`(\w+)`\s*\|", text, re.M)))
         return listed
 
-    def keep(version: Version, index: int) -> tuple[bool, list[int]]:
-        labels, allowances = doc()["labels"], doc()["allowances"]
-        decl = ALLOWANCE_DECL.search(code_of(version.lines[index]))
+    def judge(version: Version, index: int, code: str) -> bool:
+        if not THREAD_SCAN.search(code):
+            return False
+        decl = ALLOWANCE_DECL.search(code)
         if decl:
-            return decl.group(1) not in allowances, []
-        # The label or name: on the line, or a `.name = "..."` within the next 6 lines (`Thread { }` then `.name`).
-        for text in version.lines[index:index + 7]:
+            return decl.group(1) not in doc()["allowances"]
+        # The label on the line, or `<name>.name = ...` on a later line of the same function for
+        # `let <name> = Thread {` / `OperationQueue()` (the body of a Thread closure comes before its name).
+        bound = THREAD_BINDING.search(code)
+        line = version.lines[index] if index < len(version.lines) else code  # code_of blanks the string literals
+        following = version.lines[index + 1:index + 1 + THREAD_NAME_WINDOW] if index < len(version.lines) else []
+        for text in [line] + ([t for t in following if re.search(r"\b" + re.escape(bound.group(1)) + r"\.name\s*=", t)]
+                              if bound else []):
             named = THREAD_NAME.search(text)
             if named:
-                return not label_listed(named.group(2), labels), []
-        return True, []  # an unnamed thread or queue: name it and list it
+                literal = named.group("literal")
+                return literal is not None and not label_listed(literal[1:-1], doc()["labels"])
+        return True  # an unnamed thread or queue: name it and list it
 
-    pattern = Prefiltered(re.compile(THREAD_CREATE.pattern + "|" + ALLOWANCE_DECL.pattern),
-                          ("Thread", "Queue", "pthread_", "Workloop", "BlockingAllowance"))
-    return matcher_rule(Matcher(pattern, BLOCKING_ALLOW, keep))(changes, moved)
+    return changed_debt(changes, judge)
 
 
 def load_blocking_context(texts: dict[tuple[str, str], str], head: str) -> None:
@@ -1952,10 +2027,9 @@ def load_blocking_context(texts: dict[tuple[str, str], str], head: str) -> None:
         if (head, path) in texts:
             BLOCKING_CONTEXT[key] = texts[(head, path)]
 
-
 BLOCKING_RULES = (
-    Rule("main-blocking", "A blocking call on the main thread (file I/O, a socket read, a wait, a process wait, a "
-         "sync hop or a sleep in main-isolated code; `DispatchQueue.main.sync`, `Thread.sleep`, `usleep` anywhere)",
+    Rule("main-blocking", "A blocking call on the main thread (file I/O, a socket read, a wait, a process wait or a "
+         "sync hop directly in main-actor code; `DispatchQueue.main.sync`, `Thread.sleep`, `usleep` anywhere)",
          "the main thread never blocks (plans/cmux-next/threading-model.md, Chrome's ScopedBlockingCall): one disk, "
          "lock or process wait on it drops frames and delays the next input; in Debug the runtime detector reports it",
          "move the work off the main thread (an actor, `Task.detached`, a `nonisolated` async function, the daemon) "
@@ -1963,8 +2037,8 @@ BLOCKING_RULES = (
          "(`FileManager.checked`, `Data(blockingContentsOf:)`, `.blockingWait()`) are for code that runs off main",
          "// blocking-allow: <why this cannot leave the main thread, and its reviewed allowBlocking reason>",
          blocking_on_main),
-    Rule("raw-blocking", "A raw blocking primitive (file read/write, `FileManager.default.<disk op>`, `.wait()`, "
-         "`.sync {`, `waitUntilExit()`, `readToEnd()`, sync XPC) instead of its checked seam",
+    Rule("raw-blocking", "A raw blocking primitive (file read/write, `.write(to:)`, `FileManager.default.<disk op>`, "
+         "`.wait()`, `.sync {`, `waitUntilExit()`, `readToEnd()`, sync XPC) instead of its checked seam",
          "the runtime detector sees only the seams in CmuxNextCompat/Threading: a raw call that later runs on the "
          "main thread blocks it unseen",
          "use the seam: `FileManager.checked.<op>`, `Data(blockingContentsOf:)`, `String(blockingContentsOf:)`, "
