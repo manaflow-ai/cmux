@@ -328,6 +328,27 @@ class RuleTests(Fixture):
                          "control: the plain range has it")
         self.assertEqual(self.refused(guardrails.check_push, fork, "HEAD", "feat-cmux-next"), [], "rebased")
 
+    def test_a_merge_cannot_use_an_upstream_removal_to_pay_for_the_branch_s_own_main_hop(self):
+        # Upstream removes a main hop from Shared.swift; the branch adds one there and merges upstream in. Over the
+        # old remote head the removal (upstream's) pays for the branch's hop: a per-file count ratchet.
+        shared = "func a() {\n    DispatchQueue.main.async { print(1) }\n}\n\nfunc b() {}\nfunc c() {}\nfunc d() {}\n"
+        self.write(f"{KIT}/Shared.swift", shared)
+        self.commit("a main hop on the base")
+        self.git("checkout", "--quiet", "-b", "topic")
+        self.write(f"{KIT}/Topic.swift", "struct Topic {}\n")
+        self.commit("topic work")
+        pushed = self.git("rev-parse", "HEAD").stdout.strip()
+        self.git("checkout", "--quiet", "feat-cmux-next")
+        self.write(f"{KIT}/Shared.swift", shared.replace("    DispatchQueue.main.async { print(1) }\n", ""))
+        self.commit("upstream removes the main hop")
+        self.git("checkout", "--quiet", "topic")
+        self.write(f"{KIT}/Shared.swift", shared + "func e() {\n    DispatchQueue.main.async { print(2) }\n}\n")
+        self.commit("the branch's own main hop in Shared.swift")
+        self.git("merge", "--quiet", "--no-edit", "feat-cmux-next")
+        self.assertEqual(self.refused(guardrails.check, pushed, "HEAD"), [], "control: over the old remote head it is paid")
+        self.assertEqual(self.refused(guardrails.check_push, pushed, "HEAD", "feat-cmux-next"),
+                         [("main-async", ["Shared.swift: DispatchQueue.main.async { print(2) }"])])
+
     def test_owner_globs_do_not_cross_folders_with_a_single_star(self):
         self.assertTrue(guardrails.glob_match("A/Motion/Spring.swift", "A/Motion/"))
         self.assertTrue(guardrails.glob_match("A/MotionGate.swift", "A/Motion*.swift"))
@@ -455,7 +476,8 @@ class RuleTests(Fixture):
             self.assertRegex(usage, rf"(^|\s|\[){re.escape(option)}\b", f"{option} is not a crash_ratchet.py option")
 
     def test_a_rule_that_raises_only_on_the_pushed_range_of_a_merge_is_warned_once(self):
-        # A branch that merged feat-cmux-next in: check_push checks the pushed range and the branch's own range.
+        # A branch that merged feat-cmux-next in: check_push checks the branch's range over the merged upstream and
+        # takes off what the old remote head already had (its range over the upstream it started from).
         self.git("checkout", "--quiet", "-b", "topic")
         self.write(f"{KIT}/Topic.swift", "struct Topic {}\n")
         self.commit("topic work")
@@ -466,18 +488,20 @@ class RuleTests(Fixture):
         self.git("checkout", "--quiet", "topic")
         self.git("merge", "--quiet", "--no-edit", "feat-cmux-next")
         self.write(f"{KIT}/Own.swift", "func own() {\n    DispatchQueue.main.async { print(2) }\n}\n")
+        # app-size sees only App files: a comment line (no growth) puts one in the branch's own range.
+        self.write(f"{APP}/Landed.swift", "struct Landed {}\n// the branch's note\n")
         self.commit("the branch's own main hop")
         original = next(r for r in guardrails.RULES if r.id == "app-size")
 
-        def only_pushed(changes, moved):  # Landed.swift is only in the pushed range, never in the branch's own
-            if any(c.path.endswith("/Landed.swift") for c in changes):
+        def only_pushed(changes, moved):  # Landed.swift's note is in the branch's range, not in what it pushed before
+            if not any(c.path.endswith("/Landed.swift") for c in changes):
                 raise RuntimeError("boom")
             return original.find(changes, moved)
 
         def always(changes, moved):
             raise RuntimeError("boom")
 
-        for name, find in (("pushed range only", only_pushed), ("both ranges", always)):
+        for name, find in (("the range taken off only", only_pushed), ("both ranges", always)):
             with self.subTest(failing=name):
                 rules = tuple(dataclasses.replace(r, find=find) if r.id == "app-size" else r for r in guardrails.RULES)
                 with mock.patch.object(guardrails, "RULES", rules):
@@ -1578,6 +1602,30 @@ class AppSizeTests(Fixture):
         self.assertEqual([(h.bucket, h.excess) for h in found],
                          [("root", code(swift_body(40, "ownWire")) - guardrails.ROOT_BUDGET)])
 
+    def test_a_merge_counts_the_root_growth_the_branch_already_pushed_once(self):
+        # The branch pushed +20 root lines before; it merges feat-cmux-next and adds +20 more: its own +20 is
+        # within the budget, though over the merged upstream the root grows +40.
+        self.git("checkout", "--quiet", "-b", "topic")
+        self.append(f"{APP}/AppDelegate.swift", swift_body(23, "earlierWire"))
+        self.commit("root wiring pushed before")
+        pushed = self.git("rev-parse", "HEAD").stdout.strip()
+        self.git("checkout", "--quiet", "feat-cmux-next")
+        self.write(f"{KIT}/Landed.swift", "struct Landed {}\n")
+        self.commit("landed on feat-cmux-next")
+        self.git("checkout", "--quiet", "topic")
+        self.git("merge", "--quiet", "--no-edit", "feat-cmux-next")
+        self.append(f"{APP}/AppServices.swift", swift_body(23, "ownWire"))
+        self.commit("the branch's own root wiring")
+        earlier, own = code(swift_body(23, "earlierWire")), code(swift_body(23, "ownWire"))
+        self.assertGreater(earlier + own, guardrails.ROOT_BUDGET, "control: over the merged upstream it is over")
+        self.assertLessEqual(own, guardrails.ROOT_BUDGET)
+        self.assertEqual(self.hits(guardrails.check_push, pushed, "HEAD", "feat-cmux-next"), [])
+        self.append(f"{APP}/AppServices.swift", swift_body(16, "moreWire"))
+        self.commit("more of the branch's own root wiring")
+        mine = own + code(swift_body(16, "moreWire"))
+        found = self.assertRefused(f"this push's own: +{mine}", args=(guardrails.check_push, pushed, "HEAD", "feat-cmux-next"))
+        self.assertEqual([(h.bucket, h.excess) for h in found], [("root", mine - guardrails.ROOT_BUDGET)])
+
     def test_the_guardrails_skip_reason_names_the_rule(self):
         self.append(f"{APP}/AppDelegate.swift", swift_body(35, "wire"))
         self.shrink_quit(0)
@@ -1824,7 +1872,7 @@ class HookTests(Fixture):
     def test_a_broken_guardrails_script_warns_and_lets_the_push_through(self):
         installed = self.repo / ".git" / "cmux-git-hooks" / "cmux-next-checks"
         self.assertTrue(installed.is_symlink(), "the installer swaps a link, so the checks are never missing")
-        (installed / "guardrails.py").write_text("def check(repo, base, head):\n    raise ValueError('boom')\n")
+        (installed / "guardrails.py").write_text("def run_push(repo, ranges, ratchet=None):\n    raise ValueError('boom')\n")
         result = self.push(CMUX_NEXT_CHECKS_SKIP_REASON="fixture: other checks")
         output = result.stdout + result.stderr
         self.assertEqual(result.returncode, 0, output)

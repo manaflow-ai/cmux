@@ -1337,6 +1337,7 @@ let package = Package(
             resources: [
                 .process("AccountsActions.xcstrings"),
                 .process("ActionCatalog.xcstrings"),
+                .process("AgentConfigurationActions.xcstrings"),
                 .process("AppStoreActions.xcstrings"),
                 .process("BookmarkActions.xcstrings"),
                 .process("BrowserProfileActions.xcstrings"),

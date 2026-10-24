@@ -47,7 +47,8 @@ class FakeApp:
 
     Each workspace is columns side by side, each column rows stacked: {"width": f, "rows": [[pane, f]]}."""
 
-    def __init__(self, takes_focus=True, cef=None, window_frame=None, visible=None, screen=None, legacy=False, chat="opens"):
+    def __init__(self, takes_focus=True, cef=None, window_frame=None, visible=None, screen=None, legacy=False, chat="opens",
+                 clamps=False):
         """`visible`/`screen`: the main screen's frames (VISIBLE, SCREEN); `legacy`: an app before the screen
         fields (debug.window_frame and debug.layers give no visible or screen frame); `chat`: `opens`, `late`
         (the chat tab shows 9 s after the action's reply), `refused` (a typed refusal) or `transport` (the
@@ -64,6 +65,7 @@ class FakeApp:
         self.browsers = []  # (pane, shown)
         self.cef = {"state": "ready", "unavailable": None, "fallback": None} if cef is None else cef
         self.window_frame = window_frame or [80, 40, 1600, 1000]
+        self.clamps = clamps  # AppKit keeps the window inside the visible frame (the fleet's virtual display)
 
     def ident(self, prefix):
         self.next += 1
@@ -141,6 +143,12 @@ class FakeApp:
         """debug.window_frame: `frame` as given (setFrame), or `screen` centers the size on the visible frame."""
         if params.get("frame"):
             self.window_frame = list(params["frame"])
+            if self.clamps:
+                x, y, w, h = self.window_frame
+                vx, vy, vw, vh = self.visible
+                h = min(h, vh)
+                y = min(max(y, vy), vy + vh - h)
+                self.window_frame = [x, y, w, h]
         elif "screen" in params:
             vx, vy, vw, vh = self.visible
             w, h = self.window_frame[2:]
@@ -337,6 +345,27 @@ class ShapeCheckTests(Case):
         self.assertIn("main display is 1", stress.vdisplay_problem("ready 7 8.33 main=1\n"))
         self.assertIsNotNone(stress.vdisplay_problem("error: CGVirtualDisplay unavailable\n"))
         self.assertIsNotNone(stress.vdisplay_problem(None))
+
+
+class VirtualDisplayTests(Case):
+    """The fleet's virtual display (cmux20-bench step ebb2b401, cmuxs-Mac-mini-3): AppKit keeps the window inside
+    the visible frame, so 1920 x 1080 under a bottom Dock gives a 1600 x 965 window."""
+
+    def test_a_1080_display_under_a_bottom_dock_refuses_with_the_size_it_saw_and_the_remedy(self):
+        app = FakeApp(screen=[0, 0, 1920, 1080], visible=[0, 90, 1920, 965], clamps=True)
+        _, problem = stress.place_window(app.rpc)
+        self.assertIsNotNone(problem)
+        for seen in ("1920 x 1080", "1920 x 965", "Dock at the bottom", "1920x1200"):
+            self.assertIn(seen, problem, f"the refusal does not say {seen!r}: {problem}")
+
+    def test_a_1200_display_under_a_bottom_dock_holds_the_window(self):
+        app = FakeApp(screen=[0, 0, 1920, 1200], visible=[0, 90, 1920, 1085], clamps=True)
+        reply, problem = stress.place_window(app.rpc)
+        self.assertIsNone(problem, problem)
+        self.assertEqual(reply["frame"][2:], [1600, 1000])
+
+    def test_the_builders_virtual_display_is_1920_by_1200(self):
+        self.assertEqual(stress.vdisplay_command("VDisplay", 120, 900), ["VDisplay", "120", "900", "main", "1920x1200"])
 
 
 class WindowPlacementTests(Case):

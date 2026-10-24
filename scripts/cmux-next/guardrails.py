@@ -8,8 +8,11 @@ line that gives them their context (a new `while` around a sleep, `struct` -> `c
 Per file and rule it is a count ratchet: an added match is new only when the same file does not remove as
 much debt (judged on the base text with the same context and escape rules, so editing a line that already
 has debt adds none, and a removed one-shot delay does not pay for a new poll), and an added line whose
-text another file removes as debt is a move. Lines a push only brings in from origin/feat-cmux-next (a
-merge or rebase onto it) never count (check_push). Base debt never blocks a push
+text another file removes as debt is a move. Only the push's own commits count (push_range.py, the same
+range the gate's scanners and the arch ratchet judge): lines a push only brings in from origin/feat-cmux-next
+(a merge or rebase onto it) never count. A merge is judged over the upstream it merged, less what the branch's
+old remote head already had over the upstream it started from (check_own), so an upstream removal of debt never
+pays for the branch's own. Base debt never blocks a push
 (plans/cmux-next/codebase-health.md has the counts).
 
 Refusals (rules below, `--list` prints them): each names the rule, why, the right pattern and its escape.
@@ -50,7 +53,7 @@ depth: top-level, a member of an `extension`, or nested with more than PRIVATE_T
 one move pool per push with the new-file rule (move_pools).
 
   scripts/cmux-next/guardrails.py                    # what HEAD adds over origin/feat-cmux-next
-  scripts/cmux-next/guardrails.py --base A --head B
+  scripts/cmux-next/guardrails.py --base A --head B   # exactly what B adds over A
   scripts/cmux-next/guardrails.py --list
 """
 from __future__ import annotations
@@ -58,6 +61,7 @@ from __future__ import annotations
 import argparse
 import collections
 import concurrent.futures
+import dataclasses
 import functools
 import importlib.util
 import itertools
@@ -103,12 +107,6 @@ def git(repo: Path, *args: str, check: bool = True) -> str:
     if check and result.returncode != 0:
         raise SystemExit(f"guardrails: git {' '.join(args)} failed: {result.stderr.decode(errors='replace').strip()}")
     return result.stdout.decode("utf-8", "replace")
-
-
-def is_ancestor(repo: Path, ancestor: str, descendant: str) -> bool:
-    env = {k: v for k, v in os.environ.items() if k not in ("GIT_INDEX_FILE", "GIT_WORK_TREE")}
-    return subprocess.run(["git", "-C", str(repo), "merge-base", "--is-ancestor", ancestor, descendant],
-                          capture_output=True, env=env).returncode == 0
 
 
 def code_of(line: str) -> str:
@@ -569,14 +567,21 @@ def source_flags(text: str, blob: str | None = None) -> list[bool]:
 
 @dataclass
 class NetHit(Added):
-    """A hit of a net-count rule: BUCKET names what grew (`root`, `other`, `total`, `new:<path>`), EXCESS how much.
+    """A hit of a net-count rule: BUCKET names what grew (`root`, `other`, `total`, `new:<path>`), EXCESS how much
+    over LIMIT (the measured amount is EXCESS + LIMIT).
 
-    WARN marks a hit that check() reports as a warning, never a refusal (the `app-size` growth buckets for now).
-    check_push compares a merge's two ranges by bucket, not by line text: a count has no line to intersect.
+    An additive hit with EXCESS <= 0 is a measurement, not a finding: check() drops it; check_own needs it to take
+    what the branch already had off a merge's amount. WARN marks a hit check() reports as a warning, never a refusal
+    (the `app-size` growth buckets and app-type's `scan:<path>` for now). ADDITIVE: the amount adds up over pushes
+    (lines of growth); a fact that is true or not (`new:<path>`, a new file or type; `scan:<path>`) is not: it is
+    always reported, and in a merge it is the push's own only when the other side does not have it.
+    check_own compares a merge's ranges by bucket, not by line text: a count has no line to match.
     """
     bucket: str = ""
     excess: int = 0
     warn: bool = False
+    limit: int = 0
+    additive: bool = True
 
 
 @dataclass
@@ -1161,7 +1166,7 @@ def app_type(changes: list[FileChange], moved: collections.Counter) -> list[Adde
         if problem is not None:
             hits.append(NetHit(file.path, 1, f"could not follow this file's braces ({problem}), so its new types "
                                "were not checked (fail open); tell the Performance Lead (PL-guardrails) with this "
-                               "line", f"scan:{file.path}", 0, warn=True))
+                               "line", f"scan:{file.path}", 0, warn=True, additive=False))
             continue
         base = Scopes([], []) if file.is_new else type_decls(file.base_lines, scans["base"].rows)
         candidates += type_candidates(file, base, type_decls(file.head_lines, scans["head"].rows))
@@ -1202,7 +1207,8 @@ def app_type(changes: list[FileChange], moved: collections.Counter) -> list[Adde
                     f"{destination(c.file.path)}; a new App file for new code is refused too (app-size); keep it "
                     f"a private helper of <= {PRIVATE_TYPE_MAX} source lines, or use the reviewed escape "
                     f"`{TYPE_ESCAPE}`")
-        hits.append(NetHit(c.file.path, decl.first + 1, text, f"new:{c.file.path}:{decl.qual}", c.source))
+        hits.append(NetHit(c.file.path, decl.first + 1, text, f"new:{c.file.path}:{decl.qual}", c.source,
+                           additive=False))
     return hits
 
 
@@ -1307,7 +1313,8 @@ def new_file_pass(app: list[AppFile]) -> NewFiles:
             continue
         number = file.added[0].number if file.added else 1
         hits.append(NetHit(file.path, number, f"new App file, {lines} source lines ({lines - moved_lines} not "
-                           f"moved), goes to {destination(file.path)}: {why}", f"new:{file.path}", lines))
+                           f"moved), goes to {destination(file.path)}: {why}", f"new:{file.path}", lines,
+                           additive=False))
     return NewFiles(hits, twins, host, {True: start[True] - root_pool, False: start[False] - other_pool}, moves)
 
 
@@ -1386,20 +1393,23 @@ def app_size(changes: list[FileChange], moved: collections.Counter) -> list[Adde
     other_net = net(other_files) + into_root - out_of_root
     wiring = root_net - (len(host.added) if host else 0)
     total = net(app)
-    if wiring > ROOT_BUDGET:
+    # Every root change is measured (a hit with excess <= 0 is not a finding; check() drops it): a merge's own
+    # root growth is its amount less what the branch's last push already had (check_own).
+    if root_files and wiring:
         path, number, shown = top([f for f in root_files if f is not host] or root_files)
         besides = f" besides {app_rel(host.path)}'s {len(host.added)}" if host else ""
         out = (f"; {out_of_root} lines moved from the root into other App files give no root shrink: a move into "
                "a package does" if out_of_root else "")
         hits.append(NetHit(path, number, f"the composition root grows {wiring:+d} source lines{besides}, over its "
-                           f"wiring budget of +{ROOT_BUDGET} per push ({shown}{out})", "root", wiring - ROOT_BUDGET))
+                           f"wiring budget of +{ROOT_BUDGET} per push ({shown}{out})", "root", wiring - ROOT_BUDGET,
+                           limit=ROOT_BUDGET))
     # Growth warnings, not refusals, until the large domains are out of the App (see the values' comment above).
-    if other_net > 0:
+    if other_files and other_net:
         path, number, shown = top(other_files)
         hits.append(NetHit(path, number, f"App outside the root grows {other_net:+d} source lines "
                            f"({net_bytes(other_files):+d} bytes); move the code to {destination(path)} ({shown})",
                            "other", other_net, warn=True))
-    if total > 0:
+    if total:
         path, number, shown = top(app)
         hits.append(NetHit(path, number, f"CmuxNextApp grows {total:+d} source lines ({net_bytes(app):+d} bytes, as "
                            f"check-app-size.sh --base counts lines): pay for it by moving as many App lines to "
@@ -1783,6 +1793,25 @@ def check_failure(name: str, error: Exception) -> str:
 
 def check(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Added]]], list[tuple[str, str]]]:
     """(refusals [(rule, hits)], warnings [(kind, text)]) for what HEAD adds over BASE."""
+    return settle(*measure(repo, base, head))
+
+
+def settle(found: list[tuple[Rule, list[Added]]], warnings: list[tuple[str, str]]):
+    """measure()'s hits as check()'s (refusals, warnings): an amount (NetHit.additive) at or under its limit is no
+    finding, a fact (a new file, a file whose braces app-type could not follow) always is, and a warning hit
+    (NetHit.warn) is a warning."""
+    refusals, warnings = [], list(warnings)
+    for rule, hits in found:
+        hits = [h for h in hits if not (isinstance(h, NetHit) and h.additive and h.excess <= 0)]
+        warnings += [(rule.id, f"{h.path}:{h.number}: {h.text}") for h in hits if getattr(h, "warn", False)]
+        hits = [h for h in hits if not getattr(h, "warn", False)]
+        if hits:
+            refusals.append((rule, hits))
+    return refusals, warnings
+
+
+def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Added]]], list[tuple[str, str]]]:
+    """([(rule, every hit, measurements and warning hits included)], warnings) for what HEAD adds over BASE."""
     # Fixed prefixes: a user's diff.noprefix / diff.srcPrefix would otherwise drop every file from the parse.
     specs = ["--", SWIFT_SOURCES, SWIFT_TESTS, *SHIPPED_BUILD_SPECS]
     env = {k: v for k, v in os.environ.items() if k not in ("GIT_INDEX_FILE", "GIT_WORK_TREE")}
@@ -1817,7 +1846,7 @@ def check(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Added
         change.memo["blobs"] = (blob_ids.get((head, path)), blob_ids.get((base, path)))
     files = [changes[p] for p in paths]
     moved = collections.Counter(r.text.strip() for c in files for r in c.removed if r.text.strip())
-    refusals = []
+    found = []
     for rule in RULES:
         scoped = [f for f in files if f.path.startswith(rule.scope) or f.path.endswith(rule.scope)]
         try:
@@ -1825,10 +1854,8 @@ def check(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Added
         except Exception as error:  # fail open for this rule only: a bug in one rule must not switch off the rest
             warnings.append(("guardrails", check_failure(f"rule {rule.id}", error)))
             continue
-        warnings += [(rule.id, f"{h.path}:{h.number}: {h.text}") for h in hits if getattr(h, "warn", False)]
-        hits = [h for h in hits if not getattr(h, "warn", False)]
         if hits:
-            refusals.append((rule, hits))
+            found.append((rule, hits))
     try:
         benches = json.loads(texts[(head, BENCHES)]) if (head, BENCHES) in texts else {}
     except json.JSONDecodeError:
@@ -1843,51 +1870,92 @@ def check(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Added
             warnings += [("owner", w) for w in owner_warnings(names_list, parse_owners(texts[(head, OWNERS)]))]
         except Exception as error:  # a broken warning must not switch off the refusals above
             warnings.append(("guardrails", check_failure("owner", error)))
-    return refusals, warnings
+    return found, warnings
+
+
+def load_push_range():
+    """push_range.py next to this file: which commits a push owns (the gate and the arch ratchet use it too)."""
+    name = "cmux_next_push_range"
+    if name in sys.modules:
+        return sys.modules[name]
+    spec = importlib.util.spec_from_file_location(name, HERE / "push_range.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module  # dataclasses resolve their module through sys.modules
+    spec.loader.exec_module(module)
+    return module
+
+
+def check_own(repo: Path, base: str, head: str, before=()):
+    """check() for the push's own range (push_range.OwnRange: BASE, HEAD and the BEFORE ranges it does not own).
+
+    No BEFORE: check(base, head). A merge (BEFORE holds the old remote head's range over the upstream it started
+    from): what HEAD adds over BASE (the merged upstream) less what each BEFORE range adds (push_range.less), so
+    neither upstream's lines nor what the branch pushed before count, and an upstream removal never pays for a
+    line the branch adds. Line hits are matched by rule, file and text. A count rule's bucket counts its amount
+    less the BEFORE ranges' amounts of that bucket (push_range.own_count) against the bucket's limit; a bucket
+    that is a fact (a new file) is the push's only when no BEFORE range has it. The warnings are BASE..HEAD's,
+    with every warning hit's amount taken the same way, plus any rule that failed on a BEFORE range.
+    """
+    if not before:
+        return settle(*measure(repo, base, head))
+    push_range = load_push_range()
+    # The ranges share most of their objects and each measure() waits on git most of the time: run them together
+    # (the slowest real merge push paid 2 x 1.3 s one after the other).
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1 + len(before)) as pool:
+        results = list(pool.map(lambda pair: measure(repo, *pair), [(base, head), *before]))
+    found, warnings = results[0]
+    others = []
+    for theirs, other_warnings in results[1:]:
+        # A rule that failed on one range is off for this push even when it ran on the others.
+        warnings += [w for w in other_warnings if w[0] == "guardrails" and w not in warnings]
+        others.append({rule.id: hits for rule, hits in theirs})
+    mine = {rule.id: hits for rule, hits in found}
+    own = []
+    for rule in RULES:
+        hits = mine.get(rule.id, [])
+        prior = [other.get(rule.id, []) for other in others]
+        if not rule.net:
+            kept = push_range.less(hits, prior, key=lambda h: (h.path, h.text.strip()))
+        else:
+            # Every bucket either side measured: one only the other side has is an amount the push took back.
+            by_bucket = {h.bucket: h for h in hits}
+            buckets = dict.fromkeys([h.bucket for h in hits] + [h.bucket for side in prior for h in side
+                                                                 if isinstance(h, NetHit)])
+            kept = [h for b in buckets if (h := own_net_hit(push_range, by_bucket.get(b), prior, b)) is not None]
+        if kept:
+            own.append((rule, kept))
+    return settle(own, warnings)
+
+
+def own_net_hit(push_range, hit: NetHit | None, prior: list[list[Added]], bucket: str) -> NetHit | None:
+    """The push's own part of BUCKET: HIT (None: only the PRIOR ranges measured it) less the PRIOR ranges' amounts
+    of BUCKET, or None when the push owns none of it."""
+    theirs = [h for side in prior for h in side if isinstance(h, NetHit) and h.bucket == bucket]
+    if not theirs:
+        return hit
+    model = hit or theirs[0]
+    if not model.additive:
+        return None  # a fact (a new file) the other side already had: not this push's
+    now = hit.excess + hit.limit if hit is not None else 0
+    had = [h.excess + h.limit for h in theirs]
+    mine = push_range.own_count(now, had)
+    if hit is not None and mine == now:
+        return hit
+    text = (f"{hit.text}; " if hit is not None else f"[{bucket}] ") + (
+        f"this push's own: {mine:+d} ({now:+d} over the merged upstream, less {sum(had):+d} the other side already "
+        "had: the branch's last push)")
+    return dataclasses.replace(model, text=text, excess=mine - model.limit)
 
 
 def check_push(repo: Path, base: str, head: str, upstream_ref: str = UPSTREAM):
-    """check() for a pushed BASE..HEAD, without the lines the push only brings in from UPSTREAM_REF.
+    """check() for a push of HEAD whose remote head is BASE: check_own() over push_range.own_range().
 
     A branch merged with or rebased onto feat-cmux-next pushes every line others landed there since its fork
     point. CI never runs these rules, so those lines can carry debt the push did not write (a skip reason, a
-    clone with old or no hooks, --no-verify). Rebased or fast-forwarded onto it (its merge base with HEAD
-    descends from BASE): the range starts at that merge base. Merged it in (neither descends from the other):
-    a hit counts only when it is also new against that merge base, and the warnings are the branch's own
-    plus any rule that failed on the pushed range.
+    clone with old or no hooks, --no-verify): they never count (push_range.py has the exact rule).
     """
-    upstream = git(repo, "merge-base", head, upstream_ref, check=False).strip()
-    if not upstream or upstream == base or is_ancestor(repo, upstream, base):
-        return check(repo, base, head)
-    if is_ancestor(repo, base, upstream):
-        return check(repo, upstream, head)
-    # The two ranges share most of their objects and each check() waits on git most of the time: run them together
-    # (the slowest real merge push paid 2 x 1.3 s one after the other).
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-        pushed_future, branch_future = pool.submit(check, repo, base, head), pool.submit(check, repo, upstream, head)
-        (pushed, pushed_warnings), (branch, warnings) = pushed_future.result(), branch_future.result()
-    # A rule that failed on the pushed range is off for this push even when it ran on the branch's own range.
-    warnings += [w for w in pushed_warnings if w[0] == "guardrails" and w not in warnings]
-    own = collections.Counter((rule.id, h.path, h.text.strip()) for rule, hits in branch for h in hits)
-    refusals = []
-    branch_hits = {rule.id: hits for rule, hits in branch}
-    for rule, hits in pushed:
-        if rule.net:
-            # A count has no line to intersect: a bucket refuses when it is over in both ranges, by the smaller excess.
-            mine = {h.bucket: h for h in branch_hits.get(rule.id, [])}
-            kept = [h if h.excess <= mine[h.bucket].excess else mine[h.bucket] for h in hits if h.bucket in mine]
-            if kept:
-                refusals.append((rule, kept))
-            continue
-        kept = []
-        for hit in hits:
-            key = (rule.id, hit.path, hit.text.strip())
-            if own[key] > 0:
-                own[key] -= 1
-                kept.append(hit)
-        if kept:
-            refusals.append((rule, kept))
-    return refusals, warnings
+    own = load_push_range().own_range(repo, head, [base], upstream_ref)
+    return check_own(repo, own.base, own.head, own.before)
 
 
 def parse_skip(value: str) -> tuple[set[str], str | None]:
@@ -1959,7 +2027,7 @@ class Ratchet:
 
     WAIT_LIMIT = 20.0
 
-    def __init__(self, repo: Path, ranges: list[tuple[str, str]], scripts_dir: Path | None = None) -> None:
+    def __init__(self, repo: Path, ranges: list, scripts_dir: Path | None = None) -> None:
         self.out: list[str] = []
         self.refused = False
         self.error: str | None = None
@@ -2003,19 +2071,22 @@ class Ratchet:
         return "\n".join(lines), self.refused and self.error is None
 
 
-def start_ratchet(repo: Path, ranges: list[tuple[str, str]]) -> Ratchet:
+def start_ratchet(repo: Path, ranges: list) -> Ratchet:
     """Start the arch ratchet for RANGES now (prepush-gate calls this before its scanners)."""
     return Ratchet(repo, ranges)
 
 
-def run_push(repo: Path, ranges: list[tuple[str, str]], ratchet: Ratchet | None = None) -> bool:
-    """Print the guardrails report for the pushed RANGES: the line rules (check_push per range, so lines a
-    push only brings in from origin/feat-cmux-next never count) and the arch ratchet (started here unless the
-    caller started it). True when either refuses the push."""
+def run_push(repo: Path, ranges: list, ratchet: Ratchet | None = None) -> bool:
+    """Print the guardrails report for the pushed RANGES: the line rules (check_own per range) and the arch
+    ratchet (started here unless the caller started it). True when either refuses the push.
+
+    RANGES are push_range.OwnRange values (prepush-gate passes the ones its scanners judged, so all three judge
+    the same commits); a (base, head) pair is a push whose remote head is base (push_range.as_own_ranges)."""
+    ranges = load_push_range().as_own_ranges(repo, ranges)
     ratchet = ratchet or Ratchet(repo, ranges)
     refused = False
-    for base, head in ranges:
-        refusals, warnings = check_push(repo, base, head)
+    for own in ranges:
+        refusals, warnings = check_own(repo, own.base, own.head, own.before)
         text, refuse = format_report(refusals, warnings)
         if text:
             print(text)
@@ -2024,11 +2095,6 @@ def run_push(repo: Path, ranges: list[tuple[str, str]], ratchet: Ratchet | None 
     if text:
         print(text)
     return refused or refuse
-
-
-def default_base(repo: Path, head: str) -> str:
-    base = git(repo, "merge-base", head, UPSTREAM, check=False).strip()
-    return base or f"{head}~1"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -2046,7 +2112,13 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     repo = Path(args.repo or git(Path.cwd(), "rev-parse", "--show-toplevel").strip())
     started = time.monotonic()
-    refused = run_push(repo, [(args.base or default_base(repo, args.head), args.head)])
+    push_range = load_push_range()
+    try:
+        own = push_range.given_range(repo, args.base, args.head) if args.base else push_range.own_range(repo, args.head)
+    except ValueError as error:
+        raise SystemExit(f"guardrails: {error}")
+    print(f"guardrails: judging {own.describe()}")
+    refused = run_push(repo, [own])
     print(f"guardrails: {'refused' if refused else 'ok'} ({time.monotonic() - started:.2f}s)")
     return 1 if refused else 0
 

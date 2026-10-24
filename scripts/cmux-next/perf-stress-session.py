@@ -610,7 +610,7 @@ def window_problem(reply):
         return f"the app gave no window frame ({str(reply)[:120]})"
     if abs(frame[2] - WINDOW_SIZE[0]) > 1 or abs(frame[3] - WINDOW_SIZE[1]) > 1:
         return (f"the window is {frame[2:]} pt, not {list(WINDOW_SIZE)}: the display ({screen}) cannot hold STRESS "
-                f"(frame {frame}, visible frame {visible}, screen {reply.get('screen_frame')})")
+                f"(frame {frame}, visible frame {visible}, screen {reply.get('screen_frame')}). {display_advice(reply)}")
     if not visible:
         return None
     x, y, w, h = frame
@@ -620,6 +620,23 @@ def window_problem(reply):
         return (f"the window {frame} reaches past its screen (visible frame {visible}, screen "
                 f"{reply.get('screen_frame')}, {screen})")
     return None
+
+
+def display_advice(reply):
+    """What the display gave and the remedy: AppKit keeps a window inside its screen's visible frame (under the
+    menu bar, beside the Dock), so STRESS needs a visible frame of at least WINDOW_SIZE."""
+    visible, screen = reply.get("visible_frame"), reply.get("screen_frame")
+    if not visible or not screen:
+        return f"Run on a display whose visible frame is at least {WINDOW_SIZE[0]} x {WINDOW_SIZE[1]} pt."
+    sx, sy, sw, sh = screen
+    vx, vy, vw, vh = visible
+    gaps = {"bottom": vy - sy, "left": vx - sx, "right": (sx + sw) - (vx + vw)}
+    edge = max(gaps, key=gaps.get)
+    dock = f"the Dock at the {edge} takes {round(gaps[edge])} pt" if gaps[edge] > 4 else "the Dock is hidden"
+    return (f"Display {round(sw)} x {round(sh)} pt, visible frame {round(vw)} x {round(vh)} pt ({dock}). Remedy: a "
+            f"display whose visible frame is at least {WINDOW_SIZE[0]} x {WINDOW_SIZE[1]} pt: on the fleet a 1920x1200 "
+            f"virtual display (split-spring.sh --vdisplay=120 with vdisplay.m's WIDTHxHEIGHT argument; this script's "
+            f"--vdisplay asks for 1920x1200 itself).")
 
 
 def dock_overlap(reply):
@@ -683,7 +700,7 @@ class StressShapeError(RuntimeError):
 
 
 def start_vdisplay(hz, out, hold):
-    """A 1920 x 1080 virtual main display at `hz` (vdisplay.m, compiled here), held at most `hold` seconds
+    """A 1920 x 1200 virtual main display at `hz` (vdisplay.m, compiled here), held at most `hold` seconds
     (the helper ends by itself then, even when this script is killed); returns its process once it is
     ready and main, or raises StressShapeError with the helper's line."""
     import subprocess
@@ -700,7 +717,7 @@ def start_vdisplay(hz, out, hold):
     shutil.copy(os.path.join(root, "scripts/ci/frame-pacing/VDisplay-Info.plist"),
                 os.path.join(out, "vdisplay", "VDisplay.app", "Contents", "Info.plist"))
     log = open(os.path.join(out, "vdisplay", "out"), "w")
-    process = subprocess.Popen([binary, str(hz), str(int(hold)), "main"], stdout=log, stderr=subprocess.STDOUT)
+    process = subprocess.Popen(vdisplay_command(binary, hz, hold), stdout=log, stderr=subprocess.STDOUT)
     line = wait(lambda: next((l for l in open(log.name) if l.startswith(("ready", "error"))), None), 30, step=0.5)
     problem = vdisplay_problem(line)
     if problem:
@@ -709,6 +726,17 @@ def start_vdisplay(hz, out, hold):
                                f"({open(log.name).read()[-300:].strip()})")
     print(f"stress: virtual display {line.strip()}", flush=True)
     return process
+
+
+# The builder's virtual display: 1920 x 1200 leaves a visible frame over 1000 pt under the menu bar and a
+# bottom Dock (1920 x 1080 gave 965 pt: AppKit keeps windows inside the visible frame). A vdisplay.m without the
+# WIDTHxHEIGHT argument ignores it and makes 1920 x 1080; the window check then says so.
+VDISPLAY_SIZE = "1920x1200"
+
+
+def vdisplay_command(binary, hz, hold):
+    """The helper's argv: rate, hold, main, size."""
+    return [binary, str(hz), str(int(hold)), "main", VDISPLAY_SIZE]
 
 
 def vdisplay_problem(line):
