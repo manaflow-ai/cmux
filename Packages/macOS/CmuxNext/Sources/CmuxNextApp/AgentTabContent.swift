@@ -69,6 +69,10 @@ struct AgentTabContent {
         if paneView.launchImageView == nil, let image = image() { paneView.showLaunchImage(image) }
         guard paneView.launchImageView != nil, let view else { return }
         view.showsLoadingState = false
+        // The image's limit takes it only once the page has drawn. A chat read at launch can take
+        // longer than that limit (acpmux's attach, and the page holds its first frame until the
+        // chat is read), and the frame it would hand the pane to is empty.
+        paneView.launchImageMayClear = { [weak view] in view?.model.hasPainted ?? true }
         paneView.onLaunchImageCleared = { [weak view] in
             if let view, view.model.newTab == nil { view.showsLoadingState = true }
         }
