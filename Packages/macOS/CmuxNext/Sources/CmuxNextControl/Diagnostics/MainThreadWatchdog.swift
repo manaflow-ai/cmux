@@ -3,6 +3,8 @@ import Darwin
 import Foundation
 import os
 import CmuxNextCompat
+import CmuxNextSettings
+import CmuxNextWakeups
 
 /// Records every main-thread stall longer than `threshold` (default 50 ms)
 /// with a stack sample, into a ring buffer (`debug.hangs`).
@@ -143,7 +145,23 @@ public final class MainThreadWatchdog: Sendable {
     /// in the sampler's buffer. Count first, then beat (release).
     private let publishedSampleBeat = Atomic<UInt64>(.max)
     private let publishedSampleCount = Atomic<Int>(0)
+    /// The scheduler task that was running in that sample (``MainTaskBoard/runningPacked``), so the
+    /// stall record names the culprit: packed identity, start and budget. Written while the main
+    /// thread is suspended (atomics only).
+    private let publishedTaskPacked = Atomic<UInt64>(0)
+    private let publishedTaskStart = Atomic<UInt64>(0)
+    private let publishedTaskBudget = Atomic<UInt64>(0)
+    /// The main-thread scheduler's board (``attach(board:)``).
+    let boardSink = Mutex<MainTaskBoard?>(nil)
+    /// Stacks sampled while a scheduled task ran past its class budget, by packed task identity
+    /// (the newest few), until the task ends and its over-budget record takes the stack.
+    let taskSamples = Mutex<[(packed: UInt64, addresses: [UInt])]>([])
+    /// Scheduled tasks that ran past their class's per-frame budget (``attach(board:)``): their own
+    /// log, so a flood of them never pushes stalls out of ``log``.
+    public let overBudget = HangLog(capacity: 128)
     private let sampler = Mutex<ThreadStackSampler?>(nil)
+    /// Samples scheduled tasks past their budget (``attach(board:recordTaskBudgets:)``).
+    let taskSampler = Mutex<ThreadStackSampler?>(nil)
     private let observer = Mutex<ObserverBox?>(nil)
     #if DEBUG
     /// Tests: runs on the watchdog thread right after a sample, to hold that
@@ -223,10 +241,20 @@ public final class MainThreadWatchdog: Sendable {
         observer.withLock { $0 = box }
         let sampler = configuration.sampleStacks ? ThreadStackSampler(thread: mach_thread_self()) : nil
         self.sampler.withLock { $0 = sampler }
+        // Its own buffer: a stall's sample stays in `sampler` until the main thread copies it.
+        let taskSampler = configuration.sampleStacks ? ThreadStackSampler(thread: mach_thread_self()) : nil
+        self.taskSampler.withLock { $0 = taskSampler }
         let thread = Thread { [self] in watch(sampler: sampler) }
         thread.name = "cmux-next main-thread watchdog"
         thread.qualityOfService = .userInteractive
         thread.start()
+    }
+
+    /// A scheduled task started (``MainTaskBoard`` hook, main thread): the watchdog thread
+    /// re-reads when that task crosses its budget. One semaphore signal.
+    func wakeForTask() {
+        guard running.load(ordering: .relaxed) else { return }
+        wake.signal()
     }
 
     public func stop() {
@@ -273,11 +301,20 @@ public final class MainThreadWatchdog: Sendable {
 
     private func recordStall(start: UInt64, nanos: UInt64, cpuNanos: UInt64, beat: UInt64) {
         var addresses: [UInt] = []
+        var details: [String: JSONValue] = [:]
         if publishedSampleBeat.load(ordering: .acquiring) == beat, let sampler = sampler.withLock({ $0 }) {
             addresses = sampler.copy(count: publishedSampleCount.load(ordering: .relaxed))
+            // The scheduled task the sample caught (none: AppKit's own work, the display cycle or the commit).
+            if let board = boardSink.withLock({ $0 }),
+               let task = board.task(packed: publishedTaskPacked.load(ordering: .relaxed),
+                                     startNanos: publishedTaskStart.load(ordering: .relaxed),
+                                     budgetNanos: publishedTaskBudget.load(ordering: .relaxed)) {
+                details = Self.details(of: task)
+                details["task_started_ms"] = .number((Double(task.startNanos) - Double(start)) / 1_000_000)
+            }
         }
         let record = log.append(startUptimeNanos: start, duration: .nanoseconds(Int64(clamping: nanos)),
-                                cpu: .nanoseconds(Int64(clamping: cpuNanos)), addresses: addresses)
+                                cpu: .nanoseconds(Int64(clamping: cpuNanos)), addresses: addresses, details: details)
         if configuration.logStalls {
             // No symbolication here (main thread); `debug.hangs` resolves the stack.
             logger.error("main thread stalled \(record.duration.fractionalMilliseconds, format: .fixed(precision: 1)) ms (hang \(record.sequence), \(addresses.count) frames; see debug.hangs)")
@@ -290,6 +327,7 @@ public final class MainThreadWatchdog: Sendable {
 
     func watch(sampler: ThreadStackSampler?) {
         var sampledBeat: UInt64 = .max
+        var sampledTask: UInt64 = 0
         var hang = HangState(episodes: HangEpisodeTracker(hangNanos: hangNanos))
         while running.load(ordering: .acquiring) {
             closeRecoveredEpisode(&hang.episodes) // the beat moved while busy (also before the early waits)
@@ -306,8 +344,10 @@ public final class MainThreadWatchdog: Sendable {
                 continue
             }
             let beat = beatSequence.load(ordering: .acquiring)
-            let due = beatNanos.load(ordering: .acquiring) &+ (beat == sampledBeat ? thresholdNanos : sampleAfterNanos)
+            var due = beatNanos.load(ordering: .acquiring) &+ (beat == sampledBeat ? thresholdNanos : sampleAfterNanos)
             let now = uptime()
+            // A scheduled task past its class budget gets one stack sample (attach(board:)).
+            if let taskDue = sampleTaskOverBudget(now: now, sampled: &sampledTask) { due = min(due, taskDue) }
             if now < due {
                 // concurrency-allow: dedicated watchdog thread; bounded wait until the next heartbeat check.
                 _ = wake.wait(timeout: .now() + .nanoseconds(Int(clamping: due - now)))
@@ -317,9 +357,14 @@ public final class MainThreadWatchdog: Sendable {
             if beat == beatSequence.load(ordering: .acquiring), !mainAsleep.load(ordering: .acquiring), beat != sampledBeat {
                 sampledBeat = beat
                 if let sampler {
+                    let board = boardSink.withLock { $0 }
                     // Raw addresses only: symbolicating here can outlast a short stall.
                     // Published before the main thread resumes: atomics only in here.
                     _ = sampler.sample { count in
+                        let task = board?.runningPacked ?? (packed: 0, startNanos: 0, budgetNanos: 0)
+                        publishedTaskPacked.store(task.packed, ordering: .relaxed)
+                        publishedTaskStart.store(task.startNanos, ordering: .relaxed)
+                        publishedTaskBudget.store(task.budgetNanos, ordering: .relaxed)
                         publishedSampleCount.store(count, ordering: .relaxed)
                         publishedSampleBeat.store(beat, ordering: .releasing)
                     }

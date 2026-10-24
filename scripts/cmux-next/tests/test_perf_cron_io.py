@@ -36,16 +36,23 @@ def measure_tip(state, s, rows, t):
 
 
 class ReferenceTests(unittest.TestCase):
-    def test_a_creep_of_8_percent_per_run_regresses(self):
+    def test_a_creep_of_8_percent_per_run_regresses_against_the_week_old_values(self):
         # 40 ms is over the 10 ms target on every run, so only the relative rule can catch the creep (STRESS close
-        # 41.7 ms, New Column 102 ms are such rows). Each run is +8 %: under the 10 % rule against the run before it.
+        # 41.7 ms, New Column 102 ms are such rows). Each run is +8 %: never 10 % above the max of the runs before it,
+        # so the confirmation rule (outside the baseline's spread twice) catches it against the values at least
+        # CREEP_DAYS old, one run every 2 days here.
+        # The creep starts after a full baseline (3 values): a creep while the baseline still builds is held out of it
+        # and, after 3 held values, restarts it (listed in the issue's baseline restarts).
         state = cron.empty_state(T0)
         self.assertEqual(measure_tip(state, sha(1), {"panes.close.stress.e2e": row(40.0)}, at(0)), "first")
+        measure_tip(state, sha(2), {"panes.close.stress.e2e": row(40.2)}, at(1))
+        measure_tip(state, sha(3), {"panes.close.stress.e2e": row(39.9)}, at(2))
         events, value = [], 40.0
-        for i in range(2, 7):
+        for i in range(4, 11):
             value = round(value * 1.08, 2)
-            events.append(measure_tip(state, sha(i), {"panes.close.stress.e2e": row(value)}, at(i)))
-        self.assertIn("regressed", events, f"five +8 % runs must regress, got {events}")
+            events.append(measure_tip(state, sha(i), {"panes.close.stress.e2e": row(value)}, at(48 * (i - 3))))
+        self.assertIn("regressed", events, f"a +8 % creep for 2 weeks must regress, got {events}")
+        self.assertNotIn("regressed", events[:3], "not before a week-old value exists")
 
     def test_one_noisy_run_does_not_move_the_reference(self):
         state = cron.empty_state(T0)
@@ -226,7 +233,7 @@ class ManageIssueTests(unittest.TestCase):
         self.assertEqual(line, "opened issue #77")
         self.assertEqual(writes[0][0:2], ("POST", "/repos/o/r/issues"))
         self.assertIn(cron.ISSUE_MARK, writes[0][2]["body"])
-        self.assertIn("macOS 27 only", writes[0][2]["body"])
+        self.assertIn("compared only with values of the same host", writes[0][2]["body"])
         self.assertEqual(state["issue"], 77)
 
     def test_reopens_a_closed_own_issue_with_a_comment(self):
@@ -382,6 +389,10 @@ esac
 """
 
 
+# The bench host as /v1/status lists it (run-part takes the step's labels from it).
+BENCH_WORKERS = [{"name": cron.BENCH_WORKER, "labels": ["bench", "measure", "macos-27"]}]
+
+
 class RunPartTests(unittest.TestCase):
     """cmd_run_part with a fake cmux-ci: step id parse, cancel on a foreground job, exit-code mapping."""
 
@@ -397,7 +408,7 @@ class RunPartTests(unittest.TestCase):
         env = {"FAKE_LOG": log, "FAKE_EXIT": str(exit_code), "FAKE_SECONDS": seconds}
         real_sleep = cron.time.sleep
         with mock.patch.dict(os.environ, env), mock.patch.object(cron.time, "sleep", lambda s: real_sleep(0.3)), \
-                mock.patch.object(cron, "http_json", lambda url, timeout=30: status or {"queue": []}), \
+                mock.patch.object(cron, "http_json", lambda url, timeout=30: {**(status or {"queue": []}), "workers": BENCH_WORKERS}), \
                 mock.patch("sys.stdout", io.StringIO()):
             cron.cmd_run_part(argparse.Namespace(sha=sha(5), args='["--suite=budgets"]', artifact="a/report.json", key="k",
                                                  run_seconds=900, out=out, worker=cron.BENCH_WORKER, client=client))
@@ -413,7 +424,8 @@ class RunPartTests(unittest.TestCase):
         self.assertTrue(any(c.startswith("artifact abcdef1234567890") for c in calls))
         self.assertTrue(os.path.exists(os.path.join(out, "report.json")))
         run = next(c for c in calls if c.startswith("run "))
-        for flag in ("--background", "--measurement", f"--target-worker {cron.BENCH_WORKER}", f"--ref {sha(5)}", "--arg=--suite=budgets"):
+        for flag in ("--background", "--measurement", "--label bench --label measure", f"--target-worker {cron.BENCH_WORKER}",
+                     f"--ref {sha(5)}", "--arg=--suite=budgets"):
             self.assertIn(flag, run)
 
     def test_fleet_exits_yield_and_a_timeout_fails(self):

@@ -15,10 +15,12 @@ import CmuxNextWakeups
 @MainActor
 final class AppControl {
     let watchdog = MainThreadWatchdog()
-    private let frames = FrameBatcher(owner: "Control.frames")
+    private let frames = FrameBatcher(owner: "Control.frames", kind: .budgeted(.automation))
     private let frameProbe = DebugFrameProbe()
     private let mainCPUProbe = DebugMainCPUProbe()
     private let terminalDisplayProbe = DebugTerminalDisplayProbe()
+    /// `debug.motion`'s Core Animation commit timer (`ca.commit`), owned here, not by a static.
+    private let motionCommitProbe = MotionCommitProbe()
     private(set) var service: ControlService?
     private var publisher: ControlSnapshotPublisher?
     private(set) var errorJournal: ErrorJournalService?
@@ -30,6 +32,9 @@ final class AppControl {
     /// Starts stall and busy detection. Call first thing at launch.
     func startWatchdog() {
         watchdog.start()
+        // Stall records name the scheduled main-thread task they caught; DEBUG and bench launches
+        // also record tasks past their class budget, with a stack (debug.hangs over_budget).
+        watchdog.attach(board: FrameScheduler.app.budget.board)
         watchdog.busy.setHelperSource { AppProcesses.chromiumHelpers() }
         // Input explains CPU use to the busy watchdog (one atomic add per event).
         inputMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown,
@@ -79,17 +84,26 @@ final class AppControl {
         ])
         // Diagnostics for tagged DEV builds; a release build registers no debug.* method
         // (ControlRouter drops them too: Configuration.allowsDebugMethods).
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         service.router.register(DebugHibernationControl.methods(services))
         service.router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }])
         service.router.register([
             .mainActor("debug.frames") { [probe = frameProbe] call in .value(probe.handle(call.params)) },
+            // The main-thread scheduler's per-frame budget: tasks, input yields, deferrals, longest task per class.
+            .mainActor("debug.main_budget") { call in
+                let budget = FrameScheduler.app.budget
+                let report = budget.report
+                if call.params["reset"]?.boolValue == true { budget.resetStats() }
+                return .value(report)
+            },
             // Main-thread CPU per frame against a 120 Hz frame (anim-perf-terminal.py).
             .mainActor("debug.main_cpu") { [probe = mainCPUProbe] call in .value(probe.handle(call.params)) },
             // Main-thread time in Ghostty's display passes (bench-terminal-resize.py).
             .mainActor("debug.terminal_display") { [probe = terminalDisplayProbe] call in .value(probe.handle(call.params)) },
             // Measured animation spans (plans/cmux-next/motion.md).
-            .mainActor("debug.motion") { [weak services] call in .value(DebugMotion.handle(call.params, services)) },
+            .mainActor("debug.motion") { [weak services, probe = motionCommitProbe] call in
+                .value(DebugMotion.handle(call.params, services, commitProbe: probe))
+            },
             // Launch, palette-open and terminal-creation spans (bench-stalls.py).
             .mainActor("debug.timings") { call in .value(DebugTimings.handle(call.params)) },
             // Each tab switch's own time: intent to shown, and to the next frame (perf-gate.py).
@@ -210,7 +224,7 @@ final class AppControl {
             },
         ])
         #endif
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         // Deliberately blocks the main thread (watchdog and bench self-test).
         service.router.register([
             .mainActor("debug.home.drive") { [weak services] call in
@@ -256,10 +270,11 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugAgentCursor.clickTag(call.params, services: services))
             },
+            // An injected key is input: it runs ahead of queued requests and batches yield to it (MainWorkClass.input).
             .mainActor("debug.key") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugKey.send(call.params, services: services))
-            },
+            }.injectingInput(),
             // The app's resign and become-active path without activating it (DebugAppActivation).
             .mainActor("debug.app_activation") { call in
                 .value(DebugAppActivation.send(call.params))
@@ -333,14 +348,6 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugSidebarRows.report(call.params, services: services))
             },
-            .mainActor("debug.sidebar_nested_fixture") { [weak services] call in
-                guard let services else { return .value(.null) }
-                return .value(DebugSidebarNestedFixture.show(call.params, services: services))
-            },
-            .mainActor("debug.sidebar_group_drag") { [weak services] call in
-                guard let services else { return .value(.null) }
-                return .value(DebugSidebarGroupDrag.run(call.params, services: services))
-            },
             .mainActor("debug.sidebar_wheel") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugSidebarWheel.post(call.params, services: services))
@@ -348,16 +355,6 @@ final class AppControl {
             .mainActor("debug.sidebar_rename") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugKey.beginSidebarRename(call.params, services: services))
-            },
-            // `debug.view_key {view, key, modifiers?, window?}`: a real key-down/up into a
-            // named view made first responder; `debug.focus_ring`: the sidebar's ring (cx-tupd).
-            .mainActor("debug.view_key") { [weak services] call in
-                guard let services else { return .value(.null) }
-                return .value(DebugViewKey.send(call.params, services: services))
-            },
-            .mainActor("debug.focus_ring") { [weak services] call in
-                guard let services else { return .value(.null) }
-                return .value(DebugViewKey.focusRingReport(call.params, services: services))
             },
             // CEF's own DevTools wait is 5 s (CEFRuntime.devToolsTimeout); the 2 s
             // control-plane deadline cut off replies that arrive between 2 and 5 s.
@@ -466,6 +463,30 @@ final class AppControl {
                 return .value(["stalled_ms": .number(Double(milliseconds))])
             },
         ])
+        // Sidebar fixtures and the sidebar focus ring live in CmuxNextSidebar behind DEBUG only, so a bench
+        // build (CMUX_BENCH_HOOKS without DEBUG) registers these routes in DEBUG builds alone.
+        #if DEBUG
+        service.router.register([
+            .mainActor("debug.sidebar_nested_fixture") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugSidebarNestedFixture.show(call.params, services: services))
+            },
+            .mainActor("debug.sidebar_group_drag") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugSidebarGroupDrag.run(call.params, services: services))
+            },
+            // `debug.view_key {view, key, modifiers?, window?}`: a real key-down/up into a
+            // named view made first responder; `debug.focus_ring`: the sidebar's ring (cx-tupd).
+            .mainActor("debug.view_key") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugViewKey.send(call.params, services: services))
+            }.injectingInput(),
+            .mainActor("debug.focus_ring") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugViewKey.focusRingReport(call.params, services: services))
+            },
+        ])
+        #endif
         #endif
         let publisher = ControlSnapshotPublisher(router: service.router, services: services, frames: frames)
         self.publisher = publisher

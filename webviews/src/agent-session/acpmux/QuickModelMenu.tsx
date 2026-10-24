@@ -29,9 +29,8 @@ export type QuickMenu = {
   effort?: { levels: Choice[]; current?: string; onPick(value: string): void };
   /// The chat's accounts (acpmux routes); absent for a chat with no session yet or off this Mac.
   account?: { sessionId: string; accounts: ChatAccounts };
-  /// Fast mode (Claude Code's Fast Mode): the menu's last checkbox row, its one place. Absent where
-  /// the running model has none, and for Codex, whose bolt left of the mic is its control
-  /// (FastToggle.tsx, Leo 2026-10-21).
+  /// Fast mode: the menu's last checkbox row, its one place. Absent where the running model has
+  /// none; the model button owns it for every harness.
   fast?: { checked: boolean; onChange(on: boolean): void };
   /// The rail beside the list: Starred (when any), then each harness. Without it the menu lists
   /// `models` alone and More models opens the full picker.
@@ -169,7 +168,7 @@ function QuickMenuSpacer({ rows, separators, widths }: TabExtent & { widths: Pro
 export type QuickMenuExtras = Pick<QuickMenu, "effort" | "account" | "fast">;
 
 /// The Claude Code style model menu (Leo 2026-10-18): a short rounded menu headed "Model · this
-/// session". Keys 1 to 9 pick a model in place, its check sits at the row's trailing edge, Effort
+/// session". Its few numbered rows (ModelPicker's QUICK_ROWS) are picked in place by their keys, its check sits at the row's trailing edge, Effort
 /// and Account open beside their rows, and More models opens the full picker (the harness rail and
 /// search). Typing a letter opens that picker searching for it. Fast mode is the last row, a
 /// checkbox (Leo 2026-10-20), never a radio group inside Effort.
@@ -527,6 +526,9 @@ export function QuickModelMenu({
             onCheckedChange={(on) => fast.onChange(on)}
           >
             <span className="acpmux-menu-label">{t("picker.fastMode")}</span>
+            {/* Its state in words at the trailing edge, as Effort and Account name theirs (Leo
+                2026-10-21): Off in secondary ink, On in the theme accent. */}
+            <span className="acpmux-quick-value">{t(fast.checked ? "picker.on" : "picker.off")}</span>
           </MenuCheckboxItem>
         </>
       )}

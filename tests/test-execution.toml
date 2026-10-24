@@ -1054,6 +1054,11 @@ lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. The guardrails run only in the local pre-push hook; run python3 tests/test_cmux_next_guardrails.py yourself (about 40 s, git only, no build)."
 
 [[test]]
+path = "tests/test_cmux_next_codebase_health.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests; run python3 tests/test_cmux_next_codebase_health.py after a change to codebase-health.py or to guardrails.py's diff scope or declaration parser (about 4 s, git only, no build)."
+
+[[test]]
 path = "tests/test_cmux_next_perf_gate_unlit.py"
 lane = "linux-guard"
 

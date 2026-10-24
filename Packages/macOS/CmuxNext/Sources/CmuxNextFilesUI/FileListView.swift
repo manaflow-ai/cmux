@@ -61,6 +61,7 @@ final class FileListView: NSObject, FileContentView, NSTableViewDataSource, NSTa
         scroll.hasHorizontalScroller = true
         scroll.autohidesScrollers = true
         scroll.drawsBackground = false
+        // Both bars thin, on no track, and no header corner (SystemScrollers.follow).
         SystemScrollers.follow(scroll)
     }
 

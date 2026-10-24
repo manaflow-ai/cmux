@@ -212,7 +212,7 @@ final class PaneContentView: NSView, PaneContentChrome {
     var paneHeaderHeight: CGFloat {
         if hiddenAgentHeaderHeight > 0 { return hiddenAgentHeaderHeight }
         // The band is inside the browser, under its toolbar.
-        (barPosition == .top && !isBandActive ? shownStripHeight : 0) + (innerChrome?.paneHeaderHeight ?? 0)
+        return (barPosition == .top && !isBandActive ? shownStripHeight : 0) + (innerChrome?.paneHeaderHeight ?? 0)
     }
 
     /// The strip below the content (`tabs.barPosition` bottom); else 0. In a browser's band

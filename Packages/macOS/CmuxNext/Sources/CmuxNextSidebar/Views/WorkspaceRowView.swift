@@ -238,7 +238,7 @@ final class WorkspaceRowView: SidebarRowView {
         // badge (`configureBadges`): set those views once, here, so a status tick does not flip
         // the activity indicator twice per configure. The badge never brings a kind glyph or an
         // agent brand with it: a row without the user's icon or a favicon stays text only, and
-        // its corner badge sits in the trailing slot (`layoutRowBadge`).
+        // its corner badge sits in the trailing slot (`layoutColumnMark`).
         let badgesLead = content.rowBadge != .trailing && !isShowingPlaceholder
         icon.configure(icon: shown.icon)
         iconKind = shown.icon

@@ -56,7 +56,8 @@ impl Inner {
         let url = required_str(params, "url")?;
         let wait_until = WaitUntil::parse(params.get("waitUntil").and_then(Value::as_str))?;
         let deadline = Instant::now() + timeout_of(params);
-        let (before, downloads) = self.begin_navigation(&session.target_id);
+        let (_, downloads) = self.begin_navigation(&session.target_id);
+        let before = self.lock().tabs.get(&session.target_id).map_or(0, |tab| tab.doc_seq);
         let result = self.send_until(&session, "Page.navigate", json!({"url": url}), deadline)?;
         if let Some(error) =
             result.get("errorText").and_then(Value::as_str).filter(|e| !e.is_empty())
@@ -76,17 +77,16 @@ impl Inner {
         }
         // Any document committed after this call counts, so a client redirect
         // continues the navigation instead of stranding the wait; the late
-        // error page of an earlier failed navigation does not.
+        // error page of an earlier failed navigation does not. A same-document
+        // navigation after that commit (an app router moving to `#/`) keeps
+        // the document, so the wait still ends at its load state.
         let what = format!("navigation to {url}");
         let landed = self.wait_for(&session.target_id, deadline, &what, |tab| {
             if tab.download_seq > downloads {
                 return Some(Err(DriverError::invalid(format!("Download is starting: {url}"))));
             }
-            (tab.nav_seq > before
-                && !tab.last_nav_same_document
-                && !tab.shows_failed_navigation()
-                && reached(tab, wait_until))
-            .then(|| Ok(json!({"url": tab.url})))
+            tab.document_since(before, |tab| reached(tab, wait_until))
+                .then(|| Ok(json!({"url": tab.url})))
         })?;
         if self.shows_browser_page(&session.target_id) {
             return Err(self.leave_browser_page(&session, deadline));

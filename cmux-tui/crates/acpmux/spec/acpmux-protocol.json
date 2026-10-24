@@ -1954,7 +1954,7 @@
           ]
         },
         "recipient": {
-          "description": "Session recipient for ordinary mail. Omit when target is supplied.",
+          "description": "Session recipient for ordinary mail. Omit when `target` is supplied.",
           "type": [
             "string",
             "null"
@@ -1964,7 +1964,7 @@
           "type": "string"
         },
         "target": {
-          "description": "Quiet reports alias (reports:<person>). Omit for session mail.",
+          "description": "Quiet reports alias (`reports:<person>`). Omit for session mail.",
           "type": [
             "string",
             "null"

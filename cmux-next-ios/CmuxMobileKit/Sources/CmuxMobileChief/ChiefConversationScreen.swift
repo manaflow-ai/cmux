@@ -31,10 +31,11 @@ public struct ChiefRoute: Hashable, Sendable {
 /// bar are hidden while it is up; the header's back button and the system
 /// left-edge swipe both pop it.
 ///
-/// The header's avatar, name and trailing button push Chief's info
-/// (``ChiefSettingsView``) on the same stack, as Messages pushes contact
-/// details from the conversation header: a back chevron and the system
-/// swipe back return to the conversation.
+/// The header's avatar and name push Chief's info (``ChiefSettingsView``)
+/// on the same stack, as Messages pushes contact details from the
+/// conversation header: a back chevron and the system swipe back return to
+/// the conversation. The trailing button is Invite to cmux
+/// (``ChiefInvite``): the share sheet with a note and the public cmux link.
 public struct ChiefConversationScreen: View {
     let session: ChiefSession
     let compose: ChiefComposer?
@@ -85,8 +86,8 @@ extension ConversationPresentationOptions {
             placeholder: String(localized: "Message Chief"),
             serviceTitle: "Chief",
             serviceSubtitle: String(localized: "Runs your agents on your Macs"),
-            // The header's trailing button opens Chief's settings (model, alerts).
-            trailingSymbol: "slider.horizontal.3"
+            // The header's trailing button is Invite to cmux (the share sheet).
+            trailingSymbol: ChiefInvite.symbol
         )
     }
 }
@@ -489,10 +490,11 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     /// package (Call, FaceTime and Mail; Hide Alerts and Send Read Receipts
     /// on a table that reloads under the switch). CmuxConversation has no
     /// hook to replace or trim them (verify/imsg-upstream-requests.md), so
-    /// Chief retargets those two controls, and the trailing button, to
-    /// ``ChiefSettingsView``: the Mac Chief's settings with this phone's
-    /// alert and receipt switches. Found by the package's own accessibility
-    /// markers; a later package that renames them shows its details again.
+    /// Chief retargets those two controls to ``ChiefSettingsView``: the Mac
+    /// Chief's settings with this phone's alert and receipt switches. The
+    /// trailing button (the package's call glyph) becomes Invite to cmux.
+    /// Found by the package's own accessibility markers; a later package that
+    /// renames them shows its details again.
     private(set) var headerTakenOver = false
     private var trailingWasAction = false
 
@@ -513,14 +515,21 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
                 retarget(button)
             case "conversation.header.trailing":
                 // The package's own action (leaving reply, edit or select
-                // mode, which show an xmark) runs first; settings open only
-                // from the plain state.
+                // mode, which show an xmark) runs first; the invite opens
+                // only from the plain state.
                 button.addAction(UIAction { [weak self, weak button] _ in
                     self?.trailingWasAction = !(button?.currentImage.map(Self.isXmark) ?? true)
                 }, for: .touchDown)
                 button.addAction(UIAction { [weak self] _ in
-                    guard let self, self.trailingWasAction else { return }
-                    self.presentSettings()
+                    guard let self else { return }
+                    // Read once: an activation with no touch-down (Full Keyboard
+                    // Access) never reuses an earlier tap's state.
+                    let wasPlain = self.trailingWasAction
+                    self.trailingWasAction = false
+                    // The package relabels the button on every mode change.
+                    self.labelTrailing()
+                    guard wasPlain else { return }
+                    self.presentInvite()
                 }, for: .touchUpInside)
                 trailingButton = button
             default:
@@ -550,10 +559,10 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         String(describing: image).contains("xmark")
     }
 
-    /// The trailing glyph speaks as "Call" in the package; here it is settings.
+    /// The trailing glyph speaks as "Call" in the package; here it is the invite.
     private func labelTrailing() {
         guard let trailingButton, let image = trailingButton.currentImage, !Self.isXmark(image) else { return }
-        trailingButton.accessibilityLabel = String(localized: "Chief Settings")
+        trailingButton.accessibilityLabel = ChiefInvite.actionTitle
     }
 
     /// Messages written before Chief connected are not in the transcript
@@ -580,6 +589,23 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         guard presentedViewController == nil, conversation.presentedViewController == nil else { return }
         view.endEditing(true)
         openInfo?()
+    }
+
+    /// Invite to cmux: the share sheet over the conversation, anchored to the
+    /// trailing button (a popover on iPad).
+    public func presentInvite() {
+        guard presentedViewController == nil, conversation.presentedViewController == nil else { return }
+        view.endEditing(true)
+        let sheet = ChiefInvite.shareSheet()
+        if let popover = sheet.popoverPresentationController {
+            if let trailingButton {
+                popover.sourceItem = trailingButton
+            } else {
+                popover.sourceView = view
+                popover.sourceRect = CGRect(x: view.bounds.maxX - 44, y: view.safeAreaInsets.top, width: 1, height: 1)
+            }
+        }
+        present(sheet, animated: true)
     }
 
     /// The back button's count of other unread conversations, the way the
@@ -789,6 +815,11 @@ public final class ChiefDemoHook {
     /// Opens Chief's settings, as the header's avatar does.
     public func openSettings() {
         container?.presentSettings()
+    }
+
+    /// Opens the Invite to cmux share sheet, as the header's trailing button does.
+    public func openInvite() {
+        container?.presentInvite()
     }
 
     /// The header controls Chief took over (avatar, name, trailing).
