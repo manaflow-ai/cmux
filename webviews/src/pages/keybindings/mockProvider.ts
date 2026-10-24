@@ -331,6 +331,7 @@ export class MockKeybindingsProvider implements PageClient {
           (b) =>
             b.id !== a.id &&
             b.command !== a.command &&
+            !(a.source === "default" && b.source === "default") &&
             !b.removed &&
             !b.unset &&
             normalized(b.key) === normalized(a.key) &&

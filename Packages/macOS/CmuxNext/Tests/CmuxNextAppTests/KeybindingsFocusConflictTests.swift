@@ -38,6 +38,15 @@ import Testing
     static let actualSizes = ["browserZoomReset", "agentPaneZoomReset", "markdownZoomReset", "fileEditorZoomReset",
                               "canvasZoomReset", "terminal.resetFontSize", "resetWorkspaceTerminalFontSize"]
 
+    /// Shipped defaults share keys by design (the Chrome tab keys and Cmd-1…9, Home's chat keys,
+    /// the palette's Cmd-W): no badge on a table nobody changed.
+    @Test func shippedDefaultsNeverConflict() {
+        for row in Self.rows(ActionRegistry.standard()) {
+            guard case .array(let ids)? = Self.field(row, "conflicts") else { continue }
+            #expect(ids.isEmpty, "\(Self.field(row, "command")?.stringValue ?? "?") conflicts on a default table")
+        }
+    }
+
     @Test func cmdZeroInEachSurfaceConflictsWithNothing() {
         let rows = Self.rows(ActionRegistry.standard())
         for command in Self.actualSizes {

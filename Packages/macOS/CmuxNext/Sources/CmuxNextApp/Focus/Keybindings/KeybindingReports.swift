@@ -164,8 +164,10 @@ enum KeybindingReports {
     /// (its position in the table) and `conflicts`: the ids of the other
     /// entries on the same keys where one never runs because of the other
     /// (the later entry wins, and the earlier one's `when` holding means the
-    /// later one's holds). Bindings in separate contexts (a focused browser,
-    /// the code editor) or a later, narrower one never conflict.
+    /// later one's holds), one of them made by someone (a user, app or
+    /// Ghostty config entry: shipped defaults share keys by design). Bindings
+    /// in separate contexts (a focused browser, the code editor) or a later,
+    /// narrower one never conflict.
     /// `shows` leaves entries out by their position (``pageList(_:registry:)``).
     static func list(_ params: [String: JSONValue], registry: ActionRegistry, shows: (Int) -> Bool = { _ in true }) -> JSONValue {
         let query = params["query"]?.stringValue?.lowercased() ?? ""
@@ -189,6 +191,11 @@ enum KeybindingReports {
             let conflicts = (byKeys[entry.keys] ?? []).filter { other in
                 // One action on the keys twice (its cmux and its Ghostty default) runs either way.
                 guard other != index, shows(other), entries[other].command != entry.command else { return false }
+                // Two shipped defaults share keys by design (the Chrome tab keys, Home's chat keys,
+                // the palette's): the app also passes over a winner that cannot run where the key
+                // goes. A conflict has a binding someone made (the user's, an app's, Ghostty's config).
+                let shipped: [KeyBinding.Source] = [.default, .ghosttyFallback]
+                if shipped.contains(entry.source), shipped.contains(entries[other].source) { return false }
                 // The later entry wins; the pair conflicts when the earlier one can never run.
                 let (winner, loser) = other > index ? (entries[other], entry) : (entry, entries[other])
                 return WhenClause.implies(loser.when, winner.when)
