@@ -293,6 +293,63 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         }
     }
 
+    /// TUI scroll tail: a `send` with no answer well past the link's round
+    /// trip gets three `ping`s behind it on the same channel. Their segments
+    /// make the receiver send duplicate ACKs (or later replies), so a lost
+    /// last segment of a flick is retransmitted at once instead of after the
+    /// 1 s retransmission timeout. The send itself is never repeated.
+    @Test func aStalledSendIsFollowedByTailProbes() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.unansweredSends = true
+        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let session = DaemonTerminalSession(surface: 7) {
+            DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
+        }
+        session.tailProbeDelay = .milliseconds(30)
+        session.start { _ in }
+        try await waitUntil { session.isAttached }
+        session.send(Data("a".utf8))
+        let count = { (cmd: String) in daemon.recorded.filter { $0["cmd"] as? String == cmd }.count }
+        try await waitUntil { count("ping") >= 3 }
+        #expect(count("send") == 1)
+    }
+
+    @Test func anAnsweredSendSendsNoTailProbe() async throws {
+        let daemon = FakeTerminalDaemon()
+        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let session = DaemonTerminalSession(surface: 7) {
+            DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
+        }
+        session.tailProbeDelay = .milliseconds(30)
+        session.start { _ in }
+        try await waitUntil { session.isAttached }
+        session.send(Data("a".utf8))
+        try await waitUntil { daemon.recorded.contains { $0["cmd"] as? String == "send" } }
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(!daemon.recorded.contains { $0["cmd"] as? String == "ping" })
+    }
+
+    /// TUI scroll tail: a lost reply must not stop input after a few frames
+    /// (later sends keep the reverse direction moving, so the loss is
+    /// repaired by duplicate ACKs): at least 32 sends may be unanswered.
+    @Test func manyUnansweredSendsStillGoOut() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.unansweredSends = true
+        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let session = DaemonTerminalSession(surface: 7) {
+            DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
+        }
+        session.tailProbeDelay = .seconds(60)
+        session.start { _ in }
+        try await waitUntil { session.isAttached }
+        let sends = { daemon.recorded.filter { $0["cmd"] as? String == "send" }.count }
+        for n in 1...32 {
+            session.send(Data("x".utf8))
+            try await waitUntil { sends() == n }
+        }
+        #expect(sends() == 32)
+    }
+
     /// TUI fast scroll: what one main-queue turn queues (a scroll frame's
     /// wheel reports, which Ghostty writes one by one) is one `send`.
     @Test func oneTurnsInputIsOneSend() async throws {
