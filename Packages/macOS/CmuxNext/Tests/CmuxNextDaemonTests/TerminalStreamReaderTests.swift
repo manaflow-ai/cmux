@@ -75,7 +75,7 @@ import Testing
         let request = try JSONSerialization.jsonObject(with: Data(try #require(sent.first).utf8)) as? [String: Any]
         #expect(request?["cmd"] as? String == "snapshot-request")
         #expect(request?["reason"] as? String == "gap")
-        #expect(request?["stream"] as? Int == 9, "the request runs on the view's own lane")
+        #expect(request?["attach_stream"] as? Int == 9, "the request runs on the view's own lane")
         fixture.reader.receive(fixture.ready(at: 200))
         fixture.reader.receive(fixture.output("fresh", at: 200))
         let events = await fixture.drain()
@@ -93,7 +93,7 @@ import Testing
         let path: String
         let writer: UnsafeMutableRawPointer
         let length: Int
-        static let capacity = 64
+        static let capacity = 128
 
         init(base: UInt64) throws {
             path = NSTemporaryDirectory() + "ring-\(UUID().uuidString)"
@@ -142,14 +142,14 @@ import Testing
         fixture.reader.receive(.ring(ringHeader, Data("{}".utf8), descriptor: ring.readerDescriptor()))
         let mapping = try #require(fixture.reader.ringMapping)
         fixture.reader.receive(fixture.ready(at: 1000))
-        // 1000 % 64 = 40: the 40 bytes wrap after 24. Both spans are longer than
-        // Foundation's inline Data (14 bytes), which would copy them.
+        // 1000 % 128 = 104: the 40 bytes wrap after 24. Both spans are longer
+        // than Foundation's inline Data (14 bytes), which would copy them.
         let text = "spans of the mapping wrap 0123456789abcd"
         ring.write(text, at: 1000)
         fixture.reader.receive(advance(to: 1040))
         // The writer has reserved past what the reader may still read: the next
         // bytes are lost before any span of them exists (a gap, no parse).
-        ring.write("xy", at: 1040, reserve: 1040 + 65)
+        ring.write("xy", at: 1040, reserve: 1040 + 129)
         fixture.reader.receive(advance(to: 1042))
         let sent = fixture.sent(1)
         #expect(sent.count == 1 && sent.first?.contains("\"gap\"") == true, "\(sent)")
@@ -164,6 +164,71 @@ import Testing
                 #expect(raw.baseAddress.map(mapping.contains) == true, "an output span is the mapping itself, not a copy")
             }
         }
+    }
+
+    @Test func aViewHoldingHalfTheRingResyncsInsteadOfTakingMoreSpans() async throws {
+        let fixture = try Fixture()
+        let ring = try TestRing(base: 0)
+        defer { fixture.transport.close(); close(fixture.daemon); ring.remove() }
+        let ringHeader = AttachFrameHeader(kind: .ring, stream: 9, length: 2, offset: 0)
+        fixture.reader.receive(.ring(ringHeader, Data("{}".utf8), descriptor: ring.readerDescriptor()))
+        fixture.reader.receive(fixture.ready(at: 0))
+        // 40 bytes the view has not parsed yet: held.
+        ring.write(String(repeating: "a", count: 40), at: 0)
+        fixture.reader.receive(advance(to: 40))
+        // 40 more would leave 80 unreleased bytes, over half the 128-byte ring.
+        ring.write(String(repeating: "b", count: 40), at: 40)
+        fixture.reader.receive(advance(to: 80))
+        let sent = fixture.sent(1)
+        #expect(sent.first?.contains("\"gap\"") == true, "\(sent)")
+        var outputs: [String] = []
+        for event in await fixture.drain() {
+            if case .output(let data, _) = event { outputs.append(String(decoding: data, as: UTF8.self)) }
+        }
+        #expect(outputs == [String(repeating: "a", count: 40)], "no span past the budget was handed out")
+    }
+
+    @Test func aLoopbackEventWithAStreamFieldStillReachesTheEventHandler() async throws {
+        let fixture = try Fixture()
+        defer { fixture.transport.close(); close(fixture.daemon) }
+        let (names, continuation) = AsyncStream.makeStream(of: String.self)
+        fixture.transport.start(onEvent: { name, _, _ in continuation.yield(name) }, onClose: { _ in continuation.finish() })
+        let line = Data(#"{"event":"loopback-data","stream":1,"data":"aGk="}"#.utf8) + Data([0x0A])
+        _ = line.withUnsafeBytes { write(fixture.daemon, $0.baseAddress, $0.count) }
+        var iterator = names.makeAsyncIterator()
+        #expect(await iterator.next() == "loopback-data", "`stream` belongs to loopback-forward-v1, not to attach streams")
+        #expect(fixture.transport.strayStreamMessages == 0)
+    }
+
+    @Test func anAttachThatFailsWithoutADaemonAnswerCancelsItsStreamAndARefusalDoesNot() async throws {
+        let fixture = try Fixture()
+        defer { fixture.transport.close(); close(fixture.daemon) }
+        fixture.transport.start(onEvent: { _, _, _ in }, onClose: { _ in })
+        let identity = DaemonIdentity(capabilities: ["attach-streams-v1", "attach-frames-v1"], generation: "g")
+        let carrier = TerminalStreamCarrier(transport: fixture.transport, identity: identity, frames: true)
+        let target = TerminalAttachment.Target(surface: SurfaceID(rawValue: 4))
+        // The daemon answers with a reply the view cannot read: no daemon refusal.
+        let malformed = Task { try await TerminalAttachment.attach(carrier: carrier, target: target, size: CellSize(cols: 80, rows: 24), claimGeometry: false) }
+        let attach = try #require(fixture.sent(1).first)
+        let request = try #require(try JSONSerialization.jsonObject(with: Data(attach.utf8)) as? [String: Any])
+        let id = try #require(request["id"] as? Int)
+        let stream = try #require(request["attach_stream"] as? Int)
+        let reply = Data(#"{"id":\#(id),"ok":true,"data":"not an attach reply"}"#.utf8) + Data([0x0A])
+        _ = reply.withUnsafeBytes { write(fixture.daemon, $0.baseAddress, $0.count) }
+        await #expect(throws: (any Error).self) { try await malformed.value }
+        let cancel = try #require(fixture.sent(1).first)
+        let cancelRequest = try #require(try JSONSerialization.jsonObject(with: Data(cancel.utf8)) as? [String: Any])
+        #expect(cancelRequest["cmd"] as? String == "cancel-stream")
+        #expect(cancelRequest["attach_stream"] as? Int == stream, "the abandoned attach's own stream ends")
+        // A refusal: the daemon ends the stream itself, the view sends nothing.
+        let refused = Task { try await TerminalAttachment.attach(carrier: carrier, target: target, size: CellSize(cols: 80, rows: 24), claimGeometry: false) }
+        let second = try #require(fixture.sent(1).first)
+        let secondID = try #require((try JSONSerialization.jsonObject(with: Data(second.utf8)) as? [String: Any])?["id"] as? Int)
+        let refusal = Data(#"{"id":\#(secondID),"ok":false,"error":"surface 4 not found"}"#.utf8) + Data([0x0A])
+        _ = refusal.withUnsafeBytes { write(fixture.daemon, $0.baseAddress, $0.count) }
+        await #expect(throws: (any Error).self) { try await refused.value }
+        var poll = pollfd(fd: fixture.daemon, events: Int16(POLLIN), revents: 0)
+        #expect(poll(&poll, 1, 200) == 0, "a refused attach sends no cancel")
     }
 
     @Test func aStreamEndWithReasonOverflowClosesTheViewAsAnOverflow() async throws {

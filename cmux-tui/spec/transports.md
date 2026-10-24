@@ -333,25 +333,28 @@ A reconnect creates a new transport generation. Old pending ids, event buffers, 
 ### Client streams (`attach-streams-v1`)
 
 A client that lists `attach-streams-v1` in `set-client-info` may attach many
-views on one connection. `attach-surface` takes a top-level `stream`
-(1-65535), minted by the client and unique among the streams the connection
+views on one connection. `attach-surface` takes a top-level
+`attach_stream` (1-65535), minted by the client and unique among the streams the connection
 has open (a duplicate fails with `stream_in_use`). Every event of that attach,
-also the READY or replay that precedes the reply, carries `"stream": N` (or,
+also the READY or replay that precedes the reply, carries `"attach_stream": N` (or,
 with `attach-frames-v1`, travels in a frame naming it). The stream's last item
-is `{"event": "stream-end", "stream": N, "reason": "ended" | "overflow"}`: after
+is `{"event": "stream-end", "attach_stream": N, "reason": "ended" | "overflow"}`: after
 it, and only after it, the client may reuse the id. A failed `attach-surface`
 that named a stream also ends it with `stream-end` after its error reply,
 unless the id belongs to another open stream.
 
-A request that acts for one view carries the same top-level `stream`: `send`,
+A request that acts for one view carries the same top-level `attach_stream` (its
+own key: `loopback-forward-v1` lines already use `stream` on the same connection): `send`,
 `send-key`, `resize-attached-view`, `release-attached-view-size`,
 `detach-attached-view`, `reattach-view`, `set-client-sizing`, `set-size-counts`,
 `set-size-policy`, `note-size-activity`, `snapshot-request`, `scroll-surface`,
 `attach-surface` and `cancel-stream`. These run on that stream's lane: in order
 with the stream's earlier requests, never behind another stream's requests or
-the connection's other requests (which keep the serial order above). Their
-replies may therefore come before the replies of earlier requests; match by
-`id`. `cancel-stream {stream}` ends a stream at once (idempotent: a stream that
+the connection's other requests (which keep the serial order above). Requests on
+different lanes are not ordered with each other, as on separate connections
+(a `send` on a stream lane may run while a `clear-history` of the same surface
+on the control lane runs). Their replies may therefore come before the replies
+of earlier requests; match by `id`. `cancel-stream {attach_stream}` ends a stream at once (idempotent: a stream that
 is not open answers `{"outcome": "ended"}`).
 
 ### Binary attach frames (`attach-frames-v1`)

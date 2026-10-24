@@ -143,6 +143,22 @@ public actor TerminalAttachment: TerminalByteChannel {
     /// `device` (``attach(carrier:target:size:claimGeometry:snapshotVersion:localHistory:images:)``),
     /// or, when it gives none (an older daemon, streams turned off), on a
     /// connection of its own to `endpoint`. The one attach path of an app view.
+    ///
+    /// - Parameters:
+    ///   - streams: The machine's connection as a stream carrier for a device
+    ///     (`DaemonService.terminalStreams(device:)`), or nil to always open a
+    ///     connection of its own.
+    ///   - endpoint: The daemon socket for a connection of its own.
+    ///   - target: The terminal to attach.
+    ///   - size: The view's grid; the attach is a size report.
+    ///   - claimGeometry: Claim canonical geometry after the attach.
+    ///   - snapshotVersion: The view's GHOSTSNP version (snapshot attach), or nil.
+    ///   - localHistory: The view reflows its own history at a resize.
+    ///   - images: The view applies Kitty image replays.
+    ///   - device: The view's device for shared sizing.
+    /// - Returns: The attached view.
+    /// - Throws: `DaemonError` when the daemon refuses the attach or the
+    ///   connection fails; `CancellationError` when the task is cancelled.
     public static func attach(
         streams: (@Sendable (TerminalSizingDevice) async throws -> TerminalStreamCarrier?)?,
         endpoint: @Sendable () async throws -> DaemonEndpoint,
@@ -166,8 +182,19 @@ public actor TerminalAttachment: TerminalByteChannel {
     /// Attaches as a client stream on `carrier`'s connection: one
     /// `attach-surface` round trip, no connection and no handshake of its own
     /// (the connection declared the sizing device once,
-    /// ``DaemonConnection/terminalStreams(device:)``). Same parameters as the
-    /// dedicated attach.
+    /// ``DaemonConnection/terminalStreams(device:)``).
+    ///
+    /// - Parameters:
+    ///   - carrier: The connection the stream rides on.
+    ///   - target: The terminal to attach.
+    ///   - size: The view's grid; the attach is a size report.
+    ///   - claimGeometry: Claim canonical geometry after the attach.
+    ///   - snapshotVersion: The view's GHOSTSNP version (snapshot attach), or nil.
+    ///   - localHistory: The view reflows its own history at a resize.
+    ///   - images: The view applies Kitty image replays.
+    /// - Returns: The attached view; its events end with `.closed` at its `stream-end`.
+    /// - Throws: `DaemonError` when the daemon refuses the attach or the
+    ///   connection fails; `CancellationError` when the task is cancelled.
     public static func attach(
         carrier: TerminalStreamCarrier,
         target: Target,
@@ -197,9 +224,7 @@ public actor TerminalAttachment: TerminalByteChannel {
                                             claimGeometry: claimGeometry, snapshotVersion: snapshotVersion,
                                             localHistory: localHistory, images: images)
         } catch {
-            // The daemon ends a failed stream attach with its stream-end; a
-            // request that never reached it gets none.
-            if carrier.transport.isClosed { carrier.transport.forgetStream(stream) }
+            attachment.abandonStream(after: error)
             throw error
         }
         return attachment
@@ -247,6 +272,23 @@ public actor TerminalAttachment: TerminalByteChannel {
         #if DEBUG
         if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.mark(.attachEnd, surface: target.surface.rawValue) }
         #endif
+    }
+
+    /// Ends this view's stream after its attach failed. The daemon ends a
+    /// stream it refused (an error reply, then `stream-end`). A deadline or a
+    /// cancel gives up with the attach still in flight: `cancel-stream` runs
+    /// after it on the stream's lane, so a late success does not leave a viewer
+    /// nobody reads; its `stream-end` frees the id. A closed transport sends
+    /// nothing more, so the id is forgotten here.
+    private nonisolated func abandonStream(after error: any Error) {
+        guard let stream else { return }
+        if transport.isClosed {
+            transport.forgetStream(stream)
+            return
+        }
+        if case DaemonError.command = error { return }
+        control.value.withLock { $0.canceled = true }
+        fireAndForget(CancelStreamRequest())
     }
 
     /// Records the attach reply's lease and size state (both attach paths).

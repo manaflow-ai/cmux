@@ -13,5 +13,6 @@ public struct CancelStreamRequest: DaemonRequest {
     public static let command = "cancel-stream"
     public static var requiredCapability: String? { DaemonCapabilities.attachStreams }
 
+    /// A cancel of the stream named by the request envelope.
     public init() {}
 }

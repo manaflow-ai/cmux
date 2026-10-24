@@ -600,7 +600,7 @@ struct Request {
     /// earlier requests and independent of every other stream's and of the
     /// control lane. Only the per-view commands of
     /// [`Command::runs_on_stream_lane`] use it.
-    #[serde(default)]
+    #[serde(default, rename = "attach_stream")]
     stream: Option<attach_frames::ClientStreamId>,
     #[serde(flatten)]
     cmd: Command,
