@@ -209,6 +209,12 @@ routed to session cmux-b6.
    (the PL-guardrails ratchet counts `.shared` reads so none come back); (c) `shared` is deleted.
    Engine runtimes (CEFRuntime, GhosttyRuntime) are owned by PL-cef-* / PL-ghostty: they get the
    injected instance from us, they migrate their readers.
+   Open (2026-10-24): `CuaHelperManifestReader.shared` is gone, but its cache now lives in
+   `ComputerUseHelperDaemon.shared`, itself a stateful singleton, and the reader is built by a
+   default argument inside CmuxNextComputerUse, not at the composition root. The target is met
+   only when AppServices constructs the helper daemon with its reader, passes it to
+   ComputerUseSetup, AgentHandlers, AgentTabPaneSource and AppDelegate's two calls, and
+   `static let shared` is deleted.
 3. **Debug-only state** (DebugCrashes, DebugWindowTransition, UpdateHarnessProbe, LaunchMarkSink):
    owned by the debug control object that registers the `debug.*` methods.
 
