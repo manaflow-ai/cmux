@@ -9,11 +9,18 @@
 //! still doing its last tool. Each is kept twice: raw for the owner's views,
 //! and masked before its cut for the sub-session tools (`subsession_row`), so
 //! a secret across the cut leaves no head there.
+//!
+//! The turn also keeps the ids of its tool calls in flight (started, not yet
+//! completed or failed): a turn with none, whose model has been quiet for
+//! `stalledTurnMs`, has stalled (`stalled_since`). A long build in one tool
+//! call is in flight, so it never stalls.
 
 use super::*;
 
 /// Longest activity or plan step kept, in characters.
 const ACTIVITY_CHARS: usize = 160;
+/// Most tool calls a turn keeps in flight; one past it is still counted as in flight.
+const MAX_OPEN_TOOLS: usize = 256;
 
 /// What a running turn does now (`TurnInfo::doing`), one line each.
 #[derive(Debug, Clone, Default)]
@@ -26,9 +33,41 @@ pub struct TurnActivity {
     pub masked_activity: Option<String>,
     /// `plan_step` with its secrets masked before its cut.
     pub masked_plan_step: Option<String>,
+    /// The ids of its tool calls in flight.
+    pub open_tools: std::collections::BTreeSet<String>,
+    /// A tool call started past [`MAX_OPEN_TOOLS`]: the turn counts one in flight until it ends.
+    pub open_overflow: bool,
 }
 
 impl TurnActivity {
+    /// Notes a `tool_call` or `tool_call_update` in `update`: in flight until it completes or fails.
+    fn note_tool(&mut self, update: &Value) {
+        let kind = update.get("sessionUpdate").and_then(Value::as_str);
+        let Some(id) = update.get("toolCallId").and_then(Value::as_str) else { return };
+        if !matches!(kind, Some("tool_call" | "tool_call_update")) {
+            return;
+        }
+        let status = update.get("status").and_then(Value::as_str);
+        if matches!(status, Some("completed" | "failed")) {
+            self.open_tools.remove(id);
+            return;
+        }
+        // A new call, or an update that says it runs; an update with no status changes nothing.
+        if status.is_none() && kind != Some("tool_call") {
+            return;
+        }
+        if self.open_tools.len() < MAX_OPEN_TOOLS {
+            self.open_tools.insert(id.to_owned());
+        } else if !self.open_tools.contains(id) {
+            self.open_overflow = true;
+        }
+    }
+
+    /// Whether a tool call of the turn is in flight.
+    pub(super) fn tool_in_flight(&self) -> bool {
+        !self.open_tools.is_empty() || self.open_overflow
+    }
+
     /// Puts the masked lines in `turn`, a summary's running turn, for the
     /// sub-session tools.
     pub(super) fn mask_into(&self, turn: &mut Value) {
@@ -86,18 +125,41 @@ pub(crate) fn doing_line(plan_step: Option<&str>, activity: Option<&str>) -> Opt
     }
 }
 
+/// Since when a running turn that started at `started_at` has stalled, or None: its model's last
+/// sign was at `heard_at` (0: none; the prompt counts as one), no tool call is in flight
+/// (`in_flight`), and it has been quiet `after` ms or more by `now` (module docs).
+pub(super) fn stalled_since(
+    started_at: u64,
+    heard_at: u64,
+    in_flight: bool,
+    now: u64,
+    after: Option<u64>,
+) -> Option<u64> {
+    let quiet_since = started_at.max(heard_at);
+    (!in_flight && now.saturating_sub(quiet_since) >= after?).then_some(quiet_since)
+}
+
 impl Hub {
-    /// Notes `update`'s activity on the running turn. Nothing while no turn
+    /// Notes `update`'s activity and tool calls on the running turn. Nothing while no turn
     /// runs: an update after the turn ended does not outlive it.
     pub(super) fn note_activity(&self, session: &Session, update: &Value) {
-        let (Some(raw), Some(masked)) = (activity_of(update), masked_activity_of(update)) else {
+        let tool = matches!(
+            update.get("sessionUpdate").and_then(Value::as_str),
+            Some("tool_call" | "tool_call_update")
+        );
+        let activity = activity_of(update).zip(masked_activity_of(update));
+        if !tool && activity.is_none() {
             return;
-        };
+        }
         let mut turn = session.turn.lock().unwrap_or_else(|e| e.into_inner());
         let Some(turn) = turn.as_mut() else {
             return;
         };
         let doing = &mut turn.doing;
+        if tool {
+            doing.note_tool(update);
+        }
+        let Some((raw, masked)) = activity else { return };
         match (raw, masked) {
             (Activity::Tool(title), Activity::Tool(masked)) => {
                 doing.activity = Some(title);
@@ -141,6 +203,38 @@ mod tests {
         let done =
             json!({"sessionUpdate": "plan", "entries": [{"content": "x", "status": "completed"}]});
         assert_eq!(activity_of(&done), Some(Activity::PlanStep(None)));
+    }
+
+    #[test]
+    fn a_tool_call_is_in_flight_until_it_completes_or_fails() {
+        let mut doing = TurnActivity::default();
+        doing.note_tool(&json!({"sessionUpdate": "tool_call", "toolCallId": "a", "title": "Build"}));
+        doing.note_tool(&json!({"sessionUpdate": "tool_call", "toolCallId": "b", "status": "pending"}));
+        assert!(doing.tool_in_flight());
+        doing.note_tool(&json!({"sessionUpdate": "tool_call_update", "toolCallId": "a", "title": "Built"}));
+        doing.note_tool(&json!({"sessionUpdate": "tool_call_update", "toolCallId": "a", "status": "completed"}));
+        assert!(doing.tool_in_flight(), "b still runs");
+        doing.note_tool(&json!({"sessionUpdate": "tool_call_update", "toolCallId": "b", "status": "failed"}));
+        assert!(!doing.tool_in_flight());
+        // A call that starts already done is never in flight.
+        doing.note_tool(&json!({"sessionUpdate": "tool_call", "toolCallId": "c", "status": "completed"}));
+        assert!(!doing.tool_in_flight());
+    }
+
+    #[test]
+    fn a_turn_stalls_when_its_model_is_quiet_with_no_tool_in_flight() {
+        let after = Some(600_000);
+        // Heard a minute ago: not stalled.
+        assert_eq!(stalled_since(1_000, 2_000_000, false, 2_060_000, after), None);
+        // Quiet ten minutes: stalled since it was last heard.
+        assert_eq!(stalled_since(1_000, 2_000_000, false, 2_600_000, after), Some(2_000_000));
+        // Never heard: quiet since the prompt.
+        assert_eq!(stalled_since(1_000, 0, false, 601_000, after), Some(1_000));
+        // Heard only in an earlier turn: quiet since this turn's prompt.
+        assert_eq!(stalled_since(5_000, 4_000, false, 300_000, after), None);
+        // A tool call in flight (a long build) never stalls, and 0 turns it off.
+        assert_eq!(stalled_since(1_000, 0, true, 99_000_000, after), None);
+        assert_eq!(stalled_since(1_000, 0, false, 99_000_000, None), None);
     }
 
     #[test]
