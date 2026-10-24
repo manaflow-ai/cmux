@@ -45,6 +45,8 @@ const { SentImages } = await import("../src/agent-session/acpmux/conversation/Us
 const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
 const { ImageViewerContext } = await import("../src/agent-session/acpmux/conversation/imageViewerContext");
 const { AttachmentStrip } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
+const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
+const { resetLinkStore, seedLinkStore } = await import("../src/agent-session/acpmux/chips/linkStore");
 const { imageLabel } = await import("../src/agent-session/acpmux/imageLabel");
 const { translate } = await import("../src/agent-session/acpmux/i18n");
 
@@ -52,6 +54,8 @@ const host = dom.window.document.getElementById("root")!;
 const root = createRoot(host);
 const opened: { src: string; alt: string }[] = [];
 const SRC = "data:image/png;base64,AA==";
+const MOVIE_PATH = "/Users/you/src/atlas-web/out/login-tests.mp4";
+const MOVIE_SRC = "data:video/mp4;base64,AAAA";
 
 /// Fires the image's load at `width`×`height`, as the engine does once it decodes it.
 async function load(img: Element, width: number, height: number) {
@@ -167,6 +171,126 @@ try {
     await renderDraft("empty.png");
     await load(host.querySelector(".acpmux-attachment-image img")!, 0, 0);
     expect(host.querySelector(".acpmux-attachment-image-failed")).not.toBeNull();
+  });
+
+  test("a local movie link uses the checked media preview and stays removable", async () => {
+    const calls: string[] = [];
+    resetLinkStore();
+    seedLinkStore({ paths: { [MOVIE_PATH]: { place: "root", folder: false } } });
+    setChipHost(async (method) => {
+      calls.push(method);
+      return method === "media.load" ? { src: MOVIE_SRC } : {};
+    });
+    try {
+      await act(async () => {
+        root.render(
+          <AttachmentStrip
+            attachments={[
+              { id: "movie", kind: "link", name: "login-tests.mp4", mimeType: "", size: 0, path: MOVIE_PATH },
+            ]}
+            onRemove={() => {}}
+          />,
+        );
+        await Promise.resolve();
+      });
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(host.querySelector(".cv-media")).not.toBeNull();
+      expect(host.querySelector(".cv-media video")).not.toBeNull();
+      expect(host.querySelector(".acpmux-attachment-remove")).not.toBeNull();
+      expect(calls).toContain("media.load");
+    } finally {
+      await act(async () => {
+        root.render(null);
+        await Promise.resolve();
+      });
+      setChipHost(undefined);
+      resetLinkStore();
+    }
+  });
+
+  test.each([
+    ["denied", "/Users/you/.ssh/login-tests.mp4", "denied"],
+    ["outside", "/tmp/fleetviz/login-tests.mp4", "outside"],
+    ["missing", "/Users/you/src/atlas-web/out/missing.mp4", "missing"],
+  ] as const)("a known %s movie path keeps its filename without loading media", async (_label, path, place) => {
+    const calls: string[] = [];
+    resetLinkStore();
+    seedLinkStore({ paths: { [path]: { place, folder: false } } });
+    setChipHost(async (method) => {
+      calls.push(method);
+      return { src: MOVIE_SRC };
+    });
+    try {
+      await act(async () => {
+        root.render(
+          <AttachmentStrip
+            attachments={[{ id: "blocked-movie", kind: "link", name: "login-tests.mp4", mimeType: "", size: 0, path }]}
+            onRemove={() => {}}
+          />,
+        );
+        await Promise.resolve();
+      });
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(host.querySelector(".cv-media video")).toBeNull();
+      expect(host.querySelector(".acpmux-attachment-media-fallback")).not.toBeNull();
+      expect(host.querySelector(".cv-media")).toBeNull();
+      expect(host.textContent).toContain("login-tests.mp4");
+      expect(host.querySelector(".acpmux-attachment-remove")).not.toBeNull();
+      expect(calls).not.toContain("media.load");
+    } finally {
+      await act(async () => {
+        root.render(null);
+        await Promise.resolve();
+      });
+      setChipHost(undefined);
+      resetLinkStore();
+    }
+  });
+
+  test("a rooted movie whose media load is refused keeps its filename fallback", async () => {
+    const refusedPath = "/Users/you/src/atlas-web/out/refused.mp4";
+    const calls: string[] = [];
+    resetLinkStore();
+    seedLinkStore({ paths: { [refusedPath]: { place: "root", folder: false } } });
+    setChipHost(async (method) => {
+      calls.push(method);
+      return undefined;
+    });
+    try {
+      await act(async () => {
+        root.render(
+          <AttachmentStrip
+            attachments={[
+              { id: "refused-movie", kind: "link", name: "refused.mp4", mimeType: "", size: 0, path: refusedPath },
+            ]}
+            onRemove={() => {}}
+          />,
+        );
+        await Promise.resolve();
+      });
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(host.querySelector(".cv-media video")).toBeNull();
+      expect(host.querySelector(".acpmux-attachment-media-fallback")).not.toBeNull();
+      expect(host.querySelector(".cv-media")).toBeNull();
+      expect(host.textContent).toContain("refused.mp4");
+      expect(host.querySelector(".acpmux-attachment-remove")).not.toBeNull();
+      expect(calls).toContain("media.load");
+    } finally {
+      await act(async () => {
+        root.render(null);
+        await Promise.resolve();
+      });
+      setChipHost(undefined);
+      resetLinkStore();
+    }
   });
 } finally {
   afterAll(() => {
