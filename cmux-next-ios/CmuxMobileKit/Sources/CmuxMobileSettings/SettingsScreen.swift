@@ -121,7 +121,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                         confirmsSignOut = true
                     } label: {
                         CmuxMobileGutterRow {
-                            SettingsIcon("rectangle.portrait.and.arrow.right")
+                            SettingsIcon("rectangle.portrait.and.arrow.right").accessibilityHidden(true)
                         } content: {
                             Text("Sign out").font(theme.type.rowTitle)
                         }

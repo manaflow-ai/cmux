@@ -874,6 +874,7 @@ public struct WorkspacesList: View {
                         .font(.caption.weight(.semibold))
                         .rotationEffect(.degrees(isOpen ? 90 : 0))
                         .animation(theme.motion.snap.animation, value: isOpen)
+                        .padding(.leading, 6)
                         .accessibilityHidden(true)
                 }
             }
@@ -1111,7 +1112,7 @@ struct RowPressStyle: ButtonStyle {
 
 /// A section title as a row that scrolls with the list (not a pinned
 /// header: pinned plain headers overlap rows under the glass bar). It starts
-/// at the rows' titles, after their status gutter (DESIGN: one text column).
+/// at the rows' titles, after their status gutter (SPEC 4.2.1: one text column).
 struct SectionTitle: View {
     let title: String
     @Environment(\.dynamicTypeSize) private var typeSize

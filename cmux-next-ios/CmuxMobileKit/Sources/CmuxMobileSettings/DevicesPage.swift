@@ -75,7 +75,7 @@ struct DevicesPage: View {
             if let relay = directory?.relayAvailable, !relay {
                 Section {
                     CmuxMobileGutterRow {
-                        SettingsIcon("exclamationmark.triangle")
+                        SettingsIcon("exclamationmark.triangle").accessibilityHidden(true)
                     } content: {
                         Text("Relay unavailable. Connections from outside your network may fail.")
                     }

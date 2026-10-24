@@ -490,7 +490,8 @@ text, this should be a principle in general."
   the cell margin) and adds no icons to only some rows.
 - **Exceptions.** A row's own icon or emoji that is part of its name (a workspace's icon)
   sits on the text column with the name. Centered hero cards (the account card, Chief's
-  header, empty states) are not rows. Menus are the system's and already follow the rule.
+  header, the Continue in… review header), empty states and centered status notes (Home's
+  "Connecting to …") are not rows. Menus are the system's and already follow the rule.
 - **Check.** Measure the x of each header and each row title per screen (accessibility
   frames or a pixel scan): they match within 1 pt at the default and a large text size.
 

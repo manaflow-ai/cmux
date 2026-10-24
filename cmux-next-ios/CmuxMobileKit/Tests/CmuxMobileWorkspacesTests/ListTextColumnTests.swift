@@ -47,11 +47,12 @@ import UIKit
         renderer.scale = 2
         let image = try #require(renderer.cgImage)
         let w = image.width, h = image.height
-        var pixels = [UInt8](repeating: 0, count: w * h * 4)
         let space = CGColorSpaceCreateDeviceRGB()
-        let context = try #require(CGContext(data: &pixels, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: space,
+        let context = try #require(CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: space,
                                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         context.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+        let data = try #require(context.data)
+        let pixels = data.bindMemory(to: UInt8.self, capacity: w * h * 4)
         let first = Int(from * 2)
         for x in first..<w {
             for y in 0..<h where pixels[(y * w + x) * 4 + 3] > 96 {

@@ -2,7 +2,7 @@
 import SwiftUI
 import UIKit
 
-/// One text column per list (DESIGN.md, "Lists: one text column").
+/// One text column per list (design/SPEC.md 4.2.1, "Lists: one text column").
 ///
 /// A row's marks (status dots, disclosure chevrons, icons, small avatars,
 /// spinners) hang in a leading gutter `mark` wide. The row's primary text
