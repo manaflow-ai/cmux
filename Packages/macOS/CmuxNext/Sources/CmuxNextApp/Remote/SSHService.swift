@@ -24,7 +24,9 @@ final class SSHService {
     @ObservationIgnored let machines: MachineRegistry
     @ObservationIgnored let paths: SSHPaths
     @ObservationIgnored private let binary: URL?
-    @ObservationIgnored private let installer: RemoteInstaller
+    /// Made at the first install: its `URLSession` (the shared one) is not made at launch, where
+    /// the services are built before the first window frame (#17587).
+    @ObservationIgnored private lazy var installer = RemoteInstaller(paths: paths)
     @ObservationIgnored private var observers: [Task<Void, Never>] = []
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.ssh")
     /// Runs `remote.install` through the registry's confirmation (set by the handlers).
@@ -42,7 +44,6 @@ final class SSHService {
         self.machines = machines
         paths = SSHPaths.standard(bundleID: bundleID)
         binary = try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)
-        installer = RemoteInstaller(paths: paths)
     }
 
     /// Why SSH machines cannot connect in this build, or nil.

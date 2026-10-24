@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 import Foundation
 import Testing
 @testable import CmuxNextApp
@@ -32,7 +33,10 @@ struct AgentPaneLaunchImagesAlphaTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         await AgentPaneLaunchImages(directory: directory).save(["tab_a": try Self.image(clear: true)])
         #expect(FileManager.default.fileExists(atPath: directory.appending(path: "tab_a@2x.png").path))
-        let image = try #require(AgentPaneLaunchImages(directory: directory).take("tab_a"))
+        // The next launch's images, decoded off the main thread (SavedFrameDirectory) before the pane takes one.
+        let launch = AgentPaneLaunchImages(directory: directory)
+        await launch.decoded()
+        let image = try #require(launch.take("tab_a"))
         #expect(image.size == NSSize(width: 4, height: 4))
         #expect(try Self.alpha(image, x: 4, y: 4) == 0)
         #expect(try Self.alpha(image, x: 4, y: 0) == 1)
@@ -43,7 +47,10 @@ struct AgentPaneLaunchImagesAlphaTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         await AgentPaneLaunchImages(directory: directory).save(["tab_b": try Self.image(clear: false)])
         #expect(FileManager.default.fileExists(atPath: directory.appending(path: "tab_b@2x.jpg").path))
-        let image = try #require(AgentPaneLaunchImages(directory: directory).take("tab_b"))
+        // The next launch's images, decoded off the main thread (SavedFrameDirectory) before the pane takes one.
+        let launch = AgentPaneLaunchImages(directory: directory)
+        await launch.decoded()
+        let image = try #require(launch.take("tab_b"))
         #expect(try Self.alpha(image, x: 4, y: 4) == 1)
     }
 
