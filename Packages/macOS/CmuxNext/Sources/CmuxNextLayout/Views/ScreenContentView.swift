@@ -212,6 +212,7 @@ final class ScreenContentView: NSView {
         // A split still springing when the next structural update lands (the daemon's echo of the
         // split moves the tab into the new pane ~75 ms in) keeps springing from where it shows,
         // with its velocity, instead of snapping to the end (hq-1d: Cmd-D measured 4 frames).
+        let wasMoving = hasMotion // a press during a motion: no lead step (M1)
         let inFlight = splits && structural && arrivals.isEmpty && !departing
             && paneFrames.values.contains { $0.rect != $0.targetRect }
         motionState.retarget(structural: structural, inFlight: inFlight, departing: departing, zooming: zooming, splitting: !arrivals.isEmpty, hasFrames: paneFrames.values.contains { $0.rect != $0.targetRect })
@@ -347,14 +348,13 @@ final class ScreenContentView: NSView {
         if structural { scrollRidesFrames = departing && animateFrames && !covering }
         // A close's neighbours start covering the closed pane's space in the frame it leaves:
         // no frame shows the hole before they move (`leadIfPending`, after `syncScroll`).
-        leadsFrame = departing && animateFrames && !covering
+        leadsFrame = departing && animateFrames && !covering && !wasMoving
         // A split's or a close's terminals no longer keep their grids until the spring lands (Lawrence
         // 2026-10-23: they resize at the start): each resized pane hears its final size in the step that
         // starts or retargets its spring (`PaneHostView.announceRest`, `PaneMotionTargeting`).
         reconcileDock()
         reconcileCanvasStacking()
-        // The scroll follows in `syncScroll`, which the root calls with the
-        // focus after every update (ColumnScrollState.reduce).
+        // The scroll follows in `syncScroll`, which the root calls with the focus after every update.
         // Only a structural change re-places everything: a ratio, width or row-height change (every divider
         // drag step, an equalize) moves only the panes whose frames changed, and every per-pane input (frame,
         // alpha, clip range, covers, divider clips) is compared in the pass (`applyPresentation`).
