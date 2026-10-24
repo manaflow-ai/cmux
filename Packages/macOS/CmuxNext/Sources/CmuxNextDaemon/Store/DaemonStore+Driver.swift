@@ -183,10 +183,9 @@ extension DaemonStore {
         let failure = await pump.value
         // Everything left: a frame asked for after this would find no driver.
         drain()
-        // The connection is gone: no echo or barrier will come for its commands.
-        drainAppliedWaiters = true
-        flushAppliedWaiters()
-        if let failure { markFailed(failure) }
+        // The connection is gone: it ends here even when no disconnect envelope came (`close()`).
+        let end: DaemonConnectionChange = if let failure { .failed(failure) } else { .ended }
+        _ = end.apply(to: self)
         resumeRefreshWaiters()
         resyncRetry?.cancel()
         resyncRetry = nil

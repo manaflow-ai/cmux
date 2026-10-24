@@ -25,7 +25,20 @@ extension DaemonStore {
                             _ body: @escaping @MainActor () -> Void) {
         if confirmedTransactions.contains(transaction) { return body() }
         if let sequence, appliedSequence >= sequence { return body() }
-        appliedWaiters.append(AppliedWaiter(transaction: transaction, sequence: sequence, body: body))
+        appliedWaiters.append(AppliedWaiter(id: nextAppliedWaiterID(), transaction: transaction, sequence: sequence) { _ in body() })
+    }
+
+    /// A new ``AppliedWaiter/id``.
+    func nextAppliedWaiterID() -> UInt64 {
+        appliedWaiterSerial += 1
+        return appliedWaiterSerial
+    }
+
+    /// Ends the wait `id` (its task was cancelled) as not held, when it still waits.
+    func cancelAppliedWaiter(_ id: UInt64) {
+        guard let index = appliedWaiters.firstIndex(where: { $0.id == id }) else { return }
+        let waiter = appliedWaiters.remove(at: index)
+        waiter.body(false)
     }
 
     /// Returns once the store holds the daemon's result of `transaction` (``whenApplied(_:reaching:_:)``
@@ -42,21 +55,25 @@ extension DaemonStore {
     /// waiter whose echo was applied or whose barrier the applied sequence
     /// reached; `snapshot` adds waiters without a barrier (a snapshot is
     /// daemon truth); `all` runs every waiter (the connection is gone: the
-    /// store will hold nothing newer for them).
+    /// store will hold nothing newer for them). Each runs held, except one
+    /// that `all` runs before the store reached its echo or barrier.
     func runAppliedWaiters(_ transaction: ClientTransactionID?, snapshot: Bool = false, all: Bool = false) {
         // Inside an apply, the caller flushes once the visible state is back.
         guard !appliedWaiters.isEmpty, applyDepth == 0, !overlayLifted else { return }
-        let isDue: (AppliedWaiter) -> Bool = { [appliedSequence, confirmedTransactions] waiter in
-            if all { return true }
-            if let transaction { return waiter.transaction == transaction }
-            if confirmedTransactions.contains(waiter.transaction) { return true }
-            guard let sequence = waiter.sequence else { return snapshot }
+        let reached: (AppliedWaiter) -> Bool = { [appliedSequence, confirmedTransactions] waiter in
+            if let echo = waiter.transaction, confirmedTransactions.contains(echo) { return true }
+            guard let sequence = waiter.sequence else { return false }
             return appliedSequence >= sequence
         }
-        let due = appliedWaiters.filter(isDue)
+        let isDue: (AppliedWaiter) -> Bool = { waiter in
+            if all { return true }
+            if let transaction { return waiter.transaction == transaction }
+            return reached(waiter) || (snapshot && waiter.sequence == nil)
+        }
+        let due = appliedWaiters.filter(isDue).map { (body: $0.body, held: !all || reached($0)) }
         guard !due.isEmpty else { return }
         appliedWaiters.removeAll(where: isDue)
-        for waiter in due { waiter.body() }
+        for waiter in due { waiter.body(waiter.held) }
     }
 
     /// Runs the due waiters, or every waiter after a disconnect.

@@ -52,14 +52,20 @@ public struct NewBrowserTabCommand: Sendable {
         let provisional = ProvisionalTab(), transaction = ClientTransactionID.generate(), store = daemon.store
         store.intend(.createTab(pane: pane, provisional: provisional.browser(url: url, engine: engine, profile: profile)), transaction: transaction)
         return Pending(tab: provisional.id, surface: provisional.surface) { handOver in
+            // Read before the create, so the post-reply wait runs on the connection the create ran on (a later
+            // one decides through one barrier, ``DaemonService/appliedThroughReply(on:after:)``).
+            let connection = daemon.connection
             let surface: SurfaceID
             do { surface = try await create() } catch {
                 store.rejectIntent(transaction)
                 throw error
             }
-            // The records hold the daemon's tab once the store applied what came before the reply.
-            let sequence = await daemon.connection?.eventSequence()
-            await store.applied(through: sequence)
+            // The records hold the daemon's tab once the store applied what came before the reply. When the wait
+            // does not hold (the connection ended or changed first), the records may not show it: the
+            // `store.tab(surface:)` check below then keeps the stand-in on screen with its page, and the daemon's
+            // tab makes its own once the store shows it.
+            let sequence = await connection?.eventSequence()
+            if let connection { _ = await daemon.appliedThroughReply(on: connection, after: "new browser tab") }
             let cancelled = store.creations.wasCancelled(transaction)
             ProvisionalTab.created(transaction, surface: surface, in: store)
             if !cancelled, store.tab(surface: surface) != nil { handOver(surface) }
