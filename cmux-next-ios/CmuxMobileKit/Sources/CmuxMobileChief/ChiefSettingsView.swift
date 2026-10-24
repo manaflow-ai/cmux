@@ -147,7 +147,8 @@ public struct ChiefSettingsView: View {
                     .accessibilityIdentifier("chief.settings.effort")
                 }
             } else if session.engineProblem == nil {
-                HStack { ProgressView(); Text("Asking Chief on the Mac…").foregroundStyle(.secondary) }
+                // The spinner trails, as on Try Again: the text keeps the rows' x (no icons here).
+                HStack { Text("Asking Chief on the Mac…").foregroundStyle(.secondary); Spacer(); ProgressView() }
             }
             // A failed read never replaces the model: it is said under it,
             // with Try Again (the page also retries on its own).

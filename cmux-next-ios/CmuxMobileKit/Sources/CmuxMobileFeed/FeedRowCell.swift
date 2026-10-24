@@ -340,7 +340,9 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
         let width = CGFloat(layout.key.width)
         if !same { setOffset(0, animated: false) }
         row.frame = CGRect(x: offset, y: 0, width: width, height: layout.dividerY)
-        divider.frame = CGRect(x: 0, y: layout.dividerY, width: width, height: layout.height - layout.dividerY)
+        // From the text column, as every list's separators (the avatar hangs in the gutter).
+        divider.frame = CGRect(x: layout.column.minX, y: layout.dividerY, width: width - layout.column.minX,
+                               height: layout.height - layout.dividerY)
         accessibilityIdentifier = "feed.row.\(item.id)"
 
         avatar.frame = layout.avatar
