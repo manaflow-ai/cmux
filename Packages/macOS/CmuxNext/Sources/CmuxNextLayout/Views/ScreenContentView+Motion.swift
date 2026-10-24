@@ -68,8 +68,13 @@ extension ScreenContentView {
         guard leadsFrame else { return }
         leadsFrame = false
         let frameSpring = policy.spring(motionState.frameSpring), appear = policy.spring(.appear)
-        for key in Array(paneFrames.keys) { _ = paneFrames[key]?.advance(dt, parameters: frameSpring, alphaParameters: appear) }
-        for key in Array(dividerFrames.keys) { _ = dividerFrames[key]?.advance(dt, parameters: frameSpring) }
+        // The same springs `step` uses: unsettled (no edge lands alone), each pane on its zoom spring token.
+        for key in Array(paneFrames.keys) {
+            let token = zoomMotion.spring(for: key, fallback: motionState.frameSpring)
+            _ = paneFrames[key]?.advanceUnsettled(dt, parameters: token == motionState.frameSpring ? frameSpring : policy.spring(token),
+                                                  alphaParameters: appear)
+        }
+        for key in Array(dividerFrames.keys) { _ = dividerFrames[key]?.advanceUnsettled(dt, parameters: frameSpring) }
         if scrollRidesFrames {
             if !isUserScrolling { _ = scroll.advance(dt, parameters: frameSpring, epsilon: 0.25) }
             _ = stepRows(dt, spring: frameSpring)
