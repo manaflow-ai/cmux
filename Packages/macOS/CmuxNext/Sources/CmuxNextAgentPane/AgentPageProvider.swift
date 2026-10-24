@@ -75,17 +75,10 @@ public final class AgentPageProvider: PageProvider {
 
     private let prepare: Prepare
     private var listeners: [UInt64: @MainActor (JSONValue) -> Void] = [:]
-    /// Events published while the page host has no subscription (a reload or bridge gap). They
-    /// stay in host order until the next page subscribes. A provider belongs to one
-    /// ``AgentPaneView`` and is released with that view if no page returns, so this is a
-    /// gap-lifetime queue rather than process-wide retention; a reconnect drains it once.
     private var bufferedEvents: [AgentPageEvent] = []
     /// The socket connection whose frames last reached the page. A fresh socket is an
     /// authoritative transport resync, so it clears an overflow latch left by the old socket.
     private var transportConnection: Int?
-    /// Set when the bounded replay queue cannot retain a dropped envelope. The next publish
-    /// returns false so the transport closes and the page performs a full resync; no event is
-    /// silently evicted.
     private var deliveryOverflowed = false
     private var nextDeliveryID: UInt64 = 1
     private var activeDeliveryID: UInt64?
@@ -148,8 +141,6 @@ public final class AgentPageProvider: PageProvider {
         guard transportConnection != connection else { return }
         transportConnection = connection
         droppedPublicationIDs.removeAll(keepingCapacity: true)
-        deliveredPublicationIDs.removeAll(keepingCapacity: true)
-        pendingPublicationCounts.removeAll(keepingCapacity: true)
         if bufferedQueueOverflowed { bufferedEvents.removeAll(keepingCapacity: true) }
         bufferedQueueOverflowed = false
         for id in overflowedPendingListeners {
@@ -158,6 +149,11 @@ public final class AgentPageProvider: PageProvider {
             for event in replay?() ?? [] { listener(event.data) }
         }
         overflowedPendingListeners.removeAll(keepingCapacity: true)
+        let pendingIDs = Set(pendingEvents.values.flatMap { pending in
+            pending.events.dropFirst(pending.next).compactMap(\.deliveryID)
+        })
+        deliveredPublicationIDs = deliveredPublicationIDs.intersection(pendingIDs)
+        pendingPublicationCounts.removeAll(keepingCapacity: true)
         for pending in pendingEvents.values {
             for event in pending.events.dropFirst(pending.next) { addPending(event) }
         }
@@ -306,9 +302,7 @@ public final class AgentPageProvider: PageProvider {
         pendingEvents.removeValue(forKey: id)
     }
 
-    /// A page can disappear before its queued replay runs. Keep the not-yet-delivered suffix for
-    /// A pending suffix is retained even when another listener remains; delivered publication IDs
-    /// filter the copies that already reached a live subscriber.
+    /// Retains undelivered host events when reset cancels a queued replay.
     private func cancel(id: UInt64) {
         listeners.removeValue(forKey: id)
         overflowedPendingListeners.remove(id)
