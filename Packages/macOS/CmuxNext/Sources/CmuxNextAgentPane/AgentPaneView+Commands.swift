@@ -1,3 +1,4 @@
+import CmuxNextSettings
 import Foundation
 
 /// The dispatcher commands the app sends the page: Continue in, Create checkpoint, the chat's

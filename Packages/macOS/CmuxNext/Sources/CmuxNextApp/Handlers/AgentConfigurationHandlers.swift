@@ -62,9 +62,9 @@ enum AgentConfigurationHandlers {
             case ActionSuggestions.agentModels:
                 guard let harness = focusedHarness(context) else { return [] }
                 return store.modelsByHarness[harness] ?? []
-            case ActionSuggestions.agentEfforts: store.efforts
-            case ActionSuggestions.agentModes: store.modes
-            default: previous?(source) ?? []
+            case ActionSuggestions.agentEfforts: return store.efforts
+            case ActionSuggestions.agentModes: return store.modes
+            default: return previous?(source) ?? []
             }
         }
         let center = context.services.agentHarnesses
