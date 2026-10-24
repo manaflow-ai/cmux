@@ -275,7 +275,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             context: ManagedStatusReport.Context(
                 appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0",
                 bundleID: bundleID
-            )
+            ),
+            work: services.work
         )
         settings.start(announcingDiagnostics: true)
         AppProcessRoot.shared.hangReports?.start(settings: settings, asks: services.machineAsks, firstWindow: { [firstFrame] in await firstFrame.opened() })
