@@ -99,8 +99,11 @@ test("Send now remains available when delivery fails", async () => {
 // a Claude Code profile under its own family name (claude-sr2): the X follows what the agent can do
 // (acpmux steers only through its Claude Code adapter, which takes a steer back), not the name.
 test("the X is offered wherever the agent steers, whatever its family is named", () => {
-  expect(takesSteersBack({ harness: "claude-sr2", family: "claude-sr2", steering: true }, true)).toBe(true);
-  expect(takesSteersBack({ harness: "claude", family: "claude", steering: true }, true)).toBe(true);
-  expect(takesSteersBack({ harness: "codex", family: "codex", steering: false }, true)).toBe(false);
-  expect(takesSteersBack({ harness: "claude", family: "claude", steering: true }, false)).toBe(false);
+  const sr2 = { harness: "claude-sr2", family: "claude-sr2", steering: true };
+  const claude = { harness: "claude", family: "claude", steering: true };
+  const codex = { harness: "codex", family: "codex", steering: false };
+  expect(takesSteersBack(sr2, true)).toBe(true);
+  expect(takesSteersBack(claude, true)).toBe(true);
+  expect(takesSteersBack(codex, true)).toBe(false);
+  expect(takesSteersBack(claude, false)).toBe(false);
 });
