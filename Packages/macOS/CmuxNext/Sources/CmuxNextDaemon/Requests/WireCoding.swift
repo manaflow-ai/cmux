@@ -44,7 +44,9 @@ struct RequestEnvelope<R: DaemonRequest>: Encodable {
     var request: R
 
     enum CodingKeys: String, CodingKey {
-        case id, cmd, stream
+        case id, cmd
+        /// Not `stream`: `loopback-forward-v1` lines use that key on the same connection.
+        case stream = "attach_stream"
     }
 
     func encode(to encoder: any Encoder) throws {

@@ -80,15 +80,25 @@ final class TerminalOutputRingMapping: Sendable {
         return reserve.load(ordering: .relaxed) <= from + capacity
     }
 
+    /// The most span bytes a reader may hold unreleased (queued or being
+    /// parsed). A span stays valid until the writer has written `capacity`
+    /// bytes past its start; with at most half the ring held, the writer must
+    /// run half a ring ahead during one parse to lap a span that passed the cut
+    /// check. A reader that would hold more is behind: it resyncs instead.
+    var outstandingBudget: UInt64 { capacity / 2 }
+
     /// `[from, to)` as at most two zero-copy spans (the ring wraps between
     /// them). Foundation keeps a span of at most 14 bytes inline: it copies
     /// those bytes and runs the deallocator at once, whose lap check then
     /// validates the copy (a keystroke echo is such a span: copied, no heap).
     /// Returns nil when the bytes are already lost or being overwritten
     /// (checked before any span exists, so a lapped read never reaches the
-    /// parser). Each span checks again when it is released, after the parse,
-    /// and calls `onLap` with its start when the writer lapped it meanwhile.
-    func spans(from: UInt64, to: UInt64, onLap: @escaping @Sendable (UInt64) -> Void) -> [Data]? {
+    /// parser). Each span calls `onRelease` with its start, its length and
+    /// whether the writer lapped it, when it is released after the parse; the
+    /// caller must not hold a lock `onRelease` takes (an inline span releases
+    /// inside this call).
+    func spans(from: UInt64, to: UInt64,
+               onRelease: @escaping @Sendable (_ start: UInt64, _ count: Int, _ lapped: Bool) -> Void) -> [Data]? {
         guard let mapped = pointer, from >= base, to >= from, to - from <= capacity, unlapped(from: from) else { return nil }
         var spans: [Data] = []
         var at = from
@@ -99,7 +109,7 @@ final class TerminalOutputRingMapping: Sendable {
             let spanStart = at
             spans.append(Data(bytesNoCopy: mapped + offset, count: count, deallocator: .custom { [self] _, _ in
                 // Released after the parse: was it overwritten while parsed?
-                if !self.unlapped(from: spanStart) { onLap(spanStart) }
+                onRelease(spanStart, count, !self.unlapped(from: spanStart))
             }))
             at += take
         }

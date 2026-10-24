@@ -28,14 +28,23 @@ final class TerminalStreamReader: Sendable {
         /// The last READY's offset: a lap of bytes before it is moot (that
         /// READY replaced them).
         var readyOffset: UInt64 = 0
+        /// Ring span bytes handed to the view and not released yet (queued
+        /// or being parsed); at most the mapping's `outstandingBudget`.
+        var outstandingRingBytes: UInt64 = 0
     }
 
     private let transport: LineTransport
     private let queue: TerminalEventQueue
     private let control: TerminalAttachment.ControlBox
     private let resolvedSurface: TerminalAttachment.SurfaceBox
-    // A lock, not an actor: the transport's reader thread and Data deallocators
-    // call in synchronously and must never suspend (lock carve-out, CLAUDE.md).
+    // A lock, not an actor (written exception to the CLAUDE.md actor rule): every
+    // caller is a synchronous callback that cannot await. The transport's reader
+    // thread delivers the stream's messages in wire order, and the order IS the
+    // state machine: an actor would turn each message into a Task hop and let a
+    // later message run first. Ring span deallocators run on the output lane's
+    // queue when Ghostty releases a span. Each critical section is a few field
+    // updates with no I/O and no call out (spans are cut and events queued after
+    // the lock is released), so neither caller ever waits on the other for long.
     private let state = Mutex(State())
 
     init(transport: LineTransport, queue: TerminalEventQueue, control: TerminalAttachment.ControlBox,
@@ -86,33 +95,52 @@ final class TerminalStreamReader: Sendable {
     }
 
     /// RING_ADVANCE: the ring holds the stream's bytes up to `end`. They reach
-    /// the view as spans of the mapping, never copied; a read that is lost or
-    /// being overwritten is a gap instead (design 4.4).
+    /// the view as spans of the mapping, never copied. A read that is lost or
+    /// being overwritten, or one that would leave the view holding more than
+    /// the ring's outstanding budget, is a gap instead (design 4.4).
     private func ringAdvanced(to end: UInt64) {
-        enum Next { case drop, gap, spans([Data]) }
+        enum Next { case drop, gap, cut(TerminalOutputRingMapping, UInt64) }
         let next: Next = state.withLock { stream in
-            guard !stream.resyncing, let ring = stream.ring, let start = stream.expectedOffset else { return .drop }
-            guard end > start else { return .drop }
-            guard let spans = ring.spans(from: start, to: end, onLap: { [weak self] start in self?.lapped(at: start) }) else {
+            guard !stream.resyncing, let ring = stream.ring, let start = stream.expectedOffset, end > start else {
+                return .drop
+            }
+            guard stream.outstandingRingBytes + (end - start) <= ring.outstandingBudget else {
                 stream.resyncing = true
                 return .gap
             }
             stream.expectedOffset = end
-            return .spans(spans)
+            stream.outstandingRingBytes += end - start
+            return .cut(ring, start)
         }
         switch next {
-        case .drop: return
-        case .gap: requestResync()
-        case .spans(let spans):
+        case .drop:
+            return
+        case .gap:
+            requestResync()
+        case .cut(let ring, let start):
+            // Outside the lock: an inline span releases inside `spans`.
+            let spans = ring.spans(from: start, to: end) { [weak self] start, count, lapped in
+                self?.released(start: start, count: count, lapped: lapped)
+            }
+            guard let spans else {
+                state.withLock { stream in
+                    stream.outstandingRingBytes -= end - start
+                    stream.resyncing = true
+                }
+                requestResync()
+                return
+            }
             for span in spans { admit(DecodedAttachLine(event: .output(span, colors: nil))) }
         }
     }
 
-    /// A span from `start` was overwritten while Ghostty parsed it: resync,
-    /// unless a READY at or after it already replaced those bytes.
-    private func lapped(at start: UInt64) {
+    /// A span was parsed and released. One the writer lapped during the parse
+    /// resyncs the view, unless a READY at or after it already replaced those
+    /// bytes.
+    private func released(start: UInt64, count: Int, lapped: Bool) {
         let resync = state.withLock { stream -> Bool in
-            guard start >= stream.readyOffset, !stream.resyncing else { return false }
+            stream.outstandingRingBytes -= UInt64(truncatingIfNeeded: count)
+            guard lapped, start >= stream.readyOffset, !stream.resyncing else { return false }
             stream.resyncing = true
             return true
         }

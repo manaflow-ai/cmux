@@ -8,12 +8,19 @@ import Foundation
 nonisolated struct SocketDescriptorReader {
     /// Received descriptors no frame took yet, oldest first.
     private(set) var descriptors: [Int32] = []
-    /// Room for 16 descriptors per read; the daemon passes one per RING frame.
-    private var control = [UInt8](repeating: 0, count: 256)
+    /// Room for 253 descriptors per read (`SCM_MAX_FD`, the most one message
+    /// passes on Linux; Darwin passes fewer): 12-byte header plus 4 bytes each.
+    private var control = [UInt8](repeating: 0, count: 12 + 4 * 253)
+    /// A read lost descriptors (`MSG_CTRUNC`): the frames that needed them
+    /// can never be served, so the connection must end.
+    private(set) var truncated = false
 
     /// One `recvmsg` into `buffer`: its byte count (0 at EOF, -1 with `errno`).
+    /// Every received descriptor is made close-on-exec at once (Darwin has no
+    /// `MSG_CMSG_CLOEXEC`).
     mutating func read(_ fd: Int32, into buffer: UnsafeMutableRawBufferPointer) -> Int {
         var received: [Int32] = []
+        var flags: Int32 = 0
         let count = control.withUnsafeMutableBytes { control -> Int in
             var vector = iovec(iov_base: buffer.baseAddress, iov_len: buffer.count)
             return withUnsafeMutablePointer(to: &vector) { vector -> Int in
@@ -24,12 +31,15 @@ nonisolated struct SocketDescriptorReader {
                 message.msg_controllen = socklen_t(truncatingIfNeeded: control.count)
                 let count = recvmsg(fd, &message, 0)
                 guard count >= 0 else { return count }
+                flags = message.msg_flags
                 received = Self.rights(in: UnsafeRawBufferPointer(control),
                                        length: Int(truncatingIfNeeded: message.msg_controllen))
                 return count
             }
         }
+        for descriptor in received { _ = fcntl(descriptor, F_SETFD, FD_CLOEXEC) }
         descriptors += received
+        if flags & MSG_CTRUNC != 0 { truncated = true }
         return count
     }
 
