@@ -310,8 +310,7 @@ fn a_holder_out_of_descriptors_lists_every_terminal_and_fails_only_the_spawn_it_
     // not, so it fails before it forks and closes the pair.
     let failed = client
         .spawn(TERMINALS + 1, &shell(TERMINALS + 1))
-        .err()
-        .expect("a SPAWN started with no descriptor for its start report");
+        .expect_err("a SPAWN started with no descriptor for its start report");
     let message = failed.to_string();
     assert!(message.contains(&format!("os error {}", libc::EMFILE)), "failed elsewhere: {message}");
     settle(&mut client, 3);

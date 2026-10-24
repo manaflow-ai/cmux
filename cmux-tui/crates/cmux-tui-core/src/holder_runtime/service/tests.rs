@@ -135,7 +135,7 @@ fn type_into(terminal: &HolderTerminal, text: &str) {
     // SAFETY: writes from a live slice to the master this terminal keeps.
     let written =
         unsafe { libc::write(terminal.custody.as_raw_fd(), text.as_ptr().cast(), text.len()) };
-    assert_eq!(written, text.len() as isize, "{}", std::io::Error::last_os_error());
+    assert_eq!(written, text.len() as isize, "{}", io::Error::last_os_error());
 }
 
 /// A previous daemon of the session left terminal `chan` (`cat`, id
