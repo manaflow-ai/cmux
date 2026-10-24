@@ -90,6 +90,10 @@ pub(crate) struct HolderService {
     /// Another daemon of the session took the holder: this one never
     /// connects again, so the two do not take it from each other in turn.
     superseded: AtomicBool,
+    /// The holder ended the link because it could not take the descriptors
+    /// of an ADOPT (`NO_DESCRIPTORS`): the next link to that holder hands it
+    /// none ([`ownership`]'s `takes_descriptors`). Cleared by the next connect.
+    descriptor_fault: AtomicBool,
 }
 
 impl HolderService {
@@ -125,6 +129,7 @@ impl HolderService {
             owned: Mutex::default(),
             claims: RwLock::new(()),
             superseded: AtomicBool::new(false),
+            descriptor_fault: AtomicBool::new(false),
         })
     }
 
@@ -184,8 +189,8 @@ impl HolderService {
         // each terminal they claim is live before this link decides.
         let _claims = self.claims.write().recover_poison();
         let first = self.link.lock().recover_poison().link.is_none();
-        let (link, listed) = match self.connect() {
-            Ok(connected) => connected,
+        let (link, listed, started) = match self.connect() {
+            Ok((link, listed)) => (link, listed, false),
             // Only when no holder serves the socket. One that refused this
             // daemon, or took the connection and did not answer, runs: a
             // second holder would exit at once, and its shells would end
@@ -195,17 +200,24 @@ impl HolderService {
                     && ConnectFailure::of(&error) == Some(ConnectFailure::NoHolder) =>
             {
                 (self.launcher)(&self.socket, &self.token)?;
-                self.connect()?
+                let (link, listed) = self.connect()?;
+                (link, listed, true)
             }
             Err(error) => return Err(error),
         };
         for entry in &listed {
             self.next_chan.fetch_max(entry.chan + 1, Ordering::AcqRel);
         }
+        // A holder that could not take an adoption's descriptors is still
+        // short of them: sending them again would fault this link too, and
+        // the next, for as long as it stays full. A holder this daemon just
+        // started has its own.
+        let faulted = self.descriptor_fault.swap(false, Ordering::AcqRel);
+        let takes_descriptors = started || !faulted;
         // The link is published only after its ownership pass, so a CLOSE
         // meanwhile waits for it instead of reaching a holder that does not
         // know the terminal yet.
-        self.take_ownership(&link, listed, first && reach == Reach::Startup);
+        self.take_ownership(&link, listed, first && reach == Reach::Startup, takes_descriptors);
         self.publish(&link);
         Ok(link)
     }
@@ -214,7 +226,13 @@ impl HolderService {
     /// this daemon's live terminals and its kept entries. The master dups of
     /// what it lists drop here unless an entry keeps them: the daemon keeps
     /// its own custody copies.
-    fn take_ownership(&self, link: &HolderLink, listed: Vec<Listed>, reserve_new: bool) {
+    fn take_ownership(
+        &self,
+        link: &HolderLink,
+        listed: Vec<Listed>,
+        reserve_new: bool,
+        takes_descriptors: bool,
+    ) {
         // One snapshot of both: a terminal that moves from live to kept
         // meanwhile is in exactly one of them.
         let owned = self.owned.lock().recover_poison();
@@ -232,6 +250,7 @@ impl HolderService {
             &live.values().map(|terminal| (terminal.chan, terminal.id)).collect::<Vec<_>>(),
             &reserved_by_chan.iter().map(|(chan, id)| (*chan, *id)).collect::<Vec<_>>(),
             reserve_new,
+            takes_descriptors,
         );
         // Live terminals and channels to end first: an adoption reads its
         // surface's screen, under that surface's lock, with no lock of
@@ -246,6 +265,15 @@ impl HolderService {
                     if let Err(error) = link.close(*chan, 2000) {
                         eprintln!("cmux-tui: end unowned holder terminal {chan}: {error}");
                     }
+                }
+                (Claim::Lose, Some(terminal)) => {
+                    // Its reader drains and its wait ends lost; the daemon's
+                    // custody master then closes, and the shell hangs up.
+                    eprintln!(
+                        "cmux-tui: the terminal holder is out of descriptors and cannot take \
+                         terminal {chan}: it ends"
+                    );
+                    terminal.sink.lose();
                 }
                 _ => {}
             }
@@ -274,6 +302,17 @@ impl HolderService {
         }
         for (chan, claim) in claims {
             match claim {
+                Claim::Forget => {
+                    // Its custody master and ring close with the entry.
+                    if let Some(id) = reserved_by_chan.get(&chan) {
+                        owned.reserved.remove(id);
+                    }
+                    owned.left.remove(&chan);
+                    eprintln!(
+                        "cmux-tui: the terminal holder is out of descriptors and cannot take \
+                         the kept terminal {chan}: it ends"
+                    );
+                }
                 Claim::Refresh => {
                     if let (Some(id), Some(entry)) =
                         (reserved_by_chan.get(&chan), listed.remove(&chan))
@@ -286,7 +325,7 @@ impl HolderService {
                         owned.reserved.entry(entry.id).or_insert(entry);
                     }
                 }
-                Claim::Resume | Claim::Adopt | Claim::HandOver | Claim::Close => {}
+                Claim::Resume | Claim::Adopt | Claim::HandOver | Claim::Close | Claim::Lose => {}
             }
         }
     }
@@ -582,8 +621,13 @@ impl HolderService {
                     return;
                 }
                 if let LinkEnd::Fault(code) = end {
-                    // The holder still runs every terminal and counted no
-                    // crash: the next link takes them back as after a drop.
+                    // The holder still runs every terminal it took and
+                    // counted no crash: the next link takes them back as
+                    // after a drop. Out of descriptors, it could not take
+                    // an ADOPT: the next link to it hands it none.
+                    if code == cmux_holder::holder::error_code::NO_DESCRIPTORS {
+                        service.descriptor_fault.store(true, Ordering::Release);
+                    }
                     eprintln!(
                         "cmux-tui: the terminal holder could not read this daemon's link \
                          (error code {code}); connecting again"
@@ -702,6 +746,12 @@ enum Claim {
     Reserve,
     /// A listed terminal nobody claims: end it.
     Close,
+    /// A live terminal the holder does not run and cannot take (it is short
+    /// of descriptors: `takes_descriptors` is false): it ends lost.
+    Lose,
+    /// A kept entry the holder does not run and cannot take: it is
+    /// forgotten, and its custody master and ring close.
+    Forget,
 }
 
 /// The ownership pass of a new link, the one rule for which of the holder's
@@ -711,22 +761,29 @@ enum Claim {
 /// holder runs it on its channel and is adopted otherwise (a new holder); a
 /// startup-pass entry is refreshed or handed to a new holder the same way;
 /// any other terminal the holder runs is kept for the startup pass when
-/// `reserve_new` (the first link that pass makes), else ended. Pure:
-/// [`HolderService::take_ownership`] applies it.
+/// `reserve_new` (the first link that pass makes), else ended. Without
+/// `takes_descriptors` (the holder ended the last link because it could
+/// not take an adoption's descriptors, and it still runs) nothing is handed
+/// to it: a live terminal it does not run ends lost, and a kept entry it
+/// does not run is forgotten. Pure: [`HolderService::take_ownership`]
+/// applies it.
 fn ownership(
     listed: &[(u32, [u8; 16])],
     live: &[(u32, [u8; 16])],
     reserved: &[(u32, [u8; 16])],
     reserve_new: bool,
+    takes_descriptors: bool,
 ) -> Vec<(u32, Claim)> {
     let held: HashMap<u32, [u8; 16]> = listed.iter().copied().collect();
     let same = |(chan, id): &(u32, [u8; 16])| held.get(chan) == Some(id);
     let mut claims = Vec::new();
     for terminal in live {
-        claims.push((terminal.0, if same(terminal) { Claim::Resume } else { Claim::Adopt }));
+        let elsewhere = if takes_descriptors { Claim::Adopt } else { Claim::Lose };
+        claims.push((terminal.0, if same(terminal) { Claim::Resume } else { elsewhere }));
     }
     for entry in reserved {
-        claims.push((entry.0, if same(entry) { Claim::Refresh } else { Claim::HandOver }));
+        let elsewhere = if takes_descriptors { Claim::HandOver } else { Claim::Forget };
+        claims.push((entry.0, if same(entry) { Claim::Refresh } else { elsewhere }));
     }
     // A channel this daemon claims is never ended: if the holder runs
     // another terminal on it, the adoption is refused and the live terminal

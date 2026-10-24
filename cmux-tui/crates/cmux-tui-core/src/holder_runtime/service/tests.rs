@@ -29,7 +29,7 @@ fn by_chan(mut claims: Vec<(u32, Claim)>) -> Vec<(u32, Claim)> {
 /// running unseen, with its ring, for ever.
 #[test]
 fn a_reconnect_ends_what_the_holder_runs_that_nobody_claims() {
-    let claims = ownership(&[(1, A), (2, B)], &[(1, A)], &[], false);
+    let claims = ownership(&[(1, A), (2, B)], &[(1, A)], &[], false, true);
     assert_eq!(by_chan(claims), [(1, Claim::Resume), (2, Claim::Close)]);
 }
 
@@ -40,9 +40,9 @@ fn a_reconnect_ends_what_the_holder_runs_that_nobody_claims() {
 /// the dead holder knew.
 #[test]
 fn a_reconnect_keeps_the_startup_pass_entries_and_hands_a_dead_holders_over() {
-    let same = ownership(&[(3, C)], &[], &[(3, C)], false);
+    let same = ownership(&[(3, C)], &[], &[(3, C)], false, true);
     assert_eq!(by_chan(same), [(3, Claim::Refresh)]);
-    let new = ownership(&[], &[(1, A)], &[(3, C)], false);
+    let new = ownership(&[], &[(1, A)], &[(3, C)], false, true);
     assert_eq!(by_chan(new), [(1, Claim::Adopt), (3, Claim::HandOver)]);
 }
 
@@ -50,17 +50,30 @@ fn a_reconnect_keeps_the_startup_pass_entries_and_hands_a_dead_holders_over() {
 /// yet (for it to re-attach); any other link ends it.
 #[test]
 fn only_the_startup_pass_keeps_what_nobody_claims() {
-    let startup = ownership(&[(1, A), (2, B)], &[], &[], true);
+    let startup = ownership(&[(1, A), (2, B)], &[], &[], true, true);
     assert_eq!(by_chan(startup), [(1, Claim::Reserve), (2, Claim::Reserve)]);
-    let other = ownership(&[(1, A), (2, B)], &[], &[], false);
+    let other = ownership(&[(1, A), (2, B)], &[], &[], false, true);
     assert_eq!(by_chan(other), [(1, Claim::Close), (2, Claim::Close)]);
+}
+
+/// Holder-core deep review: after the holder could not take an adoption's
+/// descriptors, the next link to it hands it none. A live terminal it does
+/// not run ends lost and a kept entry it does not run is forgotten; what it
+/// runs resumes and refreshes, and what nobody claims still ends.
+#[test]
+fn a_holder_short_of_descriptors_is_handed_nothing() {
+    let claims = ownership(&[(1, A), (4, [4; 16])], &[(1, A), (2, B)], &[(3, C)], false, false);
+    assert_eq!(
+        by_chan(claims),
+        [(1, Claim::Resume), (2, Claim::Lose), (3, Claim::Forget), (4, Claim::Close)]
+    );
 }
 
 /// A live terminal resumes on the same holder and is adopted by a new
 /// one; neither is ended.
 #[test]
 fn live_terminals_resume_on_the_same_holder_and_are_adopted_by_a_new_one() {
-    let claims = ownership(&[(1, A)], &[(1, A), (2, B)], &[], false);
+    let claims = ownership(&[(1, A)], &[(1, A), (2, B)], &[], false, true);
     assert_eq!(by_chan(claims), [(1, Claim::Resume), (2, Claim::Adopt)]);
 }
 

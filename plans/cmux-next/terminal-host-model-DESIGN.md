@@ -133,6 +133,13 @@ processes and ~2,000 threads fewer.
   request kind 0 (`wire::STREAM_FAULT`), after the frame the socket had taken part of, and count
   no poison strike (holder-core fix review: before, a silent close counted as a daemon crash, so
   two reconnects that sent an ADOPT to a holder short of descriptors poisoned its terminals).
+  After `NO_DESCRIPTORS` the next link to that holder hands it no descriptor (holder-core deep
+  review): a live terminal it does not run ends lost and a kept entry it does not run is
+  forgotten, so no reconnect resends the ADOPT it could not take (before: a loop of links for as
+  long as it stayed full). A holder the daemon starts afresh takes everything again. The daemon
+  starts a holder only when the connect showed none serves the socket (`ConnectFailure::NoHolder`:
+  no socket file, nobody listening, or the connection ended during the handshake); a holder
+  that refused the HELLO or did not answer in time runs, and a second one would exit at once.
   Tests: `cmux-holder/tests/descriptor_exhaustion.rs` (a holder under a measured low
   `RLIMIT_NOFILE`).
 - Input: the daemon writes keystrokes to its own master dup directly (one hop less than today);

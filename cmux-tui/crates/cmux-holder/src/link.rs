@@ -54,8 +54,12 @@ pub enum LinkEnd {
     /// The holder could not read this daemon's stream on and ended the link
     /// after telling why (the ERROR code: `NO_DESCRIPTORS` when it ran out
     /// of descriptors, `BAD_PAYLOAD` when the bytes were not frames of the
-    /// wire). The holder still runs every terminal and counted no crash
-    /// against them: connecting again is safe.
+    /// wire). The holder still runs every terminal it took and counted no
+    /// crash against them, so a new link resumes them. After
+    /// `NO_DESCRIPTORS` the holder is still short of descriptors: it could
+    /// not take an ADOPT (the only daemon frame that passes any), and a new
+    /// link that hands it the same descriptors faults again, so it must
+    /// hand it none.
     Fault(u16),
 }
 
