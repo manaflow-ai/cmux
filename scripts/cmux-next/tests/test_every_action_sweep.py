@@ -7,6 +7,8 @@
    then equal the base (per pane: its column and the multiset of its tab kinds), not only reach its counts.
 2. A session that fails fails the run: main() exits FAILED_SESSION_EXIT, every-action.md names the failed session,
    and --merge keeps a shard's failure (and exits the same way) instead of reading its missing rows as covered.
+3. STRESS has one shape or the session fails (P12): a build or a mid-session rebuild of another layout raises
+   StressShapeError instead of being measured as `stress`, and a rebuild replaces the damaged measured workspace.
 
 No app, GUI or build: the module's socket helper is replaced by a model of the topology, focus and closed history.
 Run: python3 -I scripts/cmux-next/tests/test_every_action_sweep.py
@@ -317,6 +319,108 @@ class FailedSessionTests(unittest.TestCase):
         self.assertTrue(merged["sessions"][0].get("failed"))
         with open(os.path.join(folder, "every-action.md")) as f:
             self.assertIn("the app exited (code -11)", f.read())
+
+
+# What perf-stress-session's summary() gives for the STRESS shape (Stress.check accepts it).
+STRESS_OK = {"workspaces": 60, "shown_columns": 4, "window": [80, 40, 1600, 1000], "measured_panes": 14,
+             "measured_tabs": {"terminal": 28, "browser": 42, "conversation": 14}, "refusals": [],
+             "busy_terminals": stress_mod.BUSY_TERMINALS, "pane_problems": [], "chromium_unavailable": [],
+             "background_chromium": [stress_mod.CHROMIUM_PER_WORKSPACE] * stress_mod.CHROMIUM_WORKSPACES}
+# What a host where only three columns fit builds.
+STRESS_NARROW = dict(STRESS_OK, shown_columns=3, measured_panes=11, measured_tabs={"terminal": 22, "browser": 33, "conversation": 11})
+
+
+class StressShapeTests(unittest.TestCase):
+    def stress_app(self):
+        fake = FakeApp()
+        measured = fake.pane(0, ["terminal", "browser"])
+        base = fake.workspace([measured])
+        fake.workspace([fake.pane(0, ["terminal"])])
+        fake.focus_on(base, measured)
+        return fake, base
+
+    def patched(self, fake, summary):
+        def build_measured(builder):
+            pane = fake.pane(0, ["terminal", "browser"])
+            workspace = fake.workspace([pane])
+            fake.focus_on(workspace, pane)
+            builder.measured = workspace["id"]
+            return workspace["id"]
+        return [mock.patch.object(sweep_mod, "rpc", fake.rpc),
+                mock.patch.object(stress_mod.Stress, "build_background", lambda builder, *a, **k: []),
+                mock.patch.object(stress_mod.Stress, "build_measured", build_measured),
+                mock.patch.object(stress_mod.Stress, "summary", lambda builder: dict(summary)),
+                # The window is STRESS's size: the build gets to its shape check.
+                mock.patch.object(stress_mod.Stress, "size_window", lambda builder: {"frame": list(stress_mod.WINDOW)}),
+                mock.patch("time.sleep")]
+
+    def run_patched(self, patches, body):
+        for patch in patches:
+            patch.start()
+        try:
+            return body()
+        finally:
+            for patch in reversed(patches):
+                patch.stop()
+
+    def test_a_stress_build_of_another_shape_fails_the_session(self):
+        fake, _ = self.stress_app()
+        sweep = sweep_mod.Sweep(NoProcess(), "stress", stress_mod)
+        with self.assertRaises(stress_mod.StressShapeError):
+            self.run_patched(self.patched(fake, STRESS_NARROW), sweep.build)
+
+    def test_a_stress_rebuild_of_another_shape_fails_the_session(self):
+        fake, base = self.stress_app()
+        sweep = sweep_mod.Sweep(NoProcess(), "stress", stress_mod)
+
+        def body():
+            sweep.builder = stress_mod.Stress(fake.rpc, log=lambda line: None)
+            sweep.snapshot_base(base["id"])
+            sweep.rebuild({"workspaces": 1})
+        with self.assertRaises(stress_mod.StressShapeError):
+            self.run_patched(self.patched(fake, STRESS_NARROW), body)
+
+    def test_a_stress_rebuild_replaces_the_damaged_measured_workspace(self):
+        fake, base = self.stress_app()
+        sweep = sweep_mod.Sweep(NoProcess(), "stress", stress_mod)
+        before = len(fake.workspaces)
+
+        def body():
+            sweep.builder = stress_mod.Stress(fake.rpc, log=lambda line: None)
+            sweep.snapshot_base(base["id"])
+            sweep.rebuild({"panes": 1})
+        self.run_patched(self.patched(fake, STRESS_OK), body)
+        self.assertNotIn(base["id"], [w["id"] for w in fake.workspaces])
+        self.assertEqual(len(fake.workspaces), before)
+        self.assertEqual(sweep.base["workspace"], fake.workspaces[-1]["id"])
+
+    def test_a_row_whose_restore_rebuilt_another_shape_fails_the_session(self):
+        # A row's restore() rebuilt the measured workspace into another layout: the session fails there. It is not
+        # a harness row of that action followed by a relaunch and more rows under `stress`.
+        relaunches = []
+
+        class App:
+            process = None
+
+            def relaunch(self):
+                relaunches.append(1)
+
+        sweep = sweep_mod.Sweep(App(), "stress", stress_mod)
+
+        def run_action(action):
+            raise stress_mod.StressShapeError("STRESS session has the wrong shape: 11 panes, not 14")
+
+        def rpc(method, params=None, timeout=60):
+            return {"pong": True} if method == "system.ping" else {}
+
+        with mock.patch.object(sweep, "build", lambda: None), mock.patch.object(sweep, "check_validity", lambda: {}), \
+                mock.patch.object(sweep, "frames_during", lambda body, settle=0.4: {"frames": {}}), \
+                mock.patch.object(sweep, "run_action", run_action), mock.patch.object(sweep_mod, "rpc", rpc), \
+                mock.patch.object(sweep_mod.opts, "no_interactions", True):
+            with self.assertRaises(stress_mod.StressShapeError):
+                sweep.run([{"id": "closePane"}, {"id": "splitRight"}])
+        self.assertEqual(relaunches, [])
+        self.assertEqual(sweep.rows, [])
 
 
 if __name__ == "__main__":
