@@ -18,7 +18,7 @@ public import Foundation
 ///     preferredLocalizations: Bundle.module.preferredLocalizations)
 /// ```
 public enum LocalizedArgument: Sendable {
-    /// A count for an integer specifier (`%lld`, `%ld` or `%d`); the catalog's plural variation agrees with it.
+    /// A count for a 64-bit integer specifier (`%lld` or `%ld`; a 32-bit `%d` is refused); the catalog's plural variation agrees with it.
     case count(Int)
     /// A duration for a `%@`, written in CLDR's abbreviated units of the sentence's language ("5 min", ar "5 د").
     ///
