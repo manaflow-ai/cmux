@@ -527,6 +527,18 @@
       ],
       "packages": []
     },
+    "CmuxNextBrowserHostTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextBrowserHostTests",
+      "targets": [
+        "CmuxNextBrowser",
+        "CmuxNextBrowserAutomation",
+        "CmuxNextBrowserHost",
+        "CmuxNextWakeups"
+      ],
+      "packages": [],
+      "reads": []
+    },
     "CmuxNextBrowserImport": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport",
