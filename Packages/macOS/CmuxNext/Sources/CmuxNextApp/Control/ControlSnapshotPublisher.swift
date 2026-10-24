@@ -48,9 +48,11 @@ final class ControlSnapshotPublisher {
 
     func start() {
         workspaceInfos.onStale = { [weak self] in self?.modelChanged() }
-        // Read-your-writes for local state: a CLI mutation's effect on focus
-        // or selection is in the snapshot before the next request is read.
-        router.workQueue.setAfterFrame { [weak self] in self?.publishNow() }
+        // Read-your-writes for local state: a CLI mutation's effect on focus or selection is in the snapshot before
+        // the next request is read. A work-queue frame only marks the snapshot stale; the next read builds it
+        // (`ControlSnapshotStore.fresh`), once for any number of frames, and a read waiting on its barrier now.
+        router.workQueue.setAfterFrame { [weak self] in self?.workQueueFrameRan() }
+        router.snapshots.setRefresher { [weak self] in await self?.publishIfStale() }
         let center = NotificationCenter.default
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification, NSWindow.willCloseNotification,
                      NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification] {
@@ -65,6 +67,7 @@ final class ControlSnapshotPublisher {
     func stop() {
         isStopped = true
         router.workQueue.setAfterFrame(nil)
+        router.snapshots.setRefresher(nil)
         observers.removeAll()
     }
 
@@ -77,6 +80,18 @@ final class ControlSnapshotPublisher {
             self.isScheduled = false
             self.publishNow()
         }
+    }
+
+    /// A control work-queue frame ran (a CLI call changed main-actor state): mark the snapshot stale; build it now
+    /// only for a read waiting on its write barrier.
+    private func workQueueFrameRan() {
+        router.snapshots.markStale()
+        if router.snapshots.hasWaiters { publishNow() }
+    }
+
+    /// A read found the snapshot stale: build and publish it, unless a publish since did.
+    private func publishIfStale() {
+        if router.snapshots.isStale { publishNow() }
     }
 
     /// A compat read waiting on the write barrier publishes on this turn
@@ -131,7 +146,9 @@ final class ControlSnapshotPublisher {
     private func sequencesChanged() {
         guard !isStopped else { return }
         observeSequences()
-        if topologyDirty.load(ordering: .acquiring) {
+        // A pending topology change (observed, or a work-queue frame's) is not covered by a sequence-only publish,
+        // which would also clear the store's stale mark.
+        if topologyDirty.load(ordering: .acquiring) || router.snapshots.isStale {
             // A topology change is pending: its publish reads the sequences as they are then. A read
             // waiting on its write barrier gets it on this turn.
             if router.snapshots.hasWaiters { publishNow() }
