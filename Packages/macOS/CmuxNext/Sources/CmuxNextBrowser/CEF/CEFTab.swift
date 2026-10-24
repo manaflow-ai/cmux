@@ -73,6 +73,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var pendingFocus = false
     /// True while cmux's own `SetFocus(true)` runs (`chromiumRequestsFocus`).
     @ObservationIgnored var isGrantingFocus = false
+    /// One Chromium focus grant at a time (`grantFocus`, #24913).
+    @ObservationIgnored var focusGrant = CEFFocusGrant()
     /// Navigation state to restore once the browser exists (created with
     /// an empty URL so its history starts empty).
     @ObservationIgnored var pendingRestore: String?

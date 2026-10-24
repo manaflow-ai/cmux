@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 /// Where a Chromium focus request comes from (`cef_focus_source_t`).
@@ -53,9 +54,15 @@ extension CEFTab {
     /// Gives the page focus on cmux's behalf. CEF asks back through
     /// `chromiumRequestsFocus` inside this call (the shim's calls run on
     /// CEF's UI thread, the main thread).
+    /// One grant at a time (`CEFFocusGrant`): CEF makes the page window key inside the call, and
+    /// the key change that causes must not ask again (#24913). A page whose window is already key
+    /// has the keys.
     func grantFocus(_ browser: Int32) {
-        isGrantingFocus = true
-        defer { isGrantingFocus = false }
-        runtime.shim?.setFocus(browser, 1)
+        let pageWindowIsKey = NSApp.keyWindow.map(isPageWindow) ?? false
+        _ = focusGrant.grant(pageWindowIsKey: pageWindowIsKey) {
+            isGrantingFocus = true
+            defer { isGrantingFocus = false }
+            runtime.shim?.setFocus(browser, 1)
+        }
     }
 }
