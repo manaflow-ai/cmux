@@ -203,7 +203,7 @@ a bind whose `invoke:` label is on the line after `.bind(` is not seen (one-line
 ### 3. The always-on monitor (`ActionBudgetMonitor`)
 
 `SignpostActionRunTiming(monitor:)` reads `CLOCK_UPTIME_RAW` at the run's start and at the end of its
-commit and writes one fixed-size slot (`ActionRunSlot`: the action's interned index, entrypoint, outcome,
+commit, begins and ends the run's board span (atomics), and writes one fixed-size slot (`ActionRunSlot`: the action's interned index, entrypoint, outcome,
 times; no string, no reference) into a ring preallocated at launch, on the main actor. No allocation, no
 lock, no I/O, no formatting on the action's path; the action is interned when it is bound. Measured by
 `ActionBudgetMonitorBench` (Release, ns per run and per batch; numbers in perf-lead.md section 5).
@@ -217,10 +217,11 @@ Everything else runs after the commit and off the main actor:
   behind; never blocks, never grows), `action_over_budget_total`, `action_latency[]` = `{id, entrypoint,
   count, buckets, max_ms}`. Ids are catalog ids only: cmux.json commands report as `custom`, any other
   id outside the catalog as `extension` (`ActionReportNaming`; their ids carry user text).
-- An over-budget run goes to the reporter at once; a Debug build writes one line to the app log
-  (category `action.budget`): the action, entrypoint, times and the main-thread watchdog's stall sample
-  that overlaps the run (the one sampler; no second one). Runs under the watchdog's stall threshold have
-  no stack yet; PL-main's task board adds an action span so the watchdog samples at 10 ms.
+- Each run is published on the main-thread task board (`MainTaskBoard.beginSpan`, PL-main's scheduler) from
+  its start to its commit with the 10 ms budget: the watchdog (the one sampler) samples a run that passes it
+  and writes an `over_budget` record named by the action id. An over-budget run goes to the reporter at once;
+  a Debug build writes one line to the app log (category `action.budget`) with the action, entrypoint, times
+  and that record's stack.
 - `debug.action_budget` (DEV): the counters, the waiting-effect counts and the newest runs.
 - Debug menu > Toggle Action Latency HUD (DEV and NIGHTLY, closed by default): the newest 16 runs with
   their times, over-budget runs in the danger color. Closed, it holds no reader: zero cost.
