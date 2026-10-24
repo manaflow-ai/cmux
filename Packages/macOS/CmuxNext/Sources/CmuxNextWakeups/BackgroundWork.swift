@@ -12,18 +12,17 @@ import Dispatch
 ///
 /// Priority inversion: there is no synchronous wait in this API. Main-actor code either awaits
 /// ``run(_:mayBlock:shutdown:_:)`` (the main thread keeps running) or posts with
-/// ``post(_:mayBlock:shutdown:_:)``. A caller that awaits work below its own priority boosts it: at the
-/// call the item runs at the higher of its priority and the caller's (`Task.currentPriority`), and on
-/// macOS 26 and later a later escalation of the caller (another task awaits it) boosts the item too
-/// (a pending item moves up; a running one gets a GCD QoS override).
+/// ``post(_:mayBlock:shutdown:_:)``. A caller that awaits work below its own priority boosts it at
+/// the call: the item runs at the higher of its priority and the caller's (`Task.currentPriority`).
 ///
-/// macOS 14 and 15 exception (accepted by the Performance Lead, 2026-10-24): only the boost at the
-/// call applies. Swift has no escalation hook before macOS 26 (`withTaskPriorityEscalationHandler`),
-/// so when a low task awaits an item and a higher task later awaits that low task, the item stays at
-/// its priority, possibly behind other low work. That is a latency inversion, never a main-thread wait
-/// (nothing here waits synchronously). So start work that a person may wait for at that priority;
-/// do not start it low and count on a later waiter to raise it. To keep work low, post it, or await
-/// it from a task that is itself low (`Task(priority: WorkPriority.bestEffort.taskPriority)`).
+/// No later escalation, on any macOS: when a low task awaits an item and a higher task later awaits
+/// that low task, the item stays at its priority, possibly behind other low work. Swift's escalation
+/// hook (`withTaskPriorityEscalationHandler`) exists only on macOS 26 and its runtime entry point is
+/// strong-linked, so even a reference under `#available` stops launch on macOS 14 and 15. That is a
+/// latency inversion, never a main-thread wait (nothing here waits synchronously). So start work that
+/// a person may wait for at that priority; do not start it low and count on a later waiter to raise it.
+/// To keep work low, post it, or await it from a task that is itself low
+/// (`Task(priority: WorkPriority.bestEffort.taskPriority)`).
 ///
 /// One instance per app, built in the composition root (AppServices) and passed through `init`;
 /// tests build their own.
@@ -88,10 +87,8 @@ public final class BackgroundWork: Sendable {
         return max(1, Int(cores) - 1)
     }
 
-    /// Runs `body` on `lane` at `priority` (boosted to the caller's priority) and returns its result.
-    ///
-    /// A later escalation of the caller boosts the item too on macOS 26 and later only (see the type's
-    /// macOS 14 and 15 exception).
+    /// Runs `body` on `lane` at `priority` (boosted to the caller's priority at the call) and returns its
+    /// result. A later escalation of the caller does not boost it (see the type's note).
     ///
     /// - Parameters:
     ///   - priority: how much a person waits for it; the item runs at the higher of this and the caller's.
