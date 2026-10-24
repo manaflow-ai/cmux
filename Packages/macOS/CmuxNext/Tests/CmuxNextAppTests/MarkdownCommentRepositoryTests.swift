@@ -81,7 +81,8 @@ private enum ThreadProbe {
         #expect(first.written == MarkdownTableWidthWrite(attribute: true, fallback: true))
         #expect(second.written == MarkdownTableWidthWrite(attribute: true, fallback: true))
         #expect(removed.written == MarkdownTableWidthWrite(attribute: true, fallback: true))
-        #expect([first.sequence, second.sequence, removed.sequence] == [1, 2, 3])
+        let sequences: [Int] = [first.sequence, second.sequence, removed.sequence]
+        #expect(sequences == [1, 2, 3])
         #expect(await storage.writeOnMainActor == [false, false, false])
 
         let writes = await storage.writes
