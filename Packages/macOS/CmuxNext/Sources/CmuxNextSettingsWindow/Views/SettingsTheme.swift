@@ -2,22 +2,20 @@ import AppKit
 import CmuxNextDesign
 import Observation
 
-/// The theme the Settings window draws in: the `ThemeScope` of the main
-/// window it was opened from (the App sets it), else the app theme.
+/// The theme the Debug Settings views draw in: the `ThemeScope` of the main
+/// window they were opened from (the App sets it), else the app theme.
 /// SwiftUI would resolve `Color(nsColor: Palette.x)` against the app theme,
-/// so `SettingsStyle` reads these tokens instead; views re-render through
-/// Observation when they change.
+/// so `SettingsStyle` is made from these tokens instead; views re-render
+/// through Observation when they change. Owned by ``DebugSettingsModel``
+/// (``DebugSettingsModel/theme``): one per model, never process-wide.
 @MainActor
 @Observable
 final class SettingsTheme: ThemeResponsive {
-    /// One Settings window per app.
-    static let shared = SettingsTheme()
-
     private(set) var tokens: ThemeTokens
     private(set) var input: ThemeInput
     @ObservationIgnored private(set) var scope: ThemeScope
 
-    private init() {
+    init() {
         scope = .app
         tokens = ThemeScope.app.tokens
         input = ThemeScope.app.input

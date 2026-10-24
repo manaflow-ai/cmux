@@ -7,12 +7,13 @@ import SwiftUI
 struct DebugSettingsSidebar: View {
     @Bindable var model: DebugSettingsModel
     @FocusState private var searchFocused: Bool
+    @Environment(\.settingsStyle) private var style
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Metrics.space1) {
                 HStack(spacing: Metrics.space3) {
-                    Icon(.search, size: 13).foregroundStyle(SettingsStyle.tertiary)
+                    Icon(.search, size: 13).foregroundStyle(style.tertiary)
                     TextField(DebugSettingsStrings.searchPlaceholder, text: $model.query)
                         .textFieldStyle(.plain)
                         .focusEffectDisabled()
@@ -20,19 +21,19 @@ struct DebugSettingsSidebar: View {
                         .accessibilityIdentifier("cmux.debugSettings.search")
                     if !model.query.isEmpty {
                         Button { model.query = "" } label: { Icon(.fieldClear, size: 13) }
-                            .buttonStyle(.plain).foregroundStyle(SettingsStyle.tertiary)
+                            .buttonStyle(.plain).foregroundStyle(style.tertiary)
                             .accessibilityLabel(DebugSettingsStrings.clearSearch)
                     }
                 }
                 .padding(.horizontal, Metrics.space4)
                 .frame(height: SettingsStyle.rowHeight)
-                .background(SettingsStyle.hover, in: RoundedRectangle(cornerRadius: SettingsStyle.corner, style: .continuous))
+                .background(style.hover, in: RoundedRectangle(cornerRadius: SettingsStyle.corner, style: .continuous))
                 .padding(.bottom, Metrics.space4)
                 DebugSidebarRow(title: DebugSettingsStrings.all, icon: Icon(.viewList, size: 13), count: model.descriptors.count, changed: 0,
                                 isSelected: model.selection == .all && model.query.isEmpty) { select(.all) }
                 DebugSidebarRow(title: DebugSettingsStrings.changed, icon: Icon(.stateChanged, size: 13), count: model.changedCount, changed: 0,
                                 isSelected: model.selection == .changed) { select(.changed) }
-                Rectangle().fill(SettingsStyle.separator).frame(height: Metrics.dividerThickness).padding(.vertical, Metrics.space2)
+                Rectangle().fill(style.separator).frame(height: Metrics.dividerThickness).padding(.vertical, Metrics.space2)
                 ForEach(model.sections) { section in
                     DebugSidebarRow(title: section.title, icon: Icon(symbol: section.symbol, size: 13), count: model.count(in: section),
                                     changed: model.changedCount(in: section),
@@ -61,22 +62,23 @@ private struct DebugSidebarRow: View {
     let isSelected: Bool
     let action: () -> Void
     @State private var hovering = false
+    @Environment(\.settingsStyle) private var style
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: Metrics.space4) {
                 icon.frame(width: Metrics.iconSize + Metrics.space2)
-                    .foregroundStyle(isSelected ? SettingsStyle.text : SettingsStyle.secondary)
+                    .foregroundStyle(isSelected ? style.text : style.secondary)
                 Text(title).lineLimit(1)
                 Spacer(minLength: 0)
                 if changed > 0 {
-                    Circle().fill(SettingsStyle.text).frame(width: Metrics.space3, height: Metrics.space3)
+                    Circle().fill(style.text).frame(width: Metrics.space3, height: Metrics.space3)
                 }
-                Text("\(count)").font(SettingsStyle.caption).monospacedDigit().foregroundStyle(SettingsStyle.tertiary)
+                Text("\(count)").font(SettingsStyle.caption).monospacedDigit().foregroundStyle(style.tertiary)
             }
             .padding(.horizontal, Metrics.space4)
             .frame(height: SettingsStyle.rowHeight)
-            .background(isSelected ? SettingsStyle.selection : (hovering ? SettingsStyle.hover : .clear),
+            .background(isSelected ? style.selection : (hovering ? style.hover : .clear),
                         in: RoundedRectangle(cornerRadius: SettingsStyle.corner, style: .continuous))
             .contentShape(Rectangle())
         }

@@ -129,7 +129,7 @@ final class DebugSettingsService: InternalPageProvider {
         if SettingsPresentation.tunable.value == .pane, let window = services.windows.active {
             if let query { model.query = query }
             if let selection { model.selection = selection }
-            DebugSettingsModel.followTheme(window.themeScope)
+            model.followTheme(window.themeScope)
             if services.pages.show(.debugSettings, in: window, focus: focus) != nil { return }
         }
         if controller == nil {
@@ -175,7 +175,7 @@ final class DebugSettingsService: InternalPageProvider {
         sharedModel = model
         if let page = webPage(model: model) {
             tabPages.updateValue(page, forKey: key)?.close() // called once per tab; a replaced page is no tab's view
-            DebugSettingsModel.followTheme(window?.themeScope ?? .app)
+            model.followTheme(window?.themeScope ?? .app)
             return page
         }
         return model.makePaneView(scope: window?.themeScope ?? .app)

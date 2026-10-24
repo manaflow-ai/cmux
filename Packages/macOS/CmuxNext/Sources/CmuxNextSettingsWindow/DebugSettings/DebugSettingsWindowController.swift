@@ -34,9 +34,9 @@ public final class DebugSettingsWindowController: NSWindowController, NSWindowDe
         window.onFind = onFind
         super.init(window: window)
         window.delegate = self
-        SettingsTheme.shared.follow(SettingsTheme.shared.scope)
+        model.theme.follow(model.theme.scope)
         window.install(kind: .debugSettings, content: content ?? NSHostingView(rootView: DebugSettingsRootView(model: model)),
-                       scope: SettingsTheme.shared.scope)
+                       scope: model.theme.scope)
     }
 
     @available(*, unavailable)
@@ -44,7 +44,7 @@ public final class DebugSettingsWindowController: NSWindowController, NSWindowDe
 
     /// Draws the window in `scope` (the main window it was opened from).
     public func setThemeScope(_ scope: ThemeScope) {
-        SettingsTheme.shared.follow(scope)
+        model.theme.follow(scope)
         guard let window else { return }
         scope.adopt(window)
     }
@@ -54,7 +54,7 @@ public final class DebugSettingsWindowController: NSWindowController, NSWindowDe
         if let query { model.query = query }
         if let selection { model.selection = selection }
         guard let window else { return }
-        SettingsTheme.shared.scope.adopt(window)
+        model.theme.scope.adopt(window)
         WindowPlacement.present(window)
     }
 

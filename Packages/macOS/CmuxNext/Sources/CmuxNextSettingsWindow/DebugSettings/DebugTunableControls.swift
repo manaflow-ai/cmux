@@ -11,11 +11,12 @@ struct DebugNumberField: View {
     let unit: TunableUnit
     @State private var text = ""
     @FocusState private var editing: Bool
+    @Environment(\.settingsStyle) private var style
 
     var body: some View {
         HStack(spacing: Metrics.space4) {
             if let title {
-                Text(title).font(SettingsStyle.caption).foregroundStyle(SettingsStyle.secondary)
+                Text(title).font(SettingsStyle.caption).foregroundStyle(style.secondary)
             }
             Slider(value: Binding(get: { min(max(value, range.lowerBound), range.upperBound) }, set: { value = snap($0) }),
                    in: range)
@@ -29,7 +30,7 @@ struct DebugNumberField: View {
                 .focused($editing)
                 .onSubmit(commit)
                 .onChange(of: editing) { if !editing { commit() } }
-            Text(unitSuffix).font(SettingsStyle.caption).foregroundStyle(SettingsStyle.tertiary)
+            Text(unitSuffix).font(SettingsStyle.caption).foregroundStyle(style.tertiary)
                 .frame(minWidth: Metrics.space6, alignment: .leading)
         }
         .onAppear { text = TunableExport.format(display(value)) }
@@ -71,9 +72,10 @@ struct DebugNumberField: View {
 /// A menu of theme color roles, each with its swatch in the window's theme.
 struct DebugColorPicker: View {
     @Binding var selection: TunableColor
+    @Environment(\.settingsStyle) private var style
 
     var body: some View {
-        let tokens = SettingsTheme.shared.tokens
+        let tokens = style.tokens
         Menu {
             ForEach(TunableColor.allCases, id: \.self) { color in
                 Button {
@@ -85,7 +87,7 @@ struct DebugColorPicker: View {
         } label: {
             HStack(spacing: Metrics.space3) {
                 Circle().fill(Color(nsColor: selection.resolve(in: tokens).nsColor)).frame(width: Metrics.space5, height: Metrics.space5)
-                    .overlay(Circle().stroke(SettingsStyle.separator, lineWidth: Metrics.dividerThickness))
+                    .overlay(Circle().stroke(style.separator, lineWidth: Metrics.dividerThickness))
                 Text(selection.rawValue)
             }
         }

@@ -26,6 +26,9 @@ public final class DebugSettingsModel {
     public var notice: String?
     /// Bumped by Cmd-F; the search field takes focus when it changes.
     public var searchFocusRequest = 0
+    /// The theme every view of this model draws in: its window, its panes and the page's color
+    /// swatches. The App keeps one model while any of them is open, so they follow one scope.
+    let theme = SettingsTheme()
 
     public init(store: TunableStore, descriptors: [TunableDescriptor]) {
         self.store = store

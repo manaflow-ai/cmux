@@ -7,19 +7,20 @@ import SwiftUI
 struct DebugTunableRowView: View {
     let model: DebugSettingsModel
     let descriptor: TunableDescriptor
+    @Environment(\.settingsStyle) private var style
 
     var body: some View {
         let changed = model.isChanged(descriptor)
         HStack(alignment: .top, spacing: Metrics.space5) {
             VStack(alignment: .leading, spacing: Metrics.space1) {
                 HStack(spacing: Metrics.space3) {
-                    Circle().fill(SettingsStyle.text).frame(width: Metrics.space3, height: Metrics.space3).opacity(changed ? 1 : 0)
+                    Circle().fill(style.text).frame(width: Metrics.space3, height: Metrics.space3).opacity(changed ? 1 : 0)
                     Text(descriptor.label).font(changed ? SettingsStyle.emphasized : SettingsStyle.body)
                 }
                 Group {
-                    Text(descriptor.key).font(SettingsStyle.keycap).foregroundStyle(SettingsStyle.tertiary).textSelection(.enabled)
+                    Text(descriptor.key).font(SettingsStyle.keycap).foregroundStyle(style.tertiary).textSelection(.enabled)
                     if !descriptor.help.isEmpty {
-                        Text(descriptor.help).font(SettingsStyle.caption).foregroundStyle(SettingsStyle.secondary)
+                        Text(descriptor.help).font(SettingsStyle.caption).foregroundStyle(style.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -29,13 +30,13 @@ struct DebugTunableRowView: View {
             VStack(alignment: .trailing, spacing: Metrics.space1) {
                 DebugTunableControl(model: model, descriptor: descriptor)
                 Text(DebugSettingsStrings.defaultIs(DebugSettingsStrings.display(descriptor.defaultValue, kind: descriptor.kind)))
-                    .font(SettingsStyle.caption).foregroundStyle(SettingsStyle.tertiary)
+                    .font(SettingsStyle.caption).foregroundStyle(style.tertiary)
             }
             Button { model.reset(descriptor) } label: {
                 Icon(.actionUndo, size: 12)
             }
             .buttonStyle(.plain)
-            .foregroundStyle(SettingsStyle.secondary)
+            .foregroundStyle(style.secondary)
             .themedHelp(SettingsWindowStrings.reset)
             .accessibilityLabel(SettingsWindowStrings.reset)
             .opacity(changed ? 1 : 0)

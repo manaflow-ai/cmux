@@ -10,14 +10,15 @@ extension DebugSettingsModel {
     /// The Debug Settings tab title.
     public static var paneTitle: String { DebugSettingsStrings.windowTitle }
 
-    /// Draws every open Debug Settings view in `scope` from now on.
-    public static func followTheme(_ scope: ThemeScope) {
-        SettingsTheme.shared.follow(scope)
+    /// Draws every open Debug Settings view of this model (its window, its panes, the page's
+    /// swatches) in `scope` from now on.
+    public func followTheme(_ scope: ThemeScope) {
+        theme.follow(scope)
     }
 
     /// A Debug Settings view over this model, drawn in `scope`.
     public func makePaneView(scope: ThemeScope) -> NSView {
-        SettingsTheme.shared.follow(scope)
+        theme.follow(scope)
         let view = NSHostingView(rootView: DebugSettingsRootView(model: self))
         view.setAccessibilityIdentifier("cmux.debugSettings.pane")
         return view

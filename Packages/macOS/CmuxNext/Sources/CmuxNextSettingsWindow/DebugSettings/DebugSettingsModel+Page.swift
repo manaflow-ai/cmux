@@ -29,9 +29,9 @@ extension DebugSettingsSelection {
 
 extension DebugSettingsModel {
     /// Everything the page draws: the view state, the sidebar, and the visible rows by section.
-    /// Color choices carry swatches in the theme Debug Settings follows (`followTheme`).
+    /// Color choices carry swatches in the theme this model follows (``followTheme(_:)``).
     public func pageState() -> JSONValue {
-        let tokens = SettingsTheme.shared.tokens
+        let tokens = theme.tokens
         let overrides = store.overrides
         let sections: [JSONValue] = sections.map { section in
             let members = descriptors.filter { $0.section.id == section.id }
@@ -61,7 +61,7 @@ extension DebugSettingsModel {
         _ = selection
         _ = notice
         _ = store.revision
-        _ = SettingsTheme.shared.tokens
+        _ = theme.tokens
     }
 
     /// One row: the descriptor, the control of its kind, the value and the default.
