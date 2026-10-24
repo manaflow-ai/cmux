@@ -1398,3 +1398,76 @@ fn a_subagent_waiting_on_a_fleet_job_pauses_and_wakes_on_its_result() {
     assert!(sub.fleet_wait.is_empty());
     let _ = SubStatus::Done;
 }
+
+/// Records the group each workspace opens in and names it `ws_…` like the
+/// app's session daemon does (locate).
+#[derive(Default)]
+struct GroupRecorder {
+    groups: std::sync::Mutex<Vec<String>>,
+}
+
+impl optchat_chief::workspaces::Workspaces for GroupRecorder {
+    fn open(
+        &self,
+        key: &str,
+        _session: &str,
+        _name: &str,
+        group: &str,
+        _cwd: &std::path::Path,
+    ) -> Result<String, String> {
+        self.groups.lock().unwrap().push(group.to_owned());
+        Ok(key.to_owned())
+    }
+    fn rename(&self, _key: &str, _name: &str) -> Result<(), String> {
+        Ok(())
+    }
+    fn place(&self) -> String {
+        "the test".into()
+    }
+    fn locate(&self, _key: &str) -> Option<optchat_chief::workspaces::WorkspaceRef> {
+        Some(optchat_chief::workspaces::WorkspaceRef {
+            id: "ws_0123456789abcdef0123456789abcdef".into(),
+            session: "mac".into(),
+        })
+    }
+}
+
+/// a636 (Oct 24): `peers` printed a cloud subagent's raw workspace key
+/// (a UUID) and its workspace sat in a topic group. It now links
+/// `cmux://workspace/ws_…`, says which machine it runs on, and the workspace
+/// opens in a group named for that machine.
+#[test]
+fn a_cloud_subagent_shows_in_its_machine_group_and_peers_links_it() {
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    std::fs::create_dir_all(h.dir.path().join("subagent")).unwrap();
+    let recorder = Arc::new(GroupRecorder::default());
+    let ws: Arc<dyn optchat_chief::workspaces::Workspaces> = recorder.clone();
+    h.brain.set_workspaces(Some(ws.clone()));
+    let sp = Arc::new(
+        Arc::try_unwrap(spawner(&h, Some(cloud())))
+            .ok()
+            .unwrap()
+            .with_workspaces(Some(ws)),
+    );
+    let a = sp.clone();
+    let spawned = run(&mut h, move || {
+        a.spawn(vec!["Title: Cloud thing\nbuild it".into()], None)
+    })
+    .unwrap();
+    assert!(
+        spawned.contains("cmux://workspace/ws_0123456789abcdef0123456789abcdef"),
+        "the spawn answer links the workspace: {spawned}"
+    );
+    assert_eq!(recorder.groups.lock().unwrap().clone(), vec!["cloud1"]);
+    let a = sp.clone();
+    let listed = run(&mut h, move || a.peers("a9")).unwrap();
+    assert!(
+        listed.contains("(cmux://workspace/ws_0123456789abcdef0123456789abcdef)"),
+        "peers links it: {listed}"
+    );
+    assert!(
+        listed.contains("on cloud1"),
+        "peers names the machine: {listed}"
+    );
+}
