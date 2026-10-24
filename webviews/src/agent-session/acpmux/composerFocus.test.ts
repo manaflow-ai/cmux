@@ -121,4 +121,18 @@ describe("composer click-away focus", () => {
     });
     expect(dom!.window.document.activeElement).not.toBe(editor);
   });
+
+  test("window focus loss also releases the composer editor", async () => {
+    const container = installDom();
+    await act(async () => {
+      root = createRoot(container);
+      root.render(React.createElement(ComposerFocusHarness));
+    });
+    const editor = container.querySelector<HTMLElement>("[contenteditable]")!;
+    editor.focus();
+    await act(async () => {
+      dom!.window.dispatchEvent(new dom!.window.Event("blur"));
+    });
+    expect(dom!.window.document.activeElement).not.toBe(editor);
+  });
 });

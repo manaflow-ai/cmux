@@ -35,6 +35,11 @@ export function shouldBlurComposerOnPress(target: Node | null, active: Element |
   return targetElement?.closest(".acpmux-composer-box") == null;
 }
 
+function blurActiveComposer(): void {
+  const active = document.activeElement;
+  if (active?.closest(".acpmux-composer-box")) (active as HTMLElement).blur();
+}
+
 export type KeyLike = {
   key: string;
   metaKey: boolean;
@@ -110,6 +115,10 @@ export function useComposerKeyboard(focusComposer: () => boolean, page: PageClie
         (active as HTMLElement).blur();
       }
     };
+    // A live transcript preview is a nested browsing context: its pointer press does not bubble
+    // to this document. The browser blurs the editor when that frame takes focus; keep the same
+    // boundary explicit for hosts that only report the outer window blur.
+    const onWindowBlur = () => blurActiveComposer();
     /// The pane became active (window focus, the host's focusContent): claim unless a click did it.
     const claimOnActivation = () => {
       if (performance.now() - pressedAt < PRESS_WINDOW_MS) return;
@@ -129,6 +138,7 @@ export function useComposerKeyboard(focusComposer: () => boolean, page: PageClie
     // The page opened (first paint) or its pane became active (the window and web view took focus).
     const first = requestAnimationFrame(claimIfIdle);
     window.addEventListener("focus", claimOnActivation);
+    window.addEventListener("blur", onWindowBlur);
     window.addEventListener(COMPOSER_READY_EVENT, claimIfIdle);
     document.addEventListener("keydown", onKey);
     document.addEventListener("pointerdown", onPress, true);
@@ -151,6 +161,7 @@ export function useComposerKeyboard(focusComposer: () => boolean, page: PageClie
       cancelAnimationFrame(first);
       clearTimeout(settling);
       window.removeEventListener("focus", claimOnActivation);
+      window.removeEventListener("blur", onWindowBlur);
       window.removeEventListener(COMPOSER_READY_EVENT, claimIfIdle);
       document.removeEventListener("keydown", onKey);
       document.removeEventListener("pointerdown", onPress, true);
