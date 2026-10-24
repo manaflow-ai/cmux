@@ -21561,7 +21561,14 @@
       "cli_name" : "agent toggle-ui-pointer",
       "context_menu" : "offered",
       "context_menus" : [
-        "agentChat"
+        "agentChat",
+        "tab",
+        "pane",
+        "newTab",
+        "workspaceRow",
+        "sidebarItem",
+        "sidebarSection",
+        "windowBackground"
       ],
       "default_aliases" : [
 
@@ -21580,7 +21587,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Point at cmux UI",
+      "title" : "Inspect UI Element",
       "title_key" : null,
       "title_table" : null
     },
@@ -35229,9 +35236,23 @@
         },
         {
           "enabled_when" : "can_perform",
+          "id" : "agentPane.togglePointerInspector",
+          "kind" : "action",
+          "label" : "Inspect Element",
+          "order" : 17,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
           "id" : "agentChat.copyIdentifier",
           "kind" : "action",
-          "order" : 17,
+          "order" : 18,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -37601,6 +37622,24 @@
 
             ]
           }
+        },
+        {
+          "kind" : "separator",
+          "order" : 6
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "agentPane.togglePointerInspector",
+          "kind" : "action",
+          "label" : "Inspect Element",
+          "order" : 7,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
         }
       ],
       "implied" : [
@@ -38506,14 +38545,11 @@
               }
             },
             {
-              "kind" : "separator",
-              "order" : 28
-            },
-            {
               "enabled_when" : "can_perform",
-              "id" : "palette.copyPaneID",
+              "id" : "agentPane.togglePointerInspector",
               "kind" : "action",
-              "order" : 29,
+              "label" : "Inspect Element",
+              "order" : 28,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -38523,8 +38559,12 @@
               }
             },
             {
+              "kind" : "separator",
+              "order" : 29
+            },
+            {
               "enabled_when" : "can_perform",
-              "id" : "palette.copyPaneLink",
+              "id" : "palette.copyPaneID",
               "kind" : "action",
               "order" : 30,
               "visible_when" : {
@@ -38537,7 +38577,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "pane.screenshot",
+              "id" : "palette.copyPaneLink",
               "kind" : "action",
               "order" : 31,
               "visible_when" : {
@@ -38549,14 +38589,27 @@
               }
             },
             {
+              "enabled_when" : "can_perform",
+              "id" : "pane.screenshot",
+              "kind" : "action",
+              "order" : 32,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
               "kind" : "separator",
-              "order" : 32
+              "order" : 33
             },
             {
               "enabled_when" : "can_perform",
               "id" : "pane.closeOthers",
               "kind" : "action",
-              "order" : 33,
+              "order" : 34,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -40256,9 +40309,27 @@
         },
         {
           "enabled_when" : "can_perform",
+          "id" : "agentPane.togglePointerInspector",
+          "kind" : "action",
+          "label" : "Inspect Element",
+          "order" : 7,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 7
+        },
+        {
+          "enabled_when" : "can_perform",
           "id" : "sidebar.item.removeEverywhere",
           "kind" : "action",
-          "order" : 7,
+          "order" : 8,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -40271,7 +40342,7 @@
           "enabled_when" : "can_perform",
           "id" : "sidebar.item.remove",
           "kind" : "action",
-          "order" : 8,
+          "order" : 9,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -40285,7 +40356,7 @@
           "id" : "sidebar.item.hideApp",
           "kind" : "action",
           "label" : "Hide App",
-          "order" : 9,
+          "order" : 10,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -40584,10 +40655,15 @@
           "order" : 11
         },
         {
+          "kind" : "separator",
+          "order" : 12
+        },
+        {
           "enabled_when" : "can_perform",
-          "id" : "sidebar.section.hide",
+          "id" : "agentPane.togglePointerInspector",
           "kind" : "action",
-          "order" : 12,
+          "label" : "Inspect Element",
+          "order" : 13,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -40598,13 +40674,30 @@
         },
         {
           "kind" : "separator",
-          "order" : 13
+          "order" : 14
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "sidebar.section.hide",
+          "kind" : "action",
+          "order" : 14,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 15
         },
         {
           "enabled_when" : "can_perform",
           "id" : "sidebar.section.closeWorkspaces",
           "kind" : "action",
-          "order" : 14,
+          "order" : 16,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -40618,7 +40711,7 @@
           "id" : "sidebar.item.hideApp",
           "kind" : "action",
           "label" : "Hide App",
-          "order" : 15,
+          "order" : 17,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -40629,13 +40722,13 @@
         },
         {
           "kind" : "separator",
-          "order" : 16
+          "order" : 18
         },
         {
           "enabled_when" : "can_perform",
           "id" : "sidebar.section.remove",
           "kind" : "action",
-          "order" : 17,
+          "order" : 19,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -42221,14 +42314,28 @@
               }
             },
             {
+              "enabled_when" : "can_perform",
+              "id" : "agentPane.togglePointerInspector",
+              "kind" : "action",
+              "label" : "Inspect Element",
+              "order" : 27,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
               "kind" : "separator",
-              "order" : 27
+              "order" : 28
             },
             {
               "enabled_when" : "can_perform",
               "id" : "closeTabsToLeft",
               "kind" : "action",
-              "order" : 28,
+              "order" : 29,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -42239,24 +42346,11 @@
             },
             {
               "kind" : "separator",
-              "order" : 29
+              "order" : 30
             },
             {
               "enabled_when" : "can_perform",
               "id" : "tab.stash",
-              "kind" : "action",
-              "order" : 30,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "tab.stashToRight",
               "kind" : "action",
               "order" : 31,
               "visible_when" : {
@@ -42269,9 +42363,22 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "tab.stashOthers",
+              "id" : "tab.stashToRight",
               "kind" : "action",
               "order" : 32,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "tab.stashOthers",
+              "kind" : "action",
+              "order" : 33,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -43111,6 +43218,24 @@
           "id" : "appearance.changeBackground",
           "kind" : "action",
           "order" : 0,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 1
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "agentPane.togglePointerInspector",
+          "kind" : "action",
+          "label" : "Inspect Element",
+          "order" : 2,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -44955,14 +45080,11 @@
               }
             },
             {
-              "kind" : "separator",
-              "order" : 30
-            },
-            {
               "enabled_when" : "can_perform",
-              "id" : "palette.closeOtherWorkspaces",
+              "id" : "agentPane.togglePointerInspector",
               "kind" : "action",
-              "order" : 31,
+              "label" : "Inspect Element",
+              "order" : 30,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -44972,8 +45094,12 @@
               }
             },
             {
+              "kind" : "separator",
+              "order" : 31
+            },
+            {
               "enabled_when" : "can_perform",
-              "id" : "workspace.closeOthersInGroup",
+              "id" : "palette.closeOtherWorkspaces",
               "kind" : "action",
               "order" : 32,
               "visible_when" : {
@@ -44986,7 +45112,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "palette.closeWorkspacesBelow",
+              "id" : "workspace.closeOthersInGroup",
               "kind" : "action",
               "order" : 33,
               "visible_when" : {
@@ -44999,7 +45125,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "palette.closeWorkspacesAbove",
+              "id" : "palette.closeWorkspacesBelow",
               "kind" : "action",
               "order" : 34,
               "visible_when" : {
@@ -45012,7 +45138,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "workspace.closeAll",
+              "id" : "palette.closeWorkspacesAbove",
               "kind" : "action",
               "order" : 35,
               "visible_when" : {
@@ -45025,7 +45151,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "reopenClosedWorkspace",
+              "id" : "workspace.closeAll",
               "kind" : "action",
               "order" : 36,
               "visible_when" : {
@@ -45038,7 +45164,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "workspace.stash",
+              "id" : "reopenClosedWorkspace",
               "kind" : "action",
               "order" : 37,
               "visible_when" : {
@@ -45051,9 +45177,22 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "window.stash",
+              "id" : "workspace.stash",
               "kind" : "action",
               "order" : 38,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "window.stash",
+              "kind" : "action",
+              "order" : 39,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
