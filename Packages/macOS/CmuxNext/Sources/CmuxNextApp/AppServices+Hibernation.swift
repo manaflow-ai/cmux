@@ -1,5 +1,6 @@
 import CmuxNextBridge
 import CmuxNextCompat
+import CmuxNextHibernation
 import CmuxNextPages
 import CmuxNextSettings
 
