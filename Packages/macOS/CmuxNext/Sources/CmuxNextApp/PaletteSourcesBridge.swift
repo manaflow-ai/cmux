@@ -126,9 +126,14 @@ enum PaletteSourcesBridge {
                 services.windows.reveal(workspaceID: id)
                 return
             }
-            // Keep Cmd-P on the same selection path as a sidebar click and the numbered navigation
-            // shortcuts so the row highlight moves with the workspace in the same turn.
-            SidebarNavigation.activate(.workspace(WorkspaceID(id)), in: window, services)
+            // Keep a workspace already listed in this window on the same selection path as a sidebar
+            // click and the numbered navigation shortcuts, so its row highlight moves in the same turn.
+            // A workspace owned by another window keeps the palette's global show behavior.
+            if services.windows.registry.value.owner(of: id) == window.state.id {
+                SidebarNavigation.activate(.workspace(WorkspaceID(id)), in: window, services)
+            } else {
+                services.windows.show(workspaceID: id, in: window.state)
+            }
         }
 
         func renameWorkspace(id: String, to title: String) {
