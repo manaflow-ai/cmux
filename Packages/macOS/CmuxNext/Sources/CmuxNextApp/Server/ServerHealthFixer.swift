@@ -14,16 +14,18 @@ struct ServerHealthFixer {
         async throws(ServerHelperClient.Failure) -> Void
 
     let run: Run
-    /// Shared with Stop Serving, so a revert never overtakes an apply.
-    var gate: ServerFixGate = .shared
+    /// Shared with Stop Serving (its owner's one gate), so a revert never overtakes an apply.
+    let gate: ServerFixGate
     /// Every fix the helper applied, for Stop Serving.
     let ledger: ServerFixLedger
 
-    /// The App's fixer: the helper of this build.
-    static let helper = ServerHealthFixer(run: { (fix: ServerFix, revert: Bool, willCall: @escaping @MainActor () async throws -> Void)
-        async throws(ServerHelperClient.Failure) in
-        try await ServerHelperClient.run(fix, revert: revert, willCall: willCall)
-    }, ledger: .standard)
+    /// The App's fixer: the helper of this build, taking turns on `gate`.
+    static func helper(gate: ServerFixGate) -> ServerHealthFixer {
+        ServerHealthFixer(run: { (fix: ServerFix, revert: Bool, willCall: @escaping @MainActor () async throws -> Void)
+            async throws(ServerHelperClient.Failure) in
+            try await ServerHelperClient.run(fix, revert: revert, willCall: willCall)
+        }, gate: gate, ledger: .standard)
+    }
 
     /// The Fix button for a check this app fixes itself: app text, never the
     /// server's title (the click runs the allowlist, not the server's words).

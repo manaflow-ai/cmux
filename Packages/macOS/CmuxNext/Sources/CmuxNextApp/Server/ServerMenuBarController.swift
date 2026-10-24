@@ -22,9 +22,14 @@ final class ServerMenuBarController: NSObject, NSPopoverDelegate {
     /// Makes the model's source: the cloud pairing source in the App, the
     /// mock alone in previews and tests. Nil once the App's services are gone.
     private let makeSource: @MainActor () -> (any ServerSource)?
+    /// The app's one helper gate: every Fix of the sources it makes and Stop Serving take turns on it
+    /// (`ServerHandlers`), so an apply never lands after the revert that undoes it.
+    let fixGate: ServerFixGate
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.server-menu")
 
-    init(makeSource: @escaping @MainActor () -> (any ServerSource)? = { MockServerSource(scenario: .healthyMac) }) {
+    init(fixGate: ServerFixGate = ServerFixGate(),
+         makeSource: @escaping @MainActor () -> (any ServerSource)? = { MockServerSource(scenario: .healthyMac) }) {
+        self.fixGate = fixGate
         self.makeSource = makeSource
         super.init()
     }

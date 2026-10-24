@@ -22,7 +22,7 @@ enum ServerHandlers {
             menuBar.hide()
             registry.track(Task { @MainActor in
                 do throws(ServerStopServing.Failure) {
-                    try await ServerStopServing.app().run()
+                    try await ServerStopServing.app(gate: menuBar.fixGate).run()
                     return nil
                 } catch {
                     return ActionWorkFailure(error.message)
@@ -40,7 +40,8 @@ enum ServerHandlers {
             }
             let services = context.services
             registry.track(Task { @MainActor in
-                let source = CloudPairingSource.app(feed: services.feed, auth: services.cloud.auth, chiefPlaced: { [weak services] in services?.home.refreshChiefTab() })
+                let source = CloudPairingSource.app(feed: services.feed, auth: services.cloud.auth, fixGate: menuBar.fixGate,
+                                                    chiefPlaced: { [weak services] in services?.home.refreshChiefTab() })
                 let reject = await ServerHeadlessApproval.run(source: source, code: code, words: invocation["words"]?.stringValue,
                                                               name: invocation["name"]?.stringValue,
                                                               runChief: invocation["chief"]?.boolValue)

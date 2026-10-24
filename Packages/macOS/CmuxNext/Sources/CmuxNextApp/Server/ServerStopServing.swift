@@ -53,17 +53,18 @@ struct ServerStopServing {
     var agent: ServerServiceRegistration?
     var helper: ServerServiceRegistration?
     var revert: @MainActor (ServerFix) async throws(ServerHelperClient.Failure) -> Void
-    var gate: ServerFixGate = .shared
+    /// The gate the app's fixers take turns on (`ServerMenuBarController.fixGate`).
+    let gate: ServerFixGate
     /// The fixes this app had the helper apply.
     let ledger: ServerFixLedger
 
-    static func app() -> ServerStopServing {
+    static func app(gate: ServerFixGate) -> ServerStopServing {
         ServerStopServing(
             agent: ServerLaunchAgent.isBundled ? .agent(plistName: ServerLaunchAgent.plistName) : nil,
             helper: ServerHelperClient.isBundled ? .daemon(plistName: ServerHelperConstants().plistName) : nil,
             revert: { (fix: ServerFix) async throws(ServerHelperClient.Failure) in
                 try await ServerHelperClient.run(fix, revert: true)
-            }, ledger: .standard)
+            }, gate: gate, ledger: .standard)
     }
 
     /// Holds the gate until the helper is gone, so a Fix queued behind Stop
