@@ -131,6 +131,8 @@ pub const CAPABILITIES: &[Capability] = &[
     // agent's or background agent's, from the files Claude Code writes
     // (`claude_stdio/agent_transcript.rs`).
     Capability { id: "subagent-transcript-v1", wire: &[method::MUX_SUBAGENT_TRANSCRIPT] },
+    // Every Claude workflow of this daemon's chats, duplicates marked (`hub/workflow_index.rs`).
+    Capability { id: "workflows-index-v1", wire: &[method::MUX_WORKFLOWS] },
     // Answer an agent's offer to start a session (`offer_mcp.rs`).
     Capability { id: "session-offers-v1", wire: &[method::MUX_OFFER_RESPOND] },
 ];
