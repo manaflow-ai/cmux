@@ -64,7 +64,7 @@ TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from bench_launch import BenchApp, LaunchError  # noqa: E402  the shared GUI launch (session check, failure report)
+from bench_launch import BASE_ENV, BenchApp, LaunchError  # noqa: E402  the shared GUI launch (session check, failure report)
 # 30 panes in 6 columns leave ~230 pt each: the 200 pt default minimum refused the timed split there
 # ("not enough room to split this pane"), so the 30-pane split row measured nothing.
 CONFIG = {"layout": {"minimumPaneWidth": 80, "minimumPaneHeight": 32}}
@@ -92,6 +92,7 @@ def serve_page():
     return f"http://127.0.0.1:{server.server_address[1]}/"
 ROWS, LAUNCHED = [], []
 BENCH = None  # the BenchApp of this run
+MEASURED = False  # the app came up and the layouts ran: without it the run fails, --gate or not
 PROBE = {}  # --browser: the probe page's tab id
 app = None
 PROBE_PAGE = """<!doctype html><meta charset="utf-8"><title>Pane probe</title>
@@ -550,7 +551,7 @@ def cleanup():
 
 
 def main():
-    global app, SOCKET, BENCH
+    global app, SOCKET, BENCH, MEASURED
     os.makedirs(opts.out, exist_ok=True)
     # The shared launch (bench_launch.py): its bench environment, a session check that fails at once with
     # no-gui-session, the state-folder socket, and a BENCH-LAUNCH report (crash, sample, log tail) on failure.
@@ -566,12 +567,21 @@ def main():
     host = subprocess.run(["hostname"], capture_output=True, text=True).stdout.strip()
     print(f"launched pid {app.pid} macOS {macos} host {host}", flush=True)
     time.sleep(5)  # test harness: launch work settles
-    report = {"tag": TAG, "macos": macos, "host": host, "stream": opts.stream, "scrollback": opts.scrollback, "runs": []}
+    # The bench conditions (since 49990ad343b, BenchApp's BASE_ENV): the app never activates or becomes key
+    # (CMUX_NEXT_NO_ACTIVATE=1), agent chats are mocked (CMUX_NEXT_AGENT_PANE_MOCK=1, ACPMUX_AGENT_LAUNCH=deny)
+    # and the chief is isolated. Numbers from before that commit ran an app that could activate, with real
+    # agent launches: compare like with like by this record.
+    conditions = {"env": dict(BASE_ENV), "frontmost": frontmost_app()}
+    print("CONDITIONS " + json.dumps(conditions), flush=True)
+    report = {"tag": TAG, "macos": macos, "host": host, "stream": opts.stream, "scrollback": opts.scrollback,
+              "conditions": conditions, "runs": []}
     sequence = steps()
     for name in opts.layouts.split(","):
         if name == "stress":
             problem = stress_layout()
             panes = STRESS.get("measured_panes") or 0
+            # Chats that fell back to the New Tab page (mocked or denied agent launch) change the mix measured.
+            report["conditions"]["chat_fallbacks"] = STRESS.get("chat_fallbacks")
         else:
             columns, rows = (int(v) for v in name.split("x"))
             problem = layout(columns, rows)
@@ -632,6 +642,18 @@ def main():
                   flush=True)
     if opts.json:
         json.dump(report, open(opts.json, "w"), indent=1)
+    MEASURED = bool(report["runs"])  # at least one action was measured
+
+
+def frontmost_app():
+    """The frontmost app's bundle id at the start (`lsappinfo`): with CMUX_NEXT_NO_ACTIVATE the bench app
+    is not it, and its window is never key."""
+    try:
+        front = subprocess.run(["lsappinfo", "front"], capture_output=True, text=True, timeout=5).stdout.strip()
+        info = subprocess.run(["lsappinfo", "info", "-only", "bundleid", front], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError) as error:
+        return f"unknown ({error})"
+    return info.stdout.strip().partition("=")[2].strip('" ') or info.stdout.strip() or None
 
 
 try:
@@ -651,6 +673,7 @@ finally:
     if opts.json and os.path.exists(opts.json):
         # The step log keeps the numbers even when a row failed (no artifact comes back then).
         print("REPORT-JSON " + json.dumps(json.load(open(opts.json)).get("summary") or []), flush=True)
-    print("\nRESULT", "PASS" if ROWS and all(r[3] for r in ROWS) else "FAIL", f"({sum(r[3] for r in ROWS)}/{len(ROWS)})")
-    # Without --gate a row is information: the run passes when it measured (its artifact comes back).
-    sys.exit(0 if ROWS and (all(r[3] for r in ROWS) or not opts.gate) else 1)
+    print("\nRESULT", "PASS" if MEASURED and ROWS and all(r[3] for r in ROWS) else "FAIL", f"({sum(r[3] for r in ROWS)}/{len(ROWS)})")
+    # Without --gate a row is information: the run passes when it measured (its artifact comes back). A run
+    # that measured nothing (the app never came up, an exception before the summary) fails either way.
+    sys.exit(0 if MEASURED and ROWS and (all(r[3] for r in ROWS) or not opts.gate) else 1)
