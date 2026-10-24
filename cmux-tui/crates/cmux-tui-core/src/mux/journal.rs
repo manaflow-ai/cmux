@@ -111,23 +111,29 @@ impl Mux {
         event: crate::FrontendJournalEvent,
     ) -> anyhow::Result<()> {
         let principal_id = crate::server::public_client_id(&self.session_public_id, 0)?.to_string();
-        self.journal_frontend_event(principal_id, event)
+        self.journal_frontend_event(principal_id, event).map(|_| ())
     }
 
     pub(crate) fn session_public_id(&self) -> SessionPublicId {
         self.session_public_id.clone()
     }
 
+    /// Journal one frontend observation (focus, resize, viewport). Best
+    /// effort: it is queued for the journal writer and not waited for (a
+    /// full queue drops it), so the request answers at once (PL-daemon).
+    /// True when it was queued.
     pub(crate) fn journal_frontend_event(
         &self,
         principal_id: String,
         event: crate::FrontendJournalEvent,
-    ) -> anyhow::Result<()> {
-        self.journal_ingress.send_durable(crate::journal_ingress::JournalIngressEvent::Frontend {
-            principal_id,
-            occurred_at_ms: crate::workspace_registry::unix_epoch_ms()?,
-            event,
-        })
+    ) -> anyhow::Result<bool> {
+        Ok(self.journal_ingress.offer_durable(
+            crate::journal_ingress::JournalIngressEvent::Frontend {
+                principal_id,
+                occurred_at_ms: crate::workspace_registry::unix_epoch_ms()?,
+                event,
+            },
+        ))
     }
 
     /// A `terminal.output.gap` marker (surface/journal_reconnect.rs): small
@@ -288,15 +294,6 @@ impl Mux {
         release: Receiver<()>,
     ) {
         self.registry_connection.set_journal_before_commit_for_test(entered, release);
-    }
-
-    #[cfg(test)]
-    pub(crate) fn install_journal_after_commit_admission_for_test(
-        &self,
-        entered: SyncSender<()>,
-        release: Receiver<()>,
-    ) {
-        self.registry_connection.set_journal_after_commit_admission_for_test(entered, release);
     }
 
     pub(crate) fn journal_event_epoch(&self) -> u64 {
@@ -502,25 +499,19 @@ impl Mux {
                 return Err(validation_error);
             }
         };
-        let commit = if self.journal_ingress.enabled() {
-            self.journal_ingress.send_producer(
-                ingress.clone(),
-                validated,
-                origin.into(),
-                idempotency_key.into(),
-            )?
-        } else {
-            let commit = self.workspace_registry.lock().unwrap().append_journal_ingress(
-                ingress,
-                &validated,
-                origin,
-                idempotency_key,
-            )?;
-            if !commit.replayed {
-                self.publish_journal_event();
-            }
-            commit
-        };
+        // On this thread, in its own transaction: a WAL page-cache write
+        // with no fsync (wal_durability), so the agent hook's receipt is in
+        // the WAL (kept by a daemon crash) when it answers, and no request
+        // waits for the journal writer's queue (PL-daemon).
+        let commit = self.workspace_registry.lock().unwrap().append_journal_ingress(
+            ingress,
+            &validated,
+            origin,
+            idempotency_key,
+        )?;
+        if !commit.replayed {
+            self.publish_journal_event();
+        }
         if !commit.replayed && ingress.producer_id == crate::AGENT_HOOK_PRODUCER_ID {
             self.activity.note_agent_action();
         }

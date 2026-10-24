@@ -217,6 +217,8 @@ fn request_flush(shared: &Shared) {
 }
 
 fn run(shared: &Shared) {
+    // No request waits for this thread: utility QoS.
+    crate::journal_ingress::background_qos();
     let mut checkpointer: Option<Connection> = None;
     let mut state = shared.state.lock().recover_poison();
     loop {

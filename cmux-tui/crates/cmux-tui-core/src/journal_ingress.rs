@@ -58,6 +58,15 @@ const COMMIT_PENDING: u8 = 0;
 const COMMIT_ADMITTED: u8 = 1;
 const COMMIT_CANCELED: u8 = 2;
 
+/// Lower the calling thread to utility QoS on macOS (a no-op elsewhere).
+pub(crate) fn background_qos() {
+    #[cfg(target_os = "macos")]
+    // SAFETY: sets the QoS of the calling thread only.
+    unsafe {
+        libc::pthread_set_qos_class_self_np(libc::qos_class_t::QOS_CLASS_UTILITY, 0);
+    }
+}
+
 /// Debug seam (`CMUX_TUI_DEBUG_JOURNAL_WRITER_STALL_MS=N`, off by default):
 /// the journal writer waits N ms before each batch, as a writer busy with
 /// other work, so a test can prove no request waits for it (PL-daemon).
@@ -225,12 +234,6 @@ pub(crate) enum JournalIngressEvent {
         occurred_at_ms: u64,
         event: FrontendJournalEvent,
     },
-    Producer {
-        ingress: crate::JournalIngress,
-        validated: crate::journal_kernel::ValidatedJournalIngress,
-        origin: String,
-        idempotency_key: String,
-    },
 }
 
 /// Which bounded ingress lane an event travels on. Terminal bytes and their
@@ -250,7 +253,7 @@ impl JournalIngressEvent {
             | Self::TerminalOutputGap { .. } => JournalLane::Terminal,
             #[cfg(test)]
             Self::TerminalOutput { .. } => JournalLane::Terminal,
-            Self::Frontend { .. } | Self::Producer { .. } => JournalLane::Durable,
+            Self::Frontend { .. } => JournalLane::Durable,
         }
     }
 
@@ -266,23 +269,6 @@ impl JournalIngressEvent {
                 FrontendJournalEvent::Resize { .. } => 256,
                 FrontendJournalEvent::Viewport { .. } => 384,
             },
-            Self::Producer { ingress, origin, idempotency_key, .. } => {
-                let subjects = ingress.subjects.iter().fold(0_usize, |bytes, subject| {
-                    bytes
-                        .saturating_add(subject.kind.len())
-                        .saturating_add(subject.id.len())
-                        .saturating_add(2)
-                });
-                json_value_resident_bytes(&ingress.payload)
-                    .saturating_add(subjects)
-                    .saturating_add(ingress.producer_id.len())
-                    .saturating_add(ingress.kind.len())
-                    .saturating_add(ingress.causation_id.as_ref().map_or(0, String::len))
-                    .saturating_add(ingress.correlation_id.as_ref().map_or(0, String::len))
-                    .saturating_add(origin.len())
-                    .saturating_add(idempotency_key.len())
-                    .saturating_add(512)
-            }
         }
     }
 
@@ -312,35 +298,10 @@ impl JournalIngressEvent {
     }
 }
 
-fn json_value_resident_bytes(value: &serde_json::Value) -> usize {
-    match value {
-        serde_json::Value::Null => 0,
-        serde_json::Value::Bool(_) => 1,
-        serde_json::Value::Number(_) => size_of::<serde_json::Number>(),
-        serde_json::Value::String(value) => value.len(),
-        serde_json::Value::Array(values) => values.iter().fold(0_usize, |bytes, value| {
-            bytes
-                .saturating_add(size_of::<serde_json::Value>())
-                .saturating_add(json_value_resident_bytes(value))
-        }),
-        serde_json::Value::Object(values) => values.iter().fold(0_usize, |bytes, (key, value)| {
-            bytes
-                .saturating_add(key.len())
-                .saturating_add(size_of::<serde_json::Value>())
-                .saturating_add(json_value_resident_bytes(value))
-        }),
-    }
-}
-
 #[derive(Debug)]
 enum JournalIngressCompletion {
     Durable {
         sender: SyncSender<Result<(), String>>,
-        deadline: Instant,
-        commit_fence: Arc<AtomicU8>,
-    },
-    Producer {
-        sender: SyncSender<Result<crate::JournalAppendCommit, String>>,
         deadline: Instant,
         commit_fence: Arc<AtomicU8>,
     },
@@ -349,15 +310,13 @@ enum JournalIngressCompletion {
 impl JournalIngressCompletion {
     fn deadline(&self) -> Instant {
         match self {
-            Self::Durable { deadline, .. } | Self::Producer { deadline, .. } => *deadline,
+            Self::Durable { deadline, .. } => *deadline,
         }
     }
 
     fn commit_fence(&self) -> &AtomicU8 {
         match self {
-            Self::Durable { commit_fence, .. } | Self::Producer { commit_fence, .. } => {
-                commit_fence
-            }
+            Self::Durable { commit_fence, .. } => commit_fence,
         }
     }
 }
@@ -507,6 +466,8 @@ struct JournalIngressState {
     commit_admission: Mutex<()>,
     queue_space_epoch: Mutex<u64>,
     queue_space_changed: Condvar,
+    /// Best-effort events a full queue dropped (`offer_durable`).
+    dropped_offers: AtomicU64,
     #[cfg(test)]
     failure_notifier: Mutex<Option<SyncSender<String>>>,
     #[cfg(test)]
@@ -722,6 +683,42 @@ impl JournalIngressSender {
         }
     }
 
+    /// Queue a durable-lane event without waiting for space or for its
+    /// commit (best effort, PL-daemon: no request waits for the journal
+    /// writer). A full queue drops the event and counts it; the caller
+    /// answers either way. False when it was not queued.
+    pub(crate) fn offer_durable(&self, event: JournalIngressEvent) -> bool {
+        debug_assert!(event.lane() == JournalLane::Durable);
+        let Some(sender) = &self.durable_sender else { return false };
+        let result = {
+            let _admission = self.state.enqueue_admission.lock().recover_poison();
+            if self.state.admission_error().is_some() {
+                return false;
+            }
+            self.state.stats.enqueued(JournalLane::Durable);
+            sender.try_send(QueuedJournalEvent { event, completion: None })
+        };
+        match result {
+            Ok(()) => {
+                if let Some(wake) = &self.wake_sender {
+                    let _ = wake.try_send(());
+                }
+                true
+            }
+            Err(_) => {
+                self.state.stats.enqueue_failed(JournalLane::Durable);
+                let dropped = self.state.dropped_offers.fetch_add(1, Ordering::Relaxed) + 1;
+                if dropped.is_power_of_two() {
+                    eprintln!(
+                        "cmux-tui: the session journal queue is full; {dropped} best-effort \
+                         events dropped so far"
+                    );
+                }
+                false
+            }
+        }
+    }
+
     pub(crate) fn send_durable(&self, event: JournalIngressEvent) -> anyhow::Result<()> {
         self.send_durable_until(event, self.durable_deadline())
     }
@@ -772,51 +769,6 @@ impl JournalIngressSender {
 
     pub(crate) fn flush_terminal(&self) -> anyhow::Result<()> {
         self.send_durable(JournalIngressEvent::TerminalBarrier)
-    }
-
-    pub(crate) fn send_producer(
-        &self,
-        ingress: crate::JournalIngress,
-        validated: crate::journal_kernel::ValidatedJournalIngress,
-        origin: String,
-        idempotency_key: String,
-    ) -> anyhow::Result<crate::JournalAppendCommit> {
-        if let Some(error) = self.state.admission_error() {
-            anyhow::bail!(error);
-        }
-        let Some(sender) = &self.durable_sender else {
-            anyhow::bail!("session journal writer is unavailable")
-        };
-        let (completion, result) = sync_channel(1);
-        let deadline = Instant::now() + journal_durable_wait();
-        let commit_fence = Arc::new(AtomicU8::new(COMMIT_PENDING));
-        self.enqueue_until(
-            sender,
-            QueuedJournalEvent {
-                event: JournalIngressEvent::Producer {
-                    ingress,
-                    validated,
-                    origin,
-                    idempotency_key,
-                },
-                completion: Some(JournalIngressCompletion::Producer {
-                    sender: completion,
-                    deadline,
-                    commit_fence: commit_fence.clone(),
-                }),
-            },
-            deadline,
-        )
-        .map_err(anyhow::Error::msg)?;
-        let waited = Instant::now();
-        let outcome = self.wait_for_commit_result(
-            &result,
-            deadline,
-            &commit_fence,
-            "waiting for a session journal producer receipt",
-        );
-        self.state.stats.receipt_waited(waited.elapsed());
-        outcome
     }
 
     pub(crate) const fn enabled(&self) -> bool {
@@ -1117,6 +1069,9 @@ pub(crate) fn start(
 }
 
 fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
+    // No request waits for this thread (PL-daemon), so it runs at utility
+    // QoS: its batches yield to the threads that serve requests.
+    background_qos();
     loop {
         let Some(batch) = receive_batch(&receivers) else { return };
         let mut pending = VecDeque::from([batch]);
@@ -1231,6 +1186,16 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                             let later = batch.split_off(batch.len() / 2);
                             pending.push_front(later);
                             pending.push_front(batch);
+                        } else if batch.first().is_some_and(|queued| {
+                            queued.completion.is_none()
+                                && matches!(queued.event, JournalIngressEvent::Frontend { .. })
+                        }) {
+                            // A best-effort frontend observation the journal
+                            // refuses (a reused event id, a stale generation)
+                            // is dropped alone; it never fails the journal.
+                            eprintln!("cmux-tui: dropped a frontend journal event: {summary}");
+                            drop((writer, mux));
+                            break;
                         } else if batch.first().is_some_and(|event| event.completion.is_none())
                             && uncompleted_nonretryable_failures
                                 < JOURNAL_TERMINAL_FAILURE_RETRY_ATTEMPTS
@@ -1520,6 +1485,8 @@ mod tests {
         };
         mux.journal_local_frontend_event(event.clone()).unwrap();
         mux.journal_local_frontend_event(event).unwrap();
+        // Best effort: queued, committed by the writer's next batch.
+        mux.flush_terminal_journal().unwrap();
 
         let records = mux.session_journal_after(0, 1024).unwrap().records;
         let records = records
@@ -1546,7 +1513,7 @@ mod tests {
     }
 
     #[test]
-    fn frontend_event_id_reuse_with_different_content_is_rejected() {
+    fn frontend_event_id_reuse_with_different_content_is_not_journaled() {
         let root = std::env::temp_dir().join(format!(
             "cmux-frontend-journal-conflict-{}-{}",
             std::process::id(),
@@ -1568,9 +1535,18 @@ mod tests {
             cell_width: 8,
             cell_height: 16,
         };
+        // Best effort (PL-daemon): the request answers before the writer
+        // checks it; the writer refuses the reused id and keeps the first.
         mux.journal_local_frontend_event(event(80)).unwrap();
-        let error = mux.journal_local_frontend_event(event(81)).unwrap_err();
-        assert!(error.to_string().contains("reused with different content"));
+        mux.flush_terminal_journal().unwrap();
+        mux.journal_local_frontend_event(event(81)).unwrap();
+        let _ = mux.flush_terminal_journal();
+        let records = mux.session_journal_after(0, 1024).unwrap().records;
+        let resizes = records
+            .iter()
+            .filter(|record| record.event_id == "event_frontend_resize_conflict")
+            .collect::<Vec<_>>();
+        assert_eq!(resizes.len(), 1, "the reused id with other content was journaled");
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -1599,6 +1575,7 @@ mod tests {
             cell_height: 16,
         };
         mux.journal_local_frontend_event(event.clone()).unwrap();
+        mux.flush_terminal_journal().unwrap();
         let checkpoint =
             mux.create_journal_checkpoint("client_test", "frontend_sealed_checkpoint").unwrap();
         mux.seal_journal_segments(
@@ -1609,6 +1586,7 @@ mod tests {
         .unwrap();
 
         mux.journal_local_frontend_event(event).unwrap();
+        mux.flush_terminal_journal().unwrap();
         let records = mux.session_journal_after(0, 1024).unwrap().records;
         assert_eq!(
             records
@@ -1773,392 +1751,6 @@ mod tests {
             "later writes must fail after the explicit shutdown closed the journal"
         );
         drop(blocker);
-        drop(mux);
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn producer_receipt_and_sqlite_retries_share_one_deadline() {
-        let root = std::env::temp_dir().join(format!(
-            "cmux-journal-producer-locked-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
-        ));
-        let mux = Mux::open_persistent(
-            "journal-producer-locked",
-            crate::SurfaceOptions::default(),
-            &root,
-        )
-        .unwrap();
-        let database_path = std::fs::read_dir(&root)
-            .unwrap()
-            .filter_map(Result::ok)
-            .map(|entry| entry.path().join("workspace-registry.sqlite3"))
-            .find(|path| path.is_file())
-            .expect("persistent journal database");
-        let blocker = rusqlite::Connection::open(database_path).unwrap();
-        blocker.execute_batch("BEGIN IMMEDIATE;").unwrap();
-        let ingress = crate::agent_hook_journal_ingress(
-            "codex",
-            "SubagentStop",
-            None,
-            serde_json::json!({
-                "session_id":"locked-producer-root",
-                "root_session_id":"locked-producer-root",
-                "parent_session_id":"locked-producer-root",
-                "child_agent_id":"locked-producer-child",
-                "message":"must return at the fixed deadline",
-            }),
-        )
-        .unwrap();
-        let (failed, failed_receiver) = sync_channel(1);
-        mux.install_journal_failure_notifier_for_test(failed);
-
-        let started = Instant::now();
-        let error = mux
-            .append_journal_ingress(&ingress, "client_locked_producer", "locked_producer_1")
-            .unwrap_err();
-
-        assert!(error.to_string().contains("timed out"));
-        assert!(
-            started.elapsed() < JOURNAL_DURABLE_WAIT + Duration::from_secs(2),
-            "a producer receipt must not wait without a limit"
-        );
-        assert!(failed_receiver.recv_timeout(Duration::from_millis(200)).is_err());
-        assert!(
-            !mux.daemon_shutdown_requested(),
-            "a producer database lock must not stop live terminal hosts"
-        );
-        blocker.execute_batch("ROLLBACK;").unwrap();
-        drop(blocker);
-        drop(mux);
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn producer_deadline_includes_registry_connection_admission() {
-        let root = std::env::temp_dir().join(format!(
-            "cmux-journal-producer-registry-lock-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
-        ));
-        let mux = Mux::open_persistent(
-            "journal-producer-registry-lock",
-            crate::SurfaceOptions::default(),
-            &root,
-        )
-        .unwrap();
-        let locked_mux = mux.clone();
-        let (entered, entered_receiver) = sync_channel(1);
-        let (release, release_receiver) = sync_channel(1);
-        let blocker = std::thread::spawn(move || {
-            locked_mux.hold_registry_connection_for_test(entered, release_receiver);
-        });
-        entered_receiver.recv().unwrap();
-        let ingress = crate::agent_hook_journal_ingress(
-            "codex",
-            "SubagentStop",
-            None,
-            serde_json::json!({
-                "session_id":"registry-lock-root",
-                "root_session_id":"registry-lock-root",
-                "parent_session_id":"registry-lock-root",
-                "child_agent_id":"registry-lock-child",
-                "message":"registry-mutex-deadline-marker",
-            }),
-        )
-        .unwrap();
-        let (failed, failed_receiver) = sync_channel(1);
-        mux.install_journal_failure_notifier_for_test(failed);
-
-        let started = Instant::now();
-        let error = mux
-            .append_journal_ingress(&ingress, "client_registry_lock", "registry_lock_deadline_1")
-            .unwrap_err();
-
-        assert!(error.to_string().contains("timed out"));
-        assert!(
-            started.elapsed() < JOURNAL_DURABLE_WAIT + Duration::from_secs(2),
-            "registry connection admission must not outlive the producer deadline"
-        );
-        assert!(failed_receiver.recv_timeout(Duration::from_millis(200)).is_err());
-        assert!(!mux.daemon_shutdown_requested());
-        release.send(()).unwrap();
-        blocker.join().unwrap();
-        let records = mux.session_journal_after(0, 1024).unwrap().records;
-        assert!(
-            records.iter().all(|record| {
-                record.correlation_id.as_deref() != Some("registry_lock_deadline_1")
-            }),
-            "a producer event must not commit after its mutex admission deadline"
-        );
-        drop(mux);
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn producer_deadline_prevents_a_late_transaction_commit() {
-        let root = std::env::temp_dir().join(format!(
-            "cmux-journal-producer-commit-deadline-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
-        ));
-        let mux = Mux::open_persistent(
-            "journal-producer-commit-deadline",
-            crate::SurfaceOptions::default(),
-            &root,
-        )
-        .unwrap();
-        let (entered, entered_receiver) = sync_channel(1);
-        let (release, release_receiver) = sync_channel(1);
-        mux.install_journal_before_commit_for_test(entered, release_receiver);
-        let (failed, failed_receiver) = sync_channel(1);
-        mux.install_journal_failure_notifier_for_test(failed);
-        let ingress = crate::agent_hook_journal_ingress(
-            "codex",
-            "SubagentStop",
-            None,
-            serde_json::json!({
-                "session_id":"commit-deadline-root",
-                "root_session_id":"commit-deadline-root",
-                "parent_session_id":"commit-deadline-root",
-                "child_agent_id":"commit-deadline-child",
-                "message":"transaction-deadline-marker",
-            }),
-        )
-        .unwrap();
-        let producer_mux = mux.clone();
-        let (result_sender, result_receiver) = sync_channel(1);
-        let producer = std::thread::spawn(move || {
-            result_sender
-                .send(producer_mux.append_journal_ingress(
-                    &ingress,
-                    "client_commit_deadline",
-                    "commit_deadline_1",
-                ))
-                .unwrap();
-        });
-        entered_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
-
-        let error = result_receiver
-            .recv_timeout(JOURNAL_DURABLE_WAIT + Duration::from_secs(1))
-            .expect("producer must return at its fixed deadline")
-            .unwrap_err();
-        assert!(error.to_string().contains("timed out"));
-        release.send(()).unwrap();
-        producer.join().unwrap();
-        assert!(failed_receiver.recv_timeout(Duration::from_millis(200)).is_err());
-        assert!(!mux.daemon_shutdown_requested());
-        let records = mux.session_journal_after(0, 1024).unwrap().records;
-        assert!(
-            records
-                .iter()
-                .all(|record| { record.correlation_id.as_deref() != Some("commit_deadline_1") }),
-            "a producer transaction must roll back after its deadline"
-        );
-        drop(mux);
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn producer_waits_for_an_admitted_commit_past_its_deadline() {
-        let root = std::env::temp_dir().join(format!(
-            "cmux-journal-producer-admitted-commit-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
-        ));
-        let mux = Mux::open_persistent(
-            "journal-producer-admitted-commit",
-            crate::SurfaceOptions::default(),
-            &root,
-        )
-        .unwrap();
-        let (entered, entered_receiver) = sync_channel(1);
-        let (release, release_receiver) = sync_channel(1);
-        mux.install_journal_after_commit_admission_for_test(entered, release_receiver);
-        let ingress = crate::agent_hook_journal_ingress(
-            "codex",
-            "SubagentStop",
-            None,
-            serde_json::json!({
-                "session_id":"admitted-commit-root",
-                "root_session_id":"admitted-commit-root",
-                "parent_session_id":"admitted-commit-root",
-                "child_agent_id":"admitted-commit-child",
-                "message":"admitted-commit-marker",
-            }),
-        )
-        .unwrap();
-        let producer_mux = mux.clone();
-        let (result_sender, result_receiver) = sync_channel(1);
-        let producer = std::thread::spawn(move || {
-            result_sender
-                .send(producer_mux.append_journal_ingress(
-                    &ingress,
-                    "client_admitted_commit",
-                    "admitted_commit_1",
-                ))
-                .unwrap();
-        });
-        entered_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
-
-        assert!(
-            result_receiver
-                .recv_timeout(JOURNAL_DURABLE_WAIT + Duration::from_millis(100))
-                .is_err(),
-            "an admitted commit must not report a timeout while its result is unknown"
-        );
-        release.send(()).unwrap();
-        result_receiver.recv_timeout(Duration::from_secs(1)).unwrap().unwrap();
-        producer.join().unwrap();
-        let records = mux.session_journal_after(0, 1024).unwrap().records;
-        assert!(
-            records
-                .iter()
-                .any(|record| { record.correlation_id.as_deref() == Some("admitted_commit_1") }),
-            "the caller must observe success for the admitted durable commit"
-        );
-        drop(mux);
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn producer_bounds_an_admitted_commit_with_an_indeterminate_result() {
-        let root = std::env::temp_dir().join(format!(
-            "cmux-journal-producer-indeterminate-commit-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
-        ));
-        let mux = Mux::open_persistent(
-            "journal-producer-indeterminate-commit",
-            crate::SurfaceOptions::default(),
-            &root,
-        )
-        .unwrap();
-        let (entered, entered_receiver) = sync_channel(1);
-        let (release, release_receiver) = sync_channel(1);
-        mux.install_journal_after_commit_admission_for_test(entered, release_receiver);
-        let ingress = crate::agent_hook_journal_ingress(
-            "codex",
-            "SubagentStop",
-            None,
-            serde_json::json!({
-                "session_id":"indeterminate-commit-root",
-                "root_session_id":"indeterminate-commit-root",
-                "parent_session_id":"indeterminate-commit-root",
-                "child_agent_id":"indeterminate-commit-child",
-                "message":"indeterminate-commit-marker",
-            }),
-        )
-        .unwrap();
-        let producer_mux = mux.clone();
-        let (result_sender, result_receiver) = sync_channel(1);
-        let producer = std::thread::spawn(move || {
-            result_sender
-                .send(producer_mux.append_journal_ingress(
-                    &ingress,
-                    "client_indeterminate_commit",
-                    "indeterminate_commit_1",
-                ))
-                .unwrap();
-        });
-        entered_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
-
-        let started = Instant::now();
-        let error = result_receiver
-            .recv_timeout(
-                JOURNAL_DURABLE_WAIT
-                    .saturating_add(JOURNAL_COMMIT_RESULT_WAIT)
-                    .saturating_add(Duration::from_secs(1)),
-            )
-            .expect("an admitted commit must return an explicit bounded result")
-            .unwrap_err();
-        assert!(error.to_string().contains("outcome is indeterminate"));
-        assert!(
-            started.elapsed()
-                < JOURNAL_DURABLE_WAIT
-                    .saturating_add(JOURNAL_COMMIT_RESULT_WAIT)
-                    .saturating_add(Duration::from_secs(1)),
-            "an admitted commit result must remain bounded"
-        );
-        let durable_epoch = mux.journal_event_epoch();
-        release.send(()).unwrap();
-        producer.join().unwrap();
-        assert_ne!(
-            mux.wait_for_journal_event(durable_epoch, Duration::from_secs(1)),
-            durable_epoch,
-            "an indeterminate admitted commit did not publish its durable result"
-        );
-        let records = mux.session_journal_after(0, 1024).unwrap().records;
-        assert!(
-            records.iter().any(|record| {
-                record.correlation_id.as_deref() == Some("indeterminate_commit_1")
-            }),
-            "an indeterminate result must not claim that the admitted commit failed"
-        );
-        drop(mux);
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn shutdown_returns_when_an_admitted_commit_stays_blocked() {
-        let root = std::env::temp_dir().join(format!(
-            "cmux-journal-admitted-shutdown-deadline-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
-        ));
-        let mux = Mux::open_persistent(
-            "journal-admitted-shutdown-deadline",
-            crate::SurfaceOptions::default(),
-            &root,
-        )
-        .unwrap();
-        let (entered, entered_receiver) = sync_channel(1);
-        let (release, release_receiver) = sync_channel(1);
-        mux.install_journal_after_commit_admission_for_test(entered, release_receiver);
-        let ingress = crate::agent_hook_journal_ingress(
-            "codex",
-            "SubagentStop",
-            None,
-            serde_json::json!({
-                "session_id":"admitted-shutdown-root",
-                "root_session_id":"admitted-shutdown-root",
-                "parent_session_id":"admitted-shutdown-root",
-                "child_agent_id":"admitted-shutdown-child",
-                "message":"admitted-shutdown-marker",
-            }),
-        )
-        .unwrap();
-        let producer_mux = mux.clone();
-        let (producer_result, producer_result_receiver) = sync_channel(1);
-        let producer = std::thread::spawn(move || {
-            producer_result
-                .send(producer_mux.append_journal_ingress(
-                    &ingress,
-                    "client_admitted_shutdown",
-                    "admitted_shutdown_1",
-                ))
-                .unwrap();
-        });
-        entered_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
-
-        let shutdown_mux = mux.clone();
-        let (shutdown_completed, shutdown_completion) = sync_channel(1);
-        let shutdown = std::thread::spawn(move || {
-            shutdown_mux.shutdown();
-            shutdown_completed.send(()).unwrap();
-        });
-        let returned = shutdown_completion.recv_timeout(Duration::from_secs(5));
-
-        release.send(()).unwrap();
-        let result = producer_result_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
-        assert!(
-            result.is_ok() || result.unwrap_err().to_string().contains("indeterminate"),
-            "the admitted producer returned an invalid final result"
-        );
-        producer.join().unwrap();
-        shutdown.join().unwrap();
-        assert!(returned.is_ok(), "shutdown waited without a limit for an admitted commit");
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -2941,49 +2533,6 @@ mod tests {
             .expect("terminal output must use an ingress lane isolated from durable producers");
         assert!(matches!(queued.event, JournalIngressEvent::TerminalOutput { .. }));
         enqueue.join().unwrap();
-    }
-
-    #[test]
-    fn durable_batches_are_bounded_by_resident_payload_bytes() {
-        let (sender, receivers) = JournalIngressSender::new(true);
-        let receivers = receivers.unwrap();
-        let ingress = crate::JournalIngress {
-            producer_id: "batch_probe".into(),
-            manifest_version: 1,
-            kind: "batch.probe".into(),
-            schema_version: 1,
-            occurred_at_ms: None,
-            subjects: Vec::new(),
-            sensitivity: None,
-            payload: serde_json::json!({"blob":"x".repeat(1024 * 1024)}),
-            causation_id: None,
-            correlation_id: None,
-        };
-        let validated = crate::journal_kernel::ValidatedJournalIngress {
-            class: crate::JournalClass::Observation,
-            replay: crate::JournalReplayPolicy::Advisory,
-            sensitivity: crate::JournalSensitivity::Metadata,
-        };
-        for index in 0..9 {
-            sender
-                .durable_sender
-                .as_ref()
-                .unwrap()
-                .try_send(QueuedJournalEvent {
-                    event: JournalIngressEvent::Producer {
-                        ingress: ingress.clone(),
-                        validated,
-                        origin: "batch_probe".into(),
-                        idempotency_key: format!("batch_probe_{index}"),
-                    },
-                    completion: None,
-                })
-                .unwrap();
-        }
-
-        let batch = receive_batch(&receivers).unwrap();
-        assert_eq!(batch.len(), 8);
-        assert_eq!(receivers.durable.try_iter().count(), 1);
     }
 
     #[test]

@@ -134,7 +134,6 @@ impl RegistryConnection {
                     terminal_id, ..
                 } => Some(terminal_id.as_str().to_string()),
                 crate::journal_ingress::JournalIngressEvent::Frontend { .. }
-                | crate::journal_ingress::JournalIngressEvent::Producer { .. }
                 | crate::journal_ingress::JournalIngressEvent::TerminalBarrier => None,
             })
             .collect::<HashSet<_>>();
@@ -156,24 +155,6 @@ impl RegistryConnection {
             ensure_journal_deadline(deadline)?;
             if matches!(*event, crate::journal_ingress::JournalIngressEvent::TerminalBarrier) {
                 commits.push(crate::journal_ingress::JournalBatchReceipt::None);
-                continue;
-            }
-            if let crate::journal_ingress::JournalIngressEvent::Producer {
-                ingress,
-                validated,
-                origin,
-                idempotency_key,
-            } = *event
-            {
-                commits.push(crate::journal_ingress::JournalBatchReceipt::Append(
-                    append_journal_ingress_transaction(
-                        &tx,
-                        ingress,
-                        validated,
-                        origin,
-                        idempotency_key,
-                    )?,
-                ));
                 continue;
             }
             if let crate::journal_ingress::JournalIngressEvent::Frontend {
@@ -464,7 +445,6 @@ impl RegistryConnection {
                         None,
                     ),
                     crate::journal_ingress::JournalIngressEvent::Frontend { .. }
-                    | crate::journal_ingress::JournalIngressEvent::Producer { .. }
                     | crate::journal_ingress::JournalIngressEvent::TerminalBarrier => {
                         unreachable!()
                     }
@@ -562,17 +542,5 @@ impl RegistryConnection {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .before_commit = Some((entered, release));
-    }
-
-    #[cfg(test)]
-    pub(crate) fn set_journal_after_commit_admission_for_test(
-        &self,
-        entered: std::sync::mpsc::SyncSender<()>,
-        release: std::sync::mpsc::Receiver<()>,
-    ) {
-        self.journal_hooks
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .after_commit_admission = Some((entered, release));
     }
 }
