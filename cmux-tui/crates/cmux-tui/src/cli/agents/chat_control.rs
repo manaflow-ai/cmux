@@ -9,7 +9,7 @@
 //! belongs to (`_meta.acpmux.env`), so `chat send|read` reach it afterwards.
 //! The app then shows it as a chat tab (`agent.openSessionTab`, or
 //! `agent.openSessionWorkspace` for a new workspace): in the
-//! given pane, the given workspace's most recently focused pane, or a new workspace. Either
+//! given pane, the given workspace's focused pane (else its first), or a new workspace. Either
 //! way nothing takes focus or switches the shown workspace. A first prompt goes in as the
 //! chat's own, as a person types it into New Agent Chat and presses Return.
 //!
@@ -38,7 +38,7 @@ pub(in crate::cli) const CONTINUE_TEXT: &str = "Continue.";
 /// A new chat's settings (`chat new` flags).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(in crate::cli) struct NewChat {
-    /// An existing workspace (`ws_` id) whose most recently focused pane gets the tab.
+    /// An existing workspace (`ws_` id) whose focused pane (else its first) gets the tab.
     pub workspace: Option<String>,
     /// An existing pane (`pane_` id) that gets the tab.
     pub pane: Option<String>,

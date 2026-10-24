@@ -130,8 +130,8 @@ pub(super) const TOOLS: &[AgentTool] = &[
         verb: Verb::ChatNew,
         title: "Start a chat",
         description: "Start an ordinary cmux agent chat, as New Agent Chat and a first message \
-            do (`cmux agents chat new`): in pane (a pane_ id), in workspace's most recently \
-            focused pane (a ws_ id), or in a new workspace when neither is given; it runs in \
+            do (`cmux agents chat new`): in pane (a pane_ id), in workspace's focused pane, \
+            else its first (a ws_ id), or in a new workspace when neither is given; it runs in \
             the app's own acpmux, never as your subagent. Nothing takes the person's focus or \
             switches the shown workspace. harness, model, effort and mode pick how it runs \
             (acpmux refuses a mode this caller may not start in); policy is ask, \
@@ -344,7 +344,7 @@ impl AgentTool {
             Verb::ChatNew => {
                 properties.insert(
                     "workspace".into(),
-                    id_schema("The workspace whose most recently focused pane gets the chat (ws_ id)."),
+                    id_schema("The workspace whose focused pane (else its first) gets the chat (ws_ id)."),
                 );
                 properties.insert("pane".into(), id_schema("The pane that gets the chat (pane_ id)."));
                 for (name, description) in [

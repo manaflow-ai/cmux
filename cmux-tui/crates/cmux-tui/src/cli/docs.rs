@@ -226,9 +226,9 @@ pub(super) const GUIDES: &[Guide] = &[
         --after N` (agents_chat_read), `chat state CHAT` (agents_chat_state: status, running, \
         pending permissions), `chat interrupt CHAT` (agents_chat_interrupt, stops its turn) and \
         `chat continue CHAT [TEXT]` (a nudge). Wait for its answer with agents_wait or read on \
-        from next_after. See a pane or tab: `cmux pane PANE screenshot --out PATH` or `cmux tab \
-        TAB screenshot` (browser pages come out blacked out; a browser page's own pixels are \
-        `cmux browser page screenshot`).",
+        from next_after. See a pane or tab: `cmux pane screenshot --target pane_ID --out PATH` or \
+        `cmux tab screenshot --target tab_ID --out PATH` (browser pages come out blacked out; a \
+        browser page's own pixels are `cmux browser page screenshot`).",
     },
 ];
 
@@ -449,8 +449,6 @@ mod tests {
         assert!(has_scope_operations("projection"));
     }
 
-    /// An agent that searches in its own words for showing its work finds
-    /// the guide, and the guide names only tools that exist.
     /// An agent that wants another agent to do work finds the chat verbs.
     #[test]
     fn starting_another_agent_finds_its_guide() {
@@ -461,6 +459,8 @@ mod tests {
         }
     }
 
+    /// An agent that searches in its own words for showing its work finds
+    /// the guide, and the guide names only tools that exist.
     #[test]
     fn showing_work_to_the_user_finds_its_guide() {
         for query in ["show the user", "status", "open a chat"] {
