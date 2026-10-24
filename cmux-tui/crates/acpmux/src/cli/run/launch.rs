@@ -76,6 +76,9 @@ impl Launch {
             }
         };
         let file_prompt = args.prompt_file.as_deref().map(read_prompt_file).transpose()?;
+        if let Some(group) = &args.group {
+            validate_group(group)?;
+        }
         if args.group.is_some() && name.is_none() {
             bail!("--group needs --name, so a second run finds the same sidebar row");
         }
@@ -157,6 +160,23 @@ pub(crate) fn session_name(name: &str) -> Result<String> {
         anyhow::anyhow!("--name {name:?} has no letters or digits to name a session")
     })?;
     Ok(out)
+}
+
+/// A group is a person's label, not a cmux object id. Rejecting ids before
+/// `session/new` keeps a bad launcher from creating persistent sidebar junk.
+pub(crate) fn validate_group(group: &str) -> Result<()> {
+    let label = group.trim();
+    let lower = label.to_ascii_lowercase();
+    let id_prefix = ["grp_", "ws_", "tab_", "pane_", "win_", "workspace_group:"]
+        .iter()
+        .any(|prefix| lower.starts_with(prefix));
+    let uuid = uuid::Uuid::parse_str(label).is_ok();
+    if label.is_empty() || id_prefix || uuid {
+        bail!(
+            "--group must be a non-empty human label, not a cmux id; use e.g. `--group \"GUI push\"`, or omit --group"
+        );
+    }
+    Ok(())
 }
 
 /// `REPO[@BASE]`: the last `@` splits off the base (a ref or commit),
@@ -348,6 +368,23 @@ mod tests {
         // One worktree, one session: the name is the worktree's.
         assert_eq!(session_name("Lane_A").unwrap(), session_name("lane-a").unwrap());
         assert!(session_name("//").is_err());
+    }
+
+    #[test]
+    fn a_group_is_a_human_label_and_never_an_object_id() {
+        for group in [
+            "",
+            "   ",
+            "grp_012345",
+            "ws_012345",
+            "workspace_group:42",
+            "550e8400-e29b-41d4-a716-446655440000",
+        ] {
+            let error = validate_group(group).unwrap_err().to_string();
+            assert!(error.contains("human label"), "{group:?}: {error}");
+            assert!(error.contains("omit --group"), "{group:?}: {error}");
+        }
+        assert!(validate_group("GUI push").is_ok());
     }
 
     #[test]
