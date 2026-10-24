@@ -6,7 +6,7 @@ import Testing
 /// The main-thread blocking detector (plans/cmux-next/threading-model.md). Each test binds its own
 /// table (``BlockingViolationTable/scoped``), so suites that run beside it cannot change what it
 /// sees. Trap cases run in a child process (exit tests).
-@Suite
+@Suite(.serialized)
 struct BlockingCheckTests {
     #if DEBUG
     // MARK: trap mode (Debug: CMUX_BLOCKING_TRAP=1, and these tests)
@@ -182,45 +182,51 @@ struct BlockingCheckTests {
         #expect(recorder.violations.count == 1)
     }
 
-    /// `waitUntilExit` runs the main run loop while it waits; the work that loop runs is not the
-    /// allowed wait, so it is still checked.
-    @MainActor @Test func aProcessWaitDoesNotLendItsAllowanceToTheRunLoop() async throws {
-        let (table, recorder) = Self.recordingTable()
-        let input = Pipe()
-        let writer = input.fileHandleForWriting
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/cat")
-        process.standardInput = input
-        process.standardOutput = FileHandle.nullDevice
-        try process.run()
-        await BlockingViolationTable.$scoped.withValue(table) {
-            // Runs inside the wait below; closing cat's input ends cat, which ends the wait.
-            RunLoop.main.perform {
-                _ = FileManager.checked.fileExists(atPath: "/")
-                try? writer.close()
+    /// `waitUntilExit` runs the main run loop while it waits; the work that loop runs is not the allowed
+    /// wait, so it is still checked. A nested run of the main run loop would also run other tests' main-actor
+    /// work in this process, so the case runs alone in a child process and reports through its exit code.
+    @Test func aProcessWaitDoesNotLendItsAllowanceToTheRunLoop() async {
+        await #expect(processExitsWith: .exitCode(0)) {
+            let table = BlockingViolationTable(mode: .record)
+            try? await BlockingViolationTable.$scoped.withValue(table) {
+                try await MainActor.run {
+                    let input = Pipe()
+                    let writer = input.fileHandleForWriting
+                    let process = Process()
+                    process.executableURL = URL(fileURLWithPath: "/bin/cat")
+                    process.standardInput = input
+                    process.standardOutput = FileHandle.nullDevice
+                    try process.run()
+                    // Runs inside the wait below; closing cat's input ends cat, which ends the wait.
+                    RunLoop.main.perform {
+                        _ = FileManager.checked.fileExists(atPath: "/")
+                        try? writer.close()
+                    }
+                    allowBlocking(BlockingAllowance(reviewed: "test")) { process.blockingWaitUntilExit() }
+                }
             }
-            allowBlocking(BlockingAllowance(reviewed: "test")) { process.blockingWaitUntilExit() }
+            await table.flush()
+            exit(BlockingDetector(table: table).sites.map(\.kind) == [.fileIO] ? 0 : 3)
         }
-        await table.flush()
-
-        #expect(BlockingDetector(table: table).sites.map(\.kind) == [.fileIO])
-        #expect(recorder.violations.count == 1)
     }
 
     /// Any nested run of the main run loop holds the allowance back while it runs, not only a process wait.
-    @MainActor @Test func aNestedRunLoopDoesNotShareTheAllowance() async {
-        let (table, recorder) = Self.recordingTable()
-        BlockingViolationTable.$scoped.withValue(table) {
-            allowBlocking(BlockingAllowance(reviewed: "test")) {
-                RunLoop.main.perform { _ = FileManager.checked.fileExists(atPath: "/") }  // the nested run's work
-                _ = CFRunLoopRunInMode(.defaultMode, 0, true)
-                _ = FileManager.checked.fileExists(atPath: "/")  // the body again: allowed
+    /// Alone in a child process, for the reason above.
+    @Test func aNestedRunLoopDoesNotShareTheAllowance() async {
+        await #expect(processExitsWith: .exitCode(0)) {
+            let table = BlockingViolationTable(mode: .record)
+            await BlockingViolationTable.$scoped.withValue(table) {
+                await MainActor.run {
+                    allowBlocking(BlockingAllowance(reviewed: "test")) {
+                        RunLoop.main.perform { _ = FileManager.checked.fileExists(atPath: "/") }  // the nested run's work
+                        _ = CFRunLoopRunInMode(.defaultMode, 0, true)
+                        _ = FileManager.checked.fileExists(atPath: "/")  // the body again: allowed
+                    }
+                }
             }
+            await table.flush()
+            exit(BlockingDetector(table: table).sites.map(\.kind) == [.fileIO] ? 0 : 3)
         }
-        await table.flush()
-
-        #expect(BlockingDetector(table: table).sites.map(\.kind) == [.fileIO])
-        #expect(recorder.violations.count == 1)
     }
 
     @MainActor @Test func offTheMainThreadNothingIsRecorded() async {
