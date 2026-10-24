@@ -202,8 +202,7 @@ pub(super) const POOLED_OWNER_WAIT_ENV: &str = "ACPMUX_TEST_POOLED_OWNER_WAIT_MS
 
 fn pooled_owner_wait() -> std::time::Duration {
     #[cfg(debug_assertions)]
-    if let Some(ms) =
-        std::env::var(POOLED_OWNER_WAIT_ENV).ok().and_then(|v| v.parse::<u64>().ok())
+    if let Some(ms) = std::env::var(POOLED_OWNER_WAIT_ENV).ok().and_then(|v| v.parse::<u64>().ok())
     {
         return std::time::Duration::from_millis(ms);
     }
