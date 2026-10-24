@@ -24,7 +24,6 @@ import type {
   PromptDeliveryHop,
   StartSource,
   PromptContentPart,
-  PromptContentPart,
 } from "./model";
 import { continuesTurn } from "./turnStart";
 import { mergeModelCatalog } from "./modelCatalog";
@@ -39,6 +38,7 @@ import {
 import { liftInlineImages } from "./inlineImages";
 import { primeSentImages } from "./conversation/imageEntries";
 import { resentAttachments, shownPrompt } from "./pastedText";
+import { normalizePromptContentPart } from "./conversation/promptContent";
 import { peerConnectedFromStatus, peerKindsFromStatus } from "./environments";
 import { type ChatUnavailable, chatUnavailable, type PeerStatus, peerStatusFromStatus } from "./chatUnavailable";
 import { hostKind, sessionEntry, summaryActivityAt, text, type AcpmuxSessionEntry } from "./sessionList";
@@ -403,6 +403,7 @@ function queuedEntry(
   sending = false,
   images?: readonly QueuedPromptImage[],
   message?: IncomingMessage,
+  inlineParts?: readonly PromptContentPart[],
 ): QueuedPrompt {
   return {
     id,
@@ -411,6 +412,7 @@ function queuedEntry(
     ...(sending ? { sending } : {}),
     ...(images?.length ? { images: [...images] } : {}),
     ...(message ? { message } : {}),
+    ...(inlineParts?.length ? { inlineParts: [...inlineParts] } : {}),
   };
 }
 
@@ -510,6 +512,18 @@ function reconcileInlineImages(parts: readonly PromptContentPart[], images: read
   });
 }
 
+/// Newer daemons may retain the ACP blocks on the user_message; use those for history and other
+/// panes, while older daemons are covered by the optimistic map above.
+function recordedInlineParts(msg: any): PromptContentPart[] | undefined {
+  const raw = Array.isArray(msg?.inlineParts) ? msg.inlineParts : Array.isArray(msg?.prompt) ? msg.prompt : undefined;
+  if (!raw) return undefined;
+  const parts = raw.flatMap((part: unknown) => {
+    const normalized = normalizePromptContentPart(part);
+    return normalized ? [normalized] : [];
+  });
+  return parts.length ? parts : undefined;
+}
+
 /// `images` named by acpmux, each keeping the bytes the pane already had for it.
 function withKnownBytes(images: QueuedPromptImage[], known: readonly QueuedPromptImage[] | undefined) {
   const bytes = new Map((known ?? []).flatMap((image) => (image.src ? [[image.id, image.src] as const] : [])));
@@ -555,6 +569,7 @@ export function mergeQueue(current: readonly QueuedPrompt[], listed: readonly an
       false,
       images,
       whole ? had.message : undefined,
+      had?.inlineParts,
     );
   });
 }
@@ -2665,7 +2680,15 @@ export class AcpmuxDirectClient {
       if (entry.message || !msg || String(msg.text ?? "") !== entry.prompt) return entry;
       const message = queuedMessage(msg, this.incomingContext());
       return message
-        ? queuedEntry(entry.id, entry.prompt, entry.next === true, entry.sending === true, entry.images, message)
+        ? queuedEntry(
+            entry.id,
+            entry.prompt,
+            entry.next === true,
+            entry.sending === true,
+            entry.images,
+            message,
+            entry.inlineParts,
+          )
         : entry;
     });
   }
@@ -2764,7 +2787,7 @@ export class AcpmuxDirectClient {
       // An edit's record names the images the prompt keeps.
       this.queue = this.queue.map((entry) =>
         entry.id === id
-          ? queuedEntry(id, String(msg.text ?? ""), entry.next === true, false, recordImages(msg))
+          ? queuedEntry(id, String(msg.text ?? ""), entry.next === true, false, recordImages(msg), undefined, entry.inlineParts)
           : entry,
       );
     } else if (event.kind === "queue_order" && Array.isArray(msg.order)) {
@@ -2781,7 +2804,7 @@ export class AcpmuxDirectClient {
         .map((entry) =>
           next === undefined
             ? entry
-            : queuedEntry(entry.id, entry.prompt, entry.id === next, false, entry.images, entry.message),
+            : queuedEntry(entry.id, entry.prompt, entry.id === next, false, entry.images, entry.message, entry.inlineParts),
         );
     } else if (event.kind === "queued") {
       const id = String(msg.promptId ?? "");
@@ -2794,7 +2817,15 @@ export class AcpmuxDirectClient {
         const images = named.length ? named : this.queue.find((entry) => entry.id === id)?.images;
         this.queue = [
           ...this.queue.filter((entry) => entry.id !== id),
-          queuedEntry(id, String(msg.text ?? ""), false, false, images, queuedMessage(msg, this.incomingContext())),
+          queuedEntry(
+            id,
+            String(msg.text ?? ""),
+            false,
+            false,
+            images,
+            queuedMessage(msg, this.incomingContext()),
+            this.optimisticPromptInlineParts.get(id),
+          ),
         ];
       }
       // acpmux took a prompt that waits behind the turn: its queue row shows it now, and the
@@ -3171,6 +3202,9 @@ export class AcpmuxDirectClient {
         else if (this.awaiting !== undefined && msg.steer !== true) this.dropContinuation(this.awaiting);
         if (steer === "waiting") this.waitingSteers.push({ rowId: `user-${event.seq}`, promptId });
         if (steer === "waiting" && promptId) this.steerRows.set(promptId, `user-${event.seq}`);
+        const recordedParts = recordedInlineParts(msg);
+        const optimisticParts = fallbackPromptId ? this.optimisticPromptInlineParts.get(fallbackPromptId) : undefined;
+        const inlineParts = optimisticParts ?? recordedParts;
         this.rows.set(`user-${event.seq}`, {
           id: `user-${event.seq}`,
           version: 1,
@@ -3184,13 +3218,8 @@ export class AcpmuxDirectClient {
           ...(continues ? { continues } : {}),
           ...(steer === "waiting" && promptId ? { steerPromptId: promptId } : {}),
           ...(promptImages(msg.images).length > 0 && { images: promptImages(msg.images) }),
-          ...(fallbackPromptId && this.optimisticPromptInlineParts.has(fallbackPromptId)
-            ? {
-                inlineParts: reconcileInlineImages(
-                  this.optimisticPromptInlineParts.get(fallbackPromptId)!,
-                  promptImages(msg.images),
-                ),
-              }
+          ...(inlineParts?.length
+            ? { inlineParts: reconcileInlineImages(inlineParts, promptImages(msg.images)) }
             : {}),
           // The blocks the composer sent as pastes, by where they sit in the text acpmux recorded;
           // only while the row shows that text as recorded (a harness note it hides moves them).
@@ -3842,8 +3871,11 @@ export class AcpmuxDirectClient {
     // No chat took it: the sender gets the prompt back (a started chat's composer let go of it).
     if (!sessionId) throw new Error(translate("error.notOpen"));
     // A paste sent as its own block shows in the bubble as acpmux's echo will have it (pastedText.ts).
-    const { text, pasted } = shownPrompt(promptText(input, attachments), attachments);
-    const inlineParts = attachments.length ? inlinePromptParts(input, attachments) : undefined;
+    const sendAttachments = takesAudio(this.summary?.agentCapabilities?.promptCapabilities, this.summary?.configOptions)
+      ? attachments
+      : attachments.filter((attachment) => attachment.kind !== "audio");
+    const { text, pasted } = shownPrompt(promptText(input, sendAttachments), sendAttachments);
+    const inlineParts = sendAttachments.length ? inlinePromptParts(input, sendAttachments) : undefined;
     const rowId = `local-${promptId}`;
     const at = Date.now();
     this.optimisticPromptRows.set(promptId, rowId);
@@ -3873,7 +3905,7 @@ export class AcpmuxDirectClient {
     if (waits) {
       this.queue = [
         ...this.queue.filter((entry) => entry.id !== promptId),
-        queuedEntry(promptId, text, false, true, attachedImages(attachments)),
+        queuedEntry(promptId, text, false, true, attachedImages(attachments), undefined, inlineParts),
       ];
       // A Retry behind the turn waits in the queue: its failed bubble goes.
       this.rows.delete(rowId);
@@ -3957,12 +3989,7 @@ export class AcpmuxDirectClient {
         sessionId,
         // A recording goes only to a harness that takes voice input; one moved to another
         // harness (a switch, a held prompt put back) goes as its transcript.
-        prompt: promptBlocks(
-          input,
-          takesAudio(this.summary?.agentCapabilities?.promptCapabilities, this.summary?.configOptions)
-            ? attachments
-            : attachments.filter((attachment) => attachment.kind !== "audio"),
-        ),
+        prompt: promptBlocks(input, sendAttachments),
         _meta: {
           acpmux: {
             promptId,
@@ -3988,7 +4015,9 @@ export class AcpmuxDirectClient {
         this.queue = this.queue.filter((entry) => entry.id !== promptId);
       this.queuedSends.delete(promptId);
       this.optimisticPromptAttachments.delete(promptId);
-      this.optimisticPromptInlineParts.delete(promptId);
+      // Keep ordered parts until the user_message echo settles the durable row. A queued request
+      // resolves before that echo, and dropping this map here would make the eventual transcript
+      // fall back to the legacy images-above-text layout.
     } catch (error) {
       this.promptAccepts.delete(promptId);
       // A Send now refused at dispatch answers its sender with the refusal (a remote acpmux sends the
@@ -4138,6 +4167,7 @@ export class AcpmuxDirectClient {
               next.state === "sending",
               queued.images,
               queued.message,
+              queued.inlineParts,
             )
           : queued,
       );

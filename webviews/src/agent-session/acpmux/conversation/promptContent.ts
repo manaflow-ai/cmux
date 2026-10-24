@@ -24,31 +24,32 @@ export function normalizePromptContentPart(value: unknown): PromptContentPart | 
       ...(Array.isArray(value.pasted) && { pasted: value.pasted as PasteRange[] }),
     };
   }
-  if (kind === "image" && typeof value.id === "string" && typeof value.mimeType === "string") {
+  if (kind === "image" && typeof value.mimeType === "string") {
     const image: PromptImage & { kind: "image" } = {
       kind: "image",
-      id: value.id,
+      id: typeof value.id === "string" ? value.id : `inline-image-${String(value.name ?? "attachment")}`,
       mimeType: value.mimeType,
       ...(typeof value.name === "string" && { name: value.name }),
       ...(positiveInteger(value.width) && { width: value.width }),
       ...(positiveInteger(value.height) && { height: value.height }),
       ...(typeof value.src === "string" && { src: value.src }),
+      ...(typeof value.data === "string" && { src: `data:${value.mimeType};base64,${value.data}` }),
     };
     return image;
   }
   if (
-    (kind === "file" || kind === "document" || kind === "audio" || kind === "recording" || kind === "pasted") &&
-    typeof value.name === "string" &&
-    value.name.length > 0
+    (kind === "file" || kind === "document" || kind === "audio" || kind === "recording" || kind === "pasted" || kind === "resource_link") &&
+    (typeof value.name === "string" || typeof value.uri === "string")
   ) {
     return {
-      kind,
-      name: value.name,
+      kind: kind === "resource_link" ? "file" : kind,
+      name: typeof value.name === "string" && value.name.length > 0 ? value.name : String(value.uri),
       ...(typeof value.id === "string" && { id: value.id }),
       ...(typeof value.mimeType === "string" && { mimeType: value.mimeType }),
       ...(positiveInteger(value.size) && { size: value.size }),
       ...(typeof value.text === "string" && { text: value.text }),
       ...(positiveInteger(value.pageCount) && { pageCount: value.pageCount }),
+      ...(typeof value.uri === "string" && { uri: value.uri }),
     };
   }
   return undefined;

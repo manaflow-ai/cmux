@@ -155,6 +155,19 @@
 .cv-user__inline-image {
   display: inline-block;
   margin: 2px 4px;
+  height: 120px;
+  max-width: min(260px, 70vw);
+  vertical-align: middle;
+  overflow: hidden;
+  border-radius: 12px;
+}
+.cv-user__inline-image img,
+.cv-user__inline-image .cv-user__image {
+  display: block;
+  width: auto;
+  height: 120px;
+  max-width: min(260px, 70vw);
+  object-fit: cover;
   vertical-align: middle;
 }
 .cv-user__inline-image button {

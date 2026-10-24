@@ -138,6 +138,8 @@ export type QueuedPrompt = {
   next?: boolean;
   sending?: boolean;
   images?: QueuedPromptImage[];
+  /// The prompt's ordered text and attachment runs while it waits for the turn.
+  inlineParts?: PromptContentPart[];
   /// Another agent's message waiting here (direct.ts `queuedMessage`): its row draws as the
   /// message's received line (ComposerQueue.tsx), not as the person's prompt.
   message?: IncomingMessage;
@@ -171,6 +173,7 @@ export type PromptContentPart =
       size?: number;
       text?: string;
       pageCount?: number;
+      uri?: string;
     };
 /// A queued prompt's image: `src` is its data URL when the pane has its bytes (it sent them, or
 /// the `queued` record carries them), else the row reads it by `id`. acpmux names an image by the
@@ -1147,6 +1150,22 @@ function measuredRowHeight(
   if (row.incoming?.kind === "hidden") return 0;
   // A finished step of only quiet thoughts draws nothing (conversation/ThoughtRow.tsx).
   if (onlyQuietThoughts(row)) return 0;
+  // Inline attachments occupy the same bubble as the text. Estimate each attachment's own
+  // decorated line before the DOM mounts so a newly echoed prompt cannot overlap the next row.
+  // Summing attachment slots is intentionally conservative when text and a file share a line;
+  // underestimating would make virtual scrolling jump as thumbnails decode.
+  const inline = row.inlineParts;
+  if (row.kind === "user" && inline?.length) {
+    let inlineHeight = 0;
+    const { lineHeight } = metrics();
+    const inlineWidth = Math.max(80, USER_BUBBLE_SHARE * width - USER_BUBBLE_SIDES);
+    for (const part of inline) {
+      if (part.kind === "text") inlineHeight += Math.max(lineHeight, textHeight(part.text, inlineWidth, cache.get(row.id)?.prepared ?? new Map()));
+      else inlineHeight += part.kind === "image" ? 124 : 34;
+    }
+    const height = messageBelow(beforeFooter) + chromeHeight(row) + collapsedPromptHeight(inlineHeight, lineHeight);
+    return beforeFooter ? height : Math.max(34, height);
+  }
   // A preview row's text is its address, not prose: the card's height is fixed.
   if (!row.text || row.kind === PREVIEW) return fallbackRowHeight(row, width, beforeFooter, lastFooter);
   let entry = cache.get(row.id);
