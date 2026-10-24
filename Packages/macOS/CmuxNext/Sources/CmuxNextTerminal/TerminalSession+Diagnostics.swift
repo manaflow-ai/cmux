@@ -63,6 +63,16 @@ public struct TerminalSurfaceDiagnostics: Sendable, Equatable {
 }
 
 extension TerminalSession {
+    /// The grid Ghostty's last frame drew (``TerminalSurfaceDiagnostics/drawnGrid``) and the owner's
+    /// locked grid, without the rest of ``diagnostics``: cheap enough to read every display frame.
+    public var drawnAndOwnerGrid: (drawn: TerminalGridSize?, owner: TerminalGridSize?) {
+        guard let surface = surfaceView.surface else { return (nil, nil) }
+        var columns: UInt16 = 0, rows: UInt16 = 0
+        let drawn = ghostty_surface_drawn_grid(surface, &columns, &rows) ? TerminalGridSize(columns: Int(columns), rows: Int(rows)) : nil
+        let grid = ghostty_surface_grid(surface)
+        return (drawn, grid.locked ? TerminalGridSize(columns: Int(grid.columns), rows: Int(grid.rows)) : nil)
+    }
+
     public var diagnostics: TerminalSurfaceDiagnostics {
         let surface = surfaceView
         return TerminalSurfaceDiagnostics(

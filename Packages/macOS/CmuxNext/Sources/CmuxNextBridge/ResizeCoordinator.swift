@@ -26,6 +26,9 @@ public final class ResizeCoordinator {
     /// Grids sent to the daemon (`debug.window_transition`).
     public static var sent: UInt64 = 0
 
+    /// Told each grid sent, with its terminal's identity (`debug.terminal_final_grid`, DEBUG builds).
+    public var onSend: ((ObjectIdentifier, CellSize) -> Void)?
+
     private var settle = ResizeSettle<ObjectIdentifier, CellSize>(stableFrames: 1)
     private var targets: [ObjectIdentifier: any ResizeTarget] = [:]
     private var waited: [ObjectIdentifier: Int] = [:]
@@ -99,6 +102,7 @@ public final class ResizeCoordinator {
             waited[key] = nil
             guard let target = targets.removeValue(forKey: key) else { continue }
             Self.sent &+= 1
+            onSend?(key, size)
             target.applySettled(size)
         }
         return !settle.isIdle
