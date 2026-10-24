@@ -755,6 +755,22 @@ class AppSizeTests(Fixture):
         found = self.assertRefused("new App file, 8 source lines (8 not moved)")
         self.assertEqual([h.bucket for h in found], [f"new:{APP}/Quit/NewThing.swift"])
 
+    def test_a_new_file_that_copies_lines_its_old_file_keeps_is_not_a_move(self):
+        # Re-indenting a block shows it as removed and re-added (-U0); its lines still exist in the old file.
+        lines = swift_body(120, "textBox").splitlines(keepends=True)
+        block = lines[16:56]
+        wrapped = ["    func reload() {\n"] + [("    " + line) if line.strip() else line for line in block] + ["    }\n"]
+        self.write(f"{APP}/TextBox/TextBoxView.swift", "".join(lines[:16] + wrapped + lines[56:]))
+        self.write(f"{APP}/TextBox/TextBoxReload.swift", "".join(block))
+        self.commit("a block wrapped in place and copied into a new file")
+        found = self.assertRefused("new App file", "only a move or the push's one Host conformance file")
+        self.assertIn(f"new:{APP}/TextBox/TextBoxReload.swift", [h.bucket for h in found])
+        self.reset()
+        self.write(f"{APP}/TextBox/TextBoxView.swift", "".join(lines[:16] + lines[56:]))
+        self.write(f"{APP}/TextBox/TextBoxReload.swift", "".join(block))
+        self.commit("the same block moved out")
+        self.assertEqual([h.bucket for h in self.hits()], [], "control: a real move into a new file passes")
+
     def test_one_host_conformance_file_of_forwards_per_push(self):
         self.write(f"{APP}/AppServices+FooHost.swift", host_file(25))
         self.commit("a 25-line Host conformance, unpaid")
