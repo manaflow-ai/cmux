@@ -102,10 +102,19 @@ cmux.json:
   while its hibernation probe runs (a freeze probe that ends then leaves it
   alone: a freeze under the probe's scripts made it "unanswered" and kept it
   live past the budget, STRESS 2026-10-24); a page the hibernation probe keeps
-  goes back through the freeze plan at once, not at the next unrelated event.
-  The hibernation picture is the engine's cheap full-size capture
-  (`thumbnail()`, Chromium's fast JPEG), not the lossless `snapshot()` PNG
-  that Chromium encodes on the app's main thread (80-140 ms a page).
+  goes back through the freeze plan at once, not at the next unrelated event,
+  and the hibernation deadline is armed from that plan, so it is asked again
+  when its backoff ends. A page whose engine has no history to save is
+  `unsupported` until it navigates or loads, decided before the probe (no
+  thaw, probe and refreeze on every pass).
+  The hibernation picture is the one the page left the screen with: the leave
+  capture's full-size `thumbnail()` (`BrowserHibernation.pageDidLeave`),
+  compressed off the main thread and kept with its page version. Hibernation
+  takes no engine capture while that version still matches; it captures
+  (`thumbnail()`, never the lossless `snapshot()` PNG that Chromium encodes on
+  the app's main thread, 80-140 ms a page) only when there is no current
+  leave picture. A hidden page often pictures blank, and a Chromium fast JPEG
+  is still 20-35 ms on the main thread, 2-3 pages a pass.
 
 - Neighbors (plans/cmux-next/neighbor-tabs-DESIGN.md): the tabs beside each
   pane's shown tab (`keepNeighborTabsAwake`, wrapping) never freeze or

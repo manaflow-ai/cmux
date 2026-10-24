@@ -141,6 +141,17 @@ final class BrowserHibernation {
     /// under pressure ranks after the others, for a backoff that doubles with each keep, so a
     /// page that keeps playing is not thawed and probed again every minute while it stays hidden.
     private var probeKept: [String: (at: ContinuousClock.Instant, times: Int)] = [:]
+    /// Each live page's full-size picture from the last time it left the screen (`pageDidLeave`),
+    /// compressed, with the page version it shows (`TabContentCache.pageVersion`): the page
+    /// hibernates with it while the version still matches, with no engine capture then. At most one
+    /// per live page (a JPEG, 0.2-1.5 MB, against a renderer's 55 MB); a page that hibernates moves
+    /// it to `snapshots`. Kept across a show: the next leave at the same version takes no new
+    /// capture (`TabContentCache.pagePictureIsCurrent`), as for the hover thumbnail.
+    var leavePictures: [String: (version: Int, picture: HibernationSnapshots.Picture)] = [:]
+    /// Pages whose engine had no history to save (`BrowserHibernationSource.hibernationState()`
+    /// nil), with the page version then: the plan finds them `.unsupported` until the page
+    /// navigates or loads, so such a page is not thawed and probed again on every pass.
+    private var unrestorable: [String: Int] = [:]
 
     init(cache: TabContentCache, lowPower: LowPowerMode = .system) {
         self.cache = cache
@@ -191,6 +202,8 @@ final class BrowserHibernation {
     func apply(_ setting: BrowserHibernationSetting) {
         guard setting != self.setting else { return }
         self.setting = setting
+        // Off: no page hibernates, so no page needs its leave picture.
+        if !setting.isEnabled { leavePictures.removeAll() }
         agentPages?.update(setting: setting, pressure: pressure)
         refreshNeighbors(replans: false)
         replan()
@@ -313,6 +326,8 @@ final class BrowserHibernation {
         memoryBytes[key] = nil
         probeKept[key] = nil
         countedAt[key] = nil
+        leavePictures[key] = nil
+        unrestorable[key] = nil
         snapshots.remove(key)
         wakeLog.forget(key)
     }
@@ -422,30 +437,39 @@ final class BrowserHibernation {
     /// still in flight), and arms one deadline for the next.
     func replan() {
         guard let cache else { return }
-        let (candidates, plan, graceEnds) = planNow(cache)
-        exemptions.merge(plan.exemptions) { $1 }
-        if !plan.due.isEmpty { refreshMemoryIfNeeded() }
-        for key in plan.due { prepare(key) }
-        if let next = [plan.nextCheck, graceEnds].compactMap(\.self).min() {
+        let planned = planNow(cache)
+        exemptions.merge(planned.plan.exemptions) { $1 }
+        if !planned.plan.due.isEmpty { refreshMemoryIfNeeded() }
+        for key in planned.plan.due { prepare(key) }
+        armDeadline(planned, deferred: false)
+        replanFreeze(planned.candidates)
+    }
+
+    /// The hidden pages that could hibernate, the plan for them, and when the next grace ends.
+    private typealias Planned = (candidates: [HibernationPlanner.Candidate], plan: HibernationPlanner.Plan, graceEnds: Double?)
+
+    /// Arms the one hibernation deadline for `planned`: its next check and the nearest grace end.
+    /// `deferred`: the caller prepares none of `plan.due` now, so those pages are looked at again
+    /// after the pace's interval, as when more pages wait than one pass takes.
+    private func armDeadline(_ planned: Planned, deferred: Bool) {
+        let nextPass = deferred && !planned.plan.due.isEmpty ? HibernationPlanner.Pace.at(pressure).interval : nil
+        if let next = [planned.plan.nextCheck, planned.graceEnds, nextPass].compactMap(\.self).min() {
             deadline.schedule(after: .milliseconds(Int64(next * 1000) + 50)) { @MainActor [weak self] in self?.replan() }
         } else {
             deadline.cancel()
         }
-        replanFreeze(candidates)
     }
 
-    /// Whether hidden page `key` is still due by the plan now: its probe ran a while, and budget
-    /// membership can change back meanwhile (a front warm again, a page closed that freed a
-    /// place, a neighbor, an agent's call).
-    private func isStillDue(_ key: String) -> Bool {
-        guard let cache else { return false }
-        let (_, plan, _) = planNow(cache)
-        exemptions.merge(plan.exemptions) { $1 }
-        return plan.allDue.contains(key)
+    /// Whether hidden page `key` is still due by the plan now (its probe ran a while, and budget
+    /// membership can change back meanwhile: a front warm again, a page closed that freed a
+    /// place, a neighbor, an agent's call), and the plan, for `refreeze` when it is not.
+    private func stillDue(_ key: String, _ cache: TabContentCache) -> (due: Bool, planned: Planned) {
+        let planned = planNow(cache)
+        exemptions.merge(planned.plan.exemptions) { $1 }
+        return (planned.plan.allDue.contains(key), planned)
     }
 
-    /// The hidden pages that could hibernate, the plan for them, and when the next grace ends.
-    private func planNow(_ cache: TabContentCache) -> ([HibernationPlanner.Candidate], HibernationPlanner.Plan, Double?) {
+    private func planNow(_ cache: TabContentCache) -> Planned {
         let now = ContinuousClock.now
         var graceEnds: Double?
         let candidates = cache.lifecycle.keys(in: .mountedHidden).compactMap { key -> HibernationPlanner.Candidate? in
@@ -509,14 +533,16 @@ final class BrowserHibernation {
         }
     }
 
-    /// The freeze plan alone, on fresh candidates: a page `prepare` thawed for its scripts and that
-    /// stays live freezes again through the one freeze path (its probe asks for media first),
-    /// instead of running thawed until the next unrelated event. Not a full `replan`: under
-    /// pressure that would prepare the page it just kept again at once.
-    private func refreeze(_ cache: TabContentCache) {
-        let (candidates, plan, _) = planNow(cache)
-        exemptions.merge(plan.exemptions) { $1 }
-        replanFreeze(candidates)
+    /// The end of a probe that kept its page live (`prepare`, or a freeze probe that found media):
+    /// the freeze plan on fresh candidates, so a page `prepare` thawed for its scripts freezes again
+    /// through the one freeze path (its probe asks for media first), and the hibernation deadline
+    /// from the same plan, so a kept page is asked again when its backoff ends with no other event.
+    /// It prepares no page itself: under pressure the page just kept would be due again at once
+    /// (it ranks last, but goes when no other can), so due pages wait for the pace's next pass.
+    private func refreeze(_ planned: Planned) {
+        exemptions.merge(planned.plan.exemptions) { $1 }
+        armDeadline(planned, deferred: true)
+        replanFreeze(planned.candidates)
     }
 
     /// Asks the page for playing media, Web Audio and capture, then freezes it
@@ -543,7 +569,7 @@ final class BrowserHibernation {
             let doubted = self.doubts(key, probe)
             if probe.capturing || probe.playingMedia || probe.webAudio || doubted {
                 self.freezeKeptAt[key] = .now
-                self.replan()
+                self.refreeze(self.planNow(cache))
                 return
             }
             self.freeze(key, page)
@@ -603,7 +629,8 @@ final class BrowserHibernation {
         var candidate = HibernationPlanner.Candidate(
             key: key, hiddenFor: hiddenFor, host: tab.state.url?.host(), isPinned: isPinned(key),
             hasDevTools: (tab as? any BrowserDevToolsHosting)?.devTools.isOpen ?? false, isCapturing: capturing,
-            canRestore: (tab as? any BrowserHibernationSource)?.supportsHibernation ?? false,
+            canRestore: ((tab as? any BrowserHibernationSource)?.supportsHibernation ?? false)
+                && unrestorable[key].map { $0 != TabContentCache.pageVersion(entry) } ?? true,
             showsFormSubmission: (tab as? any BrowserHibernationSource)?.showsFormSubmission ?? false
         )
         candidate.recentFocusCount = recentFocusCount(key, now: now)
@@ -621,7 +648,7 @@ final class BrowserHibernation {
     func hibernateNow(_ key: String) -> HibernationPlanner.Exemption? {
         guard let cache, let entry = cache.browsers[key], cache.lifecycle.phase(key) == .mountedHidden else { return .disabled }
         let facts = candidate(key, entry: entry, hiddenFor: 0)
-        guard facts.canRestore else { return .unsupported }
+        guard facts.canRestore, restorable(key, entry) else { return .unsupported }
         guard !facts.showsFormSubmission else { exemptions[key] = .formSubmission; return .formSubmission }
         prepare(key, user: true)
         return nil
@@ -631,7 +658,14 @@ final class BrowserHibernation {
     /// it if it is still hidden with the same generation.
     private func prepare(_ key: String, user: Bool = false) {
         guard let cache, let entry = cache.browsers[key], let source = entry.tab as? any BrowserHibernationSource,
-              let generation = cache.lifecycle.record(key)?.generation, probing.insert(key).inserted else { return }
+              let generation = cache.lifecycle.record(key)?.generation, !probing.contains(key) else { return }
+        // Decided before the probe: a page with no history to save is not thawed and probed only to
+        // stay (the person's Hibernate Tab checked it already).
+        guard user || restorable(key, entry) else {
+            exemptions[key] = .unsupported
+            return
+        }
+        probing.insert(key)
         let tab = entry.tab
         // The probe and the history capture run script: a frozen page runs none. A page that stays
         // freezes again through the freeze plan (`refreeze`); none freezes while this runs (`freeze`).
@@ -645,8 +679,9 @@ final class BrowserHibernation {
             let doubted = probe.answered ? self?.doubts(key, probe) ?? false : self?.doubted(key) ?? true
             let exemption = probe.exemption(pressure: pressure) ?? (source.showsFormSubmission ? .formSubmission : nil)
                 ?? (!probe.answered && (doubted || pressure == .normal) ? .unanswered : nil)
-            // A page that stays needs no picture (each replan probes it again).
-            let snapshot = exemption == nil ? await self?.snapshot(tab, key: key) : nil
+            // A page that stays needs no picture (each replan probes it again). The one it left the
+            // screen with when that is still current; an engine capture only when there is none.
+            let snapshot = exemption == nil ? await self?.hibernationPicture(tab, key: key) : nil
             guard let self, let cache = self.cache else { return }
             self.probing.remove(key)
             // Still the same hidden page: no show, hide or close since.
@@ -658,22 +693,26 @@ final class BrowserHibernation {
             if let exemption {
                 self.exemptions[key] = exemption
                 self.probeKept[key] = (ContinuousClock.now, (self.probeKept[key]?.times ?? 0) + 1)
-                self.refreeze(cache)
+                self.refreeze(self.planNow(cache))
                 return
             }
             // It became a neighbor, was hovered, an agent called it, or it is no longer past the
             // budget (a front warm again, a place freed) while the probe ran: it stays, with the
             // plan's reason (the person's Hibernate Tab still applies).
-            if !user, !self.isStillDue(key) {
-                cache.trace(key, "hibernate probe dropped (no longer due)")
-                self.refreeze(cache)
-                return
+            if !user {
+                let (due, planned) = self.stillDue(key, cache)
+                if !due {
+                    cache.trace(key, "hibernate probe dropped (no longer due)")
+                    self.refreeze(planned)
+                    return
+                }
             }
+            // Its history went while the probe ran (rare: checked before it): `.unsupported` until
+            // the page navigates or loads, not a probe's keep with its backoff.
             guard let state = source.hibernationState() else {
+                self.unrestorable[key] = TabContentCache.pageVersion(entry)
                 self.exemptions[key] = .unsupported
-                // Kept like a probe's keep, so the plan does not prepare it again on every event.
-                self.probeKept[key] = (ContinuousClock.now, (self.probeKept[key]?.times ?? 0) + 1)
-                self.refreeze(cache)
+                self.refreeze(self.planNow(cache))
                 return
             }
             self.prepared[key] = (state, snapshot)
@@ -681,14 +720,25 @@ final class BrowserHibernation {
         }
     }
 
-    /// Takes a hidden page's picture (a seam for tests): the engine's cheap full-size capture,
-    /// `thumbnail()`, not the lossless `snapshot()`. A Chromium `snapshot()` is a PNG that
-    /// Chromium encodes on its UI thread, the app's main thread (80-140 ms a page, CEFThumbnail),
-    /// and that comes back as megabytes of base64 JSON parsed on the main thread too; the
-    /// budget hibernates pages a few per pass, so each pass stalled the main thread for that long
-    /// (STRESS 2026-10-24: 53-379 ms stalls, probes of other pages left unanswered). The picture
-    /// is re-encoded as a JPEG for the store anyway (`HibernationSnapshots.compress`), so a fast
-    /// JPEG loses nothing it keeps. WebKit's `thumbnail()` is its `snapshot()`.
+    /// Whether the engine has a history to save for page `key` now; when not, records it for the
+    /// page's version (`unrestorable`), so the plan exempts the page until it navigates or loads.
+    private func restorable(_ key: String, _ entry: BrowserEntry) -> Bool {
+        guard (entry.tab as? any BrowserHibernationSource)?.hibernationState() == nil else {
+            unrestorable[key] = nil
+            return true
+        }
+        unrestorable[key] = TabContentCache.pageVersion(entry)
+        return false
+    }
+
+    /// Takes a hidden page's picture when it has no current leave picture (`leavePictures`; a seam
+    /// for tests): the engine's full-size `thumbnail()`, the capture the leave picture comes from,
+    /// not the lossless `snapshot()` (a Chromium PNG encoded on its UI thread, the app's main
+    /// thread, 80-140 ms a page, CEFThumbnail). Still one engine capture on the main thread (a
+    /// Chromium fast JPEG is about a quarter of that), and a hidden page may picture blank, so it
+    /// is the fallback only. The store encodes the picture again as a JPEG
+    /// (`HibernationSnapshots.compress`): a second lossy generation of Chromium's JPEG, accepted
+    /// because the store keeps one format for both engines. WebKit's `thumbnail()` is its `snapshot()`.
     var capture: @MainActor (any BrowserTab) async -> CGImage? = { tab in
         try? await ControlDeadline.shared.run(method: "hibernation.snapshot", deadline: .now + .seconds(2)) { @MainActor in
             try await tab.thumbnail()
@@ -717,6 +767,7 @@ final class BrowserHibernation {
         hiddenAt[key] = nil
         countedAt[key] = nil
         probeKept[key] = nil
+        leavePictures[key] = nil
         // A probe that kept the page before no longer applies (`debug.surfaces`).
         exemptions[key] = nil
         hibernatedCount += 1
