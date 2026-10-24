@@ -214,10 +214,10 @@ public final class PageRouter {
         }
         activeStreams.remove(sub)
         subscriptions[sub] = subscription
-        // Nothing held: later events go straight to the page. Otherwise they queue behind the held
-        // ones until the flush, which runs after the reply.
-        guard !early.isHolding || provider.eventsAfterSubscribeReply else {
-            if provider.eventsAfterSubscribeReply { return sub }
+        // Nothing held (always so for a provider that sends only after the reply, which never
+        // holds): later events go straight to the page. Otherwise they queue behind the held ones
+        // until the flush, which runs after the reply.
+        guard early.isHolding else {
             _ = early.release()
             return sub
         }
