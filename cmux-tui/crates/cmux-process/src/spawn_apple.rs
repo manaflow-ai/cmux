@@ -53,9 +53,22 @@ pub(crate) fn spawn(command: &mut Command) -> io::Result<Child> {
     // go to the Child; the child ends and every source close after the spawn.
     let mut plan: Vec<(Source, RawFd)> = Vec::new();
     let mut parents: [Option<OwnedFd>; 3] = [None, None, None];
+    let stdin_path =
+        command.stdin_path.take().map(|path| c_string(path.as_os_str())).transpose()?;
     let streams = [command.stdin.take(), command.stdout.take(), command.stderr.take()];
     for (target, stream) in streams.into_iter().enumerate() {
         let target = target as RawFd;
+        // `open_stdin_path`: opened read-write on 0 first, and 1 and 2 not
+        // set are copies of it (the actions run in this order).
+        if let Some(path) = &stdin_path
+            && stream.is_none()
+        {
+            plan.push((
+                if target == 0 { Source::Open(path.clone()) } else { Source::DupZero },
+                target,
+            ));
+            continue;
+        }
         match stream.unwrap_or(Stdio(Kind::Inherit)).0 {
             Kind::Null => plan.push((Source::DevNull, target)),
             Kind::Inherit => plan.push((Source::Same, target)),
@@ -119,6 +132,16 @@ pub(crate) fn spawn(command: &mut Command) -> io::Result<Child> {
                     0,
                 ),
                 Source::Same => posix_spawn_file_actions_addinherit_np(&mut setup.actions, *target),
+                Source::Open(path) => libc::posix_spawn_file_actions_addopen(
+                    &mut setup.actions,
+                    *target,
+                    path.as_ptr(),
+                    libc::O_RDWR,
+                    0,
+                ),
+                Source::DupZero => {
+                    libc::posix_spawn_file_actions_adddup2(&mut setup.actions, 0, *target)
+                }
                 Source::Fd(fd) => libc::posix_spawn_file_actions_adddup2(
                     &mut setup.actions,
                     fd.as_raw_fd(),
@@ -165,6 +188,10 @@ enum Source {
     DevNull,
     /// This process's descriptor of the target's number.
     Same,
+    /// A path opened read-write in the child (`Command::open_stdin_path`).
+    Open(CString),
+    /// A copy of the child's descriptor 0 (after `Open` on 0).
+    DupZero,
     /// This descriptor (dropped after the spawn).
     Fd(OwnedFd),
 }

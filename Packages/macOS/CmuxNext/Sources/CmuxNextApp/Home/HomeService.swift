@@ -111,7 +111,12 @@ final class HomeService {
     @ObservationIgnored let homeCloudInbox = HomeInboxSource(owners: ["cloud"])
     /// The Home list's last state beyond the conversations, for the next launch's first frame
     /// (HomeService+LaunchList), kept beside the conversations' cache of the same Chief owner.
-    @ObservationIgnored private(set) lazy var sidebarLaunch = HomeSidebarLaunchCache.standard(owner: chief.home.session)
+    @ObservationIgnored private(set) lazy var sidebarLaunch = HomeSidebarLaunchCache.standard(owner: chief.home.session,
+                                                                                               caches: homeCaches)
+    /// The folder of this service's Home caches: the app's (`AppEnvironment.homeCachesDirectory`), else
+    /// a temporary folder of its own, so the drafts of one `AppServices` never reach another's.
+    @ObservationIgnored private lazy var homeCaches: URL = services.environment.homeCachesDirectory
+        ?? FileManager.default.temporaryDirectory.appending(path: "cmux-home-\(UUID().uuidString)", directoryHint: .isDirectory)
     /// The last launch's Chief roster, used until the cloud Chiefs are read (`chiefRoster`).
     @ObservationIgnored var launchRoster: HomeChiefRoster?
     /// The cloud Chiefs were read this launch (`setCloudChiefs`). Observed: the roster changes with it.
@@ -126,8 +131,10 @@ final class HomeService {
     /// Its durable copy is keyed by the Chief owner (one per Chief home), so
     /// a relaunch or another build shows the same history before the owner
     /// answers (home-state-ownership.md section 4).
-    @ObservationIgnored private(set) lazy var homeStore = HomeStore(source: homeRouter,
-                                                                   cache: HomeCache.standard(owner: chief.home.session))
+    @ObservationIgnored private(set) lazy var homeStore = HomeStore(
+        source: homeRouter,
+        blobCacheDirectory: homeCaches.appending(path: "cmux-home-blobs", directoryHint: .isDirectory),
+        cache: HomeCache.standard(owner: chief.home.session, caches: homeCaches))
     @ObservationIgnored var cloudLink: Task<Void, Never>?
     /// Team members and Chiefs for the Home page's New Message and New Chief.
     @ObservationIgnored private(set) lazy var directory = HomeDirectory(

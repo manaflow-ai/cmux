@@ -80,6 +80,12 @@ extension CEFRuntime {
         UnsafeMutableRawPointer(bitPattern: address).map { Unmanaged<CEFRuntime>.fromOpaque($0).takeUnretainedValue() }
     }
 
+    /// The pump's cross-thread gate behind a callback context, from any thread (a `nonisolated let`
+    /// of the runtime, which lives for the rest of the process once started).
+    nonisolated static func pumpGate(at address: UInt) -> CEFPumpCrossThreadGate? {
+        UnsafeMutableRawPointer(bitPattern: address).map { Unmanaged<CEFRuntime>.fromOpaque($0).takeUnretainedValue().pumpGate }
+    }
+
     func handle(_ event: CEFShimEvent) {
         switch event {
         case .contextInitialized:

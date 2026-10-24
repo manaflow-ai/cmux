@@ -338,16 +338,8 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   background: var(--acpmux-menu-press);
 }
 
-/* The picker, model and slash menus fade in on the appear token, rising a few points out of the
-   composer (or dropping, for a menu that opens below its chip: useUiAnchor sets --ui-popup-y);
-   ui.animationSpeed off makes it 0ms. */
-@keyframes acpmux-menu-in {
-  from {
-    opacity: 0;
-    translate: var(--ui-popup-x, 0) var(--ui-popup-y, 4px);
-  }
-}
-/* Hover and press colors ease, and the picker and slash menus fade in; with Reduce Motion they apply at once. */
+/* Hover and press colors ease; with Reduce Motion they apply at once. The picker, model and slash
+   menus open in one frame, as every popup does (ui/popupSurface.css). */
 @media (prefers-reduced-motion: no-preference) {
   .acpmux-picker-button,
   :where(button).acpmux-plan,
@@ -375,11 +367,6 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   .acpmux-slash-row,
   .acpmux-home-row {
     transition: background-color var(--agent-motion-hover) var(--agent-ease-out);
-  }
-  .acpmux-menu,
-  .acpmux-slash-menu,
-  .acpmux-mp {
-    animation: acpmux-menu-in var(--agent-motion-in) var(--agent-ease-out);
   }
 }
 

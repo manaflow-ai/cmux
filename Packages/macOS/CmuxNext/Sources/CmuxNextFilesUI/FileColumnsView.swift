@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextFiles
 
 /// The column layout: Miller columns over `NSBrowser`, one column per folder
@@ -58,31 +59,16 @@ final class FileColumnsView: NSObject, FileContentView, NSBrowserDelegate {
     func reveal(_ name: String) {}
     func beginRename(_ name: String) {}
 
+    /// A click that leaves no selection sends the action with selectedColumn -1 (#24776): the
+    /// checked accessors (CmuxNextCompat) answer nil there instead of raising.
     @objc private func clicked() {
-        guard !applying else { return }
-        let column = browser.selectedColumn
-        guard hasColumn(column), let node = node(atRow: browser.selectedRow(inColumn: column), inColumn: column) else { return }
+        guard !applying, let node = browser.selectedItemIfValid as? FileColumnNode else { return }
         actions.browse(node.entry.url)
     }
 
     @objc private func doubleClicked() {
-        guard let node = node(atRow: browser.clickedRow, inColumn: browser.clickedColumn) else { return }
+        guard let node = browser.clickedItemIfValid as? FileColumnNode else { return }
         if node.entry.kind != .folder { actions.activate(node.entry) }
-    }
-
-    /// Whether `column` is a loaded column. `NSBrowser` reports -1 for "none"
-    /// (a click that leaves no selection, issue #24776) and throws
-    /// `NSRangeException` when asked about a column it does not have.
-    private func hasColumn(_ column: Int) -> Bool {
-        column >= 0 && column <= browser.lastColumn
-    }
-
-    /// The item at `row` of `column`, or nil when either is out of range.
-    private func node(atRow row: Int, inColumn column: Int) -> FileColumnNode? {
-        guard hasColumn(column), row >= 0,
-              let parent = browser.parentForItems(inColumn: column),
-              row < self.browser(browser, numberOfChildrenOfItem: parent) else { return nil }
-        return browser.item(atRow: row, inColumn: column) as? FileColumnNode
     }
 
     private func children(of node: FileColumnNode) -> [FileColumnNode] {
@@ -129,7 +115,7 @@ final class FileColumnsView: NSObject, FileContentView, NSBrowserDelegate {
     }
 
     func browser(_ browser: NSBrowser, willDisplayCell cell: Any, atRow row: Int, column: Int) {
-        guard let cell = cell as? NSBrowserCell, let node = node(atRow: row, inColumn: column) else { return }
+        guard let cell = cell as? NSBrowserCell, let node = browser.item(ifValidRow: row, inColumn: column) as? FileColumnNode else { return }
         let image = icons.icon(for: node.entry).copy() as? NSImage
         image?.size = NSSize(width: 16, height: 16)
         cell.image = image

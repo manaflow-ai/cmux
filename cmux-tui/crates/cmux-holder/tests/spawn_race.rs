@@ -30,22 +30,45 @@ mod daemon_spawn {
         Std,
     }
 
-    /// Spawn a child that stays alive, read its open descriptors, end it.
+    /// The child: a shell that says `ready` once it runs its script (its
+    /// program is loaded: the dynamic loader opens libc on a descriptor of
+    /// its own while it starts, which a read right after the spawn can see,
+    /// 3 of 3,000 spawns on Linux) and then waits on its stdin.
+    const CHILD: [&str; 3] = ["/bin/sh", "-c", "echo ready; read line; exit 0"];
+
+    /// Spawn a child, wait for its `ready`, read its open descriptors, end
+    /// it (closing its stdin). The child's 0 and 1 are the two pipes.
     fn child_descriptors(spawner: Spawner) -> Vec<i32> {
+        use std::io::BufRead;
         match spawner {
             Spawner::Helper => {
-                let mut child = cmux_process::Command::new("/bin/sleep").arg("30").spawn().unwrap();
+                let mut child = cmux_process::Command::new(CHILD[0])
+                    .args(&CHILD[1..])
+                    .stdin(cmux_process::Stdio::piped())
+                    .stdout(cmux_process::Stdio::piped())
+                    .spawn()
+                    .unwrap();
+                let mut line = String::new();
+                std::io::BufReader::new(child.stdout.take().unwrap()).read_line(&mut line).unwrap();
+                assert_eq!(line, "ready\n");
                 let open = open_descriptors(child.id()).unwrap();
-                child.kill().unwrap();
-                child.wait().unwrap();
+                assert!(child.wait().unwrap().success());
                 open
             }
             Spawner::Std => {
                 #[allow(clippy::disallowed_methods)] // the control: the old spawn
-                let mut child = std::process::Command::new("/bin/sleep").arg("30").spawn().unwrap();
+                let mut child = std::process::Command::new(CHILD[0])
+                    .args(&CHILD[1..])
+                    .stdin(std::process::Stdio::piped())
+                    .stdout(std::process::Stdio::piped())
+                    .spawn()
+                    .unwrap();
+                let mut line = String::new();
+                std::io::BufReader::new(child.stdout.take().unwrap()).read_line(&mut line).unwrap();
+                assert_eq!(line, "ready\n");
                 let open = open_descriptors(child.id()).unwrap();
-                child.kill().unwrap();
-                child.wait().unwrap();
+                drop(child.stdin.take());
+                assert!(child.wait().unwrap().success());
                 open
             }
         }

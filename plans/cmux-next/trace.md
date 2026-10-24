@@ -155,8 +155,10 @@ the press number below). Each hop records the id where a message carries it; oth
 terminal. `trace.py` joins the hops of one press and draws them as slices on `key flow` tracks, joined by
 Perfetto flow arrows (JSON `bind_id` / `flow_out` / `flow_in`).
 
-Turned on by `CMUX_TRACE_FLOWS=<dir>`, which `trace.py record --app` sets; the daemon, the terminal hosts and
-the holder inherit it. Each of these processes calls `cmux_flow_trace::init()` at start (daemon `serve`, the
+Turned on by `CMUX_NEXT_TRACE_FLOWS=<dir>` on the app, which `trace.py record --app` sets. The app strips every
+inherited `CMUX*` variable that is not a `CMUX_NEXT_*` launch knob, so the daemon launch passes it on as
+`CMUX_TRACE_FLOWS` (`DaemonDiagnosticKnobs`, also `CMUX_NEXT_TUI_DEBUG_SPANS` as `CMUX_TUI_DEBUG_SPANS`); the
+terminal hosts and the holder inherit it from the daemon. Each of these processes calls `cmux_flow_trace::init()` at start (daemon `serve`, the
 terminal host's `serve_terminal_host_process`, the holder's `serve`), which opens `<dir>/flows-<pid>.jsonl` and
 starts the writer thread, so no hop opens a file or starts a thread. A hop never allocates, locks or enters
 the kernel: off, it is one load of an unset `OnceLock` (test `cmux-flow-trace/tests/off.rs`); on, it reads the

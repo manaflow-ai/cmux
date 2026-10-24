@@ -52,6 +52,11 @@ struct AppEnvironment: Sendable {
     /// This Mac's layout templates (`LayoutTemplateRepository`): only the real app process sets
     /// it; without it templates live in memory only (tests that build `AppServices`).
     var layoutTemplatesFile: URL?
+    /// The folder of the Home caches (drafts, scroll anchors, sends, attachment blobs, the Home
+    /// list's launch state): only the real app process sets it (the user's Caches folder); without
+    /// it each `HomeService` uses a temporary folder of its own (tests that build `AppServices`), so
+    /// no test reads a draft another test typed in the same conversation.
+    var homeCachesDirectory: URL?
 
     var tag: String? { launch.tag }
     /// The build whose state roots this app uses (per-build isolation, cx-is1kf).

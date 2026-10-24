@@ -3,6 +3,7 @@ import AppKit
 import Foundation
 import Testing
 import CmuxNextFilesUI
+import CmuxNextWakeupsTestSupport
 
 /// The Find section searches while the person types: a pause in typing starts one search for the
 /// last text, typing again cancels the waiting or running search, and a cancelled search's answer

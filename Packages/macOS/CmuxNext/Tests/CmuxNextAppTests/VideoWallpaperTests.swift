@@ -4,6 +4,7 @@ import AVFoundation
 @testable import CmuxNextHome
 import Foundation
 import Testing
+import CmuxNextWakeupsTestSupport
 
 /// A video as the wallpaper (cx-14vdf): the person's own movie, Apple's moving wallpaper or a
 /// downloaded aerial loops muted behind the window, plays only while someone can see it and the
