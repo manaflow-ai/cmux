@@ -5701,6 +5701,13 @@ jobs:
             find prepared-in -type f -name 'cmux-prepared-app.tar.gz' -print -quit | grep -q .
           fi
 
+      - name: Download verified SSH daemon manifest
+        if: steps.order.outputs.skip != 'true' && env.LEGACY_ACTION == 'new' && env.SOURCE_RUN != ''
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-nightly-remote-daemon
+          path: remote-daemon-assets
+
       - name: Import signing cert
         if: steps.order.outputs.skip != 'true'
         env:
@@ -5754,6 +5761,10 @@ jobs:
           python3 scripts/ci/nightly-next-guard.py feed-url "$feed_url"
           mv "$app" "prepared-app/${NEXT_APP_NAME}.app"
           app="prepared-app/${NEXT_APP_NAME}.app"
+          python3 scripts/verify_remote_daemon_release.py \
+            --manifest "remote-daemon-assets/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json" \
+            --assets-dir remote-daemon-assets \
+            --app "$app" --embed
           CMUX_SIGN_MODE=all ./scripts/sign-cmux-bundle.sh \
             "$app" cmux.next-dev.entitlements "$APPLE_SIGNING_IDENTITY"
           create-dmg --no-code-sign "$app" next-in

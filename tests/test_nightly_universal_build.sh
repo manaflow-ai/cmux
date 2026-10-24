@@ -1348,6 +1348,8 @@ for expected in \
   "NEXT_BUNDLE_ID: \${{ needs.decide.outputs.bundle_id }}" \
   "NEXT_COMMIT_SHORT: \${{ needs.legacy-identity-target.outputs.source_sha }}" \
   "PlistBuddy -c \"Add :SUPublicEDKey string \${NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY}\"" \
+  'name: cmux-nightly-remote-daemon' \
+  'python3 scripts/verify_remote_daemon_release.py' \
   'python3 scripts/ci/nightly-next-guard.py feed-url "$feed_url"'; do
   grep -Fq -- "$expected" <<<"$publish_job$sign_job" || { echo "FAIL: parallel NEXT identity preparation must contain: $expected"; exit 1; }
 done
