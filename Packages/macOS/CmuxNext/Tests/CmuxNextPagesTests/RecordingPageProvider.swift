@@ -25,7 +25,7 @@ final class RecordingPageProvider: PageProvider {
                    onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
         streams.append(stream)
         onRecord?()
-        return PageSubscription(freezing: .every) {}
+        return PageSubscription(freezing: .newest) {}
     }
 
     var readAndListened: Bool {

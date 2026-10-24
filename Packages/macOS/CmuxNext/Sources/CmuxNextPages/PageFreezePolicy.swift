@@ -7,7 +7,7 @@
 /// A page reports only changes of its own state, and the policy calls
 /// ``PageWebView/freezeWhileHidden()`` when one is due. While frozen, the page's streams hold their
 /// newest state for the thaw (``PageStreamFreezing``), so a push does not wake it; it thaws by
-/// itself before it is seen and before a host call, a script or an event that cannot wait reaches
+/// itself before it is seen and before a host call, a script or the person's input reaches
 /// its document, and then reports ``hiddenPageWoke(_:)`` again.
 ///
 /// ```swift

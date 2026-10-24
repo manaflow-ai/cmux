@@ -226,12 +226,15 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         case kind.op("changes"):
             let id = UUID()
             changeListeners[id] = onEvent
-            // Disk changes the page applies one by one.
-            return PageSubscription(freezing: .every) { [weak self] in self?.changeListeners[id] = nil }
+            // Each event is the file's whole state on disk (`{path, hash, text}` or `{path, hash: null,
+            // deleted: true}`, ``publishChange(_:of:)``) and replaces the one before: the newest is all
+            // the page's conflict check (its base hash against `hash`) needs at the thaw.
+            return PageSubscription(freezing: .newest) { [weak self] in self?.changeListeners[id] = nil }
         case kind.op("look"):
             let stop = host.listenLook(onEvent)
-            // Part of the look each time (the rest stays): each one counts.
-            return PageSubscription(freezing: .every) { stop() }
+            // Only the members of the look that changed, each whole (``FilePageLook``): the newest of
+            // each member waits for the thaw.
+            return PageSubscription(freezing: .members) { stop() }
         default:
             throw PageError.unknownOp(stream)
         }

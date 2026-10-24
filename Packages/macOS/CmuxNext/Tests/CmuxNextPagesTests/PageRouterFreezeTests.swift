@@ -6,9 +6,9 @@ import Testing
 /// While the hibernation keeps a cmux page frozen (perf-lead.md F3), no event goes into it and a
 /// push does not thaw it. Before, every push into a hidden page thawed it and restarted its grace,
 /// so a page the host kept feeding (a Settings list, Home's state) never froze. Each stream says
-/// what its events are (``PageStreamFreezing``): the newest state per key waits for the thaw, so
-/// the page is current the moment it thaws, with no new subscribe and no gap; an event that
-/// cannot wait thaws the page. A host call thaws it too.
+/// what its events are (``PageStreamFreezing``): its events fold into one per key for the thaw, so
+/// the page is current the moment it thaws, with no new subscribe and no gap; only the person's
+/// input to the page thaws it. A host call thaws it too.
 @MainActor
 struct PageRouterFreezeTests {
     /// A provider whose stream the test drives.
@@ -97,8 +97,8 @@ struct PageRouterFreezeTests {
         #expect(rig.events == [["kind": "header", "v": 1], ["kind": "theme", "v": 2]])
     }
 
-    /// An event without a key (an action, or a stream whose every event counts) cannot wait: it
-    /// thaws the page, after which the held state goes first, then the event.
+    /// An event without a key (the person's input) cannot wait: it thaws the page, after which the
+    /// held state goes first, then the event.
     @Test func anEventThatCannotWaitThawsThePageAfterTheHeldState() async throws {
         let provider = StreamProvider(.newest(by: { $0["kind"]?.stringValue == "action" ? nil : "state" }))
         let rig = Rig(provider)
@@ -111,19 +111,53 @@ struct PageRouterFreezeTests {
         #expect(rig.events == [["kind": "state", "v": 1], ["kind": "action"]])
     }
 
-    @Test func everyEventOfALogStreamThawsThePage() async throws {
-        let provider = StreamProvider(.every)
+    @Test func theInputStreamThawsThePageForEachEvent() async throws {
+        let provider = StreamProvider(.input)
         let rig = Rig(provider)
-        _ = try #require(await rig.subscribe("test.log"))
+        _ = try #require(await rig.subscribe("test.input"))
         rig.freeze()
-        provider.emit?(["change": 1])
+        provider.emit?(["key": "a"])
         #expect(rig.wakes == 1)
-        #expect(rig.events == [["change": 1]])
+        #expect(rig.events == [["key": "a"]])
+    }
+
+    /// A stream of changed members (a page's look: `{themeCSS}`, then `{settings}`): the held event
+    /// gathers the newest of each member, the state the page reaches by applying them one by one.
+    @Test func aMembersStreamGathersTheNewestOfEachMemberForTheThaw() async throws {
+        let provider = StreamProvider(.members)
+        let rig = Rig(provider)
+        _ = try #require(await rig.subscribe("test.look"))
+        let emit = try #require(provider.emit)
+        rig.freeze()
+        emit(["themeCSS": "a"])
+        emit(["settings": ["size": 1]])
+        emit(["themeCSS": "b"])
+        #expect(rig.wakes == 0, "a look push thawed the page")
+        #expect(rig.router.frozen.count == 1)
+
+        rig.router.thaw()
+        #expect(rig.events == [["themeCSS": "b", "settings": ["size": 1]]])
+    }
+
+    /// A folded stream (a change notice that names what changed) holds one event that names
+    /// everything changed while the page was frozen.
+    @Test func aFoldedStreamHoldsOneEventMadeByItsFold() async throws {
+        let provider = StreamProvider(.folded { held, later in
+            .number((held?.doubleValue ?? 0) + (later.doubleValue ?? 0))
+        })
+        let rig = Rig(provider)
+        _ = try #require(await rig.subscribe("test.count"))
+        let emit = try #require(provider.emit)
+        rig.freeze()
+        for _ in 0..<100 { emit(1) }
+        #expect(rig.wakes == 0)
+        rig.router.thaw()
+        #expect(rig.events == [100])
     }
 
     /// The built-in streams: the link state is state, a command is the person's and goes now.
     @Test func theLinkStateWaitsAndACommandThawsThePage() async throws {
-        let rig = Rig(StreamProvider(.every))
+        let rig = Rig(StreamProvider(.newest))
         _ = await rig.router.handle(["t": "sub", "id": 1, "stream": .string(PageNativeOp.pageConnection)])
         _ = await rig.router.handle(["t": "sub", "id": 2, "stream": .string(PageNativeOp.pageCommand)])
         // Let the connection stream's first event (after its reply) go.

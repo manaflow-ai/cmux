@@ -36,8 +36,8 @@ struct PageChromiumCostTests {
         }
     }
 
-    /// The page's providers: a state stream the test drives, a stream whose every event counts, and
-    /// a call that waits until the test answers it.
+    /// The page's providers: a state stream the test drives, a stream of the person's input, and a
+    /// call that waits until the test answers it.
     private final class TestProvider: PageProvider {
         var emitState: ((JSONValue) -> Void)?
         var emitLog: ((JSONValue) -> Void)?
@@ -61,7 +61,7 @@ struct PageChromiumCostTests {
                        onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
             if stream == "test.log" {
                 emitLog = onEvent
-                return PageSubscription(freezing: .every) {}
+                return PageSubscription(freezing: .input) {}
             }
             emitState = onEvent
             return PageSubscription(freezing: .newest) {}
@@ -390,7 +390,7 @@ struct PageChromiumCostTests {
 
     /// The reason a hidden page kept running: a push thawed it. Now a stream's newest state waits
     /// in the host while the page is frozen, the page stays frozen, and the thaw sends only the
-    /// newest event; a stream whose every event counts thaws the page for its event.
+    /// newest event; only the person's input to the page thaws it for its event.
     @Test func aPushDoesNotThawAFrozenPageAndItGetsTheNewestStateAtTheThaw() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let provider = TestProvider()

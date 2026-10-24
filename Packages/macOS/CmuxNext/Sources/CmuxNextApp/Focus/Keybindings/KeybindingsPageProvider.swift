@@ -56,8 +56,8 @@ final class KeybindingsPageProvider: PageProvider {
         case "cmux.keybindings.recorded":
             let id = UUID()
             recordedListeners[id] = onEvent
-            // A key the person pressed for the recorder: each one counts.
-            return PageSubscription(freezing: .every) { [weak self] in _ = self?.recordedListeners.removeValue(forKey: id) }
+            // A key the person pressed for the recorder: their input, which reaches the page now.
+            return PageSubscription(freezing: .input) { [weak self] in _ = self?.recordedListeners.removeValue(forKey: id) }
         case "cmux.keybindings.changed":
             // Fires after a keymap import, an edit (the page's or the socket's) and whenever keybindings.json loads.
             let id = UUID()

@@ -4,10 +4,11 @@ import CmuxNextSettings
 /// a frozen renderer runs no script, so its subscriptions' events wait here instead of queueing in
 /// the renderer, and a push does not thaw the page (that kept every page the host feeds awake).
 ///
-/// Each stream's ``PageStreamFreezing`` decides: events with one key replace each other, so the
-/// page gets the newest of each when it thaws (its fresh state, from the subscriptions it already
-/// has); an event with no key cannot wait, and ``hold(sub:_:publicationID:freezing:)`` wakes the
-/// page for it. Bounded by streams times keys, whatever the hidden time.
+/// Each stream's ``PageStreamFreezing`` decides: events with one key fold into one, so the page
+/// gets one event per key when it thaws (its fresh state, from the subscriptions it already has);
+/// an event with no key is the person's input to the page, and
+/// ``hold(sub:_:publicationID:freezing:)`` wakes the page for it. Bounded by streams times keys,
+/// whatever the hidden time.
 @MainActor
 final class PageFrozenDelivery {
     /// One held event: `order` is when it came, so events of several streams go in that order.
@@ -28,7 +29,7 @@ final class PageFrozenDelivery {
     /// Events held now (tests, `debug.page`).
     var count: Int { held.values.reduce(0) { $0 + $1.count } }
 
-    /// The page froze: events wait from now on. `wake` thaws the page for an event that cannot wait.
+    /// The page froze: events wait from now on. `wake` thaws the page for the person's input to it.
     func freeze(wake: @escaping @MainActor () -> Void) {
         isFrozen = true
         self.wake = wake
@@ -49,8 +50,9 @@ final class PageFrozenDelivery {
         wake?()
     }
 
-    /// While the page is frozen: keeps `data` as the newest of its key and returns true, or, for an
-    /// event that cannot wait, thaws the page and returns false (send it now, after the held ones).
+    /// While the page is frozen: folds `data` into the event held for its key and returns true, or,
+    /// for the person's input to the page, thaws the page and returns false (send it now, after the
+    /// held ones). A folded event goes at the place of its newest part.
     func hold(sub: UInt64, _ data: JSONValue, publicationID: UInt64?, freezing: PageStreamFreezing) -> Bool {
         guard isFrozen else { return false }
         guard let key = freezing.key(data) else {
@@ -58,7 +60,8 @@ final class PageFrozenDelivery {
             return false
         }
         nextOrder &+= 1
-        held[sub, default: [:]][key] = Held(sub: sub, order: nextOrder, data: data, publicationID: publicationID)
+        let folded = freezing.fold(held[sub]?[key]?.data, data)
+        held[sub, default: [:]][key] = Held(sub: sub, order: nextOrder, data: folded, publicationID: publicationID)
         return true
     }
 
