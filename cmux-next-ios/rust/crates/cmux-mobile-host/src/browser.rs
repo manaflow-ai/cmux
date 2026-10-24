@@ -109,6 +109,8 @@ pub(crate) struct Claim {
     addr: SocketAddr,
     secret: String,
     pub(crate) viewer: u64,
+    /// This claim started the host (at its launch address).
+    pub(crate) launched: bool,
     pub(crate) stopped: oneshot::Receiver<Stop>,
     pub(crate) visible: Arc<AtomicBool>,
 }
@@ -176,7 +178,8 @@ impl BrowserConfig {
             .ok_or_else(|| Refusal::new("no_browser_host", "this Mac does not stream browser tabs"))?;
         let mut hosts = self.hosts.lock().await;
         hosts.retain(|_, entry| entry.host.guard.alive());
-        if !hosts.contains_key(tab) {
+        let launched = !hosts.contains_key(tab);
+        if launched {
             while hosts.len() >= self.max_tabs {
                 // Idle hosts go first, then hidden tabs', then the least
                 // recently used: the tab on the phone's screen goes last.
@@ -220,6 +223,7 @@ impl BrowserConfig {
             addr: entry.host.addr,
             secret: entry.host.secret.clone(),
             viewer: id,
+            launched,
             stopped,
             visible: Arc::clone(&entry.visible),
         })
@@ -404,6 +408,8 @@ pub(crate) struct PageGuard<'a> {
     /// itself on to one that bounces still counts.
     shown_at: Option<Instant>,
     view: Option<(Instant, crate::browser_policy::MacView)>,
+    /// The last `rb.file_policy` sent to the host (sent again only when it changes).
+    sent_policy: Option<Value>,
 }
 
 impl<'a> PageGuard<'a> {
@@ -416,6 +422,7 @@ impl<'a> PageGuard<'a> {
             take_backs: 0,
             shown_at: None,
             view: None,
+            sent_policy: None,
         }
     }
 
@@ -449,6 +456,24 @@ impl<'a> PageGuard<'a> {
 
     /// The phone's `rb.navigate`: the address the host loads (a shared file
     /// at its resolved path), or why not.
+    /// Reads the Mac's state now (the splice's start, before the host loads anything).
+    async fn refresh_view(&mut self) {
+        self.view = Some((Instant::now(), self.mac.view().await));
+    }
+
+    /// The host's `rb.file_policy` (its per-load check of every `file:` navigation
+    /// and subresource) when it differs from the one sent: the shared folders and
+    /// the files the Mac showed this tab.
+    fn policy_update(&mut self) -> Option<Vec<u8>> {
+        let view = self.view.as_ref().map(|(_, view)| view.clone()).unwrap_or_default();
+        let body = file_policy(&view, &self.approved);
+        if self.sent_policy.as_ref() == Some(&body) {
+            return None;
+        }
+        self.sent_policy = Some(body.clone());
+        Some(rb_frame(body))
+    }
+
     async fn navigate(&mut self, url: &str) -> Result<String, crate::browser_policy::Blocked> {
         self.take_backs = 0;
         Ok(match self.check(url).await? {
@@ -458,6 +483,23 @@ impl<'a> PageGuard<'a> {
             _ => url.to_owned(),
         })
     }
+}
+
+/// The `rb.file_policy` body for the Mac's state and a tab's approved pages: the
+/// shared folders as roots, and each page the Mac showed as one file (never its
+/// folder: its siblings load only when they are in a shared folder).
+fn file_policy(view: &crate::browser_policy::MacView, approved: &[String]) -> Value {
+    let roots: Vec<PathBuf> = view.roots.iter().filter_map(|r| std::fs::canonicalize(r).ok()).collect();
+    let mut files: Vec<PathBuf> = Vec::new();
+    for url in approved {
+        if let crate::browser_policy::Target::File(path) = crate::browser_policy::classify(url)
+            && let Ok(file) = std::fs::canonicalize(&path)
+            && !files.contains(&file)
+        {
+            files.push(file);
+        }
+    }
+    serde_json::json!({"t": "rb.file_policy", "roots": roots, "files": files})
 }
 
 /// What the guard does with one host `rb.page`.
@@ -558,8 +600,13 @@ pub async fn serve(
         }
         None => ("about:blank".to_owned(), None),
     };
-    let guard = PageGuard::new(mac, opened);
-    let claim = config.claim(tab, &url).await?;
+    let mut guard = PageGuard::new(mac, opened);
+    // A new host starts at a `file:` page only after its file policy is in place:
+    // it starts blank, and hostd navigates once the policy is sent.
+    let file_page = matches!(crate::browser_policy::classify(&url), crate::browser_policy::Target::File(_));
+    let claim = config.claim(tab, if file_page { "about:blank" } else { &url }).await?;
+    let first = (claim.launched && file_page).then(|| url.clone());
+    guard.refresh_view().await;
     let viewer = claim.viewer;
     // `video: "track"`: the page's video on the link's media lane (a WebRTC
     // track or RTP inside the WireGuard tunnel) when the link has one;
@@ -571,7 +618,7 @@ pub async fn serve(
     // The phone's tag for this tab's lane frames (cmux_mobile_link::media::tag).
     let video_tag = args.get("video_tag").and_then(Value::as_u64).and_then(|tag| u32::try_from(tag).ok());
     let track = track.map(|video| (video, video_tag));
-    let result = splice(claim, Some(guard), filter_frame, peer, sender, receiver, track).await;
+    let result = splice(claim, Some(guard), filter_frame, first, peer, sender, receiver, track).await;
     config.release(tab, viewer).await;
     result
 }
@@ -579,10 +626,12 @@ pub async fn serve(
 /// Splices a viewer channel to its tab's host (a browser host, or a
 /// simulator surface's host, `surface.rs`): `filter` checks each phone frame,
 /// and `guard` (browser tabs only) checks addresses both ways.
+#[allow(clippy::too_many_arguments)] // one viewer's whole splice: its claim, checks, peer, channel and lane
 pub(crate) async fn splice(
     claim_of_host: Claim,
     mut guard: Option<PageGuard<'_>>,
     filter: fn(u8, &[u8]) -> FrameVerdict,
+    first: Option<String>,
     peer: &Peer,
     sender: &ChannelSender,
     mut receiver: ChannelReceiver,
@@ -608,8 +657,14 @@ pub(crate) async fn splice(
         .map_err(|e| Refusal::new("unavailable", format!("browser host: {e}")))?;
     let _ = stream.set_nodelay(true);
     let (mut host_read, mut host_write) = stream.into_split();
+    // The hello, the file policy, then (a new host of a `file:` page) the page.
+    let mut start = hello_frame(secret, peer);
+    start.extend(guard.as_mut().and_then(PageGuard::policy_update).unwrap_or_default());
+    if let Some(url) = first {
+        start.extend(rb_frame(serde_json::json!({"t": "rb.navigate", "url": url})));
+    }
     host_write
-        .write_all(&hello_frame(secret, peer))
+        .write_all(&start)
         .await
         .map_err(|e| Refusal::new("unavailable", format!("browser host: {e}")))?;
     let mut deframer = StreamDeframer::default();
@@ -691,6 +746,11 @@ pub(crate) async fn splice(
                                     (Some(guard), Some((url, can_go_back))) => guard.page(&url, can_go_back).await,
                                     _ => PageVerdict::Forward,
                                 };
+                                if let Some(policy) = guard.as_mut().and_then(PageGuard::policy_update)
+                                    && host_write.write_all(&policy).await.is_err()
+                                {
+                                    return Ok(());
+                                }
                                 match verdict {
                                     PageVerdict::Forward => {
                                         let _ = encode_stream_frame(STREAM_CONTROL, &payload, &mut to_phone);
@@ -759,6 +819,8 @@ pub(crate) async fn splice(
                                     None => {}
                                     Some(guard) => match guard.navigate(url.trim()).await {
                                     Ok(load) => {
+                                        // The host's policy first, so the page it loads may load.
+                                        out.extend(guard.policy_update().unwrap_or_default());
                                         // The address as checked (trimmed; a shared file resolved), not as sent.
                                         out.extend(rb_frame(serde_json::json!({"t": "rb.navigate", "url": load})));
                                     }
@@ -1305,6 +1367,40 @@ mod tests {
             assert_eq!(rb_body(&to_host), serde_json::json!({"t": "rb.history", "op": "back"}), "link {i}");
             assert!(matches!(guard.page("https://example.com/", true).await, PageVerdict::Forward));
         }
+    }
+
+    #[test]
+    fn the_hosts_file_policy_names_the_shared_folders_and_the_macs_pages() {
+        let base = tempfile::tempdir().unwrap();
+        let home = std::fs::canonicalize(base.path()).unwrap().join("home");
+        let shared = home.join("work");
+        let downloads = home.join("Downloads");
+        for dir in [&shared, &downloads] {
+            std::fs::create_dir_all(dir).unwrap();
+        }
+        std::fs::write(downloads.join("mac page.html"), "x").unwrap();
+        let view = crate::browser_policy::MacView { roots: vec![shared.clone()], browser_urls: vec![] };
+        let approved = vec![
+            crate::browser_policy::file_url(&downloads.join("mac page.html")),
+            "chrome://version/".to_owned(),
+        ];
+        let body = file_policy(&view, &approved);
+        assert_eq!(body["t"], "rb.file_policy");
+        // The Mac's page is one file; its folder (Downloads) is never a root.
+        assert_eq!(body["roots"], serde_json::json!([shared]));
+        assert_eq!(body["files"], serde_json::json!([downloads.join("mac page.html")]));
+    }
+
+    #[tokio::test]
+    async fn the_policy_is_sent_once_and_again_when_it_changes() {
+        let mac = NoMac(Default::default());
+        let mut guard = PageGuard::new(&mac, None);
+        guard.refresh_view().await;
+        let first = guard.policy_update().expect("first policy");
+        assert_eq!(rb_body(&first)["t"], "rb.file_policy");
+        assert!(guard.policy_update().is_none());
+        guard.approve("file:///");
+        assert!(guard.policy_update().is_some());
     }
 
     #[tokio::test]

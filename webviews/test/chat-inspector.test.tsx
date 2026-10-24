@@ -9,6 +9,8 @@
 // reflows the chat, pushes the chat aside when the gutter has no room (Settings Push always), so it
 // never lies over the transcript's text, hides a section with nothing in it, and shows five pull
 // requests under Changes and five running subagents, each then Show more (Claude Code desktop's).
+import { readFileSync } from "node:fs";
+
 import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";
 import { act, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -18,7 +20,9 @@ import { INSPECTOR_PLACEMENT_KEY, setChatDisplay } from "../src/agent-session/ac
 import { ChatHeaderTools } from "../src/agent-session/acpmux/header/ChatHeaderTools";
 import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
 import {
+  CHAT_SHIFT_RANGE,
   ChatInspector,
+  inspectorChatShift,
   pushedWidth,
   pushes,
   useChatInspector,
@@ -165,7 +169,7 @@ async function render(container: HTMLElement, snapshot: AcpmuxSnapshot, opened: 
 }
 
 const toggle = (container: HTMLElement) =>
-  container.querySelector<HTMLButtonElement>('.acpmux-header-tools button[aria-label="Inspector"]');
+  container.querySelector<HTMLButtonElement>('.acpmux-header-tools button[aria-label="Session Info"]');
 const panel = (container: HTMLElement) => container.querySelector<HTMLElement>("aside.acpmux-chat-inspector");
 const section = (container: HTMLElement, id: string) =>
   container.querySelector<HTMLElement>(`section.acpmux-chat-inspector-section[data-section="${id}"]`);
@@ -183,6 +187,8 @@ test("the Inspector opens with a first chat: its environment, context use and ou
   const opened = await render(container, localChat);
   expect(toggle(container)?.getAttribute("aria-pressed")).toBe("true");
   expect(panel(container)).not.toBeNull();
+  expect(panel(container)?.querySelector(".acpmux-chat-inspector__head")).toBeNull();
+  expect(panel(container)?.querySelector(".acpmux-chat-inspector__close--floating")).not.toBeNull();
   // The sections in order; ones with nothing to show (no MCP servers, pull requests, processes or
   // subagents) are left out.
   expect(sectionIds(container)).toEqual(["environment", "context", "outputs"]);
@@ -342,6 +348,22 @@ test("it floats in the gutter beside the transcript when there is room and pushe
   await act(async () => setChatDisplay({ [INSPECTOR_PLACEMENT_KEY]: "overlay" }));
   expect(panel(container)?.dataset.placement).toBe("overlay");
   paneWidth = 0;
+});
+
+test("the overlay handoff shifts the chat into the panel's future room", () => {
+  // With the standard 800px column, 1600px still has a full gutter and does not move the chat.
+  expect(inspectorChatShift(1600, 320)).toBe(0);
+  // The shift begins in the final handoff band and reaches the pushed layout's half-room at its edge.
+  expect(inspectorChatShift(1500, 320)).toBeCloseTo(128.125, 5);
+  expect(inspectorChatShift(1472, 320)).toBeCloseTo(164, 5);
+  expect(CHAT_SHIFT_RANGE).toBe(64);
+});
+
+test("the overlay handoff honors the app's reduced-motion policy", () => {
+  const css = readFileSync(new URL("../src/agent-session/acpmux/inspector/inspector.css", import.meta.url), "utf8");
+  expect(css).toContain("var(--agent-motion-move, var(--cmux-motion-quick, 80ms))");
+  expect(css).toContain(':root[data-cmux-motion="reduced"]');
+  expect(css).toContain(':root[data-cmux-motion="off"]');
 });
 
 test("an output whose diff split leaves no room to push the chat closes the Inspector until the toggle", async () => {
@@ -723,7 +745,8 @@ test("with only started chats Subagents is still drawn, and the running line's c
     root = createRoot(container);
     root.render(<Pane snapshot={localChat} onOpenOutput={noop} sessions={sessions} />);
   });
-  expect(sectionIds(container)).toEqual(["environment", "context", "subagents", "outputs"]);
+  // What it made (Outputs) comes before what it runs (Subagents): ChatInspector.tsx RAIL_LAYOUT.
+  expect(sectionIds(container)).toEqual(["environment", "context", "outputs", "subagents"]);
   expect(meta(section(container, "subagents"))).toBe("1 running · 1 done");
   // Closed, with Subagents folded: the running line's "2 subagents" opens it at Subagents.
   await click(head(section(container, "subagents")!));

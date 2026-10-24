@@ -35,7 +35,7 @@ enum ScreenCommands {
         guard let connection = daemon.connection else { return }
         let handle = workspace.handle
         let intent = content?.beginFocusIntent()
-        let extended = daemon.supports(DaemonCapabilities.shared.screenMetadata)
+        let extended = daemon.supports(DaemonCapabilities.screenMetadata)
         let options = SpawnOptions(cwd: cwd, workspace: workspace.key)
         Task {
             do {
@@ -63,9 +63,17 @@ enum ScreenCommands {
     }
 
     /// Closes screens. Their terminals detach and are reaped after the grace
-    /// period, so Reopen Closed Screen can bring the first one back.
+    /// period. Several screens (Close Other Screens, to the Right, to the Left)
+    /// close in one `layout.bulk` request (`BulkClosePlan`): one closed group,
+    /// so one Reopen Closed brings every one of them back.
     static func close(_ screens: [ScreenModel], in workspace: WorkspaceModel, daemon: DaemonService, services: AppServices) {
-        for screen in screens {
+        let plan = BulkClosePlan(screens, servesBulk: daemon.servesBulkClose, id: \.resourceID,
+                                 hasTabs: { $0.panes.contains { !$0.tabs.isEmpty } })
+        if !plan.bulk.isEmpty {
+            let ids = plan.bulk.map(\.id)
+            daemon.send("close-screens") { try await $0.state.closeBulk(.screen, ids: ids) }
+        }
+        for screen in plan.each {
             let handle = screen.handle
             daemon.send("close-screen") { try await $0.closeScreen(handle) }
         }

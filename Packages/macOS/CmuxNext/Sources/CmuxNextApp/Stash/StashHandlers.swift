@@ -21,6 +21,10 @@ import CmuxNextStash
 ///   workspaces stay; a row whose workspaces are all another machine's leaves the action out, as
 ///   a tab row on another machine's pane does. They ask first only while a terminal in them runs
 ///   a program, as a close does.
+///   A workspace's remote-terminal tabs let go of their surfaces here (`RemoteTerminalService.stashed`)
+///   but, unlike a close (`WorkspaceClose.willClose`), keep their terminals kept on the other
+///   machine: Restore reopens each tab on the same terminal from the stash's record. Deleting the
+///   stash does not release those terminals yet (#24192).
 @MainActor
 enum StashHandlers {
     /// The tabs a tab row's Save and Close takes, seen from its tab.
@@ -57,7 +61,12 @@ enum StashHandlers {
                 guard !ids.isEmpty else { throw ActionFailure.invalidTarget(StashHandlerStrings.noWorkspace) }
                 // The window that keeps a workspace shows the toast; none when every window closes.
                 let window = WorkspaceBulkClose.survivor(closing: members.map(\.0.id), context)
-                save(invocation, services, workspaces: true, toastIn: window) { try await stash.stash(workspaces: ids, name: name) }
+                let remoteTabs = members.flatMap { RemoteTerminalService.remoteTabIDs(in: $0.0) }
+                save(invocation, services, workspaces: true, toastIn: window) { [weak services] in
+                    let stashID = try await stash.stash(workspaces: ids, name: name)
+                    services?.remoteTerminals.stashed(remoteTabs)
+                    return stashID
+                }
             })
             ActionTargetVisibility.hide(id, in: registry) { invocation in
                 guard let ids = try? workspaceIDs(id, invocation, context), !ids.isEmpty else { return false }

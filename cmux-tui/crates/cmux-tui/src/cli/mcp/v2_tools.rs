@@ -34,6 +34,7 @@ const STREAM_REASON: &str =
     "Opens a stream; MCP tools are request and response. Read the state with a list or get tool.";
 const CONNECTION_REASON: &str =
     "Connection control: it applies to one socket connection, which ends with the tool call.";
+const AGENT_REPORT_REASON: &str = "The agent_report MCP tool owns dispatched brief reports; the resource operation uses the same wire name and would make calls ambiguous.";
 
 /// Read and mutation operations the curated `cmux` CLI does not offer
 /// (`cmux-tui`-only scopes), with the reason. The parity test checks that
@@ -69,6 +70,7 @@ const SETTINGS_REASON: &str = "Settings go through cmux settings on the app sock
 const KEYBINDINGS_REASON: &str = "Keybindings are the user's, edited from the Keyboard Shortcuts page, until daemon keybindings verbs and their MCP policy land (cx-9ce.17, cx-ncc.32).";
 
 pub(super) const EXCLUDED: &[(&str, &str)] = &[
+    ("agent.report", AGENT_REPORT_REASON),
     ("settings.schema", SETTINGS_REASON),
     ("settings.list", SETTINGS_REASON),
     ("settings.get", SETTINGS_REASON),

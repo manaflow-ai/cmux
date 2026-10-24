@@ -155,16 +155,15 @@ test("a task notice is a tool row's line, 2px under the row's top, and the 8px m
   expect(height).toBe(2 + 26 + 8);
 });
 
-// Before: a waiting steer's Send now took a line of its own under the bubble, 20px per steer
-// (Leo, 2026-10-21: "WHY DIDN'T YOU GUYS PUT IT ON THE FUCKING LEFT LIKE FUCKING CLAUDE DOES").
-test("a steer the agent has not read is as tall as a read one: its Send now sits beside the bubble", () => {
+// A waiting steer's Send now leads the existing action row, so it adds no height to a text prompt.
+test("a steer the agent has not read is as tall as a read one: its Send now leads the action row", () => {
   const steer = (state: string) => ({ id: "s", version: 1, at: 0, kind: "user", text: "Also this", steer: state });
   const [landed] = heightsOf([steer("landed")]);
   const [waiting] = heightsOf([steer("waiting")]);
   expect(waiting).toBe(landed!);
 });
 
-test("a Chief's waiting steer keeps its Send now line under the bubble", () => {
+test("a Chief's waiting steer keeps Send now in its existing action row", () => {
   const steer = (state: string) => ({
     id: "s",
     version: 1,
@@ -176,8 +175,7 @@ test("a Chief's waiting steer keeps its Send now line under the bubble", () => {
   });
   const [landed] = heightsOf([steer("landed")]);
   const [waiting] = heightsOf([steer("waiting")]);
-  // `.cv-user__pending`: 4px above a 16px line.
-  expect(waiting! - landed!).toBe(20);
+  expect(waiting!).toBe(landed!);
 });
 
 // A long prompt opens collapsed (conversation/UserBubble.tsx, promptCollapse.ts): its first ten

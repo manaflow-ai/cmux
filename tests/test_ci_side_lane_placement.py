@@ -25,6 +25,8 @@ WORKFLOWS = ROOT / ".github/workflows"
 SIDE = "glaeda-side-std-xcode-26.6"
 STD = "glaeda-std-xcode-26.6"
 FALLBACK = "blacksmith-6vcpu-macos-26"
+NIGHTLY_POOL = "glaeda-trusted-light-xcode-26.6"
+NIGHTLY_RUNNER = "glaeda-runner-cmux22-nightly-next"
 # The GUI suites take the owned pool's gui label, never the generic side label.
 GUI = "glaeda-gui-std-xcode-26.6"
 GUI_JOBS = ("swift-test", "daemon-test", "generated-files")
@@ -174,6 +176,14 @@ class Decide(unittest.TestCase):
         self.assertEqual(placement.decide(env(), None)[:2], ((), ()))
         for label in ("", FALLBACK, "macos-26", STD, "glaeda-root-std-xcode-26.6"):
             self.assertEqual(placement.decide(env(SIDE_LABEL=label), idle)[:2], ((), ()), label)
+
+    def test_dedicated_nightly_runner_requires_online_idle_exact_labels(self):
+        dedicated = runner("cmux22", labels=(NIGHTLY_POOL, NIGHTLY_RUNNER, "glaeda-trusted-next-nightly"))
+        route = {"NIGHTLY_POOL": NIGHTLY_POOL, "NIGHTLY_RUNNER": NIGHTLY_RUNNER}
+        self.assertTrue(placement.nightly_runner_ready(route, [dedicated]))
+        self.assertFalse(placement.nightly_runner_ready(route, [{**dedicated, "busy": True}]))
+        self.assertFalse(placement.nightly_runner_ready(
+            route, [runner("cmux22", labels=(NIGHTLY_POOL, "other-runner"))]))
 
     def test_it_reuses_the_main_pickers_idle_placement(self):
         # One rule for both callers: pr_runner_pool.idle_placement().
@@ -373,7 +383,8 @@ class CmuxNextWiring(unittest.TestCase):
                     self.assertNotIn("CMUX_NEXT_RUNNER", job.get("env", {}))
                     continue
                 # The job's own copy of its label (mini-only steps) agrees with runs-on.
-                self.assertEqual(job["env"]["CMUX_NEXT_RUNNER"], job["runs-on"])
+                if name != "release-compile":
+                    self.assertEqual(job["env"]["CMUX_NEXT_RUNNER"], job["runs-on"])
 
     def test_trusted_attempts_use_the_live_route_until_overflow(self):
         jobs = self.workflow()["jobs"]
@@ -431,7 +442,8 @@ class CmuxNextWiring(unittest.TestCase):
                 self.assertEqual(evaluate(runs_on, rerun), on(name, SIDE))
                 rerun["vars"]["CI_SESSION_LABEL"] = "1"
                 self.assertEqual(evaluate(runs_on, rerun), SESSION if name in SESSION_JOBS else on(name, SIDE))
-                self.assertEqual(jobs[name]["env"]["CMUX_NEXT_RUNNER"], runs_on)
+                if name != "release-compile":
+                    self.assertEqual(jobs[name]["env"]["CMUX_NEXT_RUNNER"], runs_on)
 
     def test_a_bot_attempt_3_leaves_the_placement_label_for_blacksmith(self):
         # A rescue attempt 3 must drop the stale placement output and use the
@@ -579,21 +591,28 @@ class CmuxNextWiring(unittest.TestCase):
                 self.assertFalse(evaluate(cancel, self.push("101")) if isinstance(cancel, str) else cancel)
                 group = concurrency["group"]
                 first, second = evaluate(group, self.push("101")), evaluate(group, self.push("102"))
-                self.assertEqual(first, second)
+                if name == "release-compile":
+                    # A started Release compile is never evicted: its group is
+                    # per run, while superseded push jobs skip before queueing.
+                    self.assertNotEqual(first, second)
+                else:
+                    self.assertEqual(first, second)
                 push_groups[name] = first
                 # Dispatch runs keep a group per run. Pull request runs are kept
                 # apart per run or, for jobs that coalesce stale heads, per pull
                 # request; either way two pull requests never share a group.
                 one, other = (evaluate(group, self.push(run_id, "workflow_dispatch")) for run_id in ("101", "102"))
                 self.assertNotEqual(one, other, "workflow_dispatch")
-                self.assertNotEqual(one, first, "workflow_dispatch")
+                if name != "release-compile":
+                    self.assertNotEqual(one, first, "workflow_dispatch")
                 pulls = []
                 for run_id, number in (("101", 1), ("102", 2)):
                     context = self.push(run_id, "pull_request")
                     context["github"]["event"] = {"pull_request": {"number": number}}
                     pulls.append(evaluate(group, context))
                 self.assertNotEqual(pulls[0], pulls[1], "pull_request")
-                self.assertNotEqual(pulls[0], first, "pull_request")
+                if name != "release-compile":
+                    self.assertNotEqual(pulls[0], first, "pull_request")
         self.assertEqual(len(set(push_groups.values())), len(JOBS))
 
     def test_push_runs_upload_no_rescue_watch_marker(self):

@@ -106,63 +106,6 @@ final class SidebarIslandParking: NSView {
     override func accessibilityChildren() -> [Any]? { [] }
 }
 
-/// The "cmux Updated!" card's slot view: the updated surface, sized to the
-/// page's height. Hidden without a card or a surface.
-final class SidebarUpdatedCardHost: NSView {
-    private(set) var card: SidebarUpdatedCard?
-    /// The page's height changed: the sidebar lays the slot out again.
-    var onHeightChange: (() -> Void)?
-    /// The page's x (u2441): the slot sends `.dismissUpdated`, as every card's x sends its intent.
-    var onDismiss: (() -> Void)?
-    /// Makes ``island`` once a card shows (a web page; none at launch without one).
-    var surfaces: (any SidebarUpdateSurfaces)? {
-        didSet {
-            island?.close()
-            island = card == nil ? nil : surfaces?.island(.updated)
-            isHidden = card == nil || island == nil
-        }
-    }
-    var island: (any SidebarSurfaceIsland)? {
-        didSet {
-            oldValue?.view.removeFromSuperview()
-            guard let island else { return }
-            island.view.frame = bounds
-            island.view.autoresizingMask = [.width, .height]
-            addSubview(island.view)
-            island.onHeightChange = { [weak self] in self?.onHeightChange?() }
-            island.onDismiss = { [weak self] in self?.onDismiss?() }
-        }
-    }
-
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        isHidden = true
-        setAccessibilityElement(false)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError() }
-
-    nonisolated override var isFlipped: Bool { true }
-
-    /// Shows the card (the page draws its text), or hides the view and
-    /// closes its page.
-    func configure(_ card: SidebarUpdatedCard?) {
-        guard card != self.card else { return }
-        self.card = card
-        if card != nil, island == nil { island = surfaces?.island(.updated) }
-        if card == nil, let island {
-            // The card went away (dismissed): its page goes too (cx-asynu).
-            island.close()
-            self.island = nil
-        }
-        isHidden = card == nil || island == nil
-    }
-
-    /// The card's height: the page's content height (0 until it drew).
-    var height: CGFloat { card == nil ? 0 : island?.contentHeight ?? 0 }
-}
-
 #if DEBUG
 extension SidebarViewComponents {
     /// Proofs (`debug.update_surfaces`): opens the staged card's highlights
@@ -185,7 +128,19 @@ extension SidebarViewComponents {
          "highlights": String(updateCardView.highlights != nil),
          "updatedCard": String(updatedCardView.card != nil),
          "updatedPage": String(updatedCardView.island != nil),
-         "updatedHeight": String(Double(updatedCardView.height))]
+         "updatedHeight": String(Double(updatedCardView.height)),
+         "updatedCloseShown": String(updatedCardView.closeShown)]
+    }
+
+    /// Proofs (`debug.update_surfaces`): the Updated card's x while the card shows.
+    public var debugUpdatedCloseButton: NSView? {
+        updatedCardView.isHiddenOrHasHiddenAncestor ? nil : updatedCardView.closeButton
+    }
+
+    /// Proofs (`debug.update_surfaces`): the Updated card's page view while it shows, for a
+    /// window hit test at its x.
+    public var debugUpdatedPageView: NSView? {
+        updatedCardView.isHiddenOrHasHiddenAncestor ? nil : updatedCardView.island?.view
     }
 }
 #endif

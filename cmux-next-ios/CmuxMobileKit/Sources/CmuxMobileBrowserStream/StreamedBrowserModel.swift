@@ -51,7 +51,10 @@ extension BrowserTabState {
         return components?.url
     }
 
+    /// Safari's short label (TabsKitAddress.displayLabel(for:) is the toolbar's): the host,
+    /// or a local file's name, never a whole `file:` path.
     static func displayHost(_ url: URL?) -> String {
+        if let url, url.isFileURL { return url.lastPathComponent.isEmpty ? url.path : url.lastPathComponent }
         guard let host = url?.host() else { return url?.absoluteString ?? "" }
         return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
     }
@@ -86,6 +89,8 @@ public final class StreamedBrowserModel: BrowserTabState {
     /// Why the Mac did not load an address (the address bar's, or a link's inside the
     /// page): shown over the page until the next navigation or a tap.
     public private(set) var notice: String?
+    /// The page's focused text field (`rb.text_input`): the keyboard rises for it.
+    public private(set) var field: StreamedBrowserField?
     /// The newest numbers for the overlay: frames per second, kbit/s,
     /// capture-to-decoded latency (median of the last second), decode time.
     public private(set) var meter = Meter()
@@ -321,6 +326,8 @@ public final class StreamedBrowserModel: BrowserTabState {
         case "welcome":
             welcomed = true
             appliedScreen = nil
+            // The host reports focus only when it changes: a new session starts with none.
+            field = nil
             if let screen, let connection {
                 screenSeq = 0
                 try? connection.send(message: wire.open(tab: tab, viewer: "phone", screen: screen))
@@ -332,6 +339,9 @@ public final class StreamedBrowserModel: BrowserTabState {
             }
         case "refused", "ended":
             phase = .waiting(json["reason"] as? String ?? "The Mac ended the page")
+        case "rb.text_input":
+            let next = StreamedBrowserField(json: json)
+            if next != field { field = next }
         case "rb.navigate.refused":
             refused(code: json["code"] as? String, reason: json["reason"] as? String)
         case "rb.page":
@@ -349,6 +359,7 @@ public final class StreamedBrowserModel: BrowserTabState {
         connection = nil
         self.sink = nil
         welcomed = false
+        field = nil
         liveSince = nil
         decoder.reset()
         log.info("browser \(self.tab, privacy: .public) closed: \(code, privacy: .public) \(reason, privacy: .public)")

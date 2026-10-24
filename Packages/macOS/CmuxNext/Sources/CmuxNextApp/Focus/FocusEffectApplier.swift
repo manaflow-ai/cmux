@@ -4,6 +4,8 @@ import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextFocus
+import CmuxNextTerminal
+import CmuxNextCompat
 
 /// Makes one window's AppKit first responder, WebKit/CEF page focus,
 /// `LayoutModel` focus and the registry context match its `FocusState`
@@ -17,37 +19,30 @@ final class FocusEffectApplier: FocusEffectApplying {
     private weak var focusedChildWindowPage: AnyObject?
     /// The tab whose docked DevTools this window gave focus to.
     private weak var focusedDevTools: (any BrowserDevToolsHosting)?
-    private var observers: [any NSObjectProtocol] = []
+    private var observers: [MainActorObservation] = []
     /// The panel bubble over this window that has the keyboard (group editor).
     private weak var overlayPanel: NSWindow?
-    private var overlayPanelObserver: (any NSObjectProtocol)?
+    private var overlayPanelObserver: MainActorObservation?
 
     init(controller: WindowController) {
         self.controller = controller
         let center = NotificationCenter.default
-        observers.append(center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { [weak self] note in
-            let window = note.object as? NSWindow
-            MainActor.assumeIsolated { // main-proof: observer on queue: .main
-                guard let window else { return }
-                self?.ownedWindowDidBecomeKey(window)
-                self?.childWindowDidBecomeKey(window)
-            }
+        observers.append(MainActorObservation(NSWindow.didBecomeKeyNotification, center: center, read: { $0.object as? NSWindow }) { [weak self] window in
+            guard let window else { return }
+            self?.ownedWindowDidBecomeKey(window)
+            self?.childWindowDidBecomeKey(window)
         })
         for (name, active) in [(NSApplication.didBecomeActiveNotification, true), (NSApplication.didResignActiveNotification, false)] {
-            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { // main-proof: observer on queue: .main
-                    self?.controller.focus.send(.appActive(active))
-                    if active { self?.reclaimKeyAfterActivation() }
-                }
+            observers.append(MainActorObservation(name, center: center) { [weak self] in
+                self?.controller.focus.send(.appActive(active))
+                if active { self?.reclaimKeyAfterActivation() }
             })
         }
         controller.services.input.observeFocus(of: controller)
     }
 
     func teardown() {
-        observers.forEach(NotificationCenter.default.removeObserver)
         observers.removeAll()
-        overlayPanelObserver.map(NotificationCenter.default.removeObserver)
         overlayPanelObserver = nil
     }
 
@@ -297,9 +292,8 @@ final class FocusEffectApplier: FocusEffectApplying {
               overlayPanel == nil else { return }
         overlayPanel = owned
         controller.focus.send(.overlayOpened(.groupEditor))
-        overlayPanelObserver = NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: owned,
-                                                                      queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.overlayPanelDidResignKey() } // main-proof: observer on queue: .main
+        overlayPanelObserver = MainActorObservation(NSWindow.didResignKeyNotification, object: owned) { [weak self] in
+            self?.overlayPanelDidResignKey()
         }
     }
 
@@ -311,7 +305,6 @@ final class FocusEffectApplier: FocusEffectApplying {
 
     /// The bubble dismisses when it loses the keys.
     private func overlayPanelDidResignKey() {
-        overlayPanelObserver.map(NotificationCenter.default.removeObserver)
         overlayPanelObserver = nil
         overlayPanel = nil
         controller.focus.send(.overlayClosed(.groupEditor))

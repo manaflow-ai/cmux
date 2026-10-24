@@ -70,10 +70,26 @@ public struct MobileHostLaunch: Sendable, Equatable {
         return "personal-\(userID)"
     }
 
-    /// The child's whole environment. `inherited` supplies only `HOME`, `PATH` and `TMPDIR`.
+    /// A test rig's machine id for cmux-mobile-host, set at launch (`open
+    /// --env`). The app strips every inherited `CMUX*` variable at launch but
+    /// the `CMUX_NEXT_*` knobs (`LaunchIdentity.inheritedKeys`), so the rig's
+    /// variable is a `CMUX_NEXT_` one, passed on as `CMUX_MOBILE_MACHINE_ID`.
+    public static let rigMachineIDKey = "CMUX_NEXT_MOBILE_MACHINE_ID"
+
+    /// The child's whole environment. `inherited` supplies only `HOME`, `PATH`
+    /// and `TMPDIR`, and in a DEBUG (tagged dev) build ``rigMachineIDKey`` when
+    /// set: a test rig's own machine id, so several hidden rig apps on one Mac
+    /// are listed apart on the phone. cmux-mobile-host checks its form (32 hex
+    /// digits) and otherwise uses this computer's id. Release builds never
+    /// pass it, like the test pairing seed (SECURITY.md).
     public func environment(inherited: [String: String]) -> [String: String] {
         var environment: [String: String] = [:]
         for key in ["HOME", "PATH", "TMPDIR"] { environment[key] = inherited[key] }
+        #if DEBUG
+        if let machineID = inherited[Self.rigMachineIDKey], !machineID.isEmpty {
+            environment["CMUX_MOBILE_MACHINE_ID"] = machineID
+        }
+        #endif
         let socket = URL(fileURLWithPath: daemonSocket)
         var session = socket.lastPathComponent
         if session.hasSuffix(".sock") { session.removeLast(5) }

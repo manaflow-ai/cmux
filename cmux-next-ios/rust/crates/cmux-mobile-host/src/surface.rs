@@ -184,7 +184,7 @@ pub async fn serve(
         .filter(|video| !video.is_closed());
     let video_tag = args.get("video_tag").and_then(Value::as_u64).and_then(|tag| u32::try_from(tag).ok());
     let track = track.map(|video| (video, video_tag));
-    let result = crate::browser::splice(claim, None, filter_frame, peer, sender, receiver, track).await;
+    let result = crate::browser::splice(claim, None, filter_frame, None, peer, sender, receiver, track).await;
     config.hosts.release(tab, viewer).await;
     result
 }

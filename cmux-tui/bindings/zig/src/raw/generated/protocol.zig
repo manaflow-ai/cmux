@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "655baaa1d0f11bd63754ffcda70267c4b8f07a2d8d415bf0c302c2ccab838a96";
+pub const ir_sha256 = "cb12b489fcaad8bfa7cd1979fdcc27eaff578f0f3540c961896abdc0c61eeea0";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -924,6 +924,11 @@ pub const GetCellPixelsResult = struct {
     width_px: u16,
 };
 
+pub const GetHostSizePolicyResult = struct {
+    mac_participants: []const []const u8,
+    policy: HostSizePolicy,
+};
+
 pub const GetSizeStateResult = struct {
     self_participant: wire.Nullable([]const u8),
     state: SizeState,
@@ -1029,6 +1034,40 @@ pub const HomeInboxRow = struct {
         "pin_position",
         "preview",
     };
+};
+
+pub const HostSizeMode = enum {
+    smallest,
+    mac,
+    latest,
+    priority,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "smallest")) return .smallest;
+        if (std.mem.eql(u8, value, "mac")) return .mac;
+        if (std.mem.eql(u8, value, "latest")) return .latest;
+        if (std.mem.eql(u8, value, "priority")) return .priority;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .smallest => "smallest",
+            .mac => "mac",
+            .latest => "latest",
+            .priority => "priority",
+        };
+    }
+};
+
+pub const HostSizePolicy = struct {
+    mode: HostSizeMode,
+    order: []const []const u8,
+};
+
+pub const HostSizePolicyRequest = struct {
+    mode: HostSizeMode,
+    order: wire.Field([]const []const u8) = .absent,
 };
 
 pub const Id = u64;
@@ -1318,12 +1357,16 @@ pub const NameSource = enum {
 
 pub const NewRowResult = struct {
     pane: Id,
+    pane_id: ?[]const u8 = null,
     surface: Id,
+    tab_id: ?[]const u8 = null,
     terminal_id: wire.Field([]const u8) = .absent,
     terminal_incarnation: wire.Field([]const u8) = .absent,
     transaction: ?[]const u8 = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "pane_id",
+        "tab_id",
         "transaction",
     };
 };
@@ -1785,6 +1828,10 @@ pub const Screen = struct {
     };
 };
 
+pub const SendExpectAgent = struct {
+    session: wire.Field([]const u8) = .absent,
+};
+
 pub const ServerStatsConnections = struct {
     accepted: u64,
     active: u64,
@@ -1913,6 +1960,10 @@ pub const ServerStatsWriterPhase = enum {
 pub const SetCellPixelsResult = struct {
     failures: []const CellPixelFailure,
     resizes: []const CellPixelResize,
+};
+
+pub const SetHostSizePolicyResult = struct {
+    policy: HostSizePolicy,
 };
 
 pub const SetSizeCountsResult = struct {
@@ -6016,6 +6067,23 @@ pub fn getFrontendProjection(client: anytype, request: GetFrontendProjectionRequ
     );
 }
 
+pub const GetHostSizePolicyRequest = struct {
+    surface: wire.Field(Id) = .absent,
+};
+
+pub fn getHostSizePolicy(client: anytype, request: GetHostSizePolicyRequest) !wire.Decoded(GetHostSizePolicyResult) {
+    return client.callTyped(
+        GetHostSizePolicyResult,
+        .{
+            .name = "get-host-size-policy",
+            .authority = "control",
+            .since = 12,
+            .capability = "host-size-policy-v1",
+        },
+        request,
+    );
+}
+
 pub const GetSizeStateRequest = struct {
     surface: Id,
 };
@@ -7266,8 +7334,10 @@ pub const NewRowRequest = struct {
     height_permille: u64,
     keep: ?bool = null,
     pane: Id,
+    pane_id: wire.Field([]const u8) = .absent,
     rows: wire.Field(u16) = .absent,
     shell_args: wire.Field([]const []const u8) = .absent,
+    tab_id: wire.Field([]const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
     transaction: wire.Field([]const u8) = .absent,
 
@@ -7284,6 +7354,10 @@ pub fn newRow(client: anytype, request: NewRowRequest) !wire.Decoded(NewRowResul
             .authority = "control",
             .since = 12,
             .capability = "rows-v1",
+            .fields = &.{
+                .{ .name = "pane_id", .since = null, .capability = "row-client-keys-v1" },
+                .{ .name = "tab_id", .since = null, .capability = "row-client-keys-v1" },
+            },
         },
         request,
     );
@@ -8310,14 +8384,17 @@ pub fn selectWorkspace(client: anytype, request: SelectWorkspaceRequest) !wire.D
 
 pub const SendRequest = struct {
     bytes: wire.Field(Base64) = .absent,
+    expect_agent: wire.Field(SendExpectAgent) = .absent,
     expect_foreground: wire.Field([]const u8) = .absent,
     paste: ?bool = null,
+    submit: ?bool = null,
     surface: wire.Field(Id) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
     text: wire.Field([]const u8) = .absent,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "paste",
+        "submit",
     };
 };
 
@@ -8338,8 +8415,10 @@ pub fn send(client: anytype, request: SendRequest) !wire.Decoded(SendResult) {
             .since = 5,
             .capability = null,
             .fields = &.{
+                .{ .name = "expect_agent", .since = null, .capability = "send-expect-agent-v1" },
                 .{ .name = "expect_foreground", .since = null, .capability = "send-expect-foreground-v1" },
                 .{ .name = "paste", .since = 7, .capability = null },
+                .{ .name = "submit", .since = null, .capability = "send-expect-agent-v1" },
                 .{ .name = "terminal_id", .since = null, .capability = "terminal-input-while-creating-v1" },
             },
         },
@@ -8412,6 +8491,7 @@ pub const SetClientInfoRequest = struct {
     install: wire.Field([]const u8) = .absent,
     kind: wire.Field([]const u8) = .absent,
     name: wire.Field([]const u8) = .absent,
+    remote: wire.Field(bool) = .absent,
     user_id: wire.Field([]const u8) = .absent,
     version: wire.Field([]const u8) = .absent,
 };
@@ -8433,6 +8513,7 @@ pub fn setClientInfo(client: anytype, request: SetClientInfoRequest) !wire.Decod
                 .{ .name = "device_name", .since = 12, .capability = "shared-sizing-v1" },
                 .{ .name = "display_name", .since = 12, .capability = "shared-sizing-v1" },
                 .{ .name = "install", .since = 12, .capability = null },
+                .{ .name = "remote", .since = 12, .capability = "host-size-policy-v1" },
                 .{ .name = "user_id", .since = 12, .capability = "shared-sizing-v1" },
                 .{ .name = "version", .since = 12, .capability = null },
             },
@@ -8552,6 +8633,23 @@ pub fn setFrontendBrowserHistory(client: anytype, request: SetFrontendBrowserHis
             .authority = "control",
             .since = 12,
             .capability = "frontend-browser-history-v1",
+        },
+        request,
+    );
+}
+
+pub const SetHostSizePolicyRequest = struct {
+    policy: HostSizePolicyRequest,
+};
+
+pub fn setHostSizePolicy(client: anytype, request: SetHostSizePolicyRequest) !wire.Decoded(SetHostSizePolicyResult) {
+    return client.callTyped(
+        SetHostSizePolicyResult,
+        .{
+            .name = "set-host-size-policy",
+            .authority = "control",
+            .since = 12,
+            .capability = "host-size-policy-v1",
         },
         request,
     );
@@ -9489,6 +9587,7 @@ pub const UpdateBrowserProfileRequest = struct {
     color: wire.Field([]const u8) = .absent,
     icon: wire.Field([]const u8) = .absent,
     name: wire.Field([]const u8) = .absent,
+    proxy: wire.Field(JsonValue) = .absent,
 };
 
 pub const UpdateBrowserProfileResult = JsonValue;
@@ -11431,7 +11530,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 283;
+pub const command_count: usize = 285;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -11552,6 +11651,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "get-cell-pixels", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "get-frontend-browser-history", .authority = "control", .since = 12, .capability = "frontend-browser-history-v1", .stream = null },
     .{ .name = "get-frontend-projection", .authority = "control", .since = 7, .capability = null, .stream = null },
+    .{ .name = "get-host-size-policy", .authority = "control", .since = 12, .capability = "host-size-policy-v1", .stream = null },
     .{ .name = "get-size-state", .authority = "control", .since = 12, .capability = "shared-sizing-v1", .stream = null },
     .{ .name = "history-search", .authority = "local-admin", .since = 12, .capability = "history-search-v1", .stream = null },
     .{ .name = "home-inbox", .authority = "local-admin", .since = 12, .capability = "home-inbox-v1", .stream = null },
@@ -11659,6 +11759,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "set-column-dock", .authority = "control", .since = 12, .capability = "dock-columns-v1", .stream = null },
     .{ .name = "set-default-colors", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "set-frontend-browser-history", .authority = "control", .since = 12, .capability = "frontend-browser-history-v1", .stream = null },
+    .{ .name = "set-host-size-policy", .authority = "control", .since = 12, .capability = "host-size-policy-v1", .stream = null },
     .{ .name = "set-personal-terminal", .authority = "control", .since = 12, .capability = "personal-terminals-v1", .stream = null },
     .{ .name = "set-personal-workspace", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "set-profile-follows", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },

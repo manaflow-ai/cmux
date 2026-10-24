@@ -32,8 +32,8 @@ public struct RowCommands: Sendable {
     }
 
     private func requireRows() async throws {
-        guard await connection.identity?.supports(DaemonCapabilities.shared.rows) == true else {
-            throw DaemonError.missingCapabilities([DaemonCapabilities.shared.rows])
+        guard await connection.identity?.supports(DaemonCapabilities.rows) == true else {
+            throw DaemonError.missingCapabilities([DaemonCapabilities.rows])
         }
     }
 }

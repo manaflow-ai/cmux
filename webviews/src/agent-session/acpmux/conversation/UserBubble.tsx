@@ -26,6 +26,7 @@ import { useStableImage } from "./imageEntries";
 import { PromptText } from "./PromptText";
 import {
   ForkButton,
+  forkWithFeedback,
   MessageCopy,
   MessageDot,
   MessageMore,
@@ -36,8 +37,8 @@ import {
 } from "./MessageActions";
 import { TurnActionsContext } from "./turnActions";
 
-/// `pending` is a waiting steer's clock and Send now (PendingSteer.tsx): it sits beside the bubble's
-/// left edge, on the bubble's own row, so it takes no line of its own (Leo, 2026-10-21).
+/// `pending` is a waiting steer's Send now (PendingSteer.tsx): it leads the prompt's action row,
+/// before the receipt, age and message buttons (Leo, 2026-10-24).
 export function UserBubble({ row, text, pending }: { row: AcpmuxRow; text: string; pending?: ReactNode }) {
   const t = useT();
   const { edit, branches, fork, forkSeq, forkAny, promptTurns } = useContext(TurnActionsContext);
@@ -80,11 +81,11 @@ export function UserBubble({ row, text, pending }: { row: AcpmuxRow; text: strin
           <PromptText rowId={row.id} text={text} pasted={row.pasted} show={show} />
           {/* A prompt this pane sent that is still on its way; a steer's mark says it instead. */}
           {row.delivery && !row.steer && <DeliveryMark delivery={row.delivery} />}
-          {pending}
         </div>
       )}
-      {text && !row.failed && !row.queued && (
+      {!row.failed && !row.queued && (text || pending) && (
         <div className={branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions"}>
+          {pending}
           {branch && branches && (
             <span className="cv-user__versions">
               <button
@@ -121,7 +122,9 @@ export function UserBubble({ row, text, pending }: { row: AcpmuxRow; text: strin
           <MessageCopy text={row.text ?? text} />
           {/* Not while it is still on its way: a second send would duplicate it. */}
           {!row.pending && row.delivery?.state !== "sending" && <PromptRetry rowId={row.id} prompt={resend} />}
-          {forkThrough !== undefined && <ForkButton onFork={() => fork!(forkThrough)} />}
+          {forkThrough !== undefined && (
+            <ForkButton onFork={() => forkWithFeedback(forkThrough, () => fork!(forkThrough))} />
+          )}
           {through !== undefined && (
             <button
               type="button"

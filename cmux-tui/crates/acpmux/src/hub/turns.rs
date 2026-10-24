@@ -200,7 +200,7 @@ impl Hub {
         let prompt_id = opts.prompt_id.unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
         let control = opts.control;
         let trust_gate = opts.trust_gate;
-        let mut on_accepted = opts.on_accepted;
+        let mut on_accepted = self.with_host_pressure(opts.on_accepted);
         // The prompts this one replaced (`supersede.rs`), named in its acceptance: set where it
         // is committed (queued, started, or steered in), never before a refusal.
         let supersede = opts.supersede.clone();
@@ -426,12 +426,15 @@ impl Hub {
         }
         self.set_status(session, SessionStatus::Running);
         self.watch_silent_turn(session, &turn_id).await;
-        let mut result = super::steer_end::agent_prompt(
+        // Start title generation after the first prompt is written to the harness, while its
+        // session-info title can still win before the cheap completion is spent.
+        let mut result = super::steer_end::agent_prompt_hook(
             session,
             &child,
             json!({"sessionId": agent_sid, "prompt": acp_prompt_blocks(session, &blocks)?}),
             &turn_id,
             false,
+            || self.title_after_prompt(session),
         )
         .await;
         // The account behind this harness is exhausted: move the session
@@ -514,7 +517,7 @@ impl Hub {
                 turn_id: &turn_id,
                 control,
                 trust_gate,
-                error: agent_error.as_deref().unwrap_or(&e.message),
+                error: super::turn_errors::continuation_error(agent_error.as_deref(), &e.message),
             }),
             _ => None,
         };
@@ -558,7 +561,8 @@ impl Hub {
         if self.settled_by_shutdown.lock().unwrap().contains(turn_id) {
             return result;
         }
-        // A process that died without answering: say what it printed last.
+        // Apply queued stderr before classifying a dead process (a limit never resumes).
+        Self::drain_inbound(session).await;
         if let Err(e) = &mut result {
             let bare = e.message == "agent process closed"
                 || e.message == "Internal error"
@@ -619,10 +623,6 @@ impl Hub {
                 Some(_) => {}
             }
         }
-        // The agent's notifications before this answer (the reply text, the
-        // preview) are applied before the turn settles, so every record below
-        // and the chat activity it sends see them.
-        Self::drain_inbound(session).await;
         let git = super::turn_git::turn_git(session).await;
         match &result {
             Ok(v) => {

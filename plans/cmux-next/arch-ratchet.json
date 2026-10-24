@@ -1,0 +1,454 @@
+{
+  "_doc": "Architecture counts the pre-push ratchet holds (scripts/cmux-next/arch-ratchet.py; the method is scripts/cmux-next/arch_counts.py, whose docstring defines every row). A push may not raise a ratcheted row's total; when one drops, rerun `scripts/cmux-next/arch-ratchet.py --update`. exceptions: [{\"date\": \"YYYY-MM-DD\", \"row\": \"<row>\", \"allow\": <n>, \"why\": \"...\"}] lets the push that adds the entry raise that row by n; never CI.",
+  "method": "arch_counts",
+  "method_version": 1,
+  "measured_sha": "4495b5f123656042f1675ec9677914a7c9c4eb95",
+  "measured_date": "2026-10-23",
+  "rows": {
+    "layer_hard": {
+      "title": "hard layer edges (core/service/domain -> ui/app)",
+      "ratchet": true
+    },
+    "layer_soft": {
+      "title": "soft layer edges (service -> domain)",
+      "ratchet": true
+    },
+    "layer_upward": {
+      "title": "other upward layer edges (core -> service/domain)",
+      "ratchet": true
+    },
+    "layer_unplaced": {
+      "title": "targets missing from architecture-layers.json",
+      "ratchet": true
+    },
+    "stateful_singletons": {
+      "title": "stateful singletons (stored static of a stateful type)",
+      "ratchet": true
+    },
+    "global_mutable_statics": {
+      "title": "global mutable statics (static var, static lock/cache)",
+      "ratchet": true
+    },
+    "assume_isolated_outside_adapters": {
+      "title": "MainActor.assumeIsolated outside seam adapters",
+      "ratchet": true
+    },
+    "assume_isolated_total": {
+      "title": "MainActor.assumeIsolated, all sites",
+      "ratchet": false
+    },
+    "app_broadcast_names": {
+      "title": "app-internal Notification.Name broadcasts",
+      "ratchet": true
+    },
+    "observer_sites": {
+      "title": "NotificationCenter/KVO observer sites",
+      "ratchet": true
+    },
+    "app_lines": {
+      "title": "CmuxNextApp Swift lines",
+      "ratchet": false
+    }
+  },
+  "totals": {
+    "layer_hard": 31,
+    "layer_soft": 12,
+    "layer_upward": 3,
+    "layer_unplaced": 0,
+    "stateful_singletons": 158,
+    "global_mutable_statics": 262,
+    "assume_isolated_outside_adapters": 175,
+    "assume_isolated_total": 235,
+    "app_broadcast_names": 12,
+    "observer_sites": 169,
+    "app_lines": 142081
+  },
+  "packages": {
+    "CmuxNextActions": {
+      "global_mutable_statics": 2,
+      "assume_isolated_total": 1
+    },
+    "CmuxNextAgentActivity": {
+      "stateful_singletons": 2,
+      "assume_isolated_outside_adapters": 2,
+      "assume_isolated_total": 2
+    },
+    "CmuxNextAgentCursor": {
+      "layer_hard": 1
+    },
+    "CmuxNextAgentCursorVisibility": {
+      "layer_upward": 1
+    },
+    "CmuxNextAgentIntegrations": {
+      "layer_hard": 1,
+      "layer_soft": 1
+    },
+    "CmuxNextAgentLanes": {
+      "stateful_singletons": 5,
+      "global_mutable_statics": 3,
+      "assume_isolated_outside_adapters": 2,
+      "assume_isolated_total": 2
+    },
+    "CmuxNextAgentPane": {
+      "stateful_singletons": 22,
+      "global_mutable_statics": 25,
+      "assume_isolated_outside_adapters": 4,
+      "assume_isolated_total": 4,
+      "observer_sites": 6
+    },
+    "CmuxNextAgentUpdates": {
+      "layer_hard": 1,
+      "layer_soft": 1
+    },
+    "CmuxNextApp": {
+      "stateful_singletons": 28,
+      "global_mutable_statics": 69,
+      "assume_isolated_outside_adapters": 50,
+      "assume_isolated_total": 59,
+      "observer_sites": 58,
+      "app_lines": 142081
+    },
+    "CmuxNextApps": {
+      "stateful_singletons": 1,
+      "global_mutable_statics": 1
+    },
+    "CmuxNextBookmarks": {
+      "stateful_singletons": 1
+    },
+    "CmuxNextBridge": {
+      "layer_hard": 4,
+      "stateful_singletons": 4,
+      "global_mutable_statics": 1
+    },
+    "CmuxNextBrowser": {
+      "stateful_singletons": 18,
+      "global_mutable_statics": 21,
+      "assume_isolated_outside_adapters": 20,
+      "assume_isolated_total": 29,
+      "app_broadcast_names": 2,
+      "observer_sites": 5
+    },
+    "CmuxNextBrowserAutomation": {
+      "layer_hard": 1,
+      "global_mutable_statics": 1,
+      "assume_isolated_outside_adapters": 1,
+      "assume_isolated_total": 1
+    },
+    "CmuxNextBrowserHistory": {
+      "layer_hard": 1,
+      "observer_sites": 1
+    },
+    "CmuxNextBrowserHost": {
+      "layer_hard": 1
+    },
+    "CmuxNextChiefPetWiring": {
+      "assume_isolated_outside_adapters": 1,
+      "assume_isolated_total": 1
+    },
+    "CmuxNextChromiumWarmup": {
+      "layer_hard": 1,
+      "assume_isolated_outside_adapters": 1,
+      "assume_isolated_total": 1,
+      "observer_sites": 1
+    },
+    "CmuxNextCloud": {
+      "stateful_singletons": 2
+    },
+    "CmuxNextCodeRouter": {
+      "global_mutable_statics": 1
+    },
+    "CmuxNextCompat": {
+      "stateful_singletons": 1,
+      "global_mutable_statics": 3,
+      "assume_isolated_outside_adapters": 2,
+      "assume_isolated_total": 3,
+      "observer_sites": 2
+    },
+    "CmuxNextComputerUse": {
+      "layer_hard": 1,
+      "layer_soft": 1,
+      "stateful_singletons": 2
+    },
+    "CmuxNextControl": {
+      "layer_soft": 1,
+      "stateful_singletons": 1,
+      "assume_isolated_outside_adapters": 1,
+      "assume_isolated_total": 1,
+      "app_broadcast_names": 1
+    },
+    "CmuxNextCookieImport": {
+      "observer_sites": 2
+    },
+    "CmuxNextCrashReporting": {
+      "global_mutable_statics": 1
+    },
+    "CmuxNextDaemon": {
+      "stateful_singletons": 3,
+      "global_mutable_statics": 4
+    },
+    "CmuxNextDaemonService": {
+      "layer_hard": 3,
+      "layer_soft": 1,
+      "stateful_singletons": 1,
+      "global_mutable_statics": 3,
+      "observer_sites": 1
+    },
+    "CmuxNextDesign": {
+      "stateful_singletons": 25,
+      "global_mutable_statics": 66,
+      "assume_isolated_outside_adapters": 31,
+      "assume_isolated_total": 38,
+      "app_broadcast_names": 5,
+      "observer_sites": 38
+    },
+    "CmuxNextDesignTokens": {
+      "stateful_singletons": 2,
+      "assume_isolated_outside_adapters": 2,
+      "assume_isolated_total": 2,
+      "observer_sites": 1
+    },
+    "CmuxNextDevices": {
+      "stateful_singletons": 1
+    },
+    "CmuxNextDictation": {
+      "stateful_singletons": 1,
+      "observer_sites": 2
+    },
+    "CmuxNextDiff": {
+      "layer_hard": 2,
+      "layer_soft": 1,
+      "global_mutable_statics": 2
+    },
+    "CmuxNextFileGrid": {
+      "assume_isolated_total": 2
+    },
+    "CmuxNextFilesUI": {
+      "assume_isolated_outside_adapters": 2,
+      "assume_isolated_total": 2
+    },
+    "CmuxNextFloating": {
+      "observer_sites": 2
+    },
+    "CmuxNextFocusUI": {
+      "stateful_singletons": 1,
+      "assume_isolated_total": 1
+    },
+    "CmuxNextHome": {
+      "stateful_singletons": 1,
+      "global_mutable_statics": 2,
+      "assume_isolated_outside_adapters": 2,
+      "assume_isolated_total": 2,
+      "observer_sites": 2
+    },
+    "CmuxNextHomeEngine": {
+      "global_mutable_statics": 1
+    },
+    "CmuxNextHostedChief": {
+      "layer_hard": 1
+    },
+    "CmuxNextIcons": {
+      "global_mutable_statics": 2
+    },
+    "CmuxNextImportCards": {
+      "stateful_singletons": 1,
+      "global_mutable_statics": 1,
+      "observer_sites": 1
+    },
+    "CmuxNextKeepAwake": {
+      "layer_soft": 2,
+      "stateful_singletons": 1
+    },
+    "CmuxNextLayout": {
+      "global_mutable_statics": 3,
+      "assume_isolated_outside_adapters": 4,
+      "assume_isolated_total": 5,
+      "observer_sites": 1
+    },
+    "CmuxNextMacScreen": {
+      "assume_isolated_outside_adapters": 4,
+      "assume_isolated_total": 4,
+      "observer_sites": 4
+    },
+    "CmuxNextMobileHost": {
+      "layer_hard": 4,
+      "layer_soft": 1,
+      "observer_sites": 1
+    },
+    "CmuxNextNowPlaying": {
+      "layer_hard": 3,
+      "global_mutable_statics": 3,
+      "observer_sites": 2
+    },
+    "CmuxNextPages": {
+      "stateful_singletons": 7,
+      "global_mutable_statics": 7,
+      "assume_isolated_outside_adapters": 3,
+      "assume_isolated_total": 3,
+      "observer_sites": 6
+    },
+    "CmuxNextPalette": {
+      "stateful_singletons": 1,
+      "global_mutable_statics": 2,
+      "assume_isolated_outside_adapters": 2,
+      "assume_isolated_total": 4,
+      "observer_sites": 1
+    },
+    "CmuxNextPhone": {
+      "assume_isolated_total": 3,
+      "observer_sites": 1
+    },
+    "CmuxNextPhoneAccess": {
+      "layer_soft": 1
+    },
+    "CmuxNextPopups": {
+      "observer_sites": 1
+    },
+    "CmuxNextProcessEnvironment": {
+      "stateful_singletons": 1
+    },
+    "CmuxNextRemote": {
+      "stateful_singletons": 1
+    },
+    "CmuxNextRemoteBrowser": {
+      "assume_isolated_outside_adapters": 1,
+      "assume_isolated_total": 1,
+      "observer_sites": 2
+    },
+    "CmuxNextRemoteLocalhostService": {
+      "layer_hard": 1,
+      "layer_soft": 1
+    },
+    "CmuxNextRemoteView": {
+      "assume_isolated_total": 1,
+      "observer_sites": 1
+    },
+    "CmuxNextRemoteViewSessions": {
+      "global_mutable_statics": 1,
+      "assume_isolated_outside_adapters": 1,
+      "assume_isolated_total": 1
+    },
+    "CmuxNextServer": {
+      "global_mutable_statics": 1
+    },
+    "CmuxNextSettings": {
+      "layer_hard": 1,
+      "global_mutable_statics": 1,
+      "observer_sites": 1
+    },
+    "CmuxNextSettingsWindow": {
+      "stateful_singletons": 1
+    },
+    "CmuxNextSidebar": {
+      "stateful_singletons": 9,
+      "global_mutable_statics": 10,
+      "assume_isolated_outside_adapters": 20,
+      "assume_isolated_total": 24,
+      "app_broadcast_names": 3,
+      "observer_sites": 11
+    },
+    "CmuxNextSignposts": {
+      "stateful_singletons": 1,
+      "assume_isolated_total": 1
+    },
+    "CmuxNextStash": {
+      "layer_hard": 1
+    },
+    "CmuxNextTabs": {
+      "stateful_singletons": 5,
+      "global_mutable_statics": 2,
+      "assume_isolated_outside_adapters": 5,
+      "assume_isolated_total": 12,
+      "observer_sites": 3
+    },
+    "CmuxNextTasks": {
+      "assume_isolated_outside_adapters": 2,
+      "assume_isolated_total": 2
+    },
+    "CmuxNextTerminal": {
+      "stateful_singletons": 1,
+      "global_mutable_statics": 22,
+      "assume_isolated_outside_adapters": 11,
+      "assume_isolated_total": 20,
+      "app_broadcast_names": 1,
+      "observer_sites": 7
+    },
+    "CmuxNextUpdater": {
+      "observer_sites": 2
+    },
+    "CmuxNextWakeups": {
+      "stateful_singletons": 6,
+      "global_mutable_statics": 1,
+      "assume_isolated_total": 2,
+      "observer_sites": 1
+    },
+    "CmuxNextWebUpdates": {
+      "layer_hard": 3,
+      "layer_soft": 1,
+      "stateful_singletons": 1,
+      "observer_sites": 2
+    },
+    "CmuxNextWorkspaceNaming": {
+      "layer_upward": 2
+    },
+    "CmuxNextWorkspaceRepair": {
+      "assume_isolated_outside_adapters": 1,
+      "assume_isolated_total": 1
+    }
+  },
+  "layer_edges": {
+    "hard": [
+      "CmuxNextAgentCursor (domain) -> CmuxNextDesign (ui)",
+      "CmuxNextAgentIntegrations (service) -> CmuxNextPages (ui)",
+      "CmuxNextAgentUpdates (service) -> CmuxNextPages (ui)",
+      "CmuxNextBridge (domain) -> CmuxNextIcons (ui)",
+      "CmuxNextBridge (domain) -> CmuxNextLayout (ui)",
+      "CmuxNextBridge (domain) -> CmuxNextSidebar (ui)",
+      "CmuxNextBridge (domain) -> CmuxNextTabs (ui)",
+      "CmuxNextBrowserAutomation (service) -> CmuxNextBrowser (ui)",
+      "CmuxNextBrowserHistory (service) -> CmuxNextBrowser (ui)",
+      "CmuxNextBrowserHost (service) -> CmuxNextBrowser (ui)",
+      "CmuxNextChromiumWarmup (service) -> CmuxNextBrowser (ui)",
+      "CmuxNextComputerUse (service) -> CmuxNextAgentActivity (ui)",
+      "CmuxNextDaemonService (service) -> CmuxNextAgentPane (ui)",
+      "CmuxNextDaemonService (service) -> CmuxNextApps (ui)",
+      "CmuxNextDaemonService (service) -> CmuxNextLayout (ui)",
+      "CmuxNextDiff (service) -> CmuxNextAgentPane (ui)",
+      "CmuxNextDiff (service) -> CmuxNextPages (ui)",
+      "CmuxNextHostedChief (service) -> CmuxNextHomeEngine (ui)",
+      "CmuxNextMobileHost (service) -> CmuxNextAgentPane (ui)",
+      "CmuxNextMobileHost (service) -> CmuxNextDesign (ui)",
+      "CmuxNextMobileHost (service) -> CmuxNextPages (ui)",
+      "CmuxNextMobileHost (service) -> CmuxNextRemoteBrowser (ui)",
+      "CmuxNextNowPlaying (domain) -> CmuxNextAgentPane (ui)",
+      "CmuxNextNowPlaying (domain) -> CmuxNextBrowser (ui)",
+      "CmuxNextNowPlaying (domain) -> CmuxNextSidebar (ui)",
+      "CmuxNextRemoteLocalhostService (service) -> CmuxNextBrowser (ui)",
+      "CmuxNextSettings (domain) -> CmuxNextDesign (ui)",
+      "CmuxNextStash (service) -> CmuxNextHistory (ui)",
+      "CmuxNextWebUpdates (service) -> CmuxNextAgentPane (ui)",
+      "CmuxNextWebUpdates (service) -> CmuxNextPages (ui)",
+      "CmuxNextWebUpdates (service) -> CmuxNextUpdater (ui)"
+    ],
+    "soft": [
+      "CmuxNextAgentIntegrations (service) -> CmuxNextSettings (domain)",
+      "CmuxNextAgentUpdates (service) -> CmuxNextSettings (domain)",
+      "CmuxNextComputerUse (service) -> CmuxNextSettings (domain)",
+      "CmuxNextControl (service) -> CmuxNextSettings (domain)",
+      "CmuxNextDaemonService (service) -> CmuxNextBridge (domain)",
+      "CmuxNextDiff (service) -> CmuxNextSettings (domain)",
+      "CmuxNextKeepAwake (service) -> CmuxNextBridge (domain)",
+      "CmuxNextKeepAwake (service) -> CmuxNextSettings (domain)",
+      "CmuxNextMobileHost (service) -> CmuxNextSettings (domain)",
+      "CmuxNextPhoneAccess (service) -> CmuxNextSettings (domain)",
+      "CmuxNextRemoteLocalhostService (service) -> CmuxNextSettings (domain)",
+      "CmuxNextWebUpdates (service) -> CmuxNextSettings (domain)"
+    ],
+    "upward": [
+      "CmuxNextAgentCursorVisibility (core) -> CmuxNextAgentCursor (domain)",
+      "CmuxNextWorkspaceNaming (core) -> CmuxNextBridge (domain)",
+      "CmuxNextWorkspaceNaming (core) -> CmuxNextDaemon (service)"
+    ],
+    "unplaced": []
+  },
+  "exceptions": []
+}

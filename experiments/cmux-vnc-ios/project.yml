@@ -1,0 +1,114 @@
+# XcodeGen spec for the cmux VNC on iOS demo. Regenerate with `xcodegen generate`
+# in this directory after adding or removing source files.
+name: CmuxVNCiOS
+options:
+  bundleIdPrefix: dev.cmux
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+packages:
+  CmuxVNC:
+    path: ../../Packages/Shared/CmuxVNC
+  CmuxVNCWebRTC:
+    path: ../../Packages/Shared/CmuxVNCWebRTC
+  CmuxScreenKit:
+    path: ../../Packages/Shared/CmuxScreenKit
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "0.1"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  CmuxVNCiOS:
+    type: application
+    platform: iOS
+    sources:
+      - CmuxVNCiOS
+    dependencies:
+      - package: CmuxVNC
+        product: CmuxVNC
+      - package: CmuxVNC
+        product: CmuxVNCDemoServer
+      - package: CmuxVNCWebRTC
+        product: CmuxVNCWebRTC
+      - package: CmuxScreenKit
+        product: CmuxScreenKit
+      - package: CmuxScreenKit
+        product: CmuxScreenKitUI
+    info:
+      path: CmuxVNCiOS/Info.plist
+      properties:
+        CFBundleURLTypes:
+          - CFBundleURLName: dev.cmux.vnc.pair
+            CFBundleURLSchemes: [cmux-vnc]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.vnc.demo
+        PRODUCT_NAME: CmuxVNCiOS
+        TARGETED_DEVICE_FAMILY: "1,2"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: cmux VNC
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        INFOPLIST_KEY_NSCameraUsageDescription: "cmux VNC scans the pairing code a Mac's cmux-vnc-host shows."
+        INFOPLIST_KEY_NSLocalNetworkUsageDescription: "cmux VNC connects to screen sharing on computers in your local network and tailnet."
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_STYLE: Automatic
+  # The same app as a separate install for trying the Rust host
+  # (cmux-screen/) next to the Swift one: its own bundle ID, name and icon,
+  # and no cmux-vnc:// scheme, so pairing links keep opening cmux VNC.
+  CmuxVNCRustiOS:
+    type: application
+    platform: iOS
+    sources:
+      - path: CmuxVNCiOS
+        excludes: [Info.plist]
+    dependencies:
+      - package: CmuxVNC
+        product: CmuxVNC
+      - package: CmuxVNC
+        product: CmuxVNCDemoServer
+      - package: CmuxVNCWebRTC
+        product: CmuxVNCWebRTC
+      - package: CmuxScreenKit
+        product: CmuxScreenKit
+      - package: CmuxScreenKit
+        product: CmuxScreenKitUI
+    info:
+      path: CmuxVNCRustiOS/Info.plist
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.vnc.rust
+        PRODUCT_NAME: CmuxVNCRustiOS
+        TARGETED_DEVICE_FAMILY: "1,2"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: cmux VNC Rust
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        INFOPLIST_KEY_NSCameraUsageDescription: "cmux VNC Rust scans the pairing code a Mac's cmux-screen-host shows."
+        INFOPLIST_KEY_NSLocalNetworkUsageDescription: "cmux VNC Rust connects to screen sharing on computers in your local network and tailnet."
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIconRust
+        CODE_SIGN_STYLE: Automatic
+schemes:
+  CmuxVNCRustiOS:
+    build:
+      targets:
+        CmuxVNCRustiOS: all
+    run:
+      config: Release
+    profile:
+      config: Release
+  CmuxVNCiOS:
+    build:
+      targets:
+        CmuxVNCiOS: all
+    # Run optimized: the RFB decoders and the demo server are hot loops, and
+    # SwiftPM packages build unoptimized in Debug.
+    run:
+      config: Release
+    profile:
+      config: Release

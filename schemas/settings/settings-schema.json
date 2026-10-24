@@ -48,6 +48,9 @@
               "tabs.newTabWidgets.actions",
               "tabs.newTabWidgets.chats",
               "tabs.newTabWidgets.styleDots",
+              "tabs.newTabWidgets.weather",
+              "tabs.newTabWidgets.weatherCity",
+              "tabs.newTabWidgets.machines",
               "tabs.newTabWidgets.order",
               "sidebar.showChats"
             ],
@@ -138,7 +141,8 @@
               "diff.lineNumbers",
               "diff.showBackgrounds",
               "diff.expandUnchanged",
-              "diff.groupByKind"
+              "diff.groupByKind",
+              "diff.hideWhitespace"
             ],
             "title" : {
               "key" : "settings.group.diffViewer",
@@ -401,6 +405,7 @@
               "appearance.background",
               "appearance.backgroundRotation",
               "appearance.paneBackgrounds",
+              "ui.reducedBackgrounds",
               "appearance.backgroundOpacity",
               "appearance.backgroundBlur",
               "appearance.inactiveWindowDim"
@@ -466,6 +471,7 @@
               "sidebar.density",
               "sidebar.detailedStatusIcons",
               "sidebar.showTimestamps",
+              "sidebar.showColors",
               "sidebar.showLocalMachine",
               "sidebar.groupHeader.memberCount",
               "sidebar.groupHeader.unreadCount",
@@ -1084,6 +1090,16 @@
             }
           },
           {
+            "key" : "settings.group.media",
+            "rows" : [
+              "media.pictureInPicture.enabled"
+            ],
+            "title" : {
+              "key" : "settings.group.media",
+              "text" : "Media"
+            }
+          },
+          {
             "key" : "settings.group.bookmarks",
             "rows" : [
               "browser.showBookmarksBar"
@@ -1239,6 +1255,7 @@
           {
             "key" : "keyboard.1",
             "rows" : [
+              "tabs.commandDigits",
               "sidebar.numbering",
               "sidebar.cmd9",
               "sidebar.stepping",
@@ -1261,6 +1278,16 @@
             "title" : {
               "key" : "settings.group.palette",
               "text" : "Command Palette"
+            }
+          },
+          {
+            "key" : "settings.group.macScreenKeyboard",
+            "rows" : [
+              "macScreen.systemShortcuts"
+            ],
+            "title" : {
+              "key" : "settings.group.macScreenKeyboard",
+              "text" : "Mac Screen"
             }
           }
         ],
@@ -1305,6 +1332,16 @@
             "title" : {
               "key" : "settings.pageGroup.network",
               "text" : "Network Requests"
+            }
+          },
+          {
+            "key" : "settings.group.hangReports",
+            "rows" : [
+              "diagnostics.hangReports"
+            ],
+            "title" : {
+              "key" : "settings.group.hangReports",
+              "text" : "Hang Reports"
             }
           }
         ],
@@ -1390,7 +1427,8 @@
           {
             "key" : "settings.group.mobile",
             "rows" : [
-              "mobile.allowIPhoneConnections"
+              "mobile.allowIPhoneConnections",
+              "mobile.terminalSizing"
             ],
             "title" : {
               "key" : "settings.group.mobile",
@@ -1409,6 +1447,30 @@
         },
         "trail" : [
           "mobile"
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "dev_only" : true,
+        "groups" : [
+
+        ],
+        "id" : "devices",
+        "lead" : [
+          "devices"
+        ],
+        "symbol" : "laptopcomputer",
+        "title" : {
+          "key" : "settings.category.devices",
+          "text" : "Devices"
+        },
+        "trail" : [
+
         ]
       },
       {
@@ -1474,6 +1536,49 @@
         "title" : {
           "key" : "settings.category.experimental",
           "text" : "Experimental"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+          "development"
+        ],
+        "dev_only" : true,
+        "groups" : [
+          {
+            "key" : "settings.group.macScreen",
+            "rows" : [
+              "macScreen.debug.relayOnly"
+            ],
+            "title" : {
+              "key" : "settings.group.macScreen",
+              "text" : "Mac Screen"
+            }
+          },
+          {
+            "key" : "settings.group.deviceHub",
+            "rows" : [
+              "deviceHub.url"
+            ],
+            "title" : {
+              "key" : "settings.group.deviceHub",
+              "text" : "Device Hub"
+            }
+          }
+        ],
+        "id" : "development",
+        "lead" : [
+
+        ],
+        "symbol" : "hammer",
+        "title" : {
+          "key" : "settings.section.development",
+          "text" : "Development"
         },
         "trail" : [
 
@@ -2276,18 +2381,24 @@
       },
       "help" : {
         "key" : "settings.tabs.terminalFirst.help",
-        "text" : "When on, Cmd-T, Cmd-D and Cmd-Shift-D open a terminal, as in cmux classic, instead of the New Tab page."
+        "text" : "New tabs (Cmd-T, the tab bar's +), splits (Cmd-D, Cmd-Shift-D), new workspaces (Cmd-N, the sidebar's +) and new windows open a terminal, as in cmux classic, instead of the New Tab page. To open the New Tab page while this is on, right-click or press and hold the tab bar's +, or run New Tab Page from the command palette (Cmd-Shift-P). Cmd-I still opens an agent chat and Cmd-Shift-L a browser tab."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.terminalFirst",
       "keywords" : [
         "terminal",
         "classic",
+        "classic mode",
+        "cmux classic",
         "new tab",
         "split",
+        "workspace",
+        "window",
         "cmd-t",
         "cmd-d",
+        "cmd-n",
         "new tab page",
+        "gui",
         "default"
       ],
       "kind" : "toggle",
@@ -2305,7 +2416,7 @@
       "summary" : null,
       "title" : {
         "key" : "settings.tabs.terminalFirst",
-        "text" : "New Tabs and Splits Open a Terminal"
+        "text" : "cmux Classic Mode"
       },
       "validation" : "portable"
     },
@@ -5628,6 +5739,153 @@
       "title" : {
         "key" : "settings.mobile.allowIPhoneConnections",
         "text" : "Allow iPhone Connections"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "smallest",
+        "mac",
+        "latest",
+        "priority"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.terminalSizing.smallest",
+            "text" : "Fit the Smallest Viewer"
+          },
+          "value" : "smallest"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.terminalSizing.mac",
+            "text" : "Prefer This Mac"
+          },
+          "value" : "mac"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.terminalSizing.latest",
+            "text" : "Prefer the Active Device"
+          },
+          "value" : "latest"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.terminalSizing.priority",
+            "text" : "Priority Order"
+          },
+          "value" : "priority"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "smallest",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.mobile",
+        "text" : "iPhone"
+      },
+      "help" : {
+        "key" : "settings.mobile.terminalSizing.help",
+        "text" : "Decides the size of a terminal while this Mac and a phone show it at once. A device that gets a larger terminal than it fits scrolls sideways or shows empty space; text never wraps wrong. Set the priority order in the cmux app on your iPhone."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "mobile.terminalSizing",
+      "keywords" : [
+        "iphone",
+        "phone",
+        "mobile",
+        "terminal",
+        "size",
+        "sizing",
+        "shared",
+        "priority",
+        "columns"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "mobile",
+        "terminalSizing"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "accounts",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.mobile.terminalSizing",
+        "text" : "Terminal Size When Shared"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "ws-1",
+          "2B7F0C3A-workspace"
+        ]
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.mobile",
+        "text" : "iPhone"
+      },
+      "help" : {
+        "key" : "settings.mobile.terminalSizingOrder.help",
+        "text" : "The devices whose size a shared terminal takes first, highest first, when Terminal Size When Shared is Priority Order."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "mobile.terminalSizingOrder",
+      "keywords" : [
+        "iphone",
+        "phone",
+        "terminal",
+        "size",
+        "priority",
+        "order"
+      ],
+      "kind" : "string_list",
+      "page_hidden" : true,
+      "path" : [
+        "mobile",
+        "terminalSizingOrder"
+      ],
+      "refuses" : [
+        "ws-1",
+        [
+          1
+        ],
+        [
+          ""
+        ],
+        {
+
+        }
+      ],
+      "section" : "accounts",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.mobile.terminalSizingOrder",
+        "text" : "Terminal Size Priority"
       },
       "validation" : "portable"
     },
@@ -11145,6 +11403,61 @@
         "text" : "Window Background"
       },
       "help" : {
+        "key" : "settings.ui.reducedBackgrounds.help",
+        "text" : "Draws windows in the plain theme color, without paintings, wallpapers or glass. Your background choices stay as they are and come back when you turn it off."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.reducedBackgrounds",
+      "keywords" : [
+        "background",
+        "plain",
+        "reduce",
+        "reduced",
+        "painting",
+        "wallpaper",
+        "glass",
+        "transparency",
+        "backdrop",
+        "art",
+        "simple",
+        "performance"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "reducedBackgrounds"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.reducedBackgrounds",
+        "text" : "Plain Backgrounds"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
         "key" : "settings.appearance.experimentalControls.help",
         "text" : "Applies Hue and Saturation to the window's tint. Off, they have no effect."
       },
@@ -16640,6 +16953,52 @@
         true,
         false
       ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.diffViewer",
+        "text" : "Diff Viewer"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "diff.hideWhitespace",
+      "keywords" : [
+        "diff",
+        "whitespace",
+        "white space",
+        "spaces",
+        "indentation",
+        "ignore"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "diff",
+        "hideWhitespace"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.diff.hideWhitespace",
+        "text" : "Hide White Space"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "privacy",
       "agent_settable" : false,
       "consumers" : [
@@ -17811,7 +18170,7 @@
       },
       "help" : {
         "key" : "settings.agentPane.display.inspector.help",
-        "text" : "Where the Inspector opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat."
+        "text" : "Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat."
       },
       "kept_on_reset_all" : false,
       "key" : "agentPane.display.inspector.placement",
@@ -17821,6 +18180,8 @@
         "acp",
         "display",
         "reading",
+        "session",
+        "info",
         "inspector",
         "panel",
         "side",
@@ -17846,7 +18207,7 @@
       "summary" : null,
       "title" : {
         "key" : "settings.agentPane.display.inspector",
-        "text" : "Inspector"
+        "text" : "Session Info"
       },
       "validation" : "portable"
     },
@@ -21905,6 +22266,59 @@
       "consumers" : [
         "cmux-next"
       ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.showColors.help",
+        "text" : "Workspaces and groups draw their colors in the sidebar. Off, the sidebar draws no colors and keeps the colors you set."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.showColors",
+      "keywords" : [
+        "sidebar",
+        "color",
+        "colors",
+        "colour",
+        "tint",
+        "swatch",
+        "group",
+        "workspace",
+        "hide",
+        "plain"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "showColors"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.showColors",
+        "text" : "Show Workspace Colors"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : false,
       "default_label" : null,
       "group" : {
@@ -22491,6 +22905,76 @@
       "title" : {
         "key" : "settings.sidebar.spacesVisibility",
         "text" : "Show Spaces"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "workspaces",
+        "tabs"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.tabs.commandDigits.workspaces",
+            "text" : "Workspaces"
+          },
+          "value" : "workspaces"
+        },
+        {
+          "title" : {
+            "key" : "settings.tabs.commandDigits.tabs",
+            "text" : "Tabs"
+          },
+          "value" : "tabs"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "workspaces",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.tabs.commandDigits.help",
+        "text" : "Workspaces: Command-1 to 9 go to sidebar items and Control-1 to 9 to tabs. Tabs: Command-1 to 9 go to the focused pane's tabs and Control-1 to 9 to workspaces."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.commandDigits",
+      "keywords" : [
+        "command",
+        "number",
+        "digit",
+        "shortcut",
+        "tab",
+        "workspace",
+        "cmd-1",
+        "switch"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "commandDigits"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : {
+        "key" : "settings.tabs.commandDigits.summary",
+        "text" : "Workspaces or tabs on Command-1 to 9"
+      },
+      "title" : {
+        "key" : "settings.tabs.commandDigits",
+        "text" : "Command-1 to 9 Select"
       },
       "validation" : "portable"
     },
@@ -23968,20 +24452,74 @@
       "default" : true,
       "default_label" : null,
       "group" : {
+        "key" : "settings.group.media",
+        "text" : "Media"
+      },
+      "help" : {
+        "key" : "settings.media.pictureInPicture.enabled.help",
+        "text" : "Offer Picture in Picture for a web page's video in menus, the command palette and the media controls. A site's own video controls are not affected."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "media.pictureInPicture.enabled",
+      "keywords" : [
+        "pip",
+        "picture in picture",
+        "video",
+        "float",
+        "floating",
+        "pop out",
+        "media",
+        "now playing"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "media",
+        "pictureInPicture",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.media.pictureInPicture.enabled",
+        "text" : "Picture in Picture"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
         "key" : "settings.group.tabs",
         "text" : "Tabs"
       },
       "help" : {
         "key" : "settings.tabs.newTabWidgets.greeting.help",
-        "text" : "A short greeting over the composer."
+        "text" : "A headline over the composer that asks what to work on, with the project as a picker."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.newTabWidgets.greeting",
       "keywords" : [
         "new tab",
         "widget",
+        "headline",
         "greeting",
-        "hello"
+        "project",
+        "question"
       ],
       "kind" : "toggle",
       "page_hidden" : false,
@@ -23999,7 +24537,7 @@
       "summary" : null,
       "title" : {
         "key" : "settings.tabs.newTabWidgets.greeting",
-        "text" : "Show Greeting on New Tab"
+        "text" : "Ask What to Work On on New Tab"
       },
       "validation" : "portable"
     },
@@ -24199,6 +24737,155 @@
       "title" : {
         "key" : "settings.tabs.newTabWidgets.styleDots",
         "text" : "Show Template Dots on New Tab"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "network",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.newTabWidgets.weather.help",
+        "text" : "The current weather and today's high and low, for the city below or your time zone's city."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.newTabWidgets.weather",
+      "keywords" : [
+        "new tab",
+        "widget",
+        "weather",
+        "temperature",
+        "forecast",
+        "location"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "newTabWidgets",
+        "weather"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.newTabWidgets.weather",
+        "text" : "Show Weather on New Tab"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : "network",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.newTabWidgets.weatherCity.help",
+        "text" : "A city for the weather widget. Empty uses your time zone's city."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.newTabWidgets.weatherCity",
+      "keywords" : [
+        "new tab",
+        "widget",
+        "weather",
+        "city",
+        "location"
+      ],
+      "kind" : "text",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "newTabWidgets",
+        "weatherCity"
+      ],
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.newTabWidgets.weatherCity",
+        "text" : "Weather City"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.newTabWidgets.machines.help",
+        "text" : "Your machines and whether each is online."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.newTabWidgets.machines",
+      "keywords" : [
+        "new tab",
+        "widget",
+        "machines",
+        "computers",
+        "ssh",
+        "cloud",
+        "online"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "newTabWidgets",
+        "machines"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.newTabWidgets.machines",
+        "text" : "Show Machines on New Tab"
       },
       "validation" : "portable"
     },
@@ -34863,6 +35550,225 @@
         true,
         false
       ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.hangReports",
+        "text" : "Hang Reports"
+      },
+      "help" : {
+        "key" : "settings.diagnostics.hangReports.help",
+        "text" : "Nightly builds send a daily report of hangs and slow frames: call stacks of cmux and macOS code, timings, your app and macOS versions, your Mac's chip and memory size, and rounded counts of open windows and tabs. It never includes file names, web addresses, terminal text, names or anything you type. View Hang Report shows exactly what is sent."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "diagnostics.hangReports",
+      "keywords" : [
+        "hang",
+        "lag",
+        "slow",
+        "performance",
+        "diagnostics",
+        "telemetry",
+        "privacy",
+        "metrickit",
+        "report"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "diagnostics",
+        "hangReports"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "home",
+      "summary" : {
+        "key" : "settings.diagnostics.hangReports.summary",
+        "text" : "Nightly only. No file names, text or addresses."
+      },
+      "title" : {
+        "key" : "settings.diagnostics.hangReports",
+        "text" : "Send Hang Reports"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.macScreenKeyboard",
+        "text" : "Mac Screen"
+      },
+      "help" : {
+        "key" : "settings.macScreen.systemShortcuts.help",
+        "text" : "While a Mac Screen tab has the keyboard, shortcuts like ⌘Tab, ⌘Space, Mission Control and ⌘Q go to the other Mac. Needs Accessibility."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "macScreen.systemShortcuts",
+      "keywords" : [
+        "mac screen",
+        "remote",
+        "system shortcuts",
+        "command tab",
+        "spotlight",
+        "mission control",
+        "keyboard",
+        "accessibility"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "macScreen",
+        "systemShortcuts"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "keyboard",
+      "summary" : {
+        "key" : "settings.macScreen.systemShortcuts.summary",
+        "text" : "System shortcuts go to the remote Mac"
+      },
+      "title" : {
+        "key" : "settings.macScreen.systemShortcuts",
+        "text" : "Send System Shortcuts to the Remote Mac"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.macScreen",
+        "text" : "Mac Screen"
+      },
+      "help" : {
+        "key" : "settings.macScreen.debug.relayOnly.help",
+        "text" : "Mac Screen tabs connect through the TURN relay only, never directly, to check the relay path. Tabs that are connected reconnect."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "macScreen.debug.relayOnly",
+      "keywords" : [
+        "mac screen",
+        "relay",
+        "turn",
+        "webrtc",
+        "ice",
+        "development",
+        "debug"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "macScreen",
+        "debug",
+        "relayOnly"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "development",
+      "summary" : {
+        "key" : "settings.macScreen.debug.relayOnly.summary",
+        "text" : "Mac Screen streams use the relay only"
+      },
+      "title" : {
+        "key" : "settings.macScreen.debug.relayOnly",
+        "text" : "Relay Only"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "",
+        "https://cmux.com",
+        "example.com/path",
+        "about:blank",
+        "file:///tmp/a.html"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.deviceHub",
+        "text" : "Device Hub"
+      },
+      "help" : {
+        "key" : "settings.deviceHub.url.help",
+        "text" : "Overrides the device hub this build signs its devices in to, for Mac Screen sharing between your devices. Leave it empty to use the built-in hub."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "deviceHub.url",
+      "keywords" : [
+        "device hub",
+        "devices",
+        "mac screen",
+        "backend",
+        "development",
+        "debug"
+      ],
+      "kind" : "url",
+      "page_hidden" : false,
+      "path" : [
+        "deviceHub",
+        "url"
+      ],
+      "refuses" : [
+        "not a url",
+        "ftp://example.com",
+        "localhost",
+        1
+      ],
+      "section" : "development",
+      "summary" : {
+        "key" : "settings.deviceHub.url.summary",
+        "text" : "Device hub address"
+      },
+      "title" : {
+        "key" : "settings.deviceHub.url",
+        "text" : "Device Hub Address"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : null,
       "agent_settable" : true,
       "consumers" : [
@@ -35745,6 +36651,14 @@
       "title" : {
         "key" : "settings.section.advanced",
         "text" : "Advanced"
+      }
+    },
+    {
+      "id" : "development",
+      "symbol" : "hammer",
+      "title" : {
+        "key" : "settings.section.development",
+        "text" : "Development"
       }
     }
   ],

@@ -70,6 +70,9 @@ protocol InternalPageProvider: AnyObject {
     /// daemon, so a provider treats it like an open it did not choose (an
     /// agent's open). Default: nothing.
     func restore(_ route: String, for key: String)
+    /// The title of a store tab known only by its `route` (restored, not yet
+    /// shown, so it has no key): nil uses ``title``. Default: nil.
+    func title(forRoute route: String) -> String?
     /// A native bar shown above tab `key`'s view (the Markdown omnibar),
     /// asked once right after ``makeView(for:in:)``. Default: none.
     func makeTopBar(for key: String) -> NSView?
@@ -82,5 +85,6 @@ extension InternalPageProvider {
     func history(for key: String) -> (any PageHistory)? { nil }
     func route(for key: String) -> String? { nil }
     func restore(_ route: String, for key: String) {}
+    func title(forRoute route: String) -> String? { nil }
     func makeTopBar(for key: String) -> NSView? { nil }
 }

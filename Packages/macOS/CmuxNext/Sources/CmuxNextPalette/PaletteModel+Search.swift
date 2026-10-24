@@ -106,7 +106,7 @@ extension PaletteModel {
     /// off the main actor. An empty query shows its last rank or its
     /// unranked rows at once (`searchEmpty`); for a real query the rows on
     /// screen stay until its result lands.
-    func search(_ state: PageState) {
+    func search(_ state: PageState) { // perf-hot: 4ms palette-key (every query key; ranking stays off main)
         let generation = state.generation
         switch state.kind {
         case .textInput(let spec):

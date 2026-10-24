@@ -845,6 +845,12 @@ jobs:
         working-directory: cmux-tui
         run: cargo build --locked -p cmux-tui --bin cmux-tui
 
+      # The shared Claude Code turn crate and the Cloud Chief's Rust turn runner
+      # (its own workspace; the runner's tests drive the real binary on Linux).
+      - name: chief-turn test suite
+        working-directory: Native/OptChat/chief-turn
+        run: cargo test --locked
+
       - name: optchat-chief test suite
         working-directory: Native/OptChat/optchat-chief
         run: cargo test --locked
@@ -863,46 +869,6 @@ jobs:
         run: |
           export CMUX_TUI_BIN="$GITHUB_WORKSPACE/cmux-tui/target/debug/cmux-tui"
           cargo test --locked --test dm_daemon -- --ignored
-
-  # The chatmux-relay crate's tests on macOS. 9f4acf5b2787 (#17051) dropped
-  # the `test (macos)` matrix entry, which was their only macOS run. The
-  # relay builds no Ghostty or Zig code, so this job needs only Rust.
-  # Attempt 1 takes the owned minis through CI_SIDE_LANE_RUNNER (the glaeda-aws
-  # pools have no runners); workflow text never names an owned pool label
-  # (tests/test_ci_self_hosted_guard.sh). A rerun goes back to the background
-  # lane.
-  macos-relay:
-    name: chatmux-relay tests (macOS)
-    needs: validate-inputs
-    if: inputs.mode == 'full' || inputs.test_filter == 'chatmux_relay' || inputs.test_filter == 'chatmux-relay'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          ref: ${{ inputs.commit }}
-
-      - name: Require exact checkout
-        env:
-          EXACT_COMMIT: ${{ inputs.commit }}
-        run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
-
-      - name: Use short temporary directory for macOS socket tests
-        run: echo "TMPDIR=/tmp" >> "$GITHUB_ENV"
-
-      - name: Set up pinned Rust
-        uses: ./.github/actions/setup-cmux-tui-rust
-
-      - name: Cache cargo build
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          workspaces: cmux-tui -> target
-          shared-key: cmux-tui-macos-relay
-
-      - name: cargo test -p chatmux-relay
-        working-directory: cmux-tui
-        run: cargo test -p chatmux-relay --locked
 
   test:
     env:
@@ -1509,7 +1475,6 @@ jobs:
       - validate-inputs
       - lint
       - macos
-      - macos-relay
       - optchat-chief
       - msrv-check
       - web-frontend
@@ -1527,7 +1492,6 @@ jobs:
       VALIDATE_RESULT: ${{ needs.validate-inputs.result }}
       LINT_RESULT: ${{ needs.lint.result }}
       MACOS_RESULT: ${{ needs.macos.result }}
-      MACOS_RELAY_RESULT: ${{ needs.macos-relay.result }}
       OPTCHAT_CHIEF_RESULT: ${{ needs.optchat-chief.result }}
       TEST_FILTER: ${{ inputs.test_filter }}
       MSRV_RESULT: ${{ needs.msrv-check.result }}
@@ -1560,9 +1524,6 @@ jobs:
           require_success "input validation" "$VALIDATE_RESULT"
           require_success "lint" "$LINT_RESULT"
           require_success "macOS lint and tests" "$MACOS_RESULT"
-          if [[ "$MODE" == "full" || "$TEST_FILTER" == "chatmux_relay" || "$TEST_FILTER" == "chatmux-relay" ]]; then
-            require_success "macOS chatmux-relay tests" "$MACOS_RELAY_RESULT"
-          fi
           if [[ "$MODE" == "full" || "$TEST_FILTER" == "optchat_chief" ]]; then
             require_success "optchat-chief tests" "$OPTCHAT_CHIEF_RESULT"
           fi

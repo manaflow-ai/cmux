@@ -1372,6 +1372,16 @@ public protocol LinkHandleProtocol: AnyObject, Sendable {
     func ping() async throws  -> UInt32
     
     /**
+     * Whether the link is alive within `timeout_ms`: the round trip in
+     * milliseconds on the pong, `None` when other frames from the Mac came
+     * first (a slow relay's queue; the link is alive), an error only when
+     * nothing came back at all or the link closed. The app's heartbeat,
+     * foreground and presence checks use it, so a busy link is never
+     * closed for a late pong (link-reliability-20261023.md).
+     */
+    func probe(timeoutMs: UInt32) async throws  -> UInt32?
+    
+    /**
      * The latest WireGuard roam of this link (`network_changed`,
      * `roam_reasserted`, `roam_first_packet`, `roam_direct` or `roam_turn`,
      * ...), in milliseconds since the network changed; empty before any.
@@ -1641,6 +1651,31 @@ open func ping()async throws  -> UInt32  {
             completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_u32,
             freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_u32,
             liftFunc: FfiConverterUInt32.lift,
+            errorHandler: FfiConverterTypeCmuxMobileError_lift
+        )
+}
+    
+    /**
+     * Whether the link is alive within `timeout_ms`: the round trip in
+     * milliseconds on the pong, `None` when other frames from the Mac came
+     * first (a slow relay's queue; the link is alive), an error only when
+     * nothing came back at all or the link closed. The app's heartbeat,
+     * foreground and presence checks use it, so a busy link is never
+     * closed for a late pong (link-reliability-20261023.md).
+     */
+open func probe(timeoutMs: UInt32)async throws  -> UInt32?  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_probe(
+                    self.uniffiCloneHandle(),
+                    FfiConverterUInt32.lower(timeoutMs)
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterOptionUInt32.lift,
             errorHandler: FfiConverterTypeCmuxMobileError_lift
         )
 }
@@ -3251,6 +3286,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_ping() != 22934) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_probe() != 33821) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_roam_timings() != 26202) {

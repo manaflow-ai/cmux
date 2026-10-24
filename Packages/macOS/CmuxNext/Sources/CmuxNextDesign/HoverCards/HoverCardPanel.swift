@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesignTokens
 
 /// Where a card sits relative to its target.
 public enum HoverCardPlacement: Sendable {
@@ -118,6 +119,14 @@ final class HoverCardPanel: NSPanel {
 
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
+
+    /// The window stays where `place()` puts it: `rest(for:)` already keeps the card on screen.
+    /// The window is the card plus its clear band (`windowMargin`), so a tab just under the menu
+    /// bar puts the band's top in the menu bar, and AppKit's default constraint moved the whole
+    /// window, card and all, down below it: the card hung a toolbar's height under its tab
+    /// (Austin 2026-10-20: "The cards, when I hover on the tabs, are not connected to the tabs
+    /// themselves"). The band is clear and click-through, so it may sit under the menu bar.
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
 
     /// The card's frame on screen at rest: the window less its clear band.
     var cardFrame: CGRect { activeMorph == nil ? frame.insetBy(dx: Self.windowMargin, dy: Self.windowMargin) : restCardFrame }

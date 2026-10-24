@@ -19,6 +19,8 @@
 // as glass even without a blur, so `backdrop-filter: none` never makes one a legitimately solid
 // card, and `findSolidTooltipMarkup` fails a tooltip class list in the page code (`ui-tooltip`,
 // `ui-title-tooltip`) that does not carry `ui-glass`.
+// Named floating surfaces are glass too, even when their old markup and stylesheet set neither
+// ui-glass nor a blur. The classic New Tab omnibar used to escape both checks that way.
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -33,6 +35,7 @@ const HOST_SOLID = /^--cmux-(?:.*solid.*|popup-surface)$/;
 // A tooltip or hover card: `.ui-tooltip`, `.ui-title-tooltip`, `.ui-hint`, `.ui-card`, `.cu-tooltip`,
 // `.x-hover-card`, `[role="tooltip"]`.
 const TOOLTIP = /tooltip|\.ui-hint\b|\.ui-card\b|hover-?card|\[role=["']?tooltip/i;
+const REQUIRED_GLASS_CLASSES = new Set(["acpmux-omni"]);
 // Tooltip rules whose solid fill never paints, keyed `file selector`, with the reason. Prefer an
 // inline `glass-opaque-allow`; this list holds only fills in a file another open pull request is
 // editing, and each entry goes when that file is free.
@@ -237,6 +240,26 @@ function blurs(block: Block): boolean {
   );
 }
 
+/** The selector's subject, not a row or control inside a named glass surface. Functional pseudo
+ * selectors and attribute values do not contribute class names or descendant combinators. */
+export function targetsRequiredGlass(selector: string): boolean {
+  return splitArgs(selector).some((part) => {
+    let depth = 0;
+    let subject = "";
+    for (const ch of part) {
+      if (ch === "(" || ch === "[") {
+        depth++;
+      } else if (ch === ")" || ch === "]") {
+        depth--;
+      } else if (depth === 0) {
+        if (/[\s>+~]/.test(ch)) subject = "";
+        else subject += ch;
+      }
+    }
+    return [...subject.matchAll(/\.([\w-]+)/g)].some((match) => REQUIRED_GLASS_CLASSES.has(match[1] ?? ""));
+  });
+}
+
 /** Every rule under srcDir outside Reduce Transparency; loads the tokens they define for fillKind. */
 export function glassContextRules(srcDir: string = SRC): Block[] {
   const parsed = cssFiles(srcDir).flatMap((file) => parse(relative(srcDir, file), readFileSync(file, "utf8")));
@@ -260,9 +283,10 @@ export function fillKind(value: string): Kind {
 export function findOpaqueGlass(srcDir: string = SRC): string[] {
   const found: string[] = [];
   for (const block of glassContextRules(srcDir)) {
-    // Glass: a blur, a class named glass (`.sa-glass`), or a tooltip or hover card (always glass).
+    // A required surface stays glass even if its old markup has no ui-glass and its CSS no blur.
     const tooltip = TOOLTIP.test(block.selector);
-    const glass = blurs(block) || /\.[\w-]*glass[\w-]*/i.test(block.selector) || tooltip;
+    const glass =
+      blurs(block) || /\.[\w-]*glass[\w-]*/i.test(block.selector) || tooltip || targetsRequiredGlass(block.selector);
     const overridden = tooltip && TOOLTIP_FILL_OVERRIDDEN.has(`${block.file} ${block.selector}`);
     for (const d of block.decls) {
       if (d.allowed || overridden) continue;
@@ -304,9 +328,30 @@ export function findSolidTooltipMarkup(srcDir: string = SRC): string[] {
   return found;
 }
 
+/** A named floating surface's className literal must carry ui-glass itself. Only className values
+ * count: an id, a query selector or a child class containing the surface's name is not its markup. */
+export function findMissingGlassMarkup(srcDir: string = SRC): string[] {
+  const found: string[] = [];
+  for (const file of sourceFiles(srcDir)) {
+    const text = readFileSync(file, "utf8");
+    for (const match of text.matchAll(/\bclassName\s*=\s*(?:\{\s*)?(["`])([^"`\n]*)\1/g)) {
+      const classes = match[2] ?? "";
+      const names = classes.split(/\s+/);
+      if (!names.some((name) => REQUIRED_GLASS_CLASSES.has(name)) || names.includes("ui-glass")) continue;
+      const line = text.slice(0, match.index).split("\n").length;
+      found.push(`${relative(srcDir, file)}:${line}: ${JSON.stringify(classes)}`);
+    }
+  }
+  return found;
+}
+
 if (import.meta.main) {
   for (const line of findSolidTooltipMarkup()) {
     console.error(`a tooltip is never solid (add ui-glass): ${line}`);
+    process.exitCode = 1;
+  }
+  for (const line of findMissingGlassMarkup()) {
+    console.error(`a floating surface is glass (add ui-glass): ${line}`);
     process.exitCode = 1;
   }
   const found = findOpaqueGlass();

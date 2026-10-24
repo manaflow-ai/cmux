@@ -200,9 +200,11 @@ public final class WorkspaceTabsSource: TabsDataSource {
             // A new tab's about:blank is no address: the field reads "Search or enter website",
             // never "about:blank" (VoiceOver read it after a navigation, parity finding 4).
             let url = (model?.url ?? tab.url).flatMap { $0.absoluteString == "about:blank" ? nil : $0 }
-            let host = url.map { _ in model?.host ?? url?.host() ?? tab.subtitle ?? "" } ?? ""
+            // Safari's short label: the host, or a local file's name (a file: URL has no host,
+            // and its full path overflowed the collapsed pill).
+            let host = url.map(TabsKitAddress.displayLabel(for:)) ?? ""
             return TabsKitTab(
-                id: tab.id, kind: .web, title: (model?.title).flatMap { $0.isEmpty ? nil : $0 } ?? tab.title,
+                id: tab.id, kind: .web, title: Self.browserTitle(model?.title, fallback: tab.title, url: url, label: host),
                 subtitle: host, systemImage: tab.isPinned ? "pin.fill" : "globe",
                 address: url == nil ? .placeholder("Search or enter website") : .url(display: host, editingText: url?.absoluteString ?? ""),
                 // Back walks the page history first, then leaves the workspace.
@@ -221,6 +223,15 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 statusBarStyle: .lightContent
             )
         }
+    }
+
+    /// A page without its own title shows the short label, never the raw URL
+    /// (a file page's title is its whole path).
+    static func browserTitle(_ pageTitle: String?, fallback: String, url: URL?, label: String) -> String {
+        let title = pageTitle.flatMap { $0.isEmpty ? nil : $0 } ?? fallback
+        guard let url, !label.isEmpty else { return title }
+        let raw = [url.absoluteString, url.absoluteString.removingPercentEncoding ?? url.absoluteString, url.path]
+        return title.isEmpty || raw.contains(title) ? label : title
     }
 
     public func activate(_ id: TabsKitTab.ID) {

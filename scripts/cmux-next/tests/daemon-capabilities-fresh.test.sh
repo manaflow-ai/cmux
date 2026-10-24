@@ -14,27 +14,28 @@ swift="$tmp/Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonEndp
 json="$tmp/plans/cmux-next/daemon-capabilities.json"
 mkdir -p "$(dirname "$swift")" "$(dirname "$json")"
 
-write_swift() { # optional-identifiers unserved-identifiers
+write_swift() { # optional-identifiers unserved-identifiers [extra-declaration]
   cat > "$swift" <<EOF
 public struct DaemonEndpoint: Sendable {
     public var socketPath: String
 }
 
 public struct DaemonCapabilities: Sendable {
-    public static let shared = Self()
-    public let required: [String] = [
+    private init() {}
+    public static let required: [String] = [
         "workspace-registry-v1",
         "attach-initial-size",
     ]
 
     /// Docs with a "quoted-v1" word and a [bracket].
-    public let workspaceGroups = "workspace-groups-v1"
-    public let sidebarLayout = "sidebar-layout-v1"
-    public let remoteTerminalTabs = "remote-terminal-tabs-v1"
+    public static let workspaceGroups = "workspace-groups-v1"
+    public static let sidebarLayout = "sidebar-layout-v1"
+    public static let remoteTerminalTabs = "remote-terminal-tabs-v1"
+${3:-}
 
-    public var homeOnly: [String] { [workspaceGroups] }
-    public var optional: [String] { [$1] }
-    public var unservedByBundledDaemon: [String] { [$2] }
+    public static var homeOnly: [String] { [workspaceGroups] }
+    public static var optional: [String] { [$1] }
+    public static var unservedByBundledDaemon: [String] { [$2] }
 }
 EOF
 }
@@ -74,6 +75,20 @@ if out="$(run)"; then fail "a Swift-only move passed: $out"; fi
 # The JSON regenerated with it passes again.
 write_json "sidebar-layout-v1 workspace-groups-v1" "remote-terminal-tabs-v1"
 out="$(run)" || fail "the regenerated export failed: $out"
+
+# The base autofix uses the same source parser and renderer to repair a stale
+# export without a Swift build.
+write_json "workspace-groups-v1" "remote-terminal-tabs-v1"
+out="$(python3 "$check" --repo "$tmp" --write 2>&1)" || fail "write mode did not repair the export: $out"
+[[ "$out" == *"wrote plans/cmux-next/daemon-capabilities.json"* ]] || fail "write mode lacks its receipt: $out"
+out="$(run)" || fail "the write-mode export failed freshness: $out"
+
+# A named constant in no list fails (DaemonCapabilityExportTests checked it with Mirror while the
+# catalog had an instance).
+write_swift "workspaceGroups,
+                                       sidebarLayout" "remoteTerminalTabs" '    public static let orphanThing = "orphan-thing-v1"'
+if out="$(run)"; then fail "a constant in no list passed: $out"; fi
+[[ "$out" == *"orphanThing"* ]] || fail "the failure does not name the unlisted constant: $out"
 
 # An identifier the parser cannot resolve fails loudly instead of being skipped.
 write_swift "workspaceGroups, sidebarLayout, someComputedThing" "remoteTerminalTabs"

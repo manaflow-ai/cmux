@@ -89,6 +89,16 @@ export interface AcpmuxRequests {
   "_acpmux/export": { params: unknown; result: unknown };
   "_acpmux/import": { params: unknown; result: unknown };
   "_acpmux/file_put": { params: unknown; result: unknown };
+  "_acpmux/file_put_begin": { params: unknown; result: unknown };
+  "_acpmux/file_put_chunk": { params: unknown; result: unknown };
+  "_acpmux/file_put_finish": { params: unknown; result: unknown };
+  "_acpmux/file_put_cancel": { params: unknown; result: unknown };
+  "_acpmux/dispatch": { params: unknown; result: unknown };
+  "_acpmux/steer": { params: unknown; result: unknown };
+  "_acpmux/briefs": { params: unknown; result: unknown };
+  "_acpmux/report": { params: unknown; result: unknown };
+  "_acpmux/media_open": { params: unknown; result: unknown };
+  "_acpmux/media_range": { params: unknown; result: unknown };
   "_acpmux/permission_respond": { params: PermissionRespondParams; result: PermissionRespondResult };
   "_acpmux/permission_groups": { params: PermissionGroupsParams; result: PermissionGroupList };
   "_acpmux/permission_group_respond": { params: PermissionGroupRespondParams; result: PermissionGroupReceipt };
@@ -302,6 +312,16 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/export", kind: "request", acp: false, typed: false },
   { name: "_acpmux/import", kind: "request", acp: false, typed: false },
   { name: "_acpmux/file_put", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/file_put_begin", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/file_put_chunk", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/file_put_finish", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/file_put_cancel", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/dispatch", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/steer", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/briefs", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/report", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/media_open", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/media_range", kind: "request", acp: false, typed: false },
   { name: "_acpmux/permission_respond", kind: "request", acp: false, typed: true },
   { name: "_acpmux/permission_groups", kind: "request", acp: false, typed: true },
   { name: "_acpmux/permission_group_respond", kind: "request", acp: false, typed: true },

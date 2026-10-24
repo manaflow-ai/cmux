@@ -1,6 +1,7 @@
 import CoreGraphics
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// A sidebar row's hover card stays inside its window (Lawrence 2026-10-22: "If the card can spill
 /// below the window at the bottom mark, add a window clamp"). The card only stayed on the visible

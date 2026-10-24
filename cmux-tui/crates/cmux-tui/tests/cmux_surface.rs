@@ -291,6 +291,39 @@ fn every_routed_scope_prints_its_own_help() {
     }
 }
 
+/// `cmux route` is gone (Leo, 2026-10-21: "literally nobody but us is using
+/// cmux "route" so just removing it is fine"): neither `cmux route …` nor
+/// `cmux acp route …` answers with the route grammar any more, and
+/// `cmux accounts` keeps its own help.
+#[test]
+fn cmux_route_is_gone() {
+    let names = Names::new("route-gone");
+    for args in [&["route", "--help"][..], &["route", "add", "--help"], &["acp", "route", "--help"]]
+    {
+        let output = names.run("cmux", args);
+        let all = format!("{}{}", text(&output.stdout), text(&output.stderr));
+        assert!(!all.contains("route file"), "{args:?} still describes routes:\n{all}");
+        assert!(!all.contains("--kind"), "{args:?} still takes route add's flags:\n{all}");
+    }
+    let acp = names.run("cmux", &["acp", "route", "--help"]);
+    assert!(!acp.status.success(), "acp route is still a subcommand");
+    assert!(text(&acp.stderr).contains("unrecognized subcommand 'route'"), "{}", text(&acp.stderr));
+    let accounts = names.run("cmux", &["accounts", "--help"]);
+    assert!(accounts.status.success(), "{}", text(&accounts.stderr));
+    assert!(text(&accounts.stdout).contains("cmux accounts list"), "{}", text(&accounts.stdout));
+}
+
+/// `cmux route list` reaches the resource grammar, which refuses the word
+/// before touching a socket or starting an acpmux daemon.
+#[test]
+fn cmux_route_list_is_an_unknown_scope() {
+    let names = Names::new("route-unknown");
+    let output = names.run("cmux", &["route", "list"]);
+    let stderr = text(&output.stderr);
+    assert_eq!(output.status.code(), Some(2), "{stderr}");
+    assert!(stderr.contains("\"route\""), "{stderr}");
+}
+
 /// `cmux notify --help` names the flags `notify` takes (cx-894rb): it said
 /// `--reply` was refused, while a reply banner typed into the terminal live.
 #[test]
