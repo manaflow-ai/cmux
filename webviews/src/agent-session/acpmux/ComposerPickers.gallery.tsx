@@ -142,6 +142,8 @@ const openModel: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(quickRows) !== null);
   if (!ctx.document.querySelector(".acpmux-model .acpmux-fast"))
     throw new Error("the model picker has no inline Fast bolt");
+  if (ctx.document.querySelector(".acpmux-quick-menu .ui-menu-group-label"))
+    throw new Error("the model menu still has a header");
 };
 
 const modelFocus: Play = async (ctx) => {
@@ -241,6 +243,7 @@ const morePicker: Play = async (ctx) => {
 const openMode: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Mode" });
   await ctx.waitFor(() => ctx.document.querySelector('[role="menuitemradio"][aria-checked="true"]') !== null);
+  if (ctx.document.querySelector(".acpmux-access-heading")) throw new Error("the permission menu still has a header");
   const labels = [...ctx.document.querySelectorAll<HTMLElement>('[role="menuitemradio"] .acpmux-menu-label')].map(
     (node) => node.textContent?.trim(),
   );
