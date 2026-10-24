@@ -438,3 +438,37 @@ fn a_local_ring_stream_reads_its_output_from_shared_memory_and_gets_only_ring_ad
     handler.join().unwrap();
     mux.shutdown();
 }
+
+/// An attach the daemon refuses before its handler runs (here the server's
+/// surface-operation byte budget is full) still ends its stream: the client
+/// gets the error reply, then a `stream-end` for the id it minted, so it frees
+/// the id and the view's sink (review of 0ade7bf4318, minor 3).
+#[test]
+fn an_attach_refused_before_its_handler_runs_still_ends_its_stream() {
+    let mut harness = Harness::connect("streams-refused-early", BOTH);
+    let surface = harness.mux.new_workspace(None, Some((80, 24))).unwrap();
+    let held = harness
+        .mux
+        .surface_operation_admission
+        .try_reserve_bytes(SERVER_SURFACE_RETAINED_BYTE_CAPACITY)
+        .expect("the whole budget");
+    let mut seen = Vec::new();
+    let refused = harness.attach(2, 11, surface.id, &mut seen);
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert!(refused["error"].as_str().unwrap().contains("byte budget"), "{refused}");
+    let end = loop {
+        let wire = if seen.is_empty() { harness.reader.next() } else { seen.remove(0) };
+        if let Wire::Frame(header, payload) = wire
+            && header.kind == FrameKind::Event
+        {
+            let event: Value = serde_json::from_slice(&payload).unwrap();
+            if event["event"] == "stream-end" {
+                break header.stream.get();
+            }
+        }
+    };
+    assert_eq!(end, 11, "the refused attach's stream did not end");
+    // With the budget back, the same id attaches.
+    drop(held);
+    assert_eq!(harness.attach(3, 11, surface.id, &mut Vec::new())["ok"], true);
+}
