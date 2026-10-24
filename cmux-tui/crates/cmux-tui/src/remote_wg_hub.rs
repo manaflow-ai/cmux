@@ -11,7 +11,7 @@ struct WgHubFlags {
     probes: bool,
     send_buffer: Option<usize>,
     exit_with_parent: bool,
-    client_token: bool,
+    client_token_stdin: bool,
 }
 
 fn parse_wg_hub_flags(args: &[String]) -> anyhow::Result<WgHubFlags> {
@@ -21,7 +21,7 @@ fn parse_wg_hub_flags(args: &[String]) -> anyhow::Result<WgHubFlags> {
     let mut probes = false;
     let mut send_buffer = None;
     let mut exit_with_parent = false;
-    let mut client_token = false;
+    let mut client_token_stdin = false;
     let mut index = 0;
     while index < args.len() {
         let argument = args[index].as_str();
@@ -64,7 +64,7 @@ fn parse_wg_hub_flags(args: &[String]) -> anyhow::Result<WgHubFlags> {
                 }
             }
             "--exit-with-parent" => exit_with_parent = true,
-            "--client-token" => client_token = true,
+            "--client-token-stdin" => client_token_stdin = true,
             "-h" | "--help" => return Err(anyhow!(catalog().remote_client.help_invalid_options)),
             other => return Err(anyhow!(catalog().remote_client.unknown_option(other))),
         }
@@ -78,17 +78,18 @@ fn parse_wg_hub_flags(args: &[String]) -> anyhow::Result<WgHubFlags> {
         probes,
         send_buffer,
         exit_with_parent,
-        client_token,
+        client_token_stdin,
     })
 }
 
 /// `cmux-tui wg hub --config <wg-quick | -> --socket <unix path> [--control
-/// <unix path>] [--probes] [--send-buffer <bytes>] [--client-token]`: own one WireGuard tunnel and serve SOCKS5 CONNECT for
+/// <unix path>] [--probes] [--send-buffer <bytes>] [--client-token-stdin]`: own one WireGuard tunnel and serve SOCKS5 CONNECT for
 /// sidecars on a Unix socket, plus, with `--control`, path events and the
-/// datagram service (transport.md 12a). `--config -` reads the config from
-/// stdin, so the private key needs no file; `--client-token` makes a fresh
-/// token, reports it in the readiness line, and serves only clients that
-/// present it.
+/// datagram service (transport.md 12a). `--client-token-stdin` reads a client
+/// token as stdin's first line and serves only clients that present it;
+/// `--config -` then reads the config from the rest of stdin, so the private
+/// key needs no file. The starter keeps the token, so a restarted hub accepts
+/// the clients it already handed it to.
 ///
 /// Prints one JSON readiness line, then runs until SIGTERM, SIGINT, or the
 /// opted-in parent lifecycle ends. It removes the socket on the way out.
@@ -100,13 +101,12 @@ pub(super) fn run_wg(args: &[String]) -> anyhow::Result<()> {
         None => return Err(anyhow!(catalog().remote_client.wg_hub_help)),
     }
     let flags = parse_wg_hub_flags(&args[1..])?;
-    let token = flags
-        .client_token
-        .then(cmux_remote::wireguard_hub::HubClientToken::generate)
-        .transpose()
-        .map_err(|error| {
-            anyhow!(catalog().remote_client.wireguard_hub_serve_failed(&error.to_string()))
-        })?;
+    // The token is stdin's first line, before a `--config -` config.
+    let token = if flags.client_token_stdin {
+        Some(read_hub_token_line(&mut io::stdin().lock())?)
+    } else {
+        None
+    };
     let owner = flags.exit_with_parent.then(current_parent_process_id);
     let async_runtime = tokio_runtime()?;
     let (net, paths) = start_wireguard_hub_tunnel(
@@ -125,7 +125,7 @@ pub(super) fn run_wg(args: &[String]) -> anyhow::Result<()> {
         .block_on(cmux_remote::wireguard_hub::serve_wireguard_hub(
             Arc::clone(&net),
             flags.socket,
-            token.clone(),
+            token,
         ))
         .map_err(|error| {
             anyhow!(catalog().remote_client.wireguard_hub_serve_failed(&error.to_string()))
@@ -149,9 +149,6 @@ pub(super) fn run_wg(args: &[String]) -> anyhow::Result<()> {
         "socket": hub.path().display().to_string(),
         "routes": hub.routes().iter().map(ToString::to_string).collect::<Vec<_>>(),
     });
-    if let Some(token) = &token {
-        ready["client_token"] = serde_json::json!(token.as_str());
-    }
     if let Some(control) = &control {
         ready["control"] = serde_json::json!(control.path().display().to_string());
     }
@@ -267,6 +264,14 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_token_line_comes_before_the_stdin_config() {
+        let mut input: &[u8] = b"tok-4f2a\n[Interface]\nPrivateKey = x\n";
+        let token = read_hub_token_line(&mut input).unwrap();
+        assert_eq!(token.as_str(), "tok-4f2a");
+        assert_eq!(input, b"[Interface]\nPrivateKey = x\n", "the config stays for --config -");
+    }
+
+    #[test]
     fn a_stdin_config_is_bounded_and_must_parse() {
         let huge = vec![b'#'; MAX_WIREGUARD_CONFIG_BYTES + 1];
         assert!(read_wireguard_config_stdin(&mut huge.as_slice()).is_err());
@@ -282,10 +287,11 @@ mod tests {
         assert_eq!(flags.config, PathBuf::from("/tmp/wg.conf"));
         assert_eq!(flags.socket, PathBuf::from("/tmp/wg.sock"));
         assert!(!flags.exit_with_parent);
-        assert!(!flags.client_token);
-        let tokened = ["--config", "-", "--socket", "s", "--client-token"].map(str::to_string);
+        assert!(!flags.client_token_stdin);
+        let tokened =
+            ["--config", "-", "--socket", "s", "--client-token-stdin"].map(str::to_string);
         let tokened = parse_wg_hub_flags(&tokened).unwrap();
-        assert!(tokened.client_token);
+        assert!(tokened.client_token_stdin);
         assert_eq!(tokened.config, PathBuf::from("-"));
         let owned = ["--config", "/tmp/wg.conf", "--socket", "/tmp/wg.sock", "--exit-with-parent"]
             .map(str::to_string);

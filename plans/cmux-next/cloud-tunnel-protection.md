@@ -37,11 +37,12 @@ Mac the VPC, which widens access rather than narrowing it.
 
 ## What changed
 
-- `wg hub --client-token` makes a fresh 32-byte random token per launch,
-  prints it only in its readiness line (stdout, a pipe only the app reads) and
-  serves only SOCKS5 clients that send it (RFC 1929 username/password,
-  constant-time compare). A same-user program that finds the socket gets
-  method `0xFF` or an auth failure and reaches nothing (gap 3).
+- `wg hub --client-token-stdin` takes a client token as stdin's first line
+  and serves only SOCKS5 clients that send it (RFC 1929 username/password,
+  constant-time compare). The app makes one 32-byte random token per app
+  launch and keeps it only in memory, so a hub that restarts still accepts
+  the links that already hold it. A same-user program that finds the socket
+  gets method `0xFF` or an auth failure and reaches nothing (gap 3).
 - `wg hub --config -` reads the wg-quick config from stdin. The app no longer
   writes `wireguard.conf` and deletes an earlier build's copy.
 - `remote connect --wireguard-hub-token-stdin`: the app hands each link
@@ -63,6 +64,10 @@ stdin, nothing on disk).
   access group, which next-dev (Developer ID without a provisioning profile)
   does not have; the legacy file keychain would prompt after every re-signed
   dev build. Recommended once next ships with a profile.
+- A same-user program without the token can still hold the hub's 256
+  connection slots open for the 10-second handshake deadline and so delay the
+  app's own dials (denial of service, not access). A program that can do that
+  can also signal the app; not addressed here.
 - `wg hub --control` (datagram ports) is not used by next and is not
   token-gated; gate it before anything uses it.
 - `cmux vpn up` parity (the Network Extension) is a product decision, not a

@@ -56,6 +56,9 @@ public struct CloudPaths: Sendable {
         for directory in [root, linkState] {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         }
+        // The hub's config now travels on stdin; an earlier build's file copy of it (with the
+        // private key) goes.
+        try? FileManager.default.removeItem(at: legacyWireGuardConfig)
     }
 
     /// Writes `text` atomically with mode 0600.

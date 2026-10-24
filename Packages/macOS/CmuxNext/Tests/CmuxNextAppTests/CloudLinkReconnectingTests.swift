@@ -32,9 +32,9 @@ struct CloudLinkReconnectingTests {
         override func stopLoading() {}
     }
 
-    /// A short temp root with a stand-in `cmux-tui`: `wg hub` takes its config on stdin (kept as
-    /// `hub-stdin` for the test) and reports ready with a client token, and `remote connect`,
-    /// which must read that token on stdin, prints the link's snapshots: connected, reconnecting
+    /// A short temp root with a stand-in `cmux-tui`: `wg hub` takes its client token and config on
+    /// stdin (kept as `hub-token` and `hub-stdin` for the test), and `remote connect`, which must
+    /// read the same token on stdin, prints the link's snapshots: connected, reconnecting
     /// once `drop` exists, connected once `back` exists.
     struct Fixture {
         let root: URL
@@ -53,13 +53,15 @@ struct CloudLinkReconnectingTests {
                   while [ $# -gt 0 ]; do
                     [ "$1" = --socket ] && H=$2
                     [ "$1" = --config ] && C=$2
-                    [ "$1" = --client-token ] && T=1
+                    [ "$1" = --client-token-stdin ] && T=1
                     shift
                   done
                   [ "$C" = - ] && [ -n "$T" ] || exit 40
+                  read -r token || exit 43
+                  printf '%s\\n' "$token" > '\(root.path)/hub-token'
                   cat > '\(root.path)/hub-stdin'
                   : > "$H"
-                  printf '{"event":"hub-ready","socket":"%s","routes":[],"client_token":"tok-4f2a"}\\n' "$H"
+                  printf '{"event":"hub-ready","socket":"%s","routes":[]}\\n' "$H"
                   exec sleep 60 ;;
                 remote)
                   while [ $# -gt 0 ]; do
@@ -69,7 +71,7 @@ struct CloudLinkReconnectingTests {
                     shift
                   done
                   [ -n "$I" ] && grep -q 'cmux://enroll/inv_test' "$I" || exit 41
-                  [ -n "$T" ] && read -r token && [ "$token" = tok-4f2a ] || exit 42
+                  [ -n "$T" ] && read -r token && [ "$token" = "$(cat '\(root.path)/hub-token')" ] || exit 42
                   : > "$S"
                   snap() { printf '{"event":"connection-snapshot","local_socket":"%s","connection":{"session_id":"s","generation":1,"state":"%s","lane_bindings":[],"physical_link_count":1,"transport":{"provider":"cloud","route":"ws://10.9.0.2:1337/v1/link"}}}\\n' "$S" "$1"; }
                   snap connected
@@ -132,6 +134,18 @@ struct CloudLinkReconnectingTests {
         await fixture.remove()
     }
 
+    /// A hub that ends and starts again gets the same client token, so a link that already holds
+    /// it keeps working through the restart instead of redialing into a refusal.
+    @Test func aRestartedHubKeepsTheTokenItsLinksHold() async throws {
+        let fixture = try Fixture()
+        let first = try await fixture.hub.endpoint()
+        await fixture.hub.stop()
+        let second = try await fixture.hub.endpoint()
+        #expect(first.clientToken == second.clientToken)
+        #expect(!String(describing: second).contains(second.clientToken), "a description never shows the token")
+        await fixture.remove()
+    }
+
     /// The hub's config carries this Mac's WireGuard private key: it reaches the hub on stdin and
     /// never lands in a file, and an earlier build's config file is removed. The hub's client
     /// token reaches the link on stdin (the stand-in exits 42 otherwise) and is never written.
@@ -147,6 +161,9 @@ struct CloudLinkReconnectingTests {
         let privateKey = try #require(keyLine)
         let key = String(privateKey.dropFirst("PrivateKey = ".count))
         #expect(!key.isEmpty)
+        let token = try String(contentsOf: fixture.root.appendingPathComponent("hub-token"), encoding: .utf8)
+            .trimmingCharacters(in: .newlines)
+        #expect(token.count == 64, "a 32-byte token, hex")
         #expect(!FileManager.default.fileExists(atPath: legacy.path), "an earlier build's config file is removed")
 
         let files = FileManager.default.enumerator(at: fixture.cloudRoot, includingPropertiesForKeys: nil)?
@@ -154,7 +171,7 @@ struct CloudLinkReconnectingTests {
         for file in files {
             guard let text = try? String(contentsOf: file, encoding: .utf8) else { continue }
             #expect(!text.contains("[Interface]"), "\(file.lastPathComponent) holds a WireGuard config")
-            #expect(!text.contains("tok-4f2a"), "\(file.lastPathComponent) holds the hub's client token")
+            #expect(!text.contains(token), "\(file.lastPathComponent) holds the hub's client token")
         }
         await fixture.remove()
     }

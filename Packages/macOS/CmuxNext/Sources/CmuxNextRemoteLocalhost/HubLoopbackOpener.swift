@@ -9,8 +9,9 @@ import Network
 /// client token, and no TCP port opens on this Mac. Only loopback hosts map;
 /// anything else refuses.
 public struct HubLoopbackOpener: LoopbackTunnelOpening {
-    /// The running hub's SOCKS socket and the client token it requires.
-    public struct Endpoint: Sendable {
+    /// The running hub's SOCKS socket and the client token it requires. Its description leaves
+    /// the token out.
+    public struct Endpoint: Sendable, CustomStringConvertible {
         public let socket: String
         public let token: String
 
@@ -18,6 +19,8 @@ public struct HubLoopbackOpener: LoopbackTunnelOpening {
             self.socket = socket
             self.token = token
         }
+
+        public var description: String { "HubLoopbackOpener.Endpoint(socket: \(socket))" }
     }
 
     /// The hub's endpoint, starting the hub when it is not running.

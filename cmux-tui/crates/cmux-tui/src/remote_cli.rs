@@ -228,7 +228,7 @@ struct ConnectFlags {
     iroh_path: IrohPathMode,
     wireguard_config: Option<PathBuf>,
     wireguard_hub: Option<PathBuf>,
-    /// Read the hub's client token (`wg hub --client-token`) as one line on
+    /// Read the hub's client token (`wg hub --client-token-stdin`) as one line on
     /// stdin, so it never appears in argv, the environment or a file.
     wireguard_hub_token_stdin: bool,
     /// Dial `ws`/`wss` routes with carrier authentication: no enrollment, no
@@ -2022,7 +2022,7 @@ fn print_admin_response(action: &str, response: AdminResponse, json: bool) -> an
 /// hosted ingress on branded machine domains requires.
 /// `wireguard-hub`: `remote connect --wireguard-hub` and `wg hub` exist, so the
 /// app may reach private-network machines through a shared in-process tunnel.
-/// `wireguard-hub-token`: `wg hub --client-token` and `--config -`, and
+/// `wireguard-hub-token`: `wg hub --client-token-stdin` and `--config -`, and
 /// `remote connect --wireguard-hub-token-stdin`, so only the app's own clients
 /// use the hub and its config needs no file.
 /// `remote-link-mux-socket` and `remote-link-strict-flags`: see

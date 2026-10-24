@@ -1,4 +1,4 @@
-USAGE: cmux wg hub --config PATH|- --socket PATH [--control PATH] [--probes] [--send-buffer BYTES] [--client-token]
+USAGE: cmux wg hub --config PATH|- --socket PATH [--control PATH] [--probes] [--send-buffer BYTES] [--client-token-stdin]
 
 Own one in-process WireGuard tunnel and serve SOCKS5 CONNECT for other cmux
 processes on an owner-only Unix socket. A WireGuard key supports one live
@@ -7,8 +7,8 @@ shares this hub instead of handshaking on its own.
 
   --config PATH   owner-only wg-quick file (PrivateKey, Address, AllowedIPs, Endpoint);
                   `-` reads it from stdin, so the private key needs no file
-  --client-token  serve only clients that present a fresh per-launch token, reported
-                  as `"client_token"` in the readiness line (sidecars take it with
+  --client-token-stdin  read a client token as stdin's first line (before a `-` config)
+                  and serve only clients that present it (sidecars take it with
                   `remote connect --wireguard-hub-token-stdin`)
   --socket PATH   Unix socket to serve; parent directory is created 0700, socket 0600
   --control PATH  also serve a control socket (newline-delimited JSON): `path.get`,
@@ -22,7 +22,6 @@ shares this hub instead of handshaking on its own.
                        it to net.core.wmem_max)
 
 Prints one JSON line `{"event":"hub-ready","socket":...,"routes":[...]}` when
-listening (it also names `"control"` with --control and `"client_token"` with
---client-token). Only literal IP targets
+listening (it also names `"control"` with --control). Only literal IP targets
 inside AllowedIPs are dialed; other targets get SOCKS reply 0x02, names 0x08.
 Exits on SIGTERM or SIGINT and removes its sockets.

@@ -1,10 +1,10 @@
 public import Foundation
 import os
 
-/// How a client reaches the running hub: its SOCKS socket, and the per-launch token the hub
-/// requires of every client (SOCKS5 username/password), so another program of this user that
-/// finds the socket still cannot use the tunnel.
-public struct CloudHubEndpoint: Sendable, Equatable {
+/// How a client reaches the running hub: its SOCKS socket, and the token the hub requires of
+/// every client (SOCKS5 username/password), so another program of this user that finds the
+/// socket still cannot use the tunnel. Its description leaves the token out.
+public struct CloudHubEndpoint: Sendable, Equatable, CustomStringConvertible {
     public let socket: String
     public let clientToken: String
 
@@ -12,6 +12,8 @@ public struct CloudHubEndpoint: Sendable, Equatable {
         self.socket = socket
         self.clientToken = clientToken
     }
+
+    public var description: String { "CloudHubEndpoint(socket: \(socket))" }
 }
 
 /// The app's one userspace WireGuard tunnel: `cmux-tui wg hub`, which serves
@@ -47,7 +49,16 @@ public actor CloudTunnelHub {
     /// Bumped by `stop()` and `revoke()`; a start from an older one abandons.
     private var generation: UInt64 = 0
     private var child: ChildProcess?
+    /// The hub's client token: one per app launch, held only in memory and handed to every hub
+    /// this launch starts, so a restarted hub still accepts the links that already have it.
+    private let clientToken = CloudTunnelHub.makeClientToken()
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.hub")
+
+    /// 32 bytes from the system's cryptographic generator, hex encoded.
+    static func makeClientToken() -> String {
+        var generator = SystemRandomNumberGenerator()
+        return (0..<32).map { _ in String(format: "%02x", UInt8.random(in: .min ... .max, using: &generator)) }.joined()
+    }
 
     public init(api: CloudAPIClient, paths: CloudPaths, binary: URL, deviceName: String) {
         self.api = api
@@ -127,19 +138,19 @@ public actor CloudTunnelHub {
         // The config holds the private key: it goes to the hub on stdin, never into a file.
         // Earlier builds wrote it next to the key; that copy goes.
         let config = WireGuardConfig.shared.completed(enrollment, privateKey: key.rawRepresentation.base64EncodedString())
-        try? FileManager.default.removeItem(at: paths.legacyWireGuardConfig)
         let socketPath = paths.hubSocket
         unlink(socketPath)
         guard FileManager.default.isExecutableFile(atPath: binary.path) else { throw ChildProcessError.missingBinary(binary.path) }
         let child = ChildProcess(executable: binary, arguments: [
-            "wg", "hub", "--config", "-", "--socket", socketPath, "--exit-with-parent", "--client-token",
-        ], input: Data(config.utf8))
+            "wg", "hub", "--config", "-", "--socket", socketPath, "--exit-with-parent", "--client-token-stdin",
+        ], input: Data((clientToken + "\n" + config).utf8))
         try child.start()
         self.child = child
         let ready: CloudHubEndpoint
         do {
+            let clientToken = clientToken
             ready = try await child.firstLine(within: .seconds(45), label: "cmux-tui wg hub") { line in
-                if case .hubReady(let endpoint) = CloudLinkEvent.parse(line) { return endpoint }
+                if case .hubReady(let socket) = CloudLinkEvent.parse(line) { return CloudHubEndpoint(socket: socket, clientToken: clientToken) }
                 return nil
             }
         } catch {
