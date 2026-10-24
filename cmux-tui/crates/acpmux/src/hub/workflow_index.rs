@@ -2,15 +2,15 @@
 //! seen only inside the chat that started it, so several running at once, or the same one
 //! started twice, go unnoticed; this index answers for all of them. It is fed from the subagent
 //! model the hub's tap already writes into each live update (`subagents.rs`): a spawn of
-//! `kind: "workflow"`, its progress (`runId`, `args`, `agents`, usage, current step) and its end.
+//! `kind: "workflow"`, its progress (`runId`, `argsDigest`, `agents`, usage, current step) and its end.
 //! Nothing is read for it. It holds what this daemon saw since it started; a run another
 //! daemon serves is that daemon's.
 //!
 //! A running workflow is listed while it runs, and an ended one stays among the last
 //! `ENDED_KEPT`. A chat whose agent exits ends its running workflows as `disconnected` (their
 //! Claude process is gone; `end_session`), and no more than `RUNNING_MAX` are listed as running.
-//! Two running workflows of one name and the same known args, in any chat, are duplicates (a run
-//! whose args were not sent never is): each lists
+//! Two running workflows of one name and the same args (by `argsDigest`), in any chat, are
+//! duplicates (a run with no digest never is): each lists
 //! the other (`duplicateOf`).
 //!
 //! The index lock is held only to fold one update's events or to copy the rows: what a list
@@ -55,7 +55,7 @@ const KEPT: [&str; 10] = [
     "name",
     "task",
     "runId",
-    "args",
+    "argsDigest",
     "agents",
     "tokens",
     "toolUses",
@@ -188,13 +188,12 @@ impl WorkflowIndex {
         // The index trims ended rows only now and then: list the newest `ENDED_KEPT`.
         let running = rows.iter().filter(|(_, row)| row.ended_at.is_none()).count();
         rows.truncate(running + ENDED_KEPT);
-        // Running workflows by name and args: each group of more than one is duplicates. A run whose
-        // args are not known (acpmux sends them only when they hold no secret) is never one: the same
-        // script run with different args is not a duplicate.
+        // Running workflows by name and args digest: each group of more than one is duplicates. A run
+        // with no digest is never one: the same script run with unknown args is not a duplicate.
         let key = |row: &Row| -> Option<(String, String)> {
             let name = row.fields.get("name").and_then(Value::as_str)?;
-            let args = row.fields.get("args")?;
-            (row.ended_at.is_none()).then(|| (name.to_owned(), args.to_string()))
+            let digest = row.fields.get("argsDigest").and_then(Value::as_str)?;
+            (row.ended_at.is_none()).then(|| (name.to_owned(), digest.to_owned()))
         };
         let mut twins: HashMap<(String, String), Vec<String>> = HashMap::new();
         for (id, row) in &rows {
@@ -287,7 +286,7 @@ mod tests {
         index.observe(
             "chat-1",
             &[json!({"id": "acp-1/toolu_w", "state": "running", "name": "deep-review", "runId": "wf_4fe",
-                "args": {"pr": 1}, "agents": {"done": 3, "started": 5}, "tokens": 120000, "action": "Review: r1"})],
+                "argsDigest": "a1", "agents": {"done": 3, "started": 5}, "tokens": 120000, "action": "Review: r1"})],
             20,
         );
         let listed = index.list(false);
@@ -319,15 +318,14 @@ mod tests {
         assert!(index.list(true).is_empty());
     }
 
-    /// Two running workflows of one name and the same args, in any chat, list each other.
+    /// Two running workflows of one name and the same args digest, in any chat, list each other.
     #[test]
     fn the_same_workflow_running_twice_is_a_duplicate() {
         let index = WorkflowIndex::default();
-        let progress =
-            |id: &str, args: Value| json!({"id": id, "name": "session-review", "args": args});
-        index.observe("chat-1", &[spawn("a/w1"), progress("a/w1", json!({"pr": 7}))], 1);
-        index.observe("chat-2", &[spawn("b/w2"), progress("b/w2", json!({"pr": 7}))], 2);
-        index.observe("chat-2", &[spawn("b/w3"), progress("b/w3", json!({"pr": 8}))], 3);
+        let progress = |id: &str, digest: &str| json!({"id": id, "name": "session-review", "argsDigest": digest});
+        index.observe("chat-1", &[spawn("a/w1"), progress("a/w1", "d7")], 1);
+        index.observe("chat-2", &[spawn("b/w2"), progress("b/w2", "d7")], 2);
+        index.observe("chat-2", &[spawn("b/w3"), progress("b/w3", "d8")], 3);
         let listed = index.list(false);
         let of = |id: &str| {
             listed.iter().find(|row| row["subagentSessionId"] == id).unwrap()["duplicateOf"].clone()
@@ -336,7 +334,7 @@ mod tests {
             (of("a/w1"), of("b/w2"), of("b/w3")),
             (json!(["b/w2"]), json!(["a/w1"]), Value::Null)
         );
-        // A run whose args were not sent is never a duplicate, even of a same-named one.
+        // A run with no args digest is never a duplicate, even of a same-named one.
         index.observe(
             "chat-3",
             &[spawn("c/w4"), json!({"id": "c/w4", "name": "session-review"})],
