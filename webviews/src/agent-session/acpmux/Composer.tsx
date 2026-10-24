@@ -651,7 +651,8 @@ export function Composer({
         if (state.reading) return "composer.attachment-reading";
         if (shellRef.current.shell) return "composer.shell";
         // A new chat's prompt has no chat to keep it with yet.
-        if (!state.sessionId) return (field.current?.value() ?? textRef.current).trim() || state.chips ? "composer.new-chat" : null;
+        if (!state.sessionId)
+          return (field.current?.value() ?? textRef.current).trim() || state.chips ? "composer.new-chat" : null;
         if (hydratedSession.current !== state.sessionId) return "composer.draft-restoring";
         return null;
       }),
