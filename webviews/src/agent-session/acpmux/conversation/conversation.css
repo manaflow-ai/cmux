@@ -813,6 +813,16 @@
   border-radius: var(--cv-code-radius, 5px);
   background: var(--cv-code-bg);
 }
+/* Written UTC times stay quiet until the reader points at or focuses them. */
+.cv-time-hover {
+  cursor: help;
+  text-decoration: underline dotted transparent;
+  text-underline-offset: 3px;
+}
+.cv-time-hover:hover,
+.cv-time-hover:focus-visible {
+  text-decoration-color: currentColor;
+}
 /* Links are blue (--agent-link, shared/styles.css), underlined faintly, solidly on hover. */
 .cv-link {
   color: var(--agent-link);
