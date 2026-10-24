@@ -32,12 +32,12 @@ struct CreateOnPendingStandInTests {
 
     /// The daemon's `pane-added` of the pane that takes `provisional` over.
     private static func paneAdded(_ handle: PaneID, taking provisional: ProvisionalPane, surface: UInt64,
-                                  sequence: UInt64) -> DaemonEventEnvelope {
+                                  sequence: UInt64, echoing transaction: ClientTransactionID? = nil) -> DaemonEventEnvelope {
         DaemonEventEnvelope(sequence: sequence, event: .paneAdded(PaneDelta(
             workspace: place.workspace, screen: place.screen, pane: handle, index: 1,
             entity: PaneSnapshot(id: handle, resourceID: ResourceID(rawValue: provisional.paneID),
                                  tabs: [TabSnapshot(surface: SurfaceID(rawValue: surface))]),
-            clientTransactionID: nil)))
+            clientTransactionID: transaction)))
     }
 
     /// Cmd-D, then New Column on the split's stand-in before the daemon made the split: the
@@ -46,11 +46,12 @@ struct CreateOnPendingStandInTests {
     @Test func newColumnOnAPendingSplitNamesItsDaemonPaneAndBothSurvive() async throws {
         let store = Self.store()
         let split = ProvisionalPane()
-        store.intend(.splitPane(pane: Self.pane, direction: .right, ratio: 0.5, provisional: split), transaction: .generate())
+        let splitTransaction = ClientTransactionID.generate()
+        store.intend(.splitPane(pane: Self.pane, direction: .right, ratio: 0.5, provisional: split), transaction: splitTransaction)
         let column = ProvisionalPane(columnWidth: 0.5, treeWidth: 0.5)
         store.intend(.splitPane(pane: split.handle, direction: .right, ratio: 0.5, provisional: column), transaction: .generate())
         #expect(try Self.screen(of: store).panes.map(\.handle) == [Self.pane, split.handle, column.handle])
-        #expect(store.createTarget(for: split.handle) == .pending)
+        #expect(store.createTarget(for: split.handle) == .pending(splitTransaction))
         #expect(store.createTarget(for: Self.pane) == .pane(Self.pane), "a daemon pane is its own target")
 
         let target = Task { try await store.daemonTarget(for: split.handle) }
@@ -209,6 +210,9 @@ struct CreateOnPendingStandInTests {
         let split = ProvisionalPane()
         let transaction = ClientTransactionID.generate()
         store.intend(.splitPane(pane: Self.pane, direction: .right, ratio: 0.5, provisional: split), transaction: transaction)
+        let target = Task { try await store.daemonTarget(for: split.handle) }
+        await Task.yield()
+        #expect(store.standInWaiters.count == 1, "the create did not wait for the split's daemon pane")
         store.noteSettledAtNextSnapshot(transaction)
         let daemonPane = PaneID(rawValue: 11)
         var tree = Self.base
@@ -216,6 +220,57 @@ struct CreateOnPendingStandInTests {
         tree.screens[0].panes.append(PaneSnapshot(id: daemonPane, resourceID: ResourceID(rawValue: split.paneID),
                                                   tabs: [TabSnapshot(surface: SurfaceID(rawValue: 12))]))
         store.apply(snapshot: DaemonTree(workspaceRevision: 3, workspaces: [tree]))
-        #expect(try await store.daemonTarget(for: split.handle) == daemonPane)
+        #expect(try await target.value == daemonPane)
+        #expect(try await store.daemonTarget(for: split.handle) == daemonPane, "a later create on the stand-in")
+        #expect(store.standInWaiters.isEmpty)
+    }
+
+    /// A script batch's stage holds workspace 1 (a scripted rename there), and the person's split in it
+    /// is pending. The split's `pane-added` comes while a create on its stand-in already waits: the
+    /// stage holds it, then commits at once, so the create names the daemon's pane now, never at the
+    /// stage's deadline (input goes before automation).
+    @Test func aWaitInAStagedWorkspaceCommitsTheStageWhenItsPaneArrives() async throws {
+        let store = Self.store()
+        let scope = DaemonCommandScope()
+        let stage = store.openStage(for: scope, until: .now + .seconds(60))
+        DaemonCommandScope.$current.withValue(scope) {
+            store.intend(.renameTab(surface: SurfaceID(rawValue: 4), name: "scripted"), transaction: .generate())
+        }
+        let split = ProvisionalPane()
+        let transaction = ClientTransactionID.generate()
+        store.intend(.splitPane(pane: Self.pane, direction: .right, ratio: 0.5, provisional: split), transaction: transaction)
+        let target = Task { try await store.daemonTarget(for: split.handle) }
+        await Task.yield()
+        #expect(store.standInWaiters.count == 1, "the create did not wait for the split's daemon pane")
+
+        let daemonPane = PaneID(rawValue: 9)
+        _ = store.apply(batch: [Self.paneAdded(daemonPane, taking: split, surface: 7, sequence: 1, echoing: transaction)])
+        #expect(!stage.isOpen, "the stage kept the pane-added a waiting create needs")
+        #expect(try await target.value == daemonPane, "the create waited for the stage's deadline")
+        #expect(store.standInWaiters.isEmpty)
+        #expect(store.mirrorViolations.isEmpty)
+    }
+
+    /// The same, with the split's `pane-added` already held by the stage when the create is pressed: the
+    /// create commits the stage first and names the daemon's pane without waiting.
+    @Test func aCreateOnAStandInWhosePaneTheStageHoldsCommitsTheStageFirst() async throws {
+        let store = Self.store()
+        let scope = DaemonCommandScope()
+        let stage = store.openStage(for: scope, until: .now + .seconds(60))
+        DaemonCommandScope.$current.withValue(scope) {
+            store.intend(.renameTab(surface: SurfaceID(rawValue: 4), name: "scripted"), transaction: .generate())
+        }
+        let split = ProvisionalPane()
+        let transaction = ClientTransactionID.generate()
+        store.intend(.splitPane(pane: Self.pane, direction: .right, ratio: 0.5, provisional: split), transaction: transaction)
+        let daemonPane = PaneID(rawValue: 9)
+        _ = store.apply(batch: [Self.paneAdded(daemonPane, taking: split, surface: 7, sequence: 1, echoing: transaction)])
+        #expect(stage.isOpen, "the stage did not hold the pane-added of the workspace it touches")
+        #expect(store.createTarget(for: split.handle) == .pending(transaction))
+
+        #expect(try await store.daemonTarget(for: split.handle) == daemonPane, "the create waited on the stage")
+        #expect(!stage.isOpen)
+        #expect(store.standInWaiters.isEmpty)
+        #expect(store.mirrorViolations.isEmpty)
     }
 }

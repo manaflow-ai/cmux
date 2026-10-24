@@ -4,8 +4,8 @@ import Foundation
 enum CreateTarget: Equatable {
     /// The daemon's pane to name.
     case pane(PaneID)
-    /// A stand-in whose create is still in flight and has no daemon pane yet: wait.
-    case pending
+    /// A stand-in whose create (this transaction) is still in flight and has no daemon pane yet: wait.
+    case pending(ClientTransactionID)
     /// Nothing to name: an unknown stand-in.
     case gone
 }
