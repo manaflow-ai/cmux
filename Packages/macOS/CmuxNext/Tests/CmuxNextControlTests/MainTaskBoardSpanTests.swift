@@ -52,6 +52,57 @@ import Testing
         #expect(after?.owner == "Control.frames")
     }
 
+    /// Two actions in one turn (a CLI batch, `layout_bulk`) both end at the same commit, in the
+    /// order they began (the commit observers keep insertion order): the board must end with
+    /// nothing running, not with the first action put back by the second's end.
+    @MainActor
+    @Test func twoSpansEndedInTheOrderTheyBeganLeaveNothingRunning() {
+        let board = MainTaskBoard()
+        let first = board.internOwner("tab.new")
+        let second = board.internOwner("tab.rename")
+        let now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
+        let a = board.beginSpan(.input, owner: first, budgetNanos: 10_000_000, startNanos: now)
+        let b = board.beginSpan(.input, owner: second, budgetNanos: 10_000_000, startNanos: now)
+        #expect(board.running?.owner == "tab.rename")
+        board.endSpan(a, nowNanos: now)
+        #expect(board.running?.owner == "tab.rename", "the newer span is still open")
+        board.endSpan(b, nowNanos: now)
+        #expect(board.running == nil, "running: \(String(describing: board.running))")
+    }
+
+    /// An action run by a control request begins inside the request's scheduled task and ends at
+    /// the commit after the task returned: the span stays published through the commit (so a slow
+    /// commit is sampled as the action), and when it ends nothing runs, not the finished task.
+    @MainActor
+    @Test func aSpanThatOutlivesItsScheduledTaskCoversTheCommitThenClears() {
+        let budget = MainFrameBudget()
+        let owner = budget.board.internOwner("pane.rename")
+        let now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
+        var token: MainTaskBoard.SpanToken?
+        budget.run(.automation, owner: "Control.frames") {
+            token = budget.board.beginSpan(.input, owner: owner, budgetNanos: 10_000_000, startNanos: now)
+        }
+        #expect(budget.board.running?.owner == "pane.rename", "the span covers the commit after its task")
+        if let token { budget.board.endSpan(token, nowNanos: now) }
+        #expect(budget.board.running == nil, "running: \(String(describing: budget.board.running))")
+    }
+
+    /// A scheduled task that starts while an action's span is open, and ends before its commit,
+    /// gives the span back to the board.
+    @MainActor
+    @Test func aTaskThatRunsWhileASpanIsOpenGivesTheSpanBack() {
+        let budget = MainFrameBudget()
+        let owner = budget.board.internOwner("workspace.new")
+        let now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
+        let token = budget.board.beginSpan(.input, owner: owner, budgetNanos: 10_000_000, startNanos: now)
+        var during: MainTaskBoard.Task?
+        budget.run(.visible, owner: "DaemonStore.drain") { during = budget.board.running }
+        #expect(during?.owner == "DaemonStore.drain")
+        #expect(budget.board.running?.owner == "workspace.new")
+        budget.board.endSpan(token, nowNanos: now)
+        #expect(budget.board.running == nil)
+    }
+
     /// Marking an action costs a few atomic stores: printed in ns per begin/end pair, bounded far
     /// above what atomics cost so a loaded runner never fails it, far below what a lock or an
     /// allocation per action would make it.
