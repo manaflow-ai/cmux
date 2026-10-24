@@ -862,25 +862,37 @@ impl Translator {
                 None,
             ));
         }
-        if sub != "task_notification" || !self.background_subagents.lock().await.remove(&tool) {
+        // A task_updated that ends the task counts too: Claude Code sends no
+        // notification after it pauses a workflow (which stops its agents;
+        // a resume is a new task with the same run id) and may send none after
+        // a stop.
+        let status = match sub {
+            "task_notification" => {
+                Some(line.get("status").and_then(Value::as_str).unwrap_or("completed"))
+            }
+            "task_updated" => super::workflows::ended_status(line),
+            _ => None,
+        }?;
+        if !self.background_subagents.lock().await.remove(&tool) {
             return None;
         }
-        self.subagent_tasks.lock().await.remove(task);
+        self.subagent_tasks.lock().await.retain(|_, t| *t != tool);
         self.workflows.lock().await.remove(&tool);
         let child = self.subagents.lock().await.remove(&tool)?;
-        let state = match line.get("status").and_then(Value::as_str) {
-            Some("failed") => "failed",
-            Some("stopped") => "cancelled",
+        let state = match status {
+            "failed" => "failed",
+            "stopped" | "killed" | "paused" => "cancelled",
             _ => "completed",
         };
-        Some((
-            json!({
-                "sessionUpdate": "subagent_state_update",
-                "subagentSessionId": child,
-                "state": state,
-            }),
-            Some(tool),
-        ))
+        let mut update = json!({
+            "sessionUpdate": "subagent_state_update",
+            "subagentSessionId": child,
+            "state": state,
+        });
+        if status == "paused" {
+            update.set("reason", json!("paused"));
+        }
+        Some((update, Some(tool)))
     }
 
     /// Records a new Agent or Workflow tool call as a subagent session and
@@ -892,7 +904,7 @@ impl Translator {
         self.subagents.lock().await.insert(tool_use_id.to_owned(), child.clone());
         let workflow = tool == "Workflow";
         if workflow {
-            self.workflows.lock().await.insert(tool_use_id.to_owned(), None);
+            self.workflows.lock().await.insert(tool_use_id.to_owned(), Default::default());
         }
         let background = workflow || input.get("run_in_background") == Some(&Value::Bool(true));
         if background {
