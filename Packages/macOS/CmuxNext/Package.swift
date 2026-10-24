@@ -632,7 +632,7 @@ let package = Package(
         ),
         .target(
             name: "CmuxNextFocusUI",
-            dependencies: ["CmuxNextActions", "CmuxNextDesign"],
+            dependencies: ["CmuxNextActions", "CmuxNextDesign", "CmuxNextSignposts"],
             resources: [
                 .process("Resources"),
             ],
