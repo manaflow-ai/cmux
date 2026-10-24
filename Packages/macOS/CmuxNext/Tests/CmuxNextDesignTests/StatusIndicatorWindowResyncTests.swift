@@ -169,4 +169,21 @@ import Testing
         for view in front.shown { view.removeFromSuperview() }
         #expect(!indicators.isObserving, "a window whose indicators left still hears every notice")
     }
+
+    /// A window that owed a resync (a wake while it was off screen) and then lost every indicator
+    /// owes nothing: an indicator that moves in later starts current, so the window's next
+    /// occlusion change must not resync it.
+    @Test func aWindowWhoseIndicatorsAllLeftOwesNoResync() throws {
+        let app = App()
+        defer { app.close() }
+        let front = app.window(shown: 2, parked: 0)
+        #expect(app.post([(app.workspace, NSWorkspace.didWakeNotification, nil)]) == 0)
+        for view in front.shown { view.removeFromSuperview() }
+        let content = try #require(front.window.contentView)
+        _ = App.indicator(in: content)
+        app.show(front.window)
+        #expect(app.post([(app.center, NSWindow.didChangeOcclusionStateNotification, front.window)]) == 0,
+                "a window paid a resync it owed to indicators that had all left")
+        #expect(WindowKeyFamily.of(front.window).indicators.touches == 0)
+    }
 }
