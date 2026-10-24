@@ -15,6 +15,8 @@ import { chromium, type Browser, type Page } from "playwright";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ToolText } from "../src/agent-session/acpmux/conversation/ToolText";
+import { DispatchCard } from "../src/agent-session/acpmux/conversation/DispatchCard";
+import type { AcpmuxActivity } from "../src/agent-session/acpmux/model";
 import { setWorkingLook, type WorkingLook } from "../src/agent-session/shared/workingLook";
 import { readWebThemeBootstrap } from "../dev-server/galleryHost";
 import { requireBrowserLane } from "./support/requireBrowserLane";
@@ -180,6 +182,24 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
     expect(banded).toBe("rgb(120, 120, 110)");
     expect(idle).not.toBe(banded);
     expect(plain).toBe(idle);
+  });
+
+  // Every running row with words sweeps them in the shimmer look, the dispatch card's line too: it
+  // once drew a raw `cv-tool__text` beside its spinner, so the look dimmed it and nothing crossed it.
+  test("a running dispatch line shimmers in the shimmer look", async () => {
+    setWorkingLook("shimmer");
+    const card = renderToStaticMarkup(
+      createElement(DispatchCard, {
+        item: { text: "dispatch" } as unknown as AcpmuxActivity,
+        call: { kind: "dispatch", status: "running", title: "Fix the build", to: "worker" },
+      }),
+    );
+    setWorkingLook(undefined);
+    const p = await inLook(await page(`${desktop}${pane}`, card, "no-preference"), "shimmer");
+    const running = (await loops(p)).map((loop) => loop.replace(/\s+/g, " ")).sort();
+    await p.close();
+    // The working dot holds still in this look; the band crosses the words.
+    expect(running).toEqual(["cv-tool__lit cmux-shimmer-lit", "cv-tool__shine cmux-shimmer-band"]);
   });
 
   /** Every running endless animation that moves more than the compositor can (transform,
