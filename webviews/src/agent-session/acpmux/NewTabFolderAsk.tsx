@@ -7,18 +7,27 @@ export function NewTabFolderAsk({
   ask,
   current,
   error,
+  confirming,
   onUse,
   onCancel,
 }: {
   ask: FolderAsk;
   current?: string;
   error?: string;
+  confirming?: boolean;
   onUse(): void;
   onCancel(): void;
 }) {
   return (
     <div className="acpmux-newtab-folder-ask">
-      <StartFolderAsk ask={ask} current={current} error={error} onUse={onUse} onCancel={onCancel} />
+      <StartFolderAsk
+        ask={ask}
+        current={current}
+        error={error}
+        confirming={confirming}
+        onUse={onUse}
+        onCancel={onCancel}
+      />
     </div>
   );
 }

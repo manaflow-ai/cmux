@@ -54,3 +54,14 @@ test("keeps Use and Cancel mounted after a failed home-folder confirmation", () 
   expect(container.textContent).toContain("Folder is unavailable");
   expect(container.querySelectorAll(".acpmux-folder-choice-button")).toHaveLength(2);
 });
+
+test("disables Use while home-folder confirmation is in flight", () => {
+  const ask = { cwd: "/Users/you", reason: "home" as const };
+  const use = () => {};
+  const cancel = () => {};
+  act(() => root!.render(<NewTabFolderAsk ask={ask} confirming onUse={use} onCancel={cancel} />));
+  const buttons = container.querySelectorAll<HTMLButtonElement>(".acpmux-folder-choice-button");
+  expect(buttons).toHaveLength(2);
+  expect(buttons[0]?.disabled).toBe(true);
+  expect(buttons[1]?.disabled).toBe(false);
+});

@@ -383,7 +383,7 @@ import { SwitchNotice } from "./SwitchNotice";
 import { BACKGROUND_NOTICE_TEXT, useBackgroundNotice } from "./conversation/backgroundNotice";
 import { InstructionsNotice, type InstructionsFailure } from "./header/InstructionsNotice";
 import { FolderChoice, showsFolderChoice } from "./FolderChoice";
-import { type FolderAsk, StartFolderAsk, WorktreeFailure, confirmFolder, newWorktree, pickFolder } from "./startFolder";
+import { type FolderAsk, WorktreeFailure, confirmFolder, newWorktree, pickFolder } from "./startFolder";
 import { NewTabFolderAsk } from "./NewTabFolderAsk";
 import { MissingFolder, chooseChatFolder } from "./missingFolder";
 import { LiveChatChoice } from "./LiveChatChoice";
@@ -3955,6 +3955,8 @@ function AcpmuxPane() {
     sessionId?: string;
     error?: string;
   }>();
+  const folderConfirmGeneration = useRef(0);
+  const [folderConfirming, setFolderConfirming] = useState(false);
   const [importError, setImportError] = useState<string | undefined>();
   // Edit CLAUDE.md the app refused (a link out of the folder, not a file): the notice above the
   // composer says why, with Retry; opening it clears the notice.
@@ -5845,6 +5847,8 @@ function AcpmuxPane() {
   shownSession.current = snapshot.sessionId;
   const requestFolder = useCallback((cwd: string, use: (folder: string) => void, cancel?: () => void) => {
     const pick = ++folderPick.current;
+    folderConfirmGeneration.current += 1;
+    setFolderConfirming(false);
     const sessionId = shownSession.current;
     setFolderAsk(undefined);
     setWorktreeCreating(false);
@@ -5882,6 +5886,8 @@ function AcpmuxPane() {
   const startInWorktree = useCallback((cwd: string) => {
     // A newer folder pick wins over this worktree, as between two picks.
     const pick = ++folderPick.current;
+    folderConfirmGeneration.current += 1;
+    setFolderConfirming(false);
     const sessionId = shownSession.current;
     setFolderAsk(undefined);
     setWorktreeError(undefined);
@@ -7722,14 +7728,26 @@ function AcpmuxPane() {
   // that surface too: the regular composer is deliberately hidden behind the New Tab, so leaving
   // the ask there would strand the prompt with no Use or Cancel action.
   const confirmPendingFolder = useCallback(() => {
-    if (!pendingFolder) return;
+    if (!pendingFolder || folderConfirming) return;
     const pending = pendingFolder;
+    const generation = ++folderConfirmGeneration.current;
+    const use = (cwd: string) => {
+      if (generation === folderConfirmGeneration.current) pending.use(cwd);
+    };
+    setFolderConfirming(true);
     setFolderAsk(undefined);
-    void confirmFolder(callNative, pending.ask, pending.use).catch((error: unknown) =>
-      setFolderAsk((current) => current ?? { ...pending, error: errorMessage(error) || String(error) }),
+    void confirmFolder(callNative, pending.ask, use).then(
+      () => generation === folderConfirmGeneration.current && setFolderConfirming(false),
+      (error: unknown) => {
+        if (generation !== folderConfirmGeneration.current) return;
+        setFolderConfirming(false);
+        setFolderAsk((current) => current ?? { ...pending, error: errorMessage(error) || String(error) });
+      },
     );
-  }, [callNative, pendingFolder]);
+  }, [folderConfirming, pendingFolder]);
   const cancelPendingFolder = useCallback(() => {
+    folderConfirmGeneration.current += 1;
+    setFolderConfirming(false);
     pendingFolder?.cancel?.();
     setFolderAsk(undefined);
   }, [pendingFolder]);
@@ -7738,6 +7756,7 @@ function AcpmuxPane() {
       ask={pendingFolder.ask}
       current={freshChat && !snapshot.sessionId ? projectDraft : snapshot.summary?.cwd}
       error={pendingFolder.error}
+      confirming={folderConfirming}
       onUse={confirmPendingFolder}
       onCancel={cancelPendingFolder}
     />
