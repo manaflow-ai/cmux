@@ -10,6 +10,7 @@ import { agentPaneEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
 import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
 import type { AcpmuxSnapshot } from "../model";
+import { LOGIN_SCREENSHOT_PNG } from "../../../gallery/fixtures/toolImages";
 
 const claude = (snapshot: AcpmuxSnapshot): AcpmuxSnapshot => ({
   ...snapshot,
@@ -99,6 +100,19 @@ export default agentPaneEntry({
   ],
   anchors: [{ selector: ".acpmux-composer" }, { selector: ".acpmux-header" }],
   variants: {
+    "inline-image-captions": {
+      note: "Two synthetic screenshots and their captions retain image, text, image, text order in one sent bubble.",
+      snapshot: claude(chat([
+        user("First caption. Second caption.", 1, {
+          inlineParts: [
+            { kind: "image", id: "inline-one", mimeType: "image/png", src: `data:image/png;base64,${LOGIN_SCREENSHOT_PNG}` },
+            { kind: "text", text: "First caption. " },
+            { kind: "image", id: "inline-two", mimeType: "image/png", src: `data:image/png;base64,${LOGIN_SCREENSHOT_PNG}` },
+            { kind: "text", text: "Second caption." },
+          ],
+        }),
+      ])),
+    },
     claude: {
       note: "A Claude chat: hover a later prompt for Copy and Edit; the first prompt has Copy only.",
       snapshot: turns(claude),
