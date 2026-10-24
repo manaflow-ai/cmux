@@ -159,6 +159,7 @@ final class HomeService {
         HomeFlightRecording.install(available: DevTools.isEnabled,
                                     logFolder: Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "cmux")
         wireHostedChief()
+        followTabPresence()
     }
 
     /// Observes the Chief owner: each new connection reloads the list and

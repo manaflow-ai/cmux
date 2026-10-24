@@ -67,6 +67,17 @@ import Testing
         #expect(!fixture.view.isObservingWindow)
     }
 
+    @Test func aTranscriptItsHostDoesNotPresentIsNotSeenAndHearsNoWindowNotice() {
+        let fixture = Self.fixture()
+        defer { fixture.window.close() }
+        fixture.view.isPresented = false // its pane scrolled out of the strip, under a docked column
+        #expect(!fixture.view.transcript.isVisibleToUser, "a transcript off screen reports reads")
+        #expect(!fixture.view.isObservingWindow, "a transcript off screen hears its window's notices")
+        fixture.view.isPresented = true
+        #expect(fixture.view.transcript.isVisibleToUser)
+        #expect(fixture.view.isObservingWindow)
+    }
+
     @MainActor final class Pane: SurfacePresenter {
         func surfaceWasDisplaced(_ key: String) {}
     }

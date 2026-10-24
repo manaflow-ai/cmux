@@ -119,6 +119,14 @@ public final class HomeNativeTranscriptView: NSView {
     public var onHeaderPanel: (String) -> Void = { _ in }
     /// The header's top-right panel toggles (HomeNativeTranscriptView+HeaderPanels.swift).
     let headerPanels = HomeHeaderPanelBar()
+    /// Whether the host presents the transcript on screen now: for a conversation tab, a pane the
+    /// layout reports on screen shows the tab (the content cache's rendering set, which follows the
+    /// pane's presence: not scrolled out of the strip, not under a docked column, not in a parked
+    /// workspace, the pane's selected tab). True for a host with no such model (the new-message
+    /// composer): its hidden flags and window decide alone. Reads are reported only while it holds.
+    public var isPresented = true {
+        didSet { if isPresented != oldValue { followWindow() } }
+    }
     /// Its window's key and occlusion notices, heard only while the transcript shows there.
     var windowObservers: [MainActorObservation] = []
     /// The window `windowObservers` hear.
