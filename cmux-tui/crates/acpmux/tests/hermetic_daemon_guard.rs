@@ -41,6 +41,8 @@ fn only_the_hermetic_helper_starts_the_acpmux_binary() {
         ("agent_host.rs", "HostLauncher { exe: daemon_env::bin().into()"),
         // Every start goes through `acpmux(exe, home)`, which calls `apply`.
         ("windows_daemon.rs", "daemon_env::bin().to_path_buf()"),
+        // Linked into a fake app bundle; that copy starts only after `apply`.
+        ("dev_orphan_exit.rs", "let source = daemon_env::bin();"),
     ];
     let mut files = Vec::new();
     rust_files(&tests, &mut files);

@@ -50,6 +50,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1.20", features = ["v7"] }
 libc = "0.2"
 notify.workspace = true
+# The DEV orphan exit reads its bundle id (src/daemon/dev_orphan.rs).
+plist = "1.10"
 # Session tokens and secrets (the OS generator on every platform).
 getrandom.workspace = true
 base64 = "0.22"
