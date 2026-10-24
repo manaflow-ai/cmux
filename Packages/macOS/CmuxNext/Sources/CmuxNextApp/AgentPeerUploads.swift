@@ -12,7 +12,7 @@ import Foundation
 /// method, here or on the peer, answers `unsupported`, so the composer keeps its own note.
 @MainActor
 struct AgentPeerUploads {
-    private struct Stage { var target: Target; var file: URL; var name: String; var size: Int; var received: Int }
+    private struct Stage { var target: Target; var file: URL; var name: String; var size: Int; var received: Int; var expires: Date }
     private struct Batch { var session: String; var remaining: [(String, Int)]; var expires: Date }
     private static var stages: [String: Stage] = [:]
     private static var batches: [String: Batch] = [:]
@@ -54,10 +54,12 @@ struct AgentPeerUploads {
                 }
                 let token = UUID().uuidString.lowercased(), file = FileManager.default.temporaryDirectory.appending(path: "cmux-peer-staged-" + token + "-" + name)
                 guard FileManager.default.createFile(atPath: file.path, contents: nil, attributes: [.posixPermissions: 0o600]) else { return AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine)) }
-                stages[token] = Stage(target: target, file: file, name: name, size: size, received: 0)
+                stages[token] = Stage(target: target, file: file, name: name, size: size, received: 0, expires: Date().addingTimeInterval(10 * 60))
                 Task { @MainActor in
                     try? await Task.sleep(for: .seconds(10 * 60))
-                    if let expired = stages.removeValue(forKey: token) { try? FileManager.default.removeItem(at: expired.file) }
+                    if let expired = stages[token], expired.expires <= Date() {
+                        stages.removeValue(forKey: token); try? FileManager.default.removeItem(at: expired.file)
+                    }
                 }
                 var reply: [String: Any] = ["token": token, "size": size, "chunkSize": 512 * 1024]
                 if let manifest, batchToken == nil, manifest.count > 1 {
@@ -73,12 +75,19 @@ struct AgentPeerUploads {
             case .chunk(let token, let offset, let data):
                 guard var stage = stages[token], stage.target.session == target.session, stage.received == offset, offset + data.count <= stage.size, data.count <= 512 * 1024 else { return AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine)) }
                 do { let handle = try FileHandle(forWritingTo: stage.file); try handle.seekToEnd(); try handle.write(contentsOf: data); try handle.close() } catch { return AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine)) }
-                stage.received += data.count; stages[token] = stage; return AgentPaneReply.success(["offset": stage.received])
+                stage.received += data.count; stage.expires = Date().addingTimeInterval(10 * 60); stages[token] = stage
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(10 * 60))
+                    if let expired = stages[token], expired.expires <= Date() {
+                        stages.removeValue(forKey: token); try? FileManager.default.removeItem(at: expired.file)
+                    }
+                }
+                return AgentPaneReply.success(["offset": stage.received])
             case .finish(let token):
-                guard let stage = stages[token], stage.received == stage.size, let data = try? Data(contentsOf: stage.file) else { return AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine)) }
+                guard let stage = stages[token], stage.received == stage.size else { return AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine)) }
                 stages.removeValue(forKey: token)
                 defer { try? FileManager.default.removeItem(at: stage.file) }
-                do { let path = try await stage.target.host.putFile(sessionId: stage.target.session, name: stage.name, data: data); return AgentPaneReply.success(["path": path]) } catch { return reply(AgentPaneFilePutFailure(error), machine: target.machine) }
+                do { let path = try await stage.target.host.putFile(sessionId: stage.target.session, name: stage.name, file: stage.file); return AgentPaneReply.success(["path": path]) } catch { return reply(AgentPaneFilePutFailure(error), machine: target.machine) }
             case .cancel(let token):
                 if let stage = stages.removeValue(forKey: token) { try? FileManager.default.removeItem(at: stage.file) }
                 return AgentPaneReply.success()
