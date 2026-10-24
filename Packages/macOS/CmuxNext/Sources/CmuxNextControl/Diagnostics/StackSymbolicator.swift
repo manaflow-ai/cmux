@@ -28,6 +28,15 @@ public struct StackSymbolicator: Sendable {
     /// frame still reports its address, and offsets count from it.
     public func frames(for addresses: [UInt]) -> [HangFrame] {
         let executable = _dyld_get_image_header(0).map { UnsafeRawPointer($0) }
+        // Each image's function starts, read once per stack (images repeat within one stack).
+        var startsByImage: [UInt: FunctionStarts?] = [:]
+        func functionStarts(_ header: UnsafeMutableRawPointer) -> FunctionStarts? {
+            let key = UInt(bitPattern: header)
+            if let known = startsByImage[key] { return known }
+            let read = FunctionStarts.read(header: UnsafeRawPointer(header))
+            startsByImage[key] = .some(read)
+            return read
+        }
         return addresses.enumerated().map { index, address in
             var info = Dl_info()
             let lookup = index == 0 || address == 0 ? address : address &- 1
@@ -43,11 +52,23 @@ public struct StackSymbolicator: Sendable {
                 return HangFrame(address: address, image: image, symbol: Self.demangle(function.name),
                                  offset: function.offset &+ (address &- lookup), imageOffset: imageOffset)
             }
-            let symbol = info.dli_sname.map { Self.demangle(String(cString: $0)) }
-            let base = info.dli_saddr.map { UInt(bitPattern: $0) } ?? address
-            return HangFrame(address: address, image: image, symbol: symbol, offset: address &- base,
-                             imageOffset: imageOffset)
+            let symbolOffset = info.dli_saddr.flatMap { saddr in info.dli_fbase.map { UInt(bitPattern: saddr) &- UInt(bitPattern: $0) } }
+            return Self.frame(address: address, lookup: lookup, image: image, imageOffset: imageOffset,
+                              symbol: info.dli_sname.map { String(cString: $0) }, symbolOffset: symbolOffset,
+                              starts: info.dli_fbase.flatMap(functionStarts))
         }
+    }
+
+    /// One frame from `dladdr`'s fields: `symbol` (mangled) at `symbolOffset` from the image header,
+    /// the address at `imageOffset`, `lookup` the address looked up (the call for a return address).
+    /// `starts` is the image's function starts, nil when it has none.
+    static func frame(address: UInt, lookup: UInt, image: String?, imageOffset: UInt?, symbol: String?, symbolOffset: UInt?,
+                      starts: FunctionStarts?) -> HangFrame {
+        guard let symbol, let symbolOffset, let imageOffset else {
+            return HangFrame(address: address, image: image, symbol: nil, offset: 0, imageOffset: imageOffset)
+        }
+        return HangFrame(address: address, image: image, symbol: demangle(symbol), offset: imageOffset &- symbolOffset,
+                         imageOffset: imageOffset)
     }
 
     private typealias Demangle = @convention(c) (UnsafePointer<CChar>?, Int, UnsafeMutablePointer<CChar>?, UnsafeMutablePointer<Int>?, UInt32) -> UnsafeMutablePointer<CChar>?
@@ -57,7 +78,7 @@ public struct StackSymbolicator: Sendable {
         return unsafeBitCast(symbol, to: Demangle.self)
     }()
 
-    private static func demangle(_ name: String) -> String {
+    static func demangle(_ name: String) -> String {
         guard name.hasPrefix("$s") || name.hasPrefix("_$s"), let swiftDemangle else { return name }
         return name.withCString { raw in
             guard let result = swiftDemangle(raw, strlen(raw), nil, nil, 0) else { return name }
