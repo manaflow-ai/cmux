@@ -567,7 +567,7 @@ class Sweep:
         # The kind the builder asked for each tab it made (perf-stress-session's `made`: webkit and chromium apart,
         # chat even when the New Tab page stood in); the topology says only `browser` for both engines.
         asked = {tab: kind for entries in (getattr(self.builder, "made", None) or {}).values()
-                 for kind, tab in entries if tab}
+                 for kind, tab, *_ in entries if tab}
         places = {p["id"]: [w["id"], pane_position(topo, w["id"], p["id"])]
                   for w in topo.get("workspaces") or [] if w.get("id") for p in panes_of(w) if p.get("id")}
         keys = {t["id"]: tab_key(t) for w in topo.get("workspaces") or [] for p in panes_of(w) for t in p.get("tabs") or []
@@ -787,15 +787,17 @@ class Sweep:
             tabs = tabs_at(topo, workspace, new_pane)
             present = {t.get("id") for t in tabs}
             by_key = {tab_key(t): t["id"] for t in tabs if tab_key(t)}
-            moved = [(kind, tab if tab is None or tab in present else by_key.get(keys.get(tab))) for kind, tab in entries]
-            claimed = {tab for _, tab in moved if tab}
-            for index, (kind, tab) in enumerate(moved):
+            # An entry is (kind, id, *rest): perf-stress-session adds fields after the id (whether a chat fell back).
+            moved = [(kind, tab if tab is None or tab in present else by_key.get(keys.get(tab)), *rest)
+                     for kind, tab, *rest in entries]
+            claimed = {entry[1] for entry in moved if entry[1]}
+            for index, (kind, tab, *rest) in enumerate(moved):
                 if tab is None and entries[index][1] is not None and kind in ("terminal", "chat"):
                     want = ("terminal",) if kind == "terminal" else ("conversation", "page")
                     tab = next((t["id"] for t in tabs if t.get("kind") in want and t["id"] not in claimed), None)
                     if tab:
                         claimed.add(tab)
-                        moved[index] = (kind, tab)
+                        moved[index] = (kind, tab, *rest)
             if new_pane != old_pane:
                 made.pop(old_pane, None)
             if new_pane:
@@ -854,10 +856,10 @@ class Sweep:
             its place. When the new tab's id is unknown, the dead id leaves `busy`: the shape check then counts 9 busy
             terminals and fails the session. A dead id never stays and gets counted as busy."""
         made = self.builder.made.setdefault(pane, [])
-        index = next((i for i, (_, t) in enumerate(made) if t == tab), None)
+        index = next((i for i, entry in enumerate(made) if entry[1] == tab), None)
         self.builder.focus_pane(pane)
         self.builder.add_tab(workspace, pane, kind)
-        entry = made.pop()  # add_tab appended the new tab's entry: (kind, id), or (kind, None) when the id is unknown
+        entry = made.pop()  # add_tab appended the new tab's entry: (kind, id, ...), the id None when unknown
         if index is not None:
             made[index] = entry
         busy = getattr(self.builder, "busy", None)

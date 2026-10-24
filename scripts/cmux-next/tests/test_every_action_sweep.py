@@ -574,7 +574,7 @@ class StressShapeTests(unittest.TestCase):
                    mock.patch.object(stress_mod.Stress, "build_background", lambda builder, *a, **k: []),
                    mock.patch.object(stress_mod.Stress, "build_measured", build_measured),
                    # The window is STRESS's size: the build gets to its shape check.
-                   mock.patch.object(stress_mod.Stress, "size_window", lambda builder: {"frame": list(stress_mod.WINDOW)}),
+                   mock.patch.object(stress_mod.Stress, "size_window", lambda builder: {"frame": [0, 0, *stress_mod.WINDOW_SIZE]}),
                    mock.patch("time.sleep")]
         if summary is not None:
             patches.append(mock.patch.object(stress_mod.Stress, "summary", lambda builder: dict(summary)))
@@ -643,7 +643,7 @@ class StressShapeTests(unittest.TestCase):
         def body():
             sweep, pane = self.webkit_pane(fake)
             want = self.engines(fake, pane)
-            webkit = next(tab for kind, tab in sweep.builder.made[pane] if kind == "webkit")
+            webkit = next(tab for kind, tab, *_ in sweep.builder.made[pane] if kind == "webkit")
             # The tab is gone with no closed entry of the input's own (moved out, or its entry came too late):
             # the tab path runs.
             fake.close_tab(webkit)
@@ -651,7 +651,7 @@ class StressShapeTests(unittest.TestCase):
             return sweep, pane, want
         sweep, pane, want = self.run_patched(patches, body)
         self.assertEqual(self.engines(fake, pane), want)
-        self.assertEqual(sorted(kind for kind, _ in sweep.builder.made[pane]),
+        self.assertEqual(sorted(kind for kind, *_ in sweep.builder.made[pane]),
                          ["chat", "chromium", "chromium", "terminal", "webkit"])
         self.assertEqual(len(checked), 1)
         self.assertEqual(checked[0]["pane_problems"], [])
@@ -664,7 +664,7 @@ class StressShapeTests(unittest.TestCase):
 
         def body():
             sweep, pane = self.webkit_pane(fake)
-            recorded = {tab for _, tab in sweep.builder.made[pane]}
+            recorded = {tab for _, tab, *_ in sweep.builder.made[pane]}
             first = next(t["id"] for t in self.tabs_of(fake, pane) if t["id"] not in recorded)
             fake.close_tab(first)
             sweep.rebuild({"tabs": 1})
@@ -684,7 +684,7 @@ class StressShapeTests(unittest.TestCase):
 
         def body():
             sweep, pane = self.webkit_pane(fake)
-            busy = next(tab for kind, tab in reversed(sweep.builder.made[pane]) if kind == "terminal")
+            busy = next(tab for kind, tab, *_ in reversed(sweep.builder.made[pane]) if kind == "terminal")
             sweep.builder.busy = [busy]
             sweep.snapshot_base(sweep.base["workspace"])
             fake.doomed_tab = busy
@@ -708,7 +708,7 @@ class StressShapeTests(unittest.TestCase):
 
         def body():
             sweep, pane = self.webkit_pane(fake)
-            fake.close_tab(next(tab for kind, tab in sweep.builder.made[pane] if kind == "webkit"))
+            fake.close_tab(next(tab for kind, tab, *_ in sweep.builder.made[pane] if kind == "webkit"))
             sweep.rebuild({"tabs": 1})
         with self.assertRaises(sweep_mod.SessionShapeError):
             self.run_patched(self.patched(fake, wrong), body)
@@ -718,7 +718,7 @@ class StressShapeTests(unittest.TestCase):
 
         def body():
             sweep, pane = self.webkit_pane(fake)
-            asked = sorted(kind for kind, _ in sweep.builder.made[pane])
+            asked = sorted(kind for kind, *_ in sweep.builder.made[pane])
             row = sweep.run_action({"id": "closePane", "title": "Close Pane"})
             return sweep, pane, asked, row
         sweep, pane, asked, row = self.run_patched(self.patched(fake, STRESS_OK), body)
@@ -727,11 +727,11 @@ class StressShapeTests(unittest.TestCase):
         self.assertNotEqual(new["id"], pane)
         self.assertNotIn(pane, sweep.builder.made)
         made = sweep.builder.made[new["id"]]
-        self.assertEqual(sorted(kind for kind, _ in made), asked)
+        self.assertEqual(sorted(kind for kind, *_ in made), asked)
         ids = {t["id"] for t in new["tabs"]}
-        self.assertTrue(all(tab in ids for _, tab in made), made)
+        self.assertTrue(all(tab in ids for _, tab, *_ in made), made)
         # Each page entry points at the reopened tab of its own engine.
-        for kind, tab in made:
+        for kind, tab, *_ in made:
             if kind in ("webkit", "chromium"):
                 self.assertEqual(fake.engines.get(tab), kind)
 
