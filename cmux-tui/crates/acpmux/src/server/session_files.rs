@@ -14,7 +14,7 @@ use crate::store::SessionMeta;
 use cmux_chat_index::{AdapterKind, ChatKey};
 use serde::Serialize;
 use serde_json::{Value, json};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 pub(crate) const CAPABILITY: &str = "session-files-v1";
 pub(crate) const LOCAL_ONLY_REASON: &str = "session_files.local_only";
