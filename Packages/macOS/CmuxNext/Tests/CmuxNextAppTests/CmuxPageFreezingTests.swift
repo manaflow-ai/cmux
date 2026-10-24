@@ -33,7 +33,7 @@ struct CmuxPageFreezingTests {
     /// The time the policy reads, stepped by the test.
     // Read and stepped only on the main actor: the suite is @MainActor and .serialized, and the
     // policy reads its clock on the main actor.
-    private final class TestTime: @unchecked Sendable {
+    private nonisolated final class TestTime: @unchecked Sendable {
         var now = ContinuousClock.now
     }
 
