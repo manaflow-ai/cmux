@@ -171,6 +171,9 @@ public final class MainThreadWatchdog: Sendable {
     /// thread past the end of a stall. Debug builds only: release builds
     /// carry no test seam.
     let afterSampleForTesting = Mutex<(@Sendable () -> Void)?>(nil)
+    /// Tests: runs on the watchdog thread right before each wait (its limit in ns, nil for none),
+    /// so a test can make a wake land between the thread's read of the board and its wait.
+    let beforeWaitForTesting = Mutex<(@Sendable (UInt64?) -> Void)?>(nil)
     /// The heartbeat sequence (tests wait for it to move).
     var currentBeat: UInt64 { beatSequence.load(ordering: .acquiring) }
     /// Times the watchdog thread returned from a wait (tests count its idle wakeups).
@@ -391,6 +394,9 @@ public final class MainThreadWatchdog: Sendable {
     /// The watchdog thread's one wait (``MainThreadWatchdogAlarm/wait(nanos:)``); debug builds
     /// count each return (tests read the count).
     private func waitForAlarm(nanos: UInt64?) {
+        #if DEBUG
+        beforeWaitForTesting.withLock { $0 }?(nanos)
+        #endif
         // concurrency-allow: the dedicated watchdog thread's kevent wait; never the main thread.
         alarm.wait(nanos: nanos)
         #if DEBUG
