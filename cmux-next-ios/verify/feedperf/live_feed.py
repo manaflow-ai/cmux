@@ -15,7 +15,7 @@ as the dev user, so both Macs feed it. Then:
   to bottom and back (`CMUX_MOBILE_FEED_AUTOSCROLL`) while the events arrive,
   optionally with `--seed N` synthetic events merged under the real ones.
 
-    python3 live_feed.py --app PATH --udid UDID --agents-rig HOST|local|none --asks-rig HOST|local
+    python3 live_feed.py --app PATH --udid UDID --agents-rig HOST|local|none --asks-rig HOST|local|none
                          [--seed 0] [--passes 2] [--label NAME] [--skip-sign-in] [--out DIR]
 
 The minis do not reach each other over SSH, so a rig on another mini is
@@ -146,8 +146,8 @@ def main():
     stop = threading.Event()
     if a.agents_rig != "none":
         real_agents(a.agents_rig, log, stop)
-    asks = threading.Thread(target=fake_asks, args=(a.asks_rig, log, stop), daemon=True)
-    asks.start()
+    if a.asks_rig != "none":
+        threading.Thread(target=fake_asks, args=(a.asks_rig, log, stop), daemon=True).start()
     # Link each rig Mac (the Workspaces filter), then show All Macs; then the Feed while the agents work.
     sim.launch(bundle)
     time.sleep(4)
