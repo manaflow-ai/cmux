@@ -16,9 +16,11 @@ extension LineTransport {
         var streamID: String?
         var errorDetails: JSONValue?
         var retryable: Bool?
+        /// The client attach stream an event belongs to (`attach-streams-v1`).
+        var attachStream: UInt16?
 
         enum CodingKeys: String, CodingKey {
-            case id, ok, event, error, type, reason, retryable, data
+            case id, ok, event, error, type, reason, retryable, data, stream
             case errorCode = "error_code"
             case streamID = "stream_id"
         }
@@ -40,6 +42,7 @@ extension LineTransport {
             ok = try? c.decodeIfPresent(Bool.self, forKey: .ok)
             (event, streamID) = (try? c.decodeIfPresent(String.self, forKey: .event), try? c.decodeIfPresent(String.self, forKey: .streamID))
             type = try? c.decodeIfPresent(String.self, forKey: .type)
+            attachStream = try? c.decodeIfPresent(UInt16.self, forKey: .stream)
             errorCode = try? c.decodeIfPresent(String.self, forKey: .errorCode)
             if let text = try? c.decodeIfPresent(String.self, forKey: .error) {
                 error = text

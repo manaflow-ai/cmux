@@ -14,6 +14,16 @@ extension DaemonService {
         guard let connection, let endpoint = await connection.endpoint else { throw DaemonError.notConnected }
         return endpoint
     }
+
+    /// The connection as a carrier of terminal streams (`attach-streams-v1`):
+    /// terminal views attach on it with no connection of their own. Nil when the
+    /// daemon does not serve streams; the view then uses ``endpoint()``.
+    public func terminalStreams(device: TerminalSizingDevice) async throws -> TerminalStreamCarrier? {
+        if policyBlock.isBlocked { throw DaemonError.endpointBlocked("turned off by your organization") }
+        if connection == nil, startup == .connecting, isStarting { await firstConnection() }
+        guard let connection else { throw DaemonError.notConnected }
+        return try await connection.terminalStreams(device: device)
+    }
 }
 
 extension DaemonService {
