@@ -58,6 +58,21 @@ extension AcpmuxStatusClient {
         }
     }
 
+    /// Streams a staged peer file without loading its whole contents into memory.
+    @concurrent static func putFile(socketPath: String, sessionId: String, name: String, file: URL,
+                                    deadline: Duration = .seconds(120)) async throws -> String {
+        let size = (try FileManager.default.attributesOfItem(atPath: file.path)[.size] as? NSNumber)?.intValue ?? 0
+        guard size <= AgentPaneUpload.maximumPeerFileBytes else { throw AgentPaneFilePutFailure.tooLarge }
+        if size <= legacyFilePutBytes {
+            return try await putFile(socketPath: socketPath, sessionId: sessionId, name: name,
+                                     data: try Data(contentsOf: file), deadline: deadline)
+        }
+        return try await putFileChunked(sessionId: sessionId, name: name, size: size, file: file) { method, params in
+            try await call(socketPath: socketPath, method: method, params: params, deadline: deadline,
+                           detailed: true, requiredFeature: filePutChunksFeature)
+        }
+    }
+
     /// ``putFile(socketPath:sessionId:name:data:deadline:)`` with `send`, which runs the request.
     static func putFile(sessionId: String, name: String, data: Data,
                         send: @Sendable (_ params: [String: any Sendable]) async throws -> [String: Any]) async throws -> String {
@@ -100,6 +115,36 @@ extension AcpmuxStatusClient {
             if let upload {
                 try? await send(filePutCancelMethod, ["sessionId": sessionId, "uploadId": upload])
             }
+            if let failure = error as? AgentPaneFilePutFailure { throw failure }
+            throw AgentPaneFilePutFailure(error)
+        }
+    }
+
+    private static func putFileChunked(sessionId: String, name: String, size: Int, file: URL,
+                                       send: @Sendable (_ method: String, _ params: [String: any Sendable]) async throws -> [String: Any]) async throws -> String {
+        var upload: String?
+        do {
+            let started = try await send(filePutBeginMethod, ["sessionId": sessionId, "fileName": name, "size": size])
+            guard let id = started["uploadId"] as? String, !id.isEmpty else { throw AgentPaneFilePutFailure.failed }
+            upload = id
+            let handle = try FileHandle(forReadingFrom: file)
+            defer { try? handle.close() }
+            var offset = 0
+            while offset < size {
+                let piece = try handle.read(upToCount: min(filePutChunkBytes, size - offset)) ?? Data()
+                guard !piece.isEmpty else { throw AgentPaneFilePutFailure.failed }
+                let end = offset + piece.count
+                let answer = try await send(filePutChunkMethod, ["sessionId": sessionId, "uploadId": id,
+                                                                  "offset": offset, "data": piece.base64EncodedString()])
+                guard let next = answer["offset"] as? NSNumber, next.intValue == end else { throw AgentPaneFilePutFailure.failed }
+                offset = end
+            }
+            let finished = try await send(filePutFinishMethod, ["sessionId": sessionId, "uploadId": id,
+                                                                 "fileName": name, "size": size])
+            guard let path = finished["path"] as? String, !path.isEmpty else { throw AgentPaneFilePutFailure.failed }
+            return path
+        } catch {
+            if let upload { try? await send(filePutCancelMethod, ["sessionId": sessionId, "uploadId": upload]) }
             if let failure = error as? AgentPaneFilePutFailure { throw failure }
             throw AgentPaneFilePutFailure(error)
         }
