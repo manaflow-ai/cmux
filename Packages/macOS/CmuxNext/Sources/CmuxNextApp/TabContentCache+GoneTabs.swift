@@ -15,6 +15,9 @@ final class GoneTabWatch {
     private var stores: [String: DaemonStore] = [:]
     private var seenLive: Set<String> = []
     private var watches: [ObjectIdentifier: Task<Void, Never>] = [:]
+    /// Tab records this watch examined since it was made, over every tree change it woke for: what a
+    /// tree change costs it. Tests read it; it must follow the tabs it tracks, not the session.
+    private(set) var tabsVisited = 0
 
     /// Follows tab `key` in `store`'s tree; `release` lets it go once the tree drops it.
     func track(_ key: String, in store: DaemonStore, release: @escaping @MainActor (String) -> Void) {
@@ -29,6 +32,7 @@ final class GoneTabWatch {
         watches[id] = Task { [weak self] in
             for await live in ObservationStream({ AgentTabStore.liveTabs(store) }) where live != nil {
                 guard let self, let live else { return }
+                self.tabsVisited += live.count
                 for key in self.gone(in: store, live: live) { release(key) }
             }
         }
