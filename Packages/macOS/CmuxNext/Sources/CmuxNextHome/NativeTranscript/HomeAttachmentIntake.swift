@@ -62,7 +62,8 @@ extension NSPasteboardItem: HomePasteboardContents {
 }
 
 /// What a pasteboard (drop or paste) offers as attachments: file URLs
-/// first; on a drag, file promises next (the source's own file: a
+/// first (unless none of their files is there and picture bytes come with
+/// them: a copied screenshot's removed temporary file); on a drag, file promises next (the source's own file: a
 /// screenshot thumbnail, Photos, a browser's picture; `HomePromisedFiles`
 /// receives them off the main thread); else picture or PDF bytes the data
 /// side takes (it converts TIFF and HEIF itself), but only when there is no
@@ -92,7 +93,12 @@ enum HomeAttachmentIntake {
     /// shows "copy" only for what the drop will accept. `dragging` counts
     /// file promises (only a drop can ask a source to write its file).
     static func offers(_ board: any HomePasteboardContents, dragging: Bool = false) -> Bool {
-        if board.hasType([.fileURL]) { return board.fileURLs.contains(where: HomeComposerCheck.accepts) }
+        if board.hasType([.fileURL]) {
+            let urls = board.fileURLs
+            // A link whose file is gone (a copied screenshot's temporary file) gives way to the picture beside it.
+            if !urls.contains(where: fileIsThere), hasPicture(board, beside: urls) { return true }
+            return urls.contains(where: HomeComposerCheck.accepts)
+        }
         // A promise of a file, else the drag's own picture bytes (a browser's picture carries both; a
         // promise the drag can't read yet must not hide them).
         if dragging, board.hasType(promiseTypes), board.filePromises.contains(where: promisesAFile) { return true }
@@ -102,9 +108,19 @@ enum HomeAttachmentIntake {
     /// The attachments a paste or drop gives, in order: its files; else, with no text, each
     /// item's picture (several pictures copied together all attach); else the pictures inside
     /// its rich text (a note's or a mail's), whose words paste beside them (``textBeside(_:)``).
+    ///
+    /// File links win only when one of their files is there: a copied screenshot carries a link to
+    /// a temporary file the screenshot tool may already have removed, beside the picture (Lawrence
+    /// 2026-10-23, Cmd+V in the Chief's message box read the link three times and never the
+    /// picture). With none there, the picture beside them; with no picture, the links (the notice
+    /// names the file).
     static func inputs(from board: any HomePasteboardContents) -> [HomeDraftInput] {
         let urls = board.fileURLs
-        if !urls.isEmpty { return urls.map { .file($0) } }
+        if urls.contains(where: fileIsThere) { return urls.map { .file($0) } }
+        if !urls.isEmpty {
+            if hasPicture(board, beside: urls), let shot = picture(board) { return [shot] }
+            return urls.map { .file($0) }
+        }
         if hasText(board) { return richTextPictures(board) }
         let pictures = board.items.compactMap(picture)
         if !pictures.isEmpty { return pictures }
@@ -125,6 +141,20 @@ enum HomeAttachmentIntake {
             return nil
         }
         return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : text
+    }
+
+    /// Whether a link's file (or folder) is on disk; a link to another scheme counts as there.
+    private static func fileIsThere(_ url: URL) -> Bool {
+        !url.isFileURL || FileManager.default.fileExists(atPath: url.path)
+    }
+
+    /// Picture bytes the data side takes beside file links URLS, with no text but one that only
+    /// names one of them (a copied file's name or path).
+    private static func hasPicture(_ board: any HomePasteboardContents, beside urls: [URL]) -> Bool {
+        guard acceptedPictureType(board) != nil else { return false }
+        guard hasText(board) else { return true }
+        let text = (board.string(forType: .string) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return urls.contains { text == $0.lastPathComponent || text == $0.path || text == $0.absoluteString }
     }
 
     /// One item's (or a whole board's) picture bytes, under the first type the data side takes.
