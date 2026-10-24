@@ -44,6 +44,13 @@ export type PromptBlock =
   | { type: "resource_link"; uri: string; name: string }
   | { type: "audio"; mimeType: string; data: string };
 
+/** The replacement character stored in the editor for one inline attachment. */
+export const INLINE_ATTACHMENT_MARK = "\uFFFC";
+
+export type OrderedDraftPart =
+  | { type: "text"; text: string }
+  | { type: "attachment"; attachment: ComposerAttachment };
+
 /** Anthropic's per-image limit. */
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 /** Conservative shared preview size; original files stay available through session tools.
@@ -97,9 +104,12 @@ export async function readAttachments(
   return { attachments, errors };
 }
 
-export async function readAttachment(file: File, allowImages: boolean): Promise<ComposerAttachment | AttachmentError> {
+export async function readAttachment(
+  file: File,
+  allowImages: boolean,
+  id = crypto.randomUUID(),
+): Promise<ComposerAttachment | AttachmentError> {
   const name = file.name || "file";
-  const id = crypto.randomUUID();
   if (isPdf(file)) {
     if (file.size > MAX_DOCUMENT_BYTES) return { name, reason: "tooLarge" };
     const bytes = new Uint8Array(await file.arrayBuffer());
@@ -272,6 +282,7 @@ export function base64(bytes: Uint8Array): string {
 
 /// The prompt's text with each text file appended as a fenced block under its name.
 export function promptText(text: string, attachments: ComposerAttachment[]): string {
+  const visibleText = text.replaceAll(INLINE_ATTACHMENT_MARK, "");
   const files = attachments
     .filter((attachment) => attachment.kind === "text")
     .map((attachment) => {
@@ -285,43 +296,72 @@ export function promptText(text: string, attachments: ComposerAttachment[]): str
       (attachment) =>
         `Attached file: ${attachment.name} (${attachment.mimeType}, ${attachment.size} bytes). Read the linked file with your tools.`,
     );
-  return [text, ...files, ...notes].filter(Boolean).join("\n\n");
+  return [visibleText, ...files, ...notes].filter(Boolean).join("\n\n");
 }
 
 /// ACP prompt blocks: the text (with text files) first, then each pasted text (pastedText.ts), then
 /// each image, PDF, recording and file or folder link.
 /// A `data:` image written into the text goes as an image block, never as text (inlineImages.ts).
+/** The editor's ordered runs. Attachments without a mark remain at the end for old drafts. */
+export function orderedDraftParts(input: string, chips: readonly ComposerAttachment[]): OrderedDraftPart[] {
+  if (!input.includes(INLINE_ATTACHMENT_MARK))
+    return input
+      ? [{ type: "text", text: input }, ...chips.map((attachment): OrderedDraftPart => ({ type: "attachment", attachment }))]
+      : chips.map((attachment): OrderedDraftPart => ({ type: "attachment", attachment }));
+  const parts: OrderedDraftPart[] = [];
+  let start = 0;
+  let next = 0;
+  for (let at = input.indexOf(INLINE_ATTACHMENT_MARK); at >= 0; at = input.indexOf(INLINE_ATTACHMENT_MARK, at + 1)) {
+    const text = input.slice(start, at);
+    if (text) parts.push({ type: "text", text });
+    const attachment = chips[next++];
+    if (attachment) parts.push({ type: "attachment", attachment });
+    start = at + INLINE_ATTACHMENT_MARK.length;
+  }
+  const tail = input.slice(start);
+  if (tail) parts.push({ type: "text", text: tail });
+  for (const attachment of chips.slice(next)) parts.push({ type: "attachment", attachment });
+  return parts;
+}
+
+function attachmentBlocks(attachment: ComposerAttachment): PromptBlock[] {
+  const blocks: PromptBlock[] = [];
+  if (attachment.kind === "image" && attachment.data)
+    blocks.push({ type: "image", mimeType: attachment.mimeType, data: attachment.data, name: attachment.name });
+  else if (attachment.kind === "document" && attachment.data)
+    blocks.push({ type: "document", mimeType: "application/pdf", data: attachment.data, name: attachment.name });
+  else if (attachment.kind === "audio" && attachment.data)
+    blocks.push({ type: "audio", mimeType: attachment.mimeType, data: attachment.data });
+  else if (attachment.kind === "link" && attachment.path)
+    blocks.push({ type: "resource_link", uri: fileUri(attachment.path), name: attachment.name });
+  if (attachment.kind === "image" && attachment.originalPath)
+    blocks.push({ type: "resource_link", uri: fileUri(attachment.originalPath), name: attachment.originalName ?? attachment.name });
+  return blocks;
+}
+
+/** ACP content in the same order as the editor. Unmarked legacy drafts keep their old shape. */
 export function promptBlocks(input: string, chips: ComposerAttachment[]): PromptBlock[] {
   const { text, attachments } = liftInlineImages(input, chips);
+  if (!text.includes(INLINE_ATTACHMENT_MARK)) {
+    const blocks: PromptBlock[] = [];
+    const body = promptText(text, attachments);
+    if (body) blocks.push({ type: "text", text: body });
+    blocks.push(...pastedTextBlocks(attachments));
+    for (const attachment of attachments) blocks.push(...attachmentBlocks(attachment));
+    return blocks;
+  }
   const blocks: PromptBlock[] = [];
-  const body = promptText(text, attachments);
-  if (body) blocks.push({ type: "text", text: body });
-  blocks.push(...pastedTextBlocks(attachments));
-  for (const attachment of attachments) {
-    if (attachment.kind === "image" && attachment.data)
-      blocks.push({
-        type: "image",
-        mimeType: attachment.mimeType,
-        data: attachment.data,
-        name: attachment.name,
-      });
-    else if (attachment.kind === "document" && attachment.data)
-      blocks.push({
-        type: "document",
-        mimeType: "application/pdf",
-        data: attachment.data,
-        name: attachment.name,
-      });
-    else if (attachment.kind === "link" && attachment.path)
-      blocks.push({ type: "resource_link", uri: fileUri(attachment.path), name: attachment.name });
-    else if (attachment.kind === "audio" && attachment.data)
-      blocks.push({ type: "audio", mimeType: attachment.mimeType, data: attachment.data });
-    if (attachment.kind === "image" && attachment.originalPath)
-      blocks.push({
-        type: "resource_link",
-        uri: fileUri(attachment.originalPath),
-        name: attachment.originalName ?? attachment.name,
-      });
+  for (const part of orderedDraftParts(text, attachments)) {
+    if (part.type === "text") {
+      if (part.text) blocks.push({ type: "text", text: part.text });
+      continue;
+    }
+    if (part.attachment.kind === "text") {
+      const body = promptText("", [part.attachment]);
+      if (body) blocks.push({ type: "text", text: body });
+    } else if (part.attachment.kind === "pasted" && part.attachment.text) {
+      blocks.push({ type: "text", text: part.attachment.text, _meta: { cmux: { pasted: true } } });
+    } else blocks.push(...attachmentBlocks(part.attachment));
   }
   return blocks;
 }
