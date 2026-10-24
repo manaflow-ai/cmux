@@ -16,6 +16,12 @@ set -euo pipefail
 
 dest="${TARGET_BUILD_DIR:?}/${UNLOCALIZED_RESOURCES_FOLDER_PATH:?}"
 share="${SRCROOT:?}/ghostty-next/zig-out/share"
+stamp="${TARGET_TEMP_DIR:-$TARGET_BUILD_DIR}/bundle-ghostty-resources.stamp"
+trap 'mkdir -p "$(dirname "$stamp")"; printf "completed\n" > "$stamp"' EXIT
+
+# Keep all declared resource directories present even when a source tree is
+# unavailable, so the dependency-analysis output is stable for optional hosts.
+mkdir -p "$dest/ghostty" "$dest/terminfo" "$dest/shell-integration" "$dest/cmux-cli-path"
 
 sync_dir() {
   local src="$1" dst="$2"

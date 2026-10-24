@@ -61,6 +61,13 @@ class SwiftTypecheckDiagnosticsTests(unittest.TestCase):
         for block in blocks:
             self.assertRegex(block, r"inputPaths = \(\n\s+\"[^\"]+\",")
             self.assertRegex(block, r"outputPaths = \(\n\s+\"[^\"]+\",")
+        self.assertIn('"$(SRCROOT)/cmux-tui/crates/cmux-git"', source)
+        self.assertIn('"$(SRCROOT)/scripts/build-phase-caller-path.sh"', source)
+        self.assertIn('"$(SRCROOT)/cmux-tui/crates/cmux-rd-ffi"', source)
+        self.assertIn('"$(SRCROOT)/scripts/cmux-next/bundle-ublock.sh"', source)
+        self.assertIn('"$(TARGET_TEMP_DIR)/embed-cef.stamp"', source)
+        self.assertNotIn('"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/cef"', source)
+        self.assertIn('"$(TARGET_TEMP_DIR)/verify-web-bundles.stamp"', source)
 
 
 if __name__ == "__main__":
