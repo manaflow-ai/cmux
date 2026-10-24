@@ -227,7 +227,7 @@ public final class TypingLatencyProbe: Sendable {
         let onMain = mark == .ioWrite && Thread.isMainThread
         let (finished, recorded) = state.withLock { state -> (Sample?, Sample?) in
             guard var sample = state.open, sample.marks[mark.rawValue] == nil else { return (nil, nil) }
-            if let target = sample.target, let scope {
+            if let target = sample.target, let scope, false {  // red: the scope check off
                 switch scope {
                 case .surface(let surface): if let own = target.surface, own != surface { return (nil, nil) }
                 case .view(let view): if view != target.view { return (nil, nil) }
