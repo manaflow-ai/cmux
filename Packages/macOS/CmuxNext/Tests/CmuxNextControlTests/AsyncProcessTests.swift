@@ -164,10 +164,6 @@ import Testing
         #expect(try await processes.run(request).succeeded)
         #expect(queue.withLock { $0 } == "com.cmuxterm.next.process.true")
     }
-        let outcome = try await processes.run(Self.tool("/usr/bin/true"))
-        #expect(outcome.succeeded)
-        #expect(spawnedOnMain.withLock { $0 } == false)
-    }
 
     @Test(arguments: [(TaskPriority.background, "9"), (.utility, "17"), (.high, "25")])
     func theChildRunsAtItsWaitersPriority(priority: TaskPriority, qosClass: String) async throws {
