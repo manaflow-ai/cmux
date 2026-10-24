@@ -25,7 +25,8 @@ reads before the stopped turn's result (a Stop Claude Code answers late).
 "long-step" is one step (a long tool call) that runs until the interrupt, as
 Claude Code 2.1 does it: user lines written during the step wait; at the
 interrupt the step's result comes first, then each waiting line is echoed and
-answered ("read: TEXT") as one more turn (cosmic-gray, 2026-10-20).
+answered ("read: TEXT") as one more turn (cosmic-gray, 2026-10-20); a
+cancel_async_message drops a waiting line by its uuid.
 A stop_task control request ends its task killed (task_updated);
 FAKE_CLAUDE_STOP_NOTIFY=1 sends the task's task_notification too.
 "fg-shell" runs a foreground Bash call until a background_tasks control
@@ -198,6 +199,13 @@ def long_step(prompt):
         msg = json.loads(got)
         if msg.get("type") == "user":
             waiting.append(msg)
+        elif (msg.get("request") or {}).get("subtype") == "cancel_async_message":
+            # Drops a waiting line by its uuid, as Claude Code does; a no-op once it was read.
+            uuid = msg["request"].get("message_uuid")
+            kept = [m for m in waiting if m.get("uuid") != uuid]
+            send({"type": "control_response", "response": {"subtype": "success",
+                  "request_id": msg.get("request_id"), "response": {"cancelled": len(kept) < len(waiting)}}})
+            waiting = kept
         elif msg.get("type") == "control_request":
             send({"type": "control_response", "response": {"subtype": "success",
                   "request_id": msg.get("request_id"), "response": {}}})
