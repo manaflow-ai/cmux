@@ -95,6 +95,32 @@ async fn a_workflow_runs_as_a_background_subagent_with_its_progress() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
+/// The event log keeps how many items a workflow snapshot held, not the
+/// items: each repeats every agent so far (`logged_line`). Other lines are
+/// kept whole.
+#[test]
+fn the_log_keeps_a_workflow_snapshot_size_not_its_agents() {
+    let snapshot = json!({"type": "system", "subtype": "task_progress", "task_id": "wx2",
+        "usage": {"total_tokens": 19738}, "workflow_progress": [
+            {"type": "workflow_phase", "index": 1, "title": "Review"},
+            {"type": "workflow_agent", "index": 1, "label": "review:#1", "state": "progress"}]});
+    let Message::Notification { method, params: Some(kept) } = logged_line(&snapshot) else {
+        panic!("not a notification")
+    };
+    assert_eq!(method, "claude.system.task_progress");
+    assert_eq!(
+        kept,
+        json!({"type": "system", "subtype": "task_progress", "task_id": "wx2",
+            "usage": {"total_tokens": 19738}, "workflow_progress_items": 2})
+    );
+    let line =
+        json!({"type": "assistant", "message": {"content": [{"type": "text", "text": "hi"}]}});
+    let Message::Notification { method, params: Some(kept) } = logged_line(&line) else {
+        panic!("not a notification")
+    };
+    assert_eq!((method.as_str(), kept), ("claude.assistant", line));
+}
+
 #[tokio::test]
 async fn a_workflow_whose_script_fails_its_check_ends_failed() {
     let t = Translator::new("acp-1".into(), "default", "haiku", "default");

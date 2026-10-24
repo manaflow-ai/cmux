@@ -353,15 +353,7 @@ impl ChildAgent {
                             }
                         };
                         // Keep the raw claude line in the log under its own kind.
-                        let kind = format!(
-                            "claude.{}{}",
-                            raw.get("type").and_then(Value::as_str).unwrap_or("?"),
-                            raw.get("subtype")
-                                .and_then(Value::as_str)
-                                .map(|s| format!(".{s}"))
-                                .unwrap_or_default()
-                        );
-                        tap(Direction::In, &Message::notification(&kind, raw.clone()), None);
+                        tap(Direction::In, &crate::claude_stdio::logged_line(&raw), None);
                         let translated = tr.inbound(&raw).await;
                         // Answers the translator owes claude itself.
                         for l in tr.take_stdin_replies().await {
