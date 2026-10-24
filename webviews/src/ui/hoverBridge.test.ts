@@ -188,4 +188,24 @@ describe("hover trigger/card bridge", () => {
 
     expect(closed).toBe(1);
   });
+
+  test("entering a portal card while dwell is pending keeps a live dwell timer", () => {
+    const clock = new FakeClock();
+    let opened = 0;
+    const bridge = new HoverBridge({
+      clock,
+      dwell: HOVER_INTENT.cardDwell,
+      grace: HOVER_INTENT.cardGrace,
+      open: () => (opened += 1),
+      close: () => {},
+    });
+
+    bridge.enter("trigger", trigger, point(60, 30));
+    bridge.update({ card });
+    bridge.leave("trigger", trigger, point(124, 34));
+    bridge.enter("card", card, point(132, 28));
+    clock.advance(HOVER_INTENT.cardDwell);
+
+    expect(opened).toBe(1);
+  });
 });
