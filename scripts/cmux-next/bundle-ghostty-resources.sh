@@ -56,7 +56,25 @@ fi
 # picker find them. They never replace a Ghostty theme of the same name.
 if [[ -d "$SRCROOT/Resources/cmux-themes" ]]; then
   mkdir -p "$dest/ghostty/themes"
+  theme_list="${TARGET_TEMP_DIR:-$TARGET_BUILD_DIR}/bundle-ghostty-resources.cmux-themes.list"
+  if [[ -f "$theme_list" ]]; then
+    while IFS= read -r relative; do
+      [[ -n "$relative" ]] && rm -f "$dest/ghostty/themes/$relative"
+    done < "$theme_list"
+  fi
+  : > "$theme_list"
+  while IFS= read -r relative; do
+    printf '%s\n' "$relative" >> "$theme_list"
+  done < <(cd "$SRCROOT/Resources/cmux-themes" && find . -type f -print | sed 's#^\./##')
   rsync -a --ignore-existing "$SRCROOT/Resources/cmux-themes/" "$dest/ghostty/themes/"
+else
+  theme_list="${TARGET_TEMP_DIR:-$TARGET_BUILD_DIR}/bundle-ghostty-resources.cmux-themes.list"
+  if [[ -f "$theme_list" ]]; then
+    while IFS= read -r relative; do
+      [[ -n "$relative" ]] && rm -f "$dest/ghostty/themes/$relative"
+    done < "$theme_list"
+    rm -f "$theme_list"
+  fi
 fi
 
 if [[ -d "$SRCROOT/ghostty-next/src/shell-integration" ]]; then
@@ -75,7 +93,25 @@ else
 fi
 if [[ -d "$SRCROOT/Resources/terminfo-overlay" ]]; then
   mkdir -p "$dest/terminfo"
+  overlay_list="${TARGET_TEMP_DIR:-$TARGET_BUILD_DIR}/bundle-ghostty-resources.terminfo-overlay.list"
+  if [[ -f "$overlay_list" ]]; then
+    while IFS= read -r relative; do
+      [[ -n "$relative" ]] && rm -f "$dest/terminfo/$relative"
+    done < "$overlay_list"
+  fi
+  : > "$overlay_list"
+  while IFS= read -r relative; do
+    printf '%s\n' "$relative" >> "$overlay_list"
+  done < <(cd "$SRCROOT/Resources/terminfo-overlay" && find . -type f -print | sed 's#^\./##')
   rsync -a "$SRCROOT/Resources/terminfo-overlay/" "$dest/terminfo/"
+else
+  overlay_list="${TARGET_TEMP_DIR:-$TARGET_BUILD_DIR}/bundle-ghostty-resources.terminfo-overlay.list"
+  if [[ -f "$overlay_list" ]]; then
+    while IFS= read -r relative; do
+      [[ -n "$relative" ]] && rm -f "$dest/terminfo/$relative"
+    done < "$overlay_list"
+    rm -f "$overlay_list"
+  fi
 fi
 
 if [[ -d "$SRCROOT/Resources/shell-integration" ]]; then
