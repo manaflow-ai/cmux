@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextDesign
 import CmuxNextResources
 @testable import CmuxNextTabs
+import CmuxNextWakeupsTestSupport
 import Testing
 
 /// Leo 2026-10-14: tab previews behave like a browser's. A card opens after the hover card delay
@@ -10,12 +11,12 @@ import Testing
 /// window (a gap between tabs) shows its card at once. Lawrence 2026-10-19: the card touches its
 /// tab, and the pointer moving from the tab onto the card keeps it. The delays run on a manual
 /// clock the test moves.
-@MainActor @Suite(.serialized) struct TabHoverCardTimingTests {
+@MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct TabHoverCardTimingTests {
     private struct Strip {
         let strip: TabStripView
         let window: NSWindow
         let coordinator: HoverCardCoordinator
-        let clock: ManualClock
+        let clock: CmuxNextWakeupsTestSupport.ManualClock
 
         func center(_ id: String) throws -> CGPoint {
             let cell = try #require(strip.cells[TabID(id)])
@@ -53,7 +54,7 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 200, y: 400, width: 700, height: 300), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        let clock = ManualClock()
+        let clock = CmuxNextWakeupsTestSupport.ManualClock()
         let coordinator = HoverCardCoordinator(clock: clock)
         coordinator.appIsActive = { true }
         coordinator.hoverCardsEnabled = { true }
