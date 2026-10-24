@@ -17,10 +17,11 @@ extension CADisplayLink: FrameLink {}
 /// wakeups.
 ///
 /// Every animation, drag autoscroll, resize settle and per-frame batch in
-/// CmuxNext is a client of its window's scheduler; window-less work (the
-/// daemon store drain, the control work queue) uses ``app``, bound to the
-/// main screen. No other code may create a display link
-/// (`scripts/cmux-next/check-concurrency.sh`).
+/// CmuxNext is a client of its window's scheduler; window-less frame work
+/// uses ``app``, bound to the main screen. Budgeted batches (the daemon store
+/// drain, the control work queue) tick on the app's one ``MainWorkScheduler``,
+/// the only scheduler that holds a ``MainFrameBudget``. No other code may
+/// create a display link (`scripts/cmux-next/check-concurrency.sh`).
 ///
 /// A display link stops firing while the displays sleep, when its screen
 /// goes away, and for some occluded windows, yet clients such as the daemon
@@ -36,11 +37,9 @@ public final class FrameScheduler: NSObject {
     /// Consecutive stalls after which the link is replaced.
     public static let stallsBeforeRebuild = 3
 
-    /// The scheduler for window-less work, on the main screen.
-    /// It owns the app's one ``MainFrameBudget``, which checks a person's pending input and
-    /// signposts every task; every window scheduler shares it.
-    public static let app = FrameScheduler(name: "app", host: .screen,
-                                           budget: MainFrameBudget(input: SessionInputPending(), signposts: true))
+    /// The scheduler for window-less frame work, on the main screen (no budget: budgeted batches
+    /// tick on the injected ``MainWorkScheduler``).
+    public static let app = FrameScheduler(name: "app", host: .screen, budget: nil)
 
     private static var windows: [ObjectIdentifier: WeakScheduler] = [:]
 
@@ -49,7 +48,7 @@ public final class FrameScheduler: NSObject {
         let key = ObjectIdentifier(window)
         if let scheduler = windows[key]?.value, scheduler.window === window { return scheduler }
         windows = windows.filter { $0.value.value?.window != nil }
-        let scheduler = FrameScheduler(name: "window \(window.windowNumber)", host: .window(window), budget: app.budget)
+        let scheduler = FrameScheduler(name: "window \(window.windowNumber)", host: .window(window), budget: nil)
         windows[key] = WeakScheduler(value: scheduler)
         // The window keeps its scheduler alive.
         objc_setAssociatedObject(window, &FrameScheduler.associationKey, scheduler, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
@@ -81,6 +80,10 @@ public final class FrameScheduler: NSObject {
     public private(set) weak var window: NSWindow?
     private let isScreenHost: Bool
     private var clients: [ObjectIdentifier: FrameClient] = [:]
+    /// The budgeted clients, the one that ran least recently first: a class's budget goes to them
+    /// in this order, and a client that ran moves to the back, so one saturating client never
+    /// keeps the others of its class from ticking (round-robin).
+    private var budgetedOrder: [ObjectIdentifier] = []
     private var link: (any FrameLink)?
     private let makeLinkOverride: LinkFactory?
     private let ledger: WakeupLedger
@@ -90,12 +93,12 @@ public final class FrameScheduler: NSObject {
     private var closeObserver: MainActorObservation?
     /// Frames delivered since creation (debug).
     public private(set) var frames: UInt64 = 0
-    /// The app's one main-thread budget (``MainFrameBudget``): ``app`` owns it, every window
-    /// scheduler shares it, so budgeted clients of all schedulers draw on one per-frame budget.
-    public let budget: MainFrameBudget
+    /// The budget its budgeted clients draw on: only a ``MainWorkScheduler``'s scheduler has one
+    /// (and only that scheduler gets budgeted clients); nil for ``app`` and window schedulers.
+    let budget: MainFrameBudget?
 
     init(name: String, host: Host, clock: any Clock<Duration> = ContinuousClock(), ledger: WakeupLedger = .shared,
-         makeLink: LinkFactory? = nil, budget: MainFrameBudget) {
+         makeLink: LinkFactory? = nil, budget: MainFrameBudget?) {
         self.budget = budget
         self.name = name
         switch host {
@@ -110,11 +113,10 @@ public final class FrameScheduler: NSObject {
         super.init()
     }
 
-    /// A scheduler with a fake link (tests).
+    /// A scheduler with a fake link (tests; budgeted work: ``MainWorkScheduler/testing(budget:clock:ledger:makeLink:)``).
     public static func testing(clock: any Clock<Duration> = ContinuousClock(), ledger: WakeupLedger = .shared,
-                               budget: MainFrameBudget = MainFrameBudget(),
                                makeLink: @escaping LinkFactory) -> FrameScheduler {
-        FrameScheduler(name: "test", host: .screen, clock: clock, ledger: ledger, makeLink: makeLink, budget: budget)
+        FrameScheduler(name: "test", host: .screen, clock: clock, ledger: ledger, makeLink: makeLink, budget: nil)
     }
 
     /// Owners of the clients that are ticking now.
@@ -130,7 +132,9 @@ public final class FrameScheduler: NSObject {
     // MARK: Clients
 
     func activate(_ client: FrameClient) {
-        clients[ObjectIdentifier(client)] = client
+        let id = ObjectIdentifier(client)
+        clients[id] = client
+        if client.workClass.isBudgeted, !budgetedOrder.contains(id) { budgetedOrder.append(id) }
         guard let link = link ?? makeLink() else {
             // No screen (headless launch): tick once on the next turn.
             // task-owner: one hop; the client deactivates or re-arms on its tick
@@ -145,8 +149,13 @@ public final class FrameScheduler: NSObject {
     }
 
     func deactivate(_ client: FrameClient) {
-        clients[ObjectIdentifier(client)] = nil
+        drop(ObjectIdentifier(client))
         if clients.isEmpty { pause() }
+    }
+
+    private func drop(_ id: ObjectIdentifier) {
+        clients[id] = nil
+        budgetedOrder.removeAll { $0 == id }
     }
 
     /// Drops the link while idle: an idle window holds no display link at
@@ -164,6 +173,7 @@ public final class FrameScheduler: NSObject {
     public func invalidate() {
         for client in clients.values { client.detach() }
         clients.removeAll()
+        budgetedOrder.removeAll()
         stall.cancel()
         link?.invalidate()
         link = nil
@@ -240,25 +250,34 @@ public final class FrameScheduler: NSObject {
         if clients.values.contains(where: { $0.isActive && $0.isAnimation }) {
             ExpectedActivity.shared.note(.animationFrame)
         }
-        budget.beginFrame(timestamp: timestamp, refreshInterval: refreshInterval)
         // Clients activated during this frame tick next frame. Frame-locked clients first, every
-        // frame; then the budgeted batches in class order, each only while its class may run (a
-        // held one stays active and ticks next frame: input pending, or the class's budget spent).
+        // frame; then (only on the scheduler that holds the budget) the budgeted batches in class
+        // order, each only while its class may run (a held one stays active and ticks next frame:
+        // input pending, or the class's budget spent).
         let ticking = clients.values.filter(\.isActive)
+        let order = budgetedOrder
+        budget?.beginFrame(timestamp: timestamp, refreshInterval: refreshInterval)
         for client in ticking where !client.workClass.isBudgeted {
             fire(client, tick)
         }
+        guard let budget else { return }
         for workClass in MainWorkClass.budgeted {
-            for client in ticking where client.workClass == workClass && client.isActive {
+            for id in order {
+                guard let client = clients[id], client.workClass == workClass, client.isActive else { continue }
                 guard budget.mayRun(workClass) else { break }
                 fire(client, tick)
+                // It ran: the clients of its class that did not get to run go first next frame.
+                if clients[id] != nil {
+                    budgetedOrder.removeAll { $0 == id }
+                    budgetedOrder.append(id)
+                }
             }
         }
     }
 
     private func fire(_ client: FrameClient, _ tick: FrameTick) {
         ledger.record(client.owner, reason: "frame")
-        if !client.fire(tick, budget: budget) { clients[ObjectIdentifier(client)] = nil }
+        if !client.fire(tick) { drop(ObjectIdentifier(client)) }
     }
 
     private struct WeakScheduler {
