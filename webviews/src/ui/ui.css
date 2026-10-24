@@ -364,12 +364,6 @@
   white-space: nowrap;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  .ui-popup {
-    animation: ui-popup-open var(--ui-popup-open) ease-out;
-  }
-}
-
 /* Sheets only fade, so they fade under Reduce Motion too. Tooltips fade (and rise) with the
    tooltip surface (pages/shared/desktop.css). */
 .ui-sheet {

@@ -57,11 +57,6 @@
   line-height: var(--text-body--line-height);
   outline: none;
 }
-@media (prefers-reduced-motion: no-preference) {
-  .acpmux-needs-you {
-    animation: ui-popup-open var(--ui-popup-open) ease-out;
-  }
-}
 .acpmux-needs-you-panel {
   display: flex;
   flex-direction: column;
