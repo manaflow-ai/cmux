@@ -6853,15 +6853,15 @@ function AcpmuxPane() {
           leave: () => client.leave(),
           startsOnSend: () => client.startsOnSend,
           open: (sessionId) => client.select(sessionId),
-          // A prompt held behind the trust question goes with the gesture its send kept.
-          send: (text, attachments, promptId) => {
+          // A prompt held behind the trust question or the start goes with the gesture its send kept.
+          send: (text, attachments, promptId, ticket) => {
             const kept = heldPrompt.take();
             return client.send(
               text,
               attachments,
               promptId,
               undefined,
-              kept?.promptId === promptId ? kept.ticket : undefined,
+              (kept?.promptId === promptId ? kept.ticket : undefined) ?? ticket,
             );
           },
           setModel: (modelId) => client.setModel(modelId),

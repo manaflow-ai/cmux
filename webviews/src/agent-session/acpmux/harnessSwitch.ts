@@ -66,8 +66,9 @@ export type SwitchPort = {
   leave(): void;
   /// Shows and attaches `sessionId`; undefined when a newer selection won.
   open(sessionId: string): Promise<string | undefined>;
-  /// Sends a prompt to the shown session, its optimistic row keyed by `promptId`.
-  send(text: string, attachments: ComposerAttachment[], promptId: string): Promise<unknown>;
+  /// Sends a prompt to the shown session, its optimistic row keyed by `promptId`. `ticket`: the
+  /// gesture ticket its send took while the switch held it (`transport.gesture`), sent with it.
+  send(text: string, attachments: ComposerAttachment[], promptId: string, ticket?: string): Promise<unknown>;
   setModel(modelId: string): Promise<void>;
   /// `ticket`: the single-use gesture ticket the pick took (transport.gesture), sent with its frame.
   setMode(modeId: string, ticket?: string): Promise<void>;
@@ -130,6 +131,9 @@ type Queued = QueuedSwitchPrompt & {
   attachments: ComposerAttachment[];
   /// The prompt is on the wire (a Quick Composer may close once it is).
   written?(): void;
+  /// The send's gesture, kept as a ticket for this prompt on the port it was taken on: the
+  /// harness can take longer to start than the gesture lives (#23031).
+  ticket?: { port: SwitchPort; value: Promise<string | undefined> };
   resolve(value: unknown): void;
   reject(error: unknown): void;
 };
@@ -156,7 +160,8 @@ type Intent = {
 /// The frame a gesture ticket redeems for (ad349, pane-native transport).
 export type GestureIntent =
   | { method: "session/set_mode"; params: { modeId: string } }
-  | { method: "session/set_config_option"; params: { configId: string; value: string } };
+  | { method: "session/set_config_option"; params: { configId: string; value: string } }
+  | { method: "session/prompt"; params: { promptId: string } };
 
 export type SwitchHandlers = {
   /// Puts prompts a failed or cancelled switch held back into the composer: their text, joined
@@ -343,7 +348,8 @@ export class HarnessSwitch {
     let intent = this.intent;
     if (!intent) return undefined;
     // After a failure, sending is retrying with this prompt.
-    if (intent.phase === "failed") {
+    const restarts = intent.phase === "failed";
+    if (restarts) {
       void this.switchTo(intent.harness, intent.cwd, { deferred: !intent.shown });
       intent = this.intent!;
     }
@@ -357,10 +363,27 @@ export class HarnessSwitch {
       return { promise, resolve, reject };
     })();
     const id = promptId ?? crypto.randomUUID();
-    intent.queued = [...intent.queued, { id, text, attachments, at: Date.now(), resolve, reject, written }];
+    const queued: Queued = { id, text, attachments, at: Date.now(), resolve, reject, written };
+    intent.queued = [...intent.queued, queued];
     // A prompt sent while the switch waits for the trust answer keeps this send's gesture for
     // after Trust (the first held prompt only: one ticket per send).
     if (intent.phase === "trust" && intent.queued.length === 1) this.handlers.holdPrompt?.(id);
+    // The first prompt held behind the start keeps this send's gesture as its ticket now: the
+    // relay grants a prompt only on a gesture under 30 s old, and a harness can take longer to
+    // start, so the prompt came back "Not sent. Press Retry" (#23031). Not a seeded prompt (its
+    // host ticket stays), not before a start on another machine, which needs this gesture, and not
+    // when this send restarts the switch: its session/new may need the gesture for its folder.
+    else if (
+      !restarts &&
+      intent.queued.length === 1 &&
+      promptId === undefined &&
+      this.port &&
+      (intent.sessionId || !this.port.startsOnSend?.())
+    )
+      queued.ticket = {
+        port: this.port,
+        value: this.takeTicket({ method: "session/prompt", params: { promptId: id } }),
+      };
     if (!intent.shown) {
       // The pick waited for this prompt: the pane moves to the new chat now.
       intent.shown = true;
@@ -626,11 +649,17 @@ export class HarnessSwitch {
     // Prompts go out after the picks, so the first turn runs on what the user chose.
     await Promise.all(applied);
     if (this.intent !== intent) return;
+    // A ticket taken on an earlier connection is no good on this one: that prompt goes on a live gesture.
+    const first = intent.queued[0];
+    const firstTicket = first?.ticket?.port === port ? await first.ticket.value : undefined;
+    if (this.intent !== intent || this.port !== port) return;
     const queued = intent.queued;
     intent.queued = [];
     this.intent = undefined;
     for (const prompt of queued) {
-      port.send(prompt.text, prompt.attachments, prompt.id).then(prompt.resolve, prompt.reject);
+      port
+        .send(prompt.text, prompt.attachments, prompt.id, prompt === first ? firstTicket : undefined)
+        .then(prompt.resolve, prompt.reject);
       prompt.written?.();
     }
     this.changed();
@@ -658,7 +687,7 @@ export class HarnessSwitch {
       intent.error = undefined;
       // The Trust click's gesture goes to the answer; the prompt keeps its own send's gesture.
       const first = intent.queued[0];
-      if (first) this.handlers.holdPrompt?.(first.id);
+      if (first && !first.ticket) this.handlers.holdPrompt?.(first.id);
       this.changed();
       return;
     }
