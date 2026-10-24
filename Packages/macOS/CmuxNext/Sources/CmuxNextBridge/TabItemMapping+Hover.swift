@@ -1,3 +1,4 @@
+// CI audit: typical one-file Swift edit.
 import CmuxNextDaemon
 import CmuxNextTabs
 import Foundation
