@@ -391,7 +391,7 @@ enum TabLifecycle {
             }
             guard let (pane, selected) = ctx.tab(invocation) else { return }
             // A Cmd-W while the last one's close still asks the daemon closes the next tab (TabCloseGuard).
-            guard let id = invocation.origin == .user ? TabCloseGuard.cmdWTarget(selected, in: pane.stripModel) : selected else { return }
+            guard let id = invocation.origin == .user ? TabCloseGuard.cmdWTarget(selected, in: pane) : selected else { return }
             // The user's Cmd-W closes a pinned tab, as Chrome's does, unless `tabs.cmdWClosesPinnedTabs`
             // is off (then it keeps it, PINNED-ITEMS-END-TO-END P3); the tab menu, the CLI and MCP close it either way.
             if invocation.origin == .user {

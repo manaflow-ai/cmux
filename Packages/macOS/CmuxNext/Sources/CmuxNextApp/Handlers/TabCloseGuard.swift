@@ -55,15 +55,25 @@ enum TabCloseGuard {
     /// shows, a Cmd-W behind it closes nothing until the person answers.
     private(set) static var reading: Set<String> = []
 
-    /// The tab a user's Cmd-W on `id` closes: `id`, or while `id`'s close is still reading,
-    /// the tab selected once it closes (the next not closing, else the previous), so N
-    /// quick presses close N tabs (Leo 2026-10-21). Nil when every other tab is closing too.
-    static func cmdWTarget(_ id: StripTabID, in strip: TabStripModel) -> StripTabID? {
-        guard reading.contains(id.rawValue) else { return id }
+    /// The tab a user's Cmd-W on `id` closes: `id`, or while `id`'s close is still under way
+    /// (`closing`: the daemon's read, or its page deciding), the tab selected once it closes (the
+    /// next not closing, else the previous), so N quick presses close N tabs (Leo 2026-10-21).
+    /// Nil when every other tab is closing too.
+    static func cmdWTarget(_ id: StripTabID, in strip: TabStripModel, closing: (StripTabID) -> Bool) -> StripTabID? {
+        guard closing(id) else { return id }
         let ordered = strip.orderedTabs
         guard let index = ordered.firstIndex(where: { $0.id == id }) else { return id }
-        func open(_ tab: TabItem) -> Bool { !asking.contains(tab.id.rawValue) && tab.isClosable }
+        func open(_ tab: TabItem) -> Bool { !closing(tab.id) && !asking.contains(tab.id.rawValue) && tab.isClosable }
         return (ordered[(index + 1)...].first(where: open) ?? ordered[..<index].last(where: open))?.id
+    }
+
+    /// ``cmdWTarget(_:in:closing:)`` for `pane`: its tabs still in the daemon's read, or whose page
+    /// decides its close (``PageClosingTabs``), are closing.
+    static func cmdWTarget(_ id: StripTabID, in pane: PaneController) -> StripTabID? {
+        let pages = pane.services.closedTabs?.undoToasts.pageClosing
+        return cmdWTarget(id, in: pane.stripModel) { tab in
+            reading.contains(tab.rawValue) || pages?.contains(tab.rawValue) == true
+        }
     }
 
     /// A Close Tab press as ``PaneCloseAim`` reads it: the input event AppKit is dispatching (its
@@ -82,7 +92,8 @@ enum TabCloseGuard {
 
     /// Whether closing `closing` leaves `pane` with no tab (tabs whose close is still asking count as closed).
     static func empties(_ pane: PaneController, closing: [StripTabID]) -> Bool {
-        pane.orderedIDs.allSatisfy { closing.contains($0) || asking.contains($0.rawValue) }
+        let pages = pane.services.closedTabs?.undoToasts.pageClosing
+        return pane.orderedIDs.allSatisfy { closing.contains($0) || asking.contains($0.rawValue) || pages?.contains($0.rawValue) == true }
     }
 
     /// Whether closing `tabs` can ask at all (a live terminal and a warning
