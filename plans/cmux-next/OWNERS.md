@@ -5,7 +5,9 @@ without talking, they undo each other (233 sidebar commits in four days; the ind
 times, [sidebar-owner.md](sidebar-owner.md)). Before you change an area below: read its doc, keep
 its contract, and tell its owner what you changed (through the Performance Lead or Chief, or in
 your report). The pre-push hook (`scripts/cmux-next/guardrails.py`) prints one warning line per
-owned area a push touches. It never refuses.
+owned area a push touches. It never refuses. One row per area: a file belongs to the most specific
+row that matches it (an exact path over a glob or a folder; a longer literal start wins), so the
+`cmux-tui/` row covers only the daemon files no narrower row (holder, acpmux) names.
 
 Owners are agent names (a590), workstreams (PL-*, plans/cmux-next/perf-lead.md section 4) or
 people. When a workstream ends, its row goes back to the Performance Lead. Change a row in the
@@ -14,7 +16,7 @@ same commit that changes ownership, and name who decided it.
 | Area | Paths | Owner | Read first |
 |---|---|---|---|
 | Sidebar (rows, groups, rail, hover card, drag, density) | `Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/` | a590 (sidebar-owner agent) | [sidebar-owner.md](sidebar-owner.md) |
-| acpmux agent-session daemon | `cmux-tui/crates/acpmux/` | session cmux-4f PL-acpmux (lead decision 2026-10-23) | [acpmux-audit.md](acpmux-audit.md) |
+| acpmux agent-session daemon (end to end: audit and fixes) | `cmux-tui/crates/acpmux/`, `scripts/cmux-next/build-acpmux.sh`, `scripts/cmux-next/bundle-acpmux.sh` | PL-acpmux (session cmux-4f; lead decision 2026-10-23) | [acpmux-audit.md](acpmux-audit.md) |
 | Chromium hosting (page layer, host view, clip, shim) | `Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFHostView*.swift`, `Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFClipShape.swift`, `Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/Shim/` | PL-cef-layer (clip memo: Leo, c22a10712b6) | [browser.md](browser.md) |
 | New Chromium tab path | `Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneBrowserTabOpener.swift`, `Packages/macOS/CmuxNext/Sources/CmuxNextApp/TabContentCache*.swift`, `Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFSpareWindow.swift`, `Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFPaneHost*.swift`, `Packages/macOS/CmuxNext/Sources/CmuxNextChromiumWarmup/` | PL-cef-tab | [instant-new-surfaces.md](instant-new-surfaces.md) |
 | Chromium side of motion (overlays, catchers, page tab) | `Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/WindowOverlayLayer.swift`, `Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Overlay/WindowOverlayHost*.swift`, `Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/DividerMouseCatchers.swift`, `Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFTab.swift` | PL-motion-cef | [perf-lead.md](perf-lead.md) |
@@ -24,7 +26,6 @@ same commit that changes ownership, and name who decided it.
 | Terminal surface and Ghostty integration | `Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/`, `Packages/macOS/CmuxNext/Sources/CmuxNextTerminalGeometry/`, `Packages/macOS/CmuxNext/Sources/CmuxNextApp/**/Ghostty*.swift`, `Packages/macOS/CmuxNext/Sources/CmuxNextApp/TerminalHost*.swift`, `ghostty`, `docs/ghostty-fork.md` | PL-ghostty (session cmux-b6) | [ghostty-integration-DESIGN.md](ghostty-integration-DESIGN.md) |
 | cmux-tui daemon (request speed, terminal host model) | `cmux-tui/` | PL-daemon (session cmux-b6) | [perf-lead.md](perf-lead.md) "Daemon and acpmux targets" |
 | PTY holder (custody, ring, attach) | `cmux-tui/crates/cmux-holder/`, `cmux-tui/crates/cmux-holder-v3/`, `cmux-tui/crates/cmux-tui-core/src/holder_runtime.rs`, `cmux-tui/crates/cmux-tui-core/src/holder_runtime/` | PL-daemon holder (session cmux-4f) | [pty-holder.md](pty-holder.md) |
-| acpmux | `cmux-tui/crates/acpmux/`, `scripts/cmux-next/build-acpmux.sh`, `scripts/cmux-next/bundle-acpmux.sh` | PL-acpmux (session cmux-4f) | [perf-lead.md](perf-lead.md) "Daemon and acpmux targets" |
 | Hang reports and their signposts | `Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/`, `Packages/macOS/CmuxNext/Sources/CmuxNextApp/HangReports/` | PL-telemetry (session cmux-b6) | [hang-reports-DESIGN.md](hang-reports-DESIGN.md) |
 | Motion gate and animation switches | `Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/`, `scripts/cmux-next/check-motion.sh` | Performance Lead | [motion-DESIGN.md](motion-DESIGN.md) |
 | Wakeup primitives (FrameScheduler, DemandTimer, Backoff) | `Packages/macOS/CmuxNext/Sources/CmuxNextWakeups/` | Performance Lead | [idle-wakeups.md](idle-wakeups.md) |

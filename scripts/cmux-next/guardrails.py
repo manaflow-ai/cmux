@@ -1249,10 +1249,29 @@ def glob_match(path: str, pattern: str) -> bool:
     return re.fullmatch(regex, path) is not None
 
 
+def glob_specificity(pattern: str) -> tuple[int, bool]:
+    """How narrowly PATTERN names its files: the length of its literal start (before the first `*`), then an
+    exact path (no wildcard, no trailing `/`) over a glob or a folder with the same start."""
+    star = pattern.find("*")
+    return (len(pattern) if star < 0 else star), (star < 0 and not pattern.endswith("/"))
+
+
 def owner_warnings(files: list[str], owners: list[tuple[str, list[str], str, str]]) -> list[str]:
+    """One warning per owned area of FILES. A file belongs to the most specific row whose globs match it
+    (glob_specificity of its best glob), so a catch-all folder row (`cmux-tui/`) never names a second owner for
+    a file a narrower row assigns (`cmux-tui/crates/acpmux/`); rows tied on the same glob both name theirs."""
+    hits: dict[int, list[str]] = collections.defaultdict(list)
+    for path in files:
+        scored = [(max(glob_specificity(g) for g in globs if glob_match(path, g)), row)
+                  for row, (_, globs, _, _) in enumerate(owners) if any(glob_match(path, g) for g in globs)]
+        if scored:
+            best = max(score for score, _ in scored)
+            for score, row in scored:
+                if score == best:
+                    hits[row].append(path)
     out = []
-    for area, globs, owner, doc in owners:
-        hit = [f for f in files if any(glob_match(f, g) for g in globs)]
+    for row, (area, _, owner, doc) in enumerate(owners):
+        hit = hits.get(row)
         if hit:
             more = f" and {len(hit) - 1} more" if len(hit) > 1 else ""
             out.append(f"touches {area} ({hit[0]}{more}): owner {owner}. Read {doc} first; tell the owner what changed.")
