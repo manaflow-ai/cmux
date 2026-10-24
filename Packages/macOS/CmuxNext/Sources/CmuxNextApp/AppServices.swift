@@ -377,6 +377,9 @@ final class AppServices {
     let hoverCards = HoverCardCoordinator()
     /// Refusal messages for keyboard and menu runs.
     let refusalHUD = RefusalHUD()
+    /// The app's one set of blocking-work lanes: file I/O, sync system calls and long CPU work run there,
+    /// never on the cooperative pool (PATTERNS P14). Built once here and passed to each consumer's init.
+    let work: BackgroundWork
     /// The inline VS Code server (`serve-web`) behind VS Code (Inline); starts on first use.
     let vscodeServeWeb = VSCodeServeWebService(
         planner: VSCodeServeWebLaunchPlanner(homeDirectory: FileManager.default.homeDirectoryForCurrentUser,
@@ -391,7 +394,11 @@ final class AppServices {
     private(set) lazy var sessionTransfer = SessionTransferService(services: self)
     /// - Parameter launchReveal: The launch load-in the windows' sidebars
     ///   hold for; the app-wide one by default.
-    init(environment: AppEnvironment, launchReveal: LaunchReveal = .shared, agentPaneEnvironment: [String: String]? = nil) {
+    /// - Parameter work: the app's one set of blocking-work lanes (task traits, PATTERNS P14); a default
+    ///   instance unless a test passes its own.
+    init(environment: AppEnvironment, launchReveal: LaunchReveal = .shared, agentPaneEnvironment: [String: String]? = nil,
+         work: BackgroundWork = BackgroundWork()) {
+        self.work = work
         registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget))
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
         self.launchReveal = launchReveal
