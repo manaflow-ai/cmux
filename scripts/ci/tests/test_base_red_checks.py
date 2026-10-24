@@ -17,6 +17,17 @@ class BaseRedChecksTests(unittest.TestCase):
     def test_green_summary_has_no_reds(self):
         self.assertEqual(module.failed_names("All blocking cmux-next checks passed.\\n"), set())
 
+    def test_pending_previous_tip_is_warning_only(self):
+        original = module.api
+        try:
+            module.api = lambda _base, _token, _path: (
+                b'{"check_runs":[{"name":"cmux-next checks (god files, concurrency, crash safety, l10n)",'
+                b'"status":"in_progress"}]}'
+            )
+            self.assertIsNone(module.base_reds("manaflow-ai/cmux", "before", "https://api.github.com", "token"))
+        finally:
+            module.api = original
+
 
 if __name__ == "__main__":
     unittest.main()
