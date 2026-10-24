@@ -39,9 +39,7 @@ extension ControlRouter {
         let limit = configuration.batchOpLimit
         if atomic, ops.count > limit {
             throw ControlError(code: "batch_too_large",
-                               message: ControlStrings.format("control.error.batchTooLarge",
-                                                              "action.batch takes at most %1$lld ops in one transaction (got %2$lld); send several batches, or atomic: false to apply it as consecutive transactions",
-                                                              limit, ops.count),
+                               message: ControlStrings.batchTooLarge(limit: limit, got: ops.count),
                                data: ["ops": JSONValue(ops.count), "limit": JSONValue(limit)])
         }
         let catalog = call.snapshot.catalog
