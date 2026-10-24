@@ -180,7 +180,8 @@ final class CloudUploads {
             let answer = (try? await CloudAccessCLI(binary: stage.target.binary).upload(socket: socket, remoteRoot: stage.target.remoteRoot, files: [stage.file.path])) ?? CloudAccessCLI.Answer(ok: false, errorCode: "upload_failed")
             return Self.reply(answer, names: [stage.name], services: services)
         case .cancel(let token):
-            guard let stage = stages.removeValue(forKey: token), stage.target.chat.session == session else { return AgentPaneReply.success() }
+            guard let stage = stages[token], stage.target.chat.session == session else { return AgentPaneReply.success() }
+            stages.removeValue(forKey: token)
             try? FileManager.default.removeItem(at: stage.folder); return AgentPaneReply.success()
         }
     }
