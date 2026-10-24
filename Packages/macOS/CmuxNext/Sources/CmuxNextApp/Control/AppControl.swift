@@ -15,9 +15,7 @@ import CmuxNextWakeups
 @MainActor
 final class AppControl {
     let watchdog = MainThreadWatchdog()
-    /// The app's main-thread scheduler (built by `AppDelegate`, the composition root).
-    private let mainWork: MainWorkScheduler
-    private let frames: FrameBatcher
+    private let frames = FrameBatcher(owner: "Control.frames", kind: .budgeted(.automation))
     private let frameProbe = DebugFrameProbe()
     private let mainCPUProbe = DebugMainCPUProbe()
     private let terminalDisplayProbe = DebugTerminalDisplayProbe()
@@ -31,21 +29,12 @@ final class AppControl {
 
     private var inputMonitor: Any?
 
-    /// - Parameter mainWork: The app's one main-thread scheduler: control requests are its
-    ///   automation tasks, and the watchdog reads its board.
-    init(mainWork: MainWorkScheduler) {
-        self.mainWork = mainWork
-        frames = FrameBatcher(owner: "Control.frames", budgeted: .automation, on: mainWork)
-    }
-
     /// Starts stall and busy detection. Call first thing at launch.
     func startWatchdog() {
         watchdog.start()
-        // Stall records name the scheduled main-thread task they caught; a launch in the task
-        // diagnostics mode also records tasks past their class budget, with a stack (debug.hangs
-        // over_budget). It perturbs what it measures, so it is off unless asked for.
-        watchdog.attach(board: mainWork.budget.board,
-                        recordTaskBudgets: MainThreadWatchdog.recordsTaskBudgets(environment: ProcessInfo.processInfo.environment))
+        // Stall records name the scheduled main-thread task they caught; DEBUG and bench launches
+        // also record tasks past their class budget, with a stack (debug.hangs over_budget).
+        watchdog.attach(board: FrameScheduler.app.budget.board)
         watchdog.busy.setHelperSource { AppProcesses.chromiumHelpers() }
         // Input explains CPU use to the busy watchdog (one atomic add per event).
         inputMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown,
@@ -101,7 +90,8 @@ final class AppControl {
         service.router.register([
             .mainActor("debug.frames") { [probe = frameProbe] call in .value(probe.handle(call.params)) },
             // The main-thread scheduler's per-frame budget: tasks, input yields, deferrals, longest task per class.
-            .mainActor("debug.main_budget") { [budget = mainWork.budget] call in
+            .mainActor("debug.main_budget") { call in
+                let budget = FrameScheduler.app.budget
                 let report = budget.report
                 if call.params["reset"]?.boolValue == true { budget.resetStats() }
                 return .value(report)
@@ -214,7 +204,7 @@ final class AppControl {
             // The action signposts' commit boundary against this macOS's display observers.
             .mainActor("debug.commit_boundary") { _ in .value(DebugCommitBoundary().report()) },
             // Idle wakeups: ledger, display-link clients, process CPU (idle-wakeups.md).
-            .async("debug.wakeups") { [budgeted = mainWork.frames] call in await DebugWakeups.report(call.params, budgeted: budgeted) },
+            .async("debug.wakeups") { call in await DebugWakeups.report(call.params) },
             // Chromium start: trigger (tab or warm reason), timings, footprint.
             .mainActor("debug.cef") { [weak services] call in
                 guard let services else { return .value(.null) }

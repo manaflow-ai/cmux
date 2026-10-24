@@ -4,7 +4,6 @@ import CmuxNextSidebar
 import CmuxNextWorkspaceRepair
 import Foundation
 import Observation
-import CmuxNextWakeups
 
 /// One Cloud machine: its `/api/vm` record, its link, and the daemon
 /// connection over the link socket. The link is one of two sources:
@@ -62,25 +61,22 @@ final class CloudMachineSession {
     /// For an app link, a click's connect on a paused machine is its resume.
     private(set) var resumeFailure: String?
 
-    /// - Parameter mainWork: The app's main-thread scheduler (the local daemon's), for the machine's event batches.
-    convenience init(machine: CloudMachine, link: CloudMachineLink, mainWork: MainWorkScheduler) {
-        self.init(machine: machine, link: link, appLink: nil, localIdentity: { nil }, mainWork: mainWork)
+    convenience init(machine: CloudMachine, link: CloudMachineLink) {
+        self.init(machine: machine, link: link, appLink: nil, localIdentity: { nil })
     }
 
-    /// - Parameter mainWork: The app's main-thread scheduler (the local daemon's), for the machine's event batches.
-    convenience init(machine: CloudMachine, appLink: CloudLinkSession, localIdentity: @escaping @MainActor () -> DaemonIdentity?,
-                     mainWork: MainWorkScheduler) {
-        self.init(machine: machine, link: nil, appLink: appLink, localIdentity: localIdentity, mainWork: mainWork)
+    convenience init(machine: CloudMachine, appLink: CloudLinkSession, localIdentity: @escaping @MainActor () -> DaemonIdentity?) {
+        self.init(machine: machine, link: nil, appLink: appLink, localIdentity: localIdentity)
     }
 
     private init(machine: CloudMachine, link: CloudMachineLink?, appLink: CloudLinkSession?,
-                 localIdentity: @escaping @MainActor () -> DaemonIdentity?, mainWork: MainWorkScheduler) {
+                 localIdentity: @escaping @MainActor () -> DaemonIdentity?) {
         machineID = machine.id
         self.machine = machine
         self.link = link
         self.appLink = appLink
         self.localIdentity = localIdentity
-        daemon = DaemonService(machineID: machine.id, echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork)
+        daemon = DaemonService(machineID: machine.id, echoesPlacementShift: SidebarMirror.isLinked)
         emptyWorkspaces = EmptyWorkspaceRepair(daemon: daemon)
     }
 

@@ -55,8 +55,7 @@ final class MachineCatalogAppFixture {
         let remoteEndpoint = try await startOwner(remoteLauncher)
         let reach = try ServerReach(hostID: "host_catalogapp01", installID: "inst_catalogapp01", name: "Isolated server", route: .unix(remoteEndpoint.socketPath))
         let server = ServerMachineSession(reach: reach, binary: nil, paths: .init(root: root.appendingPathComponent("links")),
-                                          environment: { remoteEnvironment }, localIdentity: { [local] in local.identity },
-                                          mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+                                          environment: { remoteEnvironment }, localIdentity: { [local] in local.identity })
         self.server = server
         registry.add(server)
         server.connect()
