@@ -443,8 +443,12 @@ final class AppControl {
             },
             .mainActor("debug.crash.app") { [weak services] call in DebugCrashes.crashApp(call.params, services?.crashReporting) },
             .mainActor("debug.crash.exception") { [weak services] _ in .value(DebugCrashes.raiseException(services?.crashReporting)) },
-            // Low Power Mode as WebKit tabs follow it: `enabled: bool` overrides
-            // macOS (no sudo needed), `enabled: null` follows macOS again.
+            // Low Power Mode as cmux's own features follow it (glass, hibernation,
+            // neighbor tabs): `enabled: bool` overrides macOS (no sudo needed),
+            // `enabled: null` follows macOS again. It does not reach WebKit: pages
+            // and browser tabs follow macOS's own Low Power Mode, which WebKit's web
+            // processes read themselves (`sudo pmset -a lowpowermode 1`;
+            // scripts/cmux-next/bench-page-cadence.py).
             .mainActor("debug.low_power_mode") { call in
                 let mode = LowPowerMode.system
                 if let enabled = call.params["enabled"] { mode.override = enabled.boolValue }

@@ -28,17 +28,6 @@ public final class WebKitEngine: BrowserEngine {
     /// The newest main-frame load per tab held for that check; only it may
     /// show the interstitial.
     var certificateAdmissions: [BrowserTabID: Int] = [:]
-    /// Low Power Mode keeps every open and new tab near 60 fps.
-    public let lowPowerMode: LowPowerMode
-    private var lowPowerModeObservation: LowPowerModeObservation?
-    /// Open tabs, which follow a Low Power Mode change.
-    private let openTabs = NSHashTable<WebKitTab>.weakObjects()
-    /// The highest rate of a window's display (tests replace it).
-    var displayFramesPerSecond: (NSWindow) -> Int = { $0.screen?.maximumFramesPerSecond ?? 60 }
-    /// Re-showing a live page after a rate change: nil snapshot takes
-    /// WebKit's; the clock times its steps (tests replace both).
-    var rateReshowSnapshot: (() async -> NSImage?)?
-    var rateReshowClock: any Clock<Duration> = ContinuousClock()
     /// HTTP sign-ins the user chose to remember (Keychain; tests inject memory).
     var httpCredentials: any BrowserHTTPCredentialStoring = KeychainHTTPCredentialStore.standard
 
@@ -64,17 +53,12 @@ public final class WebKitEngine: BrowserEngine {
         profileStore: WebKitProfileStore = WebKitProfileStore(),
         faviconLoader: any BrowserFaviconLoading = BrowserFaviconLoader.shared,
         downloadsDirectory: URL = DownloadDestination.defaultDirectory,
-        applicationNameForUserAgent: String? = "Version/26.0 Safari/605.1.15",
-        lowPowerMode: LowPowerMode = .system
+        applicationNameForUserAgent: String? = "Version/26.0 Safari/605.1.15"
     ) {
         self.profileStore = profileStore
         self.faviconLoader = faviconLoader
         self.downloadsDirectory = downloadsDirectory
         self.applicationNameForUserAgent = applicationNameForUserAgent
-        self.lowPowerMode = lowPowerMode
-        lowPowerModeObservation = lowPowerMode.observe { [weak self] enabled in
-            self?.applyRenderRate(lowPowerMode: enabled)
-        }
     }
 
     public func makeTab(_ configuration: BrowserTabConfiguration) async throws -> any BrowserTab {
@@ -104,36 +88,10 @@ public final class WebKitEngine: BrowserEngine {
         prepare(webConfiguration)
         let tab = WebKitTab(configuration: configuration, webViewConfiguration: webConfiguration, engine: self,
                             openedByPage: webViewConfiguration != nil)
-        openTabs.add(tab)
         if let url = configuration.initialURL {
             tab.load(url)
         }
         return tab
-    }
-
-    /// Every open tab takes the rate for the new Low Power Mode state.
-    private func applyRenderRate(lowPowerMode: Bool) {
-        for tab in openTabs.allObjects {
-            applyRenderRate(fullRate: WebKitRenderRate.prefersFullRate(lowPowerMode: lowPowerMode), to: tab)
-        }
-    }
-
-    /// Sets `tab` to the display's full rate or near 60 fps. WebKit reads the
-    /// rate only when the page's visibility changes, so a page on screen is
-    /// re-shown under a snapshot when its rate changes there; a page off
-    /// screen takes the rate when it is next shown.
-    private func applyRenderRate(fullRate: Bool, to tab: WebKitTab) {
-        let webView = tab.webView, preferences = webView.configuration.preferences
-        // A WebKit without the feature has no rate to change.
-        guard !tab.isClosed, let near60 = preferences.isWebKitFeatureEnabled(WebKitRenderRate.near60FPSFeature),
-              near60 == fullRate, WebKitRenderRate.apply(fullRate: fullRate, to: preferences),
-              let window = webView.window, !webView.isHiddenOrHasHiddenAncestor else { return }
-        // A display at 60 Hz or less renders the same either way: no re-show.
-        let display = displayFramesPerSecond(window)
-        guard WebKitRenderRate.framesPerSecond(lowPowerMode: !fullRate, displayMaxFPS: display)
-                != WebKitRenderRate.framesPerSecond(lowPowerMode: fullRate, displayMaxFPS: display) else { return }
-        let snapshot = rateReshowSnapshot ?? { [weak webView] in try? await webView?.takeSnapshot(configuration: nil) }
-        tab.rateReshow = WebKitRenderRate.reshow(webView, replacing: tab.rateReshow, snapshot: snapshot, clock: rateReshowClock)
     }
 
     private func makeConfiguration(for profile: BrowserProfileID) -> WKWebViewConfiguration {
@@ -150,10 +108,14 @@ public final class WebKitEngine: BrowserEngine {
 
     /// Settings every tab needs, including page-opened ones.
     private func prepare(_ configuration: WKWebViewConfiguration) {
-        // The display's full rate (120 Hz on ProMotion); near 60 fps in Low
-        // Power Mode. Open tabs follow a later change (applyRenderRate).
-        WebKitRenderRate.apply(fullRate: WebKitRenderRate.prefersFullRate(lowPowerMode: lowPowerMode.isEnabled),
-                               to: configuration.preferences)
+        // The display's full rate (120 Hz on ProMotion), set once. In Low
+        // Power Mode WebKit halves the tab's rate by itself, live, in both
+        // directions (its LowPowerMode throttling reason, in the web
+        // process); the near-60 preference on top of that held a tab made in
+        // Low Power Mode at 30 fps on 120 Hz, and writing it live (then
+        // hiding and re-showing the tab) did not reach a shown page's
+        // cadence (perf-lead row 23).
+        WebKitRenderRate.apply(fullRate: true, to: configuration.preferences)
         // Native element fullscreen takes over the display; the pane shim
         // replaces it (PaneFullscreenScript).
         configuration.preferences.isElementFullscreenEnabled = false
