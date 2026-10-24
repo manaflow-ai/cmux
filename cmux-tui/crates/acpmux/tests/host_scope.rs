@@ -31,9 +31,8 @@ const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 /// The user manager answers, and `busctl` and `systemd-run` are installed.
 fn user_manager() -> bool {
     let state = Command::new("systemctl").args(["--user", "is-system-running"]).output();
-    let running = state.is_ok_and(|o| {
-        matches!(String::from_utf8_lossy(&o.stdout).trim(), "running" | "degraded")
-    });
+    let running = state
+        .is_ok_and(|o| matches!(String::from_utf8_lossy(&o.stdout).trim(), "running" | "degraded"));
     running
         && Command::new("busctl").arg("--version").output().is_ok_and(|o| o.status.success())
         && Command::new("systemd-run").arg("--version").output().is_ok_and(|o| o.status.success())
@@ -69,8 +68,12 @@ impl Unit {
         let name = format!("acpmux-host-scope-{tag}-{}.service", std::process::id());
         let daemon = daemon_env::command(home, daemon_env::Agents::StandIn, &[]);
         let mut run = Command::new("systemd-run");
-        run.args(["--user", "--quiet", "--collect", "--unit", &name])
-            .args(["--property", "KillMode=control-group", "--property", "TimeoutStopSec=30"]);
+        run.args(["--user", "--quiet", "--collect", "--unit", &name]).args([
+            "--property",
+            "KillMode=control-group",
+            "--property",
+            "TimeoutStopSec=30",
+        ]);
         let mut env: Vec<(String, String)> = daemon
             .get_envs()
             .filter_map(|(k, v)| Some((k.to_str()?.to_owned(), v?.to_str()?.to_owned())))

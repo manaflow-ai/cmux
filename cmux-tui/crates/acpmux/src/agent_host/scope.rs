@@ -200,7 +200,9 @@ mod tests {
         let joined = busctl_args(4242).join(" ");
         assert!(joined.starts_with("--user --quiet call org.freedesktop.systemd1 "), "{joined}");
         assert!(
-            joined.contains("StartTransientUnit ssa(sv)a(sa(sv)) acpmux-agent-host-4242.scope fail 3"),
+            joined.contains(
+                "StartTransientUnit ssa(sv)a(sa(sv)) acpmux-agent-host-4242.scope fail 3"
+            ),
             "{joined}"
         );
         assert!(joined.contains("PIDs au 1 4242"), "{joined}");
