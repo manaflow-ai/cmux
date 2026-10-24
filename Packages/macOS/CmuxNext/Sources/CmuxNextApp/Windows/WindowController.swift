@@ -166,7 +166,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         let windows = services.windows
         let state = state
         workspaceObservation = Task { [weak self] in
-            for await _ in ObservationStream({ Self.readShowInputs(state, cloud: cloud, machines: machines, windows: windows) }) {
+            for await _ in ObservationStream({ ShowInputs(state, cloud: cloud, machines: machines, windows: windows) }) {
                 self?.showPasses += 1
                 self?.showWorkspace(requested: state.workspaceID)
                 // A parked terminal (the classic migration's background workspaces) starts on its first show.
@@ -175,12 +175,18 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
-    /// Reads what `showWorkspace` depends on (the request, each machine's workspace list): O(machines), no id list.
-    private static func readShowInputs(_ state: WindowState, cloud: CloudService, machines: MachineRegistry, windows: WindowManager) {
-        _ = (state.workspaceID, state.page, state.machineID, cloud.hasLoadedMachines, multiViewEnabled)
-        _ = creationKey(state, cloud, machines)
-        _ = windows.registry.members(of: state.id)
-        for daemon in machines.daemons { _ = (daemon.store.isLoaded, daemon.store.workspaces.count) }
+    /// What `showWorkspace` depends on, as a value: the request, the creation, this window's members and the model each
+    /// resolves to (a workspace that comes, goes or is replaced), so a workspace added, moved or closed in another window
+    /// re-runs nothing here (the store's list is one observed value: every window's stream wakes, only this key decides).
+    private struct ShowInputs: Equatable {
+        let request: [String?], page: TopPageRoute?, flags: [Bool], creation: String, members: [String], models: [ObjectIdentifier?]
+        init(_ state: WindowState, cloud: CloudService, machines: MachineRegistry, windows: WindowManager) {
+            (request, page) = ([state.workspaceID, state.machineID], state.page)
+            flags = [cloud.hasLoadedMachines, WindowController.multiViewEnabled] + machines.daemons.map(\.store.isLoaded)
+            creation = WindowController.creationKey(state, cloud, machines)
+            members = windows.registry.members(of: state.id)
+            models = ([state.workspaceID] + members).map { $0.flatMap { machines.workspace(id: $0) }.map { ObjectIdentifier($0.0) } }
+        }
     }
 
     /// Shows the requested workspace on whichever machine holds it. While
