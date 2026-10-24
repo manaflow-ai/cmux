@@ -221,7 +221,8 @@ final class AgentPageHibernation {
             // The tab keeps its session and every other state: the next show builds the page again.
             let stored = tabs.resolve(key)
             if let session = view.model.sessionId { tabs.sessions[stored] = session }
-            tabs.wakeStates[stored] = wake.flatMap { $0.isEmpty ? nil : $0 }
+            // A page that never took its state (no `ready` yet) did not answer: it keeps the one it was built with.
+            tabs.wakeStates[stored] = (wake ?? (view.model.hasHandshake ? nil : view.model.pendingWake)).flatMap { $0.isEmpty ? nil : $0 }
             tabs.views[stored] = nil
             tabs.retirer.retire(view)
             tabs.stopCustomizationWhenUnused()
