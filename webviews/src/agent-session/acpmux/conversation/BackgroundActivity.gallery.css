@@ -85,3 +85,20 @@
 .bg-gallery__tail-foot{flex-wrap: wrap;}
 .bg-gallery__terminal-button{margin-left: 0;}
 }
+
+.bg-gallery__command > summary {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--bg-space-9);
+  min-width: 0;
+  padding: var(--bg-space-9) var(--bg-space-10);
+  cursor: pointer;
+  list-style: none;
+}
+.bg-gallery__command > summary::-webkit-details-marker { display: none; }
+.bg-gallery__command > summary::after { content: "⌄"; color: var(--ink-faint); font-size: var(--bg-text-detail); }
+.bg-gallery__command[open] > summary::after { content: "⌃"; }
+.bg-gallery__command > .bg-gallery__tail-body { border-top: 1px solid var(--line); background: var(--surface-raised); }
+.bg-gallery__command > .bg-gallery__tail-foot { border-top: 1px solid var(--line); }
+.bg-gallery__command[data-command-state="failed"] > .bg-gallery__tail-body { color: var(--danger); }

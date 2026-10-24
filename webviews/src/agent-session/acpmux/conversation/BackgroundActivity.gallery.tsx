@@ -44,27 +44,40 @@ const COMMANDS: Command[] = [
   },
 ];
 
-const LIVE_TAIL = [
-  "$ bun run webviews:dev",
-  "vite v6.3.1 dev server running",
-  "  ➜  Local:   http://127.0.0.1:4210/gallery/",
-  "  ➜  Network: use --host to expose",
-  "[gallery] warming agent-pane entries…",
-  "[gallery] loaded 182 entries in 1.42s",
-  "[hmr] watching webviews/src/agent-session",
-  "[hmr] waiting for file changes",
-  "[agent] 2 commands running · 101 subagents done",
-  "█ live output · following newest line",
-];
-
-const FAILED_TAIL = [
-  "$ bun run lint:complexity",
-  "Web complexity candidate",
-  "✗ BackgroundActivityGallery has complexity 21 (max 20)",
-  "  at conversation/BackgroundActivity.gallery.tsx:214:1",
-  "1 error · 0 warnings",
-  "process exited with code 1",
-];
+const COMMAND_OUTPUTS: Record<string, string[]> = {
+  "dev-server": [
+    "$ bun run webviews:dev",
+    "vite v6.3.1 dev server running",
+    "  ➜  Local:   http://127.0.0.1:4210/gallery/",
+    "  ➜  Network: use --host to expose",
+    "[gallery] warming agent-pane entries…",
+    "[gallery] loaded 182 entries in 1.42s",
+    "[hmr] watching webviews/src/agent-session",
+    "[hmr] waiting for file changes",
+    "[agent] 2 commands running · 101 subagents done",
+    "█ live output · following newest line",
+  ],
+  "background-tests": [
+    "$ bun test test/agent-pane-background-tasks.test.tsx",
+    "bun test v1.3.4",
+    "✓ opens a running command row",
+    "✓ keeps the transcript anchor",
+    "✓ reads a bounded output tail",
+    "✓ exposes Open in terminal",
+    "11 passed · 3 running",
+    "watching for the next event…",
+  ],
+  complexity: [
+    "$ bun run lint:complexity",
+    "Web complexity candidate",
+    "✗ BackgroundActivityGallery has complexity 21 (max 20)",
+    "  at conversation/BackgroundActivity.gallery.tsx:214:1",
+    "1 error · 0 warnings",
+    "process exited with code 1",
+    "tail closed · exit 1",
+    "failure remains available for review",
+  ],
+};
 
 const DONE_AGENTS = [
   "Read the daemon update docs",
@@ -77,18 +90,61 @@ function commandLabel(command: Command) {
   return command.state === "failed" ? "Failed" : "Running";
 }
 
-function CommandRows({ compact = false }: { compact?: boolean }) {
+function CommandTail({ item, initialOpen = false }: { item: Command; initialOpen?: boolean }) {
+  const [open, setOpen] = useState(initialOpen);
+  const [revision, setRevision] = useState(0);
+  const [lines, setLines] = useState(() => COMMAND_OUTPUTS[item.id] ?? []);
+  const [terminalOpened, setTerminalOpened] = useState(false);
+  const tailRef = useRef<HTMLPreElement>(null);
+  useEffect(() => {
+    if (open && tailRef.current) tailRef.current.scrollTop = tailRef.current.scrollHeight;
+  }, [open, revision]);
+  const followTail = () => {
+    setLines((current) => (current.length >= 12 ? current : [...current, `[tail ${revision + 1}] ${item.detail}`]));
+    setRevision((value) => value + 1);
+  };
+  return (
+    <details
+      className="bg-gallery__command"
+      data-command-state={item.state}
+      open={open}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
+      <summary>
+        <span className="bg-gallery__status-dot" aria-hidden="true" />
+        <span className="bg-gallery__command-copy">
+          <code>{item.command}</code>
+          <small>{item.detail}</small>
+        </span>
+        <span className="bg-gallery__command-state">{commandLabel(item)}</span>
+      </summary>
+      <pre ref={tailRef} className="bg-gallery__tail-body" aria-label={`${item.command} live output`}>
+        {lines.join("\n")}
+      </pre>
+      <div className="bg-gallery__tail-foot">
+        <span className="bg-gallery__follow-dot" aria-hidden="true" />
+        <span aria-live="polite">Auto-scroll on · {lines.length}-line tail</span>
+        <button type="button" className="bg-gallery__text-button" onClick={followTail}>
+          Follow tail
+        </button>
+        <button
+          type="button"
+          className="bg-gallery__terminal-button"
+          onClick={() => setTerminalOpened(true)}
+          aria-label={`Open ${item.command} in terminal`}
+        >
+          {terminalOpened ? "Terminal opened" : "Open in terminal"}
+        </button>
+      </div>
+    </details>
+  );
+}
+
+function CommandRows({ compact = false, initialOpenId }: { compact?: boolean; initialOpenId?: string }) {
   return (
     <div className={`bg-gallery__commands${compact ? " bg-gallery__commands--compact" : ""}`}>
       {COMMANDS.map((item) => (
-        <div className="bg-gallery__command" data-command-state={item.state} key={item.id}>
-          <span className="bg-gallery__status-dot" aria-hidden="true" />
-          <span className="bg-gallery__command-copy">
-            <code>{item.command}</code>
-            <small>{item.detail}</small>
-          </span>
-          <span className="bg-gallery__command-state">{commandLabel(item)}</span>
-        </div>
+        <CommandTail key={item.id} item={item} initialOpen={item.id === initialOpenId} />
       ))}
     </div>
   );
@@ -108,51 +164,6 @@ function DoneSummary({ compact = false }: { compact?: boolean }) {
   );
 }
 
-function LiveTail({ initialOpen = true }: { initialOpen?: boolean }) {
-  const [open, setOpen] = useState(initialOpen);
-  const [terminalOpened, setTerminalOpened] = useState(false);
-  const tailRef = useRef<HTMLPreElement>(null);
-
-  useEffect(() => {
-    if (!open || !tailRef.current) return;
-    tailRef.current.scrollTop = tailRef.current.scrollHeight;
-  }, [open]);
-
-  return (
-    <section
-      className={`bg-gallery__tail${open ? " is-expanded" : ""}`}
-      data-live-tail={open ? "expanded" : "collapsed"}
-    >
-      <div className="bg-gallery__tail-head">
-        <div>
-          <span className="bg-gallery__eyebrow">Live output</span>
-          <strong>webviews:dev · following</strong>
-        </div>
-        <button type="button" className="bg-gallery__text-button" onClick={() => setOpen((value) => !value)}>
-          {open ? "Collapse output" : "Expand live output"}
-        </button>
-      </div>
-      {open && (
-        <pre ref={tailRef} className="bg-gallery__tail-body" aria-label="Live command output">
-          {LIVE_TAIL.join("\n")}
-        </pre>
-      )}
-      <div className="bg-gallery__tail-foot">
-        <span className="bg-gallery__follow-dot" aria-hidden="true" />
-        <span>Auto-scroll on · 10-line tail</span>
-        <button
-          type="button"
-          className="bg-gallery__terminal-button"
-          onClick={() => setTerminalOpened(true)}
-          aria-label="Open in terminal"
-        >
-          {terminalOpened ? "Terminal opened" : "Open in terminal"}
-        </button>
-      </div>
-    </section>
-  );
-}
-
 function ActivityHeader({ placement }: { placement: string }) {
   return (
     <header className="bg-gallery__header">
@@ -162,19 +173,6 @@ function ActivityHeader({ placement }: { placement: string }) {
       </div>
       <span className="bg-gallery__count-badge">2 running</span>
     </header>
-  );
-}
-
-function FailedRow() {
-  return (
-    <details className="bg-gallery__failed">
-      <summary>
-        <span className="bg-gallery__status-dot" aria-hidden="true" />
-        <code>{COMMANDS[2]!.command}</code>
-        <span>Failed · exit 1</span>
-      </summary>
-      <pre>{FAILED_TAIL.join("\n")}</pre>
-    </details>
   );
 }
 
@@ -200,8 +198,7 @@ function PinnedSurface() {
     <div className="bg-gallery__surface bg-gallery__surface--pinned" data-surface="pinned-live-tail">
       <ActivityHeader placement="Pinned above transcript" />
       <p className="bg-gallery__intro">Keep long-running work visible while the conversation continues.</p>
-      <LiveTail />
-      <CommandRows compact />
+      <CommandRows compact initialOpenId="dev-server" />
       <DoneSummary compact />
     </div>
   );
@@ -218,8 +215,7 @@ function TranscriptSurface() {
         I started the checks. I’ll keep the output here while the next files finish.
       </div>
       <div className="bg-gallery__latest-label">Latest message · activity follows</div>
-      <LiveTail />
-      <CommandRows compact />
+      <CommandRows compact initialOpenId="dev-server" />
       <DoneSummary compact />
     </div>
   );
