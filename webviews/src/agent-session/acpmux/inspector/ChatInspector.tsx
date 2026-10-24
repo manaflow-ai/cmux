@@ -113,9 +113,15 @@ export const pushedWidth = (paneWidth: number, width: number) =>
 /// shifted left". When the right gutter (model.ts transcriptColumn) holds the panel and its margins,
 /// nothing moves; when the two gutters together hold it, the column moves left by what the right one
 /// lacks; otherwise nothing moves and the panel floats over the chat.
-export const inspectorChatShift = (paneWidth: number, width: number, column?: ChatColumn) => {
+/// A handoff review's form (handoff/styles.css: 760px, 18px from each edge) is wider than the column:
+/// with `wide`, the gutter is the form's.
+export const HANDOFF_FORM_WIDTH = 760;
+export const inspectorChatShift = (paneWidth: number, width: number, column?: ChatColumn, wide = false) => {
   if (paneWidth <= 0 || width <= 0) return 0;
-  const inset = transcriptColumn(paneWidth, column).inset;
+  const columnInset = transcriptColumn(paneWidth, column).inset;
+  const inset = wide
+    ? Math.min(columnInset, (paneWidth - Math.min(HANDOFF_FORM_WIDTH, paneWidth - 36)) / 2)
+    : columnInset;
   const lacks = width + 2 * FLOAT_MARGIN - inset;
   return lacks > 0 && lacks <= inset ? lacks : 0;
 };
@@ -196,6 +202,7 @@ export function useChatInspector({
   covered = false,
   onUncover,
   beside,
+  wide = false,
 }: {
   snapshot: AcpmuxSnapshot;
   /// A view has the pane in the chat's place (App.tsx: a turn's diff in place, the event Inspector):
@@ -207,6 +214,9 @@ export function useChatInspector({
   /// The side panel beside the chat, changing as it opens or closes (App.tsx `artifact.opened`):
   /// the panel measures the chat's room without it.
   beside?: unknown;
+  /// What the chat shows under its header is a handoff review's form, wider than the transcript's
+  /// column (App.tsx): the chat's shift left is measured against the form. It never pushes.
+  wide?: boolean;
   /// This Mac's name from the handshake, for a local chat.
   machineName?: string;
   /// The chat folder's GitHub repository (`git.githubRepository`), `owner/name`.
@@ -336,6 +346,7 @@ export function useChatInspector({
         repository={repository}
         shell={shell}
         beside={beside}
+        wide={wide}
         openedOutputAt={openedOutputAt}
         onSuppress={suppress}
         registry={registry}
@@ -379,6 +390,7 @@ function InspectorPresence({
   repository,
   shell,
   beside,
+  wide,
   openedOutputAt,
   onSuppress,
   registry,
@@ -405,6 +417,8 @@ function InspectorPresence({
   shell?: HTMLElement | null;
   /// The side panel beside the chat, as it opens or closes: the chat's room is measured again.
   beside?: unknown;
+  /// A handoff review's form shows: the shift is measured against it.
+  wide?: boolean;
   /// When an output's diff was last opened (Date.now()).
   openedOutputAt: { readonly current: number };
   /// That diff's split left no room for the chat beside the Inspector: the Inspector steps aside.
@@ -440,7 +454,7 @@ function InspectorPresence({
   // panel keeps clear of, so it never lies over the document.
   const { width: paneWidth, side } = usePaneRoom(shell, drawn, beside);
   const push = pushes(display.inspector);
-  const chatShift = push ? 0 : inspectorChatShift(paneWidth, width, column);
+  const chatShift = push ? 0 : inspectorChatShift(paneWidth, width, column, wide);
   const tabRowHeight = useTabRow().height;
   // The overlay handoff is a layout assist, not panel motion. Set the placement marker before the
   // shift so the overlay transition is disabled for the one frame where flex layout takes the panel's

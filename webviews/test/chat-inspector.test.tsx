@@ -348,6 +348,11 @@ test("the chat shifts left only when the chat and the panel both fit that way", 
   expect(inspectorChatShift(0, 320)).toBe(0);
   // A wider column (the user's Text Width) leaves a 250px gutter: it moves left by the 86px it lacks.
   expect(inspectorChatShift(1600, 320, { min: 720, max: 1100, share: 1, prose: Infinity })).toBe(86);
+  // A handoff review's 760px form: the shift is measured against the form, so the panel lies over
+  // neither the form nor its fields (1200px: a 220px gutter lacks 116px).
+  expect(inspectorChatShift(1200, 320, undefined, true)).toBe(116);
+  expect(inspectorChatShift(1600, 320, undefined, true)).toBe(0);
+  expect(inspectorChatShift(720, 320, undefined, true)).toBe(0);
 });
 
 test("the overlay handoff honors the app's reduced-motion policy", () => {

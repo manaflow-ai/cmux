@@ -81,6 +81,7 @@
    card lies over neither. The header stays outside that shift: its top-right controls stay anchored in
    the pane. */
 .acpmux-main > .acpmux-stage > .acpmux-scroll,
+.acpmux-main > .acpmux-stage .acpmux-handoff-review,
 .acpmux-main > .acpmux-dock > * {
   translate: calc(-1 * var(--acpmux-chat-shift, 0px)) 0;
 }
@@ -92,19 +93,23 @@
 }
 @media (prefers-reduced-motion: no-preference) {
   .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage > .acpmux-scroll,
-  .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-dock > * {
+  .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-dock > *,
+  .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage .acpmux-handoff-review {
     transition: translate var(--agent-motion-move, var(--cmux-motion-quick, 80ms))
       var(--acpmux-motion-ease, ease-out);
   }
 }
 :root[data-cmux-motion="reduced"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage > .acpmux-scroll,
 :root[data-cmux-motion="reduced"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-dock > *,
+:root[data-cmux-motion="reduced"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage .acpmux-handoff-review,
 :root[data-cmux-motion="off"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage > .acpmux-scroll,
-:root[data-cmux-motion="off"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-dock > * {
+:root[data-cmux-motion="off"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-dock > *,
+:root[data-cmux-motion="off"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage .acpmux-handoff-review {
   transition: none;
 }
 .acpmux-shell[data-inspector-chat-placement="push"] .acpmux-main > .acpmux-stage > .acpmux-scroll,
-.acpmux-shell[data-inspector-chat-placement="push"] .acpmux-main > .acpmux-dock > * {
+.acpmux-shell[data-inspector-chat-placement="push"] .acpmux-main > .acpmux-dock > *,
+.acpmux-shell[data-inspector-chat-placement="push"] .acpmux-main > .acpmux-stage .acpmux-handoff-review {
   transition: none;
 }
 /* It slides in from the pane's right edge and back out (ui/presence.ts, data-presence). Over the chat
