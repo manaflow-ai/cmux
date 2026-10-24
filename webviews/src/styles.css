@@ -114,8 +114,8 @@ html {
    The tree's own layers go clear so the tint does not stack. Reduce Transparency (the system's or
    the host's) keeps them solid. */
 :root[data-cmux-see-through]:not([data-reduce-transparency]) {
-  /* The files panel is the file bars' film, less transparent, so its names stay easy to read. */
-  --cmux-diff-files-bg: color-mix(in srgb, var(--cmux-diff-fg) 12%, transparent);
+  /* The files panel is the file bars' film, the same color and the same transparency. */
+  --cmux-diff-files-bg: var(--cmux-diff-header-bg);
   --cmux-diff-files-filter: var(--cmux-diff-glass-filter);
   --cmux-diff-files-layer-bg: transparent;
   /* A clear film: a tint of the text color, not the theme surface (no navy or other theme hue),
