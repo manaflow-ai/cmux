@@ -109,6 +109,11 @@ if "--suite=chromium-tab-count" in sys.argv:
 if "--suite=sidebar-churn" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sidebar-churn-typing.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=sidebar-churn"])
+# `--suite=cli-storm`: the CLI storm (bench_cli_storm.py) in a launched app, light or STRESS (--session=stress), with
+# debug.main_budget and the display links made around it, scripts/cmux-next/cli-storm-session.py.
+if "--suite=cli-storm" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cli-storm-session.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=cli-storm"])
 # `--suite=automation-typing`: terminal typing idle and while agents automate the app (terminal writes, a Chromium page
 # driven through the control socket, optional AX walks), scripts/cmux-next/automation-typing-bench.py.
 if "--suite=automation-typing" in sys.argv:
