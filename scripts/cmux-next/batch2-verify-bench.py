@@ -421,7 +421,18 @@ def report_cap(window="1d"):
     except (OSError, subprocess.TimeoutExpired):
         return None
     hits = [l for l in text.splitlines() if "limit of 25" in l]
-    return {"refusals": len(hits), "last": hits[-1][:200] if hits else None}
+    # Reports of the crash type (309) written in the last day: at 24 or more the next crash may be the one dropped.
+    recent, cutoff = 0, time.time() - 86400
+    for folder in report_dirs():
+        for path in glob.glob(os.path.join(folder, "*.ips")):
+            try:
+                if os.path.getmtime(path) >= cutoff:
+                    with open(path, errors="replace") as f:
+                        recent += '"bug_type":"309"' in f.readline()
+            except OSError:
+                pass
+    return {"refusals": len(hits), "last": hits[-1][:200] if hits else None, "reports_309_last_day": recent,
+            "at_cap": bool(hits) or recent >= 24}
 
 
 def cef_logs(app_path):
@@ -633,6 +644,18 @@ def main():
         return 0
     tag = re.fullmatch(r"cmux DEV (.+)\.app", os.path.basename(apps["H"])).group(1)
     parts = opts.parts.split(",")
+    if "crash" in parts:
+        # A crash run is worth its hours only where a crash leaves a report: refuse a host at the crash reporter's
+        # 25-report limit at once (the step fails, so it is resubmitted elsewhere).
+        cap = report_cap()
+        report["report_cap"] = cap
+        if cap is None or cap["at_cap"]:
+            report["error"] = f"host-at-report-cap: {report['host']} {json.dumps(cap)}"
+            write()
+            note(f"HOST-AT-REPORT-CAP {report['host']} (macOS {macos}): a crash here leaves no report "
+                 f"(osanalyticshelper's 25-report limit; {json.dumps(cap)}); not running the crash session. Resubmit elsewhere.")
+            return 3
+        note(f"crash: {report['host']} is under the crash-report cap: {json.dumps(cap)}")
     for index, which in enumerate(opts.order):
         name = f"{index + 1}-{'base' if which == 'B' else 'head'}"
         run = {"run": name, "app": "base" if which == "B" else "head", "sha": opts.base_sha if which == "B" else head_sha}
