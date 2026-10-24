@@ -7,7 +7,7 @@ import Testing
 /// indeterminate bar (Lawrence 2026-10-23, nightly 3973494930601 to 3991367032401):
 /// Sparkle's installer checked the new ~700 MB bundle for a minute before it
 /// relaunched, and the card never said so. The installing card now says what it
-/// waits on and for how long, offers Relaunch when the relaunch gate holds it, and
+/// waits on and for how long, and
 /// an install that never relaunches gives up: the windows come back and the card
 /// says the update did not relaunch.
 @MainActor @Suite(.serialized) struct UpdateInstallStatusTests {
@@ -30,15 +30,13 @@ import Testing
         #expect(shown.showsProgress)
     }
 
-    @Test func aHeldRelaunchNamesWhatItWaitsForAndOffersRelaunch() throws {
-        let held = UpdateRelaunchBlockers(busyAgentCount: 3, runningCommandCount: 0)
-        let status = UpdateInstallStatus(elapsed: .seconds(5), blockers: held)
-        #expect(status.stage == .waiting(agents: 3, commands: 0))
-        let shown = Self.presentation(status)
-        let detail = try #require(shown.detail)
-        #expect(shown.title != UpdaterStrings.installingUpdate, "a held relaunch reads as installing")
-        #expect(detail.contains("3"), "the card does not count what it waits for: \(detail)")
-        #expect(shown.actions.contains(.relaunchNow), "nothing lets the person relaunch now: \(shown.actions)")
+    /// Lawrence 2026-10-23 ("dyt we can just remove this"): an idle install held for busy
+    /// agents and commands showed "Waiting to Relaunch — Busy agents: 9. Running commands: 5."
+    /// A held relaunch is the staged update again: the rail's Restart to Update, no card.
+    @Test func aHeldRelaunchShowsAsTheStagedUpdateNotAWaitingCard() {
+        let held = UpdateState.installing(.init(retryTerminatingApplication: {}, dismiss: {},
+                                                relaunchBlockers: UpdateRelaunchBlockers(busyAgentCount: 9, runningCommandCount: 5)))
+        #expect(UpdateIndicatorPhase(held, version: "1.0.1") == .ready(version: "1.0.1"))
     }
 
     @Test func anInstallThatNeverRelaunchesSaysSo() {

@@ -231,7 +231,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     /// `true` to hold the relaunch until `installHandler` is invoked (see ``UpdateRelaunchGate``).
     /// Only an idle-policy install (``relaunchIsAutomatic``) waits for quiet input or an
     /// unconfirmed daemon mirror; anything the user started is held only by agents and commands.
-    func handleShouldPostponeRelaunch(installHandler: @escaping () -> Void) -> Bool {
+    func handleShouldPostponeRelaunch(item: SUAppcastItem? = nil, installHandler: @escaping () -> Void) -> Bool {
         let automatic = relaunchIsAutomatic
         relaunchIsAutomatic = false
         var isAutoUpdate = false
