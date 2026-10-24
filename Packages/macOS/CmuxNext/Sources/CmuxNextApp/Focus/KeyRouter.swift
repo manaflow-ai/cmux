@@ -268,7 +268,7 @@ final class KeyRouter: BrowserKeyRouting {
                 run(candidate, context: context, window: controller.state.id)
                 return true
             }
-            offerToPage(event, candidate: candidate, context: context, window: controller.state.id, tab: ObjectIdentifier(tab))
+            offerToPage(event, candidate: candidate, context: context, window: controller.state.id, tab: tab)
             return false
         case .deliver, .panel, .primaryInput, .typeAhead:
             return runExtensionShortcut(event, focus: focus)
