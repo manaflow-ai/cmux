@@ -3,8 +3,8 @@ public import CmuxNextDesign
 import CmuxNextTerminalGeometry
 import GhosttyNextKit
 
-/// The pane's layout spring landed: the grid held while it moved goes to the owner now, once,
-/// unless it is the final grid the spring's start already sent.
+/// The pane's layout spring landed: the surface takes its host's area again, and the grid held while
+/// it moved goes to the owner now, once, unless it is the final grid the spring's start already sent.
 extension TerminalSurfaceView: PaneMotionSettling {
     public func paneMotionDidSettle() {
         endPaneMotion()
@@ -12,9 +12,9 @@ extension TerminalSurfaceView: PaneMotionSettling {
 }
 
 /// A split or a close resizes the program in the terminal at the start of the pane's spring
-/// (Lawrence 2026-10-23): the final grid goes to the PTY owner in the key's turn, and the surface
-/// draws the owner's grid in the moving pane, cropped while the pane is smaller and padded with the
-/// background while it is larger.
+/// (Lawrence 2026-10-23): the final grid goes to the PTY owner in the key's turn, and the surface keeps
+/// its final size in the moving pane (``TerminalHostView/holdSurface(size:anchor:)``), clipped while the
+/// pane is smaller and beside the terminal background while it is larger: it reflows once, not per frame.
 extension TerminalSurfaceView: PaneMotionTargeting {
     public func paneMotionWillRest(sizeChange: CGSize) -> PaneMotionAnchor {
         guard let surface else { return .top }
@@ -26,7 +26,9 @@ extension TerminalSurfaceView: PaneMotionTargeting {
               ghostty_surface_fit_grid(surface, UInt32(pixels.width), UInt32(pixels.height), &columns, &rows)
         else { return .top }
         reportFinalGrid(TerminalGridSize(columns: Int(columns), rows: Int(rows)))
-        return motionAnchor(growing: sizeChange.height > 0.5)
+        let anchor = motionAnchor(growing: sizeChange.height > 0.5)
+        (superview as? TerminalHostView)?.holdSurface(size: size, anchor: anchor)
+        return anchor
     }
 
     /// The edge the terminal rides in a pane that grows down: the bottom while the cursor is in the
