@@ -1538,7 +1538,7 @@ class RatchetTests(Repo):
             Path(folder, "two_refusals.py").write_text(
                 "ID = 'two-refusals'\n"
                 "def check(base, head, changes):\n"
-                "    return [(ID, 'first', ('a',)), (ID, 'second', ('b',))], []\n")
+                "    return [(ID, 'first'), (ID, 'second', None)], []\n")
             rules, warnings = ratchet.load_rules(Path(folder))
             self.assertEqual(warnings, [])
             entry = {"date": "2026-10-23", "row": "two-refusals", "allow": 1, "why": "reviewed"}
