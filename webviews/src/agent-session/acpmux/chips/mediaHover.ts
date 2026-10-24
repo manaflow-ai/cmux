@@ -51,6 +51,7 @@ function allowed(video: HTMLVideoElement): boolean {
     !doc.hidden &&
     doc.documentElement.dataset.agentMotion !== "off" &&
     doc.documentElement.dataset.cmuxMotion !== "off" &&
+    doc.documentElement.dataset.cmuxMotion !== "reduced" &&
     !doc.defaultView?.matchMedia?.("(prefers-reduced-motion: reduce)").matches
   );
 }

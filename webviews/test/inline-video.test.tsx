@@ -222,10 +222,14 @@ describe("the inline player", () => {
     expect(video.dataset.played).toBe("muted");
   });
 
-  for (const attribute of ["agentMotion", "cmuxMotion"] as const) {
-    test(`${attribute} off blocks hover but keeps click-to-play with sound`, async () => {
+  for (const [attribute, value] of [
+    ["agentMotion", "off"],
+    ["cmuxMotion", "off"],
+    ["cmuxMotion", "reduced"],
+  ] as const) {
+    test(`${attribute} ${value} blocks hover but keeps click-to-play with sound`, async () => {
       const { container, video } = await mount();
-      document.documentElement.dataset[attribute] = "off";
+      document.documentElement.dataset[attribute] = value;
       jest.useFakeTimers();
       await act(async () => hover(container));
       await act(async () => void jest.advanceTimersByTime(HOVER_INTENT.tooltipDelay));
