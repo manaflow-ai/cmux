@@ -98,6 +98,11 @@ public final class DaemonStore: StateResourceQueries {
     @ObservationIgnored public let sideEvents = DaemonSideEvents()
     /// The workspace set (`listID`s) last reported to `onWorkspaceListChanged`.
     @ObservationIgnored var notifiedWorkspaceList: Set<String>?
+    /// The workspace records of the last `workspaceSetRevision` bump, held so their identities stay
+    /// unique while compared: a record closed and added again under its id in one batch is a new
+    /// record, which observers that hold records (one watch per workspace) must hear about.
+    @ObservationIgnored var notifiedWorkspaceRecords: [WorkspaceModel] = []
+    @ObservationIgnored var notifiedWorkspaceRecordIDs: Set<ObjectIdentifier> = []
     /// Bumped by every sidebar flattening (`recomputeSidebar`, which every
     /// structural change runs): while it stays, the workspace set is the one
     /// last checked, so `workspaceListMayHaveChanged` skips its O(n) set
@@ -198,9 +203,10 @@ public final class DaemonStore: StateResourceQueries {
     /// must look at every workspace once per connection key off it.
     public internal(set) var liveTreeEpoch: Int?
     /// Bumped each time the set of loaded workspaces changes (one joined or
-    /// left, or a provisional one was confirmed), never for a move or a
-    /// change to one workspace: observers that track membership read it
-    /// instead of `workspaces`, whose order every move changes.
+    /// left, a provisional one was confirmed, or a record was replaced under
+    /// its id), never for a move or a change to one workspace: observers that
+    /// track membership read it instead of `workspaces`, whose order every
+    /// move changes.
     public internal(set) var workspaceSetRevision: UInt64 = 0
 
     public init() {}
@@ -457,13 +463,19 @@ public final class DaemonStore: StateResourceQueries {
         guard applyDepth == 0, isLoaded else { return }
         guard checkedListGeneration != listGeneration else { return }
         checkedListGeneration = listGeneration
-        if let notified = notifiedWorkspaceList, notified.count == workspaces.count,
+        let sameRecords = notifiedWorkspaceRecordIDs.count == workspaces.count
+            && workspaces.allSatisfy { notifiedWorkspaceRecordIDs.contains(ObjectIdentifier($0)) }
+        if sameRecords, let notified = notifiedWorkspaceList, notified.count == workspaces.count,
            workspaces.allSatisfy({ notified.contains($0.listID) }) { return }
         let list = Set(workspaces.map(\.listID))
-        guard list != notifiedWorkspaceList else { return }
+        let listChanged = list != notifiedWorkspaceList
+        guard listChanged || !sameRecords else { return }
         notifiedWorkspaceList = list
+        notifiedWorkspaceRecords = workspaces
+        notifiedWorkspaceRecordIDs = Set(workspaces.map { ObjectIdentifier($0) })
         workspaceSetRevision &+= 1
-        onWorkspaceListChanged?()
+        // The hook keeps its trigger (the set of ids changed); only the revision hears of a replaced record.
+        if listChanged { onWorkspaceListChanged?() }
     }
 
     func recomputeSidebar() {
