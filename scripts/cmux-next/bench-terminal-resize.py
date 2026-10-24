@@ -224,12 +224,19 @@ def idle_cursor():
         rows = surfaces()
         # The phase's own new workspace shows one terminal: the one it wrote to.
         row = rows[0] if len(rows) == 1 else None
-        return int(row["counters"].get("frames", 0)) if row else -1
-    before = focused_frames()
+        return (int(row["counters"].get("frames", 0)) if row else None), len(rows)
+    before, shown = focused_frames()
     time.sleep(opts.idle_s)  # bench script: the measured idle window
-    after = focused_frames()
-    return {"layout": "idle-cursor", "idle_s": opts.idle_s, "frames": after - before,
-            "note": "the bench window is never key (no activation): Ghostty's blink timer runs only when focused"}
+    after, shown_after = focused_frames()
+    result = {"layout": "idle-cursor", "idle_s": opts.idle_s, "terminals_shown": [shown, shown_after],
+              "frames_before": before, "frames_after": after,
+              "note": "the bench window is never key (no activation): Ghostty's blink timer runs only when focused"}
+    # No count without exactly one shown terminal with render counters: an error, never a 0.
+    if before is None or after is None or before == 0:
+        result["error"] = "no render counter for one shown terminal (or it never drew): no idle count"
+    else:
+        result["frames"] = after - before
+    return result
 
 
 def stress():
