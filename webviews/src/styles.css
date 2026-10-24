@@ -777,8 +777,8 @@ body[data-files-hidden="true"] #content {
    right edge of #content. These rules are its resting states; the slide
    between them is a composited Web Animations transform driven by
    files-panel-motion.ts, which starts in the toggle's frame and changes the
-   diff column's width once, when the slide ends. The panel stays painted
-   while it closes (data-files-motion). */
+   diff column's width once per slide: at the end of an open, two frames into a
+   close. The panel stays painted while it closes (data-files-motion). */
 body[data-status-only="true"] #content {
   grid-template-columns: minmax(0, 1fr);
   grid-template-areas: "viewer";
@@ -840,8 +840,9 @@ body[data-status-only="true"] #files-sidebar {
   display: none;
 }
 /* The curtain: the panel's resting box in the panel's background, under it. While the panel
-   closes over a diff still laid out beside it, its scaleX (from its left edge) follows the
-   panel, so the strip the panel uncovers is never blank. At rest it is scaled to nothing. */
+   moves over a diff still laid out beside it (a close's first two frames, an open reversed
+   before its diff widened), its scaleX (from its left edge) follows the panel, so the strip the
+   panel uncovers is never blank. At rest it is scaled to nothing. */
 #files-motion-curtain {
   position: absolute;
   top: 0;

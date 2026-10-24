@@ -2,7 +2,8 @@
 // The files panel motion never shows a blank strip (files-panel-motion.ts), in headless Chromium
 // and WebKit on the latency harness's diff page: at every step of an open, a close and a toggle in
 // the middle of either slide, each point of the content's width is covered by the diff column, the
-// panel or the curtain, and the diff column changes width only when a slide ends.
+// panel or the curtain, and the diff column changes width once per slide: at the end of an open,
+// and two frames into a close, before the panel has moved, so a close uncovers real rows.
 //
 // Deterministic: the test pauses the slide's animations and seeks them through 24 steps with
 // `currentTime`, toggles again at an exact step for the reverses, then finishes them. Nothing
@@ -134,8 +135,12 @@ await requireBrowserLane("files-panel-coverage.test.ts", async () => {
           if (panel.dataset.filesMotionTarget === before) return;
           observer.disconnect();
           const caught = slide();
-          if (caught.length === 0) reject(new Error(`${scenario.name}: no slide started`));
-          else resolve(caught);
+          if (caught.length === 0) {
+            reject(new Error(`${scenario.name}: no slide started`));
+            return;
+          }
+          // Two frames with the slide held at its start: a close widens the diff in them.
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve(slide())));
         });
         observer.observe(panel, { attributes: true, attributeFilter: ["data-files-motion-target"] });
         toggle.click();
@@ -194,7 +199,8 @@ await requireBrowserLane("files-panel-coverage.test.ts", async () => {
               scenario: scenario.name,
               worst: 0,
             });
-            // The diff column keeps its width through the slide and changes at most once, at the end.
+            // The diff column changes width at most once: a close before its first step (under the
+            // panel that has not moved yet), an open at the end.
             const widths = steps.map((step) => step.viewerRight);
             const changes = widths.filter((width, index) => index > 0 && width !== widths[index - 1]).length;
             expect({ scenario: scenario.name, changes }).toEqual({
@@ -202,6 +208,13 @@ await requireBrowserLane("files-panel-coverage.test.ts", async () => {
               changes: Math.min(changes, 1),
             });
             expect(steps.slice(0, -1).every((step) => step.viewerRight === widths[0])).toBe(true);
+            if (scenario.reverseAt == null && scenario.ends === "true") {
+              // A close is at full width from its first step: nothing for a curtain to fill.
+              expect({ scenario: scenario.name, first: widths[0] }).toEqual({
+                scenario: scenario.name,
+                first: widths.at(-1)!,
+              });
+            }
             expect(steps.at(-1)!.motion).toBeUndefined();
             expect(await page.evaluate(() => document.body.dataset.filesHidden)).toBe(scenario.ends);
           }
