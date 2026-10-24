@@ -8,7 +8,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/SettingsPageProvider.swift	siz
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Remote/RemoteTerminalPlaceholderView.swift	size	1
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Remote/RemoteTerminalPlaceholderView.swift	weight	1
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/RemoteView/MachineBrowserPageTab.swift	weight	1
-Packages/macOS/CmuxNext/Sources/CmuxNextApps/Store/Views/AppListingDetailView.swift	size	1
 Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/ProfileBadgeView.swift	size	1
 Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/SidePanelHeaderView.swift	weight	1
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Metrics.swift	weight	2

@@ -40,6 +40,14 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let browserSetBackgroundColor: @convention(c) (Int32, UInt32) -> Int32
     /// A see-through page (fork API 17, `CEFTab.pageSeeThrough`); 0 when the fork lacks it.
     let tabSetTransparentBackground: @convention(c) (Int32, Int32) -> Int32
+    /// `cmux_shim_set_file_dialogs`: 1 sends page file choosers to the host (`CMUX_SHIM_FILE_DIALOG`).
+    let setFileDialogs: @convention(c) (Int32) -> Void
+    /// `cmux_shim_file_dialog_answer(dialog, multiple, paths)`: newline-separated absolute paths; nil or "" cancels.
+    let fileDialogAnswer: @convention(c) (Int32, Int32, UnsafePointer<CChar>?) -> Int32
+    /// Fork API 26: `cmux_shim_browser_set_layer_hosting` (the page's CAContextID, 0 when off).
+    let browserSetLayerHosting: @convention(c) (Int32, Int32) -> UInt32
+    /// Fork API 27: `cmux_shim_browser_set_resize_sync` (deadline in ms, 0 never holds the commit).
+    let browserSetResizeSync: @convention(c) (Int32, Int32) -> Int32
     let initialize: @convention(c) (
         UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
         UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
@@ -90,6 +98,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     }
 
     let devToolsSetKeyHandler: @convention(c) (KeyFn?) -> Void
+    /// Key downs the page left unhandled (`cmux_shim_set_unhandled_key_handler`).
+    let setUnhandledKeyHandler: @convention(c) (KeyFn?) -> Void
     let devToolsSetPlacement: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32, Int32, Int32) -> Void
     let devToolsCommand: @convention(c) (Int32, Int32, Int32, Int32) -> Int32
     let devToolsBrowser: @convention(c) (Int32) -> Int32
@@ -185,9 +195,33 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     /// Distinct renderer client ids hosting the tab's frames.
     let rendererClientIDs: @convention(c) (Int32, UnsafeMutablePointer<Int32>?, Int32) -> Int32
 
+    // Renderer paths that keep a tab off DevTools (fork API 29, `CEFForkFeatures.rendererPaths`), so
+    // same-site tabs can share a renderer as in Chrome. Optional: a shim built before them lacks the
+    // exports and still loads; `CEFForkFeatures` uses them only when all are there and the fork's API
+    // is 29 or later.
+    /// A document-start script for every browser: world ("" page), source, all frames, run now.
+    let addDocumentScript: (@convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?, Int32, Int32) -> Int32)?
+    /// `cmuxPost(channel, string)` in an isolated world: world, channel. Posts come as PAGE_MESSAGE.
+    let addPageChannel: (@convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32)?
+    /// Runs a script in the main frame: browser, token, world, script, user gesture. EVALUATE_RESULT answers.
+    let tabEvaluate: (@convention(c) (Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?, Int32) -> Int32)?
+    /// `WebContents::SetPageFrozen`: browser, frozen; 0 when the browser is gone or (freezing) visible.
+    let tabSetFrozen: (@convention(c) (Int32, Int32) -> Int32)?
+    /// `CefBrowserHost::SendMouseClickEvent` down and up: browser, x, y (view points), button, modifiers, clicks.
+    let tabSendClick: (@convention(c) (Int32, Double, Double, Int32, Int32, Int32) -> Int32)?
+    /// The page's `prefers-color-scheme` (WebPreferences preferred_color_scheme): browser, 1 light, 2 dark.
+    let tabSetColorScheme: (@convention(c) (Int32, Int32) -> Int32)?
+
+    /// Every renderer-path export is there (`CEFForkFeatures`).
+    var hasRendererPaths: Bool {
+        addDocumentScript != nil && addPageChannel != nil && tabEvaluate != nil && tabSetFrozen != nil && tabSendClick != nil
+            && tabSetColorScheme != nil
+    }
+
     // Remote localhost (plans/cmux-next/remote-localhost.md).
     let setContextProxy: @convention(c) (UnsafePointer<CChar>?, Int32) -> Int32
     let contextProxyState: @convention(c) (UnsafePointer<CChar>?) -> Int32
+    let setContextProxyServer: @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
     let releaseContext: @convention(c) (UnsafePointer<CChar>?) -> Void
     let setNavigationGuard: @convention(c) (Int32, Int32) -> Void
     /// A sign-in tab's callback: scheme, https host, https path (all empty clears).
@@ -264,6 +298,11 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
             guard let symbol = symbol(name) else { throw .missingSymbol(name) }
             return unsafeBitCast(symbol, to: T.self)
         }
+
+        /// A function only newer shims export: nil when this one has none.
+        func optional<T>(_ name: String) -> T? {
+            symbol(name).map { unsafeBitCast($0, to: T.self) }
+        }
     }
 
     /// The functions `symbol` gives by name, with no shim loaded (a test's spy shim).
@@ -282,6 +321,10 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         setBackgroundColor = try r("cmux_shim_set_background_color")
         browserSetBackgroundColor = try r("cmux_shim_browser_set_background_color")
         tabSetTransparentBackground = try r("cmux_shim_tab_set_transparent_background")
+        setFileDialogs = try r("cmux_shim_set_file_dialogs")
+        fileDialogAnswer = try r("cmux_shim_file_dialog_answer")
+        browserSetLayerHosting = try r("cmux_shim_browser_set_layer_hosting")
+        browserSetResizeSync = try r("cmux_shim_browser_set_resize_sync")
         initialize = try r("cmux_shim_initialize")
         doWork = try r("cmux_shim_do_work")
         createWindow = try r("cmux_shim_create_window")
@@ -309,6 +352,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         devToolsWatchEvents = try r("cmux_shim_devtools_watch_events")
         devToolsSend = try r("cmux_shim_devtools_send")
         devToolsSetKeyHandler = try r("cmux_shim_devtools_set_key_handler")
+        setUnhandledKeyHandler = try r("cmux_shim_set_unhandled_key_handler")
         devToolsSetPlacement = try r("cmux_shim_devtools_set_placement")
         devToolsCommand = try r("cmux_shim_devtools_command")
         devToolsBrowser = try r("cmux_shim_devtools_browser")
@@ -376,8 +420,15 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         certificateProceed = try r("cmux_shim_certificate_proceed")
         freeOwned = try r("cmux_shim_free_owned")
         rendererClientIDs = try r("cmux_shim_renderer_client_ids")
+        addDocumentScript = r.optional("cmux_shim_add_document_script")
+        addPageChannel = r.optional("cmux_shim_add_page_channel")
+        tabEvaluate = r.optional("cmux_shim_tab_evaluate")
+        tabSetFrozen = r.optional("cmux_shim_tab_set_frozen")
+        tabSendClick = r.optional("cmux_shim_tab_send_click")
+        tabSetColorScheme = r.optional("cmux_shim_tab_set_color_scheme")
         setContextProxy = try r("cmux_shim_set_context_proxy")
         contextProxyState = try r("cmux_shim_context_proxy_state")
+        setContextProxyServer = try r("cmux_shim_set_context_proxy_server")
         releaseContext = try r("cmux_shim_release_context")
         setNavigationGuard = try r("cmux_shim_set_navigation_guard")
         setAuthCallback = try r("cmux_shim_set_auth_callback")

@@ -6,7 +6,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { findOpaqueGlass, findSolidTooltipMarkup } from "../scripts/check-glass-never-opaque";
+import { findMissingGlassMarkup, findOpaqueGlass, findSolidTooltipMarkup } from "../scripts/check-glass-never-opaque";
 
 test("glass is never opaque", () => {
   expect(findOpaqueGlass()).toEqual([]);
@@ -15,6 +15,92 @@ test("glass is never opaque", () => {
 // Leo 2026-10-21: "WHERE IS THE GLASS EVERYWHERE, all these hover tooltips and hover previews".
 test("every tooltip and hover card in the page code is glass", () => {
   expect(findSolidTooltipMarkup()).toEqual([]);
+});
+
+test("every named floating surface in the page code is glass", () => {
+  expect(findMissingGlassMarkup()).toEqual([]);
+});
+
+// The old New Tab omnibar was opaque without a blur or a glass-named class, so neither the generic
+// CSS check nor the tooltip markup check saw it. Keep the fill and the missing adoption independent:
+// adding ui-glass alone must not hide a solid surface-specific fill from the CSS check.
+test("the old opaque New Tab omnibar fails even without a blur or ui-glass", () => {
+  const dir = mkdtempSync(join(tmpdir(), "glass-never-opaque-omnibar-"));
+  try {
+    writeFileSync(
+      join(dir, "fixture.css"),
+      [
+        ":root { --surface-popup: var(--cmux-popup-surface); }",
+        ".acpmux-omni { background: var(--surface-popup); }",
+        ".acpmux-omni-row.is-selected { background: color-mix(in srgb, CanvasText 8%, transparent); }",
+        ".acpmux-omni .acpmux-omni-action kbd { background: Canvas; }",
+      ].join("\n"),
+    );
+    writeFileSync(
+      join(dir, "Fixture.tsx"),
+      [
+        'export const old = <div className="acpmux-omni" id="acpmux-omni" />;',
+        'export const glass = <div className="ui-popup ui-glass acpmux-omni" id="acpmux-omni" />;',
+        'export const row = <div className="acpmux-omni-row is-selected" />;',
+        'export const query = document.querySelector(".acpmux-omni");',
+      ].join("\n"),
+    );
+    expect(findOpaqueGlass(dir)).toEqual(["fixture.css:2: .acpmux-omni { background: var(--surface-popup) }"]);
+    expect(findMissingGlassMarkup(dir)).toEqual(['Fixture.tsx:1: "acpmux-omni"']);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the New Tab omnibar accepts glass, translucent selection and Reduce Transparency", () => {
+  const dir = mkdtempSync(join(tmpdir(), "glass-never-opaque-omnibar-rt-"));
+  try {
+    writeFileSync(
+      join(dir, "fixture.css"),
+      [
+        ":root { --surface-popup: var(--cmux-popup-surface); }",
+        ".acpmux-omni { background: color-mix(in srgb, Canvas 60%, transparent); backdrop-filter: blur(20px); }",
+        ".acpmux-omni-row.is-selected { background: color-mix(in srgb, CanvasText 8%, transparent); }",
+        "@media (prefers-reduced-transparency: reduce) { .acpmux-omni { background: var(--surface-popup); backdrop-filter: none; } }",
+        ":root[data-reduce-transparency] .acpmux-omni { background: var(--surface-popup); backdrop-filter: none; }",
+      ].join("\n"),
+    );
+    writeFileSync(
+      join(dir, "Fixture.tsx"),
+      [
+        'export const glass = <div className="ui-popup ui-glass acpmux-omni" id="acpmux-omni" />;',
+        'export const row = <div className="acpmux-omni-row is-selected" />;',
+      ].join("\n"),
+    );
+    expect(findOpaqueGlass(dir)).toEqual([]);
+    expect(findMissingGlassMarkup(dir)).toEqual([]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a named glass selector cannot hide an opaque fill behind a modifier", () => {
+  const dir = mkdtempSync(join(tmpdir(), "glass-never-opaque-omnibar-selector-"));
+  try {
+    writeFileSync(
+      join(dir, "fixture.css"),
+      [
+        '.acpmux-omni[role="listbox"] { background: Canvas; backdrop-filter: none; }',
+        ":root:not([data-reduce-transparency]) .acpmux-omni:hover { background: white; }",
+        ".other, .acpmux-omni { background-color: #fff; }",
+        ".acpmux-omni-row { background: Canvas; }",
+        ".other:not(.acpmux-omni) { background: Canvas; }",
+        ".acpmux-omni:has(> .row) .child { background: Canvas; }",
+      ].join("\n"),
+    );
+    expect(findOpaqueGlass(dir).map((line) => line.split(": ")[1]?.split(" {")[0])).toEqual([
+      '.acpmux-omni[role="listbox"]',
+      ":root:not([data-reduce-transparency]) .acpmux-omni:hover",
+      ".other, .acpmux-omni",
+    ]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 // A tooltip or hover card is glass with or without its own blur; `backdrop-filter: none` is no way out.

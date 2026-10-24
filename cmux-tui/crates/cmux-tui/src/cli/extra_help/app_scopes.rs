@@ -137,10 +137,18 @@ Lists the app's AI provider accounts; secrets are never printed.";
 const OPEN_HELP: &str = "\
 usage: cmux open <path|url>... [--workspace <ws_…>] [--focus [true|false]] [--no-focus]
        cmux open - [--workspace <ws_…>] [--focus [true|false]] [--no-focus]
+       cmux open --link [--caller <names>] [--target <target>] (<url>... | -)
 URLs open as a browser tab in the caller's pane (or the --workspace pane),
 folders in a new workspace, files in the app. `open -` reads one http(s) URL
 per stdin line, so a URL with a token never appears in argv; it checks every
-line first and stops at the first URL the app refuses.";
+line first and stops at the first URL the app refuses.
+--link opens each URL the way a program's browser in a cmux terminal does
+(BROWSER=cmux-open-url): where the terminal.linkOpener setting says, a cmux
+browser tab beside the caller by default. --caller names the programs that
+asked (comma-separated, matched by caller: rules); --target picks the target
+(cmux, system, chrome, app:<name>, ...) over the setting. A command: target
+runs in this shell with the URL in CMUX_LINK_URL and on stdin; it opens the URL
+itself, or prints a target on its first line.";
 
 const ERRORS_HELP: &str = "\
 usage: cmux errors [list] [--since <90s|15m|2h|3d>] [--source <source>]... [--level <level>]

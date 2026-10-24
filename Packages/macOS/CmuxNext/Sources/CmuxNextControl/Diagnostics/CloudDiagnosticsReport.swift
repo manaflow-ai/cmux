@@ -5,7 +5,8 @@ import Foundation
 /// The JSON that Cloud Diagnostics' Copy details copies (and a CLI or MCP run
 /// of `cloudDiagnostics` returns as `details`): the account, and a row per
 /// Cloud machine. No secrets.
-public enum CloudDiagnosticsReport {
+public struct CloudDiagnosticsReport {
+    public init() {}
     /// The control socket's JSON (CmuxNextDaemon has its own of the same name).
     public typealias JSONValue = CmuxNextSettings.JSONValue
 

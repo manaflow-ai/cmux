@@ -4,6 +4,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextTabs
+import CmuxNextLayout
 
 /// `tab.setIcon` and `tab.clearIcon` (ICON-PICKER-ALL-EMOJI-AND-SF-SYMBOLS): the
 /// one path behind the tab context menu, the palette, `cmux tab set-icon` and MCP.
@@ -48,7 +49,7 @@ enum TabIconHandlers {
         guard let (tab, pane) = ctx.daemonTab(invocation) else { return nil }
         let daemon = ctx.services.daemon(for: pane)
         guard daemon.store.servesStateResources, let resource = tab.resourceID else {
-            return ctx.refuse(daemon.missingCapabilityMessage(DaemonCapabilities.shared.stateResources))
+            return ctx.refuse(daemon.missingCapabilityMessage(DaemonCapability.stateResources.rawValue))
         }
         return Target(tab: tab, pane: pane, resource: resource, daemon: daemon)
     }

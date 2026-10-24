@@ -42,7 +42,9 @@ struct PhoneAccessSettingTests {
     @Test func theRowsShowUnderAccountsWithTheDisclosure() throws {
         let accounts = try #require(SettingsPageLayout().categories().first { $0.spec.id == "accounts" })
         let rows = accounts.groups.flatMap(\.rows)
-        #expect(rows == ["phone.allowConnections", "phone.startSessions", "phone.keepAwake", "phone.cloudReplica", "home.server"])
+        // appearance.machineColors follows: the Machines card on this page draws it (#24059).
+        #expect(rows == ["phone.allowConnections", "phone.startSessions", "phone.keepAwake", "phone.cloudReplica", "home.server",
+                         "appearance.machineColors"])
         // Opt-in until #13742 decides the default.
         #expect(SettingsSchema.descriptor(for: ["phone", "cloudReplica"])?.defaultValue == .bool(false))
         let toggle = try #require(SettingsSchema.descriptor(for: ["phone", "allowConnections"]))

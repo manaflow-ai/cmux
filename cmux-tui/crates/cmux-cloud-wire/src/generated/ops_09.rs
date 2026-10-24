@@ -5,6 +5,41 @@
 use super::*;
 
 wire_errors! {
+    /// The error codes team.device.release declares.
+    TeamDeviceReleaseError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Report what this install applied (policy version, MDM key names, conflicts). Send when it changes; the latest report replaces the previous one.
+    TeamDeviceReportStatusOp {
+        name: "team.device.report_status",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-own",
+        principals: [Install],
+        params: TeamDeviceReportStatusParams,
+        result: DeviceStatus,
+        error: TeamDeviceReportStatusError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamDeviceReportStatusParams {
+    pub policy_version: i64,
+    pub app_version: String,
+    pub mdm_keys: Vec<String>,
+    pub conflicts: Vec<String>,
+}
+
+wire_errors! {
     /// The error codes team.device.report_status declares.
     TeamDeviceReportStatusError {
         AuthForbidden = "auth.forbidden",
@@ -861,32 +896,4 @@ pub struct TeamVmRetiredExportResult {
     pub archive_bytes: i64,
     pub skipped: Vec<String>,
     pub skipped_count: i64,
-}
-
-wire_errors! {
-    /// The error codes team_vm.retired.export declares.
-    TeamVmRetiredExportError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerUnreachable = "owner.unreachable",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        TeamVmExportNoFiles = "team_vm.export_no_files",
-        TeamVmExportTimeout = "team_vm.export_timeout",
-        TeamVmExportTooLarge = "team_vm.export_too_large",
-        TeamVmInUse = "team_vm.in_use",
-        TeamVmNotConfigured = "team_vm.not_configured",
-        TeamVmNotInLedger = "team_vm.not_in_ledger",
-        TeamVmNotTainted = "team_vm.not_tainted",
-        TeamVmPlanGateMissing = "team_vm.plan_gate_missing",
-        TeamVmProviderFailed = "team_vm.provider_failed",
-        TeamVmProviderRefused = "team_vm.provider_refused",
-        TeamVmRetiredFull = "team_vm.retired_full",
-        TeamVmRetiredNotFenced = "team_vm.retired_not_fenced",
-        TeamVmStaleEpoch = "team_vm.stale_epoch",
-        TeamVmStaleTaint = "team_vm.stale_taint",
-        TeamVmVmMissing = "team_vm.vm_missing",
-        ValidationInvalid = "validation.invalid",
-    }
 }

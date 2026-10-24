@@ -68,6 +68,25 @@ import Foundation
         }
     }
 
+    /// The pane a pending create's command addresses: `handle`, or, for a stand-in pane, the daemon's
+    /// pane that took it over under the same public id (nil until the daemon reports it).
+    static func daemonHandle(showing handle: PaneID, in store: DaemonStore) -> PaneID? {
+        if let paneID = store.standInTargets[handle] ?? store.intentLog.entries.lazy.compactMap({ entry -> String? in
+            if case .splitPane(_, _, _, let provisional) = entry.kind, provisional.handle == handle { return provisional.paneID }
+            return nil
+        }).first {
+            return store.index.panesByResource[ResourceID(rawValue: paneID)].flatMap { $0.handle != handle ? $0.handle : nil }
+        }
+        return store.panesByHandle[handle] != nil ? handle : nil
+    }
+
+    /// The pane the overlay places beside: `target`, or the pane that shows a stand-in target now
+    /// (the stand-in itself while it is pending, the daemon's pane once it took it over).
+    private static func shownTarget(_ target: PaneID, in store: DaemonStore) -> PaneID? {
+        if store.panesByHandle[target] != nil { return target }
+        return daemonHandle(showing: target, in: store)
+    }
+
     /// The daemon's pane under the split's public pane id, once its records hold it.
     static func daemonPane(_ provisional: ProvisionalPane, in store: DaemonStore) -> PaneModel? {
         store.index.panesByResource[ResourceID(rawValue: provisional.paneID)].flatMap { $0.handle != provisional.handle ? $0 : nil }
@@ -78,10 +97,22 @@ import Foundation
         let daemon = daemonPane(provisional, in: store)
         guard !daemonPlaces(provisional, in: store) else { return nil }
         let leaf = daemon?.handle ?? provisional.handle
-        guard store.panesByHandle[target] != nil,
+        // A create pressed on a pending create's stand-in: remember its public id, so the target
+        // stays found once the daemon's pane takes the stand-in over under a new handle.
+        if target.rawValue >= ProvisionalPane.firstHandle, store.standInTargets[target] == nil,
+           let paneID = store.panesByHandle[target]?.resourceID?.rawValue {
+            store.standInTargets[target] = paneID
+        }
+        guard let target = shownTarget(target, in: store), store.panesByHandle[target] != nil,
               daemon != nil || (store.panesByHandle[provisional.handle] == nil && store.tabsBySurface[provisional.surface] == nil),
-              let screen = store.screen(containing: target),
-              let layout = split(screen.layout, target, direction, ratio, leaf, provisional.splitID) else { return nil }
+              let screen = store.screen(containing: target) else { return nil }
+        if let column = provisional.column {
+            return applyColumn(column, after: target, leaf: leaf, daemon: daemon, provisional: provisional, screen: screen, in: store)
+        }
+        if let row = provisional.row {
+            return applyRow(row, below: target, leaf: leaf, daemon: daemon, provisional: provisional, screen: screen, in: store)
+        }
+        guard let layout = split(screen.layout, target, direction, ratio, leaf, provisional.splitID) else { return nil }
         // The target's column tree (and row tree) take the split too; a tree the split cannot
         // reach leaves the intent unapplied, as cmux-tui would refuse it.
         var reached = true
@@ -111,6 +142,76 @@ import Foundation
                                         pane: daemon == nil ? provisional.handle : nil)
         screen.layout = layout
         if columns != screen.columns { screen.columns = columns }
+        guard daemon == nil else { return undo }
+        let pane = model(of: provisional, in: store)
+        let after = (screen.panes.firstIndex { $0.handle == target } ?? screen.panes.count - 1) + 1
+        screen.panes.insert(pane, at: min(after, screen.panes.count))
+        store.index.insert(pane, in: screen)
+        return undo
+    }
+
+    /// New Column's overlay (`new-pane-right`, cmux-tui `new_pane_right`): a column holding `leaf`
+    /// right after the target's column, at the column's width, with the width changes it brings.
+    /// A screen that is still a split tree becomes two columns, the tree and the new one, as the
+    /// daemon wraps its root in a viewport split.
+    private static func applyColumn(_ column: ProvisionalColumn, after target: PaneID, leaf: PaneID, daemon: PaneModel?,
+                                    provisional: ProvisionalPane, screen: ScreenModel, in store: DaemonStore) -> IntentUndo? {
+        var columns = screen.columns
+        if columns.isEmpty {
+            // A zoomed or docked screen has no tree column to open beside.
+            guard screen.zoomedPane == nil else { return nil }
+            columns = [ColumnSnapshot(id: column.treeHandle, width: column.treeWidth ?? 1, layout: screen.layout)]
+        } else {
+            columns = columns.map { entry in
+                guard let width = column.widths[entry.id] else { return entry }
+                var entry = entry
+                entry.width = width
+                return entry
+            }
+        }
+        // The target's column: its index places the new column, its panes place the new pane.
+        guard let index = columns.firstIndex(where: { $0.layout.paneIDs.contains(target) }),
+              let anchor = columns[checked: index]?.layout.paneIDs else { return nil }
+        columns.insert(ColumnSnapshot(id: column.handle, width: column.width, layout: .leaf(leaf)), at: index + 1)
+        let undo = IntentUndo.splitPane(screen: screen.handle, layout: screen.layout, columns: screen.columns,
+                                        pane: daemon == nil ? provisional.handle : nil)
+        // The compat tree the daemon keeps beside its columns: the screen's tree with the new leaf on its right.
+        screen.layout = .split(id: nil, resourceID: nil, direction: .right, ratio: 0.5, a: screen.layout, b: .leaf(leaf))
+        screen.columns = columns
+        guard daemon == nil else { return undo }
+        let pane = model(of: provisional, in: store)
+        let after = (screen.panes.lastIndex { anchor.contains($0.handle) } ?? screen.panes.count - 1) + 1
+        screen.panes.insert(pane, at: min(after, screen.panes.count))
+        store.index.insert(pane, in: screen)
+        return undo
+    }
+
+    /// New Row's overlay (`new-row`, cmux-tui `new_row_with_options_as`): a row holding `leaf` right
+    /// below the target's row in its column, at the row's height. A screen that is still a split
+    /// tree becomes one column, and a column without rows gets its tree as its first row (1000),
+    /// as the daemon does. The column's `layout` stays the compat chain of its rows.
+    private static func applyRow(_ row: ProvisionalRow, below target: PaneID, leaf: PaneID, daemon: PaneModel?,
+                                 provisional: ProvisionalPane, screen: ScreenModel, in store: DaemonStore) -> IntentUndo? {
+        guard screen.zoomedPane == nil else { return nil }
+        var columns = screen.columns
+        if columns.isEmpty { columns = [ColumnSnapshot(id: ColumnID(rawValue: row.firstHandle.rawValue | (1 << 60)), width: 1, layout: screen.layout)] }
+        guard let index = columns.firstIndex(where: { $0.layout.paneIDs.contains(target) }),
+              var column = columns[checked: index] else { return nil }
+        var rows = column.rows.isEmpty ? [RowSnapshot(id: row.firstHandle, height: 1000, layout: column.layout)] : column.rows
+        guard let at = rows.firstIndex(where: { $0.layout.paneIDs.contains(target) }) else { return nil }
+        rows.insert(RowSnapshot(id: row.handle, height: row.height, layout: .leaf(leaf)), at: at + 1)
+        column.rows = rows
+        // The column's compat chain of its rows (rows holds at least the target's row and the new one).
+        guard let first = rows.first else { return nil }
+        column.layout = rows.dropFirst().reduce(first.layout) { chain, next in
+            .split(id: nil, resourceID: nil, direction: .down, ratio: 0.5, a: chain, b: next.layout)
+        }
+        columns.replaceSubrange(index...index, with: [column])
+        let undo = IntentUndo.splitPane(screen: screen.handle, layout: screen.layout, columns: screen.columns,
+                                        pane: daemon == nil ? provisional.handle : nil)
+        screen.layout = split(screen.layout, target, .down, 0.5, leaf, provisional.splitID)
+            ?? .split(id: nil, resourceID: nil, direction: .down, ratio: 0.5, a: screen.layout, b: .leaf(leaf))
+        screen.columns = columns
         guard daemon == nil else { return undo }
         let pane = model(of: provisional, in: store)
         let after = (screen.panes.firstIndex { $0.handle == target } ?? screen.panes.count - 1) + 1

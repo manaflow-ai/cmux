@@ -11,6 +11,12 @@ import Foundation
 /// it asked for the mouse (DECSET 1000/1002/1003 + 1006), cursor up/down on
 /// the alternate screen with alternate scroll (DECSET 1007, Ghostty's
 /// default), and nothing otherwise.
+///
+/// Like a Mac trackpad's accelerated deltas, a fast finger moves the wheel
+/// further than the finger (``gain(speed:)``): 1:1 up to ``preciseSpeed``,
+/// so a slow drag still scrolls line by line, rising to ``maximumGain`` at
+/// ``fullSpeed``. Without it a flick through a long Claude Code transcript
+/// moved about a quarter of what the same flick moves on the Mac.
 public struct TerminalTUIScroll: Equatable, Sendable {
     /// Ghostty's momentum phases (`ghostty_input_mouse_momentum_e`).
     public enum Momentum: Int32, Sendable {
@@ -31,22 +37,39 @@ public struct TerminalTUIScroll: Equatable, Sendable {
         }
     }
 
+    /// Finger speeds (points per second) up to this scroll 1:1.
+    public static let preciseSpeed: CGFloat = 300
+    /// From this speed on the wheel moves ``maximumGain`` times the finger.
+    public static let fullSpeed: CGFloat = 3000
+    public static let maximumGain: CGFloat = 3
+
     private var lastTranslation: CGFloat = 0
 
     public init() {}
+
+    /// How far the wheel moves per point of finger at `speed` (points per
+    /// second, either sign): 1 up to ``preciseSpeed``, then linear up to
+    /// ``maximumGain`` at ``fullSpeed``.
+    public static func gain(speed: CGFloat) -> CGFloat {
+        let speed = abs(speed)
+        guard speed > preciseSpeed else { return 1 }
+        let fraction = min(1, (speed - preciseSpeed) / (fullSpeed - preciseSpeed))
+        return 1 + (maximumGain - 1) * fraction
+    }
 
     /// A drag began: its translation counts from here.
     public mutating func began() {
         lastTranslation = 0
     }
 
-    /// The drag's running vertical translation: the wheel for the movement
-    /// since the last report (nil when the finger did not move vertically).
-    public mutating func moved(translationY: CGFloat) -> Wheel? {
+    /// The drag's running vertical translation and the finger's vertical
+    /// speed: the wheel for the movement since the last report, scaled by
+    /// ``gain(speed:)`` (nil when the finger did not move vertically).
+    public mutating func moved(translationY: CGFloat, velocityY: CGFloat = 0) -> Wheel? {
         let delta = translationY - lastTranslation
         lastTranslation = translationY
         guard delta != 0 else { return nil }
-        return Wheel(dy: delta, momentum: .none)
+        return Wheel(dy: delta * Self.gain(speed: velocityY), momentum: .none)
     }
 
     /// Ghostty's packed scroll mods (src/input/mouse.zig ScrollMods): bit 0
@@ -64,9 +87,10 @@ public struct TerminalTUIScroll: Equatable, Sendable {
     }
 }
 
-/// The fling after a TUI drag: wheel deltas from the release speed, decaying
-/// like the browser stream's momentum (0.95 per 1/60 s), as macOS momentum
-/// events (began, changed..., ended).
+/// The fling after a TUI drag: wheel deltas from the release speed times the
+/// drag's gain (``TerminalTUIScroll/gain(speed:)``), decaying like the
+/// browser stream's momentum (0.95 per 1/60 s), as macOS momentum events
+/// (began, changed..., ended).
 public struct TerminalTUIMomentum: Equatable, Sendable {
     /// Releases slower than this (points per second) stop where they are.
     public static let minimumVelocity: CGFloat = 200
@@ -79,7 +103,7 @@ public struct TerminalTUIMomentum: Equatable, Sendable {
 
     public init?(velocityY: CGFloat) {
         guard abs(velocityY) >= Self.minimumVelocity else { return nil }
-        velocity = velocityY
+        velocity = velocityY * TerminalTUIScroll.gain(speed: velocityY)
     }
 
     /// One display frame of `dt` seconds: its wheel, the end once the fling

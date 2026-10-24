@@ -5,7 +5,7 @@
 // startMode.ts) paint at once, and the session's report keeps the same chips in the same order
 // with the same labels. The effort is the model button's detail ("Opus 5.5  High"; Leo 2026-10-20:
 // one model button, no separate effort chip), the access chip follows it.
-import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
@@ -67,6 +67,15 @@ beforeAll(() => {
     cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
   });
   host = dom.window.document.getElementById("root")!;
+});
+
+// Another test file in the same bun process can leave a start-mode source or kept answers behind
+// (classic-new-tab-trust): every test here starts with neither.
+beforeEach(async () => {
+  const { setStartModeSource, resetStartModesForTests } = await import("../src/agent-session/acpmux/startMode");
+  setStartModeSource(undefined);
+  dom.window.localStorage.clear();
+  resetStartModesForTests();
 });
 
 afterEach(async () => {
@@ -187,26 +196,30 @@ test("a new chat paints its last effort and its kept start mode on the first fra
   host.replaceChildren();
 
   // acpmux answered, in an earlier ask for another folder, that a new chat on this harness starts
-  // in that chat's mode; a folder it has not answered for yet holds the access chip's place with
-  // that answer, but names no mode (that folder's profile or preset may start it in another).
+  // in that chat's mode; a folder it has not answered for yet names that answer until its own
+  // replaces it (Lucas 2026-10-24: never a bare "Mode" on this Mac).
   const { rememberStartMode } = await import("../src/agent-session/acpmux/startMode");
-  rememberStartMode("claude", "/home/dev/other", { modeId: "default", name: "Ask before edits" });
+  // Bypass permissions: named the same in every menu, so a harness profile another test file left
+  // in the shared HarnessProfiles (which names `default` "Manual") cannot rename it.
+  rememberStartMode("claude", "/home/dev/other", { modeId: "bypassPermissions", name: "Bypass permissions" });
 
   // A new chat, before its session reports: no grey bars, the same chips in the same order.
   await render(undefined);
   expect(host.querySelector(".acpmux-chip-skeleton, .acpmux-chip-skeleton-bar")).toBeNull();
   const first = chips();
-  expect(first).toEqual([earlier[0]!, { kind: "mode", label: "Mode" }]);
+  expect(first).toEqual([earlier[0]!, { kind: "mode", label: "Bypass permissions" }]);
 
   // Its session reports the same choices: the chips settle where they were.
   await render(reported("new"));
   expect(chips()).toEqual(earlier);
 });
 
-test("with no remembered chips a new chat draws no placeholder pills and no Reasoning word", async () => {
+test("with no remembered chips a new chat draws no placeholder pills and no Reasoning word, and names the highest mode", async () => {
   await render(undefined);
   expect(host.querySelector(".acpmux-chip-skeleton, .acpmux-chip-skeleton-bar")).toBeNull();
-  expect(chips()).toEqual([]);
+  // acpmux never answered for this harness here: the harness's highest level (Leo 2026-10-23: "if you
+  // don't know what to switch to, typically just switch to the highest permission level").
+  expect(chips()).toEqual([{ kind: "mode", label: "Bypass permissions" }]);
   expect(host.textContent).not.toContain("Reasoning");
 });
 

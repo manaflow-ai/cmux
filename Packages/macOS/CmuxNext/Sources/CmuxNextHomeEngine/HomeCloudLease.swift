@@ -21,7 +21,7 @@ public nonisolated protocol CloudLeaseSessions: Sendable {
 extension CloudLeaseSessions {
     /// A daemon without self-hosted servers.
     public func selfHostInfo() async throws -> CloudSelfHostInfo {
-        throw DaemonError.missingCapabilities([DaemonCapabilities.shared.cloudSelfHost])
+        throw DaemonError.missingCapabilities([DaemonCapability.cloudSelfHost.rawValue])
     }
 }
 

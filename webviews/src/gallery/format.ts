@@ -28,7 +28,14 @@ import { armIds, validateExperiments, type Experiment } from "../experiments/exp
 import { validateTunables, type Tunable } from "../experiments/tunable";
 import { optionAccepts, validateOptions, type GalleryOption } from "./options";
 import type { MockOptions } from "../pages/settings/mockProvider";
-import type { AccountsState, AgentsState, HarnessesState, HostLists, IntegrationsState } from "../pages/settings/ops";
+import type {
+  AccountsState,
+  AgentsState,
+  DevicesState,
+  HarnessesState,
+  HostLists,
+  IntegrationsState,
+} from "../pages/settings/ops";
 import type { MockData } from "../pages/passwords/mockProvider";
 
 /** Initial gestures use the real controls, so local forms remain interactive. */
@@ -49,6 +56,8 @@ export type SettingsPageVariant = VariantBase & {
   agents?: Partial<AgentsState>;
   /** Settings > Agents > Harnesses; default the mock's four. */
   harnesses?: HarnessesState;
+  /** Settings > Devices; default the mock's (this Mac, two other devices, two relays). */
+  devices?: DevicesState;
   /** Settings > Agents > Agent integrations; default the mock's four (focus `agents.integrations` opens it). */
   integrations?: IntegrationsState;
   /** Public-safe thumbnail data URLs for native-origin backdrop images. */
@@ -72,7 +81,11 @@ export type PasswordsPageVariant = VariantBase & {
 export type ChipHostFixture = {
   paths?: Record<string, { place: "root" | "outside" | "denied" | "missing"; folder: boolean }>;
   sites?: Record<string, { icon?: string; title?: string }>;
-  policy?: { outsideRoots?: "confirm" | "text" | "open"; remoteImages?: "click" | "never" | "always" };
+  policy?: {
+    outsideRoots?: "confirm" | "text" | "open";
+    remoteImages?: "click" | "never" | "always";
+    clickFreeImageHosts?: string[];
+  };
   images?: Record<string, string | null>;
   /** `media.load` answers: the URL the player plays for each path. */
   media?: Record<string, string>;

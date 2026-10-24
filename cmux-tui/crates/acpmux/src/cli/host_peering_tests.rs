@@ -72,7 +72,9 @@ impl Io for Fake {
 
     fn ssh(&self, argv: &[String]) -> Ran {
         self.scripts.borrow_mut().push(argv.to_vec());
-        let script = argv.last().map(String::as_str).unwrap_or("");
+        let command = argv.last().map(String::as_str).unwrap_or("");
+        let unwrapped = crate::cli::hosts::script_of(command);
+        let script = unwrapped.as_deref().unwrap_or(command);
         if script.contains(BACK_OK) {
             match self.back {
                 Ok(()) => ran(true, BACK_OK, ""),
@@ -116,7 +118,11 @@ impl Fake {
     }
 
     fn mutated_there(&self) -> bool {
-        self.scripts.borrow().iter().any(|argv| argv.last().is_some_and(|s| s.contains("host add")))
+        self.scripts.borrow().iter().any(|argv| {
+            argv.last()
+                .and_then(|s| crate::cli::hosts::script_of(s))
+                .is_some_and(|s| s.contains("host add"))
+        })
     }
 }
 
@@ -151,7 +157,7 @@ fn the_probe_is_a_fixed_script_with_the_destination_quoted() {
     assert_eq!(&argv[..5], ["-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "--"]);
     assert_eq!(argv[5], "huge-blue");
     assert_eq!(
-        argv[6],
+        crate::cli::hosts::script_of(&argv[6]).unwrap(),
         format!(
             "if ssh -o BatchMode=yes -o ConnectTimeout=8 -- 'leo@cosmic-gray.tail9.ts.net' true </dev/null; then echo {BACK_OK}; else echo {BACK_FAILED}; fi"
         )

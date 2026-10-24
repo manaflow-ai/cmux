@@ -30,8 +30,11 @@ extension AgentPaneView {
         model.transport.deliver = { [weak self] event, done in
             guard let self else { return done() }
             if let pageEvents = self.pageEvents {
+                pageEvents.transportDidOpen(event.connection)
                 // The page host's events carry no completion: the next push may follow next turn.
-                pageEvents.publish(.transport(event))
+                if !pageEvents.publish(.transport(event)) {
+                    self.model.transport.close(connection: event.connection)
+                }
                 // task-owner: one completion for the pacer, on the main actor
                 Task { @MainActor in done() }
             } else {

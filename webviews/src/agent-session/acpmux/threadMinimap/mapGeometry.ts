@@ -32,6 +32,34 @@ export type MapMark = {
   y: number;
 };
 
+/// The first and last marks whose y lies in [top, bottom]. Marks are generated top to bottom, so
+/// binary search keeps the scroll-frame update bounded by the visible map range instead of scanning
+/// every row in a long transcript.
+export function marksIn(
+  marks: readonly MapMark[],
+  top: number,
+  bottom: number,
+): { first: number; last: number } | undefined {
+  let low = 0;
+  let high = marks.length;
+  while (low < high) {
+    const middle = low + Math.floor((high - low) / 2);
+    if (marks[middle]!.y < top) low = middle + 1;
+    else high = middle;
+  }
+  const first = low;
+  if (first >= marks.length || marks[first]!.y > bottom) return undefined;
+
+  low = first;
+  high = marks.length;
+  while (low < high) {
+    const middle = low + Math.floor((high - low) / 2);
+    if (marks[middle]!.y <= bottom) low = middle + 1;
+    else high = middle;
+  }
+  return { first, last: low - 1 };
+}
+
 /// Where content offset `top` (a row's layout top) draws on a rail `height` tall.
 export function mapY(top: number, total: number, height: number): number {
   if (total <= 0 || height <= 0) return 0;

@@ -16,6 +16,8 @@ public final class ScreenshotsCommands {
     private let writer: FileGridPasteboard
     /// The last Undo's file operation (tests wait on it).
     private(set) var pendingUndo: Task<Void, any Error>?
+    /// The open Rename sheet and its rename (tests wait on it).
+    private(set) var pendingRename: Task<Void, Never>?
 
     /// Makes the commands.
     ///
@@ -48,8 +50,8 @@ public final class ScreenshotsCommands {
         case .copyPath: writer.writePaths(items, to: pasteboard)
         case .rename:
             guard let item = items.first else { return }
-            // task-owner: one rename sheet; ends when the person answers it
-            Task { await askToRename(item, in: window) }
+            // task-owner: `pendingRename`; one rename sheet; ends when the person answers it
+            pendingRename = Task { await askToRename(item, in: window) }
         case .trash:
             // task-owner: one Move to Trash; ends when the files are moved
             Task {
@@ -110,10 +112,13 @@ public final class ScreenshotsCommands {
         let baseLength = (item.name as NSString).deletingPathExtension.utf16.count
         let response: NSApplication.ModalResponse
         if let window {
-            async let answer = alert.beginSheetModal(for: window)
-            alert.window.makeFirstResponder(field)
-            field.currentEditor()?.selectedRange = NSRange(location: 0, length: baseLength)
-            response = await answer
+            // Begin the sheet here, on the main actor: an `async let` runs it in a
+            // child task off main, where AppKit throws (#24760).
+            response = await withCheckedContinuation { continuation in
+                alert.beginSheetModal(for: window) { continuation.resume(returning: $0) }
+                alert.window.makeFirstResponder(field)
+                field.currentEditor()?.selectedRange = NSRange(location: 0, length: baseLength)
+            }
         } else {
             response = alert.runModal()
         }

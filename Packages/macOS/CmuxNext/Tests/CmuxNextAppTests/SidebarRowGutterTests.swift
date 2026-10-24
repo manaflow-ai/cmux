@@ -51,7 +51,7 @@ import Testing
         try #require(row.subviews.lazy.compactMap { $0 as? StatusIndicatorView }.first)
     }
 
-    /// Where the row's content starts (its leading icon slot, drawn or empty, Lawrence 2026-10-21)
+    /// Where the row's content starts (its leading icon slot, empty when the row has no icon)
     /// and where its last trailing mark ends.
     private static func insets(_ row: WorkspaceRowView) throws -> (leading: CGFloat, trailing: CGFloat) {
         let marks = [try badge(row), try glyph(row), row.mutedMark, row.presenceDots, row.disclosureButton] as [NSView]
@@ -67,7 +67,7 @@ import Testing
         for (name, row) in [("unselected", unread), ("selected", selected)] {
             let (leading, trailing) = try Self.insets(row)
             #expect(leading == trailing, "\(name): icon slot \(leading) pt in, marks \(trailing) pt in")
-            #expect(row.title.frame.minX == SidebarStyle.titleTextX(leading: gutter), "\(name): the title after the slot")
+            #expect(row.title.frame.minX == gutter, "\(name): the title at the inset (no empty icon slot)")
             // The pill's own inset from the list's edges is the same token, plus the trim on the right.
             #expect(leading == gutter, "\(name): text \(leading) pt in, pill inset \(gutter)")
             #expect(row.frame.minX == gutter)

@@ -43,7 +43,8 @@ struct MachineIconTests {
         let paths = CloudPaths(root: root), binary = URL(fileURLWithPath: "/usr/bin/false"), api = services.cloud.api
         let hub = CloudTunnelHub(api: api, paths: paths, binary: binary, deviceName: "cn-icon-test")
         let link = CloudMachineLink(machineID: id, api: api, hub: hub, paths: paths, binary: binary, deviceName: "cn-icon-test")
-        let session = CloudMachineSession(machine: CloudMachine(id: id, displayName: "Icon VM"), link: link)
+        let session = CloudMachineSession(machine: CloudMachine(id: id, displayName: "Icon VM"), link: link,
+                                          mainWork: services.mainWork)
         services.machines.add(session)
         return session
     }
@@ -83,8 +84,8 @@ struct MachineIconTests {
         #expect(try sent(nil)["icon"] is NSNull, "a clear sends null, never leaves the key out")
         #expect(SetSessionIconRequest.command == "set-session-icon")
         #expect(SetSessionIconRequest.requiredCapability == "session-icon-v1")
-        #expect(DaemonCapabilities.shared.optional.contains("session-icon-v1"))
-        #expect(DaemonCapabilities.shared.homeOnly.contains("session-icon-v1"))
+        #expect(DaemonCapability.optional.contains("session-icon-v1"))
+        #expect(DaemonCapability.homeOnly.contains("session-icon-v1"))
     }
 
     // MARK: The sidebar header

@@ -27,8 +27,10 @@ pub mod host {
     }
 }
 pub mod link;
+pub mod program_wait;
 #[cfg(unix)]
 pub(crate) mod record_watch;
+pub(crate) mod scope;
 pub mod sweep;
 #[cfg(unix)]
 pub(crate) mod tree;

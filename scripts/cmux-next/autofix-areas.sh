@@ -19,6 +19,7 @@ area() { # key, path regex
   echo "$1=$on"
 }
 area graph 'Packages/|scripts/cmux-next/ci-target-graph\.py'
+area capabilities 'Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonEndpoint\.swift|Packages/macOS/CmuxNext/Tests/CmuxNextDaemonTests/DaemonCapabilityExportTests\.swift|plans/cmux-next/daemon-capabilities\.json|scripts/cmux-next/check-daemon-capabilities-fresh\.py|scripts/cmux-next/tests/daemon-capabilities-fresh\.test\.sh'
 # The strings generator reads xcstrings catalogs under Packages and webviews/src, and the settings schema.
 area strings 'Packages/|webviews/src/|webviews/scripts/pages/|schemas/settings/'
 # The SDK generator reads the SDK schema and its own emitters.

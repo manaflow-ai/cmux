@@ -1509,6 +1509,14 @@ export interface CloudOps {
     }
     readonly result: HomeChief
   }
+  /** Delete a chief (not the default; active or archived) for good: it stops waking, its tokens end, its sandboxes are deleted, and only a tombstone keeps its id; its conversation history stays read-only with its members. No restore. */
+  readonly "chief.delete": {
+    readonly params: {
+      readonly chief: ChiefId
+      readonly expected_rev: number | "Infinity" | "-Infinity" | "NaN"
+    }
+    readonly result: HomeChief
+  }
   /** The user's chiefs (active first, the default marked), archived ones on request, and tombstones. */
   readonly "chief.list": {
     readonly params: {
@@ -3663,6 +3671,7 @@ export const cloudOpMeta = {
   "calendar.events.list": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
   "chief.archive": { class: "mutation", owner: "cloud:UserDO", risk: "destructive" },
   "chief.create": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "chief.delete": { class: "mutation", owner: "cloud:UserDO", risk: "destructive" },
   "chief.list": { class: "read", owner: "cloud:UserDO", risk: "read" },
   "chief.update": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "cloud.billing.checkout": { class: "mutation", owner: "cloud:CloudDO", risk: "money" },

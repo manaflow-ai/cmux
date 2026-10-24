@@ -40,7 +40,7 @@ public struct HomeInboxRequest: DaemonRequest {
         public var cloud: String?
     }
     public static let command = "home-inbox"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.homeInbox
+    public static let requiredCapability: String? = DaemonCapability.homeInbox.rawValue
     /// Which owners' rows (`local`, `cloud`); nil is both. In the app the Chief home's daemon owns the
     /// local conversations and the build's daemon holds the Cloud lease, so each is asked for its own.
     public var owners: [String]?
@@ -52,7 +52,7 @@ public struct HomeInboxRequest: DaemonRequest {
 public struct CloudInboxOpRequest: DaemonRequest {
     public struct Response: Decodable, Sendable {}
     public static let command = "cloud-inbox-op"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.conversationInboxState
+    public static let requiredCapability: String? = DaemonCapability.conversationInboxState.rawValue
     public var conversation: String
     public var idempotencyKey: String
     public var op: ConversationInboxOpRequest.Op
@@ -103,7 +103,7 @@ public struct ConversationInboxOpRequest: DaemonRequest {
         }
     }
     public static let command = "conversation-inbox-op"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.conversationInboxState
+    public static let requiredCapability: String? = DaemonCapability.conversationInboxState.rawValue
     public var conversation: String
     public var op: Op
     public init(conversation: String, op: Op) {

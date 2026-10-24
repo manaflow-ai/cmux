@@ -166,6 +166,19 @@ const laneCheckouts: Project[] = [
     label: "cg-queue--collapsed-queue",
     repo: leoMirror("cg-queue/collapsed-queue"),
   },
+  // The lane mirror itself (a bare repository) and lane folders that are no Git checkout (2026-10-21).
+  {
+    cwd: "/Users/you/Projects/.wt-mirrors/manaflow-ai/cmux.git",
+    label: "cmux.git",
+    repo: {
+      root: "/Users/you/Projects/.wt-mirrors/manaflow-ai/cmux.git",
+      top: "/Users/you/Projects/.wt-mirrors/manaflow-ai/cmux.git",
+      name: "cmux",
+      github: "manaflow-ai/cmux",
+    },
+  },
+  { cwd: "/Users/you/Projects/leo--ask-cost-dollar", label: "leo--ask-cost-dollar" },
+  { cwd: "/Users/you/Projects/codex--protocol-contract-node-version", label: "codex--protocol-contract-node-version" },
   { cwd: "/Users/you", label: "~" },
 ];
 
@@ -191,6 +204,16 @@ const repoHost = {
     repoProjects.filter((project) => project.repo?.github).map((project) => [project.cwd, ownerAvatar]),
   ),
   projectGlyphs: { "/Users/you/src/atlas-web": "react", "/Users/you/src/relay": "rust" },
+};
+
+// Every cmux folder draws manaflow-ai's avatar (the host reads it for a chat folder in a lane checkout
+// too); a folder with no repository draws a plain folder.
+const laneHost = {
+  projectIcons: Object.fromEntries(
+    laneCheckouts.flatMap((project) =>
+      project.repo?.github || project.cwd.includes("/checkouts/cmux/") ? [[project.cwd, ownerAvatar]] : [],
+    ),
+  ),
 };
 
 const openComputer: Play = async (ctx) => {
@@ -239,7 +262,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       play: openFolder,
     },
     "folder-favicons": {
-      note: "Projects with a favicon (public/, app/, the folder itself) show it in their tile; cmux has none and keeps its letters.",
+      note: "Projects with a favicon (public/, app/, the folder itself) show it in their tile; cmux has none and draws a plain folder.",
       props: baseProps,
       chipHost: { projectIcons },
       play: openFolder,
@@ -265,7 +288,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
     },
     "repo-worktrees": {
-      note: "Worktrees fold under their repository: one cmux row (the current worktree's branch dimmed, its other worktrees counted), avatars and framework glyphs before letters.",
+      note: "Worktrees fold under their repository: one cmux row (the current worktree's branch dimmed, its other worktrees counted), avatars and framework glyphs, else a plain folder.",
       props: repoProps,
       chipHost: repoHost,
       play: openFolder,
@@ -292,7 +315,8 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
     },
     "lane-checkouts": {
-      note: "Leo's New Tab list: the main clone and the lane mirror's worktrees are one cmux row; chat folders join it by their lane path; .noindex scratch and the home folder are left out.",
+      note: "Leo's New Tab list: the main clone, the lane mirror and its worktrees are one cmux row with manaflow-ai's avatar; chat folders join it by their lane path; .noindex scratch, lane folders and the home folder are left out; no letter tiles and no corner dots.",
+      chipHost: laneHost,
       props: {
         ...repoProps,
         projectChoices: laneCheckouts,
@@ -302,6 +326,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
     },
     "lane-checkouts-open": {
       note: "The cmux row's clones and lane checkouts open under it by their branch.",
+      chipHost: laneHost,
       props: {
         ...repoProps,
         projectChoices: laneCheckouts,

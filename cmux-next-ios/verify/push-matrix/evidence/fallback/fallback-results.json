@@ -1,0 +1,13 @@
+[
+ {
+  "row": "terminal-reply",
+  "pass": true,
+  "note": "sealed for ['77c9191e-7f5f-454b-8de6-49e568618eed']; banner {'title': 'cmux', 'body': 'New notification from Rig Mac'}; program printed 'GOT v2.4.1'; host: 2026-10-23T23:59:43.645283Z  INFO cmux_mobile_host::mailbox: mailbox reply applied id=\"f27988dc-aa68-4a1a-bff5-1ce7901f065c\" | 2026-10-24T00:06:19.715558Z  INFO cmux_mobile_host::mailbox: mailbox reply applied id=\"127863d9-e61b-4fee-a1b4-6bba94d1f1be\"",
+  "evidence": [
+   "fallback-banner.png",
+   "fallback-longlook.png",
+   "fallback-after-send.png",
+   "fallback-terminal-reply.mp4"
+  ]
+ }
+]

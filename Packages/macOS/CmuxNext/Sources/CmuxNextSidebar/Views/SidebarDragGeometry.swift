@@ -182,7 +182,7 @@ public nonisolated struct SidebarDragGeometry: Sendable {
 
     /// A drop right before or after the slot keyed `key` (a section's slot: first in it), if accepted there.
     ///
-    /// A dragged group's reorder uses it (`SidebarGroupReorder`): the drop goes beside a whole top-level block's
+    /// A dragged group's slots use it (`SidebarListView+GroupDrag`): the drop goes beside a whole top-level block's
     /// first row, never into a group or beside one of its members, whatever the acceptance table would take there
     /// (since nested groups, a group may land among another group's members, which a reorder must not do).
     public func beside(_ key: String, after: Bool) -> Hit? {
@@ -275,15 +275,25 @@ public nonisolated struct SidebarDragGeometry: Sendable {
     /// the row below as soon as its bottom passes that row's middle. Rows of
     /// any height, a group's members and listed items take the same rule.
     /// A drag that turns back (`reversing`: the last change came the other
-    /// way) must pass the middle by `SidebarGroupReorder.hysteresis(for:)`
+    /// way) must pass the middle by ``hysteresis(for:)``
     /// of the row it crosses before the drop changes, so a pointer held at
     /// the threshold never flips the rows.
     public func edgeY(top: CGFloat, bottom: CGFloat, x: CGFloat, movingUp: Bool, gapY: CGFloat?, gapHeight: CGFloat,
                       current: SidebarDocTarget?, reversing: Bool) -> CGFloat? {
         let y = Self.baseY(displayY: movingUp ? top : bottom, gapY: gapY, gapHeight: gapHeight)
         guard reversing, let current, let candidate = hit(CGPoint(x: x, y: y)), candidate.target != current else { return y }
-        let margin = SidebarGroupReorder.hysteresis(for: candidate.slot.frame.height)
+        let margin = Self.hysteresis(for: candidate.slot.frame.height)
         return hit(CGPoint(x: x, y: movingUp ? y + margin : y - margin))?.target == candidate.target ? y : nil
+    }
+
+    /// The share of a row's height a turning-back row drag must pass its middle by (``edgeY``).
+    static let hysteresisFraction: CGFloat = 0.2
+    /// The most a turning-back row drag must pass a row's middle by, in points.
+    static let maxHysteresis: CGFloat = 8
+
+    /// The margin past a row's middle that turns a row drag back, for a row `height` tall.
+    static func hysteresis(for height: CGFloat) -> CGFloat {
+        min(maxHysteresis, max(0, height) * hysteresisFraction)
     }
 
     /// The display y of `y` in a layout drawn without the open gap

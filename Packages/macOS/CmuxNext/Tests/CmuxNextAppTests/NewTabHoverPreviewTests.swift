@@ -27,7 +27,7 @@ import Testing
     @Test func aBlankOrNewTabPageHasNoThumbnail() async throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
-        let page = WebKitEngine().makeWebKitTab()
+        let page = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab()
         defer { page.close() }
         let key = "page"
         services.cache.install(page, for: key)
@@ -68,7 +68,7 @@ import Testing
         let old = try #require(URL(string: "data:text/html,<h1>cmux</h1>"))
         let blank = try #require(URL(string: BrowserNewTabPage.blankURL))
         let services = AppServices(environment: AppEnvironment.current([:]))
-        let page = WebKitEngine().makeWebKitTab()
+        let page = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab()
         defer { page.close() }
         let key = "page"
         services.cache.install(page, for: key)

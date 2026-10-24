@@ -10,6 +10,7 @@ public struct DiffFileScreen: View {
     @State private var fileID: String
     @State private var expanded: [String: [ClosedRange<Int>]] = [:]
     @ScaledMetric(relativeTo: .footnote) private var codeSize: CGFloat = 13
+    @Environment(\.openSessionFile) private var openFile
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var viewportWidth: CGFloat = 400
@@ -272,6 +273,9 @@ public struct DiffFileScreen: View {
                 .padding(.trailing, 4)
             ViewedToggle(isViewed: isViewed) { withAnimation(.cmuxMobileSmooth) { state.toggleViewed(file) } }
             Menu {
+                if openFile.isAvailable, file.status != .deleted {
+                    Button("Open File", systemImage: "doc.text.magnifyingglass") { openFile(file.path) }
+                }
                 Button("Copy Path", systemImage: "doc.on.doc") { UIPasteboard.general.string = file.path }
             } label: {
                 Image(systemName: "ellipsis").frame(width: 44, height: 44).contentShape(.rect)

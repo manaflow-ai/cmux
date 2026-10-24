@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextPalette
 import CmuxNextCompat
+import CmuxNextFilesUI
 
 /// The matches of one Find in Directory search as a palette page: one row
 /// per matching line, filtered by the palette's matcher on the line, the

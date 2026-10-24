@@ -36,7 +36,7 @@ const userEvent = (seq: number, text: string) => ({
 });
 
 /// A daemon whose session now runs `current`, with `history` (oldest first) as its replay.
-function fakeDaemon(current: string, history: Record<string, unknown>[]) {
+function fakeDaemon(current: string, history: Record<string, unknown>[], extra: Record<string, unknown> = {}) {
   let socket: any;
   const session = {
     sessionId: CHAT,
@@ -48,6 +48,7 @@ function fakeDaemon(current: string, history: Record<string, unknown>[]) {
     turnCount: 1,
     updatedAt: START,
     configOptions: [effort(current)],
+    ...extra,
   };
   const lastSeq = () => Number(history.at(-1)?.seq ?? 0);
   const answer = (method: string) => {
@@ -99,8 +100,32 @@ async function connect(daemon: ReturnType<typeof fakeDaemon>) {
   await new Promise((resolve) => setTimeout(resolve, 0));
   const shownEffort = () =>
     (summary?.configOptions ?? []).find((option: { id: string }) => option.id === "effort")?.currentValue;
-  return { shownEffort };
+  return { shownEffort, shownGoal: () => summary?.goal };
 }
+
+test("a reopened goal uses its persisted state, then follows completion and clearing", async () => {
+  const goal = (status: string) => ({ objective: "Ship the fix", status });
+  const event = (seq: number, value: unknown) => ({
+    sessionId: CHAT,
+    seq,
+    at: START + seq * 1000,
+    dir: "in",
+    kind: "session_info_update",
+    msg: {
+      method: "session/update",
+      params: { sessionId: CHAT, update: { sessionUpdate: "session_info_update", _meta: { goal: value } } },
+    },
+  });
+  const daemon = fakeDaemon("high", [event(1, goal("active")), userEvent(2, "hi")], { goal: goal("paused") });
+  const { shownGoal } = await connect(daemon);
+  expect(shownGoal()?.status).toBe("paused");
+  daemon.push(event(3, goal("complete")));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(shownGoal()?.status).toBe("complete");
+  daemon.push(event(4, null));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(shownGoal()).toBeUndefined();
+});
 
 test("an attached chat shows the effort it runs now, not the one its history started on", async () => {
   const daemon = fakeDaemon("high", [configEvent(1, "low"), userEvent(2, "second chat")]);

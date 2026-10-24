@@ -30,7 +30,8 @@ final class GroupHeaderRowView: SidebarRowView {
     /// A collapsed group's member count, after the name.
     private let count = SidebarRowView.label(font: SidebarStyle.headerFont)
     private let chevron = DecorativeImageView()
-    private let activity = StatusIndicatorView()
+    /// The members' roll-up, in the sidebar's status colors (Lawrence msg 11983).
+    private let activity: StatusIndicatorView = { let view = StatusIndicatorView(); view.usesStatusColors = true; return view }()
     /// The spinner's slot: it fades and collapses its width as loading starts and stops (u-group-header-detail).
     private lazy var activitySlot = SidebarRevealSlotView(activity) { [weak activity] in activity?.showsGlyph ?? false }
     /// Loading stopped: the spinner keeps drawing while its slot fades and collapses, then goes idle.
@@ -55,6 +56,8 @@ final class GroupHeaderRowView: SidebarRowView {
     let addButton = SidebarIconButton(icon: .actionAdd, pointSize: { Metrics.smallIconSize - Metrics.space1 },
                                       label: GroupEditorStrings.newWorkspace)
     private var pinned = false
+    /// Archived in the sidebar document: the bar and its ink draw dimmed (`SidebarStyle.archivedAlpha`).
+    private var archived = false
     private var hasIcon = false
     /// No members: the + is not offered (the editor's New Workspace in Group
     /// is), so a click on it can never race the editor closing on a new,
@@ -69,6 +72,9 @@ final class GroupHeaderRowView: SidebarRowView {
     var isKeyboardFocused = false { didSet { if isKeyboardFocused != oldValue { needsLayout = true; needsDisplay = true } } }
     /// The group editor is open for this group.
     var isEditing = false { didSet { if isEditing != oldValue { needsLayout = true; needsDisplay = true } } }
+    /// How far this header's frame reaches left of its members' x, over their rail (`SidebarListView.railReach(for:)`):
+    /// the bar and the dot start there, at the rail's left edge, and the name keeps the members' text column.
+    var railReach: CGFloat = 0 { didSet { if railReach != oldValue { needsLayout = true } } }
     /// Shows the group's full menu: VoiceOver's More Group Actions (a right-click shows the same menu).
     var onMore: (() -> Void)?
     /// Opens the group editor (name, color and actions): the more button and VoiceOver's Edit action.
@@ -124,18 +130,24 @@ final class GroupHeaderRowView: SidebarRowView {
         var collapsed: Bool
         var fontSize: CGFloat
         var details: GroupHeaderDetails
+        var status: StatusIndicatorState?
     }
 
     /// Shows `group`. A collapsed header shows its loading spinner on the right; `details` turns
     /// on its member count, unread total and other states (all off by default).
-    func configure(_ group: SidebarGroup, row: SidebarRow, details: GroupHeaderDetails = GroupHeaderDetails(), animated: Bool) {
+    ///
+    /// `status` is the header's roll-up over its whole subtree (``SidebarGroup/statusRollUp(collapsed:)``
+    /// of the group and its subgroups); nil rolls up `group`'s own members.
+    func configure(_ group: SidebarGroup, row: SidebarRow, details: GroupHeaderDetails = GroupHeaderDetails(),
+                   status rollUp: StatusIndicatorState? = nil, animated: Bool) {
         let content = Content(group: group, childCount: row.childCount, collapsed: row.isCollapsed,
-                              fontSize: SidebarStyle.headerFont.pointSize, details: details)
+                              fontSize: SidebarStyle.headerFont.pointSize, details: details, status: rollUp)
         guard needsConfigure(content) else { return }
         tint = group.tint
         isEmpty = group.workspaces.isEmpty && group.items.isEmpty
         name.stringValue = group.name
         pinned = group.isPinned
+        archived = group.isArchived
         hasIcon = group.icon != nil
         glyph.configure(icon: group.icon)
         pin.image = pinned ? NSImage.icon(.statePinned, size: Metrics.smallIconSize) : nil
@@ -143,8 +155,8 @@ final class GroupHeaderRowView: SidebarRowView {
         count.stringValue = details.memberCount && collapsed && row.childCount > 0 ? "\(row.childCount)" : ""
         chevronIcon = Self.disclosureIcon(collapsed: collapsed)
         chevron.image = NSImage.icon(chevronIcon, size: .iconRowSize(forLabelPointSize: Metrics.smallIconSize - Metrics.space2))
-        // Lawrence 2026-10-20: "All we care about is the loading."
-        let status = collapsed ? (details.otherStates ? group.aggregateActivity : group.loadingActivity) : .idle
+        // Lawrence 2026-10-20: "All we care about is the loading"; msg 11983: and blue, orange and red.
+        let status = collapsed && details.otherStates ? group.aggregateActivity : rollUp ?? group.statusRollUp(collapsed: collapsed)
         if status.isVisible {
             activityEnding = false
             activity.configure(status)
@@ -173,6 +185,7 @@ final class GroupHeaderRowView: SidebarRowView {
     }
 
     /// A state fill on the bar (hover, open editor, drop); the bar itself always shows.
+    override var debugArchived: Bool { archived }
     override var debugFill: Bool { super.debugFill || isHovered || isEditing || isDropTarget }
     override var debugDisclosure: (icon: String, frame: CGRect, shown: Bool)? { (chevronIcon.rawValue, chevron.frame, !chevron.isHidden) }
 
@@ -189,6 +202,8 @@ final class GroupHeaderRowView: SidebarRowView {
     var ink: NSColor? { name.textColor }
     /// The group chip (`GroupLabelBandTests`): a click here opens the editor.
     var labelFrame: NSRect { pill.frame }
+    /// The header's leading mark the members' rail lines up with: the bar, or the quiet styles' dot.
+    var leadingMarkFrame: NSRect { pill.isHidden ? dot.frame : pill.frame }
     /// The width the name needs to draw whole (`GroupLabelBandTests`).
     var titleIntrinsicWidth: CGFloat { Self.drawnWidth(name) }
     /// The width a header label needs to draw its text whole: its text in the font it draws in,
@@ -213,10 +228,10 @@ final class GroupHeaderRowView: SidebarRowView {
         needsLayout = true
     }
 
-    /// The Debug Settings look (`sidebar.groupHeader`, `sidebar.groupColors`, cx-7yywz); a change
-    /// lays the header out and paints it again.
+    /// The Debug Settings look (`sidebar.groupHeader`, `sidebar.groupColors`, cx-7yywz) and line layout (its joined
+    /// corner, `sidebar.groupLineLayout`); a change lays the header out and paints it again.
     private var look: (style: SidebarGroupHeaderStyle, themed: Bool) {
-        let read = { (SidebarGroupHeaderStyle.tunable.value, SidebarGroupPalette.tunable.value == .theme) }
+        let read = { _ = SidebarStyle.groupLineLayout; return (SidebarGroupHeaderStyle.tunable.value, SidebarGroupPalette.tunable.value == .theme) }
         guard !observesLook else { return read() }
         observesLook = true
         return withObservationTracking(read) { [weak self] in
@@ -245,7 +260,7 @@ final class GroupHeaderRowView: SidebarRowView {
             // One ink for every glyph on the bar (cx-qno.22): name, icon, pin,
             // chevron, + and more, chosen once on the bar's color; it holds
             // text contrast on every state above and the buttons' fills.
-            let ink = chip.ink.nsColor
+            let ink = chip.ink.nsColor.withAlphaComponent(archived ? SidebarStyle.archivedAlpha : 1)
             name.textColor = ink
             count.textColor = ink.withAlphaComponent(SidebarStyle.groupHeaderCountInkAlpha)
             glyph.symbolInk = ink
@@ -260,6 +275,7 @@ final class GroupHeaderRowView: SidebarRowView {
             paintFill(nil)
             CATransaction.begin()
             CATransaction.setDisableActions(true)
+            pill.opacity = archived ? Float(SidebarStyle.archivedAlpha) : 1 // dimmed with no fade (archiving-DESIGN.md)
             layer?.borderColor = Palette.focusRing.cgColor
             layer?.borderWidth = isKeyboardFocused ? Metrics.dividerThickness * 1.5 : 0
             layer?.cornerRadius = SidebarStyle.rowCornerRadius
@@ -272,9 +288,9 @@ final class GroupHeaderRowView: SidebarRowView {
     /// Hover, the open editor and a drop take the row's own fill.
     private func paintQuiet(_ tokens: ThemeTokens, _ look: (style: SidebarGroupHeaderStyle, themed: Bool)) {
         let line = tint.lineRGB(themed: look.themed)
-        let ink = look.style == .tinted
+        let ink = (look.style == .tinted
             ? ThemeTokens.readable(line, over: tokens.sidebarBackground, minimum: ThemeTokens.minimumTextContrast).nsColor
-            : tokens.textPrimary.nsColor
+            : tokens.textPrimary.nsColor).withAlphaComponent(archived ? SidebarStyle.archivedAlpha : 1)
         name.textColor = ink
         count.textColor = ink.withAlphaComponent(SidebarStyle.groupHeaderCountInkAlpha)
         glyph.symbolInk = ink
@@ -287,6 +303,8 @@ final class GroupHeaderRowView: SidebarRowView {
         CATransaction.setDisableActions(true)
         dot.isHidden = false
         dot.backgroundColor = line.nsColor.cgColor
+        pill.opacity = archived ? Float(SidebarStyle.archivedAlpha) : 1
+        dot.opacity = pill.opacity
         pill.borderWidth = 0
         layer?.borderColor = tokens.focusRing.nsColor.cgColor
         layer?.borderWidth = isKeyboardFocused ? Metrics.dividerThickness * 1.5 : 0
@@ -315,11 +333,12 @@ final class GroupHeaderRowView: SidebarRowView {
         // radius, padding, type and glyphs scale with the row height
         // (the sidebar density: compact 24, comfortable 32 pt).
         // The bar fills the row (as tall as a workspace row); the type and glyphs keep their scale.
-        let barHeight = SidebarStyle.groupHeaderContentHeight(rowHeight: b.height)
+        // Type and glyphs follow a one-line row: an Expanded header is two lines tall, its name is not bigger.
+        let barHeight = SidebarStyle.groupHeaderContentHeight(rowHeight: min(b.height, SidebarLayoutMetrics.standard.rowHeight))
         let pad = (barHeight * 0.62).rounded()
         // The name starts where ungrouped rows start (`SidebarStyle.horizontalInset`): an icon
         // on their icon column with the name on their text column, or the name alone on it.
-        let lead = SidebarStyle.horizontalInset
+        let lead = SidebarStyle.horizontalInset + railReach
         name.isHidden = renaming
         name.font = SidebarStyle.groupHeaderFont(barHeight: barHeight)
         count.font = SidebarStyle.groupHeaderCountFont(name: name.font ?? SidebarStyle.headerFont)
@@ -399,11 +418,10 @@ final class GroupHeaderRowView: SidebarRowView {
         // The cx-rcby chip: one full-width rounded bar, the row's full height like a workspace row's fill.
         pill.frame = NSRect(x: 0, y: 0, width: b.width, height: b.height)
         pill.cornerRadius = SidebarStyle.rowCornerRadius // one radius with the pinned and workspace rows
-        // The quiet styles' dot sits in the header's leading corner; the members' line runs just
-        // left of the rows (SidebarStyle.groupLineX), as the rows keep the ungrouped rows' left edge.
+        pill.maskedCorners = SidebarGroupLine.barCorners(open: !collapsed, flipped: pill.contentsAreFlipped()) // joined: an L
+        // The quiet styles' dot sits where the members' line starts (`railReach` less the layout's overhang, `groupLineX`).
         let dotSide = SidebarStyle.groupDotSize
-        dot.frame = CGRect(x: SidebarStyle.groupBarX + SidebarStyle.groupBarWidth / 2 - dotSide / 2, y: (b.height - dotSide) / 2,
-                           width: dotSide, height: dotSide)
+        dot.frame = CGRect(x: max(0, railReach - SidebarStyle.groupRailReach), y: (b.height - dotSide) / 2, width: dotSide, height: dotSide)
         dot.cornerRadius = dotSide / 2
         // The members' line starts under this bar: one layer per group
         // under the rows (SidebarListView+GroupLines, cx-qno.17).

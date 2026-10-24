@@ -5,10 +5,14 @@ import Foundation
 
 /// What the workspace hover card says (Leo 2026-10-08, Codex parity): a
 /// title row (the name, a kind or host icon, the relative age) and one row
-/// per meaningful fact, each with an icon: folder, branch, pull request,
-/// computer, the agent working there (cx-13w3), and each reported status entry with its own
-/// icon (cx-qno.11.1), then an agent chat's last reply. CPU and memory show as one line, and
-/// only when notable.
+/// per meaningful fact, each with an icon: the repository and branch (or the folder), pull
+/// request, computer, the agent working there (cx-13w3), and each reported status entry with its
+/// own icon (cx-qno.11.1), then the preview line (`Preview`). CPU and memory show as one line,
+/// and only when notable.
+///
+/// Leo 2026-10-21 ("this doesn't line up nor work very well"): a home folder is no fact (its
+/// "leoli" line was noise), and the preview line says where the workspace stands (it needs you,
+/// or its pull request's state in the icon's color) before it falls back to the raw last reply.
 struct WorkspaceHoverCardContent: Equatable {
     struct Fact: Equatable {
         var icon: IconName
@@ -33,6 +37,10 @@ struct WorkspaceHoverCardContent: Equatable {
         var accessory: HoverCardAccessory?
         /// The text's own ink, over the message or metadata ink (an offline machine's warning).
         var ink: HoverCardTone?
+        /// The icon's own ink (a pull request's state, a wait); nil is the metadata ink.
+        var iconTone: HoverCardTone?
+        /// The card's preview line (`Preview`): the last row, a step apart from the metadata.
+        var isPreview = false
         /// The machine a machine row names: its icon draws that machine's color pick, if any.
         var machine: String?
 
@@ -40,7 +48,7 @@ struct WorkspaceHoverCardContent: Equatable {
         var row: HoverCardRowContent {
             HoverCardRowContent(text: text, ink: ink ?? (isMessage ? .primary : .secondary), lines: lines, status: status,
                                 statusTone: statusTone, additions: additions, deletions: deletions, accessory: accessory,
-                                iconMachine: machine)
+                                iconTone: iconTone, iconMachine: machine)
         }
 
         /// What someone said or asked (a waiting reason, a notification, the task, the last
@@ -76,16 +84,21 @@ struct WorkspaceHoverCardContent: Equatable {
     static let visibleChecklistLimit = 6
 
     /// The card for `workspace` with the default options and no history (the classic card's facts).
-    static func make(_ workspace: SidebarWorkspace, machine: SidebarMachine?, now: Date) -> Self {
-        make(workspace, machine: machine, now: now, options: { var o = WorkspaceHoverCardOptions(); o.layout = .classic; return o }(), timeline: [])
+    static func make(_ workspace: SidebarWorkspace, machine: SidebarMachine?, now: Date,
+                     pullRequests: SidebarPullRequestBadge? = nil, home: String = NSHomeDirectory()) -> Self {
+        make(workspace, machine: machine, now: now, options: { var o = WorkspaceHoverCardOptions(); o.layout = .classic; return o }(),
+             timeline: [], pullRequests: pullRequests, home: home)
     }
 
     /// The card for `workspace` as `options` lay it out (u3320), with its `timeline` (newest first).
     /// `looked`: when the person last looked at it (`sidebar.sinceLooked`), for the line that says
-    /// what its agents did since.
+    /// what its agents did since. `pullRequests`: the row's pull request badge
+    /// (`SidebarSessionTree.pullRequests`), for the repository and the state; `home`: this Mac's
+    /// home folder, which is no fact.
     static func make(_ workspace: SidebarWorkspace, machine: SidebarMachine?, now: Date,
-                     options: WorkspaceHoverCardOptions, timeline: [SidebarTimelineEntry], looked: Date? = nil) -> Self {
-        var card = facts(workspace, machine: machine, now: now)
+                     options: WorkspaceHoverCardOptions, timeline: [SidebarTimelineEntry], looked: Date? = nil,
+                     pullRequests: SidebarPullRequestBadge? = nil, home: String = NSHomeDirectory()) -> Self {
+        var card = facts(workspace, machine: machine, now: now, pullRequests: pullRequests, home: home, showsGit: options.showsGit)
         if let looked, let text = sinceLooked(timeline, after: looked) {
             card.facts.insert(Fact(icon: .historyRecent, text: text, kind: sinceLookedKind), at: 0)
         }
@@ -93,11 +106,11 @@ struct WorkspaceHoverCardContent: Equatable {
         var timeline = timeline
         // The newest wait, while the workspace still waits, says why (the row's own reason).
         if let first = timeline.first, first.kind == .waiting, first.text == nil, case .waiting = workspace.activity {
-            timeline[0].text = workspace.detail.needsInput
+            timeline[0].text = needsInputReason(workspace)
         }
         if !options.showsGit { card.facts.removeAll { $0.kind == "branch" || $0.kind == "pullRequest" } }
         if options.showsPorts, let ports = workspace.ports, !ports.isEmpty {
-            let at = card.facts.firstIndex { $0.kind == "machine" || $0.kind == "status" || $0.kind == "more" || $0.kind == Fact.lastReplyKind }
+            let at = card.facts.firstIndex { $0.kind == "machine" || $0.kind == "status" || $0.kind == "more" || $0.isPreview }
             card.facts.insert(Fact(icon: .network, text: ports, kind: "ports"), at: at ?? card.facts.count)
         }
         if !options.showsTimings {
@@ -119,15 +132,17 @@ struct WorkspaceHoverCardContent: Equatable {
             card.timeline = Array(shown.prefix(options.historyRows))
             if options.showsTimings { card.stats = stats(timeline, now: now) }
         case .log:
-            // The history alone: only why the workspace waits stays above it.
-            card.facts.removeAll { $0.kind != "needsInput" && $0.kind != sinceLookedKind }
+            // The history alone: only why the workspace waits (its reason, else "Needs you") stays above it.
+            card.facts.removeAll { $0.kind != "needsInput" && $0.kind != needsYouKind && $0.kind != sinceLookedKind }
             card.timeline = Array(shown.prefix(options.historyRows))
             if options.showsTimings { card.stats = stats(timeline, now: now) }
         case .minimal:
-            card.facts.removeAll { $0.kind != "needsInput" && $0.kind != "task" && $0.kind != sinceLookedKind }
+            card.facts.removeAll { $0.kind != "needsInput" && $0.kind != needsYouKind && $0.kind != "task" && $0.kind != sinceLookedKind }
             if !card.facts.contains(where: { $0.kind == "task" }),
                let prompt = timeline.first(where: { $0.kind == .prompt && $0.text != nil })?.text {
-                card.facts.append(Fact(icon: .composerSend, text: prompt, lines: 2, kind: "task"))
+                // Above the "Needs you" line, which stays the card's last.
+                let at = card.facts.firstIndex { $0.kind == needsYouKind } ?? card.facts.count
+                card.facts.insert(Fact(icon: .composerSend, text: prompt, lines: 2, kind: "task"), at: at)
             }
         }
         return card
@@ -171,12 +186,17 @@ struct WorkspaceHoverCardContent: Equatable {
         Calendar.current.isDate(date, inSameDayAs: now) ? clockFormatter.string(from: date) : dayFormatter.string(from: date)
     }
 
-    /// The facts card (the classic layout): one row per meaningful fact.
-    private static func facts(_ workspace: SidebarWorkspace, machine: SidebarMachine?, now: Date) -> Self {
+    /// The facts card (the classic layout): one row per meaningful fact. Without `showsGit` the
+    /// place reads as the folder alone (no branch, no repository from a pull request).
+    private static func facts(_ workspace: SidebarWorkspace, machine: SidebarMachine?, now: Date,
+                              pullRequests: SidebarPullRequestBadge?, home: String, showsGit: Bool) -> Self {
         let remote = machine.flatMap { $0.kind == .local ? nil : $0 }
         var facts: [Fact] = []
         let detail = workspace.detail
-        if let reason = detail.needsInput { facts.append(Fact(icon: .statusNeedsinput, text: reason, lines: 3, kind: "needsInput")) }
+        let previewLine = Self.preview(workspace, pullRequests: pullRequests, showsGit: showsGit)
+        if let reason = needsInputReason(workspace) {
+            facts.append(Fact(icon: .statusNeedsinput, text: reason, lines: 3, kind: "needsInput", iconTone: .attention))
+        }
         // The person's own notes and the lane they pinned (classic's description and status).
         if let notes = workspace.workspaceDescription?.trimmingCharacters(in: .whitespacesAndNewlines), !notes.isEmpty {
             facts.append(Fact(icon: .textDescription, text: notes, lines: 6, kind: "description"))
@@ -199,9 +219,9 @@ struct WorkspaceHoverCardContent: Equatable {
             facts.append(Fact(icon: toolIcon(presence.activity), text: Strings.presenceLine(presence), kind: "presence"))
         }
         if let command = detail.command { facts.append(Fact(icon: .terminal, text: command, since: detail.commandSince, kind: "command")) }
-        if let folder = workspace.directory.flatMap({ $0.isEmpty ? nil : folderName($0) }) { facts.append(Fact(icon: .folder, text: folder, kind: "folder")) }
-        if let branch = workspace.branch, !branch.isEmpty { facts.append(Fact(icon: .gitBranch, text: branch, kind: "branch")) }
-        if let pr = workspace.pullRequest, !pr.isEmpty { facts.append(Fact(icon: .gitPullrequest, text: pr, kind: "pullRequest")) }
+        if let place = Self.place(workspace, pullRequests: showsGit ? pullRequests : nil, home: home, showsGit: showsGit) { facts.append(place) }
+        let pullRequest = pullRequestFact(workspace, pullRequests: pullRequests)
+        if previewLine != .pullRequest, let pullRequest { facts.append(pullRequest) }
         if let remote {
             // The machine and whether it is reachable, as a dot (Codex's sidebar card); a machine
             // that is not connected says how, in its color, under it.
@@ -228,15 +248,68 @@ struct WorkspaceHoverCardContent: Equatable {
         if workspace.checklist.count > Self.visibleChecklistLimit {
             facts.append(Fact(icon: .overflowMore, text: Strings.statusMore(workspace.checklist.count - Self.visibleChecklistLimit), kind: "more"))
         }
-        // The agent chat's last reply, when no task says more: the card's last line, under the
-        // metadata, two lines at most (Leo 2026-10-19, Claude desktop's session card).
-        if detail.task == nil, let message = workspace.lastMessage, !message.isEmpty {
-            facts.append(Fact(icon: .agentChatList, text: message, lines: 2, kind: Fact.lastReplyKind))
+        // The preview, the card's last line under the metadata: the pull request's state when the
+        // workspace has one, else the agent chat's last reply (two lines at most, Leo 2026-10-19,
+        // Claude desktop's session card). A wait says why in the first row, so no reply shows.
+        switch previewLine {
+        case .pullRequest:
+            if var pullRequest { pullRequest.isPreview = true; facts.append(pullRequest) }
+        case .message(let message):
+            facts.append(Fact(icon: .agentChatList, text: message, lines: 2, kind: Fact.lastReplyKind, isPreview: true))
+        case .needsYou:
+            // The reason row or the waiting status row says it already, so no reply shows under
+            // it. With neither (a chip that needs the person), the preview says "Needs you".
+            guard needsInputReason(workspace) == nil, !workspace.activity.waitsForPerson else { break }
+            facts.append(Fact(icon: .statusNeedsinput, text: Strings.priorityNeedsYou, kind: needsYouKind, ink: .attention,
+                              iconTone: .attention, isPreview: true))
+        case .empty:
+            break
         }
         return WorkspaceHoverCardContent(
             title: workspace.title, icon: remote.map(hostIcon) ?? workspace.kind.iconName,
             age: workspace.lastActivity.flatMap { age(since: $0, now: now) }, facts: facts,
             activity: workspace.activity, activityStyle: workspace.activityStyle, activitySince: detail.activitySince)
+    }
+
+    /// What the card's last line says (Leo 2026-10-21): the latest meaningful status, and the
+    /// agent chat's raw last reply only when there is none.
+    enum Preview: Equatable {
+        /// The workspace waits on the person: the reason row or the waiting status row says so,
+        /// else a "Needs you" line; never the raw last reply.
+        case needsYou
+        /// Its pull request, in its state's color.
+        case pullRequest
+        /// No status: the agent chat's last reply, when no task says more.
+        case message(String)
+        /// Nothing to preview.
+        case empty
+    }
+
+    /// The fact kind of the preview's "Needs you" line.
+    static let needsYouKind = "needsYou"
+
+    /// The preview for `workspace`: a wait first, then a pull request (unless `showsGit` is off),
+    /// then the last reply. Pure.
+    static func preview(_ workspace: SidebarWorkspace, pullRequests: SidebarPullRequestBadge?, showsGit: Bool = true) -> Preview {
+        if needsInputReason(workspace) != nil || workspace.agentChip == .needsYou { return .needsYou }
+        if workspace.activity.waitsForPerson { return .needsYou }
+        if showsGit, newestPullRequest(pullRequests) != nil || workspace.pullRequest?.isEmpty == false { return .pullRequest }
+        if let message = lastReply(workspace) { return .message(message) }
+        return .empty
+    }
+
+    /// Why the workspace waits on the person, trimmed; a blank reason is none.
+    static func needsInputReason(_ workspace: SidebarWorkspace) -> String? {
+        guard let reason = workspace.detail.needsInput?.trimmingCharacters(in: .whitespacesAndNewlines), !reason.isEmpty
+        else { return nil }
+        return reason
+    }
+
+    /// The agent chat's last reply worth a line: none while a task says more.
+    private static func lastReply(_ workspace: SidebarWorkspace) -> String? {
+        guard workspace.detail.task == nil, let message = workspace.lastMessage?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !message.isEmpty else { return nil }
+        return message
     }
 
     /// The card's fields for the user's card (`ctx.card`).
@@ -320,12 +393,77 @@ struct WorkspaceHoverCardContent: Equatable {
         }
     }
 
-    /// The folder's own name: "~/Projects/site" reads "site", and the home
-    /// folder reads as its name, not "~".
-    static func folderName(_ directory: String) -> String {
-        let path = (directory as NSString).expandingTildeInPath
-        let name = (path as NSString).lastPathComponent
-        return name.isEmpty ? directory : name
+    /// The folder worth a line: its own name, or nil for none, `~`, `home` (this Mac's home
+    /// folder), a remote machine's home (`/home/<user>`, `/Users/<user>`, `/root`) or `/`. A
+    /// workspace that never left home says nothing by naming the user (Leo 2026-10-21). Any
+    /// `/Users/<name>` counts, `/Users/Shared` too: a folder one level under `/Users` is a home.
+    static func meaningfulFolder(_ directory: String?, home: String = NSHomeDirectory()) -> String? {
+        guard var path = directory?.trimmingCharacters(in: .whitespacesAndNewlines), !path.isEmpty else { return nil }
+        if path == "~" || path.hasPrefix("~/") { path = (home as NSString).appendingPathComponent(String(path.dropFirst())) }
+        let parts = (path as NSString).standardizingPath.split(separator: "/", omittingEmptySubsequences: true)
+        let homeParts = (home as NSString).standardizingPath.split(separator: "/", omittingEmptySubsequences: true)
+        if parts.isEmpty || parts == homeParts || parts == ["root"] { return nil }
+        if parts.count == 2, parts[0] == "home" || parts[0] == "Users" { return nil }
+        return String(parts[parts.count - 1])
+    }
+
+    /// The repository's name ("cmux"): the newest pull request's (`owner/repo`), else the folder's
+    /// when the workspace is on a branch (a checkout's folder is its repository); nil when neither
+    /// says.
+    /// A worktree's folder that spells its whole branch ("lane--fix-card" on `lane/fix-card`) says
+    /// the branch twice, so it names nothing. A folder that only matches the branch's last part
+    /// ("card" on `feature/card`) is a repository like any other.
+    static func repositoryName(pullRequests: SidebarPullRequestBadge?, folder: String?, branch: String?) -> String? {
+        if let repository = newestPullRequest(pullRequests)?.repository, let name = repository.split(separator: "/").last, !name.isEmpty {
+            return String(name)
+        }
+        guard let branch, !branch.isEmpty, let folder else { return nil }
+        func letters(_ text: some StringProtocol) -> String { String(text.lowercased().filter { $0.isLetter || $0.isNumber }) }
+        return letters(folder) == letters(branch) ? nil : folder
+    }
+
+    /// Where the workspace works, as one line: "cmux · feat-cmux-next" on a branch, the folder
+    /// alone off one, nil in the home folder with no branch. Without `showsGit`, the folder only.
+    static func place(_ workspace: SidebarWorkspace, pullRequests: SidebarPullRequestBadge?, home: String,
+                      showsGit: Bool = true) -> Fact? {
+        let folder = meaningfulFolder(workspace.directory, home: home)
+        if showsGit, let branch = workspace.branch, !branch.isEmpty {
+            let repository = repositoryName(pullRequests: pullRequests, folder: folder, branch: branch)
+            let text = [repository, branch].compactMap { $0 }.joined(separator: WorkspaceRowContent.separator)
+            return Fact(icon: .gitBranch, text: text, kind: "branch")
+        }
+        return folder.map { Fact(icon: .folder, text: $0, kind: "folder") }
+    }
+
+    /// The pull request the card names: the newest open or merged one, else the newest.
+    static func newestPullRequest(_ badge: SidebarPullRequestBadge?) -> SidebarPullRequestItem? {
+        guard let items = badge?.items else { return nil }
+        return items.first { $0.state != .closed } ?? items.first
+    }
+
+    /// The pull request row: the newest one's state word and number in its color, its icon in
+    /// that color, its size; else the hook's `pr` status entry as reported. Nil without either.
+    static func pullRequestFact(_ workspace: SidebarWorkspace, pullRequests: SidebarPullRequestBadge?) -> Fact? {
+        if let item = newestPullRequest(pullRequests) {
+            let tone = pullRequestTone(item.state)
+            let text = item.title.isEmpty ? "#\(item.number)" : "#\(item.number) \(item.title)"
+            return Fact(icon: .gitPullrequest, text: text, kind: "pullRequest", status: Strings.pullRequestState(item.state),
+                        statusTone: tone, additions: item.additions > 0 ? item.additions : nil,
+                        deletions: item.deletions > 0 ? item.deletions : nil, iconTone: tone)
+        }
+        guard let pr = workspace.pullRequest, !pr.isEmpty else { return nil }
+        return Fact(icon: .gitPullrequest, text: pr, kind: "pullRequest")
+    }
+
+    /// A pull request state's color, as the row's badge and the pull request card color it.
+    static func pullRequestTone(_ state: SidebarPullRequestItem.State) -> HoverCardTone {
+        switch state {
+        case .passing: .success
+        case .merged: .merged
+        case .failing: .danger
+        case .conflict, .draft: .attention
+        case .closed: .tertiary
+        }
     }
 
     /// A machine's own icon (`SidebarMachine.icon`) as a fact's mark (an emoji or SF Symbol
@@ -360,5 +498,13 @@ struct WorkspaceHoverCardContent: Equatable {
         let seconds = now.timeIntervalSince(date)
         guard seconds >= 60 else { return nil }
         return ageFormatter.string(from: seconds)
+    }
+}
+
+private extension StatusIndicatorState {
+    /// Waiting for the person (its status row says so).
+    var waitsForPerson: Bool {
+        if case .waiting = self { return true }
+        return false
     }
 }

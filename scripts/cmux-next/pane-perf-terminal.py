@@ -16,8 +16,16 @@ the panes rest:
   scroll      (--browser) the page scrolled 1500 px down and back over about 1 s, one step per page animation frame
   idle        nothing for 1 s: with --browser the page keeps animating, so this is the Chromium pump at rest
 
+The bench app activates and its window is key where the host allows it (CMUX_NEXT_NO_ACTIVATE is removed from
+the bench environment), as for a person. Each layout reads whether the window really is key (`debug.window_list`)
+when it starts: a layout measured with a window that is not key is named `<layout>-inactive` (rows
+`panes.<action>.<layout>-inactive.*`), so it is never compared with rows of a key window. The window goes on the
+main screen at the STRESS size (perf-stress-session.py `place_window`). A layout asked for and not measured (a
+STRESS shape refused, a Chromium page that never ran) fails the run, --gate or not.
+
 Per action: display frame intervals p50/p95/p99/max and missed frames (`debug.frames`), the layout's main-thread
-work per frame (`debug.motion` clock), frames the springs moved, grids sent to the PTY owner
+work per frame (`debug.motion` clock), each Core Animation commit (`debug.motion` work `ca.commit`: with Chromium
+pages it holds the resize wait of fork API 27), frames the springs moved, grids sent to the PTY owner
 (`debug.window_transition`) and hangs (`debug.hangs`). With --record, a second pass records each action with
 `debug.window_record` (frames/ in --out; the recording itself costs frames, so it never runs in the timed pass).
 
@@ -25,8 +33,9 @@ With --browser the top-left pane of each layout shows a Chromium page instead of
 requestAnimationFrame loop counting into window.__frames, a spinner, a tall grid of cards; the first split terminal
 takes --stream), and each action pair starts with that pane focused. Per action it adds the change of `debug.cef`'s
 pump counters (pump_runs, pump_ms, pump_long, pump_now_req, pump_delayed_req), its tracker counters (trk_clip_reads,
-trk_occl_reads, trk_clip_builds, trk_clip_hits, trk_clip_ms, trk_posts; None on builds without them) and of the page's own animation
-frames (page_frames). A layout whose page never runs fails one row and is skipped.
+trk_occl_reads, trk_clip_builds, trk_clip_hits, trk_clip_ms, trk_posts, trk_skips; None on builds without them), of the page's own animation
+frames (page_frames), of `debug.layers` divider catcher panel updates and child window reorders (catcher_updates, reorders), and
+the fork geometry posts per moving frame (posts_per_frame). A layout whose page never runs fails one row and is skipped.
 
 Usage: pane-perf-terminal.py --tag <tag> --app PATH [--layouts 1x2,4x2,6x5] [--browser]
        [--actions split,close,column,zoom,drag,sidepanel,scroll,idle] [--rounds 3] [--scrollback 5000] [--stream]
@@ -37,7 +46,10 @@ import argparse, glob, json, os, pathlib, signal, subprocess, sys, tempfile, tim
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
 parser.add_argument("--app", required=True)
-parser.add_argument("--layouts", default="1x2,4x2,6x5")
+parser.add_argument("--layouts", default="1x2,4x2,6x5",
+                    help="COLSxROWS terminal grids, and `stress`: the STRESS session (perf-stress-session.py)")
+parser.add_argument("--stress-selected", default="terminal", choices=["terminal", "chromium"],
+                    help="layout `stress`: what each pane of the measured workspace shows")
 parser.add_argument("--actions", default="split,close,column,zoom,drag")
 parser.add_argument("--rounds", type=int, default=3)
 parser.add_argument("--scrollback", type=int, default=5000)
@@ -48,6 +60,9 @@ parser.add_argument("--sample", default="", help="LAYOUT:ACTION[,...]: `sample` 
 parser.add_argument("--sample-repeats", type=int, default=8)
 parser.add_argument("--content", default="terminal", choices=["terminal", "chromium"],
                     help="what the workspace's first pane shows: a terminal, or a Chromium page (splits start from it)")
+parser.add_argument("--pages", type=int, default=0,
+                    help="with --browser: this many more panes of each layout (the first ones split) show a Chromium page "
+                         "(a static page beside the probe: every page the window holds is re-placed on a motion frame)")
 parser.add_argument("--json")
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--gate", action="store_true", help="fail on the budget rows")
@@ -56,12 +71,25 @@ opts, _unknown = parser.parse_known_args()
 TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
-BINARY = next((p for p in sorted(glob.glob(os.path.join(APP, "Contents/MacOS/*"))) if not p.endswith(".dylib")), None)
-SCRATCH = tempfile.mkdtemp(prefix=f"pane-perf-{TAG}-")
-open(os.path.join(SCRATCH, "ghostty"), "w").close()
-CONFIG = os.path.join(SCRATCH, "cmux.json")
-open(CONFIG, "w").write("{}\n")
-WINDOW = (80, 80, 1600, 1000)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from bench_launch import BenchApp, LaunchError  # noqa: E402  the shared GUI launch (session check, failure report)
+
+
+def load_stress():
+    """perf-stress-session.py as a module: the STRESS builder and the shared window placement."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("perf_stress_session", os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                                                                   "perf-stress-session.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+STRESS_MODULE = load_stress()
+# 30 panes in 6 columns leave ~230 pt each: the 200 pt default minimum refused the timed split there
+# ("not enough room to split this pane"), so the 30-pane split row measured nothing.
+CONFIG = {"layout": {"minimumPaneWidth": 80, "minimumPaneHeight": 32}}
+WINDOW = STRESS_MODULE.WINDOW_SIZE  # every layout's window: the STRESS size, placed by `place_window`
 PAGE = None  # a local page for a Chromium pane (`serve_page`)
 
 
@@ -84,6 +112,9 @@ def serve_page():
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return f"http://127.0.0.1:{server.server_address[1]}/"
 ROWS, LAUNCHED = [], []
+BENCH = None  # the BenchApp of this run
+MEASURED = False  # the app came up and the layouts ran: without it the run fails, --gate or not
+UNMEASURED = []  # layouts asked for and not measured: any fails the run, --gate or not
 PROBE = {}  # --browser: the probe page's tab id
 app = None
 PROBE_PAGE = """<!doctype html><meta charset="utf-8"><title>Pane probe</title>
@@ -120,9 +151,13 @@ CEF_DELTAS = [("pump_runs", "pump", "work_runs"), ("pump_ms", "pump", "work_ms")
               ("trk_clip_reads", "tracker", "clip_reads"), ("trk_occl_reads", "tracker", "occlusion_reads"),
               ("trk_clip_builds", "tracker", "clip_builds"), ("trk_clip_hits", "tracker", "clip_hits"),
               ("trk_clip_ms", "tracker", "clip_ms"),
-              ("trk_posts", "tracker", "geometry_posts")]
-BROWSER_KEYS = [key for key, _, _ in CEF_DELTAS] + ["page_frames"]
-BROWSER_HEADS = ["pump", "pumpms", "long", "nowreq", "dlyreq", "clipr", "occlr", "clipb", "cliph", "clipms", "posts", "rAF"]
+              ("trk_posts", "tracker", "geometry_posts"), ("trk_skips", "tracker", "geometry_skips")]
+# --browser: per action, the change of `debug.layers` counters of the first window (divider catcher panel moves, child
+# window reorders); None on builds without them.
+LAYER_DELTAS = [("catcher_updates", "divider_catcher_updates"), ("reorders", "reorders")]
+BROWSER_KEYS = [key for key, _, _ in CEF_DELTAS] + ["page_frames"] + [key for key, _ in LAYER_DELTAS] + ["posts_per_frame"]
+BROWSER_HEADS = ["pump", "pumpms", "long", "nowreq", "dlyreq", "clipr", "occlr", "clipb", "cliph", "clipms", "posts", "skips",
+                 "rAF", "catch", "reord", "post/f"]
 STILL = ("drag", "sidepanel", "sidepanel-close", "scroll", "idle")  # actions that move no layout spring
 
 
@@ -223,8 +258,15 @@ def layout(columns, rows):
     top-left one shows the probe page instead (the first split terminal takes --stream). Returns an error or None."""
     action("workspace.newAtBottom", settle=1.5)
     pending = [opts.stream]  # the first terminal fed streams
+    pages = [opts.pages if opts.browser else 0]
 
     def fed():
+        if pages[0] > 0:  # --pages: this pane shows a Chromium page instead of a terminal
+            pages[0] -= 1
+            global PAGE
+            PAGE = PAGE or serve_page()
+            action("openBrowser.chromium", {"url": PAGE}, settle=1.5, timeout=120)
+            return
         feed(pending.pop() if pending else False)
     if opts.browser:
         problem = open_page()
@@ -256,11 +298,37 @@ def layout(columns, rows):
     return None
 
 
+STRESS = {}  # layout `stress`: the session's summary (perf-stress-session.py)
+
+
+def stress_layout():
+    """The STRESS session (perf-stress-session.py), ending on its measured workspace's top-left pane."""
+    module = STRESS_MODULE
+    builder = module.Stress(rpc, selected=opts.stress_selected)
+    try:
+        STRESS.update(builder.build())
+    except module.StressShapeError as error:
+        return str(error)  # a wrong shape is a failed row, never measured as STRESS
+    finally:
+        STRESS["chat_fallbacks"] = builder.chat_fallbacks
+    print("STRESS-SESSION " + json.dumps(STRESS), flush=True)
+    return None
+
+
+def window_state():
+    """Whether the app is active with its window key now (`debug.window_list`: a main window's `key`; a key
+    window means an active app), and the frontmost app."""
+    reply = rpc("debug.window_list")
+    windows = (reply or {}).get("windows") if isinstance(reply, dict) else None
+    key = any(w.get("key") for w in windows if w.get("kind") == "main" and w.get("visible")) if isinstance(windows, list) else None
+    return {"window_key": key, "frontmost": frontmost_app()}
+
+
 def vertical_divider():
     """The leftmost vertical divider's middle, in the window's top-left points."""
     result = rpc("debug.layers")
     window = ((result or {}).get("windows") or [{}])[0] if isinstance(result, dict) else {}
-    height = (window.get("frame") or [0, 0, 0, WINDOW[3]])[3]
+    height = (window.get("frame") or [0, 0, 0, WINDOW[1]])[3]
     areas = sorted((x + w / 2, height - (y + h / 2)) for x, y, w, h in window.get("divider_areas_in_window") or [] if h > w)
     return areas[0] if areas else None
 
@@ -313,8 +381,14 @@ def counter(report, group, key):
     return ((report if isinstance(report, dict) else {}).get(group) or {}).get(key)
 
 
+def first_window(report):
+    windows = (report or {}).get("windows") if isinstance(report, dict) else None
+    return windows[0] if windows else {}
+
+
 def measure(label, name):
     cef_before = rpc("debug.cef") if opts.browser else None  # outside the timed window, like the reads after it
+    layers_before = first_window(rpc("debug.layers")) if opts.browser else None
     page_before = page_eval("window.__frames") if opts.browser else None
     rpc("debug.hangs", {"clear": True})
     rpc("debug.motion", {"action": "start"})
@@ -327,6 +401,9 @@ def measure(label, name):
     motion = rpc("debug.motion", {"action": "stop"}) or {}
     hangs = rpc("debug.hangs") or {}
     work = (motion.get("work") or {}).get("clock", {}) if isinstance(motion, dict) else {}
+    # Each Core Animation commit while recording (MotionCommitProbe): with Chromium pages, how long a page's
+    # resize wait (fork API 27 resize sync) held the frame. None on builds without the probe.
+    commit = (motion.get("work") or {}).get("ca.commit") if isinstance(motion, dict) else None
     moving = sum(1 for s in (motion.get("samples") or []) if s.get("name") == "layout.travel" and (s.get("v") or 0) > 0) \
         if isinstance(motion, dict) else 0
     hang_list = hangs.get("hangs") if isinstance(hangs, dict) else None
@@ -336,6 +413,9 @@ def measure(label, name):
         "frames_p50_ms": frames.get("p50_ms"), "frames_p95_ms": frames.get("p95_ms"), "frames": frames.get("frames"),
         "refresh_ms": frames.get("refresh_ms"), "moving_frames": moving,
         "layout_max_ms": work.get("max_ms"), "layout_p95_ms": work.get("p95_ms"), "layout_p50_ms": work.get("p50_ms"),
+        "commit_p50_ms": (commit or {}).get("p50_ms"), "commit_p95_ms": (commit or {}).get("p95_ms"),
+        "commit_max_ms": (commit or {}).get("max_ms"), "commit_over_4": (commit or {}).get("over_4_ms"),
+        "commits": (commit or {}).get("frames"),
         "grid_reports": trace.get("terminal_grid_reports"), "resizes_sent": trace.get("terminal_resizes_sent"),
         "hangs": len(hang_list) if isinstance(hang_list, list) else hangs.get("count"),
     }
@@ -345,13 +425,21 @@ def measure(label, name):
         for key, group, field in CEF_DELTAS:
             result[key] = change(counter(cef_before, group, field), counter(cef_after, group, field))
         result["page_frames"] = change(page_before, page_eval("window.__frames"))
+        layers_after = first_window(rpc("debug.layers"))
+        for key, field in LAYER_DELTAS:
+            result[key] = change(layers_before.get(field), layers_after.get(field))
+        # Geometry posts per display frame the springs moved (a still action: per frame of the action).
+        span = moving if name not in STILL else (frames.get("frames") or 0)
+        result["posts_per_frame"] = round(result["trk_posts"] / span, 2) if isinstance(result["trk_posts"], (int, float)) and span else None
         extra = (f"  pump {result['pump_runs']} runs {result['pump_ms']} ms long {result['pump_long']} "
                  f"req {result['pump_now_req']}/{result['pump_delayed_req']}  clip {result['trk_clip_reads']} reads "
                  f"{result['trk_clip_builds']} builds {result['trk_clip_hits']} hits {result['trk_clip_ms']} ms  occl {result['trk_occl_reads']}  "
-                 f"posts {result['trk_posts']}  page rAF {result['page_frames']}")
+                 f"posts {result['trk_posts']} ({result['posts_per_frame']}/frame) skips {result['trk_skips']}  "
+                 f"catchers {result['catcher_updates']} reorders {result['reorders']}  page rAF {result['page_frames']}")
     print(f"  {label:<22} moved {moving:>3}  frame p50 {result['frames_p50_ms']} p95 {result['frames_p95_ms']} "
           f"p99 {result['frames_p99_ms']} max {result['frames_max_ms']} ms  missed {result['missed']} "
           f"(refresh {result['refresh_ms']})  tick p95 {result['layout_p95_ms']} max {result['layout_max_ms']} ms  "
+          f"commit p95 {result['commit_p95_ms']} max {result['commit_max_ms']} ms  "
           f"grids {result['grid_reports']}/{result['resizes_sent']}  hangs {result['hangs']}  err {error}{extra}", flush=True)
     return result
 
@@ -493,88 +581,80 @@ def main_thread_buckets(text):
 
 
 def cleanup():
-    if os.environ.get("PANE_PERF_KEEP") or not LAUNCHED:
+    if os.environ.get("PANE_PERF_KEEP") or not LAUNCHED or BENCH is None:
         return
     rpc("action.run", {"action": "quitEndSessions"}, timeout=10)
-    if app:
-        try:
-            app.wait(timeout=20)
-        except subprocess.TimeoutExpired:
-            os.kill(app.pid, signal.SIGKILL)
-    subprocess.run([CLI, "server", "stop", "--session", f"cmux-app-{TAG}", "--end-terminals"],
-                   env={k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}, capture_output=True, timeout=30)
-    if os.path.exists(SOCKET):
-        os.remove(SOCKET)
+    BENCH.stop()  # debug.quit, then only this tag's processes and daemons (tag_teardown.py)
 
 
 def main():
-    global app, SOCKET
-    if os.path.exists(SOCKET):
-        os.remove(SOCKET)
-    env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
-           "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_CONFIG_FILE": CONFIG,
-           "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty"),
-           "CMUX_NEXT_TEST_WINDOW_FRAME": ",".join(str(v) for v in WINDOW)}
+    global app, SOCKET, BENCH, MEASURED
     os.makedirs(opts.out, exist_ok=True)
-    log = open(os.path.join(opts.out, f"app-{TAG}.log"), "a")
-    app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-    LAUNCHED.append(app.pid)
+    # The shared launch (bench_launch.py): its bench environment, a session check that fails at once with
+    # no-gui-session, the state-folder socket, and a BENCH-LAUNCH report (crash, sample, log tail) on failure.
+    # The app activates and its window becomes key (no CMUX_NEXT_NO_ACTIVATE), as for a person; without
+    # no-activate the app reads no test window placement, so the window is placed through the socket below.
+    BENCH = BenchApp(APP, out=opts.out, config=CONFIG, env={"CMUX_NEXT_NO_ACTIVATE": None}, window=None, screen=None,
+                     log_name=f"app-{TAG}.log")
+    try:
+        BENCH.launch(timeout=120, on_start=lambda process: LAUNCHED.append(process.pid))
+    except LaunchError as error:
+        print(str(error), flush=True)
+        row("the tagged app came up", "its socket answers with a window", error.reason, False)
+        return
+    app, SOCKET = BENCH.process, BENCH.socket
     macos = subprocess.run(["sw_vers", "-productVersion"], capture_output=True, text=True).stdout.strip()
     host = subprocess.run(["hostname"], capture_output=True, text=True).stdout.strip()
     print(f"launched pid {app.pid} macOS {macos} host {host}", flush=True)
-    state_socket = os.path.expanduser(f"~/.local/state/cmux/cmux-debug-{TAG}.sock")
-
-    def up():
-        global SOCKET
-        for path in (f"/tmp/cmux-debug-{TAG}.sock", state_socket):
-            if os.path.exists(path):
-                SOCKET = path
-                if (rpc("debug.windows") or {}).get("windows"):
-                    return True
-        return False
-    if not wait(up, 120):
-        print(f"the tagged app did not come up: socket {SOCKET} exists={os.path.exists(SOCKET)} state socket "
-              f"{state_socket} exists={os.path.exists(state_socket)} debug.windows={rpc('debug.windows')} "
-              f"alive={app.poll() is None}", flush=True)
-        if app.poll() is None:
-            # Why: the main thread's stack while it does not answer.
-            stuck = os.path.join(opts.out, "sample-launch.txt")
-            subprocess.run(["/usr/bin/sample", str(app.pid), "3", "-file", stuck], capture_output=True, timeout=60)
-            try:
-                text = open(stuck, errors="replace").read()
-                graph = text.split("Call graph:", 1)[-1].splitlines()
-                print("== main thread while the socket is missing", flush=True)
-                print("\n".join(l[:200] for l in graph[:70]), flush=True)
-            except OSError:
-                pass
-        log.flush()
-        print(open(os.path.join(opts.out, f"app-{TAG}.log"), errors="replace").read()[-6000:], flush=True)
-        sys.exit(1)
     time.sleep(5)  # test harness: launch work settles
-    report = {"tag": TAG, "macos": macos, "host": host, "stream": opts.stream, "scrollback": opts.scrollback, "runs": []}
+    placed, window_problem = STRESS_MODULE.place_window(rpc)
+    row("the window is placed on the main screen", f"{list(WINDOW)} pt on its screen", window_problem or str(placed.get("frame") if isinstance(placed, dict) else placed),
+        window_problem is None)
+    # The bench conditions: the environment the app was really started with (mocked agent chats, the
+    # isolated chief, no CMUX_NEXT_NO_ACTIVATE), the window's placement, and per layout whether the window
+    # was key when it started (`layouts`).
+    conditions = {"env": BENCH.launched_env, "window": STRESS_MODULE.window_on_screen(placed) if isinstance(placed, dict) else None,
+                  "layouts": {}}
+    print("CONDITIONS " + json.dumps(conditions), flush=True)
+    report = {"tag": TAG, "macos": macos, "host": host, "stream": opts.stream, "scrollback": opts.scrollback,
+              "conditions": conditions, "runs": []}
     sequence = steps()
+    labels = []  # each measured layout's name in the report: `<layout>-inactive` when its window was not key
     for name in opts.layouts.split(","):
-        columns, rows = (int(v) for v in name.split("x"))
-        problem = layout(columns, rows)
+        if name == "stress":
+            problem = stress_layout()
+            panes = STRESS.get("measured_panes") or 0
+        else:
+            columns, rows = (int(v) for v in name.split("x"))
+            problem = layout(columns, rows)
+            panes = columns * rows
         if problem:
             print(f"  {name}: {problem}", flush=True)
-            row(f"{name}: the Chromium page runs (--browser)", "window.__frames counting", problem, False)
+            row(f"{name}: the layout was built" if name == "stress" else f"{name}: the Chromium page runs (--browser)", "the STRESS shape" if name == "stress" else "window.__frames counting", problem, False)
+            UNMEASURED.append(name)
             continue
-        panes = columns * rows
+        state = window_state()
+        if name == "stress":
+            # A bottom Dock over the window's lower edge, and chats the session replaced (none in STRESS).
+            state.update(dock_overlap_pt=STRESS.get("dock_overlap_pt"), chat_fallbacks=STRESS.get("chat_fallbacks"))
+        label = name if state["window_key"] else f"{name}-inactive"
+        conditions["layouts"][label] = state
+        print(f"  {name}: window key {state['window_key']}, frontmost {state['frontmost']} (rows named {label})", flush=True)
+        labels.append(label)
         rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"{name}-before.png")})
         for index in range(opts.rounds):
             for step in sequence:
                 if opts.browser and step not in ("close", "close-down", "column-close", "unzoom", "sidepanel-close"):
                     focus_page()  # each pair starts on the Chromium pane
                 run = measure(f"{panes:>2}p {step} #{index}", step)
-                run.update(layout=name, panes=panes, round=index)
+                run.update(layout=label, panes=panes, round=index)
                 report["runs"].append(run)
-                row(f"{name} {step} #{index}: ran", "no error", str(run["error"]), run["error"] is None)
+                row(f"{label} {step} #{index}: ran", "no error", str(run["error"]), run["error"] is None)
                 if step not in STILL:
-                    row(f"{name} {step} #{index}: animated (layout springs moved)", "> 0 frames",
+                    row(f"{label} {step} #{index}: animated (layout springs moved)", "> 0 frames",
                         str(run["moving_frames"]), (run["moving_frames"] or 0) > 0)
                 missed = run["missed"]
-                row(f"{name} {step} #{index}: missed frames" + ("" if opts.gate else " (info)"),
+                row(f"{label} {step} #{index}: missed frames" + ("" if opts.gate else " (info)"),
                     f"<= {opts.missed_budget}", str(missed), missed is not None and missed <= opts.missed_budget or not opts.gate)
                 if opts.json:
                     json.dump(report, open(opts.json, "w"), indent=1)
@@ -591,7 +671,7 @@ def main():
     wide = max([13] + [len(step) for step in sequence])  # sidepanel-close
     print(f"  {'panes':<5} {'action':<{wide}} {'p50':>6} {'p95':>6} {'p99':>6} {'max':>6} {'missed':>6} {'moved':>5} "
           f"{'tick95':>6} {'tickmx':>6} {'grids':>7}" + "".join(f" {h:>6}" for h in BROWSER_HEADS[:len(browser_keys)]))
-    for name in opts.layouts.split(","):
+    for name in labels:
         for step in sequence:
             runs = [r for r in report["runs"] if r["layout"] == name and r["action"] == step]
 
@@ -600,7 +680,7 @@ def main():
                 return values[len(values) // 2] if values else None
             summary = {key: med(key) for key in ["frames_p50_ms", "frames_p95_ms", "frames_p99_ms", "frames_max_ms", "missed",
                                                  "moving_frames", "layout_p95_ms", "layout_max_ms", "grid_reports",
-                                                 "resizes_sent"] + browser_keys}
+                                                 "resizes_sent", "commit_p95_ms", "commit_max_ms", "refresh_ms"] + browser_keys}
             report.setdefault("summary", []).append({"layout": name, "action": step, **summary})
 
             def f(v):
@@ -613,6 +693,20 @@ def main():
                   flush=True)
     if opts.json:
         json.dump(report, open(opts.json, "w"), indent=1)
+    MEASURED = bool(report["runs"])  # at least one action was measured
+    report["unmeasured"] = UNMEASURED
+    if opts.json:
+        json.dump(report, open(opts.json, "w"), indent=1)
+
+
+def frontmost_app():
+    """The frontmost app's bundle id now (`lsappinfo`)."""
+    try:
+        front = subprocess.run(["lsappinfo", "front"], capture_output=True, text=True, timeout=5).stdout.strip()
+        info = subprocess.run(["lsappinfo", "info", "-only", "bundleid", front], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError) as error:
+        return f"unknown ({error})"
+    return info.stdout.strip().partition("=")[2].strip('" ') or info.stdout.strip() or None
 
 
 try:
@@ -632,6 +726,9 @@ finally:
     if opts.json and os.path.exists(opts.json):
         # The step log keeps the numbers even when a row failed (no artifact comes back then).
         print("REPORT-JSON " + json.dumps(json.load(open(opts.json)).get("summary") or []), flush=True)
-    print("\nRESULT", "PASS" if ROWS and all(r[3] for r in ROWS) else "FAIL", f"({sum(r[3] for r in ROWS)}/{len(ROWS)})")
-    # Without --gate a row is information: the run passes when it measured (its artifact comes back).
-    sys.exit(0 if ROWS and (all(r[3] for r in ROWS) or not opts.gate) else 1)
+    print("\nRESULT", "PASS" if MEASURED and not UNMEASURED and ROWS and all(r[3] for r in ROWS) else "FAIL",
+          f"({sum(r[3] for r in ROWS)}/{len(ROWS)})" + (f"; not measured: {', '.join(UNMEASURED)}" if UNMEASURED else ""))
+    # Without --gate a row is information: the run passes when it measured (its artifact comes back). A run
+    # that measured nothing (the app never came up, an exception before the summary), or skipped a layout it
+    # was asked for (a refused STRESS shape, a Chromium page that never ran), fails either way.
+    sys.exit(0 if MEASURED and not UNMEASURED and ROWS and (all(r[3] for r in ROWS) or not opts.gate) else 1)

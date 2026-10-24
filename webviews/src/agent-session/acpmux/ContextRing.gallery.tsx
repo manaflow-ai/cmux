@@ -5,16 +5,30 @@ import type { Play } from "../../gallery/play";
 import { useT } from "./i18n";
 import { ContextRing } from "./ComposerPickers";
 import { openPicker } from "./pickerOpeners";
-import { CONTEXT_BREAKDOWN } from "../../gallery/fixtures/acpmux";
 
-type Props = { used?: number; size?: number; setup?: number; breakdown?: unknown };
+type Props = {
+  used?: number;
+  size?: number;
+  setup?: number;
+  details?: boolean;
+  wheel?: "compact" | "standard" | "minimal";
+};
 
 function GalleryContextRing(props: Props) {
   const t = useT();
   const [requested, setRequested] = useState(false);
   return (
-    <div className="context-ring-gallery" data-context-automation={requested ? "requested" : "idle"}>
-      <ContextRing {...props} />
+    <div
+      className={`context-ring-gallery context-ring-gallery--${props.wheel ?? "compact"}`}
+      data-context-automation={requested ? "requested" : "idle"}
+    >
+      <ContextRing
+        used={props.used}
+        size={props.size}
+        setup={props.setup}
+        // The chat's Inspector reveal (App.tsx); the gallery has no Inspector to open.
+        onOpenDetails={props.details ? () => {} : undefined}
+      />
       <button
         type="button"
         className="context-ring-gallery-opener"
@@ -36,7 +50,13 @@ const openByAutomation: Play = async (ctx) => {
 
 const openKnownByAutomation: Play = async (ctx) => {
   await openByAutomation(ctx);
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-context-pop") !== null);
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-context-card") !== null);
+};
+
+// Resting the pointer on the ring shows the card with no click (Leo 2026-10-21).
+const hoverCard: Play = async (ctx) => {
+  await ctx.hover({ selector: "button.acpmux-context-ring" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-context-card"));
 };
 
 export default componentEntry<Props>({
@@ -44,23 +64,27 @@ export default componentEntry<Props>({
   title: "Context usage ring",
   area: "Agent pane",
   pane: true,
-  height: 220,
+  height: 260,
   widths: { narrow: 360, normal: 520, wide: 720 },
   anchors: [{ selector: ".acpmux-context" }],
-  covers: ["agent-session/acpmux/ComposerPickers.tsx#ContextRing", "agent-session/acpmux/inspector/ContextSection.tsx"],
-  styles: () => Promise.all([import("./styles.css"), import("./composerControls.css")]),
+  covers: [
+    "agent-session/acpmux/ComposerPickers.tsx#ContextRing",
+    "agent-session/acpmux/ContextCard.tsx#ContextCardBody",
+  ],
+  styles: () =>
+    Promise.all([import("./styles.css"), import("./composerControls.css"), import("./ContextRing.gallery.css")]),
   checks: {
     anchorMovePx: {
       value: 0,
-      reason: "Opening context details must leave the ring's trigger geometry fixed.",
+      reason: "Showing the context card must leave the ring's trigger geometry fixed.",
     },
     layoutShiftMax: {
       value: 0,
-      reason: "The usage details render in a portal and must not add flow around the ring.",
+      reason: "The context card renders in a portal and must not add flow around the ring.",
     },
     longFrameFailMs: {
       value: 33,
-      reason: "Context details are a local popover and should open within one display frame.",
+      reason: "The context card is a local hover card and should open within one display frame.",
     },
   },
   load: async () => GalleryContextRing,
@@ -71,25 +95,31 @@ export default componentEntry<Props>({
       play: openByAutomation,
     },
     "known-usage": {
-      note: "Once usage is known, the same automation path opens the anchored usage details.",
+      note: "Once usage is known, the same automation path pins the context card open.",
       props: { used: 33551, size: 200000, setup: 12000 },
       play: openKnownByAutomation,
     },
-    breakdown: {
-      note: "A Claude Code chat's /context: the details draw the Inspector's Context card (the bar split by category in steps of the accent, a row per category, deferred ones dimmed, then the MCP tools, Memory files and Skills folds) in place of the plain bar.",
-      props: { used: 171400, size: 400000, breakdown: CONTEXT_BREAKDOWN },
-      height: 560,
-      play: openKnownByAutomation,
+    "card-claude": {
+      note: "Hover on a Claude chat: the glass card reads 23% used · 111K / 475K, the bar splits the agent's setup from the conversation, and Details › opens the Inspector's Context section. Plan limits are not reported to the pane yet, so the card shows none.",
+      props: { used: 111_000, size: 475_000, setup: 21_000, details: true },
+      play: hoverCard,
     },
-    "breakdown-memory-open": {
-      note: "Memory files, clicked: each CLAUDE.md by name with its path and tokens.",
-      props: { used: 171400, size: 400000, breakdown: CONTEXT_BREAKDOWN },
-      height: 600,
-      play: async (ctx) => {
-        await openKnownByAutomation(ctx);
-        await ctx.click({ selector: '[data-list="memoryFiles"] button' });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-context-breakdown__items") !== null);
-      },
+    "card-codex": {
+      note: "Hover on a Codex chat that reports only the window: the compact three-line tooltip keeps the ring quiet.",
+      props: { used: 111_000, size: 475_000, details: true },
+      play: hoverCard,
+    },
+    "wheel-compact": {
+      note: "Chosen: the ChatGPT-sized 22 px hit target and 12 px ring keep the quiet row compact while preserving keyboard focus.",
+      props: { used: 111_000, size: 475_000, wheel: "compact" },
+    },
+    "wheel-standard": {
+      note: "Alternative: the previous 28 px target and 14 px ring, which left too much empty space beside the model pill.",
+      props: { used: 111_000, size: 475_000, wheel: "standard" },
+    },
+    "wheel-minimal": {
+      note: "Alternative: an 18 px target and 10 px ring, which loses a little too much pointer and focus room.",
+      props: { used: 111_000, size: 475_000, wheel: "minimal" },
     },
     "usage-empty": {
       note: "A fresh chat: usage is known but nothing is used, so only the 1px track shows.",

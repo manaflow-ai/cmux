@@ -46,6 +46,8 @@ public nonisolated struct SidebarRailLayout: Hashable, Sendable {
     public struct Tick: Hashable, Sendable {
         public var mark: SidebarRailMark
         public var rect: CGRect
+        /// The top of the tick's row (`row(of:railWidth:)`).
+        public var rowY: CGFloat = 0
     }
 
     /// The geometry, in points. Defaults are the shipped design (variant A,
@@ -65,6 +67,8 @@ public nonisolated struct SidebarRailLayout: Hashable, Sendable {
     public private(set) var ticks: [Tick] = []
     /// The share of the natural pitch the marks got (1 when they fit).
     public private(set) var scale: CGFloat = 1
+    /// The distance between two ticks of a group now (the natural pitch times `scale`).
+    public private(set) var pitch: CGFloat = 0
 
     /// - Parameters:
     ///   - groups: The marks in sidebar order, one array per group or loose run; empty groups are skipped.
@@ -76,17 +80,26 @@ public nonisolated struct SidebarRailLayout: Hashable, Sendable {
         guard count > 0, available > 0 else { return }
         let natural = CGFloat(count) * metrics.pitch + CGFloat(runs.count - 1) * metrics.groupGap
         scale = min(1, available / natural)
-        let pitch = metrics.pitch * scale, gap = metrics.groupGap * scale
+        pitch = metrics.pitch * scale
+        let gap = metrics.groupGap * scale
         let height = max(1, metrics.tickHeight * scale)
         var y = top
         for (index, run) in runs.enumerated() {
             if index > 0 { y += gap }
             for mark in run {
                 let width = mark.isSelected ? metrics.selectedTickWidth : metrics.tickWidth
-                ticks.append(Tick(mark: mark, rect: CGRect(x: 0, y: (y + (pitch - height) / 2).rounded(.down), width: width, height: height)))
+                ticks.append(Tick(mark: mark, rect: CGRect(x: 0, y: (y + (pitch - height) / 2).rounded(.down), width: width, height: height),
+                                  rowY: y))
                 y += pitch
             }
         }
+    }
+
+    /// The row a tick stands for, in the rail's (flipped) coordinates: the rail's full width and one
+    /// pitch tall around the tick, so a group's rows touch and the pointer never falls between two
+    /// of them. A row's hover card puts its top on the row's top.
+    public func row(of tick: Tick, railWidth: CGFloat) -> CGRect {
+        CGRect(x: 0, y: tick.rowY, width: railWidth, height: pitch)
     }
 
     /// The tick nearest `y` (flipped), within half a pitch; a click aims at a 2 pt line.

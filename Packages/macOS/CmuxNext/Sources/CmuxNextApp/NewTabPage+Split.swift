@@ -53,7 +53,7 @@ extension NewTabPage {
             guard target == .here else { return jump(target, id) }
             if let services, let key = opened.value { Self.moveHere(id, page: key, services: services) }
         }
-        let split: SplitDirection? = !source.daemon.supports(DaemonCapabilities.shared.conversationTabSplit) ? nil
+        let split: SplitDirection? = !source.daemon.supports(DaemonCapability.conversationTabSplit.rawValue) ? nil
             : edge == .right ? .right : edge == .bottom ? .down : nil
         // Even split sizing, as a terminal split (PaneHandlers.split), once the store's pane is placed.
         let sizing = split.flatMap { source.workspace?.layoutModel.splitSizingChanges(splitting: source.layoutPaneID, axis: $0 == .right ? .horizontal : .vertical) } ?? []

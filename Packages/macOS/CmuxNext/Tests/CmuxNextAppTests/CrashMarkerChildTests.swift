@@ -173,7 +173,8 @@ enum CrashChild {
         let marker = await markRun("chromium")
         let missing = FileManager.default.temporaryDirectory.appending(path: "cmux-no-cef-\(UUID().uuidString)")
         let engine = CEFEngine(layout: CEFRuntimeLayout(frameworksDirectory: missing, mainBundle: missing,
-                                                        helperApp: missing.appending(path: "None Helper.app")))
+                                                        helperApp: missing.appending(path: "None Helper.app")),
+                               stores: .inMemory(), signInCallbacks: CEFSignInCallbacks())
         AppRunMarker.keepSignalHandlers(marker, across: engine, reporter: nil)
         for signal in [SIGSEGV, SIGBUS, SIGILL, SIGABRT, SIGTRAP, SIGFPE, SIGSYS] { _ = Darwin.signal(signal, SIG_DFL) }
         await engine.warmStart(reason: "test")

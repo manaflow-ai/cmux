@@ -719,7 +719,8 @@ impl Default for TuiConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct TitlesConfig {
-    /// `generate`: title such a chat after its first turn. Default on.
+    /// `generate`: title such a chat after its first user message. Default on; a thin first
+    /// message may get one refresh after its first turn.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub generate: Option<bool>,
     /// `command`: an argv that reads the request on stdin and prints the

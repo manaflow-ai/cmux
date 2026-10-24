@@ -177,6 +177,7 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onToolCard: (@MainActor (_ card: String, _ action: String, _ value: AgentPaneToolCard.Entered?) -> Void)?
     /// The App's upload for this chat (a chat moved to a Cloud machine), nil when it takes none (``AgentPaneUpload``).
     @ObservationIgnored public var onUpload: (@MainActor () -> AgentPaneUploader?)?
+    @ObservationIgnored public var onUploadStage: (@MainActor () -> AgentPaneUploadStager?)?
 
     @ObservationIgnored let host: any AgentPaneHostProviding
     /// The page's host is another machine's (cx-k21v): it never becomes this Mac's prewarmed spare.
@@ -250,7 +251,7 @@ public final class AgentPaneModel {
     public func respond(to request: AgentPaneRequest) async -> [String: Any] {
         switch request {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
-        case .ready, .reconnect, .framePacing, .renderRate, .checkpointAvailability, .painted, .newTabInputReady, .newTabContext, .newTabWarm, .unsupported,
+        case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .painted, .newTabInputReady, .newTabContext, .newTabWarm, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease, .chatsPage, .quickFloatingState, .quickContext,
              .tabRowTools, .projectIcon, .environment(.list): break
         case .reply(let reply) where reply.isPassive: break
@@ -259,6 +260,7 @@ public final class AgentPaneModel {
             userTouched = true
         }
         switch request {
+        case .uiPointerReport: return AgentPaneReply.success()
         case .ready, .reconnect:
             return await AgentPaneHandshakeReply.reply(to: request, in: self)
         case .persistSession(let id): adoptSession(id); return AgentPaneReply.success()
@@ -306,7 +308,6 @@ public final class AgentPaneModel {
         case .rememberNewTab(let pick): guard let onRememberNewTab else { return Self.unsupported("newTab.remember") }; onRememberNewTab(pick); return AgentPaneReply.success()
         case .editNewTab(let edit): guard let onEditNewTab else { return Self.unsupported(edit.method) }; onEditNewTab(edit); return AgentPaneReply.success()
         case .nowPlaying(let command): return AgentPaneNowPlaying.shared.perform(command) ? AgentPaneReply.success() : Self.unsupported("nowPlaying.command")
-        case .importCard(let act): return AgentPaneImportCards.shared.perform(act) ? AgentPaneReply.success() : Self.unsupported("importCards.act")
         case .runAction(let id): return runAction(id)
         case .jump(let target, let id): guard newTab != nil, let onJump else { return Self.unsupported("tab.jump") }; onJump(target, id); return AgentPaneReply.success()
         case .chooseFolder where remoteChat: return Self.unsupported("workspace.chooseFolder")
@@ -351,7 +352,7 @@ public final class AgentPaneModel {
         case .watchChat(let key): if let onWatchChat { onWatchChat(key); return AgentPaneReply.success() } else { return Self.unsupported("chats.watch") }
         case .chatsPage(let query): return await respondToChatsPage(query)
         case .environment(let request): return await request.reply(store: startFolders.environments, newTabPage: newTab != nil && sessionId == nil)
-        case .paneAction, .preview, .setQuickActions, .tabState, .tabRowTools, .sideChat, .subagentPane, .processTerminal, .chatTab, .offerOpen, .asksOpen, .newChatHere: return await respondToHeader(request)
+        case .paneAction, .diffTurn, .preview, .setQuickActions, .tabState, .tabRowTools, .sideChat, .subagentPane, .processTerminal, .chatTab, .offerOpen, .asksOpen, .newChatHere: return await respondToHeader(request)
         case .appAction(let id):
             guard newTab?.omnibar.actions.contains(where: { $0.id == id }) == true, let onAppAction else { return Self.unsupported("app.action") }
             onAppAction(id)
@@ -375,12 +376,18 @@ public final class AgentPaneModel {
         case .turnUndo(let undo): return await AgentPaneTurnUndo.reply(to: undo, in: self)
         case .invalidTurnUndo: return await AgentPaneTurnUndo.reply(to: nil, in: self)
         case .projectInstructions, .projectAddFiles, .composerCapture: return await AgentPaneProjectFiles.respond(to: request, in: self)
-        case .reply(let reply): return await respond(to: reply)
+        case .reply(let reply):
+            replyLinks.remoteImageLoader = transport.remoteImageLoader
+            return await respond(to: reply)
         case .saveFile(let save): return await saveFile(save)
         case .composerSetting(let path, let show): return await setComposer(path, show)
         case .displaySetting(let path, let value): return await setDisplay(path, value)
         case .toolCard(let card, let action, let value): return AgentPaneToolCard.respond(card: card, action: action, value: value, in: self)
         case .upload(let files): return await AgentPaneUpload.respond(files, in: self)
+        case .uploadStage(let stage):
+            guard let stager = onUploadStage?(), let sessionId else { return Self.unsupported("chat.upload.stage") }
+            if case .begin(_, _, let batchToken, _) = stage, batchToken == nil, !transport.gestures.consume() { return Self.transportFailure(.gestureRequired) }
+            return await stager(stage, sessionId)
         case .unsupported(let method): return Self.unsupported(method)
         }
     }

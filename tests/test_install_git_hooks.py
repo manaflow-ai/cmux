@@ -5,6 +5,7 @@ setup.sh runs the installer last under `set -e`, so a non-zero exit reports the
 whole setup as failed. Existing hooks (a global core.hooksPath, or Git LFS's
 hooks in .git/hooks) are left alone with a warning; real errors still fail.
 """
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -13,7 +14,17 @@ import shlex
 import subprocess
 import tempfile
 import unittest
-import git_fixture_env  # disables git auto maintenance
+
+
+def _load_git_fixture_env():
+    """tests/git_fixture_env.py by path, so `python3 -I` (no script folder on sys.path) runs this file too."""
+    spec = importlib.util.spec_from_file_location("git_fixture_env", Path(__file__).resolve().parent / "git_fixture_env.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)  # importing it disables git auto maintenance
+    return module
+
+
+git_fixture_env = _load_git_fixture_env()
 
 
 SOURCE = Path(__file__).resolve().parents[1]
@@ -60,6 +71,7 @@ class InstallGitHooksTests(unittest.TestCase):
             "scripts/swift_source_mask.py",
             "scripts/web_lint_prepush.py",
             "scripts/cmux-next/prepush-gate.py",
+            "scripts/cmux-next/git_batch.py",
             "scripts/ci/base_merge_warning.py",
         ):
             source, target = SOURCE / relative, root / relative
@@ -137,6 +149,22 @@ class InstallGitHooksTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assert_trusted_hooks_installed()
         self.assert_merge_driver_installed()
+
+    def test_cmux_next_checks_include_the_arch_rule_modules(self):
+        # arch-ratchet.py loads arch_rules/*.py from its own directory: without them the installed ratchet ran no
+        # layer gate. Other folders (tests) stay out of the copy.
+        for relative in ("scripts/cmux-next/arch-ratchet.py", "scripts/cmux-next/arch_rules/layer_gate.py",
+                         "scripts/cmux-next/tests/test_layer_gate.py"):
+            path = self.repo / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("# fixture\n", encoding="utf-8")
+        self.git("add", "scripts/cmux-next")
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        checks = Path(self.local_hooks_path()) / "cmux-next-checks"
+        self.assertTrue((checks / "arch-ratchet.py").is_file())
+        self.assertTrue((checks / "arch_rules" / "layer_gate.py").is_file())
+        self.assertFalse((checks / "tests").exists())
 
     def test_namespace_fix_option_installs_trusted_pre_push_hook(self):
         result = self.install(None, "--namespace-fix")

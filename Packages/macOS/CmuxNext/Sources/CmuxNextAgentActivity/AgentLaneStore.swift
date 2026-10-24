@@ -43,6 +43,11 @@ public final class AgentLaneStore {
     /// notify the reader.
     public func lane(_ session: String) -> AgentActivityLane? { cell(session).lane }
 
+    /// Whether the watch currently has a lane for `session`, observing only presence changes.
+    /// A lane's state may change many times per second; structural sidebar readers must not
+    /// rebuild when that happens.
+    public func sessionIsLive(_ session: String) -> Bool { cell(session).hasLiveSession }
+
     /// What links `session` to its folder, its pull requests and the chat that started it, and its
     /// state, observing only that: a new step of the session does not notify the reader.
     public func links(_ session: String) -> AgentLaneLinks? { cell(session).links }

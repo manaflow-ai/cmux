@@ -1,10 +1,9 @@
 // l10n-allow-file: test fixture commands and chat titles, not shipped UI.
 // The running line's counts, and a tray command with no terminal, open the Inspector at the section
 // that lists what they count (App.tsx `openCommands` and `openTrayCommand`, through processes.ts
-// `backgroundSection`): Background tasks while a command other than a dev server runs, Servers when
-// every running command is a dev server (the Inspector lists those under Servers and draws no
-// Background tasks for them), and Subagents when only subagents or started chats run. The section
-// is always one the Inspector draws. A reveal scrolls to its section once: reopening the Inspector
+// `backgroundSection`): Background tasks while any command runs, a dev server included (its rows head
+// that section), and Subagents when only subagents or started chats run. The section is always one
+// the Inspector draws. A reveal scrolls to its section once: reopening the Inspector
 // later (the palette, a diff split giving the room back) does not jump back to it.
 import { afterEach, expect, test } from "bun:test";
 import { act, useState } from "react";
@@ -119,7 +118,7 @@ const cases: {
   /// The registry listed the chat; without a listing (an older acpmux) the transcript's count.
   listed?: boolean;
   sessions?: StartedSession[];
-  expected: "tasks" | "servers" | "subagents";
+  expected: "tasks" | "subagents";
 }[] = [
   {
     name: "a watcher runs beside a dev server",
@@ -134,7 +133,7 @@ const cases: {
     expected: "tasks",
   },
   {
-    name: "every running command is a dev server; a finished watcher stays under Background tasks",
+    name: "every running command is a dev server, listed under Background tasks",
     processes: processesOf(
       {
         processes: [
@@ -145,7 +144,7 @@ const cases: {
       },
       "s1",
     ),
-    expected: "servers",
+    expected: "tasks",
   },
   {
     name: "only a started chat runs",
@@ -157,7 +156,7 @@ const cases: {
 
 for (const { name, processes, transcript = [], listed = true, sessions = [], expected } of cases)
   test(`the background count opens ${expected} when ${name}, a section the Inspector draws`, async () => {
-    expect(backgroundSection(processes, running(processes, transcript, listed))).toBe(expected);
+    expect(backgroundSection(running(processes, transcript, listed))).toBe(expected);
     const container = installDom();
     await act(async () => {
       root = createRoot(container);
@@ -214,7 +213,7 @@ test("a reveal scrolls to its section once; the palette or another pane reopenin
   // Closed (another pane's toggle), then opened from the palette: the Inspector mounts again.
   await act(async () => setInspectorOpen(false));
   expect(container.querySelector("aside.acpmux-chat-inspector")).toBeNull();
-  await act(async () => void openPicker("Inspector"));
+  await act(async () => void openPicker("Session Info"));
   expect(container.querySelector("aside.acpmux-chat-inspector")).not.toBeNull();
   // Opened again by another pane's change.
   await act(async () => setInspectorOpen(false));

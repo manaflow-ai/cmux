@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 
 /// The workspace auto-name prototypes (hq#1957; Debug Settings
 /// `workspaces.autoName.variant`, DEV and NIGHTLY only; Release always uses

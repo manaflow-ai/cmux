@@ -3,7 +3,7 @@
 // the prompt's text (an adopted Claude session's history, `client: "adopt"`). incomingMessage.ts
 // reads them.
 import { expect, test } from "bun:test";
-import { incomingPrompt, messagePreview, renderedReply, unsigned } from "./incomingMessage";
+import { incomingPrompt, messagePreview, unsigned } from "./incomingMessage";
 
 const adopted = { client: "adopt" };
 
@@ -450,29 +450,21 @@ test("an agent_digest from one chat answers its newest message; from several, no
 });
 
 test("a reply in place reaches the sender's chat as the replying chat's message, linked and answerable", () => {
-  // Chat `parent` answers message m-1 from `child-3` in place (direct.ts `reply`); acpmux records
-  // it in child-3's chat with the replying chat's address and its own name (`app_reply_fits`).
-  const text = renderedReply({
-    from: "acp:parent",
-    fromName: "Fix the\ngrid\u200b",
-    msgId: "m-2",
+  // Chat `parent` answers m-1 from `child-3` in place (direct.ts `reply`); the app sends it as
+  // parent's cmux agent message (acpmux server/app_reply.rs signs it), so cmux stores it as msg_2,
+  // signs it with the chat's own name and delivers it as any agent message, with its `Reply with`
+  // line.
+  const text = rendered("Merged; thanks.\nShip it.", {
+    id: "msg_2",
+    from: "Fix the grid (acp:parent)",
     replyTo: "m-1",
-    text: "Merged; thanks.\nShip it.",
   });
-  expect(text).toBe(
-    rendered("Merged; thanks.\nShip it.", {
-      id: "m-2",
-      from: "Fix the grid (acp:parent)",
-      replyTo: "m-1",
-      reply: false,
-    }),
-  );
   const recorded = {
     kind: "agent_message",
     from: "acp:parent",
     fromName: "Fix the grid",
     to: "acp:child-3",
-    msgId: "m-2",
+    msgId: "msg_2",
     threadId: "t-1",
     replyTo: "m-1",
   };
@@ -482,16 +474,12 @@ test("a reply in place reaches the sender's chat as the replying chat's message,
     message: {
       name: "Fix the grid",
       sessionId: "parent",
-      msgId: "m-2",
+      msgId: "msg_2",
       threadId: "t-1",
       text: "Merged; thanks.\nShip it.",
       raw: text,
     },
   });
-  // Without a title the address stands in.
-  expect(renderedReply({ from: "acp:parent", msgId: "m-2", replyTo: "m-1", text: "hi" }).split("\n")[0]).toBe(
-    "[cmux agent message] from acp:parent",
-  );
 });
 
 test("a message's closed line previews its first line of text, its spaces collapsed", () => {
@@ -500,6 +488,116 @@ test("a message's closed line previews its first line of text, its spaces collap
   expect(messagePreview("## **Merged** `#23727`")).toBe("Merged #23727");
   expect(messagePreview("- [x] landed")).toBe("landed");
   expect(messagePreview("x".repeat(400))).toHaveLength(240);
+});
+
+// `acpmux send` relayed from another machine records no provenance (`client: "acpmux-peer#…"`), so
+// an agent that addresses its message sender first is known only by its text: claude-sr2's chat,
+// 2026-10-22, showed summary-panel's report as the person's bubble.
+test("a message addressed sender first is that agent's when it names this chat or a listed sender", () => {
+  const peer = { client: "acpmux-peer#01a161" };
+  const here = { isThisChat: (name: string) => name.toLowerCase() === "claude-sr2" };
+  const sent =
+    "summary-panel -> claude-sr2: Confirmed. On feat-cmux-next today, the overlay card is **as tall** as its content.";
+  // Relayed from another machine, so its files are that machine's (#24190).
+  expect(incomingPrompt(sent, peer, here)).toEqual({
+    kind: "message",
+    message: {
+      name: "summary-panel",
+      remote: true,
+      text: "Confirmed. On feat-cmux-next today, the overlay card is **as tall** as its content.",
+      raw: sent,
+    },
+  });
+  // The arrow `→`, spaces or none, the body on the next lines, from a shell here too.
+  for (const text of [
+    "summary-panel → claude-sr2: Done.",
+    "summary-panel->claude-sr2: Done.",
+    "summary-panel→claude-sr2:\nDone.",
+    "summary-panel  ->  Claude-SR2: Done.",
+  ])
+    for (const client of ["acpmux-peer#01a161", "acpmux-cli#a1b2c3"]) {
+      const remote = client.startsWith("acpmux-peer#") ? { remote: true as const } : {};
+      expect(incomingPrompt(text, { client }, here)).toEqual({
+        kind: "message",
+        message: { name: "summary-panel", ...remote, text: "Done.", raw: text },
+      });
+    }
+  // To another chat, from a listed one.
+  const listed = {
+    isThisChat: (name: string) => name === "coordinator",
+    isChat: (name: string) => name === "summary-panel",
+  };
+  expect(incomingPrompt("summary-panel -> claude-sr2: Done.", peer, listed)).toMatchObject({
+    message: { name: "summary-panel", text: "Done." },
+  });
+  // An adopted or watched chat's transcript records no client of the sender's either.
+  for (const client of ["adopt", "watch"])
+    expect(incomingPrompt("summary-panel -> claude-sr2: Done.", { client }, here)).toMatchObject({
+      message: { name: "summary-panel", text: "Done." },
+    });
+});
+
+test("the person's arrow is their own words", () => {
+  const here = {
+    isThisChat: (name: string) => name === "claude-sr2",
+    isChat: (name: string) => name === "summary-panel" || name === "reviewer",
+  };
+  // Typed in the pane: the person's, whatever it names.
+  for (const client of [undefined, "web", "cmux-pane#1", "acpmux"])
+    expect(incomingPrompt("summary-panel -> claude-sr2: Done.", { client }, here)).toBeUndefined();
+  // Typed at the acpmux TUI or sent from a shell, naming neither this chat nor a listed sender.
+  for (const text of ["foo -> bar: rename it", "a -> b: see", "foo→bar: x"])
+    expect(incomingPrompt(text, { client: "acpmux-cli#a1b2c3" }, here)).toBeUndefined();
+  // To this chat, from a name no agent's and no listed chat's (the person signing at the TUI).
+  for (const text of ["leo -> claude-sr2: merge it", "Leo → claude-sr2: merge it"])
+    expect(incomingPrompt(text, { client: "acpmux-cli#a1b2c3" }, here)).toBeUndefined();
+  // A listed chat's one-word name is its sender's.
+  expect(incomingPrompt("reviewer -> claude-sr2: SHIP", { client: "acpmux-cli#a1b2c3" }, here)).toMatchObject({
+    message: { name: "reviewer", text: "SHIP" },
+  });
+  // Not first, more than one word, no colon after the receiver, or a longer arrow: prose.
+  for (const text of [
+    "Then a -> b: see the log",
+    "Then summary-panel -> claude-sr2: see the log",
+    "the summary panel -> claude-sr2: see",
+    "summary-panel -> claude-sr2 then merge",
+    "summary-panel -> claude-sr2:",
+    "summary-panel -> https://example.com/x",
+    "summary-panel-->claude-sr2: Done.",
+    "summary-panel -> -claude-sr2: Done.",
+  ])
+    expect(incomingPrompt(text, { client: "acpmux-cli#a1b2c3" }, here)).toBeUndefined();
+  // No context (a caller that knows no chat): never a message.
+  expect(incomingPrompt("summary-panel -> claude-sr2: Done.", { client: "acpmux-cli#a1b2c3" })).toBeUndefined();
+  // An adopted chat's typed prompt behind a reminder stays the person's.
+  expect(
+    incomingPrompt("<system-reminder>r</system-reminder>\nfoo -> bar: rename it", { client: "adopt" }, here),
+  ).toEqual({
+    kind: "prompt",
+    text: "foo -> bar: rename it",
+  });
+});
+
+test("an envelope that names its sender drops the sender's address line", () => {
+  const session = { kind: "session_message", from: "acp:panel-1", fromName: "summary-panel", to: "acp:parent" };
+  const text = "summary-panel -> claude-sr2: Confirmed.";
+  expect(incomingPrompt(text, { _meta: { provenance: session } })).toEqual({
+    kind: "message",
+    message: { name: "summary-panel", sessionId: "panel-1", text: "Confirmed.", raw: text },
+  });
+  // A one-word name before the arrow is no agent's signature here: the text stays whole.
+  expect(incomingPrompt("a -> b: see", { _meta: { provenance: session } })).toMatchObject({
+    message: { name: "summary-panel", text: "a -> b: see" },
+  });
+});
+
+test("a watched chat's Claude Code envelope is the sender's message, as an adopted one's", () => {
+  const raw = `Another Claude session sent a message:\n<cross-session-message from="uds:/tmp/a.sock" from-name="leoli-fb">\nPlease review #123.\n</cross-session-message>${NOTE}`;
+  expect(incomingPrompt(raw, { client: "watch" })).toEqual({
+    kind: "message",
+    message: { name: "leoli-fb", text: "Please review #123.", raw },
+  });
+  expect(incomingPrompt("<system-reminder>r</system-reminder>", { client: "watch" })).toEqual({ kind: "hidden" });
 });
 
 // Leo 2026-10-21: "[agent-message-style] MERGED #23825 …" still showed its signature. The build he

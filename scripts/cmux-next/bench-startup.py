@@ -54,6 +54,9 @@ import tempfile
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# The shared launch helper's socket paths and session check (bench_launch.py). Not its bench env: this bench times
+# the launch itself, with the agent pane's real handshake and the account's Chief, as a person's launch runs.
+from bench_launch import finder_limits, limits_line, require_gui_session, socket_candidates  # noqa: E402
 
 DERIVED = os.path.expanduser("~/Library/Developer/Xcode/DerivedData")
 FINAL_MARK = "first_terminal_frame"
@@ -228,8 +231,10 @@ class Launch:
             **({"CMUX_NEXT_HANG_THRESHOLD_MS": str(HANG_THRESHOLD_MS)} if HANG_THRESHOLD_MS else {}),
             **(extra_env or {}),
         }
-        self.process = subprocess.Popen([app_binary(tag)], env=env, stdout=subprocess.DEVNULL,
-                                        stderr=subprocess.DEVNULL, start_new_session=True, pass_fds=(write_fd,))
+        with finder_limits() as changed:  # the limits a Finder launch gets (bench_launch.py, Resource limits)
+            self.process = subprocess.Popen([app_binary(tag)], env=env, stdout=subprocess.DEVNULL,
+                                            stderr=subprocess.DEVNULL, start_new_session=True, pass_fds=(write_fd,))
+        print(f"bench-startup: app limits {limits_line(changed)}", file=sys.stderr, flush=True)
         os.close(write_fd)
         self.read_fd = read_fd
         self.buffer = b""
@@ -307,11 +312,13 @@ def app_client(tag, timeout=30):
     from bench_cli_storm import Client  # noqa: E402
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        try:
-            return Client(f"/tmp/cmux-debug-{tag}.sock", timeout=10)
-        except OSError:
-            time.sleep(0.2)
-    raise SystemExit(f"tag {tag}: control socket did not answer")
+        for path in socket_candidates(tag):  # the state folder first, then the /tmp link
+            try:
+                return Client(path, timeout=10)
+            except OSError:
+                pass
+        time.sleep(0.2)
+    raise SystemExit(f"tag {tag}: control socket did not answer at {', '.join(socket_candidates(tag))}")
 
 
 def app_tab_id(app, workspace_name, timeout, wanted=lambda tab: True):
@@ -588,6 +595,7 @@ def table(runs):
 
 
 def main():
+    require_gui_session("bench-startup")
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--tag", action="append", default=[])
     parser.add_argument("--app", action="append", default=[], help="a staged `cmux DEV <tag>.app` (fleet artifact)")

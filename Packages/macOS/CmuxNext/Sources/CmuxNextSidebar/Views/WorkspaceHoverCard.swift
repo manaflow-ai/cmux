@@ -145,7 +145,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
         // The workspace on screen needs no digest: the person is looking at it.
         let looked = SidebarTunables.sinceLooked.value && ws != list.model.activeWorkspaceID ? SidebarLookedStore.shared.stamps[ws] : nil
         let content = WorkspaceHoverCardContent.make(workspace, machine: machine, now: Date(), options: options, timeline: timeline,
-                                                     looked: looked)
+                                                     looked: looked, pullRequests: SidebarSessionTree.shared.pullRequests[ws])
         body.configure(content)
         body.setResources(resources.report)
         bodyID = id
@@ -260,7 +260,10 @@ final class WorkspaceHoverCardView: NSView {
     /// How tall the history may grow before it scrolls: the default card, and the full history.
     static var timelineMaxHeight: CGFloat { 220 }
     static var logMaxHeight: CGFloat { 360 }
-    private static var iconSize: CGFloat { 13 }
+    private static var iconSize: CGFloat { HoverCardRowView.iconSize }
+    /// Where every row's text starts, past the icon column: the name, the status word, the
+    /// stats and each fact share this one leading edge.
+    static var textInset: CGFloat { iconSize + Metrics.space2 }
     /// The body font with digits of one width, for lines whose running time ticks.
     private static var liveFont: NSFont { Typography.system(.monospacedDigit, size: Typography.body.pointSize, weight: .regular) }
 
@@ -287,6 +290,8 @@ final class WorkspaceHoverCardView: NSView {
     private let resourceRow = HoverCardRowView()
     /// "Prompts: 4 · Worked 12m", under the status (u3320).
     private let statsLabel = ChromeLabel(labelWithString: "")
+    /// The stats line's row, which puts it on the text column (hidden with it).
+    private let statsRow = NSStackView()
     /// The scrollable history of prompts, waits and finished turns (u3320).
     let timeline = WorkspaceHoverCardTimelineView()
     /// The card's widest; the full history layout widens it.
@@ -335,7 +340,6 @@ final class WorkspaceHoverCardView: NSView {
         resourceRow.isHidden = true
         statsLabel.font = Typography.system(.monospacedDigit, size: Typography.caption.pointSize, weight: .regular)
         statsLabel.lineBreakMode = .byTruncatingTail
-        statsLabel.isHidden = true
         timeline.isHidden = true
 
         // Every icon sits on one column at the leading inset, its text beside it (the fact rows'
@@ -363,8 +367,12 @@ final class WorkspaceHoverCardView: NSView {
         customError.maximumNumberOfLines = 3
         customError.isHidden = true
         customSlot.isHidden = true
-        builtIn = [titleRow, activityRow, statsLabel, factsStack, timeline, resourceRow]
-        let stack = NSStackView(views: [customSlot, titleRow, activityRow, statsLabel, factsStack, timeline, resourceRow, customError])
+        // The stats line reads on the text column with the name and the facts, not under the icons.
+        statsRow.setViews([statsLabel], in: .leading)
+        statsRow.edgeInsets = NSEdgeInsets(top: 0, left: Self.textInset, bottom: 0, right: 0)
+        statsRow.isHidden = true
+        builtIn = [titleRow, activityRow, statsRow, factsStack, timeline, resourceRow]
+        let stack = NSStackView(views: [customSlot, titleRow, activityRow, statsRow, factsStack, timeline, resourceRow, customError])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = Metrics.space3
@@ -404,7 +412,7 @@ final class WorkspaceHoverCardView: NSView {
         var lines = [[titleLabel.stringValue, ageLabel.isHidden ? "" : ageLabel.stringValue]
             .filter { !$0.isEmpty }.joined(separator: " ")]
         if !activityRow.isHidden { lines.append(activityLabel.stringValue) }
-        if !statsLabel.isHidden { lines.append(statsLabel.stringValue) }
+        if !statsRow.isHidden { lines.append(statsLabel.stringValue) }
         lines += factViews.filter { !$0.isHidden }.map(\.shownText)
         if !timeline.isHidden { lines += timeline.lines }
         if !resourceRow.isHidden { lines.append(resourceRow.shownText) }
@@ -442,7 +450,7 @@ final class WorkspaceHoverCardView: NSView {
         width = content.options.layout == .log ? Self.logCardWidth : Self.cardWidth
         widthLimit?.constant = width
         statsLabel.stringValue = content.stats ?? ""
-        statsLabel.isHidden = content.stats == nil
+        statsRow.isHidden = content.stats == nil
         titleLabel.stringValue = content.title
         kindIcon.image = NSImage.icon(content.icon, size: Self.iconSize)
         ageLabel.stringValue = content.age ?? ""
@@ -466,13 +474,13 @@ final class WorkspaceHoverCardView: NSView {
             shown.text = WorkspaceHoverCardContent.withElapsed(fact.text, since: fact.since, now: now)
             row.configure(shown, image: Self.ownImage(fact) ?? NSImage.icon(fact.icon, size: Self.iconSize),
                           font: fact.since == nil ? Typography.body : Self.liveFont, wrapWidth: wrap,
-                          truncation: .byTruncatingMiddle)
+                          truncation: Self.truncation(fact))
         }
-        // The last reply sits a step apart from the metadata above it, like the stack's own gap.
+        // The preview (the last reply or the pull request's state) sits a step apart from the
+        // metadata above it, like the stack's own gap.
         for (index, row) in factViews.enumerated() {
             let next = index + 1 < content.facts.count ? content.facts[index + 1] : nil
-            factsStack.setCustomSpacing(next?.kind == WorkspaceHoverCardContent.Fact.lastReplyKind ? Metrics.space3 : NSStackView.useDefaultSpacing,
-                                        after: row)
+            factsStack.setCustomSpacing(next?.isPreview == true ? Metrics.space3 : NSStackView.useDefaultSpacing, after: row)
         }
         factsStack.isHidden = content.facts.isEmpty
         let log = content.options.layout == .log
@@ -501,6 +509,12 @@ final class WorkspaceHoverCardView: NSView {
             pending.append(contentsOf: (object.accessibilityChildren() ?? []).reversed())
         }
         return out
+    }
+
+    /// Where a one-line fact cuts: a path or a branch in the middle (its end says which), a pull
+    /// request at its tail ("#22231 Share one hover…": the number and the title's start read).
+    static func truncation(_ fact: WorkspaceHoverCardContent.Fact) -> NSLineBreakMode {
+        fact.kind == "pullRequest" ? .byTruncatingTail : .byTruncatingMiddle
     }
 
     /// A status entry's own icon: its stored image, its SF Symbol or its emoji; nil for none (or

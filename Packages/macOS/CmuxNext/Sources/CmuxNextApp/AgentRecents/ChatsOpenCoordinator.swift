@@ -87,6 +87,10 @@ final class ChatsOpenCoordinator {
     /// and follows the app that runs it, without running it, until Take Over.
     func open(_ key: String, inTerminal: Bool = false, watch: Bool = false, replacing page: String? = nil) {
         guard let services, let environment = QuitAgents.environment(services) else { return }
+        // A chat a tab already shows (its agent chat, else the terminal running it) is shown there,
+        // never opened again in a new workspace that then asks to Fork or Open Anyway. Open in
+        // Terminal and an explicit View Only still open their own tab.
+        if !inTerminal, !watch, revealRunning(key) { return }
         // Every Open of an outside Claude Code or Codex chat is View Only unless the Debug toggle is off.
         let watch = watch || AgentPaneTunables.openOutsideChatsViewOnly.value
         Task { [weak self] in
@@ -98,6 +102,18 @@ final class ChatsOpenCoordinator {
                 services.refusalHUD.show(error.localizedDescription, in: services.windows.active?.window ?? NSApp.keyWindow)
             }
         }
+    }
+
+    /// Shows the tab that already shows chat `key`: the agent chat resuming it, else a live
+    /// terminal running it (the lookup `cmux://agent` links use). False when no tab shows it.
+    private func revealRunning(_ key: String) -> Bool {
+        guard let services else { return false }
+        let chat = services.chatsFeed?.chat(id: key)
+        let parts = key.split(separator: ":", maxSplits: 1).map(String.init)
+        // The index names Claude Code `claude-code`; tabs and terminals name it `claude`.
+        guard let harness = TerminalChatRoute.harness(of: chat?.harness ?? parts.first),
+              let session = chat?.sessionID ?? (parts.count == 2 ? parts[1] : nil) else { return false }
+        return services.revealAgentSession(harness: harness, session: session)
     }
 
     private func dispatch(_ plan: AcpmuxChatOpenPlan, key: String, environment: AcpmuxEnvironment, inTerminal: Bool = false,

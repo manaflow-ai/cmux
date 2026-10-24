@@ -104,6 +104,13 @@ impl HostShared {
         self.publish_child_wait_predicate(&self.group_escalation_complete);
     }
 
+    /// Windows has no process groups to scan: the session ends with the
+    /// direct child, and the Kill step ends the rest of its job.
+    #[cfg(not(unix))]
+    pub(crate) fn wait_for_terminal_session_end(&self, grace: Duration) -> bool {
+        self.wait_for_child_waitable(grace)
+    }
+
     pub(crate) fn publish_exit_if_drained(&self) {
         // Persistence can block or retry under filesystem pressure. A
         // dedicated host-owned worker keeps snapshots, client input, and
@@ -217,14 +224,20 @@ impl HostShared {
             let _signal = self.child_signal_lock.lock().recover_poison();
             self.termination_started.store(true, Ordering::Release);
         }
-        // ProcessSignaller only targets the direct child. Start with a
-        // graceful group hangup so foreground jobs and normal descendants
-        // can clean up too, then escalate after a strict bound.
+        // Closing a terminal ends its programs gracefully, off every UI
+        // path (the tab is already gone): SIGHUP to the session's groups,
+        // HOST_HANGUP_GRACE for them to exit, SIGTERM to what is left,
+        // HOST_SIGTERM_GRACE, then SIGKILL. ProcessSignaller only targets
+        // the direct child; the group signals reach foreground jobs and
+        // descendants too.
         self.signal_terminal_process_groups(GroupSignal::Hangup);
         if !self.child_waitable.load(Ordering::Acquire) {
             let _ = self.killer.lock().recover_poison().kill();
         }
-        let _ = self.wait_for_child_waitable(HOST_TERMINATE_GRACE);
+        if !self.wait_for_terminal_session_end(HOST_HANGUP_GRACE) {
+            self.signal_terminal_process_groups(GroupSignal::Terminate);
+            let _ = self.wait_for_terminal_session_end(HOST_SIGTERM_GRACE);
+        }
         let _ = self.wait_for_pty_drain(HOST_PTY_DRAIN_GRACE);
 
         // The direct child may ignore SIGHUP, or it may already have

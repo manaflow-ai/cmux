@@ -7,7 +7,8 @@
 // writing its reply, with prompts queued behind it.
 //
 // - The queued prompts sit under the pull request bar, over the composer (the
-//   bottom stack's order, #20521), never under either; under "Queued", and a long one opens whole
+//   bottom stack's order, #20521), never under either; the list is named "Queued prompts" (its rows
+//   carry no header or number, Leo 2026-10-21), and a long one opens whole
 //   (acpmux lists only a 200-character preview; the pane keeps the text its `queued` record had).
 // - A prompt sent now to an agent that cannot steer reads "Steering" in the queue, apart from the
 //   queued ones, and its bubble's read receipt reads read once it runs.
@@ -16,8 +17,8 @@
 //   second steer in the same step does not mark the first read. No "Steering" / "Steered" line
 //   shows under the bubble (Leo, 2026-10-20).
 //
-// - A queued prompt shows two lines until it is opened, in WebKit (the engine cmux NEXT draws
-//   with) too: a live run showed a five-line prompt whole before any click.
+// - A queued prompt shows one line, cut with an ellipsis, until it is opened, in WebKit (the engine
+//   cmux NEXT draws with) too: a live run showed a five-line prompt whole before any click.
 //
 // The stand-in sends what acpmux sends: the attach's `kinds` filter its page and its live events,
 // with acpmux's list of transcript records (cmux-tui/crates/acpmux/src/hub/paging.rs). A live run
@@ -275,7 +276,7 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
     page.locator(".cv-user", { hasText: text }).locator(`.cv-user__read[data-read="${read}"]`);
 
   describe("queued and steering prompts", () => {
-    test("queued prompts sit between the pull request bar and the composer, under Queued, and a long one opens whole", async () => {
+    test("queued prompts sit between the pull request bar and the composer, named Queued prompts, and a long one opens whole", async () => {
       const page = await openChat(true);
       const dock = page.locator(".acpmux-pr-dock");
       await dock.waitFor();
@@ -288,7 +289,8 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
       const composer = await page.locator(".acpmux-composer-box").boundingBox();
       expect(bar!.y + bar!.height).toBeLessThanOrEqual(list!.y + 1);
       expect(list!.y + list!.height).toBeLessThanOrEqual(composer!.y + 1);
-      expect(await page.locator(".acpmux-queue-header").innerText()).toContain("Queued");
+      expect(await page.locator(".acpmux-queue-header").count()).toBe(0);
+      expect(await page.locator(".acpmux-composer-queue").getAttribute("aria-label")).toBe("Queued prompts (2)");
       const long = page.locator(".acpmux-queued-text", { hasText: "the pr thing" });
       await long.click();
       await expect(long.getAttribute("aria-expanded")).resolves.toBe("true");
@@ -296,7 +298,7 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
       await page.close();
     });
 
-    test("in WebKit a queued prompt shows two lines until it is opened, then all of it", async () => {
+    test("in WebKit a queued prompt shows one line until it is opened, then all of it", async () => {
       const FIVE = "alpha one\nbravo two\ncharlie three\ndelta four\necho five";
       const page = await openChat(
         true,
@@ -306,9 +308,9 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
       );
       const text = page.locator(".acpmux-queued-text", { hasText: "alpha one" });
       await text.waitFor();
-      // Two 18px lines, closed.
+      // One 18px line, closed.
       const closed = (await text.boundingBox())!.height;
-      expect(closed).toBeLessThanOrEqual(2 * 18 + 1);
+      expect(closed).toBeLessThanOrEqual(18 + 1);
       await text.click();
       await expect(text.getAttribute("aria-expanded")).resolves.toBe("true");
       // All five lines once opened.
@@ -394,8 +396,8 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
       send(["mux", "queue_order", { promptId: "q-now", order: ["q-now", "q-1", "q-2"], next: true }]);
       const now = page.locator(".acpmux-queued", { hasText: "fix the space thing first" });
       await now.locator(".acpmux-queued-kind", { hasText: "Steering" }).waitFor({ timeout: 10_000 });
-      // The queued prompts still count from 1.
-      expect(await page.locator(".acpmux-queued-mark:not([data-kind])").allInnerTexts()).toEqual(["1", "2"]);
+      // The queued prompts carry no number (Leo, 2026-10-21).
+      expect(await page.locator(".acpmux-queued-mark").count()).toBe(0);
       send(["mux", "turn_result", { status: "cancelled", turnId: "turn-1" }]);
       send(["mux", "dequeued", { promptId: "q-now" }]);
       send([

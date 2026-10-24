@@ -139,6 +139,12 @@ request --tree-ready "$head"
 ! dispatched "$other" || fail "a commit with another, unpublished tree must not be promoted"
 ! dispatched "$head" || fail "only the newest matching commit is requested"
 
+# Exit 127 from the tree-key helper is an operational failure, not a
+# candidate to skip. Keep this guard close to the fixture so the promotion test
+# fails if the fail-closed branch is removed.
+grep -q 'key_rc == 127' "$ROOT/scripts/cmux-next/request-nightly-next.sh" \
+  || fail "tree-key helper launch failures must fail the promotion job"
+
 # A pending or red Release compile is passed over for an older green one ...
 jobs 12 in_progress null
 request --tree-ready "$head"

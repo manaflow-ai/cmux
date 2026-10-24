@@ -67,13 +67,16 @@ enum TerminalHandlers {
         }
         // Cmd-K (decision K1): the daemon owns the terminal state, so the clear happens there and
         // reaches every view; Ghostty's clear_screen on the app's mirror alone is undone by the
-        // next frame and comes back on reattach.
+        // next frame and comes back on reattach. On the alternate screen a key press goes to the
+        // program as Cmd-K, encoded by the daemon with its keyboard modes (Ghostty's
+        // `performable:clear_screen`; Claude Code clears its screen on it).
         registry.bind("terminal.clear", invoke: { invocation in
             guard let (tab, _) = ctx.daemonTab(invocation) else { return }
             if tab.kind == .remoteTerminal { return clearRemoteTerminal(tab, ctx) }
             guard tab.kind == .pty else { return ctx.refuse(RefusalStrings.notATerminal) }
-            let surface = tab.surface
-            clear(on: ctx.services.activeDaemon, ctx) { _ = try await $0.request(ClearHistoryRequest(surface: surface)) }
+            let request = ClearHistoryRequest(surface: tab.surface,
+                                              fallbackKey: registry.isDispatchingKeyDown() ? .command("k") : nil)
+            clear(on: ctx.services.activeDaemon, ctx) { _ = try await $0.request(request) }
         })
         registry.bind("reconnectPane", invoke: { invocation in
             guard let (pane, content) = ctx.visibleContent(invocation) else { return }
@@ -105,6 +108,8 @@ enum TerminalHandlers {
         guard daemon.connection != nil else { return ctx.refuse(MiscHandlerStrings.daemonOffline) }
         let reporter = ctx.services.crashReporting.reporter
         daemon.send("clear-history", onFailure: { failure in
+            // An alternate-screen program without Kitty keys has no Cmd-K: nothing changed, as in Ghostty.
+            if failure.message.contains(ClearHistoryRequest.fallbackUnrepresentable) { return }
             reporter.recordFailure("terminal.clear", message: Self.failureKind(failure.message))
         }, body)
     }
@@ -121,7 +126,7 @@ enum TerminalHandlers {
     /// tab (`terminal-reap-v1`); off lets the daemon end it after the reap
     /// grace period once no tab shows it.
     private static func bindKeep(_ registry: ActionRegistry, _ ctx: AppActionContext) {
-        registry.bind("terminal.keep", unavailable: ctx.needs(DaemonCapabilities.shared.terminalReap), invoke: { invocation in
+        registry.bind("terminal.keep", unavailable: ctx.needs(DaemonCapability.terminalReap.rawValue), invoke: { invocation in
             guard let (tab, _) = ctx.daemonTab(invocation) else { return }
             guard tab.kind == .pty else { return ctx.refuse(RefusalStrings.notATerminal) }
             let keep = invocation["on"]?.boolValue ?? true, surface = tab.surface

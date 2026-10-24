@@ -25,7 +25,10 @@ public struct MotionTrace {
     public private(set) static var isEnabled = false
     private static var open: [String: CFTimeInterval] = [:]
     public private(set) static var spans: [Span] = []
-    /// Main-thread work per frame of each animation `measure` times, in ms.
+    /// Main-thread work per frame of each animation `measure` times, in ms; `ca.commit` is each
+    /// Core Animation commit of the main run loop while a ``MotionCommitProbe`` records (the
+    /// `debug.motion` handler's), which includes Chromium's pre-commit wait for a page's frame at a
+    /// new size.
     public private(set) static var work: [String: [Double]] = [:]
     public private(set) static var samples: [Sample] = []
     /// What an animator decided at a time (`note`), for a bench that must tell why something moved.
@@ -34,7 +37,6 @@ public struct MotionTrace {
     public private(set) static var startedAt: CFTimeInterval = 0
     static let capacity = 1024
     static let sampleCapacity = 8192
-
     public static func start() {
         isEnabled = true
         open.removeAll()
@@ -61,8 +63,14 @@ public struct MotionTrace {
         guard isEnabled else { return body() }
         let start = CACurrentMediaTime()
         let result = body()
-        if work[name, default: []].count < capacity * 16 { work[name, default: []].append((CACurrentMediaTime() - start) * 1000) }
+        record(name, milliseconds: (CACurrentMediaTime() - start) * 1000)
         return result
+    }
+
+    /// One frame's main-thread work of `name` timed elsewhere (only while recording).
+    static func record(_ name: String, milliseconds: Double) {
+        guard isEnabled, work[name, default: []].count < capacity * 16 else { return }
+        work[name, default: []].append(milliseconds)
     }
 
     public static func end(_ name: String, id: ObjectIdentifier? = nil) {

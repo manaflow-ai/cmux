@@ -63,6 +63,14 @@ export const Expand = (p: CvIconProps) => (
   </Svg>
 );
 
+/** Open in tab: a window with its right side split off, where the new tab opens. */
+export const OpenTab = (p: CvIconProps) => (
+  <Svg {...p}>
+    <rect x="2.5" y="3.5" width="11" height="9" rx="1.5" />
+    <path d="M9 3.5v9" />
+  </Svg>
+);
+
 export const ChevronDown = (p: CvIconProps) => (
   <Svg {...p}>
     <path d="M4.25 6.25 8 10l3.75-3.75" />
@@ -137,6 +145,15 @@ export const Retry = (p: CvIconProps) => (
   <Svg {...p}>
     <path d="M3.25 8a4.75 4.75 0 1 0 1.4-3.36" />
     <path d="M3.25 2.75v2.5h2.5" />
+  </Svg>
+);
+
+/** A failure's mark: a circle with an exclamation (a failed turn's card). */
+export const AlertCircle = (p: CvIconProps) => (
+  <Svg {...p}>
+    <circle cx="8" cy="8" r="5.75" />
+    <path d="M8 5.25v3.25" />
+    <circle cx="8" cy="10.75" r=".4" fill="currentColor" />
   </Svg>
 );
 

@@ -40,6 +40,7 @@ impl Hub {
         let remote = session.meta().remote_origin;
         let left_out = crate::agent_tools::left_out(remote, &profile.env, args);
         session.launched_with_tools.store(if left_out { 2 } else { 1 }, Ordering::SeqCst);
+        self.record_preview_format(session, crate::agent::preview_format(profile));
         let mut cmux = if left_out {
             Vec::new()
         } else {
@@ -55,6 +56,33 @@ impl Hub {
         let reported = m.tools.rows.iter().filter(|r| r.source != "cmux").cloned();
         m.tools.rows = cmux.into_iter().chain(reported).collect();
         m.tools.mutable = claude;
+    }
+
+    /// How the session's agent writes question previews: as recorded at its
+    /// launch (`record_preview_format`), so an agent adopted after a daemon
+    /// restart keeps the format it was started with.
+    pub(super) fn preview_format(session: &Session) -> super::questions::PreviewFormat {
+        let meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+        super::questions::PreviewFormat::from_flag(meta.html_previews)
+    }
+
+    /// Records how the session's agent writes its question previews. A launch
+    /// records its profile's format first (`agent::preview_format`), then the
+    /// one its command was pinned to (`agent::pinned_preview_format`): a cold
+    /// start's, or a pooled agent's from its prewarm (`pool/`), which a later
+    /// resolution of a `${env:…}` or keychain reference could disagree with.
+    pub(super) fn record_preview_format(
+        &self,
+        session: &Session,
+        format: super::questions::PreviewFormat,
+    ) {
+        let html = format == super::questions::PreviewFormat::Html;
+        let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+        let was = std::mem::replace(&mut meta.html_previews, html);
+        drop(meta);
+        if was != html {
+            self.save_meta(session);
+        }
     }
 
     /// Claude Code's system/init (`_meta.claude` of its session_info_update):

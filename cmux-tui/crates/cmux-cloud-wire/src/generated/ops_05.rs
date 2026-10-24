@@ -4,6 +4,31 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// List firewall rules attached to the caller's private network.
+    FirewallListOp {
+        name: "firewall.list",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:UserDO",
+        risk: "read",
+        principals: [Session],
+        params: FirewallListParams,
+        result: FirewallListResult,
+        error: FirewallListError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FirewallListParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vpc_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vm_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tunnel_id: Option<String>,
+}
+
 wire_enum! {
     FirewallListResultRulesItemSourceProtocol {
         Tcp = "tcp",
@@ -871,33 +896,4 @@ pub struct InboxListResult {
     pub entries: Vec<HomeInboxEntry>,
     pub next_cursor: Option<String>,
     pub revision: String,
-}
-
-wire_errors! {
-    /// The error codes inbox.list declares.
-    InboxListError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-    }
-}
-
-wire_op! {
-    /// Flag a conversation unread (the read cursor stays).
-    InboxMarkUnreadOp {
-        name: "inbox.mark_unread",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:UserDO",
-        risk: "mutate-own",
-        principals: [Session, Install],
-        params: InboxMarkUnreadParams,
-        result: HomeInboxEntry,
-        error: InboxMarkUnreadError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct InboxMarkUnreadParams {
-    pub conversation: ConversationId,
-    pub unread: bool,
 }

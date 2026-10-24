@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextDiff
 import CmuxNextPalette
 
 /// The viewers' open actions (R89), one path for the palette, the CLI or
@@ -26,13 +27,15 @@ enum ViewerHandlers {
                 return try showPicker(viewers.diffPickerPage(for: pane), context, invocation)
             }
             let focus = invocation.allowsViewChange && !invocation.besideCaller
+            // A chat's open (its header's Changes, an edited-files card) names a turn for Last turn.
+            let turn = diffTurn(invocation), showTurn = invocation[DiffTurnArgument.show]?.boolValue == true
             // An agent's diff beside its chat: selected in the column right of it, or moved into a new one.
             let created = invocation.besideCaller ? AgentBesidePlacement.placed(invocation, in: pane, then: nil) : nil
             // No repository at the pane's folder: the picker asks for one (only when the run may
             // change the view, as a person's click on the chat header's Changes may; an agent or
             // the CLI without focus gets needsFocus).
             registry.track(Task { @MainActor in
-                do { try await viewers.openDiff(folder, in: pane, focus: focus, created: created) } catch {
+                do { try await viewers.openDiff(folder, turn: turn, showTurn: showTurn, in: pane, focus: focus, created: created) } catch {
                     guard invocation.allowsViewChange else { return backgroundPickerRefusal() }
                     // The header's pick still opens beside the chat, as its diff would have.
                     let page = invocation.besideCaller
@@ -68,6 +71,12 @@ enum ViewerHandlers {
         services.palette.sources.actionPages["file.open"] = { [weak services] in
             services?.viewers.filePickerPage(for: services?.windows.active?.focusedPane, markdown: false)
         }
+    }
+
+    /// The chat turn `openDiffViewer` names (``DiffTurnArgument``), nil without a valid pair.
+    static func diffTurn(_ invocation: ActionInvocation) -> DiffTurn? {
+        DiffTurn(checking: invocation[DiffTurnArgument.from]?.stringValue, to: invocation[DiffTurnArgument.to]?.stringValue,
+                 file: invocation[DiffTurnArgument.file]?.stringValue)
     }
 
     /// `file.open` without a path (the menu, a shortcut, `cmux file open`).

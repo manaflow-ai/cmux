@@ -7,14 +7,13 @@ import CmuxNextDesign
 /// selected tick spans the rail; unread ticks take the unread color; working ticks are brighter.
 /// Nothing animates here, so the rail costs no frames at rest (Reduce Motion has nothing to stop).
 ///
-/// The container shows it while the full sidebar is closed and passes its hover on
-/// (`onHoverChange`); a click on a tick selects that workspace.
+/// The container shows it while the full sidebar is closed. Pointing at a mark shows that
+/// workspace's hover card beside its row (`SidebarRailHoverCards`); a click on a mark selects that
+/// workspace. The full sidebar opens only from Toggle Sidebar (`SidebarModel.toggle`).
 public final class SidebarRailView: NSView {
-    /// Called when the pointer enters (true) or leaves (false) the rail.
-    var onHoverChange: ((Bool) -> Void)?
-    /// Called on a click that hit no workspace tick: the container opens the sidebar.
-    var onOpenRequest: (() -> Void)?
-    private weak var model: SidebarModel?
+    /// The rail's hover card source; the pointer goes to it.
+    weak var cards: SidebarRailHoverCards?
+    private(set) weak var model: SidebarModel?
     private var observation: Task<Void, Never>?
     private var trackingArea: NSTrackingArea?
     /// The ticks drawn now, in this view's (flipped) coordinates.
@@ -134,22 +133,59 @@ public final class SidebarRailView: NSView {
     override public func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let trackingArea { removeTrackingArea(trackingArea) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
+        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
         addTrackingArea(area)
         trackingArea = area
     }
 
-    override public func mouseEntered(with event: NSEvent) { onHoverChange?(true) }
-    override public func mouseExited(with event: NSEvent) { onHoverChange?(false) }
+    override public func mouseMoved(with event: NSEvent) { pointer(event) }
+    override public func mouseEntered(with event: NSEvent) { pointer(event) }
+    override public func mouseExited(with event: NSEvent) { pointer(event) }
+
+    private func pointer(_ event: NSEvent) {
+        cards?.pointerMoved(to: window.map { $0.convertPoint(toScreen: event.locationInWindow) })
+    }
 
     override public func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        guard let model, let tick = railLayout.tick(near: point.y), case let .workspace(id) = tick.mark.target else {
-            onOpenRequest?()
-            return
-        }
+        guard let model, let tick = tick(at: point), case let .workspace(id) = tick.mark.target else { return }
         model.noteUserIntent()
         model.click(id)
+    }
+
+    /// The tick whose row holds `point` (this view's coordinates): rows of a group touch, so a
+    /// pointer on the rail is on a row except in a gap between groups.
+    func tick(at point: CGPoint) -> SidebarRailLayout.Tick? {
+        guard point.x >= 0, point.x < bounds.width else { return nil }
+        return railLayout.ticks.first { point.y >= $0.rowY && point.y < $0.rowY + railLayout.pitch }
+    }
+
+    /// The middle of a mark's row in window coordinates, for a synthetic pointer
+    /// (`debug.pointer_hover {rail: "top" | "middle" | "bottom" | index}`); nil while the rail is hidden.
+    public func rowCenterInWindow(_ which: String) -> CGPoint? {
+        let ticks = railLayout.ticks
+        guard !isHiddenOrHasHiddenAncestor, !ticks.isEmpty else { return nil }
+        let index = switch which {
+        case "top": 0
+        case "middle": ticks.count / 2
+        case "bottom": ticks.count - 1
+        default: min(max(Int(which) ?? 0, 0), ticks.count - 1)
+        }
+        let row = railLayout.row(of: ticks[index], railWidth: bounds.width)
+        return convert(CGPoint(x: row.midX, y: row.midY), to: nil)
+    }
+
+    /// `tick`'s hover card anchor: its row as a band across the sidebar column, the list rows' one
+    /// rule (`HoverCardEscapeGeometry.rowBand`). Nil out of a window.
+    func cardAnchor(_ tick: SidebarRailLayout.Tick) -> CGRect? {
+        guard let row = rowOnScreen(tick), let column = sidebarColumnOnScreen else { return nil }
+        return HoverCardEscapeGeometry.rowBand(row: row, column: column)
+    }
+
+    /// `tick`'s row on screen; nil out of a window.
+    func rowOnScreen(_ tick: SidebarRailLayout.Tick) -> CGRect? {
+        guard let window else { return nil }
+        return window.convertToScreen(convert(railLayout.row(of: tick, railWidth: bounds.width), to: nil))
     }
 
     // MARK: Shortcut hints

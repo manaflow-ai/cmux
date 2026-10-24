@@ -735,6 +735,7 @@ fn client_info_is_sanitized_recallable_and_clamped_to_64_characters() {
             api_revision: None,
             version: None,
             install: None,
+            remote: None,
         },
         &writer,
     )
@@ -757,6 +758,7 @@ fn client_info_is_sanitized_recallable_and_clamped_to_64_characters() {
             api_revision: None,
             version: None,
             install: None,
+            remote: None,
         },
         &writer,
     )
@@ -776,6 +778,7 @@ fn client_info_is_sanitized_recallable_and_clamped_to_64_characters() {
             api_revision: None,
             version: None,
             install: None,
+            remote: None,
         },
         &writer,
     )

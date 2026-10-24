@@ -9,7 +9,7 @@ import CmuxNextDesign
 /// device under All Devices (phones split by brand, rumored devices last,
 /// a search field on top). It holds no device data; each row sends `choose`.
 /// Every row has an icon (its device class, the fit's or the orientation's),
-/// so the toolbar can draw it in the cmux NEXT menu look (`NSMenu.themeRows(in:)`).
+/// shown as a standard macOS menu in the toolbar's look (`NSMenu.themeRows(in:)`).
 @MainActor
 public struct BrowserDeviceMenu {
     /// One device of the daemon's list, as the menu shows it.

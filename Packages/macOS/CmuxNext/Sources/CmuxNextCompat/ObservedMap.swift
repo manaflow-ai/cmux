@@ -17,6 +17,10 @@ public final class ObservedMap<Key: Hashable & Sendable, Value: Equatable> {
     final class Slot {
         var value: Value?
         init() {}
+        // A main-actor generic class needs a nonisolated deinit while the package targets macOS 14: the
+        // implicit isolated deinit crashes swift-frontend 6.3.3's Release inliner (EarlyPerfInliner,
+        // isCallerAndCalleeLayoutConstraintsCompatible) on its deallocating deinit. This one touches nothing.
+        nonisolated deinit {}
     }
 
     @ObservationIgnored private var slots: [Key: Slot] = [:]
@@ -26,6 +30,11 @@ public final class ObservedMap<Key: Hashable & Sendable, Value: Equatable> {
     public private(set) var keysRevision: UInt64 = 0
 
     public init() {}
+
+    // A main-actor generic class needs a nonisolated deinit while the package targets macOS 14: the
+    // implicit isolated deinit crashes swift-frontend 6.3.3's Release inliner (EarlyPerfInliner,
+    // isCallerAndCalleeLayoutConstraintsCompatible) on its deallocating deinit. This one touches nothing.
+    nonisolated deinit {}
 
     private func slot(_ key: Key) -> Slot {
         if let slot = slots[key] { return slot }

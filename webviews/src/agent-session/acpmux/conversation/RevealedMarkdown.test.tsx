@@ -125,6 +125,19 @@ test("the newest words fade in, each word whole", () => {
   expect(container.querySelector(".cv-md")?.textContent?.startsWith("Hello there")).toBe(true);
 });
 
+test("fresh text expires with the host fade-in token", () => {
+  dom!.window.document.documentElement.style.setProperty("--agent-motion-in", "1000ms");
+  root = createRoot(container);
+  render("", true);
+  render("Hello there wor", true);
+  frames(0, 30);
+  render("Hello there world, again", true);
+  frames(480, 8);
+  expect(container.querySelectorAll(".cv-fresh").length).toBeGreaterThan(0);
+  frames(800, 1);
+  expect(container.querySelectorAll(".cv-fresh").length).toBeGreaterThan(0);
+});
+
 test("with the Debug toggle off, a reply grows a character at a time", () => {
   dom!.window.document.documentElement.dataset.streamWords = "off";
   root = createRoot(container);

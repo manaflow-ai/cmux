@@ -199,6 +199,10 @@ public final class AgentChatStore {
     /// A returned draft the Mac turned out to have run (its prompt id showed up in the
     /// transcript after the link came back): the composer takes it out again (then clears this).
     public var withdrawnDraft: ReturnedDraft?
+    /// What this phone attached to each prompt it sent, by prompt id: the Mac's record of the
+    /// prompt names its images only (and no files), so the sent bubble keeps what was sent.
+    @ObservationIgnored private var sentAttachments: [String: [AgentAttachment]] = [:]
+    @ObservationIgnored private var sentOrder: [String] = []
     /// The last returned prompt still waiting for a resend: what it held and its id.
     private var resendable: (text: String, attachments: [AgentAttachment], promptID: String)?
     /// Prompt ids the transcript showed running or queued (a lost reply for one of them is not
@@ -284,8 +288,10 @@ public final class AgentChatStore {
             pending.text == text && pending.attachments.map(\.id) == attachments.map(\.id) ? pending.promptID : nil
         }
         resendable = nil
+        let promptID = resend ?? UUID().uuidString.lowercased()
+        keepSent(attachments, promptID: promptID)
         source.send(.prompt(text: text, attachments: attachments, steer: steer,
-                            promptID: resend ?? UUID().uuidString.lowercased(), resend: resend != nil))
+                            promptID: promptID, resend: resend != nil))
     }
 
     /// The Mac shows `promptID` ran (or queued): a draft returned for it goes away, and it is
@@ -342,7 +348,34 @@ public final class AgentChatStore {
         source.send(.moveQueued(promptId: id, index: from + offset))
     }
 
+    /// The most prompts whose attachments wait for the Mac's record (each holds its bytes).
+    static let maxSentAttachmentPrompts = 8
+
+    /// Keeps what a prompt sent until its record arrives; a returned draft sent again under a new
+    /// id drops the old id's entry, and the oldest go past the cap.
+    private func keepSent(_ attachments: [AgentAttachment], promptID: String) {
+        let ids = Set(attachments.map(\.id))
+        if !ids.isEmpty {
+            for (id, kept) in sentAttachments where id != promptID && Set(kept.map(\.id)) == ids { sentAttachments[id] = nil }
+        }
+        sentOrder.removeAll { $0 == promptID || sentAttachments[$0] == nil }
+        guard !attachments.isEmpty else { return }
+        sentAttachments[promptID] = attachments
+        sentOrder.append(promptID)
+        while sentOrder.count > Self.maxSentAttachmentPrompts { sentAttachments[sentOrder.removeFirst()] = nil }
+    }
+
+    /// Kept prompts in the order they were sent (the cap drops the oldest).
+    var sentAttachmentPromptCount: Int { sentAttachments.count }
+
     // MARK: Reducer
+
+    /// A turn's attachments: what this phone sent (with their bytes), else what the Mac's record
+    /// names (its images, whose bytes `AgentSessionSource.attachmentData` reads on demand).
+    static func sentAttachments(_ sent: [AgentAttachment]?, recorded: [AgentAttachment]) -> [AgentAttachment] {
+        guard let sent, !sent.isEmpty else { return recorded }
+        return sent
+    }
 
     func apply(_ event: AgentSessionEvent) {
         revision &+= 1
@@ -353,8 +386,11 @@ public final class AgentChatStore {
             currentMessageID = nil
             reached(promptId)
             if !turns.contains(where: { $0.id == turnId }) {
-                turns.append(AgentTurn(id: turnId, prompt: text, attachments: attachments, promptAt: at))
+                turns.append(AgentTurn(id: turnId, prompt: text, attachments: Self.sentAttachments(sentAttachments[promptId], recorded: attachments),
+                                       promptAt: at))
             }
+            // The turn holds them now.
+            sentAttachments[promptId] = nil
         case .queued(let text, let promptId, _):
             reached(promptId)
             queue.append(QueuedPrompt(id: promptId, text: text))

@@ -251,6 +251,7 @@ public nonisolated enum SidebarTunables {
             SidebarChatsDesign.tunable.descriptor,
             SidebarGroupHeaderStyle.tunable.descriptor,
             SidebarGroupPalette.tunable.descriptor,
+            SidebarGroupLineLayout.tunable.descriptor,
             SidebarRowBadgeStackCap.tunable.descriptor,
             SidebarRowBadgeStyle.tunable.descriptor,
             simulatePendingUpdate.descriptor,

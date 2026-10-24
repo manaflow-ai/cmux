@@ -70,7 +70,7 @@ struct ImportSuggestionsCenterClassicTests {
     }
 
     private static func card(_ center: ImportSuggestionsCenter) -> ImportCard? {
-        center.list(for: .settings).cards.first { $0.id == id }
+        center.list().cards.first { $0.id == id }
     }
 
     @Test func importRunsAsAJobWhoseProgressMovesThenSaysHowManyCameOver() async throws {

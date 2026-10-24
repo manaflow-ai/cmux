@@ -63,6 +63,12 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
         }
     }
 
+    /// The person's check while an update waits was answered without a new check (the staged
+    /// update card, ``StagedUpdateRefresh``): the next check is not theirs.
+    public mutating func askAnswered() {
+        askPending = false
+    }
+
     private mutating func sparkleMoved(to next: UpdateIndicatorPhase) -> [UpdateFlowEffect] {
         let previous = phase
         phase = next

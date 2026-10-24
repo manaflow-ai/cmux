@@ -141,7 +141,18 @@ public final class CmuxMobileAuthModel {
             }
         }
         #endif
-        let apiBase = Self.apiBase(environment: isDebug ? environment : [:], infoValue: Bundle.main.object(forInfoDictionaryKey: "CmuxMobileAPIBase") as? String, isDebug: isDebug)
+        var serviceEnvironment = isDebug ? environment : [:]
+        #if DEBUG && targetEnvironment(simulator)
+        // A launch the system makes (a notification action wakes the app) carries no launch
+        // variables: a rig's service override stays until a launch names another one.
+        let storedOverride = "cmuxMobile.dev.apiBase"
+        if let override = serviceEnvironment["CMUX_MOBILE_API_BASE"] {
+            UserDefaults.standard.set(override.isEmpty ? nil : override, forKey: storedOverride)
+        } else if let stored = UserDefaults.standard.string(forKey: storedOverride) {
+            serviceEnvironment["CMUX_MOBILE_API_BASE"] = stored
+        }
+        #endif
+        let apiBase = Self.apiBase(environment: serviceEnvironment, infoValue: Bundle.main.object(forInfoDictionaryKey: "CmuxMobileAPIBase") as? String, isDebug: isDebug)
         // Which backend this build talks to (public ids only, no tokens).
         authModelLog.info("Stack project \(config.stack.projectId, privacy: .public) (\(isDebug || stagingStack ? "development" : "production", privacy: .public)), callback \(config.magicLinkCallbackURL, privacy: .public), service \(apiBase?.host() ?? "none", privacy: .public)")
         return CmuxMobileAuthModel(coordinator: coordinator, stack: stack, apiBase: apiBase, isMock: false)

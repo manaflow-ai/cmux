@@ -8,6 +8,11 @@ name: Swift packages (Linux)
 # Cache: every package's .build in the group, keyed on toolchain + manifests
 # + Package.resolved. The key carries the ISO week, so no cache entry
 # outlives a week; pushes to feat-cmux-next save, pull requests only restore.
+# The key deliberately omits github.sha: .build is rebuildable state, and a
+# per-commit key caused every push to upload another copy of the same weekly
+# dependency/build cache. The first successful push for a tuple creates the
+# immutable seed; later pushes reuse it while SwiftPM recompiles changed
+# sources. This avoids uploading a new archive for every commit.
 
 on:
   pull_request:
@@ -69,19 +74,26 @@ jobs:
 
       - name: Cache key
         id: key
+        shell: bash
         run: |
+          set -euo pipefail
+          manifests="$(find Packages -type d \( -name .build -o -name .git -o -name node_modules \) -prune -o \
+            -type f \( -name Package.swift -o -name Package.resolved \) -print0 |
+            LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d ' ' -f1)"
           {
+            echo "manifests=$manifests"
             echo "week=$(date -u +%G-W%V)"
             echo "toolchain=$(swift --version 2>/dev/null | head -1 | tr -cs 'A-Za-z0-9.' '-')"
           } >> "$GITHUB_OUTPUT"
 
       - name: Restore .build
+        id: build_cache
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
         with:
           path: Packages/**/.build
-          key: swiftpm-linux-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ matrix.group }}-${{ hashFiles('Packages/**/Package.swift', 'Packages/**/Package.resolved') }}-${{ github.sha }}
+          key: swiftpm-linux-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ matrix.group }}-${{ steps.key.outputs.manifests }}
           restore-keys: |
-            swiftpm-linux-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ matrix.group }}-${{ hashFiles('Packages/**/Package.swift', 'Packages/**/Package.resolved') }}-
+            swiftpm-linux-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ matrix.group }}-${{ steps.key.outputs.manifests }}-
             swiftpm-linux-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ matrix.group }}-
 
       - name: Build and test
@@ -116,8 +128,8 @@ jobs:
           fi
 
       - name: Save .build
-        if: always() && github.event_name == 'push'
+        if: success() && github.event_name == 'push' && steps.build_cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae
         with:
           path: Packages/**/.build
-          key: swiftpm-linux-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ matrix.group }}-${{ hashFiles('Packages/**/Package.swift', 'Packages/**/Package.resolved') }}-${{ github.sha }}
+          key: swiftpm-linux-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ matrix.group }}-${{ steps.key.outputs.manifests }}

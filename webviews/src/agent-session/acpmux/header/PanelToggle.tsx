@@ -11,12 +11,15 @@ export function PanelToggle({
   shown,
   onToggle,
   className,
+  icon = "view.list",
 }: {
   label: string;
   shown: boolean;
   onToggle: () => void;
   /// The owner's own class, which automation and captures click it by.
   className?: string;
+  /// Gallery-only alternatives keep the design choice visible without changing the shipped default.
+  icon?: string;
 }) {
   return (
     <button
@@ -27,7 +30,7 @@ export function PanelToggle({
       {...tooltipProps(label, undefined)}
       onClick={onToggle}
     >
-      <Icon name="panel.right" size={HEADER_GLYPH} selected={shown} />
+      <Icon name={icon} size={HEADER_GLYPH} selected={shown} />
     </button>
   );
 }

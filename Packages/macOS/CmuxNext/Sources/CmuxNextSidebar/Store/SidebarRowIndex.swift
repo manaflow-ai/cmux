@@ -62,6 +62,7 @@ nonisolated struct SidebarRowIndex: Sendable {
     /// same id (its row state and machine kept). One walk, for a copy of the
     /// rows that has no index (the App's live rows under pending edits).
     static func patching(_ rows: [SidebarWorkspace], in sections: [SidebarSection]) -> [SidebarSection] {
+        guard !rows.isEmpty else { return sections }
         let changed = Dictionary(rows.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
         func patched(_ ws: SidebarWorkspace) -> SidebarWorkspace {
             guard var row = changed[ws.id] else { return ws }
@@ -147,7 +148,7 @@ extension SidebarListView {
             var content = o.rowContent(ws, machine: SidebarLayout.machineLabel(section, options: o))
             content.treeDepth = row.content?.treeDepth ?? 0 // a patch moves no row: it stays where the tree put it
             (content.treeFold, content.rollUp) = (row.content?.treeFold, row.content?.rollUp) // and keeps its chevron and roll-up
-            let m = o.minimal ? metrics.minimal : metrics
+            let m = metrics.resolved(for: o)
             guard m.height(for: content) == row.height else {
                 heightChanged = true
                 continue

@@ -53,9 +53,8 @@ extension NotificationCenterService {
     func viewedTabs(_ store: DaemonStore) -> [TabModel] {
         guard let services, NSApp.isActive else { return [] }
         return services.windows.controllers.compactMap { controller in
-            let resolved = controller.focus.state.resolved
-            guard controller.focus.state.windowKey, let id = Self.contentTab(resolved), let pane = resolved.pane,
-                  let model = controller.content?.paneModel(key: pane), store.pane(model.handle) === model else { return nil }
+            guard controller.focus.state.windowKey, let resolved = Self.shownFocus(controller), let id = Self.contentTab(resolved),
+                  let pane = resolved.pane, let model = controller.content?.paneModel(key: pane), store.pane(model.handle) === model else { return nil }
             return model.tabs.first { $0.id == id }
         }
     }

@@ -7,9 +7,12 @@ import { rowIconSize } from "../icons/iconSize";
 import type { TurnFile } from "../diff";
 import { type BackgroundCommand, backgroundCommands } from "../inspector/processes";
 import type { SessionSummary } from "./sessionSummary";
+import { SourcesAddMenu, type ChatToolsControl } from "./SourcesAddMenu";
 import { SubagentStack } from "./SubagentStack";
 import { SummarySection } from "./SummarySection";
 import { SummaryTasks } from "./SummaryTasks";
+import { WorkflowSummaryRow, type WorkflowActions } from "./WorkflowSummary";
+import type { WorkflowSummary } from "./workflow";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -44,9 +47,12 @@ export function SummaryBody({
   onOpenGallery,
   onFollow,
   onAttach,
+  tools,
   subagents,
   commands,
   onStopCommand,
+  workflow,
+  workflowActions,
 }: {
   summary: SessionSummary;
   galleryCount?: number;
@@ -58,6 +64,8 @@ export function SummaryBody({
   onFollow?: () => void;
   /// Sources' +: files or folders on this computer for the next prompt (a local chat's).
   onAttach?: () => void;
+  /// Sources' + also offers Use tools: the chat's tools, when acpmux can change them and it has some.
+  tools?: ChatToolsControl;
   /// The Subagents section, when the card draws it (SubagentStatusList.tsx).
   subagents?: ReactNode;
   /// The chat's background commands, the registry's merged in (inspector/processes.ts); without them,
@@ -65,8 +73,14 @@ export function SummaryBody({
   commands?: readonly BackgroundCommand[];
   /// Stop for a running command the registry lists.
   onStopCommand?: (processId: string) => Promise<unknown>;
+  /// Labs-only workflow data; absent until acpmux sends the typed workflow event.
+  workflow?: WorkflowSummary;
+  workflowActions?: WorkflowActions;
 }) {
   const t = useT();
+  // With tools to offer, Sources' + is a menu (Attach files or folders, Use tools), and Sources
+  // draws with no sources so the menu has a place.
+  const toolsMenu = tools && tools.rows.length > 0 ? tools : undefined;
   const tasks = commands ?? backgroundCommands([], summary.backgroundTasks, false);
   // A loaded checkpoint lists its files under the repository root, outputs as the agent wrote them.
   // A file the last turn changed opens that turn's diff, also when an earlier turn's edit tool made
@@ -101,6 +115,7 @@ export function SummaryBody({
   ];
   const empty =
     !subagents &&
+    !workflow &&
     tasks.length === 0 &&
     outputs.length === 0 &&
     galleryCount === 0 &&
@@ -112,6 +127,7 @@ export function SummaryBody({
   return (
     <>
       <SummaryTasks commands={tasks} onStop={onStopCommand} onFollow={onFollow} />
+      <WorkflowSummaryRow workflow={workflow} actions={workflowActions} />
       <SummarySection
         title={t("summary.outputs")}
         items={outputs}
@@ -159,16 +175,21 @@ export function SummaryBody({
       <SummarySection
         title={t("summary.sources")}
         items={summary.sources}
+        keep={toolsMenu !== undefined}
         action={
-          onAttach && (
-            <button
-              type="button"
-              className="acpmux-summary-add"
-              aria-label={t("summary.sources.attach")}
-              onClick={onAttach}
-            >
-              <Icon name="action.add" size={ROW_ICON} />
-            </button>
+          toolsMenu ? (
+            <SourcesAddMenu attach={onAttach} tools={toolsMenu} />
+          ) : (
+            onAttach && (
+              <button
+                type="button"
+                className="acpmux-summary-add"
+                aria-label={t("summary.sources.attach")}
+                onClick={onAttach}
+              >
+                <Icon name="action.add" size={ROW_ICON} />
+              </button>
+            )
           )
         }
         row={(source) => (
@@ -240,7 +261,7 @@ export function SummaryBody({
         )}
       />
       {empty && <p className="acpmux-summary-empty">{t("summary.empty")}</p>}
-      {onAttach && summary.sources.length === 0 && (
+      {onAttach && !toolsMenu && summary.sources.length === 0 && (
         <button
           type="button"
           className="acpmux-summary-row acpmux-summary-link acpmux-summary-attach"

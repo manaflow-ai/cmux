@@ -543,6 +543,36 @@ export function MenuSeparator() {
   return <BaseMenu.Separator className="ui-separator" />;
 }
 
+/** Keys a menu search field passes on to its menu: the arrows into the rows, Tab, Escape. */
+const MENU_SEARCH_PASSES = new Set(["ArrowDown", "ArrowUp", "Tab", "Escape"]);
+
+export interface MenuSearchFieldProps {
+  value: string;
+  onChange(value: string): void;
+  /** The field's accessible name and placeholder. */
+  label: string;
+}
+
+/** A search field at the top of a long menu: what it types narrows the rows below. The menu's
+ * typeahead and Home/End never see its keys; the arrows move into the rows, Escape closes. */
+export function MenuSearchField({ value, onChange, label }: MenuSearchFieldProps) {
+  return (
+    <input
+      className="ui-field ui-menu-search"
+      type="search"
+      value={value}
+      aria-label={label}
+      placeholder={label}
+      spellCheck={false}
+      autoComplete="off"
+      onChange={(event) => onChange(event.target.value)}
+      onKeyDown={(event) => {
+        if (!MENU_SEARCH_PASSES.has(event.key)) event.stopPropagation();
+      }}
+    />
+  );
+}
+
 export interface SubmenuProps {
   label: ReactNode;
   className?: string;
@@ -553,18 +583,44 @@ export interface SubmenuProps {
 }
 
 /** A submenu: its item opens the nested popup at the inline end (right in LTR, left in RTL). Its popup
- * wears the parent popup's surface unless `popupClassName` names another. */
+ * wears the parent popup's surface unless `popupClassName` names another.
+ *
+ * It grows toward the room its row has: down from the row's top, or, for a row nearer the bottom of
+ * the menu's box (a composer's menu opened up from the window's foot), up from the row's bottom, as
+ * Claude Code's and macOS's menus do (Leo 2026-10-21: "this effort should open up top instead of
+ * bottom"). Base UI's collision avoidance still flips or shifts it when that side has no room. */
 export function Submenu({ label, className, popupClassName, disabled, children }: SubmenuProps) {
   const surface = use(PopupSurface);
+  const boundary = use(PopupBoundary);
+  const trigger = useRef<HTMLDivElement | null>(null);
+  const [align, setAlign] = useState<"start" | "end">("start");
   return (
-    <BaseMenu.SubmenuRoot>
-      <BaseMenu.SubmenuTrigger className={cx("ui-menu-item ui-submenu-trigger", className)} disabled={disabled}>
+    <BaseMenu.SubmenuRoot
+      onOpenChange={(open) => {
+        const row = trigger.current;
+        if (open && row) setAlign(growsUp(row, boundary) ? "end" : "start");
+      }}
+    >
+      <BaseMenu.SubmenuTrigger
+        ref={trigger}
+        className={cx("ui-menu-item ui-submenu-trigger", className)}
+        disabled={disabled}
+      >
         {label}
         <span className="ui-submenu-chevron" aria-hidden="true" />
       </BaseMenu.SubmenuTrigger>
-      <MenuPopup side="inline-end" align="start" className={popupClassName ?? surface}>
+      <MenuPopup side="inline-end" align={align} className={popupClassName ?? surface}>
         {children}
       </MenuPopup>
     </BaseMenu.SubmenuRoot>
   );
+}
+
+/// Whether a submenu row has more room above it than below it, inside the menu's box (the window
+/// when it has none).
+function growsUp(row: Element, boundary: Element | undefined): boolean {
+  const view = row.ownerDocument.defaultView;
+  const box = boundary?.getBoundingClientRect() ?? { top: 0, bottom: view?.innerHeight ?? 0 };
+  const rect = row.getBoundingClientRect();
+  return rect.bottom - box.top > box.bottom - rect.top;
 }

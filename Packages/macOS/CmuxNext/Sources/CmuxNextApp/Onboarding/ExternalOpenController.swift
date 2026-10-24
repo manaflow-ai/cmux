@@ -85,8 +85,20 @@ final class ExternalOpenController {
         guard let pane = controller.focusedPane else { return pending.append(route) }
         if case .deepLink(let url) = route {
             // The user clicked it in another app: their run, which brings
-            // cmux forward. link.open refuses what it cannot open with a reason.
-            services.registry.perform("link.open", invocation: ActionInvocation(arguments: ["url": .string(url.absoluteString)]))
+            // cmux forward. Agent links are addresses published in public
+            // trailers, so they must not put an agent composer or terminal
+            // under the next keystroke from the opening app.
+            let isAgent = DeepLink.read(url, scheme: services.linkScheme).map { link in
+                if case .agent = link.link.target { return true }
+                return false
+            } == true
+            var arguments: [String: ActionValue] = ["url": .string(url.absoluteString)]
+            if isAgent { arguments["background"] = .bool(true) }
+            services.registry.perform("link.open", invocation: ActionInvocation(arguments: arguments))
+            // `background` also means no app activation: bringing cmux to the
+            // front here would put the previously focused agent input back
+            // under the next keystroke from the opening app.
+            if isAgent { return }
         } else {
             deliver(route, to: pane)
             windows.bringToFront(controller)

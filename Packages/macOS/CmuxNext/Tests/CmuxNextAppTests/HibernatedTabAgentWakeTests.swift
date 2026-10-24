@@ -33,7 +33,7 @@ import Testing
         try await rig.until("the page hibernated") { rig.isHibernated(key) }
         let placeholder = try #require(rig.services.cache.existingBrowser(key)?.tab)
         // What failed before: the placeholder has no document.
-        await #expect(throws: (any Error).self) { try await placeholder.evaluate("1", world: .page) }
+        await #expect(throws: (any Error).self) { try await placeholder.evaluate("1", world: .page, gesture: .agent) }
         #expect(!AppBrowserPage.answersWhileHibernated(.evaluate("1")))
 
         let live = try #require(await AppBrowserPage.awakePage(key, page: placeholder, cache: rig.services.cache, within: .seconds(15)),
@@ -42,7 +42,7 @@ import Testing
         #expect(!rig.isHibernated(key))
         #expect(rig.services.cache.phase(of: key) != .mountedVisible, "waking for an agent showed the tab")
         try await rig.until("the restored page loads") {
-            (try? await live.evaluate("document.readyState === 'complete' && document.getElementById('p').textContent", world: .page))
+            (try? await live.evaluate("document.readyState === 'complete' && document.getElementById('p').textContent", world: .page, gesture: .agent))
                 == .string("wake me")
         }
     }

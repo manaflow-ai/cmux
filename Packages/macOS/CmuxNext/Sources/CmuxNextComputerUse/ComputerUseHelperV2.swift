@@ -315,10 +315,9 @@ public final class ComputerUseHelperV2 {
     }
 
     /// pid + start time of the process listening on `socketPath`, when the
-    /// connected peer runs `executable` and, in a signed build, its audit token
-    /// identifies code signed by this app's team.
-    @concurrent nonisolated static func daemonStamp(socketPath: String, executable: URL,
-                                                    teamIdentifier: String? = ownTeam) async
+    /// connected peer runs as this user and runs `executable`. No team gate on
+    /// a same-user acpmux socket ("acpmux is too belt and suspenders there", Leo).
+    @concurrent nonisolated static func daemonStamp(socketPath: String, executable: URL) async
         -> (pid: pid_t, startSeconds: UInt64, startMicroseconds: UInt64)? {
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
@@ -343,7 +342,6 @@ public final class ComputerUseHelperV2 {
         guard let peer = UnixSocketPeer(descriptor: descriptor), peer.uid == getuid(), peer.runs(executable) else {
             return nil
         }
-        if let teamIdentifier, !peer.signed(team: teamIdentifier) { return nil }
         var info = proc_bsdinfo()
         let infoSize = Int32(MemoryLayout<proc_bsdinfo>.size)
         guard proc_pidinfo(peer.pid, PROC_PIDTBSDINFO, 0, &info, infoSize) == infoSize else { return nil }

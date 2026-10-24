@@ -132,12 +132,14 @@ test("back on a New Tab page, a chat list change that lands as it shows starts n
   expect(seen).toEqual({ fetches: [], entrances: [] });
 });
 
-test("a chat that starts once the page has shown again still moves", async () => {
+test("a chat that starts once the page has shown again still moves the chats under it", async () => {
   await renderCards(chats);
   await page.switchAwayAndBack();
   page.reset();
   await renderCards([card("m", "A chat started here"), ...chats.slice(0, 2)]);
-  expect(page.entrances().some((entry) => entry.includes("A chat started here"))).toBe(true);
+  // The new chat itself appears at once (no entry animations on the New Tab); the rest slide.
+  expect(page.entrances().some((entry) => entry.includes("A chat started here"))).toBe(false);
+  expect(page.entrances().some((entry) => entry.includes("(transform)"))).toBe(true);
 });
 
 test("switching away and back reads no All chats page", async () => {

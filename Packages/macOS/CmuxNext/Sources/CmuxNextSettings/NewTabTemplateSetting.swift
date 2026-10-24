@@ -1,8 +1,8 @@
 /// Which New Tab page template shows (cx-yabk, plans/cmux-next/new-tab-templates.md), set in
 /// Settings. Terminal draws the default screen: New Tab never opens a terminal by itself.
 public nonisolated enum NewTabTemplate: String, Sendable, Hashable, CaseIterable {
-    /// A greeting and the composer; the rest are widgets the user turns on (`tabs.newTabWidgets`,
-    /// Leo 2026-10-20: "only do the composer for the default"). What an unset key shows.
+    /// The composer; the rest are widgets the user turns on (`tabs.newTabWidgets`, Leo 2026-10-20:
+    /// "only do the composer for the default"), with no greeting (Leo 2026-10-22). What an unset key shows.
     case minimal
     /// One rounded field with the Search | Ask switch, the project and agent chips under it, and
     /// three tall chat cards (u2851).

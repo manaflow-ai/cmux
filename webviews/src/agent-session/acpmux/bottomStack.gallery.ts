@@ -190,6 +190,23 @@ const trustedRepo: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-permission-card"));
   if (ctx.document.querySelector(".acpmux-trust-ask")) throw new Error("Granted trust still renders in transcript");
 };
+// A short pane (Leo 2026-10-22: "the access to the composer got fucked"): the question, the
+// queue and a long draft over the composer still leave the card and the quiet row under it whole,
+// inside the pane, and clickable (test/agent-pane-bottom-stack.test.ts).
+const shortPane =
+  (lines: number): Play =>
+  async (ctx) => {
+    await checkTrust(ctx);
+    const field = ".acpmux-composer-box .ProseMirror";
+    for (let line = 0; line < lines; line++) {
+      if (line) await ctx.press("Shift+Enter");
+      await ctx.type(`draft line ${line + 1}`, line ? undefined : { selector: field });
+    }
+    const main = ctx.document.querySelector(".acpmux-main")!.getBoundingClientRect();
+    const foot = ctx.document.querySelector(".acpmux-composer-foot")?.getBoundingClientRect();
+    if (foot && foot.bottom > main.bottom + 0.5)
+      throw new Error(`The quiet row ends ${foot.bottom - main.bottom}px under the pane's bottom edge`);
+  };
 export default agentPaneEntry({
   id: "agent-pane.bottom-stack",
   title: "Trust, permissions and queued prompts",
@@ -213,5 +230,9 @@ export default agentPaneEntry({
     },
     "compact-trust-queue": { snapshot: grouped, native, height: 420, play: checkTrust },
     "trust-repo-permission-queue": { snapshot: grouped, native: repoNative, play: trustedRepo },
+    "short-320": { snapshot: individual, native, height: 320, play: shortPane(0) },
+    "short-320-long-draft": { snapshot: individual, native, height: 320, play: shortPane(12) },
+    "short-400-long-draft": { snapshot: individual, native, height: 400, play: shortPane(12) },
+    "short-520-long-draft": { snapshot: individual, native, height: 520, play: shortPane(12) },
   },
 });

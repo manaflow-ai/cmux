@@ -19,6 +19,7 @@ public nonisolated protocol AgentPaneHostProviding: Sendable {
     /// ssh peer's chat: on that peer) and answers its path there. Throws
     /// ``AgentPaneFilePutFailure``. Never starts a daemon.
     func putFile(sessionId: String, name: String, data: Data) async throws -> String
+    func putFile(sessionId: String, name: String, file: URL) async throws -> String
 }
 
 extension AgentPaneHostProviding {
@@ -35,6 +36,13 @@ extension AgentPaneHostProviding {
     /// Hosts without a daemon take no files.
     public func putFile(sessionId: String, name: String, data: Data) async throws -> String {
         throw AgentPaneFilePutFailure.unsupported
+    }
+
+    public func putFile(sessionId: String, name: String, file: URL) async throws -> String {
+        let data = try await Task.detached(priority: .utility) {
+            try Data(contentsOf: file)
+        }.value
+        return try await putFile(sessionId: sessionId, name: name, data: data)
     }
 }
 
@@ -71,7 +79,8 @@ public nonisolated enum AgentPaneHostError: Error, Equatable, Sendable {
     /// A daemon answers on `socketPath`, but this build may not use it: it runs another
     /// executable (`holder`, the cmux app that owns it, when known) or failed the peer check
     /// for `reason`. Its log says nothing, since the daemon itself never saw a failure.
-    case daemonRefused(holder: String?, socketPath: String, reason: String)
+    /// `executable` is this app's own acpmux: the message's shutdown command runs it.
+    case daemonRefused(holder: String?, socketPath: String, reason: String, executable: String = "acpmux")
     case timedOut
 }
 
@@ -176,6 +185,12 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         return try await AcpmuxStatusClient.putFile(socketPath: environment.socketPath, sessionId: sessionId, name: name, data: data)
     }
 
+    public func putFile(sessionId: String, name: String, file: URL) async throws -> String {
+        if environment == nil { environment = resolveEnvironment() }
+        guard let environment else { throw AgentPaneFilePutFailure.unsupported }
+        return try await AcpmuxStatusClient.putFile(socketPath: environment.socketPath, sessionId: sessionId, name: name, file: file)
+    }
+
     private func endpoint(startsDaemon asked: Bool) async throws -> AcpmuxWebEndpoint {
         let startsDaemon = asked && startsDaemons
         if let task = inFlight[startsDaemon] { return try await task.value }
@@ -214,10 +229,22 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// enrolled, so its allows stay refused. (The pane also checks the port's listener and the
     /// accepted end before its first frame.)
     private static func verifiedEndpoint(_ environment: AcpmuxEnvironment) async throws -> AcpmuxWebEndpoint {
-        let result = try await AcpmuxServerPeer.call(socketPath: environment.socketPath, method: "_acpmux/status",
-                                                     params: [:], executable: environment.executable,
-                                                     allowForeign: true, deadline: .seconds(2))
-        return try AcpmuxStatus(result).endpoint()
+        let deadline = ContinuousClock.now + .seconds(3)
+        var delay: Duration = .milliseconds(100)
+        // wakeup-allow: bounded retry while the daemon recreates its Unix socket; this exits at the deadline or on any non-transient refusal.
+        while true {
+            do {
+                let result = try await AcpmuxServerPeer.call(socketPath: environment.socketPath, method: "_acpmux/status",
+                                                             params: [:], executable: environment.executable,
+                                                             allowForeign: true, deadline: .seconds(2))
+                return try AcpmuxStatus(result).endpoint()
+            } catch let refusal as AcpmuxServerPeer.Refusal where refusal.isTransientRestart && ContinuousClock.now < deadline {
+                let remaining = deadline - ContinuousClock.now
+                // wakeup-allow: bounded backoff for the transient socket handoff; the deadline limits this sleep to three seconds.
+                try await Task.sleep(for: min(delay, remaining))
+                delay = min(delay * 2, .milliseconds(500))
+            }
+        }
     }
 
     /// The pane's error for a peer check that refused the daemon on `environment`'s socket,
@@ -229,7 +256,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         if case .otherExecutable(let path) = refusal { holder = AcpmuxServerPeer.holderName(executablePath: path) }
         AcpmuxFailureLog(logPath: environment.logPath).record(.peerRefused, detail: "\(environment.socketPath): \(refusal.description)")
         logger.error("acpmux at \(environment.socketPath, privacy: .public) refused: \(refusal.description, privacy: .public); held by \(holder ?? "unknown", privacy: .public); this app runs \(environment.executable.path, privacy: .public)")
-        return .daemonRefused(holder: holder, socketPath: environment.socketPath, reason: reason ?? refusal.description)
+        return .daemonRefused(holder: holder, socketPath: environment.socketPath, reason: reason ?? refusal.description,
+                              executable: environment.executable.path)
     }
 
     /// Each stale daemon's heal, by pid: one heal per daemon, however many panes ask,
@@ -271,7 +299,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
                 AcpmuxFailureLog(logPath: environment.logPath).record(.foreignHome, detail: "home \(status.home ?? "?")")
                 let holder = status.pid.flatMap(AcpmuxVersionHandoff.executablePath(pid:)).map(AcpmuxServerPeer.holderName(executablePath:))
                 throw AgentPaneHostError.daemonRefused(holder: holder, socketPath: environment.socketPath,
-                                                       reason: "it serves the acpmux home \(status.home ?? ""), not \(environment.home.path)")
+                                                       reason: "it serves the acpmux home \(status.home ?? ""), not \(environment.home.path)",
+                                                       executable: environment.executable.path)
             }
             // After an update the daemon may be the previous build's: hand it
             // off (its agents keep running under their hosts) and start ours.

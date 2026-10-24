@@ -90,6 +90,7 @@ test("the header strip has no separators and every icon button draws the same gl
     "New tab",
     "Chat actions",
   ]);
+  expect(buttons[0]?.querySelector("svg")?.getAttribute("data-icon")).toBe("view.list");
   for (const button of buttons) {
     expect(button.classList.contains("acpmux-header-tool")).toBe(true);
     const glyph = button.querySelector("svg");
