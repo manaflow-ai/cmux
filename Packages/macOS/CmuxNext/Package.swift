@@ -1243,10 +1243,11 @@ let package = Package(
             dependencies: ["CmuxNextCompat"],
             swiftSettings: daemonSwiftSettings
         ),
-        // The wakeup primitives and their test support: the manual clock and executor's waits.
+        // The wakeup primitives' own behavior (a DemandTimer fire is claimed on its action's
+        // actor) and their test support's (the manual clock and executor's waits).
         .testTarget(
             name: "CmuxNextWakeupsTests",
-            dependencies: ["CmuxNextCompat", "CmuxNextWakeupsTestSupport"],
+            dependencies: ["CmuxNextCompat", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
             swiftSettings: daemonSwiftSettings
         ),
         // Install cmux CLI in PATH: the /usr/local/bin link to the bundled CLI

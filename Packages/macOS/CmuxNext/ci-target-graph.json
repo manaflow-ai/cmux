@@ -1749,6 +1749,7 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextWakeupsTests",
       "targets": [
         "CmuxNextCompat",
+        "CmuxNextWakeups",
         "CmuxNextWakeupsTestSupport"
       ],
       "packages": [],
