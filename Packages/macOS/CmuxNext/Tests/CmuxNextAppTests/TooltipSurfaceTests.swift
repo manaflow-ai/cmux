@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextBrowser
 @testable import CmuxNextDesign
+import CmuxNextWakeupsTestSupport
 import CmuxTheme
 import Testing
 
@@ -10,7 +11,7 @@ import Testing
 /// The first of a group fades in over the fade-in token (120 ms) rising 2 pt, a warm neighbor's is
 /// there at once with no fade, and it fades out quicker (80 ms). Reduce Motion keeps the fade and
 /// drops the rise.
-@MainActor @Suite(.serialized) struct TooltipSurfaceTests {
+@MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct TooltipSurfaceTests {
     /// Light and dark themes, plain and colored, the low-contrast ones included.
     static let themes = [
         ThemeInput(background: ThemeRGB(hex: 0xFFFFFF), foreground: ThemeRGB(hex: 0x000000)),
@@ -112,7 +113,7 @@ import Testing
     /// Fleet hosts with no display drop layer animations (a window with no screen).
     static func hasDisplay() -> Bool { !NSScreen.screens.isEmpty }
 
-    private static func toolbar(clock: ManualClock) throws -> (NSWindow, [ChromeIconButton], TooltipPresenter, ThemeScope) {
+    private static func toolbar(clock: CmuxNextWakeupsTestSupport.ManualClock) throws -> (NSWindow, [ChromeIconButton], TooltipPresenter, ThemeScope) {
         _ = NSApplication.shared
         let scope = ThemeScope(level: .room)
         scope.setOverride(try #require(ThemeSpec("Stress Purple")), input: themes[5], animated: false)
@@ -147,7 +148,7 @@ import Testing
 
     /// Rests on `button` past the delay until its tooltip shows.
     /// `watch` stops at the show: only a change before it can have reached the tooltip.
-    private static func rest(on button: NSView, _ presenter: TooltipPresenter, _ clock: ManualClock,
+    private static func rest(on button: NSView, _ presenter: TooltipPresenter, _ clock: CmuxNextWakeupsTestSupport.ManualClock,
                              watch: OverrideWatch? = nil) async throws {
         presenter.enter(try tracker(button))
         try await clock.waitForSleeper()
@@ -242,7 +243,7 @@ import Testing
             Motion.reduceMotionOverride = nil
             Motion.liveResizeOverride = nil
         }
-        let clock = ManualClock()
+        let clock = CmuxNextWakeupsTestSupport.ManualClock()
         let (window, buttons, presenter, _) = try Self.toolbar(clock: clock)
         defer {
             presenter.dismiss()
@@ -307,7 +308,7 @@ import Testing
             watch.stop()
             Motion.reduceMotionOverride = nil
         }
-        let clock = ManualClock()
+        let clock = CmuxNextWakeupsTestSupport.ManualClock()
         let (window, buttons, presenter, _) = try Self.toolbar(clock: clock)
         defer {
             presenter.dismiss()
@@ -334,7 +335,7 @@ import Testing
         defer { ReduceTransparency.shared.override = nil }
         for reduce in [false, true] {
             ReduceTransparency.shared.override = reduce
-            let clock = ManualClock()
+            let clock = CmuxNextWakeupsTestSupport.ManualClock()
             let (window, buttons, presenter, scope) = try Self.toolbar(clock: clock)
             defer {
                 presenter.dismiss()
@@ -375,7 +376,7 @@ import Testing
     @Test func theTextReadsInEveryThemeAndFollowsAThemeChangeWhileShown() async throws {
         ReduceTransparency.shared.override = false
         defer { ReduceTransparency.shared.override = nil }
-        let clock = ManualClock()
+        let clock = CmuxNextWakeupsTestSupport.ManualClock()
         let (window, buttons, presenter, scope) = try Self.toolbar(clock: clock)
         defer {
             presenter.dismiss()

@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextBrowser
 @testable import CmuxNextDesign
+import CmuxNextWakeupsTestSupport
 import Testing
 
 /// Leo 2026-10-14: tooltips showed at once on every control the pointer
@@ -8,9 +9,9 @@ import Testing
 /// `NSInitialToolTipDelay`), a neighbor's then shows at once while the group
 /// is warm, and half a second away cools it again. A control whose own label
 /// already names it shows none (#20375's rule).
-@MainActor @Suite(.serialized) struct TooltipHoverIntentTests {
+@MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct TooltipHoverIntentTests {
     /// Five icon buttons in a row, like a toolbar, on a presenter that runs on `clock`.
-    private static func toolbar(clock: ManualClock) -> (NSWindow, [ChromeIconButton], TooltipPresenter) {
+    private static func toolbar(clock: CmuxNextWakeupsTestSupport.ManualClock) -> (NSWindow, [ChromeIconButton], TooltipPresenter) {
         _ = NSApplication.shared
         let window = NSWindow(contentRect: NSRect(x: 200, y: 400, width: 300, height: 60), styleMask: [.borderless],
                               backing: .buffered, defer: false)
@@ -40,7 +41,7 @@ import Testing
     }
 
     @Test func theFirstTooltipWaitsThenNeighborsShowAtOnceUntilTheGroupCools() async throws {
-        let clock = ManualClock()
+        let clock = CmuxNextWakeupsTestSupport.ManualClock()
         let (window, buttons, presenter) = Self.toolbar(clock: clock)
         defer {
             presenter.dismiss()
@@ -84,7 +85,7 @@ import Testing
     }
 
     @Test func aFastSweepAcrossTheToolbarShowsNoTooltip() async throws {
-        let clock = ManualClock()
+        let clock = CmuxNextWakeupsTestSupport.ManualClock()
         let (window, buttons, presenter) = Self.toolbar(clock: clock)
         defer {
             presenter.dismiss()
@@ -110,7 +111,7 @@ import Testing
     }
 
     @Test func aControlWhoseLabelNamesItShowsNoTooltip() async throws {
-        let clock = ManualClock()
+        let clock = CmuxNextWakeupsTestSupport.ManualClock()
         let (window, buttons, presenter) = Self.toolbar(clock: clock)
         defer {
             presenter.dismiss()
@@ -138,7 +139,7 @@ import Testing
     /// A titled button inside a view with its own tooltip: the button's label
     /// names it, so nothing shows, not the container's tooltip instead.
     @Test func aLabeledControlInsideATooltipViewShowsNeither() async throws {
-        let clock = ManualClock()
+        let clock = CmuxNextWakeupsTestSupport.ManualClock()
         let (window, _, presenter) = Self.toolbar(clock: clock)
         defer {
             presenter.dismiss()
@@ -168,7 +169,7 @@ import Testing
     /// from it: the sidebar toggle showed "Default", by the window's bottom edge. Only a tooltip
     /// whose view is under the pointer competes.
     @Test func aDeeperTooltipAwayFromThePointerDoesNotWin() async throws {
-        let clock = ManualClock()
+        let clock = CmuxNextWakeupsTestSupport.ManualClock()
         let (window, buttons, presenter) = Self.toolbar(clock: clock)
         defer {
             presenter.dismiss()

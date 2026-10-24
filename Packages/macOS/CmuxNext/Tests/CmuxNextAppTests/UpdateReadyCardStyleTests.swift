@@ -5,6 +5,7 @@ import CmuxNextSettings
 @testable import CmuxNextSidebar
 @testable import CmuxNextUpdater
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -53,7 +54,7 @@ import Testing
         try #require(!card.isHidden, "the staged update shows no card")
         window.orderFront(nil)
         card.highlights = Highlights()
-        card.notesCloseTimer = DemandTimer(owner: "test.update-card.pin", clock: ManualClock())
+        card.notesCloseTimer = DemandTimer(owner: "test.update-card.pin", clock: CmuxNextWakeupsTestSupport.ManualClock())
         let resting = card.notesHeight(for: 2000)
         card.toggleNotesPinned()
         #expect(card.notesPinned)

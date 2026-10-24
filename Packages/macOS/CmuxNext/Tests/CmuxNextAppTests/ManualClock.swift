@@ -3,6 +3,13 @@ import Foundation
 /// A clock that moves only when the test advances it (hover dwell, tooltip
 /// delay and warm-group tests: a wall clock on a throttled runner stretched
 /// each step of a sweep past the delays).
+///
+/// Superseded by CmuxNextWakeupsTestSupport's ManualClock (signal waits, no
+/// poll). Only the five sidebar hover-card suites still use this copy; it is
+/// deleted in the push that moves them, after their owner (a590) gives them a
+/// time limit (plans/cmux-next/idle-wakeups.md section 8). New tests use the
+/// shared clock, written `CmuxNextWakeupsTestSupport.ManualClock` while this
+/// copy shadows the name in this module.
 nonisolated final class ManualClock: Clock, @unchecked Sendable {
     nonisolated struct Instant: InstantProtocol {
         var offset: Duration

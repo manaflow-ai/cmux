@@ -2,6 +2,7 @@ import AppKit
 import AVFoundation
 @testable import CmuxNextDesign
 @testable import CmuxNextHome
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -9,7 +10,7 @@ import Testing
 /// downloaded aerial loops muted behind the window, plays only while someone can see it and the
 /// Mac can afford it, and every window showing one file shares one decoder. Apple's files are
 /// read where macOS keeps them; a fake `Desktop Pictures` folder stands in for the Mac's.
-@MainActor @Suite(.serialized) struct VideoWallpaperTests {
+@MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct VideoWallpaperTests {
     /// A two-second 64x36 clip in a fresh folder.
     static func clip(_ name: String = "Waves.mp4") async throws -> URL {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-video-wallpaper-\(UUID().uuidString)", isDirectory: true)
@@ -156,7 +157,7 @@ import Testing
 
     @Test func theDecoderGoesOnlyAMinuteAfterTheLastWindowWentOutOfSight() async throws {
         let clip = try await Self.clip()
-        let clock = ManualClock()
+        let clock = CmuxNextWakeupsTestSupport.ManualClock()
         let players = BackdropVideoPlayers(clock: clock)
         let h = make(.file(path: clip.path), players: players)
         defer { h.close() }

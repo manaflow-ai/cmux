@@ -3,6 +3,7 @@ import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextDesign
 @testable import CmuxNextLayout
+import CmuxNextWakeupsTestSupport
 import Testing
 
 /// The strip scrollbar stays above a browser page (cx-6so.44, dock-column.md Known gaps). It draws
@@ -16,7 +17,7 @@ import Testing
     struct Strip {
         let window: ShellWindow
         let page: CEFHostView
-        let bar = StripScrollbarView(hideClock: ManualClock())
+        let bar = StripScrollbarView(hideClock: CmuxNextWakeupsTestSupport.ManualClock())
 
         init() {
             _ = NSApplication.shared

@@ -1,4 +1,5 @@
 @testable import CmuxNextUpdater
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -9,7 +10,7 @@ import Testing
 /// probed once per check interval (and when the person checks or picks a ring); a strictly newer
 /// item on the ring cancels the staged installer and starts Sparkle's background check, which
 /// downloads and stages the newer build for the card.
-@MainActor @Suite(.serialized) struct UpdateStagedYieldsToNewerTests {
+@MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct UpdateStagedYieldsToNewerTests {
     /// A feed whose fetches the test counts; with `held`, each fetch waits for ``release()``.
     final class CountingFeed: AppcastFetching, @unchecked Sendable {
         private let lock = NSLock()
@@ -84,7 +85,7 @@ import Testing
 
     struct Harness {
         let updater: UpdaterService
-        let clock: ManualClock
+        let clock: CmuxNextWakeupsTestSupport.ManualClock
         let feed: CountingFeed
         let sparkle: FakeSparkle
     }
@@ -96,7 +97,7 @@ import Testing
                                            minimumSystemVersion: nil,
                                            infoFeedURL: "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml", hasPublicKey: true)
         let defaults = UserDefaults(suiteName: "UpdateStagedYieldsToNewerTests.\(UUID().uuidString)")!
-        let clock = ManualClock()
+        let clock = CmuxNextWakeupsTestSupport.ManualClock()
         let feed = CountingFeed(xml: xml, held: held)
         let sparkle = FakeSparkle()
         let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false },
