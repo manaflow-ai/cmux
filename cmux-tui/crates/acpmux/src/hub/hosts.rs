@@ -787,6 +787,7 @@ impl Hub {
             let request_id = id.clone();
             let incarnation = incarnation.to_owned();
             tokio::spawn(async move {
+                let finish_hub = hub.clone();
                 hub.on_agent_request(
                     s.clone(),
                     id,
@@ -798,7 +799,7 @@ impl Hub {
                     Some(incarnation.clone()),
                 )
                 .await;
-                hub.finish_agent_request(&s, &request_id, Some(&incarnation));
+                finish_hub.finish_agent_request(&s, &request_id, Some(&incarnation));
             });
         }
     }
@@ -892,8 +893,9 @@ impl Hub {
                     hub.set_status(&s, next);
                 }
             }
+            let finish_id = agent_request_id.clone();
             let _ = c.respond(agent_request_id, Ok(permission_answer(outcome))).await;
-            hub.finish_agent_request(&s, &agent_request_id, Some(&incarnation));
+            hub.finish_agent_request(&s, &finish_id, Some(&incarnation));
         });
     }
 }

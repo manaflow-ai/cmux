@@ -68,6 +68,7 @@ impl Hub {
                     }
                     let request_id = id.clone();
                     tokio::spawn(async move {
+                        let finish_hub = hub.clone();
                         hub.on_agent_request(
                             s.clone(),
                             id,
@@ -79,7 +80,11 @@ impl Hub {
                             host_incarnation.clone(),
                         )
                         .await;
-                        hub.finish_agent_request(&s, &request_id, host_incarnation.as_deref());
+                        finish_hub.finish_agent_request(
+                            &s,
+                            &request_id,
+                            host_incarnation.as_deref(),
+                        );
                     });
                 }
                 Inbound::Stderr(line, host_seq) => {
