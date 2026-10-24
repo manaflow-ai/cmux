@@ -79,8 +79,9 @@ public final class TabStripView: NSView {
     var cells: [TabID: TabCell] = [:]
     let windowMain = WindowMainObserver()
     let windowVisibility = WindowVisibilityObserver()
-    /// In a window and not hidden (`syncShown`).
-    private(set) var isShownInWindow = false
+    /// In a window and not hidden (`syncShown`). A strip that is not shown keeps the tabs it
+    /// showed last until it shows again (``syncFromModel()`` defers to that moment).
+    public private(set) var isShownInWindow = false
     /// The model changed while the strip was out of sight: it syncs once, at rest, when it shows.
     var modelChangedWhileHidden = false
     /// An appearance or scale change came while hidden; applied when shown.
