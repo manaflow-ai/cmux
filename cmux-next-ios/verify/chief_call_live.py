@@ -10,7 +10,7 @@ what the call sends it.
                                [--phases nokey,real401,call,hold]
 
 Phases:
-  nokey    No OpenAI key: Call Chief in the Chief header opens Settings → Chief Calls;
+  nokey    No OpenAI key: Call Chief in Chief info opens Settings → Chief Calls;
            a made-up key typed there is checked with OpenAI for real (401) and not kept.
   real401  A made-up key seeded (DEBUG CMUX_MOBILE_CALL_SEED_KEY): Call Chief runs the
            real path (microphone, WebRTC offer, POST /v1/realtime/calls to OpenAI) and the
@@ -152,13 +152,24 @@ def finish_setup(sim):
 
 
 def open_chief(sim):
-    """Home → the Chief conversation."""
+    """Home → the Chief conversation; returns its header name."""
     for ident in ("home.chief.mac", "home.chief"):
         e = sim.wait(timeout=8, ident=ident)
         if e:
             sim.tap_el(e)
             break
-    return sim.wait(timeout=15, ident="chief.header.call") or sim.wait(timeout=5, ident="conversation.header.trailing")
+    return sim.wait(timeout=15, ident="conversation.header.name")
+
+
+def call_from_info(sim):
+    """The Chief conversation → Chief info (the header's name) → its Call action."""
+    name = open_chief(sim)
+    if name:
+        sim.tap_el(name)
+    call = sim.wait(timeout=10, ident="chief.settings.call")
+    if call:
+        sim.tap_el(call)
+    return call
 
 
 def text_of(sim, ident):
@@ -191,9 +202,13 @@ def phase_nokey(sim, app, run):
     fresh_app(sim, app, run)
     launch(sim)
     sim.shot("01-home")
-    call = open_chief(sim)
-    run.check(p, "Chief header has the Call Chief button", call is not None, repr(call))
+    name = open_chief(sim)
     sim.shot("02-chief-conversation")
+    if name:
+        sim.tap_el(name)
+    call = sim.wait(timeout=10, ident="chief.settings.call")
+    run.check(p, "Chief info has a Call action", call is not None, repr(call))
+    sim.shot("02b-chief-info")
     if call:
         sim.tap_el(call)
     page = sim.wait(timeout=10, ident="settings.chiefCalls.keyField")
@@ -219,9 +234,7 @@ def phase_real401(sim, app, run):
     video = os.path.join(run.out, "real401.mp4")
     sim.record_start(video)
     launch(sim, {"CMUX_MOBILE_CALL_SEED_KEY": MADE_UP_KEY})
-    call = open_chief(sim)
-    if call:
-        sim.tap_el(call)
+    call_from_info(sim)
     screen = sim.wait(timeout=10, ident="chief.call")
     run.check(p, "Call Chief with a key opens the call screen", screen is not None)
     sim.shot("10-real-connecting")

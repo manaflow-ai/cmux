@@ -1,9 +1,8 @@
 import Foundation
 import Observation
 
-/// One path for every "Call Chief" entry point: the conversation header's
-/// phone button, Chief info's Call action, Home's Chief row menu, the Action
-/// Button and Siri. The signed-in shell installs ``handler`` (start the live
+/// One path for every "Call Chief" entry point: Chief info's Call action,
+/// Home's Chief row menu, the Action Button and Siri. The signed-in shell installs ``handler`` (start the live
 /// call, or open Settings → Chief Calls when no OpenAI key is set); a call
 /// asked for before that (a cold launch from the Action Button) waits for it.
 @MainActor

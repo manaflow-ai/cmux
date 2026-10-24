@@ -10,8 +10,7 @@ Call Chief starts a live, two-way voice call with Chief from the iPhone app.
 
 | Entry point | Result |
 | --- | --- |
-| Chief conversation header, phone button (Messages' FaceTime slot) | Call. The avatar and name still open Chief info. |
-| Chief info, Call quick action | Call. |
+| Chief info, Call quick action (the conversation header's avatar or name opens it) | Call. The header's trailing slot stays Invite to cmux. |
 | Home, Chief row or tile, long-press menu | "Call Chief". |
 | Action Button, Siri, Shortcuts ("Call Chief") | Call; pressed again with the call on screen, hangs up; a minimized call comes back. |
 | No OpenAI API key for this account | Every entry opens Settings → Chief Calls instead. |
@@ -87,7 +86,7 @@ questions: that stays a signed, on-screen action (trust policy, #13742).
 | --- | --- |
 | `CmuxMobileKit/Sources/CmuxMobileRealtime` (Foundation + Security, tested on macOS) | Realtime events, session config and instructions, tools, `VoiceCallSession` (the call's state machine), `RealtimeCallsAPI`, the Keychain key and `OpenAIKeyModel`, preferences. |
 | `CmuxMobileVoice` | `WebRTCVoiceCallLink`, `ChiefCallToolbox` (Chief, workspaces, Feed), `ChiefLiveCall` (one call at a time, mic permission, Chief reply watch), `LiveCallScreen` and the pill, strings (21 languages). DEBUG: `ScriptedVoiceCallLink`. |
-| `CmuxMobileChief` | `ChiefCallLauncher` (every entry point), the header button, Chief info's Call, Home's menu item. |
+| `CmuxMobileChief` | `ChiefCallLauncher` (every entry point), Chief info's Call, Home's menu item. |
 | `CmuxMobileSettings` | Settings → Chief Calls (`ChiefCallsPage`). |
 | `CmuxMobileShell` | Hosts the call (cover, pill) and routes a missing key to Settings. |
 | App | `CallChiefIntent` → the launcher. |
