@@ -1,4 +1,5 @@
 import Foundation
+public import CmuxNextWakeups
 
 /// Requests one main-actor callback per display frame. The App passes its
 /// display-link scheduler (paused while idle); the default hops to the next
@@ -9,12 +10,22 @@ public protocol ControlFrameSource: Sendable {
     /// a display frame: the work queue uses it for the first request after
     /// idle (cx-asb1). Defaults to ``scheduleFrame(_:)``.
     func scheduleSoon(_ work: @escaping @MainActor @Sendable () -> Void)
+    /// The app's main-thread budget its frames draw on (``MainFrameBudget``): the work queue
+    /// charges each request to the automation class and stops a drain when the class may not run.
+    /// Nil (the default): the queue keeps its own `frameBudget`.
+    @MainActor var mainFrameBudget: MainFrameBudget? { get }
+    /// That budget's board, readable off the main actor: queued injected input is counted there,
+    /// so batches yield to it. Nil by default.
+    var mainTaskBoard: MainTaskBoard? { get }
 }
 
 extension ControlFrameSource {
     public func scheduleSoon(_ work: @escaping @MainActor @Sendable () -> Void) {
         scheduleFrame(work)
     }
+
+    @MainActor public var mainFrameBudget: MainFrameBudget? { nil }
+    public var mainTaskBoard: MainTaskBoard? { nil }
 }
 
 /// Default frame source: one main run loop turn per frame. Each turn

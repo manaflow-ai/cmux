@@ -253,7 +253,7 @@ targets:
         NSCameraUsageDescription: Take a photo to attach to a message for your agent.
         NSPhotoLibraryAddUsageDescription: Save images from your sessions to Photos.
         NSPhotoLibraryUsageDescription: Attach photos to messages for Chief and your agents.
-        NSMicrophoneUsageDescription: Record audio messages for Chief and your agents.
+        NSMicrophoneUsageDescription: Talk to Chief on calls and record audio messages for Chief and your agents.
         NSSpeechRecognitionUsageDescription: Turn your voice notes for Chief into text on this device. Audio is not sent for recognition.
         # The Action Button Chief call keeps recording while the phone is locked.
         UIBackgroundModes: [audio]

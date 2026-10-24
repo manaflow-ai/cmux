@@ -6,10 +6,9 @@
 
 use std::io::Write;
 use std::os::fd::OwnedFd;
-use std::path::PathBuf;
 use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use cmux_holder::link::{HolderLink, TerminalSink};
 use cmux_holder::{ExitStatus, SpawnRequest};
@@ -58,11 +57,11 @@ fn request(chan: u32, script: &str) -> SpawnRequest {
     }
 }
 
+mod support;
+
 #[test]
 fn eight_threads_spawn_at_once_and_each_terminal_gets_only_its_own_output() {
-    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() % 1_000_000_000;
-    let dir = PathBuf::from("/tmp").join(format!("cmhl-{}-{stamp}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = support::unique_dir("cmhl");
     let socket = dir.join("h.sock");
     let mut holder = cmux_holder::client::launch(
         std::path::Path::new(env!("CARGO_BIN_EXE_cmux-holder")),
@@ -148,9 +147,7 @@ fn eight_threads_spawn_at_once_and_each_terminal_gets_only_its_own_output() {
 /// next is exactly what the holder writes there.
 #[test]
 fn an_adoption_answers_with_the_segment_the_new_holder_writes() {
-    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() % 1_000_000_000;
-    let dir = PathBuf::from("/tmp").join(format!("cmhla-{}-{stamp}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = support::unique_dir("cmhla");
     let socket = dir.join("h.sock");
     let binary = std::path::Path::new(env!("CARGO_BIN_EXE_cmux-holder"));
     let mut first = cmux_holder::client::launch(binary, &socket, &TOKEN).unwrap();

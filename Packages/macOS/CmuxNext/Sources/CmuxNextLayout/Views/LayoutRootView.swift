@@ -7,9 +7,10 @@ import Observation
 /// hosts App-provided pane views, and turns pointer and trackpad input into
 /// `LayoutIntent`s.
 ///
-/// Horizontal trackpad scrolling over a columns screen belongs to the layout
-/// even when a hosted view (a terminal) is under the pointer: the first
-/// dominant axis of each gesture decides, and vertical gestures pass through.
+/// Scrolling follows `layout.scrollModifier` (`LayoutRootView+Scroll`): by
+/// default a plain scroll goes to the pane under the pointer and Command +
+/// scroll moves the columns strip and rows; the first event of a gesture
+/// decides its owner.
 public final class LayoutRootView: NSView {
     public let model: LayoutModel
     let context: LayoutViewContext
@@ -36,6 +37,8 @@ public final class LayoutRootView: NSView {
     private var reportedKeepAlive: Set<PaneID> = []
     var scrollLock: ScrollLock = .idle
     var consumeMomentum = false
+    /// The current gesture's touch (`mayBegin`) chose its owner: its `began` keeps it (`LayoutRootView+Scroll`).
+    var ownerDecidedAtTouch = false
     /// What focus-follows-mouse reads besides the model (`LayoutRootView+ScrollFocus`).
     let scrollFocusSignals: ScrollFocusSignals
     /// The pane the pointer was last over (`layout.focusFollowsMouse` hover): focus moves

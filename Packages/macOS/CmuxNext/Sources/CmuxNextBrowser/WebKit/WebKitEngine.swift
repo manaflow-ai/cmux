@@ -59,6 +59,15 @@ public final class WebKitEngine: BrowserEngine {
     /// The organization's URL blocklist and allowlist (Chrome's `URLBlocklist`
     /// and `URLAllowlist` policies); the App sets it from the managed policy.
     public var urlFilter: BrowserURLFilter = .none
+    /// Answers every tab's `<input type="file">` (the tab's `runOpenPanelWith`). The App sets
+    /// its one made-ahead panel (`AppServices.openPanel`), which agent composer pages share, so
+    /// a browser tab's file input gets the panel made ahead when one is, and its dead-panel guard.
+    ///
+    /// Interim; replaced by a required init parameter; owner PL-cef-tab (cmux-b6), lands right
+    /// after this. Until then an engine the App does not set keeps a private panel that nothing
+    /// warms and nothing reports, so a lost wiring is silent; the required parameter passes the
+    /// panel from the composition root through `TabContentCache` (perf-lead.md row 25).
+    public var fileInput: any WebFileInputAnswering = MadeAheadOpenPanel()
 
     public init(
         profileStore: WebKitProfileStore = WebKitProfileStore(),

@@ -102,6 +102,7 @@
     "CmuxNextCookieImport": {"layer": "ui"},
     "CmuxNextPhone": {"layer": "ui", "mixes": ["service"]},
     "CmuxNextDaemonRecovery": {"layer": "ui", "mixes": ["service"]},
+    "CmuxNextBrowserCore": {"layer": "core"},
     "CmuxNextBrowser": {"layer": "ui", "mixes": ["core", "service", "domain"], "plan": "split: BrowserCore (engine protocols, values), BrowserCEF and BrowserWebKit (engines), Browser (UI)"},
     "CmuxNextAgentPane": {"layer": "ui", "mixes": ["service", "domain"]},
     "CmuxNextPages": {"layer": "ui", "mixes": ["service"]},

@@ -149,6 +149,17 @@ Order: leaf-first by "outside App types" (the zero rows first), skipping owned f
 one to three pushes. Target: CmuxNextApp below 100k lines after the leaf rows and the per-domain
 Host protocols, below 40k after Handlers/Pages/Control, and wiring only after the Workbench.
 
+Later item, WebAuth (moved to `CmuxNextPopups/WebAuth` behind `WebAuthHost`, no new package
+edge): Popups is a ui package, but it now also holds the WebAuth domain (the request, the
+callback rule, the broker Coordinator) and the system Service adapter (`WebAuthSessionHandler` on
+the OS `sessionHandler`). Move those to a WebAuth domain/service package below Popups; the
+sign-in window stays in Popups as its UI, because it reuses `BrowserPopupWindow`. Open seam
+until then: `WebAuthSessionWindows` takes `OffTheRecordProfiles` and `CEFSignInCallbacks` by
+`init`, but CEFEngine/CEFRuntime still read `.shared`, so only AppDelegate passing `.shared`
+keeps one instance (two sources of truth). The fix (inject both into the engine from
+AppServices, then pass the same instances to the sign-in windows) is in the PL-cef area,
+routed to session cmux-b6.
+
 ## 5. Singletons to injection
 
 148 `shared` declarations, three kinds:

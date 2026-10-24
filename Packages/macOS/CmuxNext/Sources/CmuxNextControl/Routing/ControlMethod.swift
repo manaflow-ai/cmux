@@ -1,5 +1,6 @@
 import CmuxNextCompat
 public import CmuxNextSettings
+public import CmuxNextWakeups
 
 /// One control-socket method and the lane it runs on
 /// (plans/cmux-next/architecture.md section 5a).
@@ -54,6 +55,20 @@ public struct ControlMethod: Sendable {
     /// the router claims it when the body starts.
     public private(set) var claimsProgress = false
 
+    /// The main-thread class a `mainActor` body runs in: ``MainWorkClass/automation`` (below the
+    /// person's input and the visible updates, per-frame budgeted) unless the method injects a
+    /// person's input (``injectingInput()``).
+    public private(set) var workClass: MainWorkClass = .automation
+
+    /// This method, whose `mainActor` body injects a person's input (`debug.key`, `debug.view_key`):
+    /// it runs on the next main run loop turn, ahead of queued requests, as a real key is
+    /// dispatched from the event queue, and batches yield while it waits.
+    public func injectingInput() -> ControlMethod {
+        var method = self
+        method.workClass = .input
+        return method
+    }
+
     /// This method, whose body calls `call.progress.begin()` when its work starts.
     public func claimingProgress() -> ControlMethod {
         var method = self
@@ -103,6 +118,7 @@ public struct ControlMethod: Sendable {
         method.deadline = deadline
         method.claimsProgress = claimsProgress
         method.limitOverride = limitOverride
+        method.workClass = workClass
         return method
     }
 

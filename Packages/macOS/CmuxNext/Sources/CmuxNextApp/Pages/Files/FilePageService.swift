@@ -106,7 +106,7 @@ final class FilePageService: InternalPageProvider {
 
     func pageView(_ key: String) -> PageWebView? { tabs[key]?.page }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// Each tab's key, file and page, for `debug.filepages`.
     var debugTabs: [(key: String, file: URL?, page: PageWebView?)] {
         tabs.keys.sorted().map { ($0, file($0), tabs[$0]?.page) }

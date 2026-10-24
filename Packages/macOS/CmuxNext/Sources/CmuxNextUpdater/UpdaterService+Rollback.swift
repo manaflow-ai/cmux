@@ -43,7 +43,7 @@ extension UpdaterService {
         let log = log
         // task-owner: one clone that ends by itself; the install waits for nothing it does.
         keepTask = Task.detached { [weak self] in
-            #if DEBUG
+            #if DEBUG || CMUX_BENCH_HOOKS
             UpdateHarness.mark("keep_previous_start")
             #endif
             let kept: Bool
@@ -55,7 +55,7 @@ extension UpdaterService {
                 log.append("could not keep \(build) for rollback: \(error)")
                 kept = false
             }
-            #if DEBUG
+            #if DEBUG || CMUX_BENCH_HOOKS
             UpdateHarness.mark("keep_previous_end")
             #endif
             await MainActor.run { self?.keptRunningBuild = kept ? .kept : nil }

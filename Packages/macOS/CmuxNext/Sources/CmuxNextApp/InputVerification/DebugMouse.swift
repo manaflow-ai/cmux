@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 import CmuxNextLayout
 import CmuxNextSettings
@@ -24,7 +24,8 @@ import CmuxNextSettings
 /// stays open for `debug.tab_drag` and screenshots); `button`: `left`
 /// (default), `right`, `middle` (AppKit's `otherMouse*` events, button
 /// number 2: a middle click on a sidebar workspace row closes it);
-/// `modifiers`: `cmd`, `shift`, `option`, `ctrl`. Every action also moves
+/// `modifiers`: `cmd`, `shift`, `option`, `ctrl` (a `scroll` carries them
+/// too: Command + scroll moves the layout, `layout.scrollModifier`). Every action also moves
 /// the synthesized pointer that layout hover reads (`LayoutRootView.
 /// setDebugPointer`); `leave` moves it out of the window. A `scroll` with
 /// `hover: false` leaves the synthesized pointer as it is, so a perf
@@ -73,7 +74,7 @@ enum DebugMouse {
             events = [mouse(.mouseMoved, at: point, in: window, flags: flags, clicks: 0)]
         case "scroll":
             guard let event = scroll(at: point, in: window, dx: params["dx"]?.doubleValue ?? 0, dy: params["dy"]?.doubleValue ?? 0,
-                                     phase: params["phase"]?.stringValue) else {
+                                     phase: params["phase"]?.stringValue, flags: flags) else {
                 return .object(["error": .string("could not synthesize events")])
             }
             guard event.window == nil else {
@@ -186,9 +187,12 @@ enum DebugMouse {
     /// server addresses a real one.
     /// `phase` (`began`, `changed`, `ended`) makes it a trackpad gesture
     /// event: continuous (precise deltas) with that scroll phase (R99 swipes).
-    private static func scroll(at point: NSPoint, in window: NSWindow, dx: Double, dy: Double, phase: String? = nil) -> NSEvent? {
+    /// `flags` are the modifier keys held (NSEvent's flag bits are CGEvent's).
+    private static func scroll(at point: NSPoint, in window: NSWindow, dx: Double, dy: Double, phase: String? = nil,
+                               flags: NSEvent.ModifierFlags = []) -> NSEvent? {
         guard let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2,
                                wheel1: Int32(dy.rounded()), wheel2: Int32(dx.rounded()), wheel3: 0) else { return nil }
+        cg.flags = CGEventFlags(rawValue: UInt64(flags.rawValue))
         if let phase, let value = ["began": 1, "changed": 2, "ended": 4][phase] {
             cg.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
             cg.setIntegerValueField(.scrollWheelEventScrollPhase, value: Int64(value))

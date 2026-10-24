@@ -920,6 +920,10 @@ class WebviewsChecksGate(unittest.TestCase):
                                            f"error: Type errors found\n{a}{b}Found 2 errors and 0 warnings in 9 files (2.1s)\n"),
                          [])
 
+    def test_vp_lint_warning_summary_in_either_order_is_noise(self):
+        summary = "Found 5 warnings and 0 errors in 2481 files (1.0s)\n"
+        self.assertEqual(self.module.findings(summary), [])
+
     def test_the_base_worktree_is_removed(self):
         base = self.findings({}, "base")
         self.findings({"check:fixed-waits": "  x\n"}, "red")

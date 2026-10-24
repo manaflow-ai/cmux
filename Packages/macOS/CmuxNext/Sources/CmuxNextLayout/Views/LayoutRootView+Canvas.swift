@@ -1,9 +1,11 @@
 public import AppKit
 
 /// Trackpad and wheel input on a canvas screen (plans/cmux-next/canvas-layout.md):
-/// a scroll over the empty canvas pans it, momentum included; over a pane the
-/// first dominant axis decides (horizontal pans, vertical scrolls the pane, as on
-/// a column strip); a pinch zooms about the pointer.
+/// a scroll over the empty canvas pans it, momentum included; a pinch zooms about the
+/// pointer. Over a pane, `layout.scrollModifier` decides as on a column strip
+/// (`LayoutRootView+Scroll`): with `command` a plain scroll is the pane's and Command +
+/// scroll pans the canvas on both axes; with `none` the first dominant axis decides
+/// (horizontal pans, vertical scrolls the pane).
 extension LayoutRootView {
     /// The frames `screen` shows now, in its view's points, and that view's
     /// size: what a new canvas starts from, so the screen looks the same in
@@ -28,7 +30,8 @@ extension LayoutRootView {
 
     /// Routes one scroll event over a canvas. True: consumed; false: the
     /// event goes on to the pane; nil: not a canvas event, the strip rules apply.
-    func handleCanvasScroll(_ event: NSEvent, at locationInWindow: NSPoint) -> Bool? {
+    /// `decides`: this event decides its gesture's owner (`decidesGestureOwner`).
+    func handleCanvasScroll(_ event: NSEvent, at locationInWindow: NSPoint, decides: Bool) -> Bool? {
         let delta = CGSize(width: event.scrollingDeltaX, height: event.scrollingDeltaY)
         if !event.momentumPhase.isEmpty {
             guard case let .canvas(view) = scrollLock else { return nil }
@@ -43,16 +46,26 @@ extension LayoutRootView {
             // A mouse wheel: it pans over the empty canvas, or sideways (Shift) anywhere.
             guard let view = activeCanvasView(at: locationInWindow) else { return nil }
             let overPane = view.pane(at: view.convert(locationInWindow, from: nil)) != nil
-            guard !overPane || abs(delta.width) > abs(delta.height) else { return nil }
+            switch model.scrollModifier {
+            case .command: guard !overPane || event.modifierFlags.contains(.command) else { return nil }
+            case .noModifier: guard !overPane || abs(delta.width) > abs(delta.height) else { return nil }
+            }
             let notch: CGFloat = event.hasPreciseScrollingDeltas ? 1 : 10
             view.canvasPan(by: CGSize(width: delta.width * notch, height: delta.height * notch), ended: true)
             updateVisibility()
             return true
         }
-        if phase.contains(.mayBegin) || phase.contains(.began) {
+        if decides {
             guard let view = activeCanvasView(at: locationInWindow) else { return nil }
             let overPane = view.pane(at: view.convert(locationInWindow, from: nil)) != nil
-            scrollLock = overPane ? .canvasUndecided(view) : .canvas(view)
+            switch model.scrollModifier {
+            case .command:
+                // A plain gesture over a pane is the pane's: the strip rules pass it through.
+                guard !overPane || event.modifierFlags.contains(.command) else { return nil }
+                scrollLock = .canvas(view)
+            case .noModifier:
+                scrollLock = overPane ? .canvasUndecided(view) : .canvas(view)
+            }
         }
         let ended = phase.contains(.ended) || phase.contains(.cancelled)
         switch scrollLock {

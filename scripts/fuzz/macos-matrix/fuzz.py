@@ -102,7 +102,10 @@ class Guest:
             return None
 
     def pid(self) -> int | None:
-        r = self.sh(f"pgrep -nf {shlex.quote(self.app + '/Contents/MacOS/')}")
+        # The app process itself (argv[0] is the binary), not a shell whose command line names it.
+        target = self.binary or self.app + "/Contents/MacOS/"
+        pattern = "^" + "".join("\\" + c if c in ".[]()*+?{}|^$\\" else c for c in target)
+        r = self.sh(f"pgrep -nf {shlex.quote(pattern)}")
         return int(r.stdout.split()[0]) if r.returncode == 0 and r.stdout.strip() else None
 
     def winfo(self) -> dict | None:
@@ -168,19 +171,28 @@ class Guest:
         src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "winfo.js")).read()
         subprocess.run(self.base + ["cat > /tmp/fuzz-winfo.js"], input=src, text=True, capture_output=True, timeout=30)
 
-    def launch(self, deadline: float = 180) -> bool:
-        """Start the app with the automation socket open to SSH clients; wait for a ping."""
+    def launch(self, deadline: float = 180, exit_file: str | None = None) -> bool:
+        """Start the app with the automation socket open to SSH clients; wait for a ping.
+
+        With `exit_file`, the guest shell waits for the app and writes its exit status there
+        (128 + the signal for a signal death), so a caller can tell a clean quit from a crash.
+        """
         plist = self.sh(f"/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' {shlex.quote(self.app + '/Contents/Info.plist')}")
         self.binary = f"{self.app}/Contents/MacOS/{plist.stdout.strip()}"
         before = time.time()
         # Not `nohup`: dyld strips DYLD_* variables from SIP-protected binaries and their
-        # children, so the shell exports them and execs the app itself (ignoring SIGHUP).
-        self.sh(f"( trap '' HUP; export {self.env}; exec {shlex.quote(self.binary)} "
-                f">>/tmp/cmux-fuzz-app.log 2>&1 </dev/null ) & disown; true")
+        # children, so the shell exports them and starts the app itself (ignoring SIGHUP).
+        run = (f"{shlex.quote(self.binary)} >>/tmp/cmux-fuzz-app.log 2>&1 </dev/null; echo $? >{shlex.quote(exit_file)}"
+               if exit_file else f"exec {shlex.quote(self.binary)} >>/tmp/cmux-fuzz-app.log 2>&1 </dev/null")
+        if exit_file:
+            self.sh(f"rm -f {shlex.quote(exit_file)}")
+        self.sh(f"( trap '' HUP; export {self.env}; {run} ) & disown; true")
         while time.time() - before < deadline:
             r = self.sh("ls -t /tmp/cmux-*.sock 2>/dev/null | head -1")
             self.socket = r.stdout.strip()
-            if self.socket and self.ping_ms(3) is not None:
+            ms = self.ping_ms(3) if self.socket else None
+            # A ping that ran into its timeout is a hung app, not a launched one.
+            if ms is not None and ms < 3000:
                 # Bring the window forward so VNC keys reach it.
                 self.sh(f"open -a {shlex.quote(self.app)}")
                 return True
@@ -421,6 +433,8 @@ def main() -> int:
     ap.add_argument("--app", default="/Applications/cmux NIGHTLY.app")
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--steps", type=int, default=1000)
+    ap.add_argument("--minutes", type=float, default=0,
+                    help="stop the walk after this many minutes (0: run every step); the run's time bound")
     ap.add_argument("--hang-ms", type=int, default=1000)
     ap.add_argument("--out", required=True)
     ap.add_argument("--replay", help="steps.jsonl from an earlier run")
@@ -483,7 +497,11 @@ def main() -> int:
         except Exception as e:  # screenshot is best effort
             rec["screenshot_error"] = str(e)
 
+    walk_end = time.time() + o.minutes * 60 if o.minutes > 0 else None
     for i, step in enumerate(steps):
+        if walk_end is not None and time.time() >= walk_end:
+            summary["stopped"] = f"--minutes {o.minutes:g} reached after {i} steps"
+            break
         started = time.time()
         if g.refocus():
             summary["refocus"] = summary.get("refocus", 0) + 1

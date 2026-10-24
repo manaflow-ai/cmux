@@ -32,6 +32,8 @@ extension DaemonStore {
     /// exactly holds the intent's result even when another event of the
     /// batch needs a resync.
     private func applyEvent(_ event: DaemonEvent, sequence: UInt64?, envelope: DaemonEventEnvelope? = nil) -> Followup {
+        // Before it applies: the workspace it names is found while the records still hold it (a close).
+        noteSnapshotTouch(event)
         let followup = applyState(event, envelope: envelope)
         if let transaction = event.clientTransactionID {
             confirm(transaction)

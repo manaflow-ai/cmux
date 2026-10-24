@@ -954,7 +954,7 @@ impl Hub {
         spec: &crate::agent_host::SpawnSpec,
         tap: crate::agent::Tap,
     ) -> Result<Arc<ChildAgent>, HostStartFailed> {
-        let record = crate::agent_host::link::spawn(launcher, spec)
+        let record = crate::agent_host::program_wait::spawn(launcher, spec)
             .await
             .map_err(|error| HostStartFailed { error, started: None })?;
         self.forget_adopted_caller(&session.id);

@@ -30,6 +30,7 @@ export type TurnActions = {
   /// and the open that shows one of them in this pane.
   branches?: {
     of: ReadonlyMap<string, MessageBranch>;
+    running?: ReadonlySet<string>;
     open: (sessionId: string) => void;
   };
   /// The image `id` a prompt of this chat sent (its `images`), as a data URL; undefined when acpmux

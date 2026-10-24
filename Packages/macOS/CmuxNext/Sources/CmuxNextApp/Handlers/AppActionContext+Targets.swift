@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBridge
+import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextLayout
 import os
@@ -20,9 +21,11 @@ extension AppActionContext {
     func observeRefusals() {
         let registry = registry
         let services = services
+        let burst = BurstSignposts()
         registry.refusalObserver = { reason, quiet in
             Self.logger.notice("action refused: \(reason, privacy: .public)")
             guard Self.showsNotice(quiet: quiet, hasCaller: registry.refusalHasCaller) else { return }
+            burst.refusal()
             services.refusalHUD.show(reason, in: services.windows.active?.window ?? NSApp.keyWindow)
         }
     }

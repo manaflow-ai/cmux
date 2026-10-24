@@ -68,12 +68,31 @@ extension NSWindow {
     /// too: an app's panels over this window that are not its children (a
     /// panel opened with no key window to attach to).
     public func compositedSnapshot(adding extra: [NSWindow], includeChild: (NSWindow) -> Bool = { _ in true }) -> CGImage? {
+        compositedCapturePlan(adding: extra, includeChild: includeChild).flatMap(Self.capture)
+    }
+
+    /// What ``compositedSnapshot(adding:includeChild:)`` captures, read from AppKit on the main
+    /// actor: the window numbers and the frame. ``capture(_:)`` runs the window server calls,
+    /// which need no AppKit state, on any thread (an agent's screenshot off the main thread).
+    public func compositedCapturePlan(adding extra: [NSWindow] = [], includeChild: (NSWindow) -> Bool = { _ in true }) -> WindowCapturePlan? {
+        guard windowNumber > 0 else { return nil }
         var children = visibleChildWindows.filter(includeChild)
         children += extra.filter { window in window !== self && !children.contains { $0 === window } }
-        let image = children.isEmpty
-            ? Self.windowServerImage(of: windowNumber)
-            : Self.windowServerImage(of: [self] + children, croppedTo: self)
-        guard let image, image.width > 0, image.height > 0, !Self.isBlank(image) else { return nil }
+        if children.isEmpty { return WindowCapturePlan(numbers: [windowNumber], frame: nil) }
+        guard let primary = NSScreen.screens.first else { return nil }
+        return WindowCapturePlan(numbers: ([self] + children).map(\.windowNumber),
+                                 frame: Self.globalRect(of: frame, primaryHeight: primary.frame.maxY))
+    }
+
+    /// The window server's image for `plan`, nil when it gives none or a blank one. Any thread.
+    public nonisolated static func capture(_ plan: WindowCapturePlan) -> CGImage? {
+        let image: CGImage?
+        if let frame = plan.frame {
+            image = windowServerImage(ofNumbers: frontToBack(plan.numbers), rect: frame)
+        } else {
+            image = plan.numbers.first.flatMap(windowServerImage(of:))
+        }
+        guard let image, image.width > 0, image.height > 0, !image.isFullyTransparent else { return nil }
         return image
     }
 
@@ -162,10 +181,10 @@ extension NSWindow {
     }
 
     // kCGWindowImageBoundsIgnoreFraming | kCGWindowImageBestResolution.
-    private static let imageOptions: UInt32 = (1 << 0) | (1 << 3)
+    private nonisolated static let imageOptions: UInt32 = (1 << 0) | (1 << 3)
 
     /// One window's image (`CGWindowListCreateImage`, kCGWindowListOptionIncludingWindow).
-    private static func windowServerImage(of windowNumber: Int) -> CGImage? {
+    private nonisolated static func windowServerImage(of windowNumber: Int) -> CGImage? {
         typealias CreateImage = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
         guard windowNumber > 0, let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else {
             return nil
@@ -182,20 +201,26 @@ extension NSWindow {
 
     /// The windows `numbers` (topmost first) composited together, cropped to `frameWindow`'s frame.
     private static func windowServerImage(ofNumbers numbers: [Int], croppedTo frameWindow: NSWindow) -> CGImage? {
+        guard frameWindow.windowNumber > 0, let primary = NSScreen.screens.first else { return nil }
+        return windowServerImage(ofNumbers: numbers, rect: globalRect(of: frameWindow.frame, primaryHeight: primary.frame.maxY))
+    }
+
+    /// The windows `numbers` (topmost first) composited together, cropped to `rect` (global
+    /// display coordinates). Any thread.
+    private nonisolated static func windowServerImage(ofNumbers numbers: [Int], rect: CGRect) -> CGImage? {
         typealias CreateImage = @convention(c) (CGRect, CFArray, UInt32) -> Unmanaged<CGImage>?
-        guard frameWindow.windowNumber > 0, let primary = NSScreen.screens.first,
-              let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImageFromArray") else { return nil }
+        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImageFromArray") else { return nil }
         let create = unsafeBitCast(symbol, to: CreateImage.self)
         // The array holds CGWindowID values (not CFNumbers), topmost first.
         var ids: [UnsafeRawPointer?] = numbers.map { UnsafeRawPointer(bitPattern: UInt($0)) }
         guard let array = CFArrayCreate(nil, &ids, ids.count, nil) else { return nil }
-        return create(globalRect(of: frameWindow.frame, primaryHeight: primary.frame.maxY), array, imageOptions)?.takeRetainedValue()
+        return create(rect, array, imageOptions)?.takeRetainedValue()
     }
 
     /// `numbers` topmost first, as the window server orders them on screen.
     /// Windows it does not list on screen keep AppKit's order behind them
     /// (each child after its parent is above it, so reversed).
-    private static func frontToBack(_ numbers: [Int]) -> [Int] {
+    private nonisolated static func frontToBack(_ numbers: [Int]) -> [Int] {
         let wanted = Set(numbers)
         let onScreen = (CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? [])
             .compactMap { ($0[kCGWindowNumber as String] as? NSNumber)?.intValue }

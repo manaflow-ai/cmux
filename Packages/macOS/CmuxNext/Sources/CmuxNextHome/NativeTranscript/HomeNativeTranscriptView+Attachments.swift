@@ -23,6 +23,8 @@ extension HomeNativeTranscriptView {
     func connectAttachments() {
         transcript.onPickAttachments = { [weak self] in self?.pickFiles() }
         transcript.onAttachmentPasteboard = { [weak self] board in self?.handlePaste(board) ?? false }
+        // The words a taken paste carries beside its attachments: the field inserts them.
+        transcript.attachmentPasteText = { board in HomeAttachmentIntake.textBeside(board) }
         transcript.acceptsAttachmentDrag = { [weak self] board in
             self?.attachmentPreparer != nil && HomeAttachmentIntake.offers(board)
         }

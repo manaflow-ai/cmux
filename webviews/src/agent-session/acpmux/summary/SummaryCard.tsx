@@ -20,6 +20,8 @@ import type { SummaryCardControl } from "./cardState";
 import { backgroundCommands } from "../inspector/processes";
 import type { SummaryBackgroundTask } from "./sessionSummary";
 import type { ProcessRegistry } from "../inspector/processes";
+import type { WorkflowActions } from "./WorkflowSummary";
+import type { WorkflowSummary } from "./workflow";
 
 const NO_SESSIONS: readonly StartedSession[] = [];
 const NO_TASKS: readonly SummaryBackgroundTask[] = [];
@@ -51,6 +53,8 @@ export function SummaryCard({
   background,
   sessions,
   tools,
+  workflow,
+  workflowActions,
 }: {
   card: SummaryCardControl;
   rows: readonly AcpmuxRow[];
@@ -86,6 +90,9 @@ export function SummaryCard({
   sessions?: { list: readonly StartedSession[]; onOpen: (sessionId: string) => void };
   /// Sources' Use tools: the chat's tools, where acpmux can change them (cx-thur3).
   tools?: ChatToolsControl;
+  /// Labs-only workflow data from the optional acpmux adapter.
+  workflow?: WorkflowSummary;
+  workflowActions?: WorkflowActions;
 }) {
   const t = useT();
   const [gallery, setGallery] = useState(false);
@@ -318,6 +325,8 @@ export function SummaryCard({
               tools={tools}
               commands={commands}
               onStopCommand={background?.onStop}
+              workflow={workflow}
+              workflowActions={workflowActions}
             />
           </div>
         )}

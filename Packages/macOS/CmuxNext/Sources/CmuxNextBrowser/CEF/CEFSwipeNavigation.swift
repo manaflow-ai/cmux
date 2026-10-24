@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 
 /// A two-finger horizontal swipe over a Chromium page goes Back or Forward, as in Safari and
 /// Chrome (plans/cmux-next/history.md 4.2). A local monitor sees each scroll event before
@@ -11,7 +12,9 @@ import AppKit
 ///
 /// It runs only while the system's "Swipe between pages" is on
 /// (`NSEvent.isSwipeTrackingFromScrollEventsEnabled`) and Debug Settings
-/// `browser.swipeNavigation` is on (the default).
+/// `browser.swipeNavigation` is on (the default). A gesture that begins with Command held
+/// belongs to the layout while `layout.scrollModifier` is `command` (Command + scroll pans the
+/// columns), so it never starts a swipe.
 @MainActor
 final class CEFSwipeNavigation {
     private weak var runtime: CEFRuntime?
@@ -45,7 +48,8 @@ final class CEFSwipeNavigation {
         // Momentum after a gesture never starts a swipe; a mouse wheel has no phases.
         guard event.momentumPhase.isEmpty, let phase = Self.scrollPhase(event.phase) else { return event }
         if phase == .began {
-            guard NavigationTunables.swipeNavigation.value, NSEvent.isSwipeTrackingFromScrollEventsEnabled,
+            let layoutOwnsGesture = event.modifierFlags.contains(.command) && DesignSettings.shared.layoutScrollModifier == .command
+            guard !layoutOwnsGesture, NavigationTunables.swipeNavigation.value, NSEvent.isSwipeTrackingFromScrollEventsEnabled,
                   let target = target(of: event) else {
                 gesture.cancel()
                 tab = nil

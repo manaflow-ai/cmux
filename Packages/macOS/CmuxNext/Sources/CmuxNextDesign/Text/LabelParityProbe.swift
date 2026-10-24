@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 public import AppKit
 
 /// `debug.label_parity` (DEBUG; text-weight-e2e.py, cx-8w027.26): ``ChromeLabel`` next to a stock

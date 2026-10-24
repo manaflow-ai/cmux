@@ -384,6 +384,7 @@ public final class PaletteController {
         content.onRecorderOption = { [weak self] option in self?.shortcutRecorder.choose(option) }
         panel.contentView = content
         panel.keyHandler = { [weak self, weak panel] event in self?.handleKeyDown(event, in: panel) ?? false }
+        panel.onBecomeKey = { [weak self] in self?.contentView?.focusField() }
         panel.capturesKeyEquivalents = { [weak self] in self?.model.shortcutRecorder != nil }
         panel.capturesKeyEquivalent = { [weak self] event in
             guard let model = self?.model else { return false }

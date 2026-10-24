@@ -104,7 +104,14 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&spec.socket, std::fs::Permissions::from_mode(0o600))?;
     }
-    let mut child = cmd.spawn().context("spawn harness process")?;
+    let mut child = cmd.spawn().map_err(|e| {
+        // Both a missing folder and a missing program fail as ENOENT: say which.
+        if e.kind() == std::io::ErrorKind::NotFound && !spec.cwd.exists() {
+            anyhow!("the folder {} does not exist", spec.cwd.display())
+        } else {
+            anyhow!(e).context(format!("spawn harness process {}", spec.program))
+        }
+    })?;
     let record = HostRecord {
         record_version: RECORD_VERSION,
         session_id: spec.session_id.clone(),

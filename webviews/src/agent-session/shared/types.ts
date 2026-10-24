@@ -75,12 +75,15 @@ export type AgentSessionTheme = {
   /// marks draw a shape each. Absent means the stylesheet defaults (animated).
   statusIndicators?: "animated" | "static";
   /// How agent work shows (Debug Settings `status.working`, CmuxNextDesign StatusWorkingLook): sets
-  /// `data-working-look` on the root. Absent means the stylesheet default, the breathing dot.
+  /// `data-working-look` on the root. Absent means the stylesheet default, the spinner.
   workingLook?: "breathe" | "shimmer" | "spinner";
   /// Running subagents in one tray above the composer, a line where each ended (Debug Settings
   /// `agentPane.debug.subagentTray`, acpmux subagents/runningTray.ts). Absent or true is the tray;
   /// false keeps the transcript's group cards and the agents pill.
   subagentTray?: boolean;
+  /// Running tray placement; absent keeps the tray above the composer. The alternate is
+  /// fixture/Labs-driven until a native setting owns it.
+  subagentTrayPlacement?: "tray" | "after-latest-message";
   /// The transcript's scrollbar fades out at rest (Debug Settings `agentPane.debug.scrollerFade`):
   /// sets `data-cmux-scroller-fade` on the root (scrollers.ts). Absent or false keeps it shown while
   /// the chat overflows.

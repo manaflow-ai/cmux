@@ -5,7 +5,8 @@
 /// strings. Add a case here, with what its interval spans, before a call site uses it. The cases
 /// are the catalog: `allCases` is the list tests and readers enumerate, so no second list exists.
 ///
-/// Only ``actionPerform``, ``actionCommit`` and ``actionGate`` have an emitter today. The other cases are
+/// Only ``actionPerform``, ``actionCommit``, ``actionGate``, ``stallMainTask`` and ``stallOverBudget`` have an
+/// emitter today. The other cases are
 /// **reserved**: the lane named on each adds the emitter (plans/cmux-next/architecture-refactor-DESIGN.md
 /// section 7). Until then no build records them, and no bench or report may quote them.
 ///
@@ -71,6 +72,16 @@ public nonisolated enum SignpostName: Sendable, Hashable, CaseIterable, CustomSt
     /// Reserved. `CefBrowserHost::CreateBrowser` on the main thread.
     case cefCreateBrowser
 
+    // MARK: stall (emitter: the main-thread scheduler, CmuxNextWakeups `MainFrameBudget`)
+
+    /// One task the main-thread scheduler runs, from its start to its return: a frame batch
+    /// (`FrameBatcher` work) or a queued control request. Message: `class=<input|frame|visible|automation|background>
+    /// owner=<batch owner or control method>`. Per task, so several per frame: never mirrored to MetricKit.
+    case stallMainTask
+    /// A point event: a scheduled main-thread task ran past its class's per-frame budget. Message:
+    /// `class=<class> owner=<owner> ms=<task time> budget_ms=<the class's budget>`.
+    case stallOverBudget
+
     /// The name `os_signpost` records (a compile-time string, as the API requires).
     public var staticName: StaticString {
         switch self {
@@ -87,6 +98,8 @@ public nonisolated enum SignpostName: Sendable, Hashable, CaseIterable, CustomSt
         case .createWorkspace: "create.workspace"
         case .cefPump: "cef.pump"
         case .cefCreateBrowser: "cef.create_browser"
+        case .stallMainTask: "stall.main_task"
+        case .stallOverBudget: "stall.over_budget"
         }
     }
 

@@ -59,6 +59,10 @@ import Foundation
     }
 
     private var entries: [ObjectIdentifier: Entry] = [:]
+    /// Records indexed since creation (each ``insert`` counts its subtree): what a store change
+    /// cost here. Tests and `debug.store` read it; a snapshot that changed one workspace must add
+    /// that workspace's records, not the session's.
+    private(set) var indexedRecords = 0
     /// Every indexed tab record per surface: normally one; two for the
     /// moment a move's added delta carries its own record of the moved tab.
     private var recordsBySurface: [SurfaceID: [ObjectIdentifier]] = [:]
@@ -86,7 +90,9 @@ import Foundation
 
     /// Indexes `workspaces` only (snapshot apply; the one O(tree) write).
     mutating func rebuild(_ workspaces: [WorkspaceModel]) {
+        let counted = indexedRecords
         self = StoreIndex()
+        indexedRecords = counted
         for workspace in workspaces { insert(workspace) }
         tabOrderChanged = true
     }
@@ -161,6 +167,7 @@ import Foundation
         entries[id] = entry
         if let parentID { entries[parentID]?.children.insert(id) }
         key(keys, record)
+        indexedRecords &+= 1
     }
 
     private mutating func key(_ keys: Keys, _ record: AnyObject) {

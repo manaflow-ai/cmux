@@ -52,7 +52,7 @@ HELP = re.compile(r"^\s*help:")
 # whose file count moves whenever the change adds or removes a file (#24274's and #24524's fast gates read it as
 # the one finding the merge added), and `vp fmt`'s `Format issues found in above N files.`, whose count falls when
 # the change fixes one of the base's files.
-NOISE = re.compile(r"^(?:error: (?:Type errors|Formatting issues|Lint issues) found$|Found \d+ errors? and \d+ warnings?\b"
+NOISE = re.compile(r"^(?:error: (?:Type errors|Formatting issues|Lint issues) found$|Found (?:\d+ errors? and \d+ warnings?|\d+ warnings? and \d+ errors?)\b"
                    r"|Finished in \S+ on \d+ files?(?: with \d+ rules?)? using \d+ threads?\.$|note: You are running"
                    r"|Format issues found in above \d+ files?\. Run without `--check` to fix\.$)")
 

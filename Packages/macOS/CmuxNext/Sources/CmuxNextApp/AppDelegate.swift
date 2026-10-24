@@ -11,6 +11,7 @@ import CmuxNextKeepAwake
 import CmuxNextPages
 import CmuxNextPalette
 import CmuxNextPhoneAccess
+import CmuxNextPopups
 import CmuxNextSettings
 import CmuxNextTerminal
 import os
@@ -135,7 +136,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         DebugTimings.markLaunch("dfl.daemon_cloud_updater")
         services.windows.onFirstWindow = { [weak services] _ in
-            #if DEBUG
+            #if DEBUG || CMUX_BENCH_HOOKS
             if let services, services.environment.showcase { _ = DebugShowcase.seed(["focus": .bool(false)], services: services) }
             #endif
             // An App Store request made while no window existed shows in this window (S22).
@@ -182,6 +183,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         FirstPartyPageSchemes.install()
         // Every cmux page view follows `browser.defaultEngine` (Chromium by default) through this one host.
         PageWebView.openPanel = services.openPanel
+        // A WebKit browser tab's file input takes the same made-ahead panel as a cmux page's.
+        services.cache.webKit.fileInput = services.openPanel
         PageWebView.chromiumHosting = ChromiumPageHost(
             cef: services.cache.cef,
             preference: { [weak services] in
@@ -200,7 +203,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.startChromiumRuntime()
         firstFrame.whenOpen { [weak services] in services?.startLaterTabWarmups() }
         // Other apps' sign-ins, before any request a launch by one delivers.
-        let webAuthHandler = WebAuthSessionHandler(broker: WebAuthSessionBroker(opener: WebAuthSessionWindows(services: services)))
+        // The engine's own OffTheRecordProfiles and CEFSignInCallbacks (CEFRuntime reads `.shared`).
+        let webAuthWindows = WebAuthSessionWindows(host: services, logger: services.daemon.logger,
+                                                   profiles: .shared, signInCallbacks: .shared,
+                                                   contextMenus: services.contextMenus)
+        let webAuthHandler = WebAuthSessionHandler(broker: WebAuthSessionBroker(opener: webAuthWindows))
         self.webAuthHandler = webAuthHandler
         WebAuthSessionHandler.install(webAuthHandler)
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURLEvent(_:reply:)),

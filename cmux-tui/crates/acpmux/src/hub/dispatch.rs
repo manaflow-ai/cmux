@@ -87,15 +87,6 @@ impl Briefs {
         self.rows.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned()
     }
 
-    pub(crate) fn by_idempotency(&self, key: &str) -> Option<Value> {
-        self.rows
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .values()
-            .find(|row| row.get("idempotencyKey").and_then(Value::as_str) == Some(key))
-            .cloned()
-    }
-
     pub(crate) fn update(&self, id: &str, patch: impl FnOnce(&mut Value)) -> Option<Value> {
         let mut rows = self.rows.lock().unwrap_or_else(|e| e.into_inner());
         let row = rows.get_mut(id)?;
@@ -122,7 +113,7 @@ impl Briefs {
                 status.is_none_or(|want| v.get("status").and_then(Value::as_str) == Some(want))
             })
             .rev()
-            .take(limit.max(1).min(500))
+            .take(limit.clamp(1, 500))
             .cloned()
             .collect()
     }

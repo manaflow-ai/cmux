@@ -78,7 +78,7 @@ struct AppEnvironment: Sendable {
         #endif
     }
 
-    static func current(_ environment: [String: String] = ProcessInfo.processInfo.environment) -> AppEnvironment {
+    static func current(_ environment: [String: String] = ProcessInfo.processInfo.environment, openFiles: OpenFileLimit.Change? = nil) -> AppEnvironment {
         let noActivate = environment["CMUX_NEXT_NO_ACTIVATE"] == "1"
 #if DEBUG
         let showcase = environment["CMUX_NEXT_SHOWCASE"] == "1" || ProcessInfo.processInfo.arguments.contains("--showcase")
@@ -91,7 +91,7 @@ struct AppEnvironment: Sendable {
             noActivate: noActivate,
             showcase: showcase,
             testWindow: TestWindowPlacement.parse(environment, noActivate: noActivate),
-            terminalEnvironment: terminalEnvironment(launch: launch, environment: environment),
+            terminalEnvironment: terminalEnvironment(launch: launch, environment: environment).merging(openFiles?.childEnvironment ?? [:]) { $1 },
             ghosttyResources: GhosttyRuntime.resourcesDirectory(environment: environment),
             ghosttyBinary: GhosttyRuntime.cliHelperPath()
         )

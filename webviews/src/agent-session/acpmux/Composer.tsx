@@ -175,6 +175,8 @@ type Props = {
   onStop(): void;
   /// Withdraws a queued prompt (`_acpmux/queue_remove`); false when it already started.
   onQueueRemove?(promptId: string): Promise<boolean>;
+  /// Pulls a queued prompt back into the composer, retaining its text and attachments.
+  onQueueCancelEdit?(promptId: string, text: string, attachments: ComposerAttachment[]): Promise<boolean>;
   /// Changes a queued prompt (`_acpmux/queue_edit`): its text, its place, or send it now.
   onQueueChange?(promptId: string, edit: QueueEdit): Promise<boolean>;
   /// The text of an edit whose prompt started meanwhile: it goes back in the prompt.
@@ -294,6 +296,7 @@ export function Composer({
   onSend,
   onStop,
   onQueueRemove,
+  onQueueCancelEdit,
   onQueueChange,
   onQueueLost,
   onQueueSideChat,
@@ -597,7 +600,7 @@ export function Composer({
         }
       },
     }),
-    [setAttachments, setAttachError],
+    [setAttachments],
   );
   useEffect(() => {
     // The prompt's DOM value is the typed text; a draft never replaces it.
@@ -1494,6 +1497,7 @@ export function Composer({
         {...(pauseReason ? { pauseReason } : {})}
         t={t}
         onRemove={onQueueRemove}
+        onCancelEdit={onQueueCancelEdit}
         onChange={onQueueChange}
         onLost={onQueueLost}
         onSideChat={onQueueSideChat}

@@ -183,6 +183,9 @@ extension WindowManager {
             if shows { select(workspaceID, in: state) }
             return
         }
+        // A workspace of another room: the window enters that room first, so the selection repair
+        // after the move finds it shown there and picks it (Home took a second click otherwise).
+        if shows { enterProfile(of: workspaceID, in: state) }
         transition(select: shows ? [state.id: [workspaceID]] : [:]) { $0.move([workspaceID], to: state.id) }
     }
 

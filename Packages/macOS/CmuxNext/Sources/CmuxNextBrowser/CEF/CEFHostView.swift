@@ -59,11 +59,13 @@ final class CEFHostView: NSView {
     override func viewWillStartLiveResize() {
         super.viewWillStartLiveResize()
         liveResizeWillStart?()
+        layerHosting.windowLiveResize(active: true)
         updateBackground()
     }
 
     override func viewDidEndLiveResize() {
         super.viewDidEndLiveResize()
+        layerHosting.windowLiveResize(active: false)
         updateBackground()
     }
 
@@ -183,6 +185,8 @@ final class CEFHostView: NSView {
         if let windowObserver { NotificationCenter.default.removeObserver(windowObserver) }
         windowObserver = nil
         readGeometry = nil
+        // A resize-wait tunable edit made while out of a window applies (CEFResizeSyncDeadline).
+        layerHosting.windowDidChange()
         guard let window else { return }
         windowObserver = NotificationCenter.default.addObserver(forName: Notification.Name.browserChildWindowPagesNeedUpdate, object: window, queue: .main) { [weak self] note in
             let force = note.userInfo?[browserPagesForceUpdateKey] as? Bool ?? false

@@ -6,7 +6,7 @@
 // BE ABLE TO CLICK ON THESE TO ACTUALLY GO TO THEM"), its tooltip naming the chat and that machine
 // ("Open chief-ui (huge-blue)"). The message is a
 // muted glass card under the line, its text drawn as Markdown with PR, issue and file references
-// linked, cut to its first six lines (`RECEIVED_LINES`, the last fading out) when it is longer; the
+// linked, cut to its first eight lines (`RECEIVED_LINES`, the last fading out) when it is longer; the
 // line's chevron, or a click on the cut card, opens it whole, with the prompt as the agent got it
 // (cmux's or Claude Code's envelope) behind Details under it. Whether it is open lasts while the
 // page does, so scrolling it out of the virtualized transcript keeps it. A sub-session family's
@@ -50,6 +50,7 @@ const replyDrafts = new Map<string, string>();
 export function IncomingMessageLine({
   id,
   message,
+  messageAt,
   images,
   onOpen,
   onReply,
@@ -59,6 +60,8 @@ export function IncomingMessageLine({
   /// The row's id, which keeps the line open across remounts.
   id: string;
   message: IncomingMessage;
+  /// The containing transcript row's epoch timestamp, used to date bare UTC times.
+  messageAt?: number;
   /// The images the message sent the agent (direct.ts `promptImages`).
   images?: readonly PromptImage[];
   /// Opens the sender's chat by its acpmux id (App.tsx `openSenderChat`, `chat.offer.open` with `sender`).
@@ -229,7 +232,12 @@ export function IncomingMessageLine({
         <MessageScopeContext.Provider value={scope}>
           <div ref={textBox} className="cv-received__text">
             {text ? (
-              <Markdown githubRepository={repository} commits="quiet" thumbnails={host === undefined}>
+              <Markdown
+                githubRepository={repository}
+                commits="quiet"
+                thumbnails={host === undefined}
+                messageAt={messageAt}
+              >
                 {body}
               </Markdown>
             ) : (

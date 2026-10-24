@@ -365,11 +365,20 @@ export function ComposerPickers({
   const levelRow = ownRow?.efforts.length ? ownRow : (releaseRows.find((row) => row.efforts.length > 0) ?? ownRow);
   const defaultEffort =
     ownRow?.defaultEffort ?? releaseRows.find((row) => row.defaultEffort !== undefined)?.defaultEffort;
+  // A direct profile can declare an alias with `efforts: []` before the joined catalog has retained
+  // its `own` marker. Keep that explicit no-level declaration attached to the running release row.
+  const profileDeclaresNoEffort = snapshot.catalog
+    .find((entry) => entry.id === summary?.harness)
+    ?.models.some(
+      (model) => Object.hasOwn(model, "efforts") && Array.isArray(model.efforts) && model.efforts.length === 0,
+    );
   const efforts: Choice[] = reasoningChoices(
     effort?.options ?? [],
     {
       ...(levelRow ? { efforts: levelRow.efforts } : {}),
       ...(defaultEffort ? { defaultEffort } : {}),
+      ...(levelRow?.own?.efforts || profileDeclaresNoEffort ? { own: { efforts: true } } : {}),
+      ...(profileDeclaresNoEffort ? { noEffort: true } : {}),
     },
     t,
   );
@@ -842,7 +851,7 @@ export function ComposerPickers({
             onEffort(effort.id, value);
           },
         }
-      : heldLevels.length > 1 && chipHarness
+      : heldLevels.length > 1 && chipHarness && !profileDeclaresNoEffort
         ? {
             levels: heldLevels,
             current: heldValue,
@@ -1271,7 +1280,7 @@ export function isPlan(modeId: string): boolean {
 const TABBABLE =
   'a[href],button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[tabindex]:not([tabindex="-1"])';
 
-/// How much of the context window the session has used, as a ring that fills. Resting the pointer
+/// How much of the context window the session has used, as a neutral ring that fills. Resting the pointer
 /// on it, or focusing it, shows the context card with no click (ContextCard.tsx; Leo 2026-10-21,
 /// after Claude's and Codex's): the share and tokens used, the window as a stacked bar, and
 /// Details ›, which opens the Inspector's Context section. A click pins the card until a press
@@ -1356,7 +1365,6 @@ export function ContextRing({
     document.addEventListener("pointerdown", onPress, true);
     return () => document.removeEventListener("pointerdown", onPress, true);
   }, [pinned]);
-  const full = fraction >= 0.8 ? " acpmux-context-full" : "";
   /// The card's buttons the keyboard reaches (Compact, Details ›).
   const cardButtons = () => [...(card.current?.querySelectorAll<HTMLElement>("button:not(:disabled)") ?? [])];
   /// Leaves the card forward: to whatever the page tabs to after the ring, and the card closes.
@@ -1398,7 +1406,7 @@ export function ContextRing({
     // tooltip-allow: before any usage the inert ring says why; once usage is known the card replaces it.
     <span
       ref={wrapper}
-      className={`acpmux-picker acpmux-context${full}`}
+      className="acpmux-picker acpmux-context"
       title={known ? undefined : t("context.ringTooltipEmpty")}
     >
       <button
@@ -1451,7 +1459,7 @@ export function ContextRing({
       <AnchoredCard
         anchor={shown ? trigger.current : null}
         // AnchoredCard makes it the shared glass hover card (ui-tooltip ui-card ui-glass).
-        className={`acpmux-context-card acpmux-context-pop${breakdown ? " acpmux-context-pop--breakdown" : " acpmux-context-pop--compact"}${full}`}
+        className={`acpmux-context-card acpmux-context-pop${breakdown ? " acpmux-context-pop--breakdown" : " acpmux-context-pop--compact"}`}
         side="top"
         interactive
         ariaLabel={t("context.title")}
@@ -2033,9 +2041,10 @@ const PLAIN_LEVELS = new Set(["none", "minimal", "low", "medium", "high", "xhigh
 /// not a level).
 export function reasoningChoices(
   options: { value: string; name?: string; description?: string }[],
-  model: { efforts?: readonly string[]; defaultEffort?: string } | undefined,
+  model: { efforts?: readonly string[]; defaultEffort?: string; own?: { efforts?: true }; noEffort?: true } | undefined,
   t: (key: StringKey) => string,
 ): Choice[] {
+  if (model?.noEffort || (model?.own?.efforts && (model.efforts ?? []).length === 0)) return [];
   const levels = model?.efforts && model.efforts.length > 0 ? new Set<string>(model.efforts) : undefined;
   const offered = options.filter((option) => {
     if (["default", "ultracode", "ultrathink"].includes(option.value)) return false;

@@ -163,6 +163,30 @@ class PrePushGateTests(unittest.TestCase):
         return subprocess.run(["git", "-C", str(self.origin), "rev-parse", "feat-cmux-next"],
                               env=self.env, text=True, capture_output=True).stdout.strip()
 
+    def test_a_rebased_branch_is_judged_on_its_own_commits_not_the_base_it_moved_onto(self):
+        # A branch pushed once, then rebased onto a base that gained debt (a try! someone else
+        # pushed with --no-verify). The re-push must check only the branch's own commit.
+        self.git("checkout", "--quiet", "-b", "topic")
+        self.write(f"{PKG}/Sources/CmuxNextKit/Topic.swift", APP.replace("CmuxNextApp", "Topic"))
+        self.commit("topic work")
+        first = subprocess.run(["git", "-C", str(self.repo), "push", "origin", "topic"],
+                               env=self.env, text=True, capture_output=True)
+        self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+        self.git("checkout", "--quiet", "feat-cmux-next")
+        self.write(f"{PKG}/Sources/CmuxNextKit/BaseDebt.swift", NEW_WITH_TRY)
+        self.commit("someone else's debt on the base")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        self.git("checkout", "--quiet", "topic")
+        self.git("rebase", "--quiet", "origin/feat-cmux-next")
+
+        result = subprocess.run(["git", "-C", str(self.repo), "push", "--force", "origin", "topic"],
+                                env=self.env, text=True, capture_output=True)
+
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertNotIn("BaseDebt.swift", output, "a base commit the rebase brought in is not the branch's")
+
     def test_install_adds_the_gate_to_the_pre_push_hook(self):
         hooks = Path(self.git("config", "--get", "core.hooksPath").stdout.strip())
         self.assertTrue((hooks / "cmux_next_prepush_gate.py").is_file())
