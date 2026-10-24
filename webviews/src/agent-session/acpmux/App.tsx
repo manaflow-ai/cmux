@@ -5605,7 +5605,7 @@ function AcpmuxPane() {
     covered: (diffView !== undefined && diffFiles !== undefined) || inspectorOpen || artifactCovers,
     onUncover: uncoverChat,
     beside: artifact?.opened,
-    // A handoff review's form is wider than the transcript's column: the panel pushes it aside.
+    // A handoff review's form is wider than the transcript's column: the chat's shift is measured against it.
     wide: reviewing,
   });
   // The running line's counts (conversation/WorkingFor.tsx), with the tray off (Debug Settings):
