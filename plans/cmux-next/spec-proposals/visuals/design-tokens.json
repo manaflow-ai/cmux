@@ -2250,7 +2250,7 @@
      "closeEndWidth": 0,
      "minActiveWidth": 56,
      "minInactiveWidth": 32,
-     "pinnedWidth": 64,
+     "pinnedWidth": 36,
      "reorderThreshold": 16,
      "closingMode": {
       "belowPad": 40,
@@ -2264,7 +2264,7 @@
      "closeEndWidth": 0,
      "minActiveWidth": 56,
      "minInactiveWidth": 32,
-     "pinnedWidth": 64,
+     "pinnedWidth": 36,
      "reorderThreshold": 16,
      "closingMode": {
       "belowPad": 40,
