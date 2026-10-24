@@ -43,19 +43,18 @@ impl Mux {
                 return None;
             }
         }
+        // Wait for the start to END, not for the new surface to appear: the
+        // worker puts the surface in the tab before it forgets the kept row
+        // and starts the launch stream, and a launch that fails there kills
+        // that surface. The worker clears its pending marker only after all
+        // of that, then emits `TreeChanged`. Then the surface is the shell
+        // the request reaches, or the tab is dead again (None).
         let deadline = Instant::now() + KEPT_TAB_START_WAIT;
-        loop {
-            if let Some(found) = live() {
-                return Some(found);
-            }
-            // The start ended without a live shell (its launch failed): the
-            // tab is dead again.
-            if !self.terminal_start_pending(&terminal) {
-                return None;
-            }
+        while self.terminal_start_pending(&terminal) {
             let remaining = deadline.checked_duration_since(Instant::now())?;
             events.recv_timeout(remaining).ok()?;
         }
+        live()
     }
 
     /// The live runtime surface of `terminal`, starting its kept tab first

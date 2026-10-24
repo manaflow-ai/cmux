@@ -12,6 +12,7 @@ use super::ConnectionCancellation;
 use super::DeliveryClassifiedError;
 use super::MessageWriter;
 use super::ProtocolKeyInput;
+use super::get_shell_surface;
 use super::get_surface;
 use super::image_paste;
 use super::optional_surface_size;
