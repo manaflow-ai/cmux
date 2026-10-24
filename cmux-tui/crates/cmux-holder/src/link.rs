@@ -88,10 +88,16 @@ pub struct HolderLink {
     credit: bool,
     /// The wire version the holder settled on.
     version: u16,
+    /// How long a spawn waits for the holder's SPAWNED.
+    spawn_timeout: Duration,
 }
 
 /// How long a spawn waits for the holder's answer.
-const SPAWN_TIMEOUT: Duration = Duration::from_secs(10);
+pub const SPAWN_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// The grace a CLOSE gives the shell of a terminal no surface owns (a SPAWN
+/// whose answer came too late) before SIGKILL: a shell's usual hang-up grace.
+const UNOWNED_CLOSE_GRACE_MS: u32 = 2000;
 
 impl HolderLink {
     /// Connect and authenticate, return the terminals the holder runs, and
@@ -102,6 +108,18 @@ impl HolderLink {
         token: &[u8; 32],
         on_lost: Box<dyn FnOnce(LinkEnd) + Send>,
     ) -> io::Result<(Arc<Self>, Vec<Listed>)> {
+        Self::connect_with_spawn_timeout(socket, token, on_lost, SPAWN_TIMEOUT)
+    }
+
+    /// [`Self::connect`], with a spawn that waits `spawn_timeout` (not
+    /// [`SPAWN_TIMEOUT`]) for the holder's answer: the seam a test uses to
+    /// see what a SPAWN that timed out leaves behind.
+    pub fn connect_with_spawn_timeout(
+        socket: &Path,
+        token: &[u8; 32],
+        on_lost: Box<dyn FnOnce(LinkEnd) + Send>,
+        spawn_timeout: Duration,
+    ) -> io::Result<(Arc<Self>, Vec<Listed>)> {
         let (client, listed) = crate::client::HolderClient::connect(socket, token)?;
         let (stream, reader, version) = client.into_parts();
         stream.set_read_timeout(None)?;
@@ -110,6 +128,7 @@ impl HolderLink {
             state: Mutex::new(State { open: true, ..State::default() }),
             credit: version >= 2,
             version,
+            spawn_timeout,
         });
         let weak = Arc::downgrade(&link);
         std::thread::Builder::new().name("holder-link".into()).spawn(move || {
@@ -143,6 +162,12 @@ impl HolderLink {
     /// Start `request` on `chan`, streaming its output to `sink` from its
     /// first byte. Returns the child's pid and the caller's custody dups of
     /// the PTY master and (wire version 4) the ring segment.
+    ///
+    /// A holder that does not answer within the spawn timeout may still
+    /// start the terminal: the spawn fails, and the holder is told to end
+    /// that terminal (a CLOSE now, and another one when its late SPAWNED
+    /// arrives), so no shell keeps running, blocked behind output nobody
+    /// acknowledges, for the life of the link.
     pub fn spawn(
         &self,
         chan: u32,
@@ -161,15 +186,23 @@ impl HolderLink {
         let sent = self
             .send(Kind::Spawn, chan, &request.encode(), None)
             .and_then(|()| self.send(Kind::Attach, chan, &Out::default().u64(0).0, None));
-        let result = sent.and_then(|()| {
-            answered
-                .recv_timeout(SPAWN_TIMEOUT)
-                .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "holder did not spawn"))?
+        let mut timed_out = false;
+        let result = sent.and_then(|()| match answered.recv_timeout(self.spawn_timeout) {
+            Ok(reply) => reply,
+            Err(_) => {
+                timed_out = true;
+                Err(io::Error::new(io::ErrorKind::TimedOut, "holder did not spawn"))
+            }
         });
         if result.is_err() {
             let mut state = self.lock();
             state.sinks.remove(&chan);
             state.spawns.remove(&chan);
+        }
+        if timed_out {
+            // Best effort: a link that broke meanwhile is lost, and the
+            // daemon ends the terminals a new link lists that it does not own.
+            let _ = self.close(chan, UNOWNED_CLOSE_GRACE_MS);
         }
         result
     }
@@ -368,8 +401,17 @@ fn read_loop(
                         (Ok(pid), Some(master)) => Ok(Spawned { pid, master, ring: fds.next() }),
                         _ => Err(io::Error::other("malformed SPAWNED")),
                     };
-                    if let Some(waiter) = link.lock().spawns.remove(&chan) {
-                        let _ = waiter.try_send(reply);
+                    let waiter = link.lock().spawns.remove(&chan);
+                    match waiter {
+                        Some(waiter) => {
+                            let _ = waiter.try_send(reply);
+                        }
+                        // The spawn gave up waiting: nobody owns this
+                        // terminal, so it ends (its dups close here).
+                        None => {
+                            drop(reply);
+                            let _ = link.close(chan, UNOWNED_CLOSE_GRACE_MS);
+                        }
                     }
                 }
                 Some(Kind::Error) => {
@@ -401,21 +443,30 @@ fn read_loop(
                     }
                 }
                 Some(Kind::Data) => {
-                    if let Ok(offset) = input.u64()
-                        && let Some(sink) = link.lock().sinks.get(&chan).cloned()
-                    {
-                        if frame.flags & wire::FLAG_PROLOGUE != 0 {
-                            sink.prologue(offset, input.rest());
-                        } else {
-                            let bytes = input.rest();
-                            sink.data(offset, bytes);
-                            let through = offset + bytes.len() as u64;
-                            if !sink.acks_itself() {
-                                let last = acked.entry(chan).or_insert(offset);
-                                if through >= *last + wire::ACK_EVERY {
-                                    *last = through;
-                                    let _ = link.ack(chan, through);
-                                }
+                    let Ok(offset) = input.u64() else { continue };
+                    let sink = link.lock().sinks.get(&chan).cloned();
+                    let Some(sink) = sink else {
+                        // Nobody parses this terminal (its surface is gone,
+                        // or its spawn gave up waiting): its output is
+                        // consumed here, so the holder never holds the
+                        // shell behind credit nobody would give, and the
+                        // terminal can end and be forgotten.
+                        if frame.flags & wire::FLAG_PROLOGUE == 0 {
+                            let _ = link.ack(chan, offset + input.rest().len() as u64);
+                        }
+                        continue;
+                    };
+                    if frame.flags & wire::FLAG_PROLOGUE != 0 {
+                        sink.prologue(offset, input.rest());
+                    } else {
+                        let bytes = input.rest();
+                        sink.data(offset, bytes);
+                        let through = offset + bytes.len() as u64;
+                        if !sink.acks_itself() {
+                            let last = acked.entry(chan).or_insert(offset);
+                            if through >= *last + wire::ACK_EVERY {
+                                *last = through;
+                                let _ = link.ack(chan, through);
                             }
                         }
                     }
