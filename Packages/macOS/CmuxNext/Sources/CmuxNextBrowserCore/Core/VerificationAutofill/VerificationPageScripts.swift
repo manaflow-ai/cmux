@@ -15,7 +15,8 @@ package nonisolated struct VerificationPageScripts {
     package static let world = "cmux-verify"
 
     /// The function the detector puts on its world's `window`; calling it says the channel
-    /// exists now (CEF calls it right after adding the binding: `CEFVerificationBridge`).
+    /// exists now (CEF calls it once per document, after the binding add at `.finished`:
+    /// `CEFVerificationBridge`).
     package static let readyHook = "__cmuxVerifyReady"
 
     /// The detector. `post` sends `report` (an object) to Swift; `ready` is true once the
