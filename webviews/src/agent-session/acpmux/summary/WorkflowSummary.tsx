@@ -1,6 +1,6 @@
 // l10n-allow-file: workflow labels are an experimental Labs surface; phase and agent names come
 // from the future acpmux workflow contract and the small action labels reuse shipped strings.
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { formatDuration } from "../conversation/turns";
 import { Spinner } from "../conversation/icons";
 import { useT } from "../i18n";
@@ -23,7 +23,12 @@ export function WorkflowSummaryRow({
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
-  const [phaseId, setPhaseId] = useState(workflow?.phase ?? workflow?.phases[0]?.id);
+  const selectedAgentPhaseId = workflow?.selectedAgentId
+    ? workflow.phases.find((entry) => entry.agentIds.includes(workflow.selectedAgentId!))?.id
+    : undefined;
+  const preferredPhaseId = workflow?.phase ?? selectedAgentPhaseId ?? workflow?.phases[0]?.id;
+  const [phaseId, setPhaseId] = useState(preferredPhaseId);
+  useEffect(() => setPhaseId(preferredPhaseId), [preferredPhaseId]);
   const phase = useMemo(
     () => workflow?.phases.find((entry) => entry.id === phaseId) ?? workflow?.phases[0],
     [phaseId, workflow],
@@ -158,6 +163,19 @@ export function WorkflowSummaryRow({
                   {t("artifact.save")}
                 </button>
               )}
+            </div>
+          )}
+          {!actions.onPause && !actions.onStop && !actions.onSave && (
+            <div className="acpmux-workflow__actions" aria-label={t("summary.empty")}>
+              <button type="button" disabled aria-disabled="true">
+                {t("replay.pause")}
+              </button>
+              <button type="button" disabled aria-disabled="true">
+                {t("subagents.stop", { name: workflow.title })}
+              </button>
+              <button type="button" disabled aria-disabled="true">
+                {t("artifact.save")}
+              </button>
             </div>
           )}
         </div>

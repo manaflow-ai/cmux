@@ -58,6 +58,7 @@ export function workflowFromWire(value: unknown): WorkflowSummary | undefined {
   if (!id || !title || !state || !STATES.workflow.has(state as WorkflowSummary["state"])) return undefined;
   // A partial event must not make the UI claim it knows phases or agent totals.
   if (!Array.isArray(raw.phases) || !Array.isArray(raw.agents)) return undefined;
+  if (raw.phases.length === 0 || raw.agents.length === 0) return undefined;
   const agents: WorkflowAgent[] = [];
   const agentIds = new Set<string>();
   for (const entry of raw.agents) {
@@ -83,6 +84,7 @@ export function workflowFromWire(value: unknown): WorkflowSummary | undefined {
   }
   const phases: WorkflowPhase[] = [];
   const phaseIds = new Set<string>();
+  const phaseAgentIds = new Set<string>();
   for (const entry of raw.phases) {
     const phase = record(entry);
     const phaseId = text(phase?.id);
@@ -94,9 +96,12 @@ export function workflowFromWire(value: unknown): WorkflowSummary | undefined {
     const ids = phase.agentIds.map((id) => text(id));
     if (ids.some((id) => id === undefined) || new Set(ids).size !== ids.length || ids.some((id) => !agentIds.has(id!)))
       return undefined;
+    if (ids.some((id) => phaseAgentIds.has(id!))) return undefined;
+    for (const id of ids) phaseAgentIds.add(id!);
     phaseIds.add(phaseId);
     phases.push({ id: phaseId, name, state: phaseState as WorkflowPhase["state"], agentIds: ids as string[] });
   }
+  if (phaseAgentIds.size !== agentIds.size) return undefined;
   const phase = text(raw.phase);
   if (has(raw, "phase") && (!phase || !phaseIds.has(phase))) return undefined;
   if (has(raw, "elapsedMs") && count(raw.elapsedMs) === undefined) return undefined;
@@ -104,6 +109,8 @@ export function workflowFromWire(value: unknown): WorkflowSummary | undefined {
   if (has(raw, "large") && typeof raw.large !== "boolean") return undefined;
   const selectedAgentId = text(raw.selectedAgentId);
   if (has(raw, "selectedAgentId") && (!selectedAgentId || !agentIds.has(selectedAgentId))) return undefined;
+  if (selectedAgentId && phase && !phases.find((entry) => entry.id === phase)?.agentIds.includes(selectedAgentId))
+    return undefined;
   return {
     id,
     title,

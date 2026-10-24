@@ -42,8 +42,30 @@ test("workflow adapter rejects malformed children, references, duplicates and se
   expect(workflowFromWire({ ...base, agents: [{ id: "a", name: "API", state: "bogus" }] })).toBeUndefined();
   expect(workflowFromWire({ ...base, agents: [...base.agents, base.agents[0]] })).toBeUndefined();
   expect(workflowFromWire({ ...base, phases: [{ ...base.phases[0], agentIds: ["missing"] }] })).toBeUndefined();
+  expect(workflowFromWire({ ...base, phases: [{ id: "p", name: "Implement", state: "running", agentIds: [] }] })).toBeUndefined();
+  expect(
+    workflowFromWire({
+      ...base,
+      phases: [
+        { id: "p", name: "Implement", state: "running", agentIds: ["a"] },
+        { id: "p2", name: "Verify", state: "pending", agentIds: ["a"] },
+      ],
+    }),
+  ).toBeUndefined();
   expect(workflowFromWire({ ...base, selectedAgentId: "missing" })).toBeUndefined();
   expect(workflowFromWire({ ...base, phase: "missing" })).toBeUndefined();
+  expect(
+    workflowFromWire({
+      ...base,
+      phase: "p",
+      selectedAgentId: "b",
+      agents: [base.agents[0], { id: "b", name: "UI", state: "running" }],
+      phases: [
+        base.phases[0],
+        { id: "p2", name: "Verify", state: "pending", agentIds: ["b"] },
+      ],
+    }),
+  ).toBeUndefined();
   expect(workflowFromWire({ ...base, elapsedMs: 1.5 })).toBeUndefined();
   expect(workflowFromWire({ ...base, tokens: Number.MAX_SAFE_INTEGER + 1 })).toBeUndefined();
 });
