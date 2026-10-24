@@ -15,6 +15,8 @@ public final class RemoteVNCSession {
     /// The record's address; the Keychain key for its sign-in.
     public let endpoint: VNCEndpoint
     private let store = RemoteVNCCredentialStore()
+    /// A Cloud machine's desktop: a fresh transport over the app's Cloud tunnel per session.
+    private let makeTransport: (@Sendable () -> any RFBTransport)?
     private var demo: VNCDemoServer?
     private var demoPort: UInt16?
     private var demoStart: Task<Void, Never>?
@@ -24,11 +26,19 @@ public final class RemoteVNCSession {
     /// `demoHost`: the reserved host name served by the loopback demo desktop.
     public init(record: RemoteViewTabRecord, port: UInt16, demoHost: String) {
         self.record = record
+        makeTransport = nil
         // The reserved names (RemoteViewTabPolicy) are never resolved: `local` and
         // `localhost` are this Mac, `mock` is the loopback demo desktop.
         let host = record.host.lowercased()
         endpoint = VNCEndpoint(host: ["local", "localhost"].contains(host) ? "127.0.0.1" : record.host, port: port)
         if host == demoHost { demo = VNCDemoServer() }
+    }
+
+    /// A Cloud machine's desktop (`via=cloud`): its VNC server, reached by `makeTransport`.
+    public init(cloudRecord record: RemoteViewTabRecord, makeTransport: @escaping @Sendable () -> any RFBTransport) {
+        self.record = record
+        self.makeTransport = makeTransport
+        endpoint = VNCEndpoint(host: record.host, port: 5901)
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
@@ -43,6 +53,10 @@ public final class RemoteVNCSession {
     /// Connects with the saved sign-in (or none; the host may not need one).
     public func connect() {
         guard !closed else { return }
+        if let makeTransport {
+            source.connect(to: endpoint, credentials: VNCCredentials(), transport: makeTransport())
+            return
+        }
         guard let demo else {
             source.connect(to: endpoint, credentials: store.credentials(for: endpoint) ?? VNCCredentials())
             return

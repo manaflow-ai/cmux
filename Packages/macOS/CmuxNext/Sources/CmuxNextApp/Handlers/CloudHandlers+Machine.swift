@@ -21,7 +21,7 @@ extension CloudHandlers {
             }
         }
         bind("cloudOpenDesktop", registry, reason: reason) { invocation in
-            try openDesktop(try machine(invocation, context), context)
+            try openDesktop(try machine(invocation, context), context, viewer: invocation["viewer"]?.stringValue)
         }
         bind("cloudSSH", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)

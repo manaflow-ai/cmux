@@ -21,3 +21,33 @@ public protocol LoopbackTunnel: Sendable {
     func shutdownWrite()
     func close()
 }
+
+/// Pulls one tunnel's bytes a read at a time for a client that reads on demand (Open Desktop's
+/// native viewer), returning flow-control credit for each read. One reader per tunnel.
+public actor LoopbackTunnelReader {
+    private let tunnel: any LoopbackTunnel
+    private var iterator: AsyncStream<LoopbackTunnelEvent>.Iterator?
+
+    public init(_ tunnel: any LoopbackTunnel) {
+        self.tunnel = tunnel
+        iterator = tunnel.events.makeAsyncIterator()
+    }
+
+    /// The next bytes; nil at the end of the stream. Throws when the tunnel ended early.
+    public func read() async throws -> Data? {
+        guard var events = iterator else { return nil }
+        let event = await events.next()
+        iterator = events
+        switch event {
+        case .data(let data)?:
+            tunnel.consumed(data.count)
+            return data
+        case .closed(let error?)?:
+            iterator = nil
+            throw LoopbackTunnelFailure.other(error)
+        case .eof?, .closed(nil)?, nil:
+            iterator = nil
+            return nil
+        }
+    }
+}

@@ -32,10 +32,11 @@ public final class RemoteVNCSource: RemoteViewFrameSource, @unchecked Sendable {
     /// What the server said at the last handshake.
     public var serverInfo: VNCServerInfo? { state.withLock { $0.server } }
 
-    /// Starts a new session to `endpoint`, ending any current one.
-    /// `onConnected` runs once the server accepted the credentials.
-    public func connect(to endpoint: VNCEndpoint, credentials: VNCCredentials, onConnected: (@Sendable () -> Void)? = nil) {
-        let client = VNCClient(endpoint: endpoint, options: VNCSessionOptions(credentials: credentials))
+    /// Starts a new session to `endpoint`, ending any current one, over `transport` (TCP to
+    /// `endpoint` when nil). `onConnected` runs once the server accepted the credentials.
+    public func connect(to endpoint: VNCEndpoint, credentials: VNCCredentials, transport: (any RFBTransport)? = nil,
+                        onConnected: (@Sendable () -> Void)? = nil) {
+        let client = VNCClient(endpoint: endpoint, options: VNCSessionOptions(credentials: credentials), transport: transport)
         let (previous, generation) = state.withLock { state -> (VNCClient?, Int) in
             defer { state.client = client }
             for pump in state.pumps { pump.cancel() }

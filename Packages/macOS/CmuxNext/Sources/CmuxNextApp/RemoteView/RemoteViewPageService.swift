@@ -13,10 +13,23 @@ import CmuxNextRemoteView
 final class RemoteViewPageService {
     /// Tab key -> the record URL a person confirmed for it.
     private var confirmed: [String: String] = [:]
+    /// A record a person's action is opening in a new tab (Open Desktop): the first local tab
+    /// that shows it is the person's, once.
+    private var personOpening: String?
 
     func source(for key: String, url: URL, isLocal: Bool) -> RemoteViewTabSource {
         guard isLocal else { return .remoteTree }
+        if confirmed[key] == nil, personOpening == url.absoluteString {
+            confirmed[key] = url.absoluteString
+            personOpening = nil
+        }
         return confirmed[key] == url.absoluteString ? .person : .unconfirmed
+    }
+
+    /// A person's action (not CLI, MCP, scripts or agents) opens `url` in a new tab.
+    func personOpens(_ url: URL, scope: ActionRunScope? = ActionRunScope.current) {
+        guard Self.isPersonInput(scope) else { return }
+        personOpening = url.absoluteString
     }
 
     /// A person opened or confirmed `url` in the tab `key`. Ignored inside

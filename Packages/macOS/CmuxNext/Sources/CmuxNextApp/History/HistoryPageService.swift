@@ -206,7 +206,8 @@ extension TabContentCache {
                     pages.confirm(key, url: confirmedURL)
                     guard let self, let tab = tabModel(key) else { return }
                     showAppPage(confirmedURL, in: tab)
-                })
+                },
+                cloudTransport: { [weak services] machine in services?.cloudDesktopTransport(machine: machine) })
             page.onNavigate = { [weak self] target in
                 pages.forget(key)
                 self?.leaveAppPage(key, to: target)

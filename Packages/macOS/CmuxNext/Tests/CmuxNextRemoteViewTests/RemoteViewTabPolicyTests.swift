@@ -1,3 +1,4 @@
+import Foundation
 import CmuxNextRemoteView
 import Testing
 
@@ -26,6 +27,23 @@ import Testing
         #expect(policy.decide(record: nil, source: .person, paneAvailable: true) == .unavailable(.invalidAddress))
         let record = try #require(RemoteViewTabRecord(host: "server-1"))
         #expect(policy.decide(record: record, source: .person, paneAvailable: true) == .unavailable(.notLoopback(host: "server-1")))
+    }
+
+    /// Open Desktop's native viewer: a Cloud machine's desktop record names only the machine and
+    /// goes over the app's Cloud tunnel, so neither the loopback nor the private-network rule
+    /// applies; a person's open connects, anything else asks first in view mode.
+    @Test func aCloudDesktopRecordRoundTripsAndConnectsOnlyForAPerson() throws {
+        let record = try #require(RemoteViewTabRecord(host: "vm-0dd1c008", target: .virtual, mode: .control, cloudDesktop: true))
+        #expect(record.url.absoluteString == "cmux://remote-view?host=vm-0dd1c008&target=virtual&mode=control&via=cloud")
+        #expect(RemoteViewTabRecord(url: record.url) == record)
+        #expect(RemoteViewTabRecord(url: URL(string: "cmux://remote-view?host=vm-1&via=cloud&port=5901")) == nil, "a Cloud desktop names no port")
+        #expect(RemoteViewTabRecord(host: "vm-1", vncPort: 5901, cloudDesktop: true) == nil)
+
+        #expect(policy.decide(record: record, source: .person, paneAvailable: true) == .connect(record))
+        var view = record
+        view.mode = .view
+        #expect(policy.decide(record: record, source: .unconfirmed, paneAvailable: true) == .confirm(view))
+        #expect(policy.decide(record: record, source: .remoteTree, paneAvailable: true) == .unavailable(.remoteRecord))
     }
 
     @Test func unconfirmedRecordsRequireConfirmationAndStartInViewMode() throws {

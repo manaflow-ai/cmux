@@ -136,6 +136,22 @@ struct CloudHubLoopbackTests {
         }
     }
 
+    /// Open Desktop's native viewer reads the tunnel on demand: each read returns its bytes'
+    /// flow-control credit, and the stream's end reads as nil.
+    @Test(.timeLimit(.minutes(1)))
+    func aTunnelReaderReadsInOrderAndReturnsCredit() async throws {
+        let hub = try FakeHub(reply: 0x00)
+        let path = hub.path
+        let opener = try #require(HubLoopbackOpener(hub: { .init(socket: path, token: FakeHub.token) }, address: "10.149.25.1"))
+        let tunnel = try await opener.openTunnel(host: "localhost", port: 6901)
+        let reader = LoopbackTunnelReader(tunnel)
+        try await tunnel.write(Data("RFB 003.008\n".utf8))
+        var echoed = Data()
+        while echoed.count < 12, let chunk = try await reader.read() { echoed.append(chunk) }
+        #expect(echoed == Data("RFB 003.008\n".utf8))
+        tunnel.close()
+    }
+
     @Test func onlyTheMachinesLocalhostGoesThroughTheHub() async throws {
         let made = HubLoopbackOpener(hub: { Issue.record("dialed the hub"); return .init(socket: "/nonexistent", token: "t") },
                                      address: "10.149.25.1")

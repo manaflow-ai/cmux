@@ -4,6 +4,7 @@ import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextRemoteLocalhostService
+import CmuxNextRemoteView
 
 /// Cloud and account actions over the kept Cloud library (`CmuxNextCloud`):
 /// Stack sign-in, `/api/vm`, and each machine's daemon tree. A machine is
@@ -172,11 +173,28 @@ enum CloudHandlers {
     /// (``RemoteLocalhostService/cloudDesktopURL(machine:)``). Remote localhost routes that page
     /// by its URL through the peer-checked proxy and this Mac's own WireGuard tunnel to the
     /// machine's noVNC (6901 on its loopback), with no TCP port opened on this Mac.
-    @MainActor static func openDesktop(_ session: CloudMachineSession, _ context: AppActionContext) throws {
+    /// `viewer`: `web` (the default) shows the machine's noVNC page in a Chromium tab; `native`
+    /// shows the remote view pane, the app's own VNC client over the same Cloud tunnel. Opened by
+    /// a person, it connects at once; by an agent or the CLI, it asks first.
+    @MainActor static func openDesktop(_ session: CloudMachineSession, _ context: AppActionContext, viewer: String? = nil) throws {
         let services = context.services, title = session.machine.title
         guard session.machine.allows(.desktop), session.machine.address?.ipv4 != nil,
               let url = RemoteLocalhostService.cloudDesktopURL(machine: session.machineID) else {
             throw ActionFailure(message: CloudStrings.desktopUnavailable(title))
+        }
+        if viewer == "native" {
+            guard let record = RemoteViewTabRecord(host: session.machineID.lowercased(), target: .virtual, mode: .control,
+                                                   cloudDesktop: true) else {
+                throw ActionFailure(message: CloudStrings.desktopUnavailable(title))
+            }
+            let name = CloudStrings.desktopWorkspaceName(title), address = record.url.absoluteString
+            services.remoteViewPages.personOpens(record.url)
+            WorkspaceHandlers.createAndShow(services: services, name: name, daemon: services.machines.local) { connection, terminal in
+                guard let pane = terminal.pane else { return }
+                _ = try await connection.newFrontendBrowserTab(url: address, engine: .webkit, in: pane, title: name)
+                if let surface = terminal.surface { try await connection.closeTab(surface) }
+            }
+            return
         }
         if let reason = services.cache.browserTabs.cefUnavailableReason() { throw ActionFailure(message: reason) }
         let name = CloudStrings.desktopWorkspaceName(title), address = url.absoluteString

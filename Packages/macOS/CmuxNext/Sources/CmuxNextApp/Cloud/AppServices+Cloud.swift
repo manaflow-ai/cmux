@@ -4,9 +4,27 @@ import CmuxNextDaemon
 import CmuxNextHomeEngine
 import CmuxNextMobileHost
 import CmuxNextPhoneAccess
+import CmuxNextRemoteLocalhost
+import CmuxNextRemoteLocalhostService
+import CmuxNextRemoteViewSessions
 import Observation
 
 extension AppServices {
+    /// Open Desktop's native viewer: Cloud machine `machine`'s websockify port (6901, next to its
+    /// noVNC) over this Mac's own Cloud tunnel, with the hub's client token; no port opens on this
+    /// Mac. Nil when the tunnel cannot reach it (signed out, the machine without an address).
+    func cloudDesktopTransport(machine: String) -> (@Sendable () async throws -> RemoteViewPageSession.CloudDesktopStream)? {
+        guard let hub = remoteLocalhost.cloudTunnelSocket, let address = machines.cloudTunnelAddress(machine: machine),
+              let opener = HubLoopbackOpener(hub: hub, address: address) else { return nil }
+        return {
+            let tunnel = try await opener.openTunnel(host: "localhost", port: 6901)
+            let reader = LoopbackTunnelReader(tunnel)
+            return RemoteViewPageSession.CloudDesktopStream(read: { try await reader.read() },
+                                                            write: { try await tunnel.write($0) },
+                                                            close: { tunnel.close() })
+        }
+    }
+
     /// The daemon handlers command: while an action runs, the machine that
     /// owns its explicit target (`ActionRouting`); otherwise the active
     /// window's machine (the local daemon, or its Cloud machine).
