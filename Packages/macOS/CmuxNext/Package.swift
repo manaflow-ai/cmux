@@ -1486,7 +1486,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextBrowserTests",
-            dependencies: ["CmuxNextBrowser", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextRemoteFetch"],
+            dependencies: ["CmuxNextBrowser", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextRemoteFetch", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // The WebKit driver for the Rust browser host (plans/cmux-next/browser-host.md).
