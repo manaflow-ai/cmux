@@ -133,6 +133,8 @@ public final class MainThreadWatchdog: Sendable {
     /// longest gap of any length: the stall bench's per-action numbers
     /// (scripts/cmux-next/bench-stalls.py).
     private let frames120 = Atomic<UInt64>(0)
+    /// Main run-loop wakes (sleep to awake) since start; never reset (readers diff two reads).
+    private let mainWakeCount = Atomic<UInt64>(0)
     private let gapMaxNanos = Atomic<UInt64>(0)
     static let frame120Nanos: UInt64 = 8_333_333
     let mainAsleep = Atomic<Bool>(true)
@@ -198,6 +200,11 @@ public final class MainThreadWatchdog: Sendable {
     }
 
     public var isRunning: Bool { running.load(ordering: .relaxed) }
+
+    /// How many times the main run loop woke from sleep since ``start()``, in the common modes the
+    /// watchdog observes (a nested loop in another mode is not seen). Idle benches diff two reads
+    /// (`debug.hangs` `main_wakes`): the budget for an idle app is 0 per second.
+    public var mainRunLoopWakes: UInt64 { mainWakeCount.load(ordering: .relaxed) }
 
     /// Main-thread work gaps over 16.7 ms since the last reset, and the longest.
     public var longFrameStats: (count: Int, max: Duration) {
@@ -307,6 +314,7 @@ public final class MainThreadWatchdog: Sendable {
         let asleep = activity == .beforeWaiting
         mainAsleep.store(asleep, ordering: .releasing)
         if wasAsleep, !asleep {
+            mainWakeCount.add(1, ordering: .relaxed)
             busy.noteAwake()
             // The watchdog thread wakes only if this turn is still running when it is due to sample.
             alarm.arm(afterNanos: sampleAfterNanos)
