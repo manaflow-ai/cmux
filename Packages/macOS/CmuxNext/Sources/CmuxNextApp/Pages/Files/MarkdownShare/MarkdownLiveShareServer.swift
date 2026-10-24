@@ -7,8 +7,9 @@ import Network
 /// (Server-Sent Events from ``FileChangeWatch``, no polling). It starts on the first link and lives
 /// until ``stop()`` or the app quits; links are never written anywhere.
 ///
-/// Connections and the listener deliver their events on the main queue (event delivery only), so
-/// all state stays on the main actor.
+/// Connections and the listener deliver their events on the main queue (event delivery only,
+/// through `MainQueueNetworkEvents`), so all state stays on the main actor; a page's file read and
+/// Markdown render run off it.
 final class MarkdownLiveShareServer {
     enum Failure: Error, Equatable {
         case listenerFailed(String)
@@ -28,6 +29,7 @@ final class MarkdownLiveShareServer {
     private var tokens: [String: String] = [:]
     private var connections: [ObjectIdentifier: NWConnection] = [:]
     private let renderer = MarkdownHTMLRenderer()
+    private let network = MainQueueNetworkEvents()
     private let clock: any Clock<Duration>
 
     /// Largest request head accepted; a longer one is dropped.
@@ -88,14 +90,9 @@ final class MarkdownLiveShareServer {
             parameters.acceptLocalOnly = true
             let listener: NWListener
             do { listener = try NWListener(using: parameters) } catch { throw Failure.listenerFailed("\(error)") }
-            listener.stateUpdateHandler = { [weak self] state in
-                MainActor.assumeIsolated { self?.listenerChanged(state) } // main-proof: listener.start(queue: .main) below
-            }
-            listener.newConnectionHandler = { [weak self] connection in
-                MainActor.assumeIsolated { self?.accept(connection) } // main-proof: listener.start(queue: .main) below
-            }
             self.listener = listener
-            listener.start(queue: .main)
+            network.start(listener, state: { [weak self] state in self?.listenerChanged(state) },
+                          connection: { [weak self] connection in self?.accept(connection) })
         }
         return try await withCheckedThrowingContinuation { ready.append($0) }
     }
@@ -125,13 +122,12 @@ final class MarkdownLiveShareServer {
     private func accept(_ connection: NWConnection) {
         let id = ObjectIdentifier(connection)
         connections[id] = connection
-        connection.stateUpdateHandler = { [weak self] state in
+        network.start(connection) { [weak self] state in
             switch state {
-            case .failed, .cancelled: MainActor.assumeIsolated { self?.forget(id) } // main-proof: connection.start(queue: .main)
+            case .failed, .cancelled: self?.forget(id)
             default: break
             }
         }
-        connection.start(queue: .main)
         receive(connection, head: Data())
     }
 
@@ -142,18 +138,16 @@ final class MarkdownLiveShareServer {
 
     private func receive(_ connection: NWConnection, head: Data) {
         // Every connection starts on queue .main (accept), so Network calls this on main.
-        connection.receive(minimumIncompleteLength: 1, maximumLength: Self.headLimit) { [weak self] data, _, complete, error in
-            MainActor.assumeIsolated { // main-proof: connection.start(queue: .main) in accept
-                guard let self else { return }
-                var head = head
-                if let data { head.append(data) }
-                if let end = head.range(of: Data("\r\n\r\n".utf8)) {
-                    self.respond(to: head[..<end.lowerBound], on: connection)
-                } else if error != nil || complete || head.count > Self.headLimit {
-                    connection.cancel()
-                } else {
-                    self.receive(connection, head: head)
-                }
+        network.receive(connection, maximumLength: Self.headLimit) { [weak self] data, complete, error in
+            guard let self else { return }
+            var head = head
+            if let data { head.append(data) }
+            if let end = head.range(of: Data("\r\n\r\n".utf8)) {
+                self.respond(to: head[..<end.lowerBound], on: connection)
+            } else if error != nil || complete || head.count > Self.headLimit {
+                connection.cancel()
+            } else {
+                self.receive(connection, head: head)
             }
         }
     }
@@ -170,10 +164,11 @@ final class MarkdownLiveShareServer {
         case .page(let token):
             guard let share = shares[token] else { break }
             let events = "/md/\(token)/\(share.name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? token)/events"
-            Task { [weak self, file = share.file, name = share.name] in // one off-main read per page request
-                let text = await Task.detached { (try? String(contentsOf: file, encoding: .utf8)) ?? "" }.value
-                guard let page = self?.renderer.document(text, title: name, eventsPath: events) else { return connection.cancel() }
-                self?.send(Self.response(200, type: "text/html; charset=utf-8", body: Data(page.utf8)), on: connection, close: true)
+            // task-owner: one per page request; ends when the page is sent.
+            Task { [weak self, file = share.file, name = share.name, renderer = self.renderer] in
+                let page = await Self.page(file, title: name, eventsPath: events, renderer: renderer)
+                guard let self else { return connection.cancel() }
+                self.send(Self.response(200, type: "text/html; charset=utf-8", body: Data(page.utf8)), on: connection, close: true)
             }
             return
         case .events(let token):
@@ -189,6 +184,15 @@ final class MarkdownLiveShareServer {
         connection.send(content: data, completion: .contentProcessed { _ in
             if close { connection.cancel() }
         })
+    }
+
+    /// Reads and renders a shared file's page off the main actor: the read is file I/O and a long
+    /// file's Markdown parse is heavy CPU.
+    @concurrent
+    nonisolated private static func page(_ file: URL, title: String, eventsPath: String,
+                                         renderer: MarkdownHTMLRenderer) async -> String {
+        let text = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
+        return renderer.document(text, title: title, eventsPath: eventsPath)
     }
 
     // MARK: Changes
@@ -229,5 +233,32 @@ final class MarkdownLiveShareServer {
         let bytes = (0..<16).map { _ in UInt8.random(in: .min ... .max, using: &generator) }
         return Data(bytes).base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "")
+    }
+}
+
+/// The main-queue proof of ``MarkdownLiveShareServer``'s Network callbacks: it starts the listener and
+/// every connection on the main queue itself, so each handler it installs runs on the main actor.
+private struct MainQueueNetworkEvents {
+    /// Installs the listener's state and new-connection handlers, then starts it on the main queue.
+    func start(_ listener: NWListener, state: @escaping @MainActor (NWListener.State) -> Void, connection: @escaping @MainActor (NWConnection) -> Void) {
+        // main-proof: the listener starts on the main queue below.
+        listener.stateUpdateHandler = { value in MainActor.assumeIsolated { state(value) } }
+        // main-proof: the listener starts on the main queue below.
+        listener.newConnectionHandler = { new in MainActor.assumeIsolated { connection(new) } }
+        listener.start(queue: .main)
+    }
+
+    /// Installs the connection's state handler, then starts it on the main queue.
+    func start(_ connection: NWConnection, state: @escaping @MainActor (NWConnection.State) -> Void) {
+        // main-proof: the connection starts on the main queue below.
+        connection.stateUpdateHandler = { value in MainActor.assumeIsolated { state(value) } }
+        connection.start(queue: .main)
+    }
+
+    /// Reads up to `maximumLength` bytes from a connection started above; `handler` gets the bytes,
+    /// whether the peer finished, and the error.
+    func receive(_ connection: NWConnection, maximumLength: Int, _ handler: @escaping @MainActor (Data?, Bool, NWError?) -> Void) {
+        // main-proof: Network calls this on the connection's queue, the main queue (start above).
+        connection.receive(minimumIncompleteLength: 1, maximumLength: maximumLength) { data, _, done, error in MainActor.assumeIsolated { handler(data, done, error) } }
     }
 }

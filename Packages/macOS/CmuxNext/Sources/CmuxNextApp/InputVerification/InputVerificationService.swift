@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextFocus
@@ -11,7 +12,7 @@ import CmuxNextFocus
 final class InputVerificationService {
     /// Input invariants and desync reports; set by `start` (nil before it).
     private(set) var monitor: InputInvariantMonitor?
-    private var geometryObservers: [any NSObjectProtocol] = []
+    private var geometryObservers: [MainActorObservation] = []
     /// No-activate mode only: gives back a keyboard the user did not give.
     var keyboardGuard: NoActivateKeyboardGuard?
     var keyboardGuardObservers: [any NSObjectProtocol] = []
@@ -52,20 +53,17 @@ final class InputVerificationService {
         let names = [NSWindow.didMoveNotification, NSWindow.didResizeNotification, NSWindow.didEndLiveResizeNotification,
                      NSWindow.didChangeScreenNotification, NSWindow.didDeminiaturizeNotification]
         for name in names {
-            geometryObservers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
-                let window = note.object as? NSWindow
-                MainActor.assumeIsolated { // main-proof: observer on queue: .main
-                    guard let window, let controllers = self?.services?.windows.controllers else { return }
-                    if let controller = controllers.first(where: { $0.window === window }) {
-                        let frame = window.frame
-                        journal.appendWindowFrame(window: controller.state.id, (frame.minX, frame.minY, frame.width, frame.height))
-                        monitor.noteChange()
-                    } else if let parent = window.parent, controllers.contains(where: { $0.window === parent }),
-                              WindowOverlayLayer.isContent(window) {
-                        // A Chromium page window moved by itself (an AX client
-                        // that got the page window): check G1 too.
-                        monitor.noteChange()
-                    }
+            geometryObservers.append(MainActorObservation(name, read: { $0.object as? NSWindow }) { [weak self] window in
+                guard let window, let controllers = self?.services?.windows.controllers else { return }
+                if let controller = controllers.first(where: { $0.window === window }) {
+                    let frame = window.frame
+                    journal.appendWindowFrame(window: controller.state.id, (frame.minX, frame.minY, frame.width, frame.height))
+                    monitor.noteChange()
+                } else if let parent = window.parent, controllers.contains(where: { $0.window === parent }),
+                          WindowOverlayLayer.isContent(window) {
+                    // A Chromium page window moved by itself (an AX client
+                    // that got the page window): check G1 too.
+                    monitor.noteChange()
                 }
             })
         }
