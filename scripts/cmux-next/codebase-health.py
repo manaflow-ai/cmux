@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Measure cmux-next codebase health: the debt the guardrails ratchet (plans/cmux-next/codebase-health.md).
 
-Counts code (comments stripped) in Packages/macOS/CmuxNext/Sources: stateful singletons and global mutable
+Counts code (comments stripped) in Packages/macOS/CmuxNext/Sources and in the Sources of every package of its local
+package closure (arch_counts.read_paths at HEAD: the arch ratchet's scope since method v5): stateful singletons and global mutable
 statics, MainActor.assumeIsolated, @unchecked Sendable, nonisolated(unsafe), raw locks, sleeps, main-queue hops,
 NotificationCenter broadcast names and their observers, NSHostingView, #if DEBUG, plus target sizes, the
 Package.swift target graph checked against the 5-layer rule (CLAUDE.md "Refactor architecture"), docs sprawl
@@ -144,11 +145,23 @@ def waived(lines: list[str], index: int, marker: re.Pattern) -> bool:
 
 
 def module_of(path: str) -> str:
-    return path[len(SOURCES):].split("/", 1)[0]
+    """The Swift module of a counted file: arch_counts' package_of (the directory after its package's Sources/)."""
+    return ARCH.package_of(path)
+
+
+def closure(repo: Path):
+    """arch_counts.read_paths at HEAD (the counted packages: CmuxNext and its local package closure), or None when
+    HEAD is no commit (then CmuxNext alone). The closure is HEAD's; the files are the working tree's."""
+    try:
+        return ARCH.read_paths(repo, "HEAD")
+    except RuntimeError:
+        return None
 
 
 def scan(repo: Path) -> dict:
-    files = [p for p in tracked(repo, SOURCES) if p.endswith(".swift")]
+    scope = closure(repo)
+    dirs = [s + "/" for s in scope.sources] if scope is not None else [SOURCES]
+    files = [p for p in tracked(repo, *dirs) if p.endswith(".swift")]
     ids = [c[0] for c in ARCH_CATEGORIES] + [c[0] for c in CATEGORIES]
     hits: dict[str, collections.Counter] = {cid: collections.Counter() for cid in ids}
     unwaived: dict[str, collections.Counter] = {cid: collections.Counter() for cid in ids}
@@ -182,16 +195,18 @@ def scan(repo: Path) -> dict:
             return (repo / rel).read_text(encoding="utf-8")
         except OSError:
             return None
-    observers = ARCH.observer_registrations(raw)  # one resolution for section 1's row and section 2's names
+    observers = ARCH.observer_registrations(raw, scope)  # one resolution for section 1's row and section 2's names
     sites = observer_sites(observers, blanked)
-    arch, edges = ARCH.count_texts(raw, read(ARCH.MANIFEST), read(ARCH.LAYERS_JSON), observers)
+    manifests = {p: read(p) for p in scope.manifests} if scope is not None else read(ARCH.MANIFEST)
+    arch, edges = ARCH.count_texts(raw, manifests, read(ARCH.LAYERS_JSON), observers, scope)
     for cid, _, row, waiver_row, _ in ARCH_CATEGORIES:
         for site in arch.sites[row]:
             hits[cid][site.path] += 1
         for site in (arch.sites[waiver_row] if waiver_row else []):
             unwaived[cid][site.path] += 1
+    app_modules = {module_of(p) for p in files if p.startswith(SOURCES)}
     return {"files": files, "hits": hits, "unwaived": unwaived, "lines": lines_per_module, "texts": texts,
-            "edges": edges, "sites": sites, "blanked": blanked}
+            "edges": edges, "sites": sites, "blanked": blanked, "scope": scope, "app_modules": app_modules}
 
 
 VIEW_CLASS = re.compile(r"\bclass\s+\w+\s*:\s*[^{]*\bNS\w*(View|Window|Panel)\b")
@@ -292,8 +307,31 @@ def notification_report(code_of: dict[str, str], sites_of: dict[str, list[Observ
     return rows, top
 
 
-def targets(repo: Path) -> dict[str, dict]:
-    """Package.swift targets: {name: {kind, deps}} (in-package string dependencies only)."""
+def targets(repo: Path, scope=None) -> dict[str, dict]:
+    """Package.swift targets: {name: {kind, deps}}: CmuxNext's (with its test targets) and, with SCOPE (closure()),
+    every non-test target of the other closure packages; deps add the edges arch_counts' closure_manifest reads
+    (a `.product` of a local package is its targets)."""
+    out = cmux_next_targets(repo)
+    if scope is None:
+        return out
+    texts = {}
+    for path in scope.manifests:
+        try:
+            texts[path] = (repo / path).read_text(encoding="utf-8")
+        except OSError:
+            texts[path] = None
+    try:
+        merged = ARCH.closure_manifest(texts)
+    except ARCH.AmbiguousModule:
+        return out
+    for name, target in merged.targets.items():
+        entry = out.setdefault(name, {"kind": target.kind, "deps": []})
+        entry["deps"] = sorted(set(entry["deps"]) | target.deps)
+    return out
+
+
+def cmux_next_targets(repo: Path) -> dict[str, dict]:
+    """CmuxNext's Package.swift targets: {name: {kind, deps}} (in-package string dependencies only)."""
     text = (repo / PKG / "Package.swift").read_text(encoding="utf-8")
     out: dict[str, dict] = {}
     calls = list(TARGET_CALL.finditer(text))
@@ -547,7 +585,7 @@ def measured_at(repo: Path) -> str:
 
 def report(repo: Path) -> str:
     data = scan(repo)
-    total_lines = sum(data["lines"].values())
+    total_lines = sum(n for m, n in data["lines"].items() if m in data["app_modules"])
     pkg_lines = 0
     for path in tracked(repo, PKG + "/"):
         if path.endswith(".swift"):
@@ -555,7 +593,7 @@ def report(repo: Path) -> str:
                 pkg_lines += (repo / path).read_bytes().count(b"\n")
             except OSError:
                 pass
-    graph = targets(repo)
+    graph = targets(repo, data["scope"])
     layers = placed_layers(repo, graph)
     edges = data["edges"]
     memo: dict[str, int] = {}
@@ -575,8 +613,10 @@ def report(repo: Path) -> str:
     w("")
     w(f"Measured {datetime.date.today().isoformat()} {measured_at(repo)} by "
       "`scripts/cmux-next/codebase-health.py --write` (rerun it to refresh; do not edit numbers by hand).")
-    w("Scope: tracked Swift in `Packages/macOS/CmuxNext/Sources`, comments stripped (section 6's perf-hot markers:")
-    w("every tracked Swift file). The pre-push guardrails")
+    w("Scope: tracked Swift in `Packages/macOS/CmuxNext/Sources` and in the Sources of every local package it links,")
+    w("directly or through another one (the arch ratchet's scope, arch_counts.py method v5), comments stripped")
+    w("(section 3's App share: CmuxNext's Sources only; section 6's perf-hot markers: every tracked Swift file).")
+    w("The pre-push guardrails")
     w("(`scripts/cmux-next/guardrails.py`, run by `prepush-gate.py`) refuse NEW instances of the ratcheted rows;")
     w("the debt below never blocks a push. Owners: [OWNERS.md](OWNERS.md). Guardrail rules: section 6.")
     w("")
@@ -628,7 +668,7 @@ def report(repo: Path) -> str:
     w("")
     w("## 3. Target sizes")
     w("")
-    w(f"`{APP}`: **{data['lines'][APP]:,} lines** of {total_lines:,} in `Sources` "
+    w(f"`{APP}`: **{data['lines'][APP]:,} lines** of {total_lines:,} in CmuxNext's `Sources` "
       f"({100 * data['lines'][APP] / max(total_lines, 1):.0f} %); {pkg_lines:,} lines with Tests and the package manifest.")
     w("Every edit in the App target re-emits the whole module (check-app-size.sh), so new code goes in a feature target.")
     w("")
@@ -643,10 +683,10 @@ def report(repo: Path) -> str:
     w("## 4. Target graph vs the 5-layer rule")
     w("")
     counts = collections.Counter(layers[n] for n in graph)
-    w(f"`Package.swift`: {len(graph)} targets ({len(non_test)} non-test: "
+    w(f"`Package.swift` and its local packages' manifests: {len(graph)} targets ({len(non_test)} non-test: "
       + ", ".join(f"{counts[k]} {k}" for k in ("app", "ui", "domain", "service", "core", "unplaced") if counts[k])
       + f"; {counts['test']} test). The App depends directly on {app_deps} targets; {len(leaves)} targets have no")
-    w(f"in-package dependency; the longest dependency chain is {max_depth} targets.")
+    w(f"dependency among them; the longest dependency chain is {max_depth} targets.")
     w("")
     w("Layer per target from `plans/cmux-next/architecture-layers.json`; the rule is arch_counts.py's `layers()`,")
     w("the one plans/cmux-next/arch-ratchet.json and the pre-push ratchet hold: hard, a core/service/domain target")

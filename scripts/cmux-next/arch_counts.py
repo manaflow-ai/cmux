@@ -102,8 +102,8 @@ Every row reads the whole closure: a Shared package's static or observer counts 
 targets are placed (layer_unplaced) and their edges classified like CmuxNext's.
 
 codebase-health.py imports these patterns, analyze(), count_texts() and layers(), so its report and the ratchet share
-one definition of every row (arch-layers.py, PL-arch's, keeps its own grep counts). Both still read CmuxNext alone (the
-v4 scope: count_texts and layers without a closure), so their totals are below the ratchet's by the Shared packages.
+one definition of every row (arch-layers.py, PL-arch's, keeps its own grep counts). Both read the same scope: read_paths
+at HEAD for the packages, the working tree for the files (count_texts and layers with the closure).
 
 Site identity (Delta.unpartnered, the ratchet's swap rule): a counted global keeps its identity by its owner
 and name (static_name: `Store.shared`; `<package>:<name>` for a file-scope global, so a file moved or renamed
@@ -192,7 +192,7 @@ from typing import NamedTuple
 # a v4 record are not comparable with v5.
 METHOD_VERSION = 5
 # The app's package: the root of the closure (read_paths). Its Sources and Package.swift are the v4 scope; the
-# layer gate (arch_rules/layer_gate.py), arch-layers.py and codebase-health.py still read only these.
+# layer gate (arch_rules/layer_gate.py) still judges only this manifest's targets and edges.
 PACKAGE_DIR = "Packages/macOS/CmuxNext"
 SOURCES = f"{PACKAGE_DIR}/Sources"
 MANIFEST = f"{PACKAGE_DIR}/Package.swift"
@@ -3786,8 +3786,8 @@ def count_texts(texts: dict[str, str], manifest_raw: str | dict[str, str | None]
     """(counts, layers) of TEXTS ({path: Swift text}; paths outside SCOPE's Sources, CmuxNext's when SCOPE is None,
     are ignored) and the manifests (MANIFEST_RAW: as `layers` takes it).
 
-    The full count reads git objects; codebase-health.py passes working-tree texts, so every report counts with
-    the same method (codebase-health.py passes CmuxNext's texts alone: its report is the v4 scope). OBSERVERS is
+    The full count reads git objects; codebase-health.py passes working-tree texts and read_paths' closure, so every
+    report counts with the same method and scope. OBSERVERS is
     observer_registrations(TEXTS) when the caller already has it (codebase-health.py's section 2 reads its
     per-statement hits).
     """

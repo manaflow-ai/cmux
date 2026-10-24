@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Report the CmuxNext package layering (plans/cmux-next/architecture-refactor-DESIGN.md).
 
-Reads the target graph from `swift package dump-package` (manifest only, no build) and each
-target's layer from plans/cmux-next/architecture-layers.json, then prints:
+Reads CmuxNext's target graph from `swift package dump-package` (manifest only, no build), adds the targets and
+edges of its local package closure (arch_counts.py's read_paths and closure_manifest, the arch ratchet's scope since
+method v5: every package CmuxNext links by `.package(path:)`, directly or through another one, and a `.product` of
+one as an edge to that product's targets), and reads each target's layer from
+plans/cmux-next/architecture-layers.json, then prints:
 
   layers       targets and Swift lines per layer
   violations   hard: a core, service or domain target that depends on a ui or app target;
@@ -18,6 +21,9 @@ target's layer from plans/cmux-next/architecture-layers.json, then prints:
                imports alone, and the report dropped an edge that had not changed).
   app          Swift lines in CmuxNextApp (the composition root's target)
 
+The closure comes from the git objects at HEAD of --repo (default this checkout) and its manifests and Swift from
+that working tree. With --dump and no --repo the dump is the whole graph (a dump describes one package).
+
 This is a report for the refactor lane, not a CI gate (Lawrence 2026-10-23: no new CI gates).
 The inventory of singletons, broadcasts and DEBUG-only code is PL-guardrails'
 plans/cmux-next/codebase-health.md; `--counts` prints the grep counts the design doc used, except observers: those
@@ -27,8 +33,9 @@ are arch_counts.py's observer_sites (the ratchet's row: registrations counted th
 Targets are the regular, executable and binary ones (arch_counts.py's MAPPED_KINDS, the same set the ratchet
 and the gate read); test targets are left out.
 
-Usage: scripts/cmux-next/arch-layers.py [--dump FILE] [--layers FILE] [--json] [--counts]
+Usage: scripts/cmux-next/arch-layers.py [--dump FILE] [--repo DIR] [--layers FILE] [--json] [--counts]
   --dump FILE    read dump-package JSON from FILE instead of running swift
+  --repo DIR     the checkout whose local package closure is added (default this one; with --dump, none)
   --layers FILE  read the layer map from FILE instead of plans/cmux-next/architecture-layers.json
   --json         print one JSON object (for before/after rows in commit messages)
   --counts       add the grep counts (static shared, MainActor.assumeIsolated, observers, #if DEBUG)
@@ -168,22 +175,53 @@ def impurities(target: Path) -> dict[str, str]:
     return found
 
 
-def grep_counts() -> dict[str, int]:
-    """The `--counts` numbers over the Swift under SOURCES. nc_observers is arch_counts.py's observer_sites
-    (`observer_registrations`, the arch ratchet's row: registrations through wrappers such as
-    `MainActorObservation(` count at each use, comments do not), never a regex of its own, so the ratchet,
-    codebase-health.md and this report count one set."""
+def grep_counts(closure=None) -> dict[str, int]:
+    """The `--counts` numbers over the Swift under SOURCES, and under every Sources of CLOSURE (a Closure) when
+    given. nc_observers is arch_counts.py's observer_sites (`observer_registrations`, the arch ratchet's row:
+    registrations through wrappers such as `MainActorObservation(` count at each use, comments do not), never a regex
+    of its own, so the ratchet, codebase-health.md and this report count one set."""
     counts = load_counts()
     totals = {**dict.fromkeys(COUNTS, 0), "nc_observers": 0}
     texts: dict[str, str] = {}
-    for path in SOURCES.rglob("*.swift"):
-        text = path.read_text(errors="ignore")
-        for name, pattern in COUNTS.items():
-            totals[name] += len(pattern.findall(text))
-        # Keyed like the repository path, so a file's Swift module (its package directory) is the same.
-        texts[f"{counts.SOURCES}/{path.relative_to(SOURCES).as_posix()}"] = text
-    totals["nc_observers"] = counts.observer_registrations(texts).total()
+    roots = [(closure.repo / d, d) for d in closure.scope.sources] if closure else [(SOURCES, counts.SOURCES)]
+    for root, prefix in roots:
+        for path in root.rglob("*.swift"):
+            text = path.read_text(errors="ignore")
+            for name, pattern in COUNTS.items():
+                totals[name] += len(pattern.findall(text))
+            # Keyed like the repository path, so a file's Swift module (its package directory) is the same.
+            texts[f"{prefix}/{path.relative_to(root).as_posix()}"] = text
+    totals["nc_observers"] = counts.observer_registrations(texts, closure.scope if closure else None).total()
     return totals
+
+
+class Closure:
+    """CmuxNext's local package closure in the checkout REPO: SCOPE (arch_counts.read_paths at HEAD) and MANIFEST
+    (closure_manifest of the working tree's manifests: every target, with the edges `.product` dependencies make)."""
+
+    def __init__(self, counts, repo: Path) -> None:
+        self.repo = repo
+        self.scope = counts.read_paths(repo, "HEAD")
+        texts = {}
+        for path in self.scope.manifests:
+            try:
+                texts[path] = (repo / path).read_text()
+            except OSError:
+                texts[path] = None
+        self.manifest = counts.closure_manifest(texts)
+
+    def add_to(self, counts, graph: dict[str, list[str]]) -> None:
+        """Every MAPPED_KINDS target of the other closure packages into GRAPH, and the closure's edges of every
+        target (CmuxNext's `.product` edges to a local package)."""
+        for name, target in self.manifest.targets.items():
+            if target.kind not in counts.MAPPED_KINDS:
+                continue
+            if name in graph or target.manifest != counts.MANIFEST:
+                graph[name] = list(dict.fromkeys(graph.get(name, []) + sorted(target.deps)))
+
+    def source_dir(self, name: str) -> Path | None:
+        """NAME's sources in REPO, None for a target the closure does not declare."""
+        return self.repo / self.manifest.source_dir(name) if name in self.manifest.targets else None
 
 
 def main() -> int:
@@ -192,6 +230,7 @@ def main() -> int:
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--counts", action="store_true")
     parser.add_argument("--layers", default=str(LAYERS))
+    parser.add_argument("--repo")
     args = parser.parse_args()
 
     counts = load_counts()
@@ -200,6 +239,14 @@ def main() -> int:
         print(f"{args.layers} does not parse: {layer_map.error}", file=sys.stderr)
         return 2
     graph = load_graph(args.dump, {counts.DUMP_TYPES[kind] for kind in counts.MAPPED_KINDS})
+    repo = Path(args.repo).resolve() if args.repo else (None if args.dump else ROOT)
+    closure = Closure(counts, repo) if repo is not None else None
+    if closure is not None:
+        closure.add_to(counts, graph)
+
+    def sources_of(name: str) -> Path:
+        found = closure.source_dir(name) if closure is not None else None
+        return found if found is not None else SOURCES / name
 
     unplaced = sorted(name for name in graph if layer_map.placed(name) is None)
     found: dict[str, list[tuple[str, str, str, str]]] = {kind: [] for kind in counts.EDGE_CLASSES}
@@ -213,7 +260,7 @@ def main() -> int:
     impure = {}
     for name in sorted(graph):
         if layer_map.placed(name) == "core":
-            found_here = impurities(SOURCES / name)
+            found_here = impurities(sources_of(name))
             if found_here:
                 impure[name] = found_here
 
@@ -223,7 +270,7 @@ def main() -> int:
         if layer is None:
             continue
         per_layer[layer][0] += 1
-        per_layer[layer][1] += swift_lines(SOURCES / name)
+        per_layer[layer][1] += swift_lines(sources_of(name))
 
     report = {
         "targets": len(graph),
@@ -236,7 +283,7 @@ def main() -> int:
         "impure_core": impure,
     }
     if args.counts:
-        report["counts"] = grep_counts()
+        report["counts"] = grep_counts(closure)
     if args.json:
         print(json.dumps(report, sort_keys=True))
         return 0
