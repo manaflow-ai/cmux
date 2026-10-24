@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { PNG } from "pngjs";
-import { deleteLedgerIds, diffPng, parseManifest, pauseLedgerIds, renderIndex, settleSummary, shardCases, undeletedLedgerIds, withTimeout, writeLedger } from "./runner";
+import { DEFAULT_CASE_TIMEOUT_MS, deleteLedgerIds, diffPng, parseManifest, pauseLedgerIds, renderIndex, settleSummary, shardCases, undeletedLedgerIds, withTimeout, writeLedger } from "./runner";
 
 test("summarizes settled interaction latency and ignores missing samples", () => {
   expect(settleSummary([30, 10, 20, null, "slow", Number.NaN])).toEqual({ count: 3, p50: 20, p95: 30, max: 30 });
@@ -96,6 +96,7 @@ test("a matrix reuses its browser while isolating and closing every case context
   ]));
   let launches = 0; let contexts = 0; let closedContexts = 0; let closedBrowsers = 0;
   const navigationWaits: unknown[] = [];
+  const readyWaits: unknown[] = [];
   const browserTypes = { chromium: { launch: async () => {
     launches++;
     return {
@@ -103,7 +104,7 @@ test("a matrix reuses its browser while isolating and closing every case context
         contexts++;
         return {
           newPage: async () => ({
-            exposeFunction: async () => {}, addInitScript: async () => {}, goto: async (_url: string, options: unknown) => { navigationWaits.push(options); }, waitForFunction: async () => {},
+            exposeFunction: async () => {}, addInitScript: async () => {}, goto: async (_url: string, options: unknown) => { navigationWaits.push(options); }, waitForFunction: async (...args: unknown[]) => { readyWaits.push(args[2]); },
             evaluate: async () => null,
             screenshot: async ({ path }: { path: string }) => writeFileSync(path, "fixture screenshot"),
           }),
@@ -121,6 +122,7 @@ test("a matrix reuses its browser while isolating and closing every case context
     expect(closedContexts).toBe(2);
     expect(closedBrowsers).toBe(1);
     expect(navigationWaits).toEqual([{ waitUntil: "domcontentloaded" }, { waitUntil: "domcontentloaded" }]);
+    expect(readyWaits).toEqual([{ timeout: DEFAULT_CASE_TIMEOUT_MS }, { timeout: DEFAULT_CASE_TIMEOUT_MS }]);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 

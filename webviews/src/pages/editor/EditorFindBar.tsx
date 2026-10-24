@@ -19,6 +19,11 @@ const LazyFindPill = lazy(async () => {
   return { default: EditorFindPill };
 });
 
+/** Gallery-only warm-up: the production editor still loads the pill on first Cmd-F. */
+export async function preloadEditorFindBar(): Promise<void> {
+  await Promise.all([import("../../ui/FindPill"), import("../../icons")]);
+}
+
 export function EditorFindBar({ find, strings }: { find: EditorFind; strings: Strings }) {
   const state = useSyncExternalStore(find.subscribe, find.getState);
   const field = useRef<HTMLInputElement>(null);

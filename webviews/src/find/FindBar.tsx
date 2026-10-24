@@ -29,6 +29,11 @@ const LazyFindPill = lazy(async () => {
   return { default: DiffFindPill };
 });
 
+/** Gallery-only warm-up: the production diff page still loads the pill on first Cmd-F. */
+export async function preloadFindBar(): Promise<void> {
+  await Promise.all([import("../ui/FindPill"), import("../icons")]);
+}
+
 /**
  * The diff viewer's find-in-page bar: the shared find pill (ui/FindPill.tsx). Rendered inside the `#viewer` scroll
  * container as a sticky overlay; mounting it installs the highlight painter

@@ -241,7 +241,11 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
     // they have painted, adding a false 30-second stall to every engine.
     await page.goto(url, { waitUntil: "domcontentloaded" });
     // A gallery stage says when it has painted and gone still (frame/main.ts `data-gallery-ready`).
-    await page.waitForFunction(() => document.documentElement.dataset.galleryReady !== undefined || !document.querySelector("script[src*='gallery-frame']"), null, { timeout: 20_000 }).catch(() => undefined);
+    await page.waitForFunction(
+      () => document.documentElement.dataset.galleryReady !== undefined || !document.querySelector("script[src*='gallery-frame']"),
+      null,
+      { timeout: DEFAULT_CASE_TIMEOUT_MS },
+    ).catch(() => undefined);
     const ready = await page.evaluate(() => document.documentElement.dataset.galleryReady ?? null);
     const stamped = await page.evaluate(() => (window as unknown as { cmuxGalleryReadyMs?: number }).cmuxGalleryReadyMs ?? null);
     const readyMs = stamped === null ? null : Math.max(0, stamped - stillsMs);

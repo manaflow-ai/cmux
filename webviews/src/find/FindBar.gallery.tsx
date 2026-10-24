@@ -3,7 +3,7 @@ import { componentEntry } from "../gallery/format";
 import type { Play } from "../gallery/play";
 import type { DiffViewerLabelResolver } from "../labels";
 import type { FindMatch } from "./model";
-import { FindBar } from "./FindBar";
+import { FindBar, preloadFindBar } from "./FindBar";
 import type { DiffFindController } from "./useDiffFind";
 
 type Props = {
@@ -127,7 +127,10 @@ export default componentEntry<Props>({
   },
   styles: () => import("../styles.css"),
   covers: ["find/FindBar.tsx#FindBar", "ui/FindPill.tsx#FindPill"],
-  load: async () => GalleryFindBar,
+  load: async () => {
+    await preloadFindBar();
+    return GalleryFindBar;
+  },
   variants: {
     empty: { props: { initialQuery: "", initialMatches: 3, requestToken: 1 } },
     matches: { props: { initialQuery: "needle", initialMatches: 3, requestToken: 1 } },

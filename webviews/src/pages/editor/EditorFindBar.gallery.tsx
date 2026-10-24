@@ -4,7 +4,7 @@ import type { Play } from "../../gallery/play";
 import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
 import { EditorFind, type FindRange, type FindTarget } from "./editorFind";
-import { EditorFindBar } from "./EditorFindBar";
+import { EditorFindBar, preloadEditorFindBar } from "./EditorFindBar";
 
 type Props = { text: string; query: string; replace: boolean };
 
@@ -72,7 +72,10 @@ export default componentEntry<Props>({
   widths: { narrow: 360, normal: 520, wide: 720 },
   styles: () => Promise.all([import("../../ui/findPill.css"), import("./styles.css")]),
   covers: ["pages/editor/EditorFindBar.tsx#EditorFindBar"],
-  load: async () => GalleryEditorFindBar,
+  load: async () => {
+    await preloadEditorFindBar();
+    return GalleryEditorFindBar;
+  },
   variants: {
     find: { props: { text: "alpha beta\nalpha gamma", query: "alpha", replace: false } },
     "no-matches": { props: { text: "alpha beta", query: "zeta", replace: false } },
