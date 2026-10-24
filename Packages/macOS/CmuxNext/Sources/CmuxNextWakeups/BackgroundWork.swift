@@ -33,7 +33,9 @@ import Dispatch
 /// let addresses = try await work.run(.userBlocking, mayBlock: .system) { resolve(host) }
 /// ```
 public final class BackgroundWork: Sendable {
-    /// How many ``BlockingLane/cpu`` items run at once.
+    /// How many ``BlockingLane/cpu`` items run at once. Background items (``WorkPriority/bestEffort``,
+    /// ``WorkPriority/idle``) take at most all slots but one, so foreground work always finds one (a width
+    /// of 1 gets a second slot for it).
     public let cpuWidth: Int
     /// The label prefix of every lane slot's dispatch queue (`<label>.<lane>.<priority or slot>`).
     public let label: String
@@ -73,7 +75,8 @@ public final class BackgroundWork: Sendable {
 
     /// How many ``BlockingLane/system`` items run at once: Chrome's limit for concurrent system DNS
     /// lookups (`kDefaultMaxSystemTasks`, net/dns/host_resolver_manager.cc). A system call can hang for
-    /// its own timeout (`getaddrinfo` up to 30 s); one hung call must not hold every later one.
+    /// its own timeout (`getaddrinfo` up to 30 s); one hung call must not hold every later one, and
+    /// background calls take at most five slots, so hung ones never hold a call a person waits for.
     public static let systemWidth = 6
 
     /// The number of performance cores minus one (at least one), so CPU-bound background work always
