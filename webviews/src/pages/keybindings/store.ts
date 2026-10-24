@@ -409,8 +409,14 @@ export class KeybindingsStore {
   private onRecorded(event: RecordedEvent): void {
     let recording = this.snapshot.recording;
     if (!recording) return;
-    // A refusal shows until the next key goes down (the next shortcut).
-    if (recording.target === "row" && recording.refusal && (event.key || event.held) && !event.released) {
+    // A refusal shows until other keys go down (the next shortcut); the same keys again keep it.
+    if (
+      recording.target === "row" &&
+      recording.refusal &&
+      event.key &&
+      event.key !== recording.key &&
+      !event.released
+    ) {
       recording = { ...recording, refusal: undefined, refusalOwner: undefined };
       this.set({ recording });
     }
@@ -426,12 +432,17 @@ export class KeybindingsStore {
         void this.resolveConflict("overwrite");
         return;
       }
-      if (event.released || !event.key) return;
+      // The same keys again get the same answer: the question stays.
+      if (event.released || !event.key || event.key === recording.prompt.key) return;
       recording = { ...recording, prompt: undefined };
       this.set({ recording });
     }
     if (event.released) {
-      if (recording.target !== "row") return;
+      // Search by keys: every key up ends the search's recording; its keys stay the filter.
+      if (recording.target === "search") {
+        if (event.key) this.endRecording();
+        return;
+      }
       // Every key is up: no modifier is held any more.
       const released = { ...recording, held: "" };
       this.set({ recording: released });

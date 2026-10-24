@@ -601,6 +601,11 @@
     background-color var(--cmux-motion-standard, 180ms) ease-out;
 }
 
+/* Keys taken while the last save's light is still mounted: it stays hidden, never replays. */
+.keys-recorder-light.off {
+  visibility: hidden;
+}
+
 /* The taken light: the green light's red twin, shining down through the whole glass, and it
    stays on while the keys are taken (the green one only flashes). */
 .keys-recorder-light.danger {

@@ -377,9 +377,14 @@ function Recorder({
         else store.closeRecording();
       }}
     >
-      {recording.confirmed > 0 && !taken && (
-        // The confirm light: a green glow along the glass's top edge, once per save.
-        <span key={recording.confirmed} className="keys-recorder-light" aria-hidden="true" />
+      {recording.confirmed > 0 && (
+        // The confirm light: a green glow along the glass's top edge, once per save. It stays
+        // mounted (hidden while keys are taken), so a question dropped never plays it again.
+        <span
+          key={recording.confirmed}
+          className={taken ? "keys-recorder-light off" : "keys-recorder-light"}
+          aria-hidden="true"
+        />
       )}
       {recording.warned > 0 && taken && (
         // The taken light: red, shining down through the glass as the keys turn red.
