@@ -364,6 +364,35 @@ def session(name, rows, failures=None):
 ENV = {"host": "cmux-test", "macos": "26.1", "sha": "a" * 40}
 
 
+class UnresponsiveAppTests(unittest.TestCase):
+    """The cause of "the app stopped answering" is kept before the relaunch erases it (the app-exits group had
+    no cause: rows said only `Connection refused` or `the app stopped answering`)."""
+
+    def test_an_exited_app_keeps_its_signal_and_crash_report(self):
+        app = sweep_mod.App()
+        app.process = mock.Mock(pid=4242, poll=mock.Mock(return_value=-11))
+        with tempfile.TemporaryDirectory() as folder:
+            report = os.path.join(folder, "cmux DEV-2026-10-24-0001.ips")
+            with open(report, "w") as f:
+                f.write('{"app_name":"cmux DEV"}\n' + json.dumps({"pid": 4242, "exception": {"type": "EXC_BAD_ACCESS"}}))
+            with mock.patch.object(sweep_mod, "crash_reports", lambda since, pid=None: [report]):
+                stopped = app.why_unresponsive(0)
+        self.assertEqual((stopped["state"], stopped["code"], stopped["signal"]), ("exited", -11, 11))
+        self.assertIn("EXC_BAD_ACCESS", stopped["summary"])
+        self.assertTrue(os.path.exists(stopped["report"]), "the report was not kept in OUT/crashes")
+
+    def test_a_stuck_app_is_sampled_and_never_signalled(self):
+        app = sweep_mod.App()
+        process = mock.Mock(pid=4343, poll=mock.Mock(return_value=None))
+        app.process = process
+        with mock.patch.object(sweep_mod.subprocess, "run") as run:
+            stopped = app.why_unresponsive(0)
+        self.assertEqual(stopped["state"], "alive")
+        self.assertEqual(run.call_args[0][0][:3], ["/usr/bin/sample", "4343", "3"])
+        process.terminate.assert_not_called()
+        process.kill.assert_not_called()
+
+
 class FailedSessionTests(unittest.TestCase):
     def test_a_session_that_fails_fails_the_run_and_the_report_says_so(self):
         class App:
