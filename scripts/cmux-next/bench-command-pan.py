@@ -14,9 +14,10 @@ took it (`delivered_to`): every Command event must reach the layout (LayoutRootV
 with no Command at that point must reach none of it (the pane keeps a plain scroll). Either check failing
 fails the run, so a pan that never moved is never a frame number.
 
-Base leg (same build, same session): `layout.scrollModifier` set to `none` (settings.set), the same rounds as
-plain gestures (the strip pan before this setting existed), then back to `command`. Its row is
-`"mode": "base"`; compare its p95 and missed frames with the `"mode": "command"` row.
+Base rounds (same build, same session): `layout.scrollModifier` set to `none` (settings.set) and plain
+gestures, the strip pan before this setting existed. Command and base rounds alternate in an ABBA order, so
+a drift during the session falls on both alike; the setting ends at `command`. Rows `"mode": "command"` and
+`"mode": "base"`; compare their p95 and missed frames.
 
 --target picks the pane under the pointer:
   terminal  (default) the terminal that newColumn made: the layout's own window path.
@@ -129,24 +130,26 @@ class Session:
         return delivered
 
 
-def leg(app, name, mode, session, point, report):
-    """`--rounds` pans at `point`: with Command (`command`), or plain under `layout.scrollModifier: none`
-    (`base`); every event must reach the layout. Returns the leg's row."""
-    runs = []
-    for index in range(opts.rounds):
-        dx = opts.dx if index % 2 == 0 else -opts.dx
-        app.rpc("debug.frames", {"action": "start"})
-        delivered = session.gesture(point, dx, command=mode == "command")
-        time.sleep(opts.settle)  # bench harness: the frames run until the strip's spring rests
-        frames = app.rpc("debug.frames", {"action": "stop"}) or {}
-        taken = sum(1 for d in delivered if d == "LayoutRootView")
-        run = {"session": name, "mode": mode, "round": index, "dx": dx, "events": len(delivered), "layout_took": taken,
-               "frames": frames.get("frames"), "refresh_ms": frames.get("refresh_ms"), "p50_ms": frames.get("p50_ms"),
-               "p95_ms": frames.get("p95_ms"), "max_ms": frames.get("max_ms"), "missed": frames.get("missed"),
-               "missed_at_ms": frames.get("missed_at_ms")}
-        runs.append(run)
-        print(f"  {name:<6} {mode:<7} #{index} dx {dx:+.0f}: layout took {taken}/{len(delivered)}, {run['frames']} frames, "
-              f"p95 {run['p95_ms']} max {run['max_ms']} ms, missed {run['missed']} (refresh {run['refresh_ms']} ms)", flush=True)
+def pan_round(app, name, mode, index, session, point):
+    """One pan at `point`: with Command (`command`), or plain under `layout.scrollModifier: none` (`base`).
+    Returns the round's record."""
+    dx = opts.dx if index % 2 == 0 else -opts.dx
+    app.rpc("debug.frames", {"action": "start"})
+    delivered = session.gesture(point, dx, command=mode == "command")
+    time.sleep(opts.settle)  # bench harness: the frames run until the strip's spring rests
+    frames = app.rpc("debug.frames", {"action": "stop"}) or {}
+    taken = sum(1 for d in delivered if d == "LayoutRootView")
+    run = {"session": name, "mode": mode, "round": index, "dx": dx, "events": len(delivered), "layout_took": taken,
+           "frames": frames.get("frames"), "refresh_ms": frames.get("refresh_ms"), "p50_ms": frames.get("p50_ms"),
+           "p95_ms": frames.get("p95_ms"), "max_ms": frames.get("max_ms"), "missed": frames.get("missed"),
+           "missed_at_ms": frames.get("missed_at_ms")}
+    print(f"  {name:<6} {mode:<7} #{index} dx {dx:+.0f}: layout took {taken}/{len(delivered)}, {run['frames']} frames, "
+          f"p95 {run['p95_ms']} max {run['max_ms']} ms, missed {run['missed']} (refresh {run['refresh_ms']} ms)", flush=True)
+    return run
+
+
+def summarize(name, mode, runs, report):
+    """The row of one mode's rounds, checked: every event reached the layout and frames were drawn."""
     report["runs"].extend(runs)
     row = {"session": name, "mode": mode, "target": opts.target, "rounds": len(runs),
            "refresh_ms": pct([r["refresh_ms"] for r in runs], 0.5),
@@ -183,12 +186,18 @@ def measure(app, name, session, panes, report):
                               "plain_events": len(control)})
     if control_taken:
         report["problems"].append(f"{name}: the layout took {control_taken} plain events over a pane")
-    leg(app, name, "command", session, point, report)
-    set_modifier(app, "none")
+    # The two modes alternate in an ABBA order (command, base, base, command, ...), so a drift during the
+    # session (a warming cache, a host getting busy) falls on both modes alike instead of on the one that ran last.
+    runs = {"command": [], "base": []}
     try:
-        leg(app, name, "base", session, point, report)
+        for index in range(opts.rounds):
+            for mode in (("command", "base") if index % 2 == 0 else ("base", "command")):
+                set_modifier(app, "command" if mode == "command" else "none")
+                runs[mode].append(pan_round(app, name, mode, index, session, point))
     finally:
         set_modifier(app, "command")
+    for mode in ("command", "base"):
+        summarize(name, mode, runs[mode], report)
 
 
 def dry_run():
