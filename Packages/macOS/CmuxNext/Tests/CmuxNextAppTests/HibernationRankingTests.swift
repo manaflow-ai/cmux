@@ -1,5 +1,6 @@
 @testable import CmuxNextApp
 import CmuxNextBridge
+import CmuxNextCompat
 @testable import CmuxNextSettings
 import Foundation
 import Testing
