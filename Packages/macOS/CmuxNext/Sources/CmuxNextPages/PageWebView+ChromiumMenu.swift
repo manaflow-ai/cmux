@@ -42,9 +42,12 @@ extension PageWebView {
             copy.identifier = NSUserInterfaceItemIdentifier(PageSelectionMenu.copyItem)
             menu.addItem(copy)
         }
+        let click = NSPoint(x: request.location.x, y: request.location.y)
+        chromiumMenuScreenPoint = window.map { $0.convertPoint(toScreen: convert(click, to: nil)) }
         if let contextMenuEditor { contextMenuEditor(menu) } else { Self.keepDefaultMenuItems(in: menu) }
+        chromiumMenuScreenPoint = nil
         guard menu.items.contains(where: { !$0.isSeparatorItem }) else { return }
-        chromiumMenuPresenter(menu, NSPoint(x: request.location.x, y: request.location.y), self)
+        chromiumMenuPresenter(menu, click, self)
         // The menu tracked the person's own pointer and keys until it closed: what they chose (or
         // their dismissal) is a gesture, as a WebKit page's menu choice is. Page calls a row
         // starts arrive after this.

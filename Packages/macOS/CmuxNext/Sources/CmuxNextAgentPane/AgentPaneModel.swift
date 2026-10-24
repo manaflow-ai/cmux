@@ -78,6 +78,11 @@ public final class AgentPaneModel {
     @ObservationIgnored public var chatMenuItems: (@MainActor () -> [NSMenuItem])?
     /// Search the Web on selected chat text: a browser tab with the omnibar's search engine.
     @ObservationIgnored public var onSearchWeb: (@MainActor (String) -> Void)?
+    /// Inspect Element in the pane's context menu while the Labs pointer inspector is on
+    /// (`agent.pointerInspector`): the app starts its pointer inspector at the element the menu
+    /// opened on, given as the pointer's screen point when the menu was built and the pane's
+    /// window. Nil: the item does nothing.
+    @ObservationIgnored public var onInspectUIElement: (@MainActor (_ screenPoint: NSPoint, _ window: NSWindow?) -> Void)?
     /// Runs an action advertised by the host's omnibar.
     @ObservationIgnored public var onAppAction: ((String) -> Void)?
     /// The chat header's tab actions and tab state (``AgentPaneHeaderHooks``).
