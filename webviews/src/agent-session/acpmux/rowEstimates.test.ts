@@ -6,9 +6,8 @@
 //     line that the footer takes the place of: its text and the 4px meta gap, with no 34px floor;
 //   - a task's result (`.cv-received`): its 26px line and the 8px message gap;
 //   - another agent's message: its line, then its glass card cut to RECEIVED_LINES lines;
-//   - a turn's footer: its 24px line and the 24px turn gap, or the 8px message gap for the chat's
-//     last one (`.acpmux-row--last-footer`), so no band sits over the composer, and for one over
-//     another agent's line, which belongs with the agent's text above it.
+//   - a turn's footer: its 24px line and the 24px turn gap, including the chat's last one
+//     (`.acpmux-row--last-footer`), so the composer uses the same rhythm as the transcript.
 //
 // Before: a reply over a footer was estimated as any reply (8px below it, at least 34px), and a
 // task's result kept the old 16px below it.
@@ -37,9 +36,9 @@ test("a reply over its footer is its text and the 4px meta gap, with no 34px flo
   const [over, summary] = heightsOf([reply("a", long), footer("f"), prompt("p")]);
   // The same text: 8px below it alone, 4px over its footer.
   expect(alone! - over!).toBeCloseTo(4, 5);
-  // The footer: a 24px line and the 24px turn gap; the chat's last one, the 8px message gap.
+  // The footer always keeps its 24px line and the 24px turn gap, including the last one.
   expect(summary).toBe(48);
-  expect(heightsOf([reply("a", long), footer("f")])[1]).toBe(32);
+  expect(heightsOf([reply("a", long), footer("f")])[1]).toBe(48);
   // A one-line reply over its footer is shorter than a row's 34px floor.
   const [short] = heightsOf([reply("b", "Done."), footer("g")]);
   expect(short!).toBeLessThan(34);
@@ -73,7 +72,7 @@ test("a reply estimated alone, then with its footer after it, is estimated again
 test("the chat's last footer is placed again when a prompt follows it", () => {
   const rows = [reply("a", "Done."), footer("f")];
   const first = layoutConversation(rows as never, 720);
-  expect(first.heights[1]).toBe(32);
+  expect(first.heights[1]).toBe(48);
   const second = layoutConversation([...rows, prompt("p")] as never, 720, undefined, undefined, undefined, {
     rows,
     layout: first,
@@ -81,7 +80,7 @@ test("the chat's last footer is placed again when a prompt follows it", () => {
   expect(second.heights[1]).toBe(48);
 });
 
-test("a footer over another agent's line or a task's result ends at the message gap, not the turn gap", () => {
+test("a footer over another agent's line or a task's result keeps the turn gap", () => {
   const result = { id: "r", version: 1, at: 0, kind: "user", text: "Done", received: { offerId: "o", title: "Tests" } };
   const message = {
     id: "m",
@@ -92,7 +91,7 @@ test("a footer over another agent's line or a task's result ends at the message 
     incoming: { kind: "message", message: { name: "deputy-2", text: "Not idle.", raw: "Not idle." } },
   };
   const notice = { id: "n", version: 1, at: 0, kind: "user", text: "Done", incoming: { kind: "notice", text: "Done" } };
-  for (const line of [result, message, notice]) expect(heightsOf([reply("a", "Done."), footer("f"), line])[1]).toBe(32);
+  for (const line of [result, message, notice]) expect(heightsOf([reply("a", "Done."), footer("f"), line])[1]).toBe(48);
   // The person's prompt after it still starts a turn of its own.
   expect(heightsOf([reply("a", "Done."), footer("f"), prompt("p")])[1]).toBe(48);
 });
@@ -120,13 +119,66 @@ test("a footer shaped by turnView, which carries its answer's text, is its 24px 
   expect(rows[footers[0]!]!.text).toBe(answer);
   const { heights } = layoutConversation(rows, 720);
   expect(heights[footers[0]!]).toBe(48);
-  expect(heights[footers[1]!]).toBe(32);
+  expect(heights[footers[1]!]).toBe(48);
+});
+
+test("a latest history turn without a summary keeps the turn gap at the composer", () => {
+  const rows = turnView(
+    [
+      { id: "u", version: 1, at: 1_000, kind: "user", text: "First" },
+      { id: "a", version: 1, at: 2_000, kind: "assistant", text: "Done." },
+    ] as never,
+    new Set(),
+    { now: 3_000 },
+  );
+  const final = rows.at(-1)!;
+  expect(final.kind).toBe("assistant");
+  expect(final.lastTurn).toBe(true);
+  const { heights } = layoutConversation(rows, 720);
+  // The terminal assistant has the same 24px bottom rhythm as a footer, without a row underneath.
+  expect(heights.at(-1)).toBeGreaterThanOrEqual(44);
+});
+
+test("specialized latest rows reserve the same no-summary turn gap before mounting", () => {
+  const sources = [
+    [
+      { id: "u", version: 1, at: 1_000, kind: "user", text: "Run it" },
+      {
+        id: "tool",
+        version: 1,
+        at: 2_000,
+        kind: "activity",
+        items: [{ kind: "execute", text: "Running", tool: { id: "call", title: "Run", status: "completed" } }],
+      },
+    ],
+    [
+      { id: "u", version: 1, at: 1_000, kind: "user", text: "Wait" },
+      { id: "notice", version: 1, at: 2_000, kind: "notice" },
+    ],
+    [
+      { id: "u", version: 1, at: 1_000, kind: "user", text: "Think" },
+      { id: "quiet", version: 1, at: 2_000, kind: "activity", items: [{ kind: "thought", text: "brief" }] },
+    ],
+  ];
+  for (const source of sources) {
+    const rows = turnView(source as never, new Set(), { now: 3_000 });
+    const final = rows.at(-1)!;
+    expect(final.lastTurn).toBe(true);
+    const withGap = layoutConversation(rows, 720).heights.at(-1)!;
+    const withoutMarker = layoutConversation(
+      rows.map(({ lastTurn: _lastTurn, ...row }) => row),
+      720,
+    ).heights.at(-1)!;
+    if (final.items?.[0]?.kind === "thought") expect(withGap).toBe(0);
+    else if (final.kind === "activity") expect(withGap - withoutMarker).toBe(20);
+    else expect(withGap - withoutMarker).toBe(16);
+  }
 });
 
 test("a hidden row after the chat's last footer leaves it the last one", () => {
   const hidden = { id: "h", version: 1, at: 0, kind: "user", text: "", incoming: { kind: "hidden" } };
   const heights = heightsOf([reply("a", "Done."), footer("f"), hidden]);
-  expect(heights[1]).toBe(32);
+  expect(heights[1]).toBe(48);
   expect(heights[2]).toBe(0);
 });
 
