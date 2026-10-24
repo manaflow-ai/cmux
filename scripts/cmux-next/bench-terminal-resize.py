@@ -273,12 +273,18 @@ def final_grid_round(action):
     has it, the program got SIGWINCH), and to the first frame drawn at it."""
     def first(entries, grid, skip_first=True):
         return next((e["ms"] for e in entries[1 if skip_first else 0:] if e["grid"] == grid), None)
-    shown = set(((rpc("debug.terminal_final_grid", {"action": "stop"}) or {}).get("terminals") or {}).keys())
+    before = rpc("debug.terminal_final_grid", {"action": "stop"}) or {}
+    shown = set((before.get("terminals") or {}).keys())
     rpc("debug.frames", {"action": "start"})
-    rpc("debug.terminal_final_grid", {"action": "start"})
-    rpc("action.run", {"action": action, "focus": True})
+    started = rpc("debug.terminal_final_grid", {"action": "start"}) or {}
+    ran = rpc("action.run", {"action": action, "focus": True})
     time.sleep(1.5)  # bench script: the spring lands and the last echo comes
     report = (rpc("debug.terminal_final_grid", {"action": "stop"}) or {}).get("terminals") or {}
+    problems = [p for p in (
+        None if started.get("started") else f"trace start replied {str(started)[:200]}",
+        None if shown else f"no terminal shown before the action (trace replied {str(before)[:200]})",
+        None if not (isinstance(ran, dict) and ran.get("error")) else f"{action} replied {str(ran)[:200]}",
+    ) if p]
     frames = rpc("debug.frames", {"action": "stop"}) or {}
     rows = []
     for key in sorted(shown & set(report)):
@@ -292,7 +298,8 @@ def final_grid_round(action):
     def worst(field):
         values = [r[field] for r in rows if r[field] is not None]
         return max(values) if values else None
-    return {"action": action, "resized_terminals": len(rows), "max_first_send_ms": worst("first_send_ms"),
+    return {"action": action, "shown_before": len(shown), "problems": problems,
+            "resized_terminals": len(rows), "max_first_send_ms": worst("first_send_ms"),
             "max_final_send_ms": worst("final_send_ms"), "max_owner_final_ms": worst("owner_final_ms"),
             "max_drawn_final_ms": worst("drawn_final_ms"), "sends_total": sum(r["sends"] for r in rows),
             "frames": {k: frames.get(k) for k in ("frames", "p95_ms", "max_ms", "missed", "main_p95_ms", "main_max_ms")},
