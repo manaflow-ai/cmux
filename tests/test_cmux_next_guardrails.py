@@ -328,6 +328,27 @@ class RuleTests(Fixture):
                          "control: the plain range has it")
         self.assertEqual(self.refused(guardrails.check_push, fork, "HEAD", "feat-cmux-next"), [], "rebased")
 
+    def test_a_merge_cannot_use_an_upstream_removal_to_pay_for_the_branch_s_own_main_hop(self):
+        # Upstream removes a main hop from Shared.swift; the branch adds one there and merges upstream in. Over the
+        # old remote head the removal (upstream's) pays for the branch's hop: a per-file count ratchet.
+        shared = "func a() {\n    DispatchQueue.main.async { print(1) }\n}\n\nfunc b() {}\nfunc c() {}\nfunc d() {}\n"
+        self.write(f"{KIT}/Shared.swift", shared)
+        self.commit("a main hop on the base")
+        self.git("checkout", "--quiet", "-b", "topic")
+        self.write(f"{KIT}/Topic.swift", "struct Topic {}\n")
+        self.commit("topic work")
+        pushed = self.git("rev-parse", "HEAD").stdout.strip()
+        self.git("checkout", "--quiet", "feat-cmux-next")
+        self.write(f"{KIT}/Shared.swift", shared.replace("    DispatchQueue.main.async { print(1) }\n", ""))
+        self.commit("upstream removes the main hop")
+        self.git("checkout", "--quiet", "topic")
+        self.write(f"{KIT}/Shared.swift", shared + "func e() {\n    DispatchQueue.main.async { print(2) }\n}\n")
+        self.commit("the branch's own main hop in Shared.swift")
+        self.git("merge", "--quiet", "--no-edit", "feat-cmux-next")
+        self.assertEqual(self.refused(guardrails.check, pushed, "HEAD"), [], "control: over the old remote head it is paid")
+        self.assertEqual(self.refused(guardrails.check_push, pushed, "HEAD", "feat-cmux-next"),
+                         [("main-async", ["Shared.swift: DispatchQueue.main.async { print(2) }"])])
+
     def test_owner_globs_do_not_cross_folders_with_a_single_star(self):
         self.assertTrue(guardrails.glob_match("A/Motion/Spring.swift", "A/Motion/"))
         self.assertTrue(guardrails.glob_match("A/MotionGate.swift", "A/Motion*.swift"))
