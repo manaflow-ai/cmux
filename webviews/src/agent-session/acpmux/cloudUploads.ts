@@ -105,7 +105,8 @@ export async function uploadToMachine(files: File[], host: Call): Promise<Upload
       if (!path || extra) throw new Error("The upload could not be completed.");
       paths.push(path);
     } catch (error) {
-      await call("chat.upload.cancel", { token }).catch(() => undefined);
+      // Straight to the host, not behind another step deadline.
+      void host("chat.upload.cancel", { token }).catch(() => undefined);
       return { error: error instanceof Error ? error.message : String(error) };
     }
   }
