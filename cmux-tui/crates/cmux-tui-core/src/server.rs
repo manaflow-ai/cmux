@@ -581,6 +581,11 @@ pub const PROTOCOL_VERSION: u32 = LIFECYCLE_READINESS_PROTOCOL_VERSION;
 pub fn api_revision_range() -> (u32, u32) {
     api_revision_wire::identify_fields()
 }
+
+/// The compiled API revision history for clients connecting to an older daemon.
+pub fn api_revision_compat() -> &'static cmux_api_compat::Compat {
+    api_revision_wire::compat()
+}
 mod protocol_key;
 #[cfg(test)]
 use protocol_key::PROTOCOL_KEY_TEXT_MAX_BYTES;
