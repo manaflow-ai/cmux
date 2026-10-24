@@ -263,7 +263,7 @@ fn a_spawn_that_times_out_leaves_no_terminal_on_the_holder() {
         // SAFETY: both are fresh descriptors nothing else owns.
         let (read_end, _write_end) =
             unsafe { (OwnedFd::from_raw_fd(ends[0]), OwnedFd::from_raw_fd(ends[1])) };
-        let spawned = wire::encode(Kind::Spawned, 1, &Out::default().i32(4242).0);
+        let spawned = wire::encode_with_fds(Kind::Spawned, 0, 1, &Out::default().i32(4242).0, 1);
         wire::send_all(fd, &spawned, &[read_end.as_raw_fd()]).unwrap();
         let close = next("CLOSE for the late SPAWNED");
         assert_eq!((close.kind, close.chan), (Kind::Close as u16, 1), "{close:?}");
