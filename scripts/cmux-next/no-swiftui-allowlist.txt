@@ -18,7 +18,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextApp/RightSidebar/MachineSectionHostView.
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/SleepyMode/SleepyOverlayWindows.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/SleepyMode/SleepySceneView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/TaskManager/TaskManagerPageService.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApp/Vault/VaultColors.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Vault/VaultHostView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Vault/VaultListView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Vault/VaultRowView.swift
@@ -37,21 +36,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneShapes.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneStyle.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApps/Section/AppSectionProvider.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApps/Store/AppStoreContentView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApps/Store/Views/AppCloudFeature.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApps/Store/Views/AppDiscoverView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApps/Store/Views/AppFeatureWindowPreview.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApps/Store/Views/AppFeaturesView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApps/Store/Views/AppGrantsView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApps/Store/Views/AppIconView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApps/Store/Views/AppInstalledView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApps/Store/Views/AppListingDetailView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApps/Store/Views/AppListingViews.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApps/Store/Views/AppLivePreview.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApps/Store/Views/AppSectionFrame.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApps/Store/Views/AppStoreCardStyle.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApps/Store/Views/AppStoreRootView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApps/Store/Views/AppsDisconnectedBanner.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkEditBubble.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkEditView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkEditorSheet.swift
@@ -103,6 +87,7 @@ Packages/macOS/CmuxNext/Sources/CmuxNextHistory/HistoryPageRow.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextHistory/HistoryPageView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextHistory/StashPageHostView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextHistory/StashPageView.swift
+Packages/macOS/CmuxNext/Sources/CmuxNextHistory/Vault/VaultColors.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeGroupAvatar.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeGroupContactRow.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeGroupInfoColors.swift

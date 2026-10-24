@@ -311,7 +311,7 @@ final class TabCell {
             let text = isSelected ? Palette.textPrimary : Palette.textSecondary
             hibernationRingLayer?.strokeColor = Self.hibernationRingColor.cgColor
             titleLayer.foregroundColor = text.cgColor
-            machineLayer?.foregroundColor = Palette.textTertiary.cgColor
+            machineLayer?.foregroundColor = item.machineBadgeColor.cgColor
             applyProfileDotColors()
             applyPresenceDotColor()
             applyAudioIcon()

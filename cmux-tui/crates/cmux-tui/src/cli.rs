@@ -28,11 +28,15 @@ mod capability_cache;
 #[cfg(unix)]
 mod chief;
 mod chief_target;
+#[cfg(unix)]
+mod cloud_machines;
 mod code_mode;
 #[cfg(unix)]
 mod coderouter;
 mod codex_app_server;
 mod command;
+#[cfg(unix)]
+mod dev;
 mod docs;
 mod extra_help;
 mod federation;
@@ -102,6 +106,7 @@ const PUBLIC_SCOPES: &[&str] = &[
     "terminal",
     "browser",
     "notification",
+    "attention",
     "agent",
     "room",
     "closed",
@@ -245,6 +250,48 @@ pub(super) fn canonical_scope(value: &str) -> &str {
     shorthand::scope(value)
 }
 
+/// Whether the removed `route` resource scope is the command after global
+/// options have been stripped. This keeps the early refusal ahead of the
+/// generic app-action fallback even for invocations such as
+/// `cmux --json route list`.
+pub(crate) fn removed_route_requested(args: &[String]) -> bool {
+    // This mode consumes an arbitrary argv payload through `--` and never
+    // enters the CLI dispatcher, so a literal `route` belongs to the provider
+    // command rather than the removed cmux resource scope.
+    if let Some(provider_index) = args.iter().position(|arg| arg == "--machine-provider-command")
+        && args
+            .iter()
+            .position(|arg| arg == "route")
+            .is_none_or(|route_index| provider_index < route_index)
+    {
+        return false;
+    }
+    scan_globals(args, MachineFlag::Global)
+        .map(|(_, command)| {
+            let mut words = command.iter().take_while(|word| *word != "--").peekable();
+            let mut command_words = Vec::new();
+            while let Some(word) = words.next() {
+                if startup_value_option(word) {
+                    let _ = words.next();
+                } else if !word.starts_with('-') {
+                    command_words.push(word.as_str());
+                }
+            }
+            matches!(
+                command_words.as_slice(),
+                ["route", ..] | ["help", "route", ..] | ["acp", "route", ..]
+            )
+        })
+        .unwrap_or(false)
+}
+
+/// Startup options that take a value: the one list in main.rs
+/// (`STARTUP_VALUE_OPTIONS`), so a new option is skipped here too, plus the
+/// provider command, whose payload this scanner must not read as words.
+fn startup_value_option(value: &str) -> bool {
+    value == "--machine-provider-command" || crate::STARTUP_VALUE_OPTIONS.contains(&value)
+}
+
 /// Rewrites a pre-D1 `cmux server <lifecycle verb>` to `cmux daemon <verb>`
 /// (with the deprecation hint), so `main` routes `server start` to the
 /// headless startup like `daemon start`. No-op elsewhere.
@@ -277,6 +324,10 @@ fn chief_write_refusal(_plan: &CommandPlan) -> Option<serde_json::Value> {
 
 pub fn run(args: &[String], startup_usage: &str) -> i32 {
     let surface = Surface::current();
+    #[cfg(unix)]
+    if let Some(code) = dev::run_if_requested(args, surface) {
+        return code;
+    }
     let lifecycle_args;
     let args = match machine_server::run_if_requested(args, surface) {
         Some(machine_server::Mount::Exit(code)) => return code,
@@ -850,6 +901,7 @@ fn scope_help_for(
         }
         "browser" => Cow::Borrowed(scope_help::BROWSER_HELP),
         "notification" => Cow::Borrowed(scope_help::NOTIFICATION_HELP),
+        "attention" => Cow::Borrowed(scope_help::ATTENTION_HELP),
         "agent" => Cow::Borrowed(AGENT_HELP),
         "room" => Cow::Borrowed(scope_help::ROOM_HELP),
         "closed" => Cow::Borrowed(scope_help::CLOSED_HELP),
@@ -913,6 +965,7 @@ const ROOT_HELP_SCOPES_SUFFIX: &str = "\
   terminal      Read, write, and attach to terminals
   browser       Navigate and attach to browsers
   notification  List and create notifications
+  attention     Mark the tab where the person must act (no focus change)
   agent         List and report agent state
   room          Organize workspaces into rooms
   closed        List and reopen closed tabs, screens, workspaces

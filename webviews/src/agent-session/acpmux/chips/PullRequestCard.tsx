@@ -4,20 +4,16 @@
 // "GitHub rate limit · resets 9:11 PM" where the pull request should have been.
 //
 // The card reads: the pull request glyph in its state's colour beside the title (in the link card's
-// head when it has one, cut to two lines) — open green, merged purple, closed red, draft grey, as
-// Claude draws it, with no state word (Leo 2026-10-21) — then `owner/repo#N` (its link, blue like
-// every link), conflicts, the author with a monogram and when GitHub last saw it change,
-// `base ← head`, an open pull request's checks as a compact ✓/✗ count (a merged or closed one's no
-// longer matter), with how many reds are also red on base (when every one is, the ✗ reads muted,
-// not as this pull request's), the review decision and labels, and the files with `+/−`.
-// Hovering (or focusing) the `+/−` breaks those lines down by kind — Code, Tests, Mocks, Docs,
-// Evals, Generated — from the one classifier the diff viewer groups by (src/fileKinds.ts), and
-// says so when code changed with no test.
+// head when it has one, cut to two lines) — open green, merged purple, closed red, draft grey —
+// then the state and checks, the author and time, and a compact file and line summary. The link,
+// branch names, review decision and labels stay secondary below that summary. The diff summary
+// keeps each file kind inline, using the same classifier as the diff viewer (src/fileKinds.ts),
+// rather than nesting another card inside the hover card.
 //
 // Nothing here calls GitHub. The host answers from its own cache and reads gh in the background
 // (pullRequestStore.ts, AgentReplyPullRequests); when its answer is not fresh the card prints how
 // old it is instead of an error.
-import { useState, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import { FILE_KINDS, kindTotals, missingTests, type FileKind } from "../../../fileKinds";
 import { usePaneLanguage, useT, type PaneLanguage, type StringKey, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -97,7 +93,7 @@ export function PullRequestCardBody({
   const reference = `${known.repo}#${known.number}`;
   const glyph = (
     <span className="acpmux-pr-card__glyph" data-state={state || undefined}>
-      {/* The state's word is the glyph's accessible name only; the card shows its colour. */}
+      {/* The state's word is the glyph's accessible name; the card also shows it in the status row. */}
       <Icon name="git.pullrequest" size={14} title={state && BADGES[state] ? t(BADGES[state]!) : undefined} />
     </span>
   );
@@ -106,6 +102,19 @@ export function PullRequestCardBody({
       {head?.(title || reference, glyph)}
       <div className="acpmux-pr-card__body">
         {!head && title && <div className="acpmux-pr-card__title">{title}</div>}
+        <Status state={state} read={read} t={t} />
+        {read?.author && (
+          <div className="acpmux-pr-card__who">
+            <Monogram login={read.author} />
+            <span className="acpmux-pr-card__author">{read.author}</span>
+            {Number.isFinite(updatedAt) && (
+              <span className="acpmux-pr-card__when">
+                {t("prCard.updated", { ago: relativeTime(updatedAt, now, language) })}
+              </span>
+            )}
+          </div>
+        )}
+        <Changes read={read} t={t} />
         <div className="acpmux-pr-card__facts">
           {!head && glyph}
           {/* The pull request's link, styled as one (Leo 2026-10-20: "the hovers need to be
@@ -118,33 +127,44 @@ export function PullRequestCardBody({
           ) : (
             <span className="acpmux-pr-card__ref">{reference}</span>
           )}
-          {read?.mergeable === "conflicting" && state !== "merged" && state !== "closed" && (
-            <span className="acpmux-pr-card__conflicts">{t("header.prConflicts")}</span>
-          )}
-          {read?.author && (
-            <span className="acpmux-pr-card__who">
-              <Monogram login={read.author} />
-              <span className="acpmux-pr-card__author">{read.author}</span>
-              {Number.isFinite(updatedAt) && (
-                <span className="acpmux-pr-card__when">
-                  {t("prCard.updated", { ago: relativeTime(updatedAt, now, language) })}
-                </span>
-              )}
-            </span>
-          )}
         </div>
-        {read?.baseRef && read.headRef && (
-          <div className="acpmux-pr-card__branches">
-            <span className="acpmux-pr-card__branch">{read.baseRef}</span>
-            <span aria-hidden="true">←</span>
-            <span className="acpmux-pr-card__branch">{read.headRef}</span>
-          </div>
-        )}
-        {state !== "merged" && state !== "closed" && <Checks read={read} t={t} />}
-        <Review read={read} t={t} />
-        <Changes read={read} t={t} />
+        <Secondary read={read} t={t} />
         <Freshness answer={answer} now={now} t={t} language={language} />
       </div>
+    </>
+  );
+}
+
+function Status({ state, read, t }: { state: string | undefined; read: LinkedPullRequest | undefined; t: Translate }) {
+  const checks = state !== "merged" && state !== "closed" ? <Checks read={read} t={t} /> : null;
+  if (!state && !checks && read?.mergeable !== "conflicting") return null;
+  return (
+    <div className="acpmux-pr-card__status">
+      {state && (
+        <span className="acpmux-pr-card__state" data-state={state}>
+          {BADGES[state] ? t(BADGES[state]!) : state}
+        </span>
+      )}
+      {checks}
+      {read?.mergeable === "conflicting" && state !== "merged" && state !== "closed" && (
+        <span className="acpmux-pr-card__conflicts">{t("header.prConflicts")}</span>
+      )}
+    </div>
+  );
+}
+
+function Secondary({ read, t }: { read: LinkedPullRequest | undefined; t: Translate }) {
+  if (!read) return null;
+  return (
+    <>
+      {read.baseRef && read.headRef && (
+        <div className="acpmux-pr-card__branches">
+          <span className="acpmux-pr-card__branch">{read.baseRef}</span>
+          <span aria-hidden="true">←</span>
+          <span className="acpmux-pr-card__branch">{read.headRef}</span>
+        </div>
+      )}
+      <Review read={read} t={t} />
     </>
   );
 }
@@ -227,12 +247,8 @@ function Review({ read, t }: { read: LinkedPullRequest | undefined; t: Translate
   );
 }
 
-/// The files and `+/−`; hovering or focusing them breaks the lines down by kind, and a click
-/// pins that open so the breakdown can be read without holding the pointer still.
+/// The files and `+/−`, with the file-kind totals kept on one quiet inline row.
 function Changes({ read, t }: { read: LinkedPullRequest | undefined; t: Translate }) {
-  const [hovered, setHovered] = useState(false);
-  const [pinned, setPinned] = useState(false);
-  const open = hovered || pinned;
   if (!read) return null;
   const files = read.files ?? [];
   const changed = read.changedFiles || files.length;
@@ -246,41 +262,35 @@ function Changes({ read, t }: { read: LinkedPullRequest | undefined; t: Translat
     <div className="acpmux-pr-card__changes">
       <div className="acpmux-pr-card__counts">
         {changed > 0 && <span className="acpmux-pr-card__files">{t("prCard.files", { n: changed })}</span>}
-        <button
-          type="button"
-          className="acpmux-pr-card__lines"
-          aria-expanded={totals.length > 0 ? open : undefined}
-          disabled={totals.length === 0}
-          onPointerEnter={() => setHovered(true)}
-          onPointerLeave={() => setHovered(false)}
-          onFocus={() => setHovered(true)}
-          onBlur={() => setHovered(false)}
-          onClick={() => setPinned((was) => !was)}
-        >
+        <span className="acpmux-pr-card__lines" aria-label={t("prCard.linesByKind")}>
           <span className="acpmux-pr-card__added">+{additions.toLocaleString()}</span>
           <span className="acpmux-pr-card__removed">−{deletions.toLocaleString()}</span>
-        </button>
-        {/* Why, on the line below rather than in a `title`: this card is what replaces system
-            tooltips, so it does not grow one of its own. */}
+        </span>
         {noTests && <span className="acpmux-pr-card__warning">{t("prCard.noTests")}</span>}
       </div>
-      {open && totals.length > 0 && (
-        <ul className="acpmux-pr-card__kinds" aria-label={t("prCard.linesByKind")}>
-          {FILE_KINDS.filter((kind) => totals.some((total) => total.kind === kind)).map((kind) => {
+      {totals.length > 0 && (
+        <div className="acpmux-pr-card__breakdown" aria-label={t("prCard.linesByKind")}>
+          {FILE_KINDS.filter((kind) => totals.some((total) => total.kind === kind)).map((kind, index) => {
             const total = totals.find((entry) => entry.kind === kind)!;
             return (
-              <li key={kind} className="acpmux-pr-card__kind" data-kind={kind}>
+              <span key={kind} className="acpmux-pr-card__kind" data-kind={kind}>
+                {index > 0 && (
+                  <span className="acpmux-pr-card__separator" aria-hidden="true">
+                    ·
+                  </span>
+                )}
                 <span className="acpmux-pr-card__kindName">{t(KINDS[kind])}</span>
                 <span className="acpmux-pr-card__added">+{total.additions.toLocaleString()}</span>
-                <span className="acpmux-pr-card__removed">−{total.deletions.toLocaleString()}</span>
-              </li>
+                {total.deletions > 0 && (
+                  <span className="acpmux-pr-card__removed">−{total.deletions.toLocaleString()}</span>
+                )}
+              </span>
             );
           })}
-          {noTests && <li className="acpmux-pr-card__kindPartial">{t("prCard.noTestsWhy")}</li>}
           {partial && (
-            <li className="acpmux-pr-card__kindPartial">{t("prCard.kindsPartial", { shown: files.length })}</li>
+            <span className="acpmux-pr-card__kindPartial">{t("prCard.kindsPartial", { shown: files.length })}</span>
           )}
-        </ul>
+        </div>
       )}
     </div>
   );

@@ -265,3 +265,12 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.acpmux-goal { flex: none; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px var(--cv-edge,18px); color: var(--agent-soft); font-size: var(--text-detail); }
+.acpmux-goal-copy { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
+.acpmux-goal-state, .acpmux-goal-budget { flex: none; color: var(--agent-muted); font-size: var(--text-caption); }
+.acpmux-goal-objective { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acpmux-goal button { border: 0; border-radius: 6px; background: none; color: inherit; font: inherit; padding: 4px 6px; cursor: default; }
+.acpmux-goal button:hover { background: var(--acpmux-row-hover); }
+.acpmux-goal button:focus-visible { outline: var(--cmux-focus-ring-width) solid var(--cmux-focus-ring-color); }
+.acpmux-goal-error { flex-basis: 100%; color: var(--agent-danger); }

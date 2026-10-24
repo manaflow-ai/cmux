@@ -4,7 +4,7 @@
    load ui.css, ships it ahead of its own stylesheets (build-agent-pane-web.sh). */
 :root {
   --ui-popup-radius: 8px;
-  --ui-popup-padding: calc(4px * var(--cmux-interface-scale, 1));
+  --ui-popup-padding: calc(var(--ds-space-1) * var(--cmux-interface-scale, 1));
   /* The raised step of the shared elevation scale (`--elevation-2`, pages/shared/desktop.css; the
      native PopupStyle.elevation2) and a hairline edge: one
      elevation in pages and in the app chrome. popup-surface.test.ts holds the two in step. The
@@ -17,9 +17,9 @@
   --ui-popup-shadow:
     var(--ui-popup-drop),
     inset 0 0 0 var(--cmux-hairline, 0.5px) var(--ui-popup-edge, color-mix(in srgb, currentColor 12%, transparent));
-  --ui-row-height: calc(28px * var(--cmux-interface-scale, 1));
+  --ui-row-height: calc(var(--ds-control-row) * var(--cmux-interface-scale, 1));
   --ui-row-radius: 5px;
-  --ui-row-padding-inline: calc(8px * var(--cmux-interface-scale, 1));
+  --ui-row-padding-inline: calc(var(--ds-space-2) * var(--cmux-interface-scale, 1));
   /* The open fades and scales in; under Reduce Motion it only fades (ui-popup-fade). The motion
      scale's steps (pages/shared/desktop.css); the literal is the same step, for a page without it. */
   --ui-popup-open: var(--cmux-motion-micro, 120ms);

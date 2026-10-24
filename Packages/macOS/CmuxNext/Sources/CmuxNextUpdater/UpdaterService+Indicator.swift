@@ -14,7 +14,7 @@ extension UpdaterService {
         return phase
     }
 
-    private var sourcePhase: UpdateIndicatorPhase {
+    var sourcePhase: UpdateIndicatorPhase {
         if let debugIndicatorPhase { return debugIndicatorPhase }
         if let controller, disabledReason == nil {
             let version = controller.stagedUpdate?.displayVersionString ?? controller.model.detectedUpdateVersion
@@ -37,27 +37,6 @@ extension UpdaterService {
         }
         guard let version, !version.isEmpty else { return false }
         return version != identity.shortVersion
-    }
-
-    /// Ends the install session of a staged build that is not newer instead
-    /// of only hiding it: left open, Sparkle installs that build again when
-    /// the app quits, and Check for Updates is ignored behind it. This replies
-    /// Skip to Sparkle's held ready prompt, which cancels the installer and
-    /// records no skipped version, so the next check runs normally.
-    ///
-    /// Only a known `sparkle:version` at or below `CFBundleVersion` proves the
-    /// build is not newer. An update of unknown version, or known only by its
-    /// display version, may be a newer build the user asked for, so it stays
-    /// hidden (``offersStagedUpdate(version:)``) and keeps its installer.
-    /// Sparkle's own silent driver hands over only an install block (nothing
-    /// to cancel), and it stages only builds newer than `CFBundleVersion`.
-    /// The log line is written only when an installer was cancelled, so at
-    /// most once per staged item.
-    func dropStaleStagedUpdate() {
-        guard case .ready = sourcePhase, let build = stagedBuild(), !build.isEmpty,
-              SUStandardVersionComparator.default.compareVersion(build, toVersion: identity.build) != .orderedDescending,
-              cancelStaged() else { return }
-        log.append("staged build \(build) is not newer than build \(identity.build): cancelling its installer")
     }
 
     /// The note beside the circle timed out (up to date clears itself).

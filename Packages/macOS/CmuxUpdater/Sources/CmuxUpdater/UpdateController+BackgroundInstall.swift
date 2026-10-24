@@ -97,6 +97,12 @@ extension UpdateController {
         driver.cancelStaged()
     }
 
+    /// Whether this driver holds the staged update's installer, so ``cancelStagedUpdate()`` would
+    /// cancel it (not Sparkle's own silent install, nor one already handed to the installer).
+    public var canCancelStagedUpdate: Bool {
+        driver.stagedCancel != nil
+    }
+
     /// With ``installsUpdatesInBackground``: whether a found update downloads at once (true,
     /// the default) or waits as ``UpdateState/updateAvailable(_:)`` for ``acceptAvailableUpdate()``.
     public var downloadsUpdatesInBackground: Bool {

@@ -5,13 +5,7 @@ import "../../theme/messages.css";
 import type { ConnectKind, OffloadKind } from "./environments";
 import { useEscapingList } from "../../ui/popupHost";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
-import {
-  MAX_ATTACHMENTS,
-  type AttachmentError,
-  type ComposerAttachment,
-  type DroppedKind,
-  type LinkItem,
-} from "./attachments";
+import { type AttachmentError, type ComposerAttachment, type DroppedKind, type LinkItem } from "./attachments";
 import type { UploadResult } from "./cloudUploads";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
 import type { Project } from "./ProjectChooser";
@@ -45,7 +39,16 @@ import type { Choice } from "./ComposerPickers";
 import type { FileSearchSource } from "./fileSearchModel";
 import { commandArgs, type CmuxCommand } from "./cmuxCommands";
 import { cliOnlyCommand } from "./cliOnlyCommands";
-import { applyCommand, matchCommands, slashQuery, type SlashCommand, type SlashMatch } from "./slashCommands";
+import {
+  applyCommand,
+  fastModeState,
+  isFastCommand,
+  matchCommands,
+  slashQuery,
+  type SlashCommand,
+  type SlashMatch,
+} from "./slashCommands";
+import { BoltIcon } from "./BoltIcon";
 import {
   flushPendingDraftWrites,
   hasPendingDraftWrite,
@@ -55,13 +58,15 @@ import {
   useDraftActionsVersion,
   writePersistedDraft,
 } from "./composerDraft";
-import type { MarkdownFieldHandle } from "./MarkdownField";
+import type { MarkdownFieldHandle, MarkdownFieldProps } from "./MarkdownField";
 import { type StringKey, useT } from "./i18n";
 import { remoteComposer } from "./remoteEditing";
 import { useComposerChrome } from "./composerChrome";
 import { useQueueing } from "./queueing";
 import { useMenuPressGuard } from "./menuPressGuard";
 import { useComposerSettings } from "./composerSettings";
+import { useComposerLook, useQuietRow } from "./composerLook";
+import { LookSwitch } from "./LookSwitch";
 import { useEscapeStop } from "./escapeStop";
 import { usePromptHistory } from "./composer/promptHistory";
 import {
@@ -117,7 +122,6 @@ export const COMPOSER_LABELS = {
   tooLarge: "composer.tooLarge",
   unsupported: "composer.unsupported",
   imagesUnsupported: "composer.imagesUnsupported",
-  tooMany: "composer.tooMany",
   cut: "composer.menu.cut",
   copy: "composer.menu.copy",
   paste: "composer.menu.paste",
@@ -272,6 +276,8 @@ type Props = {
   /// Set while no prompt may go (the folder's trust question is open, useFolderTrustAsk.ts):
   /// Send is off, Enter keeps the prompt, and `reason` shows above it. Shell mode still runs.
   blocked?: SendBlock;
+  /// Opens the Inspector at its Context section: the context ring's card links to it (Details ›).
+  onOpenContext?(): void;
 };
 
 /// The prompt box with the agent's `/` command menu:
@@ -331,6 +337,7 @@ export function Composer({
   switching,
   blocked,
   placeholder,
+  onOpenContext,
 }: Props) {
   const t = useT();
   const chrome = useComposerChrome();
@@ -393,6 +400,27 @@ export function Composer({
     },
     [prompt],
   );
+  // The editor can stay mounted while a turn streams. Keep the callbacks it calls stable so the
+  // memoized Milkdown field does not reconcile for every inbound snapshot; the refs are refreshed
+  // below after the current render has computed the live steer/queue behavior.
+  const promptBeforeInput = useRef<NonNullable<MarkdownFieldProps["onBeforeInput"]>>(() => false);
+  const promptChange = useRef<MarkdownFieldProps["onChange"]>(() => {});
+  const promptCaret = useRef<NonNullable<MarkdownFieldProps["onCaret"]>>(() => {});
+  const promptKeyDown = useRef<NonNullable<MarkdownFieldProps["onKeyDown"]>>(() => {});
+  const promptReturnInput = useRef<NonNullable<MarkdownFieldProps["onReturnInput"]>>(() => {});
+  const promptComposition = useRef<NonNullable<MarkdownFieldProps["onCompositionChange"]>>(() => {});
+  const stablePromptCallbacks = useMemo(
+    () => ({
+      onBeforeInput: (...args: Parameters<NonNullable<MarkdownFieldProps["onBeforeInput"]>>) =>
+        promptBeforeInput.current(...args),
+      onChange: (...args: Parameters<MarkdownFieldProps["onChange"]>) => promptChange.current(...args),
+      onCaret: (at: number) => promptCaret.current(at),
+      onKeyDown: (event: KeyboardEvent) => promptKeyDown.current(event),
+      onReturnInput: () => promptReturnInput.current(),
+      onCompositionChange: (value: boolean) => promptComposition.current(value),
+    }),
+    [],
+  );
   const pendingCaret = useRef<number | undefined>(undefined);
   const prompts = usePromptHistory(snapshot.rows);
   // Send becomes Stop in place once the turn starts; a second click of a
@@ -416,9 +444,12 @@ export function Composer({
   const locationSlotSession = useRef<string | undefined>(undefined);
   const locationSlotWasShown = useRef(false);
   const sendButton = useRef<HTMLButtonElement>(null);
-  // Debug Settings' plain footer look (composerSettings.ts plainFooter, composerLocation.css), and
-  // whether Esc stops a turn on a double press (escapeStop.ts).
-  const { plainFooter, showContextUsage, escapeDoublePress } = useComposerSettings();
+  // Whether Esc stops a turn on a double press (escapeStop.ts).
+  const { showContextUsage, escapeDoublePress } = useComposerSettings();
+  // The composer's look (composerLook.ts): with Claude's, the default, and the plain footer the mode,
+  // model and effort sit in the quiet row and Send waits for a draft; Codex's keeps the box's one row.
+  const look = useComposerLook();
+  const quietRow = useQuietRow();
   const usage = snapshot.summary?.usage;
   /// Set while the host has not yet taken a prompt the composer still holds: Enter sends no copy.
   const sending = useRef(false);
@@ -459,7 +490,7 @@ export function Composer({
         void keptAttachments
           .read(chat)
           .catch(() => [])
-          .then((kept) => keptAttachments.write(chat, appendAttachments(kept, chips).slice(0, MAX_ATTACHMENTS)))
+          .then((kept) => keptAttachments.write(chat, appendAttachments(kept, chips)))
           .catch(() => {});
       },
       carries: () => carryPrompt.current || Boolean(switching),
@@ -509,8 +540,9 @@ export function Composer({
         // What comes back goes first; what was typed or attached since stays after it.
         const typed = field.current?.value() ?? "";
         const next = typed.trim() ? `${restoredText}\n\n${typed}` : restoredText;
-        if (field.current) field.current.type(next);
-        else {
+        // A field whose editor is still starting (the chat composer that mounts as a New Tab page
+        // leaves) takes it as its value, which becomes the editor's first content.
+        if (!field.current?.type(next)) {
           setText(next);
           setCaret(next.length);
         }
@@ -524,15 +556,11 @@ export function Composer({
         // A pick past the most the composer holds says so, as a dropped file does.
         const held = attachmentsRef.current;
         const next = appendAttachments(held, [attachment]);
-        if (next.length > MAX_ATTACHMENTS) {
-          setAttachError(attachmentErrorText({ name: attachment.name, reason: "tooMany" }, tRef.current));
-          return;
-        }
         // Ahead of the render, so each of several picks attached at once counts the ones before it.
         attachmentsRef.current = next;
         setAttachments((current) => {
           const next = appendAttachments(current, [attachment]);
-          return next.length > MAX_ATTACHMENTS ? current : next;
+          return next;
         });
       },
       detach(ids) {
@@ -558,9 +586,10 @@ export function Composer({
       wake(state) {
         const back = state.attachments ?? [];
         if (back.length)
-          setAttachments((current) =>
-            [...back, ...current.filter((chip) => !back.some((kept) => kept.id === chip.id))].slice(0, MAX_ATTACHMENTS),
-          );
+          setAttachments((current) => [
+            ...back,
+            ...current.filter((chip) => !back.some((kept) => kept.id === chip.id)),
+          ]);
         if (state.shell) {
           setShell(true);
           setShellText(state.shellText ?? "");
@@ -1142,6 +1171,20 @@ export function Composer({
     }
   };
 
+  promptBeforeInput.current = (data, state) => {
+    // `!` first: shell mode, in place. A pasted `!cmd` keeps what follows the `!`.
+    if (!onShell || state.composing || !state.empty || !data.startsWith("!")) return false;
+    enterShell(data.slice(1));
+    return true;
+  };
+  promptChange.current = edit;
+  promptCaret.current = setCaret;
+  promptKeyDown.current = keyDown;
+  promptReturnInput.current = returnInput;
+  promptComposition.current = (value) => {
+    composing.current = value;
+  };
+
   const stop = !shell && snapshot.isWorking && !text.trim();
   // Stop shows for the whole turn, a typed prompt or not; Esc stops only from an empty prompt.
   const running = !shell && snapshot.isWorking;
@@ -1281,9 +1324,10 @@ export function Composer({
     field.current?.focus();
     field.current?.[command]();
   };
+  /// Focuses the prompt that shows: the shell line in shell mode (the Markdown field is hidden then).
+  const focusPrompt = () => (shell ? shellField.current : field.current)?.focus();
   const runEdit = (command: ComposerEditCommand) => {
-    if (shell) shellField.current?.focus();
-    else field.current?.focus();
+    focusPrompt();
     if (command === "pasteAsPlainText") box.current?.plainPaste();
     onEdit?.(command);
   };
@@ -1400,7 +1444,11 @@ export function Composer({
     <form
       ref={form}
       className="acpmux-composer"
+      data-cmux-component="Composer"
+      data-cmux-source="webviews/src/agent-session/acpmux/Composer.tsx:1420"
       data-shell={shell ? "" : undefined}
+      // Codex's look (composerLook.ts, composerLocation.css); none is Claude's, the default.
+      data-composer-look={look === "codex" ? "codex" : undefined}
       onSubmit={(event) => {
         if (!shell) return submit(event);
         event.preventDefault();
@@ -1484,19 +1532,12 @@ export function Composer({
                   ? `acpmux-mention-${mentionSelected}`
                   : undefined,
           },
-          onBeforeInput: (data, state) => {
-            // `!` first: shell mode, in place. A pasted `!cmd` keeps what follows the `!`.
-            if (!onShell || state.composing || !state.empty || !data.startsWith("!")) return false;
-            enterShell(data.slice(1));
-            return true;
-          },
-          onChange: (markdown, at) => edit(markdown, at),
-          onCaret: setCaret,
-          onKeyDown: keyDown,
-          onReturnInput: returnInput,
-          onCompositionChange: (value) => {
-            composing.current = value;
-          },
+          onBeforeInput: stablePromptCallbacks.onBeforeInput,
+          onChange: stablePromptCallbacks.onChange,
+          onCaret: stablePromptCallbacks.onCaret,
+          onKeyDown: stablePromptCallbacks.onKeyDown,
+          onReturnInput: stablePromptCallbacks.onReturnInput,
+          onCompositionChange: stablePromptCallbacks.onCompositionChange,
         }}
         attachments={attachments}
         pending={pending}
@@ -1555,6 +1596,7 @@ export function Composer({
                 matches={matches}
                 active={selected}
                 empty={!commands?.length ? t(COMPOSER_LABELS.noCommands) : t(COMPOSER_LABELS.noMatchingCommands)}
+                fast={fastModeState(snapshot.summary?.configOptions)}
                 onHover={setActive}
                 onPick={pick}
               />
@@ -1570,7 +1612,7 @@ export function Composer({
             )}
           </>
         }
-        onCardPress={() => (shell ? shellField.current?.focus() : field.current?.focus())}
+        onCardPress={focusPrompt}
         leading={
           <>
             <input
@@ -1675,8 +1717,10 @@ export function Composer({
             <ContextRing
               used={usage?.used}
               size={usage?.size}
+              setup={usage?.setup}
               breakdown={snapshot.summary?.contextBreakdown}
               working={snapshot.isWorking}
+              onOpenDetails={onOpenContext}
             />
           )
         }
@@ -1700,14 +1744,14 @@ export function Composer({
                 <ReturnIcon />
               </button>
             )}
-            {plainFooter && stopButton}
+            {quietRow && stopButton}
           </>
         }
         accessory={accessory}
         trailing={
-          !plainFooter && stop ? (
+          !quietRow && stop ? (
             stopButton
-          ) : remote.canSend && (!plainFooter || shell || (hasDraft && !(running && steerable))) ? (
+          ) : remote.canSend && (!quietRow || shell || (hasDraft && !(running && steerable))) ? (
             // Claude desktop's box (Leo 2026-10-20): no Send until there is a draft, the mic
             // alone on the right; Send comes in after it with the first letter. Mid-turn it
             // queues the draft, unless the ↵ control is there to put it into the turn.
@@ -1739,6 +1783,8 @@ export function Composer({
           ) : null
         }
         chromeItems={chrome.all}
+        // The look dots in the bottom area, on hover (LookSwitch.tsx); the Quick Composer has none.
+        {...(onOpenInWindow ? {} : { bottom: <LookSwitch onDone={focusPrompt} /> })}
       />
     </form>
   );
@@ -1750,12 +1796,15 @@ function SlashMenu({
   matches,
   active,
   empty,
+  fast,
   onHover,
   onPick,
 }: {
   matches: SlashMatch[];
   active: number;
   empty: string;
+  /// The chat's fast mode, which the `/fast` row's sentence follows (undefined: not reported).
+  fast?: "on" | "off";
   onHover(index: number): void;
   onPick(command: SlashCommand): void;
 }) {
@@ -1796,41 +1845,76 @@ function SlashMenu({
       aria-label={t(COMPOSER_LABELS.commands)}
     >
       {/* Virtual focus: the prompt keeps focus and names the row through aria-activedescendant. */}
-      {matches.map((match, index) => (
-        <div
-          key={match.command.name}
-          id={`acpmux-slash-${index}`}
-          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-          role="option"
-          tabIndex={-1}
-          aria-selected={index === active}
-          className={index === active ? "acpmux-slash-row acpmux-slash-active" : "acpmux-slash-row"}
-          onMouseMove={() => {
-            if (index !== active) onHover(index);
-          }}
-          onMouseDown={(event) => {
-            event.preventDefault();
-            onPick(match.command);
-          }}
-        >
-          <span className="acpmux-slash-name">
-            /<Highlighted name={match.command.name} ranges={match.ranges} />
-          </span>
-          {match.command.hint && <span className="acpmux-slash-hint">{match.command.hint}</span>}
-          {match.command.source && match.command.source !== "agent" && (
-            <span className="acpmux-slash-source">
-              {match.command.source === "skill"
-                ? t("composer.slashSkill")
-                : match.command.source === "prompt"
-                  ? t("composer.slashPrompt")
-                  : "cmux"}
+      {matches.map((match, index) => {
+        // The harness's `/fast` reads as ChatGPT's Fast row (Leo 2026-10-22): the bolt, the plain
+        // name, and what picking it does now. Picking it still writes `/fast ` (applyCommand).
+        const fastRow = isFastCommand(match.command);
+        const fastName = t("picker.tierFast");
+        return (
+          <div
+            key={match.command.name}
+            id={`acpmux-slash-${index}`}
+            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+            role="option"
+            tabIndex={-1}
+            aria-selected={index === active}
+            className={
+              (index === active ? "acpmux-slash-row acpmux-slash-active" : "acpmux-slash-row") +
+              (fastRow ? " acpmux-slash-fast" : "")
+            }
+            onMouseMove={() => {
+              if (index !== active) onHover(index);
+            }}
+            onMouseDown={(event) => {
+              event.preventDefault();
+              onPick(match.command);
+            }}
+          >
+            {fastRow && (
+              <span className="acpmux-slash-icon">
+                <BoltIcon size={14} />
+              </span>
+            )}
+            <span className="acpmux-slash-name">
+              {fastRow ? (
+                // The typed letters stay bold where the shown name spells the command (English).
+                fastName.toLowerCase() === match.command.name.toLowerCase() ? (
+                  <Highlighted name={fastName} ranges={match.ranges} />
+                ) : (
+                  fastName
+                )
+              ) : (
+                <>
+                  /<Highlighted name={match.command.name} ranges={match.ranges} />
+                </>
+              )}
             </span>
-          )}
-          <span className="acpmux-slash-description">
-            {match.command.descriptionKey ? t(match.command.descriptionKey) : match.command.description}
-          </span>
-        </div>
-      ))}
+            {!fastRow && match.command.hint && <span className="acpmux-slash-hint">{match.command.hint}</span>}
+            {match.command.source && match.command.source !== "agent" && (
+              <span className="acpmux-slash-source">
+                {match.command.source === "skill"
+                  ? t("composer.slashSkill")
+                  : match.command.source === "prompt"
+                    ? t("composer.slashPrompt")
+                    : "cmux"}
+              </span>
+            )}
+            <span className="acpmux-slash-description">
+              {fastRow
+                ? t(
+                    fast === "on"
+                      ? "composer.slashFastOff"
+                      : fast === "off"
+                        ? "composer.slashFastOn"
+                        : "composer.slashFastToggle",
+                  )
+                : match.command.descriptionKey
+                  ? t(match.command.descriptionKey)
+                  : match.command.description}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -48,6 +48,9 @@ public struct AgentPaneHeaderHooks {
     /// depth, or the session that started it (acpmux `startedBy`, mirrored by the app's turn-state
     /// watch). ``AgentPaneOfferOpen`` opens only those, or the pane's own sessions; none by default.
     public var isFamily: @MainActor (_ session: String, _ chat: String) -> Bool
+    /// Changes with a chat turn (``AgentPaneDiffTurn``): the diff beside the chat with that turn
+    /// as its Last turn, toggled (`true`) or opened. Nil: the header runs Changes without it.
+    public var diffTurn: (@MainActor (_ cwd: String?, _ turn: AgentPaneDiffTurn, _ toggle: Bool) -> Void)?
 
     public init(run: @escaping @MainActor (String, String?) -> Void,
                 toggle: (@MainActor (String, String?) -> Void)? = nil,
@@ -109,6 +112,8 @@ extension AgentPaneModel {
         "moveSurfaceToPaneRight", "palette.moveTabToNewWorkspace", "tab.moveToNewWindow", "closeTab",
     ]
 
+    /// The header's Changes, the diff viewer beside the chat.
+    static let diffAction = "openDiffViewer"
     /// The header's [+] New tab / Hide tabs (`pane.action {id: "sideTabs"}`), answered with `{shown}`.
     static let sideTabsAction = "sideTabs"
     /// The header's Preview (`pane.action {id: "preview", url}`), ``AgentPaneRequest/preview(url:toggle:)``.
@@ -145,6 +150,14 @@ extension AgentPaneModel {
             // `ran`: the page knows the App took the action (a host without panes, such as the
             // gallery, answers null), so its diff link opens the diff beside the chat, not in place.
             return AgentPaneReply.success(["ran": true])
+        case .diffTurn(let turn, let cwd, let toggle):
+            guard newTab == nil, let header else {
+                return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.action")
+            }
+            let folder = folderForOtherTabs(cwd)
+            if let diffTurn = header.diffTurn { diffTurn(folder, turn, toggle) }
+            else if toggle { header.toggle(Self.diffAction, folder) } else { header.run(Self.diffAction, folder) }
+            return AgentPaneReply.success(["ran": true])
         case .tabRowTools(let width):
             tabRow.report(width: CGFloat(width)) // used only while chrome.tabs.rowTools is on and the pane offered the row
             return AgentPaneReply.success()
@@ -175,8 +188,8 @@ extension AgentPaneModel {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.openTab")
             }
             return AgentPaneReply.success()
-        case .offerOpen(let session):
-            return AgentPaneOfferOpen.respond(session, in: self)
+        case .offerOpen(let session, let sender):
+            return AgentPaneOfferOpen.respond(session, sender: sender, in: self)
         case .asksOpen(let session):
             return AgentPaneAskOpen.respond(session, in: self)
         case .newChatHere(let cwd):

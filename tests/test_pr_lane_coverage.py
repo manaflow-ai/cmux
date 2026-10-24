@@ -312,6 +312,7 @@ class ThisTree(unittest.TestCase):
             "tests/test_ci_macho_parity.py",
             "tests/test_ci_macos_stubs.py",
             "tests/test_ci_package_lane_prebuild.py",
+            "tests/test_ci_tip_test_compile.py",
             "tests/test_cmux_next_dev_daily_notify_cli.py",
             "tests/test_cmux_next_media_publish_windows.py",
             "tests/test_compile_string_catalogs.py",

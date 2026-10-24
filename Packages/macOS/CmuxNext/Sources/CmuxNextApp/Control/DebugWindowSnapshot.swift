@@ -4,6 +4,7 @@ import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
 import WebKit
+import CmuxNextScreenshots
 
 /// `debug.window_snapshot`: one of this app's own windows as the window
 /// server composited it (vibrancy, glass and Metal as on screen; an app may

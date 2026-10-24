@@ -33,7 +33,11 @@ public final class SidebarModel {
             groupPaths = nil
         }
     }
-    @ObservationIgnored private var storedSections: [SidebarSection]
+    @ObservationIgnored private var storedSections: [SidebarSection] { didSet { contentRevision &+= 1 } }
+    /// Moves on every write of the rows: a structural set, a fold, and a row patch (`patchWorkspaces`), which
+    /// `sectionsRevision` does not count. A reader that saves what the rows show (the sidebar snapshot) compares it
+    /// instead of every row.
+    @ObservationIgnored public private(set) var contentRevision: UInt64 = 0
     /// Moves on every structural set of `sections`: readers compare it instead
     /// of the rows themselves (one counter, not a deep compare of 1,000 rows).
     @ObservationIgnored public private(set) var sectionsRevision: UInt64 = 0
@@ -116,6 +120,13 @@ public final class SidebarModel {
     /// Multi-selection (Cmd/Shift-click). Always contains `activeWorkspaceID`
     /// when that is set.
     public var selection: Set<WorkspaceID> = []
+    /// Where a Shift range starts: the row last clicked, Cmd-clicked in or
+    /// moved to without Shift. Shift+Arrow and Shift-click select from it to
+    /// the new row, so going back shrinks the range.
+    @ObservationIgnored var selectionAnchor: WorkspaceID?
+    /// The moving end of a Shift range (the row last Shift-clicked or
+    /// Shift-arrowed to): the next Shift+Arrow steps from it, as in Finder.
+    @ObservationIgnored var selectionExtent: WorkspaceID?
     /// Every workspace on screen in this window, the shown one too (`sidebar.multiView`): their rows draw a
     /// soft fill under the selection's. The App sets it; empty draws nothing extra.
     public var onScreen: Set<WorkspaceID> = []
@@ -212,6 +223,8 @@ public final class SidebarModel {
     public var detailedStatus = false
     /// Rows show when they last changed (`sidebar.showTimestamps`, off by default).
     public var showsTimestamps = false
+    /// `sidebar.showColors`: off, rows and group headers draw no workspace or group color.
+    public var showsColors = true
     /// This Mac's rows carry its machine mark too (`sidebar.showLocalMachine`, off by default).
     public var showsLocalMachine = false
     /// What a collapsed group header shows beside its loading spinner
@@ -348,7 +361,7 @@ public final class SidebarModel {
         switch intent {
         case let .select(id):
             activeWorkspaceID = id
-            if !selection.contains(id) { selection = [id] }
+            selection = [id]
         case .selectTab, .moveTab:
             break
         case let .closeGroup(id):
@@ -392,6 +405,7 @@ public final class SidebarModel {
     /// Shows `new` (the App's mapping of daemon state) with this window's
     /// collapsed sections applied; assigns only when something changed.
     public func setSections(_ new: [SidebarSection]) {
+        SidebarPerfCounters.add(.sectionSets) // each set arranges and compares every row
         // The sidebar document places every item: links in machine lists, Pinned and custom groups in their own list sections.
         let shown = docDrag.flatMap { drag in SidebarDocStore.current?.shown.map { $0.arrange(new, drag: drag) } } ?? new
         sections = Self.folding(shown, collapsedSections) // the setter skips an unchanged list
@@ -514,6 +528,7 @@ public final class SidebarModel {
         (minimal, expanded) = (preferences.minimal, preferences.density == .expanded)
         detailedStatus = preferences.detailedStatusIcons
         showsTimestamps = preferences.showTimestamps
+        showsColors = preferences.showColors
         showsLocalMachine = preferences.showLocalMachine
         groupHeaderDetails = GroupHeaderDetails(memberCount: preferences.groupHeaderMemberCount,
                                                 unreadCount: preferences.groupHeaderUnreadCount)
@@ -544,6 +559,7 @@ public final class SidebarModel {
         (o.minimal, o.expanded) = (minimal, expanded)
         o.detailedStatus = detailedStatus
         o.showsTimestamps = showsTimestamps
+        o.showsColors = showsColors
         o.flattensMachines = !groupsByComputer
         if o.flattensMachines {
             for section in sections {
@@ -576,6 +592,12 @@ public final class SidebarModel {
 
     /// Toggle Sidebar: fully shown at `width`, or fully hidden.
     public func toggle() {
+        // The rail (`sidebar.style` = rail): the toggle opens the full sidebar over the content and
+        // closes it back to the rail (Lawrence 2026-10-21: the full sidebar opens from the toggle, not on hover).
+        if style == .rail, presentation == .shown {
+            isRailOpen.toggle()
+            return
+        }
         presentation = presentation == .hidden ? .shown : .hidden
     }
 }

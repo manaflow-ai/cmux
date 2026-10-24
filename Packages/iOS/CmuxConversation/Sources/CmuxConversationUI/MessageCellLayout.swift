@@ -89,7 +89,7 @@ final class MessageLayoutCache {
     }
 
     private var cache: [String: (Key, MessageCellLayout)] = [:]
-    private var attributed: [String: (String, [ConversationMention], [ConversationTextRun], NSAttributedString)] = [:]
+    private var attributed: [String: (String, [ConversationMention], [ConversationTextRun], [ConversationTextLink], NSAttributedString)] = [:]
 
     func layout(for model: MessageRowModel, width: CGFloat, margin: CGFloat) -> MessageCellLayout {
         let key = Key(model: model, width: width, margin: margin)
@@ -103,13 +103,13 @@ final class MessageLayoutCache {
 
     func attributedText(for model: MessageRowModel) -> NSAttributedString {
         let cacheKey = model.rowID + (model.isOutgoing ? "o" : "i")
-        let (body, mentions, runs) = Self.attributedInputs(model)
-        if let (text, cachedMentions, cachedRuns, value) = attributed[cacheKey], text == body,
-           cachedMentions == mentions, cachedRuns == runs {
+        let (body, mentions, runs, links) = Self.attributedInputs(model)
+        if let (text, cachedMentions, cachedRuns, cachedLinks, value) = attributed[cacheKey], text == body,
+           cachedMentions == mentions, cachedRuns == runs, cachedLinks == links {
             return value
         }
-        let value = MessageCellLayout.attributedBody(body, outgoing: model.isOutgoing, mentions: mentions, meID: model.meID, runs: runs)
-        attributed[cacheKey] = (body, mentions, runs, value)
+        let value = MessageCellLayout.attributedBody(body, outgoing: model.isOutgoing, mentions: mentions, meID: model.meID, runs: runs, links: links)
+        attributed[cacheKey] = (body, mentions, runs, links, value)
         return value
     }
 
@@ -117,12 +117,21 @@ final class MessageLayoutCache {
     /// transcript; a link card takes its URL out of the text bubble, so
     /// mentions and formatting (ranges over the whole `text`) are re-based
     /// onto what the bubble shows.
-    nonisolated static func attributedInputs(_ model: MessageRowModel) -> (String, [ConversationMention], [ConversationTextRun]) {
+    nonisolated static func attributedInputs(_ model: MessageRowModel) -> (String, [ConversationMention], [ConversationTextRun], [ConversationTextLink]) {
         let isAudio = model.message.audioAttachment != nil
         let body = isAudio ? model.message.bodyText : model.bodyText
         let mentions = isAudio ? [] : model.linkSplit.map { $0.bodyMentions(model.message.mentions) } ?? model.message.mentions
         let runs = isAudio ? [] : model.linkSplit.map { $0.bodyRuns(model.message.textRuns) } ?? model.message.textRuns
-        return (body, mentions, runs)
+        let links: [ConversationTextLink] = isAudio ? [] : {
+            let offset = model.linkSplit?.bodyOffset ?? 0
+            let count = body.utf16.count
+            return model.message.links.compactMap { link in
+                let location = link.location - offset
+                guard location >= 0, location + link.length <= count else { return nil }
+                return ConversationTextLink(location: location, length: link.length, url: link.url)
+            }
+        }()
+        return (body, mentions, runs, links)
     }
 
     // MARK: Measuring ahead
@@ -153,8 +162,8 @@ final class MessageLayoutCache {
     /// for any thread. Run it inside the transcript's traits
     /// (`performAsCurrent`) so text styles resolve to the same fonts.
     nonisolated static func measure(_ model: MessageRowModel, width: CGFloat, margin: CGFloat) -> Measured {
-        let (body, mentions, runs) = attributedInputs(model)
-        let text = MessageCellLayout.attributedBody(body, outgoing: model.isOutgoing, mentions: mentions, meID: model.meID, runs: runs)
+        let (body, mentions, runs, links) = attributedInputs(model)
+        let text = MessageCellLayout.attributedBody(body, outgoing: model.isOutgoing, mentions: mentions, meID: model.meID, runs: runs, links: links)
         let layout = MessageCellLayout.compute(model: model, width: width, margin: margin, text: text)
         return Measured(model: model, layout: layout, text: text)
     }
@@ -166,8 +175,8 @@ final class MessageLayoutCache {
             let key = Key(model: model, width: width, margin: margin)
             if let (cachedKey, _) = cache[model.rowID], cachedKey == key { continue }
             cache[model.rowID] = (key, item.layout)
-            let (body, mentions, runs) = Self.attributedInputs(model)
-            attributed[model.rowID + (model.isOutgoing ? "o" : "i")] = (body, mentions, runs, item.text)
+            let (body, mentions, runs, links) = Self.attributedInputs(model)
+            attributed[model.rowID + (model.isOutgoing ? "o" : "i")] = (body, mentions, runs, links, item.text)
         }
     }
 
@@ -201,6 +210,7 @@ final class BubbleTextCache: @unchecked Sendable {
         var mentions: [ConversationMention]
         var meID: String?
         var runs: [ConversationTextRun]
+        var links: [ConversationTextLink] = []
         var font: UIFont
     }
 
@@ -264,11 +274,12 @@ extension MessageCellLayout {
         outgoing: Bool,
         mentions: [ConversationMention] = [],
         meID: String? = nil,
-        runs: [ConversationTextRun] = []
+        runs: [ConversationTextRun] = [],
+        links: [ConversationTextLink] = []
     ) -> NSAttributedString {
-        let key = BubbleTextCache.Key(text: text, outgoing: outgoing, mentions: mentions, meID: meID, runs: runs, font: ConversationTheme.bubbleFont)
+        let key = BubbleTextCache.Key(text: text, outgoing: outgoing, mentions: mentions, meID: meID, runs: runs, links: links, font: ConversationTheme.bubbleFont)
         if let cached = BubbleTextCache.shared.text(for: key) { return cached }
-        let result = buildAttributedBody(text, outgoing: outgoing, mentions: mentions, meID: meID, runs: runs)
+        let result = buildAttributedBody(text, outgoing: outgoing, mentions: mentions, meID: meID, runs: runs, links: links)
         BubbleTextCache.shared.store(result, for: key)
         return result
     }
@@ -290,7 +301,8 @@ extension MessageCellLayout {
         outgoing: Bool,
         mentions: [ConversationMention],
         meID: String?,
-        runs: [ConversationTextRun]
+        runs: [ConversationTextRun],
+        links: [ConversationTextLink]
     ) -> NSAttributedString {
         let textColor = outgoing ? ConversationTheme.outgoingText : ConversationTheme.incomingText
         let result = NSMutableAttributedString(string: text, attributes: [
@@ -309,6 +321,12 @@ extension MessageCellLayout {
             result.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: match.range)
             result.addAttribute(.underlineColor, value: detectedUnderlineColor(textColor: textColor), range: match.range)
             if let url = ConversationDataDetection.actionURL(for: match) { result.addAttribute(.conversationLink, value: url, range: match.range) }
+        }
+        // Markdown links (an agent's `[label](url)`): the label, underlined, opens the URL.
+        for link in links where NSMaxRange(link.range) <= result.length {
+            result.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: link.range)
+            result.addAttribute(.underlineColor, value: detectedUnderlineColor(textColor: textColor), range: link.range)
+            result.addAttribute(.conversationLink, value: link.url, range: link.range)
         }
         ConversationMentionStyle.apply(to: result, mentions: mentions, meID: meID, outgoing: outgoing, font: ConversationTheme.bubbleFont)
         return result

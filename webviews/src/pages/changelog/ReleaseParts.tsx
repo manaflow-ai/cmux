@@ -10,6 +10,7 @@ import { byArea } from "./areas";
 import { formatReleaseDate, type AreaChange, type MediaRef, type ReleaseItem, type ReleaseView } from "./model";
 import type { ChangeItem, IndexEntry, WhatsNewCategory } from "./types";
 import { cardVersion } from "./UpdateSurfaces";
+import { ChangePullRequest } from "./ChangePullRequest";
 
 export interface PartsContext {
   strings: Strings;
@@ -305,27 +306,12 @@ export function ChangesFold({
   );
 }
 
-const pullURL = (pr: number) => `https://github.com/manaflow-ai/cmux/pull/${pr}`;
-
 function ChangeList({ changes }: { changes: ChangeItem[] }) {
   return (
     <ul>
       {changes.map((c, i) => (
         <li key={c.pr ?? `t${i}`}>
-          {c.pr === undefined ? (
-            <span>{c.title}</span>
-          ) : (
-            // The title is a link too (Leo 2026-10-21: "more colored links? not just the #").
-            <a className="cl-change-link" href={pullURL(c.pr)} rel="noreferrer">
-              <span>{c.title}</span>
-            </a>
-          )}
-          {c.pr !== undefined && (
-            // The title already links the same pull request: one tab stop per change.
-            <a className="cl-pr" href={pullURL(c.pr)} rel="noreferrer" tabIndex={-1}>
-              #{c.pr}
-            </a>
-          )}
+          {c.pr === undefined ? <span>{c.title}</span> : <ChangePullRequest pr={c.pr} title={c.title} />}
         </li>
       ))}
     </ul>

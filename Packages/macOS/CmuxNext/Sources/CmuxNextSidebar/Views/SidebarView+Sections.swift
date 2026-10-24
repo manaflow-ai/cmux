@@ -86,7 +86,9 @@ extension SidebarViewComponents {
         let shownBelow = below.presenting(hidingItems: hidden, apps: apps)
         let isFooter = { (section: LayoutSection) in section.id == SidebarLayoutDocument.bottomSectionID }
         let look = SidebarSectionTunables.currentLook
-        let metrics = SidebarRegionMetrics.standard
+        // The footer keeps the full row (its avatar and search); the bands' rows follow Minimal Mode like the list's.
+        let footerBase = SidebarRegionMetrics.standard
+        let metrics = SidebarRegionMetrics.standard(minimal: design.sidebarSections.minimal)
         // The selection is not content: `showActiveTopItem` marks its item active (its glyph, accessibility).
         var selectedInfos = model.resolvedItemInfo
         for transient in model.transientTopItems { selectedInfos[transient.item.id] = transient.info }
@@ -133,8 +135,8 @@ extension SidebarViewComponents {
         belowRegion.update(content([]), width: width)
         let footer = shownBelow.filter(isFooter)
         // The footer line ends on the bottom margin, not on the section's padding over it.
-        var footerMetrics = metrics
-        footerMetrics.bottomPadding = footerBand.footerBottomPadding(rowHeight: metrics.rowHeight)
+        var footerMetrics = footerBase
+        footerMetrics.bottomPadding = footerBand.footerBottomPadding(rowHeight: footerBase.rowHeight)
         footerRegion.update(content(footer, metrics: footerMetrics), width: width)
         releaseAppSections(shown: shownAbove + footer)
     }

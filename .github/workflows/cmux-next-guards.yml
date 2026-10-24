@@ -267,6 +267,9 @@ jobs:
   # #20223 added 3 unwraps unchecked (2026-10-13). The change's own ratchet script and baseline run
   # on its tree and on the base tree (a pull request's merge-commit first parent; a push's previous
   # tip); the job is red when the change turns the ratchet red, or makes an already red base worse.
+  # The change's baseline is also judged against the base's copy, so it may only go down: a raised
+  # counted row is red (a hit that moved to another module carries its row), and a recorded waiver
+  # (a raised waived row) is a warning annotation.
   crash-ratchet:
     name: cmux-next crash ratchet
     # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
@@ -284,30 +287,7 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           BEFORE: ${{ github.event.before }}
-        run: |
-          base_ref=""
-          if [[ "$EVENT_NAME" == pull_request ]]; then
-            base_ref=HEAD^1
-          elif [[ "$BEFORE" =~ ^[0-9a-f]{40}$ && ! "$BEFORE" =~ ^0+$ ]] \
-            && git fetch --no-tags --depth=1 origin "$BEFORE"; then
-            base_ref="$BEFORE"
-          fi
-          if [[ -z "$base_ref" ]]; then
-            echo "::warning::no previous tip to compare with; running the plain ratchet"
-            python3 scripts/cmux-next/crash_ratchet.py
-            exit 0
-          fi
-          base_dir="$RUNNER_TEMP/crash-ratchet-base"
-          mkdir -p "$base_dir"
-          paths=()
-          for p in Packages cmux-tui/crates scripts/cmux-next; do
-            if git cat-file -e "$base_ref:$p" 2>/dev/null; then paths+=("$p"); fi
-          done
-          if [[ ${#paths[@]} -gt 0 ]]; then
-            git archive --format=tar "$base_ref" "${paths[@]}" | tar -x -C "$base_dir"
-          fi
-          python3 scripts/ci/crash_ratchet_compare.py --script scripts/cmux-next/crash_ratchet.py \
-            --head "$GITHUB_WORKSPACE" --base "$base_dir"
+        run: scripts/ci/crash-ratchet-against-base.sh
 
   # cmux NEXT's catalogs hold translation debt from before the parity check covered them
   # (42,072 errors in 118 catalogs on 2026-10-21). scripts/localization-debt-baseline.json
@@ -343,11 +323,13 @@ jobs:
           if [[ -n "$base_ref" ]] && git show "$base_ref:scripts/localization-debt-baseline.json" > "$base_baseline" 2>/dev/null; then
             args=(--base-baseline "$base_baseline")
           fi
-          # Debt the base has past its own baseline is the base's red, not the pull request's (#23877).
-          if [[ "$EVENT_NAME" == pull_request && ${#args[@]} -gt 0 ]]; then
+          # Debt the base has past its own baseline is the base's red, not this change's (#23877).
+          # The base tree also proves a catalog move: a same-named catalog must hold the old
+          # one's strings to inherit its baseline. Pushes need it too (feat-cmux-next lands by push).
+          if [[ -n "$base_ref" && ${#args[@]} -gt 0 ]]; then
             base_root="$RUNNER_TEMP/localization-base"
             mkdir -p "$base_root"
-            git archive HEAD^1 -- ':(glob)Resources/**/*.xcstrings' ':(glob)Packages/macOS/*/Sources/**/*.xcstrings' \
+            git archive "$base_ref" -- ':(glob)Resources/**/*.xcstrings' ':(glob)Packages/macOS/*/Sources/**/*.xcstrings' \
               scripts/localization_catalog.py scripts/localization-allowed-omissions.json scripts/localization-plurals.json \
               | tar -x -C "$base_root"
             args+=(--base-root "$base_root")
@@ -501,11 +483,6 @@ jobs:
       - name: The per-file webviews test runner (scripts/ci/run-webviews-tests.sh)
         run: python3 tests/test_webviews_tests_per_file.py
 
-      # cmux-browser-host-release.yml ran this only on pushes and tags, so fbae5c71f017
-      # (version.workspace = true) broke every release's first step with every pull request green.
-      - name: The cmux-browser-host release helper and smoke (browser-host-release.py)
-        run: python3 tests/test_browser_host_release_smoke.py
-
       # A test no feat-cmux-next pull request runs lands red unseen: a2d6b35 broke
       # tests/test_webviews_tests_per_file.py, which only main pushes and the nightly ran (#23430).
       - name: Every Python test runs on a pull request lane, or is a reviewed exemption
@@ -587,6 +564,12 @@ jobs:
       - name: The web verdict of feat-cmux-next pushes and web routing (web_validation.py)
         if: ${{ !cancelled() }}
         run: python3 tests/test_web_validation.py
+
+      # cmux-next-tip-test-compile.yml runs the script only on feat-cmux-next pushes, so a pull
+      # request that broke it landed green; a fake cmux-ci client and GitHub API stand in.
+      - name: The per-push tip test compile (tip-test-compile.sh)
+        if: ${{ !cancelled() }}
+        run: python3 tests/test_ci_tip_test_compile.py
 
   # Every web bundle build runs gen-strings.mjs strict, but only pull requests
   # that touch webviews/ run its tests. 2c661dec960b renamed a setting in Swift

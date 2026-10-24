@@ -36,7 +36,7 @@ nonisolated enum CEFClipShape {
     }
 
     /// `bounds` intersected with every clip that cuts into it (a rounded
-    /// corner, or a square clip that does not hold all of `bounds`), or nil
+    /// corner, or a clip that does not hold all of `bounds`), or nil
     /// when none does (the page is a plain rectangle and the fork's
     /// visible-rect clip is enough). A page clipped away entirely gets an
     /// empty shape, so it shows nowhere. `cutouts` are left out of it (a pane
@@ -62,12 +62,15 @@ nonisolated enum CEFClipShape {
         path?.boundingBoxOfPath.isEmpty == true
     }
 
-    /// Whether a square `clip` leaves part of `bounds` out: the column strip's
-    /// clip on a pane that scrolled under a docked column or past the strip's
-    /// edge. The page is a child window, so this layer mask never reaches it
-    /// and the fork's visible-rect clip does not see masks.
+    /// Whether `clip` leaves part of `bounds` out past one of its sides: the
+    /// column strip's clip on a pane that scrolled under a docked column or
+    /// past the strip's edge, or the rounded main pane's straight edge across a
+    /// page held wider than it through a sidebar slide (`MainPaneCardView.contentHold`),
+    /// whose corners may not reach the page. The page is a child window, so
+    /// this layer mask never reaches it and the fork's visible-rect clip does
+    /// not see masks.
     static func cutsSide(of clip: RoundedRect, into bounds: CGRect) -> Bool {
-        clip.radius <= 0.01 && !clip.rect.insetBy(dx: -0.5, dy: -0.5).contains(bounds)
+        !clip.rect.insetBy(dx: -0.5, dy: -0.5).contains(bounds)
     }
 
     /// Whether one of `clip`'s rounded corner squares overlaps `bounds`.

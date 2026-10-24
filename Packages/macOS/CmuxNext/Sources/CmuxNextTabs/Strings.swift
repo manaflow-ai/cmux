@@ -37,6 +37,8 @@ enum Strings {
     static var axFailure: String { String(localized: "tabs.ax.failure", defaultValue: "Failed", bundle: .module) }
     static var hoverWorking: String { String(localized: "tabs.hoverCard.working", defaultValue: "Working", bundle: .module) }
     static var hoverIdle: String { String(localized: "tabs.hoverCard.idle", defaultValue: "Idle", bundle: .module) }
+    /// A shell at its prompt that printed in the last minute ("Output · 12s").
+    static var hoverOutput: String { String(localized: "tabs.hoverCard.output", defaultValue: "Output", bundle: .module) }
     static var hoverHibernated: String { String(localized: "tabs.hoverCard.hibernated", defaultValue: "Hibernated", bundle: .module) }
     static func hoverHibernatedWasUsing(_ memory: String) -> String {
         String(format: String(localized: "tabs.hoverCard.hibernatedWasUsing", defaultValue: "Hibernated · was using %@", bundle: .module), memory)

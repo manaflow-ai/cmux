@@ -332,6 +332,37 @@ class Place(unittest.TestCase):
         # Any other run (no promotion label) cascades it as a side job: the side mini is busy.
         self.assertEqual(outputs(False)["blacksmith_12_jobs"], " release-compile ")
 
+    def test_dedicated_nightly_builder_gets_release_compile_before_blacksmith(self):
+        side = {"name": "side-mini", "status": "online", "busy": True,
+                "labels": [{"name": label} for label in ("self-hosted", "glaeda-light-xcode-26.6", SIDE)]}
+        dedicated = {"name": "cmux22", "status": "online", "busy": False,
+                     "labels": [{"name": label} for label in
+                                ("self-hosted", "glaeda-trusted-light-xcode-26.6",
+                                 "glaeda-runner-cmux22-nightly-next", "glaeda-trusted-next-nightly")]}
+
+        def run(busy: bool):
+            dedicated_copy = {**dedicated, "busy": busy}
+            with tempfile.TemporaryDirectory() as tmp:
+                output = Path(tmp) / "out"
+                fake = mock.Mock()
+                fake.return_value.runners.return_value = [side, dedicated_copy]
+                with mock.patch.object(placement.pool, "GitHub", fake), \
+                        mock.patch.object(placement.cascade, "read",
+                                          return_value=({LARGE: 0, SMALL: 0}, {LARGE: 0, SMALL: 0}, None)):
+                    placement.main(env(ROUTE_TOKEN="t", GITHUB_REPOSITORY="manaflow-ai/cmux",
+                                       GITHUB_OUTPUT=str(output), CASCADE_RUNS=" release-compile ",
+                                       PROMOTE_LABEL=PROMOTE,
+                                       NIGHTLY_POOL="glaeda-trusted-light-xcode-26.6",
+                                       NIGHTLY_RUNNER="glaeda-runner-cmux22-nightly-next"))
+                return dict(line.split("=", 1) for line in output.read_text().splitlines())
+
+        ready = run(False)
+        self.assertEqual(ready["nightly_runner_ready"], "true")
+        self.assertEqual(ready["blacksmith_12_jobs"], "")
+        overflow = run(True)
+        self.assertEqual(overflow["nightly_runner_ready"], "")
+        self.assertEqual(overflow["blacksmith_12_jobs"], " release-compile ")
+
 
 class Stall(unittest.TestCase):
     """A Blacksmith label whose queue is not moving gets no job; hosted macos-26 takes the overflow."""
@@ -501,7 +532,7 @@ class Wiring(unittest.TestCase):
                 # A fork keeps its own route.
                 self.assertEqual(evaluate(runs_on, self.context(fork=True, hosted=f" {name} ")), SMALL)
 
-    def test_a_feat_push_release_compile_takes_the_promotion_mini_unless_the_placement_overflowed_it(self):
+    def test_a_feat_push_release_compile_uses_a_free_fleet_mac_then_blacksmith(self):
         runs_on = self.jobs["release-compile"]["runs-on"]
 
         def push(**outputs: str) -> dict:
@@ -511,13 +542,49 @@ class Wiring(unittest.TestCase):
             context["vars"]["CI_NEXT_PROMOTE_POOL"] = PROMOTE
             return context
 
-        self.assertEqual(evaluate(runs_on, push()), PROMOTE)
-        self.assertEqual(evaluate(runs_on, push(large=" release-compile ")), LARGE)
-        self.assertEqual(evaluate(runs_on, push(small=" release-compile ")), SMALL)
+        # A free owned Mac wins; the Blacksmith pool is the last resort.
+        self.assertEqual(evaluate(runs_on, push(runner="free-owned-mac")), "free-owned-mac")
+        self.assertEqual(evaluate(runs_on, push()), SIDE)
+        self.assertEqual(evaluate(runs_on, push(runner="")), LARGE)
+        self.assertEqual(evaluate(runs_on, push(large=" release-compile ")), SIDE)
+        self.assertEqual(evaluate(runs_on, push(small=" release-compile ")), SIDE)
+        self.assertEqual(evaluate(runs_on, push(runner="", large=" release-compile ")), LARGE)
+        self.assertEqual(evaluate(runs_on, push(runner="", small=" release-compile ")), LARGE)
         # Another job's slot is not the Release compile's.
-        self.assertEqual(evaluate(runs_on, push(large=" cmux-scheme-compile ")), PROMOTE)
+        self.assertEqual(evaluate(runs_on, push(large=" cmux-scheme-compile ")), SIDE)
         self.assertEqual(evaluate(runs_on, self.context("3", BOT, retry=SMALL)), SMALL)
-        self.assertEqual(self.jobs["release-compile"]["env"]["CMUX_NEXT_RUNNER"], runs_on)
+        # Release compile never targets the dedicated nightly runner.
+        self.assertNotIn("CI_NIGHTLY_NEXT_TRUSTED_RUNNER", self.jobs["release-compile"]["runs-on"])
+        self.assertNotIn("CI_NIGHTLY_NEXT_TRUSTED_RUNNER", self.jobs["release-compile"]["env"]["CMUX_NEXT_RUNNER"])
+
+    def test_a_feat_push_release_compile_never_targets_the_dedicated_nightly_runner(self):
+        runs_on = self.jobs["release-compile"]["runs-on"]
+        context = self.context()
+        context["github"].update(event_name="push", ref="refs/heads/feat-cmux-next", event={})
+        context["vars"].update(
+            CI_NIGHTLY_NEXT_TRUSTED_POOL="glaeda-trusted-light-xcode-26.6",
+            CI_NIGHTLY_NEXT_TRUSTED_RUNNER="glaeda-runner-cmux22-nightly-next",
+            CI_NEXT_PROMOTE_POOL=PROMOTE,
+        )
+        context["needs"]["macos-placement"]["outputs"]["nightly_runner_ready"] = "true"
+        self.assertNotEqual(evaluate(runs_on, context), [
+            "glaeda-trusted-light-xcode-26.6", "glaeda-runner-cmux22-nightly-next",
+            "glaeda-trusted-next-nightly",
+        ])
+
+    def test_a_configured_but_unavailable_dedicated_runner_overflows_to_blacksmith(self):
+        runs_on = self.jobs["release-compile"]["runs-on"]
+        context = self.context()
+        context["github"].update(event_name="push", ref="refs/heads/feat-cmux-next", event={})
+        context["vars"].update(
+            CI_NIGHTLY_NEXT_TRUSTED_POOL="glaeda-trusted-light-xcode-26.6",
+            CI_NIGHTLY_NEXT_TRUSTED_RUNNER="glaeda-runner-cmux22-nightly-next",
+        )
+        context["needs"]["macos-placement"]["outputs"]["nightly_runner_ready"] = ""
+        self.assertNotEqual(evaluate(runs_on, context), [
+            "glaeda-trusted-light-xcode-26.6", "glaeda-runner-cmux22-nightly-next",
+            "glaeda-trusted-next-nightly",
+        ])
 
     def test_the_placement_knows_the_promotion_label_only_on_a_feat_push(self):
         place = next(step for step in self.jobs["macos-placement"]["steps"] if step.get("id") == "place")
@@ -585,7 +652,7 @@ class Wiring(unittest.TestCase):
     def test_each_jobs_own_label_copy_matches_runs_on(self):
         for name in CASCADED:
             job_env = self.jobs[name].get("env") or {}
-            if "CMUX_NEXT_RUNNER" in job_env:
+            if "CMUX_NEXT_RUNNER" in job_env and name != "release-compile":
                 self.assertEqual(job_env["CMUX_NEXT_RUNNER"], self.jobs[name]["runs-on"], name)
 
     def test_the_placement_job_reads_the_snapshot_and_exports_the_cascade(self):
@@ -593,7 +660,8 @@ class Wiring(unittest.TestCase):
         self.assertEqual(job["permissions"].get("actions"), "read")
         place = next(step for step in job["steps"] if step.get("id") == "place")
         self.assertEqual(place["env"]["SNAPSHOT_TOKEN"], "${{ github.token }}")
-        for output in ("blacksmith_12_jobs", "blacksmith_6_jobs", "hosted_jobs", "hosted_runner"):
+        for output in ("blacksmith_12_jobs", "blacksmith_6_jobs", "hosted_jobs", "hosted_runner",
+                       "nightly_runner_ready"):
             self.assertEqual(job["outputs"][output], f"${{{{ steps.place.outputs.{output} }}}}")
         # A placement script that predates the free-slot rule (a pull request's old base) writes only
         # retry_runner, which may name a full label; the job reads the key only the new rule writes.

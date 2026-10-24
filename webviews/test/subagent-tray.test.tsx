@@ -5,7 +5,7 @@
 //   line where it ended, with its name and how long it ran, a failure in the danger color.
 // - The tray lists each running subagent (nested ones under their parent), background command and
 //   chat the agent started: name, what it does now, its state and its time. Several get a header;
-//   more than three fold.
+//   more than three keep a bounded set of status cards with View all.
 // - It is the one place running background work shows: no "Running in background" row in the
 //   transcript. Between turns a command shows only when acpmux's process registry says it runs; one
 //   only the transcript knows (a peer's chat, whose end never arrived) does not pin the tray.
@@ -107,13 +107,19 @@ const row = (id: string, kind: string, seconds: number, fields: Partial<Row> = {
   ...fields,
 });
 
-async function render(
-  node: ReturnType<typeof createElement>,
-): Promise<{ root: HTMLElement; done: () => Promise<void> }> {
+async function render(node: ReturnType<typeof createElement>): Promise<{
+  root: HTMLElement;
+  show: (next: ReturnType<typeof createElement>) => Promise<void>;
+  done: () => Promise<void>;
+}> {
   const host = dom.window.document.getElementById("root")!;
   const root = createRoot(host);
   await act(async () => root.render(node));
-  return { root: host, done: async () => act(async () => root.unmount()) };
+  return {
+    root: host,
+    show: async (next) => act(async () => root.render(next)),
+    done: async () => act(async () => root.unmount()),
+  };
 }
 
 describe("the transcript keeps no running card", () => {
@@ -309,6 +315,37 @@ describe("the tray", () => {
       expect(lines[0]!.querySelector(".acpmux-lineage__icon")?.getAttribute("data-state")).toBe("running");
       await act(async () => lines[0]!.querySelector("button")!.click());
       expect(opened).toEqual(["Explore the daemon"]);
+    } finally {
+      await done();
+    }
+  });
+
+  test("a running card keeps its DOM node when the subagent completes", async () => {
+    const running = agent("Reviewer", { startedAt: Date.now() });
+    const { root, show, done } = await render(
+      createElement(SubagentTray, {
+        items: [{ kind: "agent", id: running.id, agent: running, depth: 0 }],
+        finished: [],
+        working: true,
+        waiting: new Set<string>(),
+        onOpen: () => {},
+      }),
+    );
+    try {
+      const before = root.querySelector<HTMLElement>(".acpmux-agent-line")!;
+      const completed = { ...running, state: "completed" as const, endedAt: Date.now() };
+      await show(
+        createElement(SubagentTray, {
+          items: [],
+          finished: [{ kind: "agent", id: completed.id, agent: completed, depth: 0 }],
+          working: true,
+          waiting: new Set<string>(),
+          onOpen: () => {},
+        }),
+      );
+      const after = root.querySelector<HTMLElement>(".acpmux-agent-line")!;
+      expect(after).toBe(before);
+      expect(after.dataset.status).toBe("done");
     } finally {
       await done();
     }
@@ -512,6 +549,87 @@ describe("the tray", () => {
   });
 });
 
+// Leo 2026-10-21 on the running strip above the composer: ""padding" this one tho i think is
+// mostly a matter of like... well why is that even highlighted in the first place? you can click
+// on it to go somewhere? is that a command or a subagent?" A line says what it is first, ends in a
+// chevron when a click opens something, keeps the whole shell line as its tooltip, and has one stop
+// control, which stops only that command (the composer's Stop cancels the turn, which a background
+// command outlives). How it looks at rest and on hover: running-strip.test.ts.
+describe("a tray line says what it is and what a click does", () => {
+  const raw = "cd /Users/you/fun/cmux-wt/chromium-transparency && RED=cb8f4178; GREEN=1 bun test";
+
+  test("a command leads with Command, its tooltip is the whole shell line, its chevron opens it, one stop", async () => {
+    const items = trayItems(
+      [],
+      [command("s/1", { command: raw, processId: "s/1", toolCallId: "call-1", startedAt: Date.now() })],
+      NONE,
+      true,
+    );
+    const opened: string[] = [];
+    const stopped: string[] = [];
+    const { root, done } = await render(
+      createElement(SubagentTray, {
+        items,
+        working: true,
+        waiting: new Set<string>(),
+        onOpen: () => {},
+        onOpenCommand: (entry: BackgroundCommand) => opened.push(entry.id),
+        stopProcess: async (id: string) => void stopped.push(id),
+      }),
+    );
+    try {
+      const line = root.querySelector<HTMLElement>(".acpmux-agent-line")!;
+      const button = line.querySelector<HTMLButtonElement>(".acpmux-agent-line__button")!;
+      expect(line.querySelector(".acpmux-agent-line__kind")?.textContent).toBe("Command");
+      expect(button.querySelector(".acpmux-summary-text")?.textContent?.startsWith("Command")).toBe(true);
+      expect(button.getAttribute("title")).toBe(raw);
+      expect(button.querySelector(".acpmux-agent-line__chevron")).not.toBeNull();
+      await act(async () => button.click());
+      expect(opened).toEqual(["s/1"]);
+      // One stop control on the line, and it says exactly what it stops.
+      const stops = [...root.querySelectorAll<HTMLButtonElement>("button")].filter((each) =>
+        /stop/i.test(`${each.getAttribute("aria-label") ?? ""} ${each.getAttribute("title") ?? ""}`),
+      );
+      expect(stops.length).toBe(1);
+      expect(stops[0]!.getAttribute("title")).toBe("Stop only this command");
+      await act(async () => stops[0]!.click());
+      expect(stopped).toEqual(["s/1"]);
+    } finally {
+      await done();
+    }
+  });
+
+  test("a subagent leads with Subagent and ends in a chevron", async () => {
+    const items = trayItems([agent("Reviewer", { startedAt: Date.now(), action: "Read src/app.ts" })], [], NONE, true);
+    const { root, done } = await render(
+      createElement(SubagentTray, { items, working: true, waiting: new Set<string>(), onOpen: () => {} }),
+    );
+    try {
+      const line = root.querySelector<HTMLElement>(".acpmux-agent-line")!;
+      expect(line.querySelector(".acpmux-agent-line__kind")?.textContent).toBe("Subagent");
+      expect(line.querySelector(".acpmux-summary-agent__name")?.textContent).toBe("Reviewer");
+      expect(line.querySelector(".acpmux-agent-line__chevron")).not.toBeNull();
+    } finally {
+      await done();
+    }
+  });
+
+  test("a line with nothing to open is disabled and has no chevron", async () => {
+    const items = trayItems([], [command("call-1", { command: raw, startedAt: Date.now() })], NONE, true);
+    const { root, done } = await render(
+      createElement(SubagentTray, { items, working: true, waiting: new Set<string>(), onOpen: () => {} }),
+    );
+    try {
+      const button = root.querySelector<HTMLButtonElement>(".acpmux-agent-line__button")!;
+      expect(button.disabled).toBe(true);
+      expect(button.querySelector(".acpmux-agent-line__chevron")).toBeNull();
+      expect(root.querySelector(".acpmux-agent-line__kind")?.textContent).toBe("Command");
+    } finally {
+      await done();
+    }
+  });
+});
+
 // Leo 2026-10-21 on the tray: "2 subagents running · 2 commands · 32 sessions" over a list of five
 // lines, one subagent already finished, a raw "cd ~/Projects/..." command: "Is stuff actually
 // running? THIS IS LYING." and "SHOULDN'T THIS SAY SUBAGENTS?"
@@ -522,7 +640,7 @@ describe("the tray tells the truth", () => {
   const names = (lines: HTMLElement[]) =>
     lines.map((line) => line.querySelector(".acpmux-summary-agent__name")?.textContent);
 
-  test("the head counts only what runs or waits, and equals the rows; the finished sit behind one line", async () => {
+  test("the head counts only what runs or waits, and finished work keeps bounded status cards", async () => {
     const now = Date.now();
     const agents = [
       agent("Reviewer", { startedAt: now - 9000 }),
@@ -564,11 +682,15 @@ describe("the tray tells the truth", () => {
       // A chat says what it does now; one waiting on the person says so.
       expect(lines[3]!.querySelector(".acpmux-summary-agent__kind")?.textContent).toBe("Run the tests");
       expect(lines[4]!.querySelector(".acpmux-summary-agent__state")?.textContent).toBe("Waiting");
-      // The finished are one folded line, never in the count.
+      // Finished work is visible as cards without changing the running count.
       const more = root.querySelector<HTMLButtonElement>(".acpmux-running-tray__finished")!;
-      expect(more.textContent).toContain("4 subagents done");
+      expect(more.textContent).toContain("View all 4");
       expect(more.getAttribute("aria-expanded")).toBe("false");
-      expect(root.querySelectorAll("li[data-finished] .acpmux-agent-line").length).toBe(0);
+      expect(names([...root.querySelectorAll<HTMLElement>("li[data-finished] .acpmux-agent-line")])).toEqual([
+        "Linter",
+        "Fuzzer",
+        "Fix the dock",
+      ]);
       await act(async () => more.click());
       const ended = [...root.querySelectorAll<HTMLElement>("li[data-finished] .acpmux-agent-line")];
       expect(names(ended)).toEqual(["Linter", "Fuzzer", "Fix the dock", "Retry the upload"]);
@@ -578,6 +700,8 @@ describe("the tray tells the truth", () => {
         "Done",
         "Failed",
       ]);
+      expect(more.textContent).toContain("Show fewer");
+      expect(more.getAttribute("aria-expanded")).toBe("true");
       expect(liveLines(root).length).toBe(5);
     } finally {
       await done();

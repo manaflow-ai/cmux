@@ -367,13 +367,15 @@ export class UserDO extends OwnerDO<UserState> {
   /** A revoked install loses its open sockets at once, not at token expiry. */
   private closeRevoked(op: string, frames: ReadonlyArray<OwnerFrame>) {
     const result = frames.find((f) => f.t === "result")
-    // An archived chief's token stops at once: its sockets here and on every other owner close.
-    if (op === "chief.archive" && result && result.t === "result") {
+    // An archived or deleted chief's token stops at once: its sockets here and on every other owner close.
+    if ((op === "chief.archive" || op === "chief.delete") && result && result.t === "result") {
       const agent = (result.value as { id?: string }).id
       if (!agent) return
-      this.closeSockets((p) => p.agent === agent, "chief archived")
-      // Its sandboxes pause and their Freestyle identity (tokens and grants) is revoked (chief-brain-cc/sandbox.ts).
-      this.ctx.waitUntil((this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(`${agent}/sandboxes`)) as unknown as { ccSandboxRetire(): Promise<unknown> }).ccSandboxRetire().catch(() => undefined))
+      this.closeSockets((p) => p.agent === agent, op === "chief.delete" ? "chief deleted" : "chief archived")
+      // Its sandboxes pause (archive: a restore resumes them) or are deleted (delete), and their Freestyle identity
+      // (tokens and grants) is revoked (chief-brain-cc/sandbox.ts).
+      const sandboxes = this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(`${agent}/sandboxes`)) as unknown as { ccSandboxRetire(): Promise<unknown>; ccSandboxPurge(): Promise<unknown> }
+      this.ctx.waitUntil((op === "chief.delete" ? sandboxes.ccSandboxPurge() : sandboxes.ccSandboxRetire()).catch(() => undefined))
       if (markAgentClosing(this.ctx.storage.sql, agent, Date.now()) > 0) this.ctx.waitUntil(this.flushCloses(Date.now()).finally(() => this.scheduleAlarm()))
       return
     }

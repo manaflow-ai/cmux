@@ -29,6 +29,9 @@ export type HarnessModeMenu = {
   rows: readonly HarnessModeRow[];
   /** Reported ids that only acpmux or a bridge adds (not the harness's own): shown only while current. */
   hidden: readonly string[];
+  /** The mode that skips every approval, the harness's highest permission level (acpmux's
+   *  `FULL_ACCESS_MODES`, hub/start_mode.rs): what acpmux starts a chat in when the person chose none. */
+  highest: string;
 };
 
 /** Claude Code's Mode menu: its five permission modes (`--permission-mode` ids), in its order. */
@@ -42,6 +45,7 @@ const CLAUDE: HarnessModeMenu = {
     { id: "bypassPermissions", name: "Bypass permissions", description: "Accepts all permissions" },
   ],
   hidden: [],
+  highest: "bypassPermissions",
 };
 
 /** Codex's approval menu. The bridge (cmux-codex-acp `config.rs` `MODES`) runs Codex's default as
@@ -72,6 +76,7 @@ const CODEX: HarnessModeMenu = {
     },
   ],
   hidden: ["ask", "read-only"],
+  highest: "agent-full-access",
 };
 
 /** The harness family's own menu (by acpmux's family, else by the harness id: a second Claude
@@ -84,6 +89,25 @@ export function harnessModeMenu(
 ): HarnessModeMenu | undefined {
   const menu = familyMenu(family, harness);
   return menu?.rows.some((row) => reported.includes(row.id)) ? menu : undefined;
+}
+
+/** The family's highest permission level (Claude Code's Bypass permissions, Codex's Full access), the
+ * mode to show and start in when nothing chose one (Leo 2026-10-23: "if you don't know what to switch
+ * to, typically just switch to the highest permission level"). None for a harness this table does
+ * not list. */
+export function highestMode(family: string | undefined, harness: string | undefined): HarnessModeRow | undefined {
+  const menu = familyMenu(family, harness);
+  return menu?.rows.find((row) => row.id === menu.highest);
+}
+
+/** The family's own menu whatever the harness reported (none yet: a New Tab before its chat
+ * starts), for a pick made before the chat reports its modes. None for a harness this table does
+ * not list. */
+export function harnessFamilyMenu(
+  family: string | undefined,
+  harness: string | undefined,
+): HarnessModeMenu | undefined {
+  return familyMenu(family, harness);
 }
 
 function familyMenu(family: string | undefined, harness: string | undefined): HarnessModeMenu | undefined {

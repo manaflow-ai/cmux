@@ -477,7 +477,7 @@ impl Hub {
         profile: &HarnessProfile,
     ) -> Result<Arc<ChildAgent>, RpcError> {
         // Its worktree back if cleanup reclaimed it, and reopened if stopped.
-        self.ready_to_start(session).await;
+        self.ready_to_start(session).await?;
         let meta = session.meta();
         let tap = self.session_tap(session);
         let is_claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;
@@ -632,6 +632,10 @@ impl Hub {
                 crate::launch_policy::spawn_error(e, |e| RpcError::internal(e.to_string()))
             })?
         };
+        // A direct start records the format its command was pinned to (a host's: hosts.rs).
+        if let Some(format) = child.preview_format {
+            self.record_preview_format(session, format);
+        }
         {
             // The shutdown marks itself started, then takes each session's
             // child: checked under that lock, either the shutdown finds this

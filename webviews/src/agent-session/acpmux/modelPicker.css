@@ -218,6 +218,14 @@
 .acpmux-quick-rail-initial { font-size: var(--text-control); font-weight: 600; }
 /* The list's floor gives way to the rail (a 32 px tab, its padding and hairline) in a narrow column. */
 .acpmux-quick-body { flex: 1; min-width: min(200px, calc(var(--available-width, 100vw - 24px) - 45px)); padding: 6px; }
+/* The list and the tallest tab's unseen rows share one grid cell: the list keeps that height while
+   the menu is open, so its rail stays under the pointer as tabs change (QuickMenuSpacer). */
+.acpmux-quick-body { display: grid; }
+.acpmux-quick-list,
+.acpmux-quick-spacer { grid-area: 1 / 1; min-width: 0; }
+.acpmux-quick-spacer { visibility: hidden; pointer-events: none; }
+/* Every tab's rows at no height: they give the cell the widest tab's width. */
+.acpmux-quick-probe { height: 0; overflow: hidden; }
 /* A filtered row names its harness in secondary text. */
 .acpmux-quick-item:not(.acpmux-quick-sub) .acpmux-quick-value {
   padding-inline-start: 12px;

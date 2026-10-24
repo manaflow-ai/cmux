@@ -54,6 +54,15 @@ pub struct ServiceConfig {
     pub browser: crate::browser::BrowserConfig,
 }
 
+impl ServiceConfig {
+    /// The app's own daemon socket: `default_socket`, else `<tui_socket_dir>/<default_session>.sock`.
+    pub fn daemon_socket(&self) -> PathBuf {
+        self.default_socket
+            .clone()
+            .unwrap_or_else(|| self.tui_socket_dir.join(format!("{}.sock", self.default_session)))
+    }
+}
+
 /// The default `upload` size cap: 100 MiB.
 pub const DEFAULT_UPLOAD_MAX_BYTES: u64 = 100 * 1024 * 1024;
 /// `ChiefHome.sessionName`: `cmux-chief-` and the FNV-1a 32 hash of the
@@ -85,6 +94,15 @@ pub struct HostConfig {
     pub team_id: String,
     pub device_id: String,
     pub device_name: String,
+    /// The computer this build runs on (`gethostuuid`), never sent raw: see
+    /// [`machine_id`]. None when the OS gives none (Linux, a sandbox, tests).
+    pub host_uuid: Option<HostUuid>,
+    /// `CMUX_MOBILE_MACHINE_ID`: a machine id to send as is (tests, the rig).
+    pub machine_id_override: Option<String>,
+    /// Where other builds keep their state folders ([`sibling_device_ids`]).
+    pub app_support: PathBuf,
+    /// This build's state folder: its `machine-id` marker goes there.
+    pub state_dir: PathBuf,
     pub tokens: TokenSource,
     /// The Stack user whose phones may dial; defaults to the token's `sub`.
     pub owner_user_id: Option<String>,
@@ -149,7 +167,169 @@ pub fn persistent_device_id(state_dir: &Path) -> Result<String> {
     Ok(id)
 }
 
+/// The host UUID. Its `Debug` is redacted: the hardware id is never logged.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct HostUuid(pub [u8; 16]);
+
+impl std::fmt::Debug for HostUuid {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("HostUuid(<redacted>)")
+    }
+}
+
+/// A machine id as the backend takes it (32 lowercase hex digits), or None.
+pub fn normalize_machine_id(value: &str) -> Option<String> {
+    let id = value.trim().to_ascii_lowercase();
+    (id.len() == 32 && id.bytes().all(|b| b.is_ascii_hexdigit())).then_some(id)
+}
+
+/// The file in a build's state folder that says which machine id that build
+/// registered: a sibling whose marker names another machine (its folder came
+/// from another Mac, through Migration Assistant or a restore) is not this
+/// Mac's build.
+pub const MACHINE_MARKER: &str = "machine-id";
+
+/// The salt of [`machine_id`]: names the purpose, so the value matches nothing else derived from the host UUID.
+const MACHINE_ID_KEY: &[u8] = b"cmux-mobile machine-id v1";
+
+/// The machine id a Mac registers (PROTOCOL.md "Devices"): the same for every
+/// cmux build on one computer and one account, so the phone lists the computer
+/// once, and different on any other computer whatever its name. HMAC-SHA256 of
+/// the owner and the host UUID under a cmux key, first 16 bytes in hex: the
+/// hardware id never leaves the Mac, and two accounts on one Mac get unrelated
+/// ids (the backend compares them within one owner only).
+pub fn machine_id(owner: &str, host_uuid: &[u8; 16]) -> String {
+    let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, MACHINE_ID_KEY);
+    let mut message = Vec::with_capacity(owner.len() + 17);
+    message.extend_from_slice(owner.as_bytes());
+    message.push(0);
+    message.extend_from_slice(host_uuid);
+    let tag = ring::hmac::sign(&key, &message);
+    tag.as_ref()[..16].iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// This computer's host UUID (the IOPlatformUUID every build reads alike).
+#[cfg(target_os = "macos")]
+pub fn host_uuid() -> Option<HostUuid> {
+    let mut id = [0u8; 16];
+    let wait = libc::timespec { tv_sec: 1, tv_nsec: 0 };
+    // SAFETY: `id` is the 16-byte uuid_t gethostuuid fills; `wait` outlives the call.
+    let ok = unsafe { libc::gethostuuid(id.as_mut_ptr(), &raw const wait) } == 0;
+    (ok && id != [0u8; 16]).then_some(HostUuid(id))
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn host_uuid() -> Option<HostUuid> {
+    None
+}
+
+/// At most this many sibling ids per registration (the backend's limit).
+pub const MAX_SIBLINGS: usize = 16;
+
+/// The device ids other cmux builds on this Mac registered, read from their
+/// state folders in `app_support` (`<bundle id>/cmux-mobile-host/device-id`,
+/// the pre-rename `<bundle id>/cnx-host/device-id`, and a standalone host's
+/// `cmux-mobile-host/device-id`), without `own`. The backend gives each the
+/// registering Mac's machine id when it is the same owner's Mac and has none
+/// yet: the record a deleted build left behind is then listed as that
+/// computer's, instead of as another Mac. A folder whose [`MACHINE_MARKER`]
+/// names another machine id came from another Mac and is skipped (a folder
+/// without one is a build from before machine ids). Unreadable folders are
+/// skipped.
+pub fn sibling_device_ids(app_support: &Path, own: &str, machine_id: &str) -> Vec<String> {
+    let mut folders = vec![app_support.join("cmux-mobile-host")];
+    if let Ok(entries) = std::fs::read_dir(app_support) {
+        let mut bundles: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
+        bundles.sort();
+        for bundle in bundles {
+            folders.push(bundle.join("cmux-mobile-host"));
+            folders.push(bundle.join("cnx-host"));
+        }
+    }
+    let mut ids: Vec<String> = Vec::new();
+    for folder in folders {
+        if let Ok(marker) = std::fs::read_to_string(folder.join(MACHINE_MARKER))
+            && normalize_machine_id(&marker).is_some_and(|m| m != machine_id)
+        {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(folder.join("device-id")) else { continue };
+        let Ok(id) = uuid::Uuid::parse_str(text.trim()) else { continue };
+        let id = id.to_string();
+        if !id.eq_ignore_ascii_case(own) && !ids.contains(&id) {
+            ids.push(id);
+        }
+        if ids.len() == MAX_SIBLINGS {
+            break;
+        }
+    }
+    ids
+}
+
+/// The other builds a registration names: [`sibling_device_ids`], or none
+/// when the machine id is an override. An override (a hidden test rig) says
+/// this build is its own computer; claiming this Mac's folders as its
+/// siblings would make the backend give its id to every same-owner record
+/// that has none yet (old builds, other rigs) and fold them into it for good.
+pub fn registration_siblings(app_support: &Path, own: &str, machine_id: &str, overridden: bool) -> Vec<String> {
+    if overridden {
+        return Vec::new();
+    }
+    sibling_device_ids(app_support, own, machine_id)
+}
+
+/// [`HostConfig::machine`] on the fields it reads: the machine id to register
+/// (`id`, nil when the host has none), whether it is an override, this
+/// build's state folder (its marker) and the folders its siblings live in.
+pub fn registration_machine(
+    id: Option<String>,
+    overridden: bool,
+    state_dir: &Path,
+    app_support: &Path,
+    device_id: &str,
+) -> (Option<String>, Vec<String>) {
+    let Some(id) = id else {
+        tracing::info!("no machine id on this host: the phone lists this build as its own Mac");
+        return (None, Vec::new());
+    };
+    let marker = state_dir.join(MACHINE_MARKER);
+    // An override (tests, the rig) is not this computer's id: never written as its marker.
+    if !overridden
+        && std::fs::read_to_string(&marker).ok().as_deref() != Some(id.as_str())
+        && let Err(error) = std::fs::create_dir_all(state_dir).and_then(|()| std::fs::write(&marker, &id))
+    {
+        tracing::warn!("could not write the machine marker: {error}");
+    }
+    let siblings = registration_siblings(app_support, device_id, &id, overridden);
+    (Some(id), siblings)
+}
+
+/// `~/Library/Application Support` (`CMUX_MOBILE_APP_SUPPORT_DIR` in tests).
+pub fn app_support_dir() -> PathBuf {
+    env("CMUX_MOBILE_APP_SUPPORT_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home().join("Library/Application Support"))
+}
+
 impl HostConfig {
+    /// The machine id to register for `owner`: the override, else derived from the host UUID.
+    pub fn machine_id(&self, owner: &str) -> Option<String> {
+        self.machine_id_override.clone().or_else(|| self.host_uuid.map(|uuid| machine_id(owner, &uuid.0)))
+    }
+
+    /// What a registration sends besides the device: the machine id and the
+    /// other builds' device ids, after writing this build's marker. Nothing
+    /// without a machine id (logged once per registration).
+    pub fn machine(&self, owner: &str) -> (Option<String>, Vec<String>) {
+        registration_machine(
+            self.machine_id(owner),
+            self.machine_id_override.is_some(),
+            &self.state_dir,
+            &self.app_support,
+            &self.device_id,
+        )
+    }
+
     /// Reads the environment. `supplied` (supervised mode) replaces the token
     /// variables and the acpmux lookup with what the app sends over stdin.
     pub fn from_env(supplied: Option<Supplied>) -> Result<Self> {
@@ -188,6 +368,12 @@ impl HostConfig {
                 std::sync::Arc::new(|event| crate::control::emit(&event)),
             )
             .with_identity(supplied.identity.clone())
+            .with_push_keys(std::sync::Arc::new(crate::push_keys::PushKeys::load(
+                default_state_dir().join("push-keys.json"),
+            )))
+            .with_spent_replies(std::sync::Arc::new(crate::mailbox::SpentReplies::load(
+                default_state_dir().join("mailbox-spent.json"),
+            )))
         });
         let max_tabs = env("CMUX_MOBILE_RB_MAX_TABS").and_then(|v| v.parse().ok()).unwrap_or(4);
         let browser = match (&supplied, env("CMUX_MOBILE_RB_HOST")) {
@@ -214,6 +400,16 @@ impl HostConfig {
             team_id,
             device_id,
             device_name: env("CMUX_MOBILE_DEVICE_NAME").unwrap_or_else(hostname),
+            host_uuid: host_uuid(),
+            machine_id_override: env("CMUX_MOBILE_MACHINE_ID").and_then(|value| {
+                let id = normalize_machine_id(&value);
+                if id.is_none() {
+                    tracing::warn!("CMUX_MOBILE_MACHINE_ID is not 32 hex digits; using this host's own");
+                }
+                id
+            }),
+            app_support: app_support_dir(),
+            state_dir: default_state_dir(),
             tokens,
             owner_user_id: env("CMUX_MOBILE_OWNER_USER_ID"),
             include_loopback: env("CMUX_MOBILE_INCLUDE_LOOPBACK").is_some_and(|v| v == "1"),

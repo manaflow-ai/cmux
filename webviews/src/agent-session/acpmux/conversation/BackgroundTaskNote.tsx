@@ -16,7 +16,7 @@ import { useT } from "../i18n";
 import type { AcpmuxBackgroundTask } from "../model";
 import { openProcessTerminal } from "../processTerminal";
 import { useBackgroundTaskOutput } from "./backgroundTaskOutput";
-import { useFold } from "./fold";
+import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { ChevronRight, TerminalSquare } from "./icons";
 import { ShellBlock } from "./ShellBlock";
 import { shortCommand } from "./shortCommand";
@@ -26,7 +26,7 @@ export function BackgroundTaskNote({ task }: { task: AcpmuxBackgroundTask }) {
   const t = useT();
   const { state, reason } = task;
   const [open, setOpen] = useTranscriptDisclosure(`bgtask:${task.toolCallId}`);
-  const fold = useFold(open);
+  const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
   const detailsId = useId();
   const read = useBackgroundTaskOutput(task.toolCallId, open);
   const command = shortCommand(task.command);
@@ -51,7 +51,8 @@ export function BackgroundTaskNote({ task }: { task: AcpmuxBackgroundTask }) {
         data-state={state}
         aria-expanded={open}
         aria-controls={open ? detailsId : undefined}
-        onClick={() => setOpen((value) => !value)}
+        ref={fold.headerRef}
+        onClick={fold.toggle}
       >
         <span className="cv-tool__icon">
           <TerminalSquare />
@@ -64,7 +65,7 @@ export function BackgroundTaskNote({ task }: { task: AcpmuxBackgroundTask }) {
         />
       </button>
       {fold.present && (
-        <div ref={fold.ref} className="cv-fold">
+        <div {...fold.bodyProps}>
           <ShellBlock
             id={detailsId}
             command={task.command}

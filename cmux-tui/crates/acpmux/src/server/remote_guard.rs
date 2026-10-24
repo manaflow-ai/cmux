@@ -56,13 +56,18 @@
 //!   gesture, but a LocalApp page could send it itself with no gesture: that
 //!   is accepted, since the page can already prompt the agent, and it writes
 //!   at most `MAX_BYTES` owner-only into a fresh folder under `uploads`.
+//! - Web only: no `_acpmux/media_open` or `_acpmux/media_range`
+//!   (`mediaRead.remote`). They read a chat's images and videos on this
+//!   machine for the app's pane (`hub/media_read.rs`): the unix socket, the
+//!   app and a peer forwarding for either.
 //!
 //! The unix socket keeps today's behavior.
 
 use crate::no_panic::JsonExt;
 use crate::rpc::{RpcError, method};
 use serde_json::Value;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 /// Whether a session method acpmux does not handle itself goes on to the
 /// harness from `origin`: anything from the unix socket, and from the app only
@@ -169,9 +174,8 @@ pub(super) async fn check(
         .with_data(serde_json::json!({"reason": "route.origin_refused"})));
     }
     // So is a prompt's provenance (prompt_provenance.rs): no remote text passes as an agent's.
-    // The app pane's reply in place is checked there (`Sender::App`).
+    // Nor does the app pane's: its reply in place is no prompt (`app_reply.rs`).
     if m == method::SESSION_PROMPT
-        && origin != super::Origin::LocalApp
         && crate::prompt_provenance::present(params.pointer("/_meta/acpmux"))
     {
         return Err(crate::prompt_provenance::origin_refused());
@@ -232,7 +236,7 @@ pub(super) async fn check(
         }
     }
     if web {
-        web_only(m, params)?;
+        web_only(m, params, control_of(origin, auth, params) == crate::hub::Control::Peer)?;
         // A remote-origin session (a Web device, or a peer) never resumes a
         // local harness session (REMOTE-FLOOR v3, D13).
         if m == method::SESSION_NEW
@@ -278,8 +282,14 @@ pub(super) async fn check(
             }
             params.set("cwd", Value::String(canonical));
         } else if web && m == method::SESSION_NEW {
-            // An absent cwd means the home directory, which is never a root.
-            return Err(outside_roots("cwd"));
+            // An absent cwd means the home directory, which is never a root. A proven
+            // peer (the owner's own daemon) gets a scratch folder named after the
+            // session instead: "acpmux is too belt and suspenders there" (Leo).
+            if control_of(origin, auth, params) != crate::hub::Control::Peer {
+                return Err(outside_roots("cwd"));
+            }
+            let scratch = peer_scratch(params).await?;
+            params.set("cwd", Value::String(scratch));
         }
         if let Some(dirs) = params.get("additionalDirectories").filter(|v| !v.is_null()) {
             let list = dirs.as_array().ok_or_else(|| folder_refused("additionalDirectories"))?;
@@ -315,11 +325,28 @@ pub(super) async fn check(
         .with_data(serde_json::json!({"reason": "tools.remote"})));
     }
     // A dropped file is saved from the app or the unix socket only (`hub/file_uploads.rs`).
-    if m == method::MUX_FILE_PUT && control_of(origin, auth, params) == crate::hub::Control::Web {
+    if matches!(
+        m,
+        method::MUX_FILE_PUT
+            | method::MUX_FILE_PUT_BEGIN
+            | method::MUX_FILE_PUT_CHUNK
+            | method::MUX_FILE_PUT_FINISH
+            | method::MUX_FILE_PUT_CANCEL
+    ) && control_of(origin, auth, params) == crate::hub::Control::Web
+    {
         return Err(RpcError::invalid_params(
             "filePut.remote: a file is saved for a chat only from the app or over the local unix socket",
         )
         .with_data(serde_json::json!({"reason": "filePut.remote"})));
+    }
+    // So is a chat's media read (`hub/media_read.rs`).
+    if matches!(m, method::MUX_MEDIA_OPEN | method::MUX_MEDIA_RANGE)
+        && control_of(origin, auth, params) == crate::hub::Control::Web
+    {
+        return Err(RpcError::invalid_params(
+            "mediaRead.remote: a chat's media is read only for the app or over the local unix socket",
+        )
+        .with_data(serde_json::json!({"reason": "mediaRead.remote"})));
     }
     // After the folder checks: what the request starts from, and its mode.
     if web {
@@ -481,7 +508,7 @@ fn no_reviewed_asking_mode() -> RpcError {
 /// unix socket may. The daemon cannot see user gestures: for LocalApp the
 /// native relay enforces a fresh gesture before it sends a policy that
 /// skips asking.
-fn web_only(m: &str, params: &Value) -> Result<(), RpcError> {
+fn web_only(m: &str, params: &Value, peer: bool) -> Result<(), RpcError> {
     let refused = |what: &str| {
         RpcError::invalid_params(format!(
             "{what} is accepted only from the local app or the unix socket, never from a remote WebSocket connection"
@@ -519,6 +546,11 @@ fn web_only(m: &str, params: &Value) -> Result<(), RpcError> {
         return Err(refused("this warm field"));
     }
     match m {
+        // A proven peer (`Control::Peer`: the owner's own daemon, by the peer token
+        // or a `client` pairing) starts a session with any policy, as the same user
+        // would over ssh: "acpmux is too belt and suspenders there" (Leo). Its
+        // modes, rules, defaults and presets keep the rules below.
+        method::SESSION_NEW if peer => Ok(()),
         method::SESSION_NEW
             if !policy_ok(params.get("policy"))
                 || !policy_ok(params.pointer("/_meta/acpmux/policy")) =>
@@ -751,6 +783,78 @@ fn folder_refused(field: &str) -> RpcError {
     RpcError::invalid_params(format!(
         "{field} is refused: from a WebSocket connection it must be an absolute path to an existing directory"
     ))
+}
+
+/// The folder a proven peer's `session/new` with no `cwd` runs in: an owner-only
+/// temporary `scratch/<name>` directory, one per session name (a lane's `-n`),
+/// else one per request. It must stay outside `~/.acpmux`: remote Claude's
+/// Seatbelt rejects hidden children of the home directory as settings or
+/// programs, even though the peer is trusted.
+async fn peer_scratch(params: &Value) -> Result<String, RpcError> {
+    let name = params
+        .pointer("/_meta/acpmux/name")
+        .or_else(|| params.get("name"))
+        .and_then(Value::as_str)
+        .map(scratch_name)
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| format!("session-{}", uuid::Uuid::now_v7().simple()));
+    let dir = peer_scratch_root()?.join(name);
+    let made = {
+        let dir = dir.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut builder = std::fs::DirBuilder::new();
+            builder.recursive(true);
+            #[cfg(unix)]
+            std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+            builder.create(&dir)
+        })
+        .await
+    };
+    let failed = |why: String| {
+        RpcError::invalid_params(format!("the peer's scratch folder could not be made: {why}"))
+    };
+    made.map_err(|e| failed(e.to_string()))?.map_err(|e| failed(e.to_string()))?;
+    crate::config::private_state_dir(&dir).map_err(|e| failed(e.to_string()))?;
+    canonical_dir(&dir.to_string_lossy()).await.ok_or_else(|| folder_refused("cwd"))
+}
+
+fn peer_scratch_root() -> Result<PathBuf, RpcError> {
+    static ROOT: OnceLock<Result<PathBuf, String>> = OnceLock::new();
+    ROOT.get_or_init(|| {
+        let uid = {
+            #[cfg(unix)]
+            {
+                unsafe { libc::getuid() }.to_string()
+            }
+            #[cfg(not(unix))]
+            {
+                "user".to_owned()
+            }
+        };
+        let root = std::env::temp_dir()
+            .join(format!("acpmux-peer-scratch-{uid}-{}", uuid::Uuid::now_v7().simple()));
+        let mut builder = std::fs::DirBuilder::new();
+        #[cfg(unix)]
+        std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+        builder.create(&root).map_err(|e| format!("{}: {e}", root.display())).and_then(|_| {
+            crate::config::private_state_dir(&root).map(|_| root).map_err(|e| e.to_string())
+        })
+    })
+    .clone()
+    .map_err(|e| {
+        RpcError::invalid_params(format!("the peer's scratch root could not be made: {e}"))
+    })
+}
+
+/// A session name as one folder name: letters, digits, `.`, `-` and `_`; anything
+/// else is `-`, and no name of dots only.
+fn scratch_name(name: &str) -> String {
+    let n: String = name
+        .chars()
+        .take(80)
+        .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') { c } else { '-' })
+        .collect();
+    if n.chars().all(|c| c == '.') { String::new() } else { n }
 }
 
 fn outside_roots(field: &str) -> RpcError {

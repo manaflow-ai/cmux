@@ -190,10 +190,6 @@
       "class": "macos-runtime-tests",
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
     },
-    "cmux-tui.yml#macos-relay": {
-      "class": "macos-runtime-tests",
-      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
-    },
     "coderouter-release.yml#build": "apple-signing-release",
     "dogfood-artifact-publish.yml#capture": "apple-gui",
     "ios-app-store.yml#upload-and-validate": "apple-ios",
@@ -217,7 +213,6 @@
     "nightly.yml#build-nightly-ghostty-cli-helper": "apple-app-build",
     "nightly.yml#build-sign-notarize-nightly": "apple-signing-release",
     "nightly.yml#generate-nightly-deltas": "apple-signing-release",
-    "nightly.yml#nightly-next-macos15-launch": "macos-runtime-tests",
     "nightly.yml#prepare-nightly-variant": "apple-app-build",
     "nightly.yml#publish-nightly-identity-legacy": "apple-signing-release",
     "nightly.yml#recover-nightly-next-notarization": "apple-signing-release",

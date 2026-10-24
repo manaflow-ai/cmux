@@ -159,6 +159,8 @@ try {
   send("e2e-2", "second from the phone")
   send("e2e-1", "first from the phone")
   await phone.until((f) => f.t === "op.queued" && f.idempotency_key === "e2e-2" && f.position === 2, "second queued")
+  // The resend's answer comes after the others.
+  await phone.until(() => phone.frames.filter((f) => f.t === "op.queued").length === 3, "the resend answered")
   const queued = phone.frames.filter((f) => f.t === "op.queued").map((f) => `${f.idempotency_key}@${f.position}`)
   expect(queued.join(",") === "e2e-1@1,e2e-2@2,e2e-1@1", `queued ${queued}`)
   step(`phone: sent 3 (one resend): op.queued ${queued.join(", ")}`)

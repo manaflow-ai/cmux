@@ -37,7 +37,7 @@ public final class SidebarContainerView: NSView {
     let handle: SidebarResizeHandle
     /// The thin rail (`sidebar.style` = rail) and its open state (`SidebarContainerView+Rail`).
     public let railView = SidebarRailView()
-    let railPeek = SidebarRailPeekDriver()
+    let railCards = SidebarRailHoverCards()
     private var observation: Task<Void, Never>?
     /// Width the constraint is at or animating to. The animator reports
     /// intermediate constants, so compare against this instead. Internal for
@@ -72,6 +72,10 @@ public final class SidebarContainerView: NSView {
     /// Called when the width starts and stops animating. The window tells its
     /// content when the motion lands (`NSView.notifyPaneMotionSettled`).
     public var onWidthMotionChange: ((Bool) -> Void)?
+    /// Called each time a width animation starts or turns around mid-flight, with the
+    /// sidebar's on-screen width and the width it animates to, before the first frame. The
+    /// window sizes its content once for the whole slide from these (`MainPaneCardView.contentHold`).
+    public var onWidthMotionStart: ((_ from: CGFloat, _ to: CGFloat) -> Void)?
     /// Paces hover refreshes while the width animates. Hover follows views
     /// sliding under a still pointer (cx-3wu5), which needs no 120 Hz: a
     /// refresh walks every hover target of the window, so one deadline is
@@ -345,6 +349,7 @@ public final class SidebarContainerView: NSView {
         // With no animation at all (Reduce Motion, the gate off) the width lands
         // in this turn and the completion clears this again at once.
         isWidthAnimating = true
+        onWidthMotionStart?(frame.width, target)
         armWidthMotionWatchdog(hidden ? .disappear : .appear)
         widthCompletedGeneration = nil
         fadeCompletedGeneration = collapseMotion.fadesPanel ? nil : generation

@@ -18,6 +18,7 @@ final class AppControl {
     private let frames = FrameBatcher(owner: "Control.frames")
     private let frameProbe = DebugFrameProbe()
     private let mainCPUProbe = DebugMainCPUProbe()
+    private let terminalDisplayProbe = DebugTerminalDisplayProbe()
     private(set) var service: ControlService?
     private var publisher: ControlSnapshotPublisher?
     private(set) var errorJournal: ErrorJournalService?
@@ -53,6 +54,7 @@ final class AppControl {
         service.router.register(ServerReachControl.methods(services: services))
         service.router.register(KeybindingControl.methods(services: services))
         service.router.register(SettingsControl.methods(services: services))
+        service.router.register(TerminalLinkOpenControl.methods(services: services))
         service.router.register(PermissionsControl.methods(services: services))
         service.router.register(NotificationsControl.methods(services: services))
         service.router.register(SessionTransferControl.methods(services: services))
@@ -84,6 +86,8 @@ final class AppControl {
             .mainActor("debug.frames") { [probe = frameProbe] call in .value(probe.handle(call.params)) },
             // Main-thread CPU per frame against a 120 Hz frame (anim-perf-terminal.py).
             .mainActor("debug.main_cpu") { [probe = mainCPUProbe] call in .value(probe.handle(call.params)) },
+            // Main-thread time in Ghostty's display passes (bench-terminal-resize.py).
+            .mainActor("debug.terminal_display") { [probe = terminalDisplayProbe] call in .value(probe.handle(call.params)) },
             // Measured animation spans (plans/cmux-next/motion.md).
             .mainActor("debug.motion") { [weak services] call in .value(DebugMotion.handle(call.params, services)) },
             // Launch, palette-open and terminal-creation spans (bench-stalls.py).
@@ -183,6 +187,8 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugScreens.report(services: services))
             },
+            // The action signposts' commit boundary against this macOS's display observers.
+            .mainActor("debug.commit_boundary") { _ in .value(DebugCommitBoundary().report()) },
             // Idle wakeups: ledger, display-link clients, process CPU (idle-wakeups.md).
             .async("debug.wakeups") { call in await DebugWakeups.report(call.params) },
             // Chromium start: trigger (tab or warm reason), timings, footprint.
@@ -275,6 +281,10 @@ final class AppControl {
             .async("debug.omnibar_bench") { [weak services] call in
                 await DebugOmnibarClickBench.run(call.params, services)
             }.withDeadline(.fixed(.seconds(15))),
+            // One file-picker open, click to the frame that shows it (DebugOpenPanelBench).
+            .async("debug.open_panel_bench") { [weak services] call in
+                await DebugOpenPanelBench.run(call.params, services)
+            }.withDeadline(.fixed(.seconds(30))),
             .mainActor("debug.omnibar_type") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugOmnibar.type(call.params, services: services))
@@ -323,6 +333,14 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugSidebarRows.report(call.params, services: services))
             },
+            .mainActor("debug.sidebar_nested_fixture") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugSidebarNestedFixture.show(call.params, services: services))
+            },
+            .mainActor("debug.sidebar_group_drag") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugSidebarGroupDrag.run(call.params, services: services))
+            },
             .mainActor("debug.sidebar_wheel") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugSidebarWheel.post(call.params, services: services))
@@ -355,6 +373,8 @@ final class AppControl {
             .async("debug.new_tab") { [weak services] call in
                 await DebugNewTab.handle(call.params, services)
             }.withDeadline(.fixed(.seconds(15))), DebugNewTerminalTrace.method(services),
+            // Agent chat open: stages and the pane's surface per frame (Leo 2026-10-22, the black gap).
+            DebugChatOpenTrace.method(services),
             // R131: hover card retarget timing across the focused strip's tabs.
             .async("debug.hover_sweep") { [weak services] call in
                 guard let services else { return .null }

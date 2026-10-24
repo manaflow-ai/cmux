@@ -139,6 +139,12 @@ def literal_reads(source_dir: Path) -> list[str]:
                 relative = repo_relative(candidate)
                 if relative is None or relative in ("", "."):
                     continue
+                # .git is checkout state, not a tracked repository input. Test
+                # fixtures may mention paths such as .git/config to prove they
+                # are rejected; routing a synthetic .git path would make a
+                # pull-request path filter impossible to satisfy.
+                if relative == ".git" or relative.startswith(".git/"):
+                    continue
                 # Reads inside the target itself are already its sources.
                 if (relative + "/").startswith(repo_relative(source_dir) + "/"):
                     continue

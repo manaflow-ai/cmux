@@ -8,6 +8,8 @@ use super::*;
 /// for a peer's session.
 const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::INITIALIZE,
+    // The app pane's reply in place is checked against this daemon's chats (`app_reply.rs`).
+    method::MUX_APP_REPLY,
     method::AUTHENTICATE,
     method::SESSION_NEW,
     method::SESSION_LIST,
@@ -28,6 +30,11 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_START_MODE,
     method::MUX_IMPORT,
     method::MUX_SHUTDOWN,
+    // Briefs are daemon-scoped and dispatch selects its peer explicitly.
+    method::MUX_DISPATCH,
+    method::MUX_STEER,
+    method::MUX_BRIEFS,
+    method::MUX_REPORT,
     // An agent message is taken back on this daemon only (`hub/withdraw.rs`).
     method::MUX_PROMPT_WITHDRAW,
     // A message to deliver is this daemon's (`outbox.rs`), whatever session it names.
@@ -121,6 +128,18 @@ async fn forward_inner(
                 return Err(crate::hub::file_uploads::peer_unsupported(&peer));
             }
         }
+        if m == method::MUX_FILE_PUT_CHUNK {
+            crate::hub::file_uploads::check_chunk(params)?;
+            if !peer.supports_file_put() {
+                return Err(crate::hub::file_uploads::peer_unsupported(&peer));
+            }
+        }
+        // The media reader runs on the peer that owns the chat, if it has one (`hub/media_read.rs`).
+        if matches!(m, method::MUX_MEDIA_OPEN | method::MUX_MEDIA_RANGE)
+            && !peer.supports_media_read()
+        {
+            return Err(crate::hub::media_read::peer_unsupported(&peer, m));
+        }
         let mut p = if params.is_null() { json!({}) } else { params.clone() };
         if let Some(obj) = p.as_object_mut() {
             obj.remove("session");
@@ -182,7 +201,11 @@ async fn forward_inner(
             hub.peer_accepts.forget(&peer.name, prompt_id, token);
         }
         let mut result = result.map_err(|e| {
-                        if e.message.contains("Method not found") {
+            if matches!(m, method::MUX_FILE_PUT_BEGIN | method::MUX_FILE_PUT_CHUNK | method::MUX_FILE_PUT_FINISH | method::MUX_FILE_PUT_CANCEL)
+                && e.message.contains("Method not found")
+            {
+                crate::hub::file_uploads::peer_unsupported(&peer)
+            } else if e.message.contains("Method not found") {
                             RpcError::internal(format!("{}; peer {} runs acpmux build {} (this daemon: {}); run `acpmux host update {}`", e.message, peer.name, peer.remote_build().unwrap_or_else(|| "unknown".into()), crate::hub::BUILD, peer.name))
                         } else {
                             e
