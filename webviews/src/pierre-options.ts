@@ -320,10 +320,16 @@ export function fileTreeUnsafeCSS(): string {
     [data-item-git-status='renamed'] {
       --trees-item-git-status-color: var(--cmux-tree-modified);
     }
+    /* Over an image or a see-through window a colored name is hard to read on the film, so names
+       take the text color there (--cmux-diff-tree-name, styles.css); the icon and the change
+       square keep the status color. */
+    [data-item-git-status] > [data-item-section='content'] {
+      color: var(--cmux-diff-tree-name, var(--trees-item-git-status-color));
+    }
     [data-file-tree-sticky-overlay-content] {
-      background-color: var(--cmux-diff-files-bg, var(--cmux-diff-solid-bg)) !important;
-      -webkit-backdrop-filter: var(--cmux-diff-files-filter, none);
-      backdrop-filter: var(--cmux-diff-files-filter, none);
+      background-color: var(--cmux-diff-files-sticky-bg, var(--cmux-diff-files-bg, var(--cmux-diff-solid-bg))) !important;
+      -webkit-backdrop-filter: var(--cmux-diff-glass-filter, none);
+      backdrop-filter: var(--cmux-diff-glass-filter, none);
       box-shadow: 0 1px 0 var(--trees-border-color);
     }
     @media (prefers-reduced-transparency: reduce) {

@@ -114,10 +114,15 @@ html {
    The tree's own layers go clear so the tint does not stack. Reduce Transparency (the system's or
    the host's) keeps them solid. */
 :root[data-cmux-see-through]:not([data-reduce-transparency]) {
-  /* The files panel is the file bars' film, the same color and the same transparency. */
-  --cmux-diff-files-bg: var(--cmux-diff-header-bg);
-  --cmux-diff-files-filter: var(--cmux-diff-glass-filter);
+  /* The files panel paints nothing, as the app's right sidebar (RightSidebarView: "It paints no
+     ground: the window's shows through"): the window's own tint and blur over the image are what
+     make its names readable. Only its sticky folder rows keep the file bars' film, so rows that
+     scroll under them do not show through their text. */
+  --cmux-diff-files-bg: transparent;
+  --cmux-diff-files-sticky-bg: var(--cmux-diff-header-bg);
+  --cmux-diff-files-filter: none;
   --cmux-diff-files-layer-bg: transparent;
+  --cmux-diff-tree-name: var(--cmux-diff-fg);
   /* A clear film: a tint of the text color, not the theme surface (no navy or other theme hue),
      with the blur doing the work where the engine can blur. */
   --cmux-diff-header-bg: color-mix(in srgb, var(--cmux-diff-fg) 5%, transparent);
