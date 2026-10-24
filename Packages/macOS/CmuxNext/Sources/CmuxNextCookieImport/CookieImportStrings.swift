@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// Text of Import Cookies from Browser (`browser.importCookies`): the consent
@@ -36,8 +37,12 @@ enum CookieImportStrings {
     static func terminal(_ name: String) -> String { String(format: t("cookieImport.requester.terminal", "Terminal “%@”"), name) }
     static func inWorkspace(_ name: String) -> String { String(format: t("cookieImport.requester.inWorkspace", "in workspace %@"), name) }
     static var unknownRequester: String { t("cookieImport.requester.unknown", "A program outside cmux (no agent chat or terminal named itself)") }
-    static func deadline(_ seconds: Int) -> String {
-        String(format: t("cookieImport.consent.deadline", "Denied automatically after %lld s"), seconds)
+    static func deadline(_ seconds: Int,
+                         preferredLocalizations: [String] = Bundle.module.preferredLocalizations, locale: Locale = .current) -> String {
+        Bundle.module.localizedString(forKey: "cookieImport.consent.deadline",
+                                      value: "Denied automatically after %lld s",
+                                      table: "CookieImport",
+                                      arguments: [.count(seconds)], preferredLocalizations: preferredLocalizations, locale: locale)
     }
 
     // MARK: Refusals and results (the CLI prints these)
@@ -71,7 +76,10 @@ enum CookieImportStrings {
         t("cookieImport.error.needsFullDiskAccess", "cmux needs Full Disk Access (System Settings › Privacy & Security) to read Safari’s cookies")
     }
     static var nothingMatched: String { t("cookieImport.error.nothingMatched", "No cookie in that profile matches those sites. Nothing was imported.") }
-    static func done(count: Int, browser: String) -> String {
-        String(format: t("cookieImport.toast.done", "Imported %1$lld cookies from %2$@."), count, browser)
+    static func done(count: Int, browser: String,
+                     preferredLocalizations: [String] = Bundle.module.preferredLocalizations, locale: Locale = .current) -> String {
+        Bundle.module.localizedString(forKey: "cookieImport.toast.done", value: "Imported %1$lld cookies from %2$@.", table: "CookieImport",
+                                      arguments: [.count(count), .text(browser)],
+                                      preferredLocalizations: preferredLocalizations, locale: locale)
     }
 }

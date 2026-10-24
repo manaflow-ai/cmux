@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// The Swift side's strings of the Passwords page (table `Passwords`; the page's own
@@ -37,8 +38,11 @@ nonisolated enum PasswordStrings {
     static func exportFileName(_ profile: String) -> String {
         String(format: String(localized: "passwords.export.fileName", defaultValue: "cmux Passwords (%@).csv", table: "Passwords", bundle: .module), profile)
     }
-    static func passwordCount(_ count: Int) -> String {
-        String(format: String(localized: "passwords.delete.count", defaultValue: "%lld saved passwords", table: "Passwords", bundle: .module), count)
+    /// The name of `count` saved passwords (2 or more) in the delete prompt.
+    static func passwordCount(_ count: Int,
+                              preferredLocalizations: [String] = Bundle.module.preferredLocalizations, locale: Locale = .current) -> String {
+        Bundle.module.localizedString(forKey: "passwords.delete.count", value: "%lld saved passwords", table: "Passwords",
+                                      arguments: [.count(count)], preferredLocalizations: preferredLocalizations, locale: locale)
     }
     static var deletePasswordDetail: String {
         String(localized: "passwords.delete.passwordDetail", defaultValue: "cmux can no longer fill this password. You cannot undo this.",
