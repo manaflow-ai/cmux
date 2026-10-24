@@ -42,7 +42,9 @@ test("workflow adapter rejects malformed children, references, duplicates and se
   expect(workflowFromWire({ ...base, agents: [{ id: "a", name: "API", state: "bogus" }] })).toBeUndefined();
   expect(workflowFromWire({ ...base, agents: [...base.agents, base.agents[0]] })).toBeUndefined();
   expect(workflowFromWire({ ...base, phases: [{ ...base.phases[0], agentIds: ["missing"] }] })).toBeUndefined();
-  expect(workflowFromWire({ ...base, phases: [{ id: "p", name: "Implement", state: "running", agentIds: [] }] })).toBeUndefined();
+  expect(
+    workflowFromWire({ ...base, phases: [{ id: "p", name: "Implement", state: "running", agentIds: [] }] }),
+  ).toBeUndefined();
   expect(
     workflowFromWire({
       ...base,
@@ -60,10 +62,7 @@ test("workflow adapter rejects malformed children, references, duplicates and se
       phase: "p",
       selectedAgentId: "b",
       agents: [base.agents[0], { id: "b", name: "UI", state: "running" }],
-      phases: [
-        base.phases[0],
-        { id: "p2", name: "Verify", state: "pending", agentIds: ["b"] },
-      ],
+      phases: [base.phases[0], { id: "p2", name: "Verify", state: "pending", agentIds: ["b"] }],
     }),
   ).toBeUndefined();
   expect(workflowFromWire({ ...base, elapsedMs: 1.5 })).toBeUndefined();

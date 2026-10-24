@@ -81,7 +81,11 @@ export function WorkflowSummaryRow({
         <span className="acpmux-workflow__state" aria-label={`${workflow.title}: ${workflowStateLabel}`}>
           {workflowStateLabel}
         </span>
-        {workflow.phase && <span className="acpmux-summary-meta">{workflow.phases.find((entry) => entry.id === workflow.phase)?.name}</span>}
+        {workflow.phase && (
+          <span className="acpmux-summary-meta">
+            {workflow.phases.find((entry) => entry.id === workflow.phase)?.name}
+          </span>
+        )}
         <span className="acpmux-summary-meta">
           {completed}/{workflow.agents.length}
           {workflow.elapsedMs !== undefined && ` · ${formatDuration(workflow.elapsedMs)}`}
@@ -114,7 +118,11 @@ export function WorkflowSummaryRow({
                 </button>
               ))}
             </div>
-            <div className="acpmux-workflow__agents" role="list" aria-label={t("summary.subagents.active", { n: workflow.agents.length })}>
+            <div
+              className="acpmux-workflow__agents"
+              role="list"
+              aria-label={t("summary.subagents.active", { n: workflow.agents.length })}
+            >
               <h4>{phase?.name ?? t("summary.subagents.active", { n: workflow.agents.length })}</h4>
               {(phase ? workflow.agents.filter((agent) => phase.agentIds.includes(agent.id)) : workflow.agents).map(
                 (agent) => (
@@ -137,9 +145,7 @@ export function WorkflowSummaryRow({
                       <span>{agent.name}</span>
                       {agent.doing && <span className="acpmux-workflow__doing">{agent.doing}</span>}
                     </span>
-                    <span className="acpmux-summary-meta">
-                      {localizedState(t, agent.state)}
-                    </span>
+                    <span className="acpmux-summary-meta">{localizedState(t, agent.state)}</span>
                     {agent.tokens !== undefined && <span className="acpmux-summary-meta">{agent.tokens}</span>}
                     {agent.transcriptRowId && actions.onOpenTranscript && (
                       <button
