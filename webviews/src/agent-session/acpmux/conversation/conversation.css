@@ -3900,37 +3900,18 @@ article.acpmux-row:empty {
   padding-bottom: var(--cv-message-gap);
 }
 
-/* A steer the agent has not read yet (PendingSteer.tsx): a faint clock, then Send now. Under a
-   Chief's bubble it is a line of its own; under the person's it sits beside the bubble (below). */
+/* A steer the agent has not read yet (PendingSteer.tsx): plain Send now leads the prompt's action
+   row, before its receipt, age and message buttons. */
 .cv-user__pending {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-  margin-top: 4px;
-  padding-right: 4px;
-  font-family: var(--cv-font);
-  font-size: var(--text-detail);
-  line-height: var(--text-detail--line-height);
-  color: var(--cv-text-muted);
-}
-/* Beside the bubble's left edge, centred on its first line and out of the layout, as Claude draws a
-   queued prompt's controls: a waiting steer is as tall as any prompt (Leo, 2026-10-21). The bubble
-   is at most 70% of its row, so the 30% left of it holds the clock and Send now. */
-.cv-user__pending--beside {
-  position: absolute;
-  top: 0;
-  right: calc(100% + 8px);
-  height: calc(16px + var(--cv-line-height));
   margin: 0;
   padding: 0;
+  font-family: var(--cv-font);
+  font-size: var(--text-caption);
+  line-height: var(--cv-meta-row);
+  color: var(--cv-text-dim);
   white-space: nowrap;
-  user-select: none;
-}
-.cv-user__pending-clock {
-  display: inline-flex;
-  color: var(--agent-accent);
-  opacity: 0.6;
 }
 .cv-user__send-now {
   border: 0;
@@ -3938,8 +3919,6 @@ article.acpmux-row:empty {
   background: none;
   font: inherit;
   color: inherit;
-  text-decoration: underline;
-  text-underline-offset: 2px;
   cursor: default;
 }
 .cv-user__send-now:hover:not(:disabled) {
