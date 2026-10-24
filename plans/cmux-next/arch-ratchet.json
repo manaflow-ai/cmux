@@ -2,7 +2,7 @@
   "_doc": "Architecture counts the pre-push ratchet holds (scripts/cmux-next/arch-ratchet.py; the method is scripts/cmux-next/arch_counts.py, whose docstring defines every row). A push may not raise a ratcheted row's total; when one drops, rerun `scripts/cmux-next/arch-ratchet.py --update`. exceptions: [{\"date\": \"YYYY-MM-DD\", \"row\": \"<row>\", \"allow\": <n>, \"why\": \"...\"}] lets the push that adds the entry raise that row by n; never CI.",
   "method": "arch_counts",
   "method_version": 1,
-  "measured_sha": "b013ea47ae33adfb755ee915b2a109afdc3aa776",
+  "measured_sha": "4495b5f123656042f1675ec9677914a7c9c4eb95",
   "measured_date": "2026-10-23",
   "rows": {
     "layer_hard": {
@@ -56,12 +56,12 @@
     "layer_upward": 3,
     "layer_unplaced": 0,
     "stateful_singletons": 158,
-    "global_mutable_statics": 261,
+    "global_mutable_statics": 262,
     "assume_isolated_outside_adapters": 175,
     "assume_isolated_total": 235,
     "app_broadcast_names": 12,
     "observer_sites": 169,
-    "app_lines": 141773
+    "app_lines": 142081
   },
   "packages": {
     "CmuxNextActions": {
@@ -106,7 +106,7 @@
       "assume_isolated_outside_adapters": 50,
       "assume_isolated_total": 59,
       "observer_sites": 58,
-      "app_lines": 141773
+      "app_lines": 142081
     },
     "CmuxNextApps": {
       "stateful_singletons": 1,
@@ -247,7 +247,7 @@
       "layer_hard": 1
     },
     "CmuxNextIcons": {
-      "global_mutable_statics": 1
+      "global_mutable_statics": 2
     },
     "CmuxNextImportCards": {
       "stateful_singletons": 1,
