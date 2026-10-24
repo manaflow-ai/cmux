@@ -937,7 +937,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     public var diagnosticLog: DiagnosticLog?
     /// Content-free population snapshot supplied by the mounting shell.
     public var terminalWorkPopulation: TerminalWorkContext = .init()
-
+    private let keyboardCorrectionPreference: MobileTerminalKeyboardCorrectionPreference
     private lazy var inputSession = TerminalInputSessionCoordinator(
         focus: { [weak self] owner in
             self?.performInputFocus(owner) ?? false
@@ -949,9 +949,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             self?.inputActualOwnerDidChange(owner)
         }
     )
-
     lazy var inputProxy: TerminalInputTextView = {
-        let inputProxy = TerminalInputTextView()
+        let inputProxy = TerminalInputTextView(keyboardCorrectionPreference: keyboardCorrectionPreference)
         inputProxy.terminalTheme = terminalTheme
         inputProxy.onFirstResponderChanged = { [weak self] isFirstResponder in
             self?.inputSession.send(
@@ -1074,7 +1073,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
         return inputProxy
     }()
-
     /// The accessory-strip insets that align the toolbar's controls with the
     /// terminal's horizontal span, measured in window space. `toolbarFrame` is
     /// the hosting bar's own frame: each side insets only by the span of the
@@ -1096,7 +1094,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             right: max(0, reference.maxX - terminalFrame.maxX)
         )
     }
-
     /// Creates an embedded surface and applies its colors before the first frame.
     /// - Parameters:
     ///   - runtime: The process-wide embedded Ghostty runtime.
@@ -1105,9 +1102,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     ///   - terminalTheme: Renderer-effective colors used by surrounding UIKit chrome.
     ///   - terminalConfigTheme: Raw Ghostty configuration defaults. Defaults to
     ///     `terminalTheme` for callers that do not mirror a remote surface.
+    ///   - keyboardCorrectionPreference: Shared persisted keyboard correction preference.
     public init(runtime: GhosttyRuntime, delegate: GhosttySurfaceViewDelegate,
                 fontSize: Float32 = 10, terminalTheme: TerminalTheme = .monokai,
-                terminalConfigTheme: TerminalTheme? = nil) {
+                terminalConfigTheme: TerminalTheme? = nil,
+                keyboardCorrectionPreference: MobileTerminalKeyboardCorrectionPreference = MobileTerminalKeyboardCorrectionPreference()) {
         self.runtime = runtime
         self.delegate = delegate
         self.fontSize = fontSize
@@ -1115,6 +1114,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         self.userBaseFontSize = fontSize
         self.terminalTheme = terminalTheme.validatedOrDefault()
         self.terminalConfigTheme = (terminalConfigTheme ?? terminalTheme).validatedOrDefault()
+        self.keyboardCorrectionPreference = keyboardCorrectionPreference
         super.init(frame: CGRect(x: 0, y: 0, width: 402, height: 700))
         bridge.attach(to: self)
         // The local view background (the area behind/around the rendered cells,
