@@ -2126,6 +2126,18 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
         self.assertTrue(self.runs(context))
         self.assertEqual(evaluate(self.job()["runs-on"], context), "blacksmith-12vcpu-macos-26")
 
+    def test_a_fast_gate_that_died_before_a_verdict_falls_back_to_the_mac_compile(self):
+        # A runner hook refusing the fast gate (disk floor, 2026-10-24) fails it with no
+        # verdict; the fallback must still compile, or no commit can be promoted.
+        context = self.context([], event="push")
+        for result, verdict, runs in (("failure", "", True), ("success", "unavailable", True),
+                                      ("failure", "fail", False), ("success", "pass", False),
+                                      ("failure", "pass", False)):
+            with self.subTest(result=result, verdict=verdict):
+                context["needs.release-compile-fast.result"] = result
+                context["needs.release-compile-fast.outputs.verdict"] = verdict
+                self.assertEqual(self.runs(context), runs)
+
 
 class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):
     """#22303: a same-repository PR runs every routed tier on its own branch, with no label.
