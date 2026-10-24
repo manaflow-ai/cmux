@@ -310,6 +310,7 @@
 				"$(SRCROOT)/cmux-tui/Cargo.toml",
 				"$(SRCROOT)/cmux-tui/Cargo.lock",
 				"$(SRCROOT)/cmux-tui/crates/cmux-git",
+				"$(EXPANDED_CODE_SIGN_IDENTITY)",
 			);
 			name = "Build Diff Sidecar";
 			outputFileListPaths = (
@@ -366,6 +367,9 @@
 				"$(CMUX_NEXT_TERMINAL_HOST_BIN)",
 				"$(CMUX_NEXT_HOLDER_BIN)",
 				"$(CMUX_NEXT_AGENT_SCREEN_DETECTION_BIN)",
+				"$(CMUX_NEXT_TUI_MODE)",
+				"$(CMUX_TUI_CLIENT_CACHE)",
+				"$(CONFIGURATION)",
 			);
 			name = "Bundle cmux-tui";
 			outputFileListPaths = (
@@ -510,6 +514,9 @@
 				"$(CMUX_NEXT_REQUIRE_CEF)",
 				"$(CMUX_NEXT_SKIP_UBLOCK)",
 				"$(CMUX_NEXT_REQUIRE_UBLOCK)",
+				"$(EXPANDED_CODE_SIGN_IDENTITY)",
+				"$(PRODUCT_NAME)",
+				"$(PRODUCT_BUNDLE_IDENTIFIER)",
 			);
 			name = "Embed CEF";
 			outputFileListPaths = (
@@ -548,6 +555,8 @@
 				"$(CMUX_NEXT_RB_HOST_PIN)",
 				"$(CMUX_NEXT_SKIP_RB_HOST)",
 				"$(CMUX_NEXT_REQUIRE_RB_HOST)",
+				"$(EXPANDED_CODE_SIGN_IDENTITY)",
+				"$(PRODUCT_BUNDLE_IDENTIFIER)",
 			);
 			name = "Embed remote browser host";
 			outputFileListPaths = (
@@ -636,6 +645,11 @@
 				"$(SRCROOT)/Packages/macOS/CmuxNext/Package.swift",
 				"$(SRCROOT)/cmux.xcodeproj/project.pbxproj",
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux",
+				"$(EXPANDED_CODE_SIGN_IDENTITY)",
+				"$(PRODUCT_BUNDLE_IDENTIFIER)",
+				"$(ARCHS)",
+				"$(MACOSX_DEPLOYMENT_TARGET)",
+				"$(CONFIGURATION)",
 			);
 			name = "Bundle server helper";
 			outputFileListPaths = (
@@ -660,6 +674,9 @@
 			inputPaths = (
 				"$(SRCROOT)/scripts/cmux-next/bundle-mediaremote-adapter.sh",
 				"$(SRCROOT)/vendor/mediaremote-adapter",
+				"$(EXPANDED_CODE_SIGN_IDENTITY)",
+				"$(ARCHS)",
+				"$(MACOSX_DEPLOYMENT_TARGET)",
 			);
 			name = "Bundle MediaRemote adapter";
 			outputFileListPaths = (
