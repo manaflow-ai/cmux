@@ -6,6 +6,11 @@ import CmuxNextSignposts
 /// system unformatted (``ActionSignpostMessage``). With a ``ActionBudgetMonitor``, each run's
 /// perform-to-commit time also goes into the monitor's ring, read at the same commit boundary.
 ///
+/// Each run pays, on the main actor: two clock reads, the span's begin and end on the monitor's
+/// board, the input read (`NSApp.currentEvent` and the uptime, for its age), the signpost message,
+/// the nested-loop watch and one ``CommitBoundary`` observer registration; see
+/// ``ActionBudgetMonitor`` for what the monitor's own part costs.
+///
 /// Built once at the composition root (`AppServices`) and passed to
 /// ``ActionRegistry/standard(runTiming:)``; tests use ``NoActionRunTiming`` or a recorder.
 public struct SignpostActionRunTiming: ActionRunTiming {

@@ -7,15 +7,22 @@ public import CmuxNextWakeups
 ///
 /// ``SignpostActionRunTiming`` reads the clock when a run starts and again when the Core Animation
 /// commit after it ends (the end of `action.commit`), and calls ``record(_:_:start:end:inputAgeMilliseconds:outcome:)``.
-/// That is the always-on cost: two monotonic clock reads and one write of a fixed-size slot into a
-/// ring preallocated at init, on the main actor (the one writer), with no allocation, no lock, no
-/// I/O, no formatting and no string: the slot holds the action's index, interned once when the
-/// action was bound (``intern(_:)``, off the action path).
-/// `ActionBudgetMonitorBench` measures it in nanoseconds per run.
+/// ``record(_:_:start:end:inputAgeMilliseconds:outcome:span:)`` itself is one write of a fixed-size
+/// slot into a ring preallocated at init, on the main actor (the one writer), with no allocation,
+/// no lock, no I/O, no formatting and no string: the slot holds the action's index, interned once
+/// when the action was bound (``intern(_:)``, off the action path). That is not all a run pays.
+/// ``SignpostActionRunTiming/time(_:_:input:_:)`` also reads the clock twice, begins and ends the
+/// run's span on ``board`` (a few atomics, and in DEBUG and bench launches the watchdog's wake: one
+/// lock copy of its hook and one semaphore signal), reads the input event's age, builds the
+/// signpost message and registers its commit observers. `ActionBudgetMonitorBench` measures the
+/// record alone, with the span, and with the span on a board whose watchdog hook is installed.
 ///
-/// Everything else runs after the commit the run is timed to, so it never changes the run:
+/// Everything else runs after the commit the run is timed to, so it never changes the run's own
+/// time, but it still runs on the main actor:
 /// - Each time half the ring has filled, the monitor hands that half to the batch reader
-///   (``batches()``) as one array: one copy and one stream yield per ``batchSize`` runs. The App's
+///   (``batches()``) as one array: one array allocation, ``batchSize`` values built (each retains
+///   its action id) and one stream yield per ``batchSize`` runs, in the commit observer of the run
+///   that filled it. The App's
 ///   budget reporter folds the batches into per-action latency histograms off the main actor (the
 ///   Release report's fields); ``takeUnbatched()`` hands it the runs since the last batch.
 /// - An over-budget run, or every run while a reader asked for every run (the Debug latency HUD),

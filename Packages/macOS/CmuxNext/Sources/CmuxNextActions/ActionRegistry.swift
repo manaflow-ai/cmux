@@ -240,7 +240,9 @@ public final class ActionRegistry {
     public func register(_ action: Action) {
         let id = canonicalID(for: action.id)
         var stored = id == action.id ? action : action.withID(id)
-        // Interned here, when bound, so a run's timing looks nothing up (ActionBudgetMonitor).
+        // Interned here, when bound, so a run's timing interns nothing: the run reads the index from
+        // the action it already looked up (a key-window route run of an id nothing bound is the one
+        // exception: it interns on its first run, ActionRegistry+Perform).
         stored.timingIndex = runTiming.intern(id)
         if let index = indexByID[id] {
             actions[index] = stored
