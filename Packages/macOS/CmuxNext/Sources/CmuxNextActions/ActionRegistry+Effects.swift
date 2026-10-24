@@ -42,8 +42,10 @@ extension ActionRegistry {
 
     /// Runs what an effect asks for: nothing more for ``ActionEffect/done``, the remote work for
     /// ``ActionEffect/applied(_:)`` and ``ActionEffect/waiting(_:_:)``, the refusal for
-    /// ``ActionEffect/refused(_:quiet:)``. The registry calls it after every handler run; a direct
-    /// gesture outside an action run (the screen bar's inline rename) calls it with its own effect.
+    /// ``ActionEffect/refused(_:quiet:)``. The registry calls it after every handler run; work that
+    /// arrives in a later turn, after its run ended (a link hint picked in the page, the VS Code
+    /// server's URL, an icon picked in the picker), calls it with its own effect. A person's gesture
+    /// runs its action with ``perform(_:invocation:)`` instead, so the run is timed.
     ///
     /// - Parameters:
     ///   - effect: The handler's result.
@@ -54,6 +56,7 @@ extension ActionRegistry {
         case .done:
             return
         case .applied(let confirmation):
+            if confirmation.rollback == nil && !confirmation.rollsBackItself { noteHiddenWait(.unconfirmedApply, of: id) }
             start(id, invocation, confirmation.send, rollback: confirmation.rollback)
         case .waiting(let reason, let work):
             waitingRuns[canonicalID(for: id), default: [:]][reason, default: 0] += 1
@@ -61,6 +64,11 @@ extension ActionRegistry {
         case .refused(let reason, let quiet):
             refuse(reason, quiet: quiet)
         }
+    }
+
+    /// Counts a run of `id` that hid a wait (``hiddenWaitRuns``).
+    func noteHiddenWait(_ wait: ActionHiddenWait, of id: ActionID) {
+        hiddenWaitRuns[canonicalID(for: id), default: [:]][wait, default: 0] += 1
     }
 
     /// Starts `send` after the handler's turn, tracked for a capturing caller; on failure rolls back
@@ -75,7 +83,7 @@ extension ActionRegistry {
             if !reported { self?.remoteFailureObserver?(id, failedText(title, failure.message)) }
             return failure
         }
-        track(task)
+        capture(task)
     }
 }
 
