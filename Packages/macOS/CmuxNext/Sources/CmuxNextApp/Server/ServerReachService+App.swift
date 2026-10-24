@@ -41,9 +41,10 @@ extension ServerReachService {
 extension ServerMenuBarController {
     /// The App's menu bar item: this Mac's server status plus cloud pairing as the signed-in user.
     static func app(services: AppServices) -> ServerMenuBarController {
-        ServerMenuBarController(makeSource: { [weak services] in
+        let fixGate = ServerFixGate()
+        return ServerMenuBarController(fixGate: fixGate, makeSource: { [weak services] in
             guard let services else { return nil }
-            return CloudPairingSource.app(feed: services.feed, auth: services.cloud.auth,
+            return CloudPairingSource.app(feed: services.feed, auth: services.cloud.auth, fixGate: fixGate,
                                    chiefPlaced: { [weak services] in services?.home.refreshChiefTab() })
         })
     }

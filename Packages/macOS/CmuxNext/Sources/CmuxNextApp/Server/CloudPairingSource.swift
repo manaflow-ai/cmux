@@ -25,10 +25,12 @@ final class CloudPairingSource: ServerSource {
     /// The App's source: this Mac's status from the bundled CLI plus cloud pairing
     /// as the signed-in user. Phase 1 pairs into the Worker's team for the
     /// session (the personal team, server.md 6.2 step 4), read from the
-    /// Worker: the app's Stack team id is not a Worker team id.
-    static func app(feed: FeedService, auth: CloudAuth, chiefPlaced: @escaping @MainActor () -> Void = {}) -> CloudPairingSource {
+    /// Worker: the app's Stack team id is not a Worker team id. Fixes take
+    /// turns on `fixGate`, the app's one (`ServerMenuBarController.fixGate`).
+    static func app(feed: FeedService, auth: CloudAuth, fixGate: ServerFixGate,
+                    chiefPlaced: @escaping @MainActor () -> Void = {}) -> CloudPairingSource {
         CloudPairingSource(
-            inner: LocalServerSource.app(),
+            inner: LocalServerSource.app(fixer: .helper(gate: fixGate)),
             call: { [weak feed] path, body in
                 guard let feed else { throw FeedServiceError.signedOut }
                 return try await feed.call(path, body)
