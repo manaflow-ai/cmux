@@ -84,7 +84,9 @@ export type MarkdownFieldHandle = {
   /// where the batch landed. The mark is rendered by the field's inline attachment decoration.
   insertInlineAttachments(ids: readonly string[]): number;
   /// Removes the mark associated with `id`, preserving the edit in the field's undo history.
-  removeInlineAttachment(id: string): boolean;
+  /// `notifyOwner` is false for a tray chip, whose owner is already removing the payload.
+  /// `recordHistory` is false for an intake refusal that should not be undoable.
+  removeInlineAttachment(id: string, notifyOwner?: boolean, recordHistory?: boolean): boolean;
   /// Returns the current mark index for an attachment id, including pending placeholders.
   inlineAttachmentIndex(id: string): number | undefined;
 };
@@ -137,7 +139,7 @@ export type MarkdownFieldProps = {
   onInlineAttachmentRemove?(id: string): void;
   /// Called when undo restores a previously removed attachment mark.
   onInlineAttachmentRestore?(ids: readonly string[]): void;
-  /// Discards payloads introduced by a same-mark clipboard replacement when that replacement is undone.
+  /// Called when undo removes payloads inserted by a clipboard replacement.
   onInlineAttachmentDiscard?(ids: readonly string[]): void;
   /// Receives attachments copied from this field, together with their insertion mark index.
   onInlineAttachmentPaste?(attachments: ComposerAttachment[], index: number): void;
@@ -578,6 +580,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   inlineDiscardRef.current = onInlineAttachmentDiscard;
   const inlinePasteRef = useRef(onInlineAttachmentPaste);
   inlinePasteRef.current = onInlineAttachmentPaste;
+  const recordInlineRemovalRef = useRef<((id: string, index: number, depth: number) => void) | undefined>(undefined);
   const inlineFilesRef = useRef(onInlinePasteFiles);
   inlineFilesRef.current = onInlinePasteFiles;
   const inlineExpandRef = useRef(onInlineAttachmentExpand);
@@ -645,13 +648,38 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     // A custom inline clipboard replacement can keep the same number of marks. Remember which
     // removed payloads need the same-mark history undo path.
     const sameMarkRemovalIds = new Set<string>();
-    const sameMarkReplacements: { removed: string[]; cloned: string[]; undoDepth?: number }[] = [];
+    type InlineHistoryGroup = {
+      removedIds: string[];
+      inserted: ComposerAttachment[];
+      index: number;
+      depth: number;
+      undone: boolean;
+    };
+    const replacementGroups: InlineHistoryGroup[] = [];
+    const redoGroups: InlineHistoryGroup[][] = [];
+    recordInlineRemovalRef.current = (id, index, depth) => {
+      removedInlineIds.push(id);
+      replacementGroups.push({
+        removedIds: [id],
+        inserted: [],
+        index,
+        depth,
+        undone: false,
+      });
+    };
     const deleteInlineAttachment = (editorView: EditorView, id: string): boolean => {
       const index = currentInlineAttachmentIDs().indexOf(id);
       if (index < 0) return false;
       const at = inlineMarkPositions(editorView.state.doc)[index];
       if (at === undefined) return false;
       removedInlineIds.push(id);
+      replacementGroups.push({
+        removedIds: [id],
+        inserted: [],
+        index,
+        depth: undoDepth(editorView.state) + 1,
+        undone: false,
+      });
       inlineAttachmentIdsRef.current = currentInlineAttachmentIDs().filter((attachmentID) => attachmentID !== id);
       editorView.dispatch(editorView.state.tr.delete(at, at + INLINE_ATTACHMENT_MARK.length));
       inlineRemoveRef.current?.(id);
@@ -689,37 +717,42 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
               const oldMarks = previousDecorations.markCount;
               const newMarks = inlineMarkCount(next.doc);
               const historyUndo = isHistoryTransaction(transaction) && undoDepth(next) < undoDepth(previous);
-              let replacementIndex = -1;
+              const historyRedo = isHistoryTransaction(transaction) && redoDepth(next) > redoDepth(previous);
               if (historyUndo) {
-                for (let index = sameMarkReplacements.length - 1; index >= 0; index -= 1) {
-                  if (sameMarkReplacements[index]?.undoDepth === undoDepth(previous)) {
-                    replacementIndex = index;
-                    break;
+                const markDelta = newMarks - oldMarks;
+                const restored = removedInlineIds.length
+                  ? removedInlineIds.splice(
+                      removedInlineIds.length -
+                        Math.min(markDelta > 0 ? markDelta : sameMarkRemovalIds.size, removedInlineIds.length),
+                      Math.min(markDelta > 0 ? markDelta : sameMarkRemovalIds.size, removedInlineIds.length),
+                    )
+                  : [];
+                for (const id of restored) sameMarkRemovalIds.delete(id);
+                const undone: typeof replacementGroups = [];
+                const depth = undoDepth(next) + 1;
+                for (const group of replacementGroups) {
+                  if (!group.undone && group.depth === depth) {
+                    group.undone = true;
+                    undone.push(group);
                   }
                 }
+                redoGroups.push(undone);
+                if (restored.length) queueMicrotask(() => inlineRestoreRef.current?.(restored));
+                for (const group of undone)
+                  if (group.inserted.length)
+                    queueMicrotask(() => inlineDiscardRef.current?.(group.inserted.map((attachment) => attachment.id)));
               }
-              if (historyUndo && (removedInlineIds.length || replacementIndex >= 0)) {
-                const markDelta = newMarks - oldMarks;
-                const replacement =
-                  replacementIndex >= 0 ? sameMarkReplacements.splice(replacementIndex, 1)[0] : undefined;
-                const count = Math.min(
-                  replacement ? replacement.removed.length : markDelta > 0 ? markDelta : sameMarkRemovalIds.size,
-                  removedInlineIds.length,
-                );
-                if (count <= 0) {
-                  if (replacement) queueMicrotask(() => inlineDiscardRef.current?.(replacement.cloned));
-                  return {
-                    decorations:
-                      oldMarks === newMarks
-                        ? previousDecorations.decorations.map(transaction.mapping, next.doc)
-                        : makeInlineDecorations(next.doc),
-                    markCount: newMarks,
-                  };
+              if (historyRedo) {
+                const groups = redoGroups.pop() ?? [];
+                for (const group of groups) {
+                  group.undone = false;
+                  removedInlineIds.push(...group.removedIds);
+                  for (const id of group.removedIds) sameMarkRemovalIds.add(id);
+                  queueMicrotask(() => {
+                    for (const id of group.removedIds) inlineRemoveRef.current?.(id);
+                    inlinePasteRef.current?.(group.inserted, group.index);
+                  });
                 }
-                const restored = removedInlineIds.splice(removedInlineIds.length - count, count);
-                for (const id of restored) sameMarkRemovalIds.delete(id);
-                if (replacement) queueMicrotask(() => inlineDiscardRef.current?.(replacement.cloned));
-                queueMicrotask(() => inlineRestoreRef.current?.(restored));
               }
               return {
                 decorations:
@@ -742,6 +775,13 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                 .filter((id): id is string => Boolean(id));
               if (!ids.length) return false;
               removedInlineIds.push(...ids);
+              replacementGroups.push({
+                removedIds: ids,
+                inserted: [],
+                index: positions.findIndex((position) => position >= from),
+                depth: undoDepth(editorView.state) + 1,
+                undone: false,
+              });
               for (const id of ids) inlineRemoveRef.current?.(id);
               return false;
             },
@@ -778,6 +818,13 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                 // The browser performs the actual cut after this event. Record the payloads now so
                 // its replacement transaction and the later history undo restore the same IDs.
                 removedInlineIds.push(...ids);
+                replacementGroups.push({
+                  removedIds: ids,
+                  inserted: [],
+                  index: positions.findIndex((position) => position >= from),
+                  depth: undoDepth(editorView.state) + 1,
+                  undone: false,
+                });
                 for (const id of ids) inlineRemoveRef.current?.(id);
                 return false;
               },
@@ -813,14 +860,10 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                 removedInlineIds.push(...selectedIds);
                 for (const id of selectedIds) sameMarkRemovalIds.add(id);
                 for (const id of selectedIds) inlineRemoveRef.current?.(id);
-                const replacement: { removed: string[]; cloned: string[]; undoDepth?: number } = {
-                  removed: selectedIds,
-                  cloned: cloned.map((attachment) => attachment.id),
-                };
-                sameMarkReplacements.push(replacement);
                 const index = positions.filter((position) => position < from).length;
                 insertPlain(editorView, text);
-                replacement.undoDepth = undoDepth(editorView.state);
+                const depth = undoDepth(editorView.state);
+                replacementGroups.push({ removedIds: selectedIds, inserted: cloned, index, depth, undone: false });
                 inlinePasteRef.current?.(cloned, index);
                 showPastedEnd(editorView.state);
                 event.preventDefault();
@@ -840,6 +883,13 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                     .filter((id): id is string => Boolean(id));
                   if (!ids.length) return false;
                   removedInlineIds.push(...ids);
+                  replacementGroups.push({
+                    removedIds: ids,
+                    inserted: [],
+                    index: positions.findIndex((position) => position >= from),
+                    depth: undoDepth(editorView.state) + 1,
+                    undone: false,
+                  });
                   editorView.dispatch(editorView.state.tr.delete(from, to));
                   for (const id of ids) inlineRemoveRef.current?.(id);
                   event.preventDefault();
@@ -940,6 +990,13 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                     .filter((id): id is string => Boolean(id));
                   if (ids.length) {
                     removedInlineIds.push(...ids);
+                    replacementGroups.push({
+                      removedIds: ids,
+                      inserted: [],
+                      index: positions.findIndex((position) => position >= from),
+                      depth: undoDepth(editorView.state) + 1,
+                      undone: false,
+                    });
                     for (const id of ids) inlineRemoveRef.current?.(id);
                   }
                 }
@@ -1349,15 +1406,18 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
           if (attachmentIndex < 0) return undefined;
           return attachmentIndex < inlineMarkCount(current.state.doc) ? attachmentIndex : undefined;
         },
-        removeInlineAttachment: (id) => {
+        removeInlineAttachment: (id, notifyOwner = true, recordHistory = true) => {
           const current = view.current;
           if (!current) return false;
           const index = currentInlineAttachmentIDs().indexOf(id);
           const at = index < 0 ? undefined : inlineMarkPositions(current.state.doc)[index];
           if (at === undefined) return false;
+          if (recordHistory) recordInlineRemovalRef.current?.(id, index, undoDepth(current.state) + 1);
           inlineAttachmentIdsRef.current = currentInlineAttachmentIDs().filter((attachmentID) => attachmentID !== id);
-          current.dispatch(current.state.tr.delete(at, at + INLINE_ATTACHMENT_MARK.length));
-          inlineRemoveRef.current?.(id);
+          const deletion = current.state.tr.delete(at, at + INLINE_ATTACHMENT_MARK.length);
+          if (!recordHistory) deletion.setMeta("addToHistory", false);
+          current.dispatch(deletion);
+          if (notifyOwner) inlineRemoveRef.current?.(id);
           return true;
         },
         element: () => wrapper.current,

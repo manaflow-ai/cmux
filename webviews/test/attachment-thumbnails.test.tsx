@@ -163,6 +163,38 @@ try {
     expect(host.querySelector(".acpmux-attachment-remove")).not.toBeNull();
   });
 
+  test("every attachment kind exposes a working remove button", async () => {
+    const removed: string[] = [];
+    await act(async () => {
+      root.render(
+        <AttachmentStrip
+          attachments={[
+            { id: "image", kind: "image", name: "image.png", mimeType: "image/png", size: 1, data: "AA==" },
+            { id: "pdf", kind: "document", name: "brief.pdf", mimeType: "application/pdf", size: 1, data: "JVBERi0=" },
+            { id: "audio", kind: "audio", name: "voice.m4a", mimeType: "audio/mp4", size: 1, data: "AA==" },
+            {
+              id: "file",
+              kind: "link",
+              name: "archive.zip",
+              mimeType: "application/zip",
+              size: 1,
+              path: "/tmp/archive.zip",
+            },
+            { id: "paste", kind: "pasted", name: "log", mimeType: "text/plain", size: 1, text: "log" },
+          ]}
+          onRemove={(id) => removed.push(id)}
+        />,
+      );
+      await Promise.resolve();
+    });
+    const buttons = [...host.querySelectorAll<HTMLButtonElement>(".acpmux-attachment-remove")];
+    expect(buttons).toHaveLength(5);
+    await act(async () => {
+      for (const button of buttons) button.click();
+    });
+    expect(removed).toEqual(["image", "pdf", "audio", "file", "paste"]);
+  });
+
   test("a draft image that decodes to no pixels is failed too", async () => {
     await renderDraft("empty.png");
     await load(host.querySelector(".acpmux-attachment-image img")!, 0, 0);

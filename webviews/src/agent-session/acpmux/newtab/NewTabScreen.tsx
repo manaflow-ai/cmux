@@ -336,6 +336,7 @@ export function NewTabScreen(props: Props) {
     attachments,
     setAttachments,
     pending: reading,
+    removePending,
     attachError,
     drop,
     dropLanded,
@@ -1221,6 +1222,7 @@ export function NewTabScreen(props: Props) {
               setAttachments((current) => current.filter((item) => item.id !== id));
               field.current?.focus();
             }}
+            onRemovePending={removePending}
           />
           {!pill && !split && pickers}
         </div>

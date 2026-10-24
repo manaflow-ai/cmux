@@ -474,7 +474,7 @@ export function Composer({
     setDropHost(element ? (element.closest(".acpmux-main") ?? element.ownerDocument.body) : null);
   }, []);
   const landingTarget = useCallback(() => composerBox.current, []);
-  const { attachments, setAttachments, pending, attachError, setAttachError, drop, dropLanded, attach, discardPending } =
+  const { attachments, setAttachments, pending, removePending, attachError, setAttachError, drop, dropLanded, attach } =
     useAttachmentIntake({
       allowImages,
       dropZone: () => composerBox.current?.closest(".acpmux-main") ?? null,
@@ -503,8 +503,7 @@ export function Composer({
       reserveInline: (ids) => field.current?.insertInlineAttachments(ids),
       inlineIndex: (id) => field.current?.inlineAttachmentIndex(id),
       releaseInline: (ids) => {
-        discardPending(ids);
-        for (const id of ids) field.current?.removeInlineAttachment(id);
+        for (const id of ids) field.current?.removeInlineAttachment(id, false, false);
       },
     });
   const attachmentsRef = useRef(attachments);
@@ -515,12 +514,30 @@ export function Composer({
     (id: string) => {
       const current = attachmentsRef.current;
       const index = current.findIndex((attachment) => attachment.id === id);
-      discardPending([id]);
       if (index >= 0) removedInline.current.push({ attachment: current[index]!, index });
+      if (index < 0) {
+        removePending(id);
+        return;
+      }
+      if (field.current?.inlineAttachmentIndex(id) !== undefined) field.current.removeInlineAttachment(id, false);
       setAttachments((items) => items.filter((item) => item.id !== id));
       field.current?.focus();
     },
-    [discardPending, setAttachments],
+    [removePending, setAttachments],
+  );
+  const removeInlineAttachmentPayload = useCallback(
+    (id: string) => {
+      const current = attachmentsRef.current;
+      const index = current.findIndex((attachment) => attachment.id === id);
+      if (index < 0) {
+        removePending(id);
+        return;
+      }
+      removedInline.current.push({ attachment: current[index]!, index });
+      attachmentsRef.current = current.filter((attachment) => attachment.id !== id);
+      setAttachments((items) => items.filter((item) => item.id !== id));
+    },
+    [removePending, setAttachments],
   );
   const restoreAttachment = useCallback(
     (ids: readonly string[]) => {
@@ -543,10 +560,13 @@ export function Composer({
     },
     [setAttachments],
   );
-  const discardAttachments = useCallback(
+  const discardAttachment = useCallback(
     (ids: readonly string[]) => {
       if (!ids.length) return;
-      setAttachments((items) => items.filter((item) => !ids.includes(item.id)));
+      const removed = new Set(ids);
+      attachmentsRef.current = attachmentsRef.current.filter((attachment) => !removed.has(attachment.id));
+      setAttachments((items) => items.filter((item) => !removed.has(item.id)));
+      removedInline.current = removedInline.current.filter((entry) => !removed.has(entry.attachment.id));
     },
     [setAttachments],
   );
@@ -688,7 +708,7 @@ export function Composer({
         }
       },
     }),
-    [setAttachments],
+    [setAttachments, setAttachError],
   );
   useEffect(() => {
     // The prompt's DOM value is the typed text; a draft never replaces it.
@@ -1638,8 +1658,10 @@ export function Composer({
         attachError={attachError}
         codex={snapshot.summary?.family === "codex" || snapshot.summary?.harness === "codex"}
         onRemoveAttachment={removeAttachment}
+        onInlineAttachmentRemove={removeInlineAttachmentPayload}
+        onRemovePendingAttachment={removePending}
         onRestoreAttachment={restoreAttachment}
-        onDiscardAttachment={discardAttachments}
+        onDiscardAttachment={discardAttachment}
         onPasteAttachments={pasteAttachments}
         onPasteFiles={pasteFiles}
         fieldMenu={fieldMenu}
