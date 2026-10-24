@@ -225,6 +225,8 @@
         "Start the span at the newest published notes": {"pr": "ci-guards.yml:workflow-guard-tests:Test What's New highlights and release notes"},
         "Fetch the commits since the newest published notes": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly-next release notes fetch (published span only)"},
         "Build and sign the release notes": {"nightly_only": "signs notes with content key"}},
+      "check-release-notes": {
+        "Check this build's notes as the page and the update card show them": {"pr": "ci-web.yml:react-apps-check-shard:Test webviews", "note": "check-release-notes.ts runs notesCheck.ts, tested by webviews/test/changelog-notes-check.test.ts"}},
       "publish-release-notes": {
         "Recheck the NEXT publication head": {"nightly_only": "reads live published tag, feed"},
         "Upload the signed release notes to R2": {"nightly_only": "uploads signed notes to R2"}},

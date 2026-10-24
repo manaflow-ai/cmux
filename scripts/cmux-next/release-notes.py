@@ -65,11 +65,17 @@ INTERNAL_WORDS = re.compile(
     r"frame budget|osc \d+|terminal host|seed|record\w*|nightly|headless|ffi|rust|regenerate|decode|renderer|texture|"
     r"machine code|scene captures?|policy log|host log|force unwrap|store intent|property model|false positive|inventory|"
     r"boundary|on the wire|debug reports?|dom events?|keybind actions?|main actor|shims?|"
-    r"consumers?|metrics|review fixes|byte limit)\b", re.I)
-# Product names whose casing is not code.
-BRANDS = re.compile(r"\b(?:macOS|iOS|iPadOS|iCloud|iPhone|iPad|GitHub|YouTube|SwiftUI|WebKit|JavaScript|TypeScript|ChatGPT|OpenAI)\b")
-# Code-looking subjects (dotted names, snake_case, versioned ids, backticks) are internal.
-CODE_LIKE = re.compile(r"`|\b[A-Za-z_]\w*\.[A-Za-z_]\w*\b|\w_\w|\w-v\d\b|\[cx-|\b[a-z]+[A-Z]\w*|\b[A-Z][a-z]+[A-Z]\w*|\b[A-Z]{2,}(?:-[A-Z]+)+\b|\{\w+\}")
+    r"consumers?|metrics|review fixes|base reds?|feat-cmux-next|compile fix(?:es)?|byte limit)\b", re.I | re.A)
+# Product names whose casing is not code ("MacOS": a title capitalized before LEADING_BRAND).
+BRANDS = re.compile(r"\b(?:[Mm]acOS|[Ii]OS|[Ii]PadOS|[Ii]Cloud|[Ii]Phone|[Ii]Pad|GitHub|YouTube|SwiftUI|WebKit|JavaScript|TypeScript|ChatGPT|OpenAI)\b")
+# Code-looking subjects (dotted names, snake_case, versioned ids, bead ids, backticks) are internal.
+# ASCII classes, as JavaScript reads them in readableChange.ts.
+CODE_LIKE = re.compile(r"`|\b[A-Za-z_]\w*\.[A-Za-z_]\w*\b|\w_\w|\w-v\d\b|\[cx-|\bcx-[a-z0-9]{3,}|\b[a-z]+[A-Z]\w*|\b[A-Z][a-z]+[A-Z]\w*|\b[A-Z]{2,}(?:-[A-Z]+)+\b|\{\w+\}", re.A)
+# Work no user sees by its shape (readableChange.ts TOOL_NAME, PR_NUMBER, SQUASH_REPAIR): a tool name
+# of three or more hyphenated parts, a pull request number, a repair after a squash.
+TOOL_NAME = re.compile(r"(?<!\S)(?!(?:[a-z0-9]+-)*(?:to|by|of|and|in|the|a|an|on|for|or|at|with|up|not|per|one|two|three|four|five|six|seven|eight|nine|ten|cmd|command|shift|ctrl|control|alt|option|opt|fn|[a-z]|\d+)(?![a-z0-9]))[a-z][a-z0-9]*(?:-[a-z0-9]+){2,}(?=[\s,.;:!?)]|$)", re.I | re.A)
+PR_NUMBER = re.compile(r"(?<!\S)#(?:N|\d{3,})(?![\w-])", re.A)
+SQUASH_REPAIR = re.compile(r"\bsquash(?:ed)? (?:merge|commit)\b|\bsquash$", re.I | re.A)
 CONVENTIONAL = re.compile(r"^(?P<type>[A-Za-z-]+)(?:\((?P<scope>[^)]*)\))?!?:\s*(?P<rest>.+)$")
 AREA_PREFIX = re.compile(r"^(cmux-next(?: \w+){0,2}|cmuxnext|cmux next|acpmux|apps?|browser|gallery|release notes?|cx-[\w.]+|feed [\d.]+|cmux-tui)\s*:\s*", re.I)
 # "area words: rest" after the conventional type: "cmux NEXT perf-split: review: …", "cmux-next strip: …".
@@ -77,11 +83,20 @@ LABEL = re.compile(r"^(?P<area>[A-Za-z][\w-]*(?: [A-Za-z][\w-]*){0,2})(?:\((?P<s
 # Work streams that measure or check the app (perf-split, perf-gate, motion-record, strip-scroll-check).
 INTERNAL_AREA_SHAPE = re.compile(r"^(?:perf-[\w-]+|[\w-]+-(?:check|record|gate|bench|probe)|motion-record|review|gate|base-red)$", re.I)
 PRODUCT_WORDS = {"cmux", "next", "cmux-next", "cmuxnext"}
-# "(#123)", "(hq#45)", "(cx-abc)", "(cx-2y2 items 6, 10)", "(red)", anywhere in the subject, and a
-# bead reference cut off at the end.
+# "(#123)", "(hq#45)", "(cx-abc)", "(cx-2y2 items 6, 10)", "(red)", "(review)", anywhere in the
+# subject, and a bead reference cut off at the end.
 # Also "(a283)", "(u3320)", "(a121, a211)": the Chief's agent and prompt ids, never for users.
-REFS = re.compile(r"\s*\((?:[^()]*\bcx-[\w.]+[^()]*|[\w-]*#\d+|red)\)|\s*\((?:[^()]*\b)?cx-[\w.]*$"
+REFS = re.compile(r"\s*\((?:[^()]*\bcx-[\w.]+[^()]*|[\w-]*#\d+|red|review)\)|\s*\((?:[^()]*\b)?cx-[\w.]*$"
                   r"|\s*\([au]\d+(?:\s*[,/]\s*[au]?\d+)*\)", re.I)
+
+# A brand that starts lowercase keeps its casing at the start of a title: "macOS 26 …".
+LEADING_BRAND = re.compile(r"^(?:macOS|iOS|iPadOS|iCloud|iPhone|iPad)\b")
+
+
+def capitalized(text):
+    """The text with a capital first letter, unless it starts with a lowercase brand."""
+    return text if LEADING_BRAND.match(text) else text[:1].upper() + text[1:]
+
 
 def summary_entry(subject):
     """(group, title) for a user-facing commit subject, else None."""
@@ -109,14 +124,15 @@ def summary_entry(subject):
         text = label["rest"]
     text = AREA_PREFIX.sub("", text)
     text = REFS.sub("", text).strip(" .")
-    if not text or INTERNAL_WORDS.search(text) or CODE_LIKE.search(BRANDS.sub("", text)):
+    if (not text or INTERNAL_WORDS.search(text) or CODE_LIKE.search(BRANDS.sub("", text))
+            or TOOL_NAME.search(text) or PR_NUMBER.search(text) or SQUASH_REPAIR.search(text)):
         return None
     if group == "changed" and re.match(r"^(add|adds|new|introduce|support|show)\b", text, re.I):
         group = "new"
     elif group == "changed" and re.match(r"^(fix|fixes|repair|stop|keep)\b", text, re.I):
         group = "fixed"
     # Whole: the page wraps a long line, and short_title gives the digest a title that fits.
-    return group, text[:1].upper() + text[1:]
+    return group, capitalized(text)
 
 
 CLAUSE = re.compile(r",|;| —| - | \(| so | because | while ")
@@ -144,7 +160,7 @@ def title_tail(full, title):
     tail = full[len(title):].lstrip(" ,;:—-").strip()
     if tail.startswith("(") and tail.endswith(")"):
         tail = tail[1:-1]
-    return tail[:1].upper() + tail[1:]
+    return capitalized(tail)
 
 
 def summarize_changes(subjects, limit=SUMMARY_LIMIT):
@@ -333,11 +349,13 @@ def summary_whats_new_digest(args, lines):
     document = {"schemaVersion": 1, "version": args.short, "channel": "nightly", "date": args.date,
                 "headline": {"en": "Fixes and improvements"}, "entries": []}
     categories = {"new": "new", "fixed": "fixed", "changed": "improved"}
+    titles = set()
     for index, line in enumerate(lines):
         # A line with no clause short enough stays out of the digest; the page shows it whole
         # from the summary lines.
         title = short_title(line.get("title", ""), validate.LIMITS["title"])
-        if not title or line.get("group") not in categories:
+        # Two long lines can share a first clause; the digest shows each title once.
+        if not title or line.get("group") not in categories or title.lower() in titles:
             continue
         # The summary says what the title leaves out, or repeats a title that is the whole line.
         full = " ".join(line["title"].split()).rstrip(". ")
@@ -349,6 +367,7 @@ def summary_whats_new_digest(args, lines):
             print(f"whats-new summary: dropped {entry['id']}:\n" + "\n".join(problems), file=sys.stderr)
             continue
         document["entries"].append(entry)
+        titles.add(title.lower())
     if not document["entries"]:
         return None
     document["headline"] = {"en": document["entries"][0]["title"]["en"]}
