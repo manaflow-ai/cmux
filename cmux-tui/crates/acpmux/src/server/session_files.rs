@@ -54,11 +54,8 @@ pub(crate) fn require_local(origin: Origin) -> Result<(), RpcError> {
     if origin == Origin::Local {
         return Ok(());
     }
-    Err(RpcError::new(
-        -32601,
-        "_acpmux/session_files is accepted only over the local unix socket",
-    )
-    .with_data(json!({"reason": LOCAL_ONLY_REASON, "capability": CAPABILITY})))
+    Err(RpcError::new(-32601, "_acpmux/session_files is accepted only over the local unix socket")
+        .with_data(json!({"reason": LOCAL_ONLY_REASON, "capability": CAPABILITY})))
 }
 
 /// Build the reply from daemon-owned metadata. No filesystem reads occur.
@@ -128,8 +125,7 @@ fn harness_store_root(meta: &SessionMeta) -> Option<PathBuf> {
             // Only the built-in adapter root proves the Claude config dir.
             // A custom `sessions.roots` entry is indexed under the profile id
             // but may point anywhere and must not be treated as ~/.claude.
-            let candidate = profile("claude-code")
-                .or_else(|| profile("claude"))?;
+            let candidate = profile("claude-code").or_else(|| profile("claude"))?;
             if candidate.file_name().is_some_and(|name| name == "projects") {
                 candidate.parent()?.to_path_buf()
             } else {
@@ -190,12 +186,14 @@ mod tests {
     fn hub() -> std::sync::Arc<Hub> {
         let mut config = crate::config::Config::default();
         config.store.mode = StoreMode::Memory;
-        let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+        let store =
+            crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
         Hub::new(config, store)
     }
 
     fn local_hub() -> (std::sync::Arc<Hub>, std::path::PathBuf) {
-        let root = std::env::temp_dir().join(format!("acpmux-session-files-{}", std::process::id()));
+        let root =
+            std::env::temp_dir().join(format!("acpmux-session-files-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let mut config = crate::config::Config::default();
         config.store.mode = StoreMode::Local;
@@ -224,9 +222,16 @@ mod tests {
         assert_eq!(value["hostId"], "local");
         assert_eq!(value["qualifiedSessionId"], "local/mux-session");
         let files = value["files"].as_array().unwrap();
-        assert!(files.iter().any(|f| f == &json!({"kind":"claude_config","path":"/tmp/claude-account/.claude.json"})));
-        assert!(files.iter().any(|f| f == &json!({"kind":"claude_settings","path":"/tmp/claude-account/settings.json"})));
-        assert!(files.iter().any(|f| f == &json!({"kind":"transcript","path":"/tmp/native.jsonl"})));
+        assert!(files.iter().any(
+            |f| f == &json!({"kind":"claude_config","path":"/tmp/claude-account/.claude.json"})
+        ));
+        assert!(
+            files.iter().any(|f| f
+                == &json!({"kind":"claude_settings","path":"/tmp/claude-account/settings.json"}))
+        );
+        assert!(
+            files.iter().any(|f| f == &json!({"kind":"transcript","path":"/tmp/native.jsonl"}))
+        );
         assert!(!kinds(&value).contains("codex_config"));
     }
 
@@ -285,7 +290,10 @@ mod tests {
         assert!(require_local(Origin::Local).is_ok());
         for origin in [Origin::LocalApp, Origin::Web, Origin::Peer] {
             let error = require_local(origin).unwrap_err();
-            assert_eq!(error.data.as_ref().and_then(|data| data.get("reason")).and_then(Value::as_str), Some(LOCAL_ONLY_REASON));
+            assert_eq!(
+                error.data.as_ref().and_then(|data| data.get("reason")).and_then(Value::as_str),
+                Some(LOCAL_ONLY_REASON)
+            );
         }
     }
 }
