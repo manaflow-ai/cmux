@@ -173,7 +173,7 @@ export function codeViewUnsafeCSS(): string {
       min-height: 0;
       display: flex;
       align-items: stretch;
-      background-color: var(--cmux-diff-header-bg, var(--cmux-diff-solid-bg));
+      background: var(--cmux-diff-float-fill, var(--cmux-diff-header-bg, var(--cmux-diff-solid-bg)));
       -webkit-backdrop-filter: var(--cmux-diff-glass-filter, none);
       backdrop-filter: var(--cmux-diff-glass-filter, none);
       border-bottom: 1px solid var(--cmux-diff-border);
@@ -321,7 +321,7 @@ export function fileTreeUnsafeCSS(): string {
       --trees-item-git-status-color: var(--cmux-tree-modified);
     }
     [data-file-tree-sticky-overlay-content] {
-      background-color: var(--cmux-diff-files-bg, var(--cmux-diff-solid-bg)) !important;
+      background: var(--cmux-diff-float-fill, var(--cmux-diff-files-bg, var(--cmux-diff-solid-bg))) !important;
       -webkit-backdrop-filter: var(--cmux-diff-files-filter, none);
       backdrop-filter: var(--cmux-diff-files-filter, none);
       box-shadow: 0 1px 0 var(--trees-border-color);

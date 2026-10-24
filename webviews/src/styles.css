@@ -120,6 +120,20 @@ html {
   --cmux-diff-header-bg: var(--glass-tint);
   --cmux-diff-glass-filter: var(--glass-backdrop);
 }
+/* Chromium (cmux's default page engine) draws a backdrop-filter's blurred copy over the page's own
+   pixels, so code under a frosted bar reads crisp through its tint (ui/glass/glass.css, CHROMIUM
+   OVER THE WINDOW GLASS). As the app's floating glass does there, what floats over code (the file
+   bars, the Stage all / Revert all bar, the hunk pill, the tree's sticky rows) lays its tint over
+   the theme surface at --glass-underlay, so the code under it fades. WebKit keeps the real blur. */
+@media not (prefers-reduced-transparency: reduce) {
+  @supports not (-webkit-backdrop-filter: none) {
+    :root[data-cmux-see-through]:not([data-glass-lens], [data-reduce-transparency]) {
+      --cmux-diff-float-fill:
+        linear-gradient(var(--glass-tint), var(--glass-tint)),
+        color-mix(in srgb, var(--glass-surface) var(--glass-underlay), transparent);
+    }
+  }
+}
 @media (prefers-reduced-transparency: reduce) {
   :root[data-cmux-see-through] {
     --cmux-diff-files-bg: color-mix(in srgb, var(--cmux-diff-fg) 3%, var(--cmux-diff-solid-bg));
@@ -1584,7 +1598,7 @@ body[data-loading="true"] #status::before {
   border-radius: 7px;
   /* The cmux NEXT chrome (#23154): a hairline rim and the files panel's lift, opaque over code in
      an opaque window; over glass it is the panel's glass plus its blur, so code under it frosts. */
-  background: color-mix(in srgb, var(--cmux-diff-fg) 4%, var(--cmux-diff-files-bg));
+  background: var(--cmux-diff-float-fill, color-mix(in srgb, var(--cmux-diff-fg) 4%, var(--cmux-diff-files-bg)));
   -webkit-backdrop-filter: var(--cmux-diff-glass-filter, none);
   backdrop-filter: var(--cmux-diff-glass-filter, none);
   box-shadow:
