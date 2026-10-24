@@ -8,6 +8,7 @@ package import Foundation
 /// verification email"), never page text. The fill script types a code into the page's code
 /// field from that world and never submits the form.
 package nonisolated struct VerificationPageScripts {
+    package nonisolated init() {}
     /// The channel the detector posts to (a WebKit message handler, a CEF binding).
     package static let channel = "cmuxVerify"
     /// The isolated world the scripts run in.

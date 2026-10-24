@@ -4,7 +4,8 @@ package import Foundation
 /// terminal on this Mac, read from the agent's transcript file. A TUI agent
 /// redraws its screen, so its terminal history holds little of what was
 /// said; the transcript holds all of it (the old app searched it too).
-package nonisolated enum AgentTranscriptText {
+package nonisolated struct AgentTranscriptText {
+    package nonisolated init() {}
     /// A terminal agent's session, as its hook reported it.
     package nonisolated struct Session: Sendable {
         /// `claude` or `codex` (`TerminalChatRoute.harness(of:)`).
