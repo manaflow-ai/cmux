@@ -121,4 +121,31 @@ describe("hover trigger/card bridge", () => {
     clock.advance(HOVER_INTENT.cardDwell + 1);
     expect(opened).toBe(0);
   });
+
+  test("a later hover clears the old card bridge after the first card closes", () => {
+    const clock = new FakeClock();
+    let opened = 0;
+    let closed = 0;
+    const bridge = new HoverBridge({
+      clock,
+      dwell: HOVER_INTENT.cardDwell,
+      grace: HOVER_INTENT.cardGrace,
+      open: () => (opened += 1),
+      close: () => (closed += 1),
+    });
+
+    bridge.enter("trigger", trigger, point(60, 30));
+    clock.advance(HOVER_INTENT.cardDwell);
+    bridge.enter("card", card, point(150, 30));
+    bridge.leave("trigger", trigger, point(150, 30));
+    bridge.leave("card", card, point(500, 300));
+    clock.advance(HOVER_INTENT.cardGrace);
+    expect(closed).toBe(1);
+
+    bridge.update({ card: undefined });
+    bridge.enter("trigger", trigger, point(60, 30));
+    bridge.leave("trigger", trigger, point(trigger.right + 4, trigger.bottom / 2));
+    clock.advance(HOVER_INTENT.cardDwell + 1);
+    expect(opened).toBe(1);
+  });
 });
