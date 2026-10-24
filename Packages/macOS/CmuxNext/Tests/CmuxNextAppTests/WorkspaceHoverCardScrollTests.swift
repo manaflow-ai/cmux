@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
 import Testing
+import CmuxNextWakeupsTestSupport
 
 /// Lawrence 2026-10-19 (u3320): "If I open a card, move my mouse over, and start scrolling, the
 /// card just disappears." A wheel scroll with the pointer on the shown workspace card belongs to
