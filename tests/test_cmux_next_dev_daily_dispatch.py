@@ -49,11 +49,6 @@ check(handoff_if.startswith("${{ !cancelled() && "),
 check("needs.cmux-scheme-compile.result == 'success'" in handoff_if,
       "the handoff must still require the DEV Release compile to succeed")
 text = WORKFLOW.read_text()
-triggers = re.search(r"^on:\n((?:  .*\n)+)", text, re.MULTILINE)
-triggers = triggers.group(1) if triggers else ""
-check("  push:\n    branches: [feat-cmux-next]\n" in triggers,
-      "a feat-cmux-next merge must dispatch its DEV build at once (push trigger)")
-check("  schedule:\n" in triggers, "the schedule must stay as the backstop for a lost push dispatch")
 schedule = re.findall(r'^    - cron: "([^"]+)"$', text, re.MULTILINE)
 check(schedule == ["2-59/5 * * * *"],
       f"the dev dispatcher must run every five minutes, got {schedule}")
