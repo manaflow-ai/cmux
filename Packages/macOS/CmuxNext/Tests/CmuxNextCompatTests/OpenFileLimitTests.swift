@@ -7,8 +7,9 @@ import CmuxNextCompat
 /// Chromium tabs (activation-perf, 2026-10-23), so the app raises it at launch, as Chrome and the
 /// cmux daemons raise theirs.
 struct OpenFileLimitTests {
-    /// RLIM_INFINITY (<sys/resource.h>, a macro Swift does not import).
-    static let unlimited: rlim_t = (1 << 63) - 1
+    /// RLIM_INFINITY (<sys/resource.h>, a macro Swift does not import). `nonisolated`: an
+    /// immutable `rlim_t` that the `@Sendable` read closures capture, off the package's default MainActor.
+    nonisolated static let unlimited: rlim_t = (1 << 63) - 1
 
     /// A kernel that reports `soft` and `hard`, caps a soft limit at `cap`, and refuses one above
     /// `refuseAbove` with EINVAL, as an older kernel refuses more than OPEN_MAX.
