@@ -17,7 +17,8 @@ impl Hub {
     /// processes running here, and the sessions with the most of them. Waits at most
     /// `host_pressure::SAMPLE_WAIT` for a sample; with none yet, `ok` is null.
     pub(in crate::hub) async fn host_pressure_status(&self) -> Value {
-        let verdict = Meter::shared().current().await;
+        // The last verdict; a stale one starts a sample for the next request (`Meter::latest`).
+        let verdict = Meter::shared().latest();
         let mut v = match verdict.and_then(|v| serde_json::to_value(v).ok()) {
             Some(v) => v,
             None => {

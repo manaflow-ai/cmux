@@ -421,16 +421,16 @@ impl Hub {
     }
 
     pub async fn status(&self) -> Value {
-        // Before the config lock: it may wait up to `host_pressure::SAMPLE_WAIT` for a sample.
         let host_pressure = self.host_pressure_status().await;
         let cfg = self.config.read().await;
         let sessions = self.sessions();
-        let mut live = 0;
-        for s in &sessions {
-            if s.child.lock().await.is_some() {
-                live += 1;
-            }
-        }
+        // A count, never a wait: a slot locked right now (an agent starting or stopping) counts
+        // as live, as the idle reaper counts it (`idle.rs`). It awaited each chat's lock in
+        // turn while holding the config lock.
+        let live = sessions
+            .iter()
+            .filter(|s| s.child.try_lock().map(|c| c.is_some()).unwrap_or(true))
+            .count();
         json!({
             "version": VERSION,
             "build": BUILD,

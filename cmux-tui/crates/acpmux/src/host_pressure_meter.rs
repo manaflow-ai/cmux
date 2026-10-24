@@ -111,6 +111,17 @@ impl Meter {
         }
     }
 
+    /// The verdict for a status request, without waiting: the last one, however old (`None`
+    /// before the first sample ends), and a sample starts on a blocking thread when it is not
+    /// fresh, so the next request reads it. A request never waits for the host's counters
+    /// (D1); [`Meter::current`] waits up to [`SAMPLE_WAIT`].
+    pub fn latest(self: &Arc<Self>) -> Option<Verdict> {
+        if self.fresh_at(Instant::now()).is_none() {
+            drop(self.start_sample());
+        }
+        self.last()
+    }
+
     /// Claims [`Meter::sampling`] and then queues one sample on a blocking thread;
     /// `None` while another is queued or running, so a stalled probe never piles
     /// up blocking jobs.

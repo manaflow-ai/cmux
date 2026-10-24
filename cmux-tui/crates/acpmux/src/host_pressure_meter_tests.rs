@@ -120,3 +120,29 @@ async fn peek_repeats_a_verdict_for_a_minute_only() {
     m.sample_at(older).unwrap();
     assert_eq!(m.peek(), None, "a 61 s old verdict is not");
 }
+
+/// Status takes `latest`: it never waits for the host's counters, even when its verdict is stale
+/// and no sample runs (`current` waited up to `SAMPLE_WAIT` then: acpmux-audit.md finding 16).
+/// The sample it starts answers the next request.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn status_answers_at_once_and_its_sample_answers_the_next_request() {
+    let probe = Arc::new(FakeProbe::default());
+    *probe.sample.lock().unwrap() = incident();
+    let (release, gate) = std::sync::mpsc::channel();
+    *probe.gate.lock().unwrap() = Some(gate);
+    let m = Arc::new(meter(&probe));
+    let start = Instant::now();
+    assert_eq!(m.latest(), None);
+    assert!(start.elapsed() < SAMPLE_WAIT / 5, "{:?}", start.elapsed());
+    release.send(()).unwrap();
+    let mut v = None;
+    for _ in 0..200 {
+        v = m.latest();
+        if v.is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(!v.expect("the sample status started ends").ok);
+    assert_eq!(*probe.reads.lock().unwrap(), 1);
+}
