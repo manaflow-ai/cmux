@@ -407,7 +407,7 @@ button.acpmux-chat-inspector-port:hover,
   font-variant-numeric: tabular-nums;
 }
 .acpmux-chat-inspector-row__end[data-state="failed"] {
-  color: var(--agent-danger, var(--agent-muted));
+  color: var(--agent-status-failure);
 }
 .acpmux-chat-inspector-row .acpmux-diff-counts {
   opacity: 0.8;
@@ -471,7 +471,7 @@ button.acpmux-chat-inspector-port:hover,
 }
 .acpmux-chat-inspector-stop[data-state="failed"],
 .acpmux-chat-inspector-stop[data-state="failed"]:hover:not(:disabled) {
-  color: var(--agent-danger);
+  color: var(--agent-status-failure);
 }
 .acpmux-chat-inspector-sr-only {
   position: absolute;
@@ -516,17 +516,17 @@ button.acpmux-chat-inspector-port:hover,
   color: var(--agent-muted);
 }
 .acpmux-chat-inspector-pr[data-state="open"] .acpmux-chat-inspector-pr__icon {
-  color: var(--agent-success, var(--acpmux-add));
+  color: var(--agent-status-success);
 }
 .acpmux-chat-inspector-pr[data-state="merged"] .acpmux-chat-inspector-pr__icon {
-  color: var(--agent-ansi-5, var(--agent-accent));
+  color: var(--agent-status-merged);
 }
 .acpmux-chat-inspector-pr[data-state="draft"] .acpmux-chat-inspector-pr__icon {
-  color: var(--agent-warning, var(--agent-muted));
+  color: var(--agent-status-warning);
 }
 .acpmux-chat-inspector-pr[data-state="closed"] .acpmux-chat-inspector-pr__icon,
 .acpmux-chat-inspector-pr[data-state="conflicting"] .acpmux-chat-inspector-pr__icon {
-  color: var(--agent-danger);
+  color: var(--agent-status-failure);
 }
 .acpmux-chat-inspector-pr__text {
   flex: 1 1 auto;
@@ -583,7 +583,7 @@ button.acpmux-chat-inspector-port:hover,
   margin-left: auto;
 }
 .acpmux-chat-inspector-pr__checks[data-checks="failing"] {
-  color: var(--agent-danger);
+  color: var(--agent-status-failure);
 }
 .acpmux-chat-inspector-pr__base {
   color: var(--agent-muted);
@@ -596,10 +596,10 @@ button.acpmux-chat-inspector-port:hover,
   height: 7px;
   margin-right: 2px;
   border-radius: 50%;
-  background: var(--agent-success, var(--acpmux-add));
+  background: var(--agent-status-success);
 }
 .acpmux-chat-inspector-pr__checks[data-checks="pending"] {
-  background: var(--agent-warning, var(--agent-muted));
+  background: var(--agent-status-warning);
 }
 .acpmux-chat-inspector-pr__owner {
   flex: none;
@@ -681,7 +681,7 @@ button.acpmux-chat-inspector-port:hover,
   height: 7px;
   margin: 6px 2px 0;
   border-radius: 50%;
-  background: var(--agent-success, var(--acpmux-add));
+  background: var(--agent-status-success);
 }
 .acpmux-chat-inspector-server__text {
   flex: 1 1 auto;
@@ -733,7 +733,7 @@ button.acpmux-chat-inspector-port:focus-visible {
 }
 .acpmux-chat-inspector-task[data-state="failed"] .acpmux-chat-inspector-task__state,
 .acpmux-chat-inspector-task[data-state="lost"] .acpmux-chat-inspector-task__state {
-  color: var(--agent-danger, var(--agent-muted));
+  color: var(--agent-status-failure);
 }
 .acpmux-chat-inspector-fold {
   display: flex;
