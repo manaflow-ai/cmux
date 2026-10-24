@@ -62,6 +62,13 @@ nonisolated enum AcpmuxServerPeer {
             case .olderDaemon: "the other install's acpmux predates the person challenge"
             }
         }
+
+        /// A socket that vanished while a daemon hands off is expected to come back shortly.
+        /// Other refusals name a live peer or a protocol problem and must remain visible.
+        var isTransientRestart: Bool {
+            if case .unreachable = self { return true }
+            return false
+        }
     }
 
     /// What a passing peer is: the acpmux at this app's own path, or another install's.

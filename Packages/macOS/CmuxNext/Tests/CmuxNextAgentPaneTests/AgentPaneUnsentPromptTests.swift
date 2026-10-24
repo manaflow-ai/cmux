@@ -116,6 +116,33 @@ struct AgentPaneUnsentPromptTests {
         #expect(Self.prompts(daemon, peer: 2).isEmpty, "a prompt acpmux answered went again at the next launch")
     }
 
+    /// A daemon restart while the person is composing keeps the prompt in the host journal. The
+    /// replacement daemon receives it once, without making the page ask the person to retype it.
+    @Test func aDaemonRestartMidComposeKeepsThePromptAndRecovers() async throws {
+        let url = Self.journalURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        let first = AcpmuxStandInServer()
+        try await first.start()
+        first.hold("session/prompt")
+        let run1 = try await Self.pane(first, journal: AgentPanePromptJournal(url: url))
+        run1.transport.gestures.record()
+        #expect(await run1.transport.send(connection: run1.id, frames: [Self.prompt(id: 1, promptId: "restart-1")]) == nil)
+        #expect(await first.wait { _ in Self.prompts(first, peer: 0).count == 1 })
+        first.stop()
+
+        let replacement = AcpmuxStandInServer()
+        try await replacement.start()
+        defer { replacement.stop() }
+        let run2 = try await Self.pane(replacement, journal: AgentPanePromptJournal(url: url))
+        await Self.barrier(run2, id: 2)
+        let resent = Self.prompts(replacement, peer: 0)
+        #expect(resent.count == 1)
+        #expect(Self.mux(resent[0])?["promptId"] as? String == "restart-1")
+        #expect(Self.mux(resent[0])?["resend"] as? Bool == true)
+        #expect(AgentPanePromptJournal(url: url).entries().count == 1, "the prompt remains until the replacement daemon acknowledges it")
+    }
+
     /// A prompt acpmux acknowledged (`_acpmux/prompt_accepted`) is in its session log: the
     /// relaunch never sends it, even when its turn was still running as the app ended.
     @Test func anAcknowledgedPromptIsNotSentAgain() async throws {

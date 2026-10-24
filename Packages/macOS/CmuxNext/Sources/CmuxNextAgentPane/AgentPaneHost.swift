@@ -215,10 +215,20 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// enrolled, so its allows stay refused. (The pane also checks the port's listener and the
     /// accepted end before its first frame.)
     private static func verifiedEndpoint(_ environment: AcpmuxEnvironment) async throws -> AcpmuxWebEndpoint {
-        let result = try await AcpmuxServerPeer.call(socketPath: environment.socketPath, method: "_acpmux/status",
-                                                     params: [:], executable: environment.executable,
-                                                     allowForeign: true, deadline: .seconds(2))
-        return try AcpmuxStatus(result).endpoint()
+        let deadline = ContinuousClock.now + .seconds(3)
+        var delay: Duration = .milliseconds(100)
+        while true {
+            do {
+                let result = try await AcpmuxServerPeer.call(socketPath: environment.socketPath, method: "_acpmux/status",
+                                                             params: [:], executable: environment.executable,
+                                                             allowForeign: true, deadline: .seconds(2))
+                return try AcpmuxStatus(result).endpoint()
+            } catch let refusal as AcpmuxServerPeer.Refusal where refusal.isTransientRestart && ContinuousClock.now < deadline {
+                let remaining = deadline - ContinuousClock.now
+                try await Task.sleep(for: min(delay, remaining))
+                delay = min(delay * 2, .milliseconds(500))
+            }
+        }
     }
 
     /// The pane's error for a peer check that refused the daemon on `environment`'s socket,
