@@ -5223,6 +5223,9 @@ function AcpmuxPane() {
   const earlyNewTab = useEarlyNewTabContext(callNative, setNewTab);
   // Agent chats live in the window's one sidebar (Projects and Recents); the pane opens what it picks.
   const selectSession = useCallback((sessionId: string) => {
+    // Leaving a New Tab for an existing chat must clear its unsent-chat marker before the attach
+    // answers, or the empty-state project picker flashes while the old transcript loads.
+    setNewSession(false);
     void callNative("chat.select", { sessionId });
   }, []);
   /// What the DEBUG automation verbs (automation.ts) read and run: this render's chat and the

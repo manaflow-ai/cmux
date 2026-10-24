@@ -278,7 +278,8 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
       return frames.length > 0 && frames.at(-1)!.at >= 1100;
     });
     const frames = await page.evaluate(
-      () => (window as unknown as { oldChatFrames: { at: number; empty: boolean; transcript: boolean }[] }).oldChatFrames,
+      () =>
+        (window as unknown as { oldChatFrames: { at: number; empty: boolean; transcript: boolean }[] }).oldChatFrames,
     );
     await page.close();
     const afterOpen = frames.filter((frame) => frame.transcript || frame.empty);
