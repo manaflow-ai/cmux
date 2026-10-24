@@ -4,6 +4,7 @@ import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextTabs
 import Observation
 
 /// REOPEN-CLOSED (R102/R103): tabs the user closes (Cmd-W, a tab's close
@@ -58,6 +59,9 @@ final class CloseUndoToasts {
     /// page runs its beforeunload first (`BrowserUserClosing`) and closes the
     /// tab itself afterwards. Starts that page's close. Tests pass their own.
     var pageDecidesClose: @MainActor (PaneController, StripTabID) -> Bool = CloseUndoToasts.livePageDecidesClose
+    /// Closes of several tabs waiting for their pages, so each stays one Reopen Closed step.
+    let pageDecidedCloses = PageDecidedCloses<PaneController, PreparedTabClose>(
+        prepare: { pane, ids in pane.prepareClose(ids) }, send: { PaneController.send($0, from: $1, userClose: $2) })
 
     /// ``pageDecidesClose``'s answer in the app: the tab's browser page decides.
     static func livePageDecidesClose(_ pane: PaneController, _ id: StripTabID) -> Bool {
@@ -146,7 +150,9 @@ final class CloseUndoToasts {
         for part in parts { part.pane.close(part.ids.filter { part.pane.daemon.store.creations.isPending(tab: $0.rawValue) }) }
         // A tab already closing left the store's visible records with its close intent, so a
         // second close of it (before the daemon answered the first) finds nothing to close.
-        let parts = parts.filter { !$0.ids.isEmpty }
+        // A page's own close of its tab, after a close of several tabs waited for it, joins that close.
+        let undoToasts = parts.first?.pane.services.closedTabs?.undoToasts
+        let parts = (undoToasts?.pageDecidedCloses.absorb(parts) ?? parts).filter { !$0.ids.isEmpty }
         guard let first = parts.first?.pane else { return }
         let user = isUserClose, services = first.services, daemon = first.daemon
         let tabs = parts.flatMap { part in part.ids.compactMap(part.pane.tab) }
@@ -154,13 +160,28 @@ final class CloseUndoToasts {
         // One gesture, one daemon close and one closed group (`PaneController.close(_:)`): one Reopen
         // Closed brings every pane's tabs back, and one undo toast counts them all.
         let closeAll = { @MainActor (undo: CloseUndoToasts?, costly: Bool) in
-            let closing = panes.compactMap { part -> (pane: PaneController, ids: [StripTabID])? in
-                guard let pane = part.pane() else { return nil }
-                // A person's close of a live page runs its beforeunload first (`BrowserUserClosing`): that tab is not
-                // announced or closed now; the page decides, and its own close (after Leave) closes it then.
+            var closing: [(pane: PaneController, ids: [StripTabID])] = [], deciding: [(pane: PaneController, ids: [StripTabID])] = []
+            for part in panes {
+                guard let pane = part.pane() else { continue }
+                // A person's close of a live page runs its beforeunload first (`BrowserUserClosing`): the page
+                // decides, and its own close (after Leave) closes the tab then.
                 let decides = pane.services.closedTabs?.undoToasts.pageDecidesClose ?? CloseUndoToasts.livePageDecidesClose
-                return (pane, user ? part.ids.filter { !decides(pane, $0) } : part.ids)
+                let deciders = user ? part.ids.filter { decides(pane, $0) } : []
+                closing.append((pane, part.ids.filter { !deciders.contains($0) }))
+                if !deciders.isEmpty { deciding.append((pane, deciders)) }
             }
+            let all = closing.map(\.ids.count).reduce(0, +) + deciding.map(\.ids.count).reduce(0, +)
+            let daemon = (closing.first ?? deciding.first)?.pane.daemon
+            // One close of several tabs is one Reopen Closed step even when pages decide (Lawrence
+            // 2026-10-23, Cmd-Opt-T then Cmd-Shift-T): it waits for them (`PageDecidedCloses`).
+            if let undo, !deciding.isEmpty, all > 1, (closing + deciding).allSatisfy({ $0.pane.daemon === daemon }) {
+                let parts = closing.map { part in (pane: part.pane, ids: part.ids + (deciding.first { $0.pane === part.pane }?.ids ?? [])) }
+                    + deciding.filter { part in !closing.contains { $0.pane === part.pane } }
+                undo.expectGroup(parts, costly: costly)
+                undo.pageDecidedCloses.begin(closing: closing.filter { !$0.ids.isEmpty }, deciding: deciding, userClose: user)
+                return
+            }
+            closing = closing.filter { !$0.ids.isEmpty }
             undo?.expectGroup(closing, costly: costly)
             PaneController.close(closing)
         }
