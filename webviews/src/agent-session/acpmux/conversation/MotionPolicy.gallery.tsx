@@ -1,6 +1,6 @@
 // l10n-allow-file: deterministic visual fixtures for the live motion policy gallery.
 // This gallery owns one page-scoped reveal loop so the policy toggle can record a settlement frame
-// without walking rows, tokens or document animations. It is a prototype for #3696, not production.
+// without walking rows, tokens or document animations. It is a prototype, not production.
 import { useEffect, useRef, useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
