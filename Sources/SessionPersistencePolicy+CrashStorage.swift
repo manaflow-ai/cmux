@@ -127,7 +127,7 @@ extension SessionPersistencePolicy {
     ///
     /// A crash can leave the same window in the snapshot twice, sometimes
     /// under a new window ID; restoring both opens every workspace twice.
-    /// `CrashDuplicateWindowMatcher` decides which windows are the same, using
+    /// `CrashWindowSignature.isCrashDuplicate(of:)` decides which windows are the same, using
     /// agent checkpoints only (see `workspaceCheckpointIDs`). For each pair:
     /// - The window with the higher restore-fidelity score keeps its window
     ///   ID, frame, display and sidebar.
@@ -151,13 +151,13 @@ extension SessionPersistencePolicy {
         in snapshot: AppSessionSnapshot
     ) -> (snapshot: AppSessionSnapshot, mergedWindowCount: Int) {
         var result: [SessionWindowSnapshot] = []
-        var signatures: [CrashDuplicateWindowMatcher.WindowSignature] = []
+        var signatures: [CrashWindowSignature] = []
         result.reserveCapacity(snapshot.windows.count)
         var merged = 0
         for window in snapshot.windows {
             let signature = crashWindowSignature(window)
             if let index = signatures.firstIndex(where: {
-                CrashDuplicateWindowMatcher.isDuplicate($0, signature)
+                $0.isCrashDuplicate(of: signature)
             }) {
                 result[index] = mergingCrashDuplicateWindows(result[index], window)
                 signatures[index] = crashWindowSignature(result[index])
@@ -175,14 +175,14 @@ extension SessionPersistencePolicy {
 
     private static func crashWindowSignature(
         _ window: SessionWindowSnapshot
-    ) -> CrashDuplicateWindowMatcher.WindowSignature {
+    ) -> CrashWindowSignature {
         let workspaces = window.tabManager.workspaces
         let workspaceIDs = workspaces.compactMap(\.workspaceId)
         let titles = workspaces.compactMap { workspace -> String? in
             let title = workspace.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             return title.isEmpty ? nil : title
         }
-        return CrashDuplicateWindowMatcher.WindowSignature(
+        return CrashWindowSignature(
             windowId: window.windowId,
             workspaceCount: workspaces.count,
             workspaceIDs: workspaceIDs.count == workspaces.count ? workspaceIDs : nil,
