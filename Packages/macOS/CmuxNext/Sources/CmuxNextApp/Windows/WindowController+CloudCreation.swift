@@ -25,6 +25,7 @@ extension WindowController {
             if state.workspaceID != opened { services.windows.select(opened, in: state) }
             return false
         }
+        defer { didShowContent() }
         // The view in the content area is the creation's own record (no stored property).
         if let shown = root.content as? CloudMachineProgressView, shown.creation === creation { return true }
         parkContentForPage()
