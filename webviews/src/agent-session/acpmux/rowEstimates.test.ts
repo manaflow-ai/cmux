@@ -130,7 +130,7 @@ test("a hidden row after the chat's last footer leaves it the last one", () => {
   expect(heights[2]).toBe(0);
 });
 
-test("another agent's message is its 26px line in 2px margins, its card cut to six lines, and the 8px message gap", () => {
+test("another agent's message is its 26px line in 2px margins, its card cut to eight lines, and the 8px message gap", () => {
   const row = (text: string) => ({
     id: "m",
     version: 1,

@@ -6,7 +6,7 @@
 // BE ABLE TO CLICK ON THESE TO ACTUALLY GO TO THEM"), its tooltip naming the chat and that machine
 // ("Open chief-ui (huge-blue)"). The message is a
 // muted glass card under the line, its text drawn as Markdown with PR, issue and file references
-// linked, cut to its first six lines (`RECEIVED_LINES`, the last fading out) when it is longer; the
+// linked, cut to its first eight lines (`RECEIVED_LINES`, the last fading out) when it is longer; the
 // line's chevron, or a click on the cut card, opens it whole, with the prompt as the agent got it
 // (cmux's or Claude Code's envelope) behind Details under it. Whether it is open lasts while the
 // page does, so scrolling it out of the virtualized transcript keeps it. A sub-session family's

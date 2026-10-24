@@ -1,6 +1,6 @@
 // l10n-allow-file: gallery fixtures (sample messages and replies), not shipped UI.
 // Another agent's message to this chat as one line at the left among the tool rows (the sender's
-// mark, its name as a chip) over a glass card with the message, cut to six lines when longer (›
+// mark, its name as a chip) over a glass card with the message, cut to eight lines when longer (›
 // opens it whole), and a Claude Code task notification as one quiet line
 // (IncomingMessageCard.tsx, incomingMessage.ts). A message from a chat here also has Reply at the line's end, which
 // answers in place in the sender's chat and thread.
@@ -65,6 +65,21 @@ const report = [
   "Then the notification body, which reads the same field.",
   "",
   "Nothing needs you; I'll report when #2214 lands.",
+].join("\n");
+
+// Leo's lane report reference (2026-10-24), reconstructed without the private screenshot: a GFM
+// table, links whose labels are URLs, and a full SHA that the quiet commit renderer shortens.
+const laneReport = [
+  "**cx3-s71-jank · lane report**",
+  "",
+  "| case | PR | result |",
+  "|---|---:|---|",
+  "| queue | [#24772](https://github.com/manaflow-ai/cmux/pull/24772) | green |",
+  "| transcript | [compare](https://cmux.com/compare/agent-message-style) | review |",
+  "",
+  "See [https://github.com/manaflow-ai/cmux/actions](https://github.com/manaflow-ai/cmux/actions) for the run.",
+  "Commit 4c656ea8f42e3d1b9a7c0e6f5d4c3b2a19081716 is the current head.",
+  "The queued report should keep the table readable and show the sender above the bubble.",
 ].join("\n");
 
 export default agentPaneEntry({
@@ -164,12 +179,21 @@ export default agentPaneEntry({
       ]),
     },
     long: {
-      note: "A long message's card shows its first six lines, the last fading out; › or a click on the card opens it whole.",
+      note: "A long message's card shows its first eight lines, the last fading out; › or a click on the card opens it whole.",
       snapshot: chat([
         user("Land the grid lane and report back", 9),
         assistant("Started grid-lane; it will report here.", 8.5),
         summary(8.5, { status: "completed" }),
         user(report, 6, { incoming: message("grid-lane", report, undefined, "child-3"), untyped: true }),
+      ]),
+    },
+    "lane-report": {
+      note: "Leo's lane report reference: sender header, Markdown table and links, with a long body folded to eight lines in both themes.",
+      snapshot: chat([
+        user("Ask the lanes for the current report", 9),
+        assistant("They are sending the report now.", 8.5),
+        summary(8.5, { status: "completed" }),
+        user(laneReport, 2, { incoming: message("cx3-s71-jank", laneReport, undefined, "lane-jank"), untyped: true }),
       ]),
     },
     opened: {
