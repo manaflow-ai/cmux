@@ -42,6 +42,8 @@ def check_catalog(path: Path) -> list[str]:
         )
     if not isinstance(data.get("strings"), dict):
         errors.append(f"{path}: missing top-level 'strings' object")
+    if data.get("version") != "1.0":
+        errors.append(f"{path}: missing top-level 'version' key with value '1.0'")
     return errors
 
 
