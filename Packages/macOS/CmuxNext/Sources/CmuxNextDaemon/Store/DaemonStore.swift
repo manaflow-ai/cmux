@@ -138,9 +138,11 @@ public final class DaemonStore: StateResourceQueries {
     /// Creates waiting at send time for the stand-in they were pressed on to get its daemon pane
     /// (``daemonTarget(for:)``), with the handle each one waits on: resumed after every overlay
     /// lift, when that can have changed, and the create each one waits for (a script stage holding
-    /// its pane-added commits). A waited-on stand-in stays known until its waiter looked
-    /// again (``releaseStandIns()``), since a reply-path create has no intent that keeps it.
+    /// its pane-added commits).
     @ObservationIgnored var standInWaiters: [(handle: PaneID, transaction: ClientTransactionID, resume: CheckedContinuation<Void, Never>)] = []
+    /// The handles creates are looking up now (``daemonTarget(for:)``), with how many: each stays
+    /// known while one does (``releaseStandIns()``).
+    @ObservationIgnored var standInLookups: [PaneID: Int] = [:]
     /// True while daemon state applies to the confirmed records (the
     /// intent overlay is undone).
     @ObservationIgnored var overlayLifted = false

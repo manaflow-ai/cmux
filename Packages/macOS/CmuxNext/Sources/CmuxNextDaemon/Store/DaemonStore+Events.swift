@@ -51,12 +51,13 @@ extension DaemonStore {
     public func apply(batch: [DaemonEventEnvelope]) -> Followup {
         // A staged script batch keeps the events of the workspaces it touches (DaemonStore+Stage.swift).
         let batch = stage?.passing(batch, in: self) ?? batch
-        // A create waiting on a stand-in whose pane-added the stage just held shows it now.
-        commitStageForStandInWaiters()
-        guard !batch.isEmpty else { return .none }
         // An observer that applies events while this batch applies is an
         // update cycle (idle-wakeups.md): counted, logged in debug builds.
-        return updateCycles.run { applyBatch(batch) }
+        let followup: Followup = batch.isEmpty ? .none : updateCycles.run { applyBatch(batch) }
+        // A create waiting on a stand-in whose pane-added the stage just held shows it now, after
+        // the events that passed (they come first in the daemon's order).
+        commitStageForStandInWaiters()
+        return followup
     }
 
     private func applyBatch(_ batch: [DaemonEventEnvelope]) -> Followup {

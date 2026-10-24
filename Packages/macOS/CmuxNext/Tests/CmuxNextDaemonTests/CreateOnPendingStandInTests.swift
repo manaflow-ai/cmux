@@ -8,7 +8,10 @@ import Testing
 /// "unknown pane" and the shown, focused pane goes): at send time it names the first create's
 /// daemon pane, waiting for it, or the first create's own anchor once that create was closed or
 /// refused (``DaemonStore/daemonTarget(for:)``), and its overlay shows it there too.
-@MainActor
+///
+/// A wait that hangs fails at the suite's time limit; the stages' deadlines lie past it, so a create
+/// that waits for a stage's deadline fails too.
+@MainActor @Suite(.timeLimit(.minutes(1)))
 struct CreateOnPendingStandInTests {
     private static let pane = PaneID(rawValue: 3)
     private static let place = (workspace: WorkspaceHandle(rawValue: 1), screen: ScreenID(rawValue: 2))
@@ -232,7 +235,7 @@ struct CreateOnPendingStandInTests {
     @Test func aWaitInAStagedWorkspaceCommitsTheStageWhenItsPaneArrives() async throws {
         let store = Self.store()
         let scope = DaemonCommandScope()
-        let stage = store.openStage(for: scope, until: .now + .seconds(60))
+        let stage = store.openStage(for: scope, until: .now + .seconds(600))
         DaemonCommandScope.$current.withValue(scope) {
             store.intend(.renameTab(surface: SurfaceID(rawValue: 4), name: "scripted"), transaction: .generate())
         }
@@ -256,7 +259,7 @@ struct CreateOnPendingStandInTests {
     @Test func aCreateOnAStandInWhosePaneTheStageHoldsCommitsTheStageFirst() async throws {
         let store = Self.store()
         let scope = DaemonCommandScope()
-        let stage = store.openStage(for: scope, until: .now + .seconds(60))
+        let stage = store.openStage(for: scope, until: .now + .seconds(600))
         DaemonCommandScope.$current.withValue(scope) {
             store.intend(.renameTab(surface: SurfaceID(rawValue: 4), name: "scripted"), transaction: .generate())
         }
@@ -271,6 +274,37 @@ struct CreateOnPendingStandInTests {
         #expect(try await store.daemonTarget(for: split.handle) == daemonPane, "the create waited on the stage")
         #expect(!stage.isOpen)
         #expect(store.standInWaiters.isEmpty)
+        #expect(store.mirrorViolations.isEmpty)
+    }
+
+    /// A reply-path create (Split Left, no intent of its own) pressed on a stand-in whose pane-added
+    /// and layout the stage holds, its reply already in: the create commits the stage, the stand-in's
+    /// create settles in that commit's lift, and the stand-in stays known for the create, which names
+    /// the daemon's pane, never `CreateTargetGone`.
+    @Test func aReplyPathCreateKeepsItsStandInThroughTheStageCommitThatSettlesIt() async throws {
+        let store = Self.store()
+        let scope = DaemonCommandScope()
+        let stage = store.openStage(for: scope, until: .now + .seconds(600))
+        DaemonCommandScope.$current.withValue(scope) {
+            store.intend(.renameTab(surface: SurfaceID(rawValue: 4), name: "scripted"), transaction: .generate())
+        }
+        let split = ProvisionalPane()
+        let transaction = ClientTransactionID.generate()
+        store.intend(.splitPane(pane: Self.pane, direction: .right, ratio: 0.5, provisional: split), transaction: transaction)
+        let daemonPane = PaneID(rawValue: 9)
+        let layout = ScreenLayoutDelta(layout: .split(id: nil, resourceID: ResourceID(rawValue: split.splitID), direction: .right,
+                                                      ratio: 0.5, a: .leaf(Self.pane), b: .leaf(daemonPane)))
+        _ = store.apply(batch: [
+            Self.paneAdded(daemonPane, taking: split, surface: 7, sequence: 1, echoing: transaction),
+            DaemonEventEnvelope(sequence: 2, event: .layoutChanged(screen: Self.place.screen, layout: layout, transaction: transaction)),
+        ])
+        store.noteSettled(transaction, at: 2)
+        #expect(stage.isOpen, "the stage did not hold the split's events")
+        #expect(store.intentLog.contains(transaction), "the split settled under a stage that holds its events")
+
+        #expect(try await store.daemonTarget(for: split.handle) == daemonPane, "the stand-in was released in the commit's lift")
+        #expect(!stage.isOpen)
+        #expect(!store.intentLog.contains(transaction), "the split's create did not settle in the commit")
         #expect(store.mirrorViolations.isEmpty)
     }
 }

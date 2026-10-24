@@ -46,6 +46,13 @@ extension DaemonStore {
     ///   connection changed while it waited (the create's command was bound to the old one).
     public func daemonTarget(for handle: PaneID) async throws -> PaneID {
         let epoch = connectionEpoch
+        // The stand-in stays known for the whole call, also across a lift that settles its create
+        // between a resume and the next look, or inside the stage commit below (a reply-path create
+        // has no intent that keeps it; ``releaseStandIns()``).
+        standInLookups[handle, default: 0] += 1
+        defer {
+            if let count = standInLookups[handle], count > 1 { standInLookups[handle] = count - 1 } else { standInLookups[handle] = nil }
+        }
         // wakeup-allow: each pass waits for the next store lift or connection change (an event), never polls.
         while true {
             guard connectionEpoch == epoch else { throw CreateTargetGone(pane: handle) }
@@ -87,13 +94,14 @@ extension DaemonStore {
     }
 
     /// A stand-in stays known while a pending intent shows it, names it as its pane, or can fall
-    /// back through it (the anchors of the kept ones, transitively), and while a create waits on it.
+    /// back through it (the anchors of the kept ones, transitively), and while a create looks it up
+    /// (``daemonTarget(for:)``, waiting or not).
     /// A reply-path create (Split Left/Up, a New Row without row client keys) has no intent in the
     /// log: when its stand-in's create settles in the same lift that brings its daemon pane, the
     /// waiter still has to find that pane after the lift (``resumeStandInWaiters()``).
     func releaseStandIns() {
         guard !standIns.isEmpty else { return }
-        var kept = Set(standInWaiters.map { $0.handle })
+        var kept = Set(standInLookups.keys)
         for entry in intentLog.entries {
             switch entry.kind {
             case .splitPane(let target, _, _, let provisional):
