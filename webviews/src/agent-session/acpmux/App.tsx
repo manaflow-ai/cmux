@@ -15,6 +15,7 @@ import React, {
 import { flushSync } from "react-dom";
 import { CONNECT_ACTIONS, savedEnvironmentHost, type ConnectKind, type OffloadKind } from "./environments";
 import { chiefEnvelope } from "./conversation/chiefEnvelope";
+import { rowPresence } from "./conversation/rowPresence";
 import { QueryClientProvider, useIsFetching, useQueryClient } from "@tanstack/react-query";
 import { applyAgentTheme } from "../shared/theme";
 import { isAgentMotionOff } from "../shared/motion";
@@ -2099,6 +2100,10 @@ export function VirtualTranscript({
   // because the transcript virtualizes rows and can unmount either end while the reader moves.
   const [activeRowId, setActiveRowId] = useState(rows[0]?.id);
   const [transcriptRange, setTranscriptRange] = useState<TranscriptRange | undefined>();
+  const activeRowRef = useRef(activeRowId);
+  activeRowRef.current = activeRowId;
+  const transcriptRangeRef = useRef(transcriptRange);
+  transcriptRangeRef.current = transcriptRange;
   /// The end rows of a selection a drag from the margin makes (gutterSelect.ts): they stay mounted
   /// while it lasts, so the selection keeps its ends when the view scrolls them out (at most two).
   /// Each with how far from the last row it was, which older history paging in above it keeps.
@@ -2114,9 +2119,6 @@ export function VirtualTranscript({
   // reset effect commits. The keyed values below make the first new-session paint fresh as well.
   const [selectionSessionKey, setSelectionSessionKey] = useState(sessionKey);
   const sessionChanged = selectionSessionKey !== sessionKey;
-  // This effect validates at most two focused ids, so build the lookup once per rows identity
-  // instead of scanning the whole transcript for every id on each streaming snapshot.
-  const rowIds = useMemo(() => new Set(rows.map((row) => row.id)), [rows]);
   useEffect(() => {
     if (sessionChanged) {
       setSelectionSessionKey(sessionKey);
@@ -2128,13 +2130,14 @@ export function VirtualTranscript({
       pendingFocus.current = undefined;
       return;
     }
-    const has = (id: string) => rowIds.has(id);
-    setActiveRowId((current) => (current && has(current) ? current : rows[0]?.id));
+    const currentRange = transcriptRangeRef.current;
+    const presence = rowPresence(rows, activeRowRef.current, currentRange?.anchorId, currentRange?.focusId);
+    setActiveRowId((current) => (current && presence.active ? current : rows[0]?.id));
     setTranscriptRange((current) => {
       if (!current) return current;
-      return has(current.anchorId) && has(current.focusId) ? current : undefined;
+      return presence.anchor && presence.focus ? current : undefined;
     });
-  }, [rowIds, rows, sessionChanged, sessionKey]);
+  }, [rows, sessionChanged, sessionKey]);
   // Rows that arrive live (a reply, a tool call, a status line) enter once. The rows at the first
   // render, and many at once (a session switch, older history), are a load and do not.
   const knownRows = useRef<Set<string> | null>(null);
