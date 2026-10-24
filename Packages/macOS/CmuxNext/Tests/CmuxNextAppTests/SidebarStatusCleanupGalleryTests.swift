@@ -38,7 +38,8 @@ import Testing
         window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: .darkAqua)
         let input = try AANestedGroupsGalleryTests.input("Soft Blue")
-        _ = ThemeStore.shared.apply(input)
+        // theme-root-allow: the sidebar's static Palette lookups still fall back to the ambient root (as in AANestedGroupsGalleryTests)
+        _ = ThemeScope.app.store.apply(input)
         let scope = ThemeScope(level: .room)
         scope.setOverride(ThemeSpec("Soft Blue"), input: input, animated: false)
         let sidebar = SidebarView(model: SidebarModel(sections: sections(leadingStatusIcons: leadingStatusIcons)), design: DesignSettings())
