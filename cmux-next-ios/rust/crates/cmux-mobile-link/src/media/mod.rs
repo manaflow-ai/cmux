@@ -557,7 +557,16 @@ pub(crate) enum Admit {
 }
 
 impl Gate {
-    pub(crate) fn admit(&mut self, id: u64, keyframe: bool, ts: u32, now: std::time::Instant) -> Admit {
+    /// `tag`: the tab the frame belongs to ([`tag`]; `None` from a Mac that
+    /// tags nothing).
+    pub(crate) fn admit(
+        &mut self,
+        id: u64,
+        keyframe: bool,
+        _tag: Option<u32>,
+        ts: u32,
+        now: std::time::Instant,
+    ) -> Admit {
         let newer = self.newest_ts.is_none_or(|newest| (ts.wrapping_sub(newest) as i32) > 0);
         let pass = self.current.is_none() || (self.current == Some(id)) || (keyframe && newer);
         if pass {
@@ -607,6 +616,7 @@ impl InInner {
         let verdict = self.gate.lock().unwrap_or_else(std::sync::PoisonError::into_inner).admit(
             id,
             frame.keyframe,
+            tag::peek(&frame.access_unit),
             frame.rtp_timestamp,
             std::time::Instant::now(),
         );
@@ -843,18 +853,43 @@ mod tests {
         let ms = |n| t0 + std::time::Duration::from_millis(n);
         let (tunnel, session) = (1, 2);
         let mut gate = Gate::default();
-        assert_eq!(gate.admit(tunnel, true, 1000, ms(0)), Admit::Pass);
-        assert_eq!(gate.admit(tunnel, false, 2500, ms(16)), Admit::Pass);
+        assert_eq!(gate.admit(tunnel, true, None, 1000, ms(0)), Admit::Pass);
+        assert_eq!(gate.admit(tunnel, false, None, 2500, ms(16)), Admit::Pass);
         // The Mac switches at keyframe K (ts 4000) on the session...
-        assert_eq!(gate.admit(session, true, 4000, ms(30)), Admit::Pass);
+        assert_eq!(gate.admit(session, true, None, 4000, ms(30)), Admit::Pass);
         // ...and an older keyframe K' (ts 3000) it sent on the tunnel just
         // before arrives late over TURN over TLS: it does not pass.
-        assert_eq!(gate.admit(tunnel, true, 3000, ms(40)), Admit::Reject);
-        assert_eq!(gate.admit(tunnel, false, 3500, ms(45)), Admit::Reject);
-        assert_eq!(gate.admit(session, false, 5500, ms(46)), Admit::Pass);
+        assert_eq!(gate.admit(tunnel, true, None, 3000, ms(40)), Admit::Reject);
+        assert_eq!(gate.admit(tunnel, false, None, 3500, ms(45)), Admit::Reject);
+        assert_eq!(gate.admit(session, false, None, 5500, ms(46)), Admit::Pass);
         // Falling back: a newer keyframe from the tunnel takes it.
-        assert_eq!(gate.admit(tunnel, true, 9000, ms(300)), Admit::Pass);
-        assert_eq!(gate.admit(session, false, 8000, ms(301)), Admit::Reject);
+        assert_eq!(gate.admit(tunnel, true, None, 9000, ms(300)), Admit::Pass);
+        assert_eq!(gate.admit(session, false, None, 8000, ms(301)), Admit::Reject);
+    }
+
+    /// Each tab's browser host has its own capture clock (its process start),
+    /// so a tab opened later has RTP timestamps minutes behind the tab before.
+    /// After it takes the lane, a route switch at its keyframe must pass: it
+    /// is not a late keyframe of the route the Mac left (2026-10-24 freeze:
+    /// the phone rejected every keyframe and asked again 4 times a second).
+    #[test]
+    fn a_later_tabs_keyframe_on_the_next_route_passes_although_its_clock_is_behind() {
+        let t0 = std::time::Instant::now();
+        let ms = |n| t0 + std::time::Duration::from_millis(n);
+        let (tunnel, session) = (1, 2);
+        let (old_tab, new_tab) = (Some(0xa), Some(0xb));
+        let minutes = 3 * 60 * 90_000u32;
+        let mut gate = Gate::default();
+        assert_eq!(gate.admit(session, true, old_tab, minutes, ms(0)), Admit::Pass);
+        assert_eq!(gate.admit(session, false, old_tab, minutes + 1500, ms(16)), Admit::Pass);
+        // The new tab takes the lane on the same route.
+        assert_eq!(gate.admit(session, true, new_tab, 1000, ms(30)), Admit::Pass);
+        assert_eq!(gate.admit(session, false, new_tab, 2500, ms(46)), Admit::Pass);
+        // The media session fails: the Mac moves to the tunnel at a keyframe.
+        assert_eq!(gate.admit(tunnel, true, new_tab, 4000, ms(300)), Admit::Pass);
+        assert_eq!(gate.admit(tunnel, false, new_tab, 5500, ms(316)), Admit::Pass);
+        // A late keyframe of the same tab on the route it left still does not pass.
+        assert_eq!(gate.admit(session, true, new_tab, 3000, ms(320)), Admit::Reject);
     }
 
     #[test]
@@ -862,13 +897,13 @@ mod tests {
         let t0 = std::time::Instant::now();
         let ms = |n| t0 + std::time::Duration::from_millis(n);
         let mut gate = Gate::default();
-        assert_eq!(gate.admit(2, true, 1000, ms(0)), Admit::Pass);
+        assert_eq!(gate.admit(2, true, None, 1000, ms(0)), Admit::Pass);
         // The session went quiet; only the tunnel's P frames come.
-        assert_eq!(gate.admit(1, false, 2000, ms(100)), Admit::Reject);
-        assert_eq!(gate.admit(1, false, 3000, ms(260)), Admit::RejectAndAsk);
-        assert_eq!(gate.admit(1, false, 3500, ms(300)), Admit::Reject, "asked at most every 250 ms");
-        assert_eq!(gate.admit(1, false, 4000, ms(520)), Admit::RejectAndAsk);
-        assert_eq!(gate.admit(1, true, 4500, ms(540)), Admit::Pass);
+        assert_eq!(gate.admit(1, false, None, 2000, ms(100)), Admit::Reject);
+        assert_eq!(gate.admit(1, false, None, 3000, ms(260)), Admit::RejectAndAsk);
+        assert_eq!(gate.admit(1, false, None, 3500, ms(300)), Admit::Reject, "asked at most every 250 ms");
+        assert_eq!(gate.admit(1, false, None, 4000, ms(520)), Admit::RejectAndAsk);
+        assert_eq!(gate.admit(1, true, None, 4500, ms(540)), Admit::Pass);
     }
 
     #[test]
