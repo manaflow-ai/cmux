@@ -26,6 +26,7 @@ pub mod hosts;
 pub mod orchestrate;
 pub mod output;
 pub mod pairing;
+pub mod peer_status;
 pub mod process;
 pub mod run;
 pub mod session_folder;
