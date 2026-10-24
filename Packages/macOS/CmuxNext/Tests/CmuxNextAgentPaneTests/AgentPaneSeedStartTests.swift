@@ -23,7 +23,7 @@ struct AgentPaneSeedStartTests {
         return try #require(AgentPaneView(model: model, source: .bundled(file), pageHost: true, chromium: hosting))
     }
 
-    static let sendsBeforeShown: [AgentPaneSeed] = [
+    nonisolated static let sendsBeforeShown: [AgentPaneSeed] = [
         AgentPaneSeed(prompt: "Fix the build", promptBy: .person),
         AgentPaneSeed(prompt: "First task", promptBy: .onboarding),
         AgentPaneSeed(adopt: AgentPaneAdopt(harness: "claude", agentSessionId: "outside-1")),
@@ -42,7 +42,7 @@ struct AgentPaneSeedStartTests {
         #expect(hosting.made.first?.visibility.contains(true) == false)
     }
 
-    static let waitsForShow: [AgentPaneSeed?] = [
+    nonisolated static let waitsForShow: [AgentPaneSeed?] = [
         nil,
         AgentPaneSeed(cwd: "/tmp"),
         AgentPaneSeed(draft: "kept text of a restored tab"),
