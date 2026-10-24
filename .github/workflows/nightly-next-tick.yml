@@ -48,7 +48,7 @@ concurrency:
 jobs:
   coalesce:
     if: github.repository == 'manaflow-ai/cmux'
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 13
     permissions:
       actions: read
@@ -113,7 +113,7 @@ jobs:
   request:
     needs: coalesce
     if: needs.coalesce.outputs.owner == 'true' && github.repository == 'manaflow-ai/cmux' && (github.event_name != 'workflow_run' || github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository)
-    runs-on: ubuntu-24.04 # nightly path never waits on Blacksmith
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
       # actions: read finds the Release compile; actions: write dispatches

@@ -886,6 +886,34 @@ def test_workflow_runs_the_guard_from_main_and_gates_the_move() -> None:
     assert "guard.decideNewest({" in WORKFLOW
 
 
+def test_non_macos_nightly_next_orchestration_uses_the_trusted_fast_check_fallback() -> None:
+    import yaml
+
+    jobs = yaml.safe_load(WORKFLOW)["jobs"]
+    for name in (
+        "decide",
+        "promote-nightly-next",
+        "await-release-surface-ack",
+        "promote-nightly-next-acked",
+        "resolve-nightly-cmux-tui-client",
+        "publish-nightly",
+        "republish-nightly-deltas",
+        "report-nightly-failure",
+        "close-nightly-failure-issue",
+    ):
+        runner = str(jobs[name]["runs-on"])
+        assert "blacksmith-2vcpu-ubuntu-2404" in runner, name
+        assert runner != "ubuntu-24.04", name
+    probe = yaml.safe_load((ROOT / ".github/workflows/nightly-tag-permission-probe.yml").read_text())
+    assert "blacksmith-2vcpu-ubuntu-2404" in str(probe["jobs"]["probe"]["runs-on"])
+    for workflow in ("nightly-next-tick.yml", "nightly-next-feed-watch.yml"):
+        document = yaml.safe_load((ROOT / ".github/workflows" / workflow).read_text())
+        for name, job in document["jobs"].items():
+            runner = str(job.get("runs-on", ""))
+            if runner:
+                assert "blacksmith-2vcpu-ubuntu-2404" in runner, f"{workflow}:{name}"
+
+
 def test_only_the_wait_for_the_approval_is_cancellable() -> None:
     import yaml
 
