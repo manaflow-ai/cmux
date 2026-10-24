@@ -60,6 +60,7 @@ final class RightSidebarResizeHandle: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         applyLineTheme()
+        hover?.ownerDidMoveToWindow()
     }
 
     override func viewDidChangeEffectiveAppearance() {
