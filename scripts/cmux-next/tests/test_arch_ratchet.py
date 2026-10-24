@@ -8,7 +8,8 @@ a static Mutex or var, a new Notification.Name, an assumeIsolated in a deinit or
 a KVO or CFNotificationCenter observer and a new hard layer edge are refused; a value `static let standard`,
 a singleton moved to another package and an adapter type with `main-proof:` pass, while a proved call in an
 extension or a free function does not; a name that looks like an association key does not hide a static;
-one-line declarations count; a swap (one singleton or broadcast removed, another added) is refused. A push
+one-line declarations count; a swap (one singleton or broadcast removed, another added) is refused, also of
+two typeless static vars in one package, and a refusal names the static the push added. A push
 that raises the json's own totals, deletes it or changes an applied exception is refused, and an edited
 pending exception gives no allowance; --update refuses a rise no dated exception covers and names the
 commit; the audit names the commits over the record. The delta method must give the same numbers as two
@@ -300,6 +301,56 @@ class SingletonTests(Repo):
         retyped = self.commit("Store.shared moves and is retyped")
         self.assertEqual(self.check(base=base, head=retyped)[0], [])
         self.assert_matches_full(base, swapped)
+
+    def test_a_swap_of_typeless_static_vars_in_one_package_is_refused(self):
+        # Replay of ec7ed9d691b's shape: a `((String) -> Void)?` hook leaves one type and a hook of the same shape
+        # comes to another type of the same package. Neither has a type key, so only the owner-qualified names
+        # tell them apart; the delta cancel must not drop both sites before the swap rule sees them.
+        self.write(f"{SRC}/CmuxNextDomain/KeyEquivalent.swift",
+                   "enum KeyEquivalent {\n    nonisolated(unsafe) static var trace: ((String) -> Void)?\n}\n")
+        self.write(f"{SRC}/CmuxNextDomain/KeyClaims.swift", "enum KeyClaims {\n    static func claim() {}\n}\n")
+        base = self.commit("one typeless hook")
+        self.write(f"{SRC}/CmuxNextDomain/KeyEquivalent.swift", "enum KeyEquivalent {\n}\n")
+        self.write(f"{SRC}/CmuxNextDomain/KeyClaims.swift",
+                   "enum KeyClaims {\n    static func claim() {}\n"
+                   "    nonisolated(unsafe) static var hook: ((String) -> Void)?\n}\n")
+        swapped = self.commit("swap: KeyEquivalent.trace goes, KeyClaims.hook comes")
+        delta = counts.delta_count(self.repo, base, swapped)
+        self.assertEqual(delta.total("global_mutable_statics"), 0)
+        self.assertEqual([s.text for s in delta.unpartnered("global_mutable_statics")],
+                         ["nonisolated(unsafe) static var hook: ((String) -> Void)?"])
+        refusals, _ = self.check(base=base, head=swapped)
+        self.assertEqual(self.rows(refusals), ["global_mutable_statics"])
+        self.assertIn("swap", refusals[0][1])
+        self.assertIn("KeyClaims.swift:3: nonisolated(unsafe) static var hook", refusals[0][1])
+        self.assert_matches_full(base, swapped)
+        # The same static moved to another file of its package keeps its identity and passes.
+        self.git("reset", "--quiet", "--hard", base)
+        self.remove(f"{SRC}/CmuxNextDomain/KeyEquivalent.swift")
+        self.write(f"{SRC}/CmuxNextDomain/KeyEquivalent+Trace.swift",
+                   "enum KeyEquivalent {\n    nonisolated(unsafe) static var trace: ((String) -> Void)?\n}\n")
+        moved = self.commit("KeyEquivalent.trace moves to another file")
+        self.assertEqual(self.check(base=base, head=moved)[0], [])
+        self.assert_matches_full(base, moved)
+
+    def test_a_refusal_names_the_static_the_push_added_not_an_unchanged_one(self):
+        # Replay of 16332dd2ced's shape: a file with one typeless `static var` gains a second of the same shape
+        # below it. The refusal names the new line, not the unchanged one above it.
+        self.write(f"{SRC}/CmuxNextDomain/KeyEquivalent.swift",
+                   "enum KeyEquivalent {\n    nonisolated(unsafe) public static var menuMayClaim: ((String) -> Bool)?\n"
+                   "    static func route() {}\n}\n")
+        base = self.commit("one typeless hook")
+        self.write(f"{SRC}/CmuxNextDomain/KeyEquivalent.swift",
+                   "enum KeyEquivalent {\n    nonisolated(unsafe) public static var menuMayClaim: ((String) -> Bool)?\n"
+                   "    static func route() {}\n"
+                   "    nonisolated(unsafe) public static var sendToProgram: ((String) -> Bool)?\n}\n")
+        head = self.commit("a second hook")
+        refusals, _ = self.check(base=base, head=head)
+        self.assertEqual(self.rows(refusals), ["global_mutable_statics"])
+        self.assertIn("+1", refusals[0][1])
+        self.assertIn("KeyEquivalent.swift:4: nonisolated(unsafe) public static var sendToProgram", refusals[0][1])
+        self.assertNotIn("menuMayClaim", refusals[0][1])
+        self.assert_matches_full(base, head)
 
     def test_a_singleton_moved_to_another_package_passes(self):
         self.write(f"{SRC}/CmuxNextDomain/Store+Shared.swift", "extension Store {\n    static let shared = Store()\n}\n")

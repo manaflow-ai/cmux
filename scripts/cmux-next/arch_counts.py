@@ -87,8 +87,10 @@ its literal (or its message type), an assumeIsolated outside an adapter by the t
 a layer edge by its two targets.
 
 Delta mode (the pre-push hook) reads only the files a range changes, at both ends, and gives the same
-numbers as two full counts subtracted (tests/test_arch_ratchet.py checks it). Statics the range leaves
-in place, or moves within a package, cancel without a type lookup; for the rest, and for types whose
+numbers as two full counts subtracted (tests/test_arch_ratchet.py checks it). Statics that keep their
+identity at both ends (package, owner and name, types, keyword: left in place, or moved within a package)
+cancel without a type lookup; every other changed static gets its own site, so the swap rule and a refusal
+see exactly the statics the range changed. For those, and for types whose
 declarations the range changes, one worktree `git grep -o` lists every declaration line (DECL_INDEX) and a
 type search reads only the declaring files it reaches (the worktree stands in for both ends for every
 file that equals them; changed and dirty files are read from git objects). A type whose statefulness the
@@ -2127,16 +2129,25 @@ def _may_flip(a: collections.Counter | None, b: collections.Counter | None) -> b
     return False
 
 
-def _static_key(f: FileFacts, st: Static) -> tuple:
-    return (f.package, st.types, st.keyword, st.container)
+def _static_identity(f: FileFacts, st: Static) -> tuple:
+    """What makes a static at one end the same static at the other: its package, owner and name (the
+    `name:` key of static_site, without the file for a file-scope global, so a file moved or renamed within
+    its package keeps its globals), and the types, keyword and container that classify() reads.
+
+    Only statics equal by all of these cancel unseen in delta mode. Every other static the range changes is
+    classified at its end, so its site carries its own line and Delta.unpartnered judges it: a typeless
+    `static var` removed from one type and added to another of the same package is a swap there, and the
+    refusal names the static the push added, not the first one of the same shape in the file.
+    """
+    return (f.package, st.owner, st.name, st.types, st.keyword, st.container)
 
 
 def delta_count(repo: Path, base: str, head: str, use_worktree: bool = True, cache: bool = True) -> Delta:
     """Counts of BASE and HEAD over the files BASE..HEAD changes, so after - before is the push's delta.
 
-    Equal to two full counts subtracted. Statics that the range leaves in place or moves within a
-    package (same types and keyword) cancel without a type lookup; only the others, and the types whose
-    declarations the range changes, are looked up. USE_WORKTREE False reads every lookup from HEAD's git
+    Equal to two full counts subtracted. Statics that keep their identity (_static_identity: package,
+    owner and name, types, keyword) at both ends cancel without a type lookup; only the others, and the
+    types whose declarations the range changes, are looked up. USE_WORKTREE False reads every lookup from HEAD's git
     objects (an audit of old commits: the worktree would differ from them in most files). CACHE False
     analyzes every file it reads instead of reading facts seen before from FactsCache.
     """
@@ -2206,10 +2217,10 @@ def _delta(git: Git, base: str, head: str, worktree: Path | None, dirty_proc: su
     sig_base = _decl_signature(list(facts[base].values()))
     sig_head = _decl_signature(list(facts[head].values()))
     redeclared = {n for n in set(sig_base) | set(sig_head) if _may_flip(sig_base.get(n), sig_head.get(n))}
-    keys = {r: collections.Counter(_static_key(f, st) for f in facts[r].values() if f for st in f.statics)
+    keys = {r: collections.Counter(_static_identity(f, st) for f in facts[r].values() if f for st in f.statics)
             for r in (base, head)}
     net = {base: keys[base] - keys[head], head: keys[head] - keys[base]}
-    wanted = {t for r in (base, head) for k in net[r] for t in k[1]}
+    wanted = {t for r in (base, head) for k in net[r] for t in k[3]}
     if not any(lookup_name(n) for n in wanted | redeclared):
         table = TypeTable(lambda name: [])
         tables = {base: table, head: table}
@@ -2273,10 +2284,10 @@ def _count_statics(base, head, files, facts, net, redeclared, tables, lookup, be
         left = collections.Counter(net[r])
         for f in facts[r].values():
             for st in (f.statics if f else []):
-                key = _static_key(f, st)
+                key = _static_identity(f, st)
                 if not flips.intersection(st.types):
                     if left[key] <= 0:
-                        continue  # the other end has the same static: it cancels
+                        continue  # the other end has this very static: it cancels
                     left[key] -= 1
                 row = classify(st, f.path, tables[r])
                 if row:
