@@ -54,6 +54,15 @@ final class CloseUndoToasts {
     var rateLimit = UndoToastRateLimit()
     /// The time the rate limit reads (tests pass their own).
     var now: @MainActor () -> ContinuousClock.Instant = { .now }
+    /// Whether a person's close of a tab waits for its page: a live Chromium
+    /// page runs its beforeunload first (`BrowserUserClosing`) and closes the
+    /// tab itself afterwards. Starts that page's close. Tests pass their own.
+    var pageDecidesClose: @MainActor (PaneController, StripTabID) -> Bool = CloseUndoToasts.livePageDecidesClose
+
+    /// ``pageDecidesClose``'s answer in the app: the tab's browser page decides.
+    static func livePageDecidesClose(_ pane: PaneController, _ id: StripTabID) -> Bool {
+        pane.services.cache.browsers[id.rawValue]?.tab.pageDecidesUserClose() == true
+    }
 
     /// Whether a new close toast `id` may show now (`rateLimit`).
     func allowsNewToast(_ id: String) -> Bool {
@@ -149,7 +158,8 @@ final class CloseUndoToasts {
                 guard let pane = part.pane() else { return nil }
                 // A person's close of a live page runs its beforeunload first (`BrowserUserClosing`): that tab is not
                 // announced or closed now; the page decides, and its own close (after Leave) closes it then.
-                return (pane, user ? part.ids.filter { pane.services.cache.browsers[$0.rawValue]?.tab.pageDecidesUserClose() != true } : part.ids)
+                let decides = pane.services.closedTabs?.undoToasts.pageDecidesClose ?? CloseUndoToasts.livePageDecidesClose
+                return (pane, user ? part.ids.filter { !decides(pane, $0) } : part.ids)
             }
             undo?.expectGroup(closing, costly: costly)
             PaneController.close(closing)
