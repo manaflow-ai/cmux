@@ -747,6 +747,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                 for (const group of groups) {
                   group.undone = false;
                   removedInlineIds.push(...group.removedIds);
+                  for (const id of group.removedIds) sameMarkRemovalIds.add(id);
                   queueMicrotask(() => {
                     for (const id of group.removedIds) inlineRemoveRef.current?.(id);
                     inlinePasteRef.current?.(group.inserted, group.index);
