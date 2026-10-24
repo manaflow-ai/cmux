@@ -342,6 +342,7 @@ pub mod method {
     pub const MUX_FILE_PUT_BEGIN: &str = "_acpmux/file_put_begin";
     pub const MUX_FILE_PUT_CHUNK: &str = "_acpmux/file_put_chunk";
     pub const MUX_FILE_PUT_FINISH: &str = "_acpmux/file_put_finish";
+    pub const MUX_FILE_PUT_CANCEL: &str = "_acpmux/file_put_cancel";
     pub const MUX_SHUTDOWN: &str = "_acpmux/shutdown";
     /// Fork a session through its latest completed turn (`server/fork_through.rs`).
     pub const ACP_SESSION_FORK: &str = "acp.session.fork";
