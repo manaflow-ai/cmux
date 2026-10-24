@@ -1,0 +1,86 @@
+# Browser use parity: cmux-next vs Aside vs browser-use
+
+2026-10-23, Computer & browser use lead (a618). Sources: `aside guide repl` and `aside skills show <name>` (Aside CLI 1.26.1019), browser-use `3df5806` source, the live cmux REPL (`sites` object read through codemode on NIGHTLY 1.0.0-nightly.3997257646201), `cmux-tui/crates/cmux-browser-host/js/`, and the dogfood run in [computer-use-lead.md](computer-use-lead.md) section 2.
+
+Legend: ✅ have · 🟡 part · ❌ missing · — not applicable. "REPL" is the Rust browser host REPL (`cmux browser repl`, codemode `browser_repl_*`). "CLI" is the per-tab `cmux browser TAB verb` path. Rows marked *unmeasured* exist in code but have no recorded test on cmux-next.
+
+## 1. Reaching the browser
+
+| Item | Aside | browser-use | cmux REPL | cmux CLI | Work |
+| --- | --- | --- | --- | --- | --- |
+| Works from an agent with no setup | ✅ | ✅ | ❌ codemode fails `browser_host.unavailable` until someone starts the host | ✅ | helper: MCP starts the host |
+| Drives the person's real browser (sign-ins, visible tabs) | ✅ | 🟡 own Chrome profile | ❌ agents get a private headless Chromium | ✅ app tabs | helper: agents reach the app's host |
+| Attach to an open tab / the active tab | ✅ `attachBrowserTab`, `attachActiveBrowserTab` | ✅ | 🟡 `tabs.use(id)`, `tabs.list({all})`; no Aside names | ✅ `tab_…`, `right` | helper: Aside-named aliases |
+| Open / close tabs | ✅ `openTab`, `closeTab` | ✅ | 🟡 `tabs.open`; no Aside names | ✅ | helper: aliases |
+| Linux cloud VMs | ✅ (Aside cloud) | ✅ | ❌ host not in the VM image | ❌ | helper: Linux |
+
+## 2. General techniques
+
+| Technique | Aside | browser-use | cmux REPL | cmux CLI | Work |
+| --- | --- | --- | --- | --- | --- |
+| Accessibility snapshot with refs, iframes, off-screen | ✅ `snapshot()` tree + diff | ✅ DOM+layout+AX merge, indexes | ✅ Playwright aria per frame, diff | ❌ 30-line tag walker | helper: snapshot rewrite (CLI); then route CLI to host |
+| Element names from title/alt/labels | ✅ | ✅ | ✅ | ❌ (HN vote arrows unnamed) | same |
+| Shadow DOM | ✅ | ✅ | ✅ open + closed | 🟡 selectors only | same |
+| Cross-origin iframes (OOPIF) | ✅ | 🟡 off by default | ✅ | ❌ | route CLI to host |
+| New-element markers between steps | ✅ diff | ✅ `*[N]` | ✅ diff | ❌ | route CLI to host |
+| Covered-element (occlusion) filter | ? | ✅ paint order | ❌ | ❌ | port to Rust (plan item 5) |
+| Trusted input (real mouse/keys) | ✅ | ✅ CDP | ✅ | 🟡 script `el.click()`; hover fix pending | land hover; route CLI to host |
+| Hit-test before click | ✅ | ✅ | 🟡 Playwright actionability, *unmeasured* | ❌ | route CLI to host |
+| Waits: click/open wait for DOM stability | ✅ | ✅ | ✅ | 🟡 load states only; wait bug on background tabs (fix pending) | land wait fix |
+| Action-scoped network settle | ✅ | ✅ 0.5 s idle | 🟡 *unmeasured* | ❌ | port Playwright `waitForCompletion` to Rust |
+| JS dialogs (alert/confirm) | ✅ | ✅ auto-accept | ✅ dialog events | ❌ dialog blocks the script | route CLI to host |
+| Downloads | ✅ `waitForEvent('download')` | ✅ | ✅ *unmeasured* | ❌ no verb | route CLI to host |
+| File upload | ✅ | ✅ | ✅ | ✅ (dogfood pass) | — |
+| Select options in snapshot | ✅ | ✅ | ✅ | ✅ (dogfood pass); richer list pending | — |
+| Date / range inputs set directly, jQuery and Bootstrap date pickers | ? | ✅ class-name list | ❌ | ❌ | port as a rule list in Rust |
+| Annotated screenshot (boxes with refs) | ✅ `annotatedScreenshot` | ✅ set-of-marks | ❌ | ❌ | helper: build from snapshot boxes |
+| PDF of page | ✅ | ❌ | ✅ | ❌ | — |
+| Cookie-bearing `fetch`, `fs` sandbox | ✅ | ❌ | ✅ | — | — |
+| Save/load sign-in state | ✅ (browser) | ✅ `storage_state.json` | ✅ storage state | 🟡 cookies verb | — |
+| Self-heal on failed action, action cache | ? | 🟡 retry | ❌ | ❌ | plan item 11 |
+| Secrets typed by the host, masked in output | ✅ autofill | ✅ placeholders per domain | ✅ vault + masking + sealed tabs | 🟡 password fields masked | — |
+| TOTP / SMS codes | ✅ `imessage.waitForCode()` | ✅ TOTP secret `bu_2fa_code` | ❌ | ❌ | add `waitForCode` (person's Messages, consent) |
+| Passkeys | → person | ❌ | → person (`passkey`) | → person | — |
+| Captcha | → person | cloud solver (paid) | refused, → person | → person | keep |
+
+## 3. Special handling of sites
+
+| Site | Aside | browser-use | cmux REPL `sites.*` | Gap to close |
+| --- | --- | --- | --- | --- |
+| Google accounts | `list`, `print` | — | `list` | — |
+| Gmail | `search`, `getInbox`, `getThread` (raw/markdown), `openComposer`, `openReplyComposer`, `openThreadDetailsPage`, `downloadAttachment`; rules: reply in an existing thread, copy the person's tone from 3–5 sent mails, show a `gmail-draft` card, check the body is not empty before Send | — | `search`, `inbox`, `thread`, `attachment`, `send` (confirmed draft; checks Gmail's own reply recipients) | open-composer and thread pages; markdown body; tone and existing-thread rules in the skill |
+| Google Docs | read without a tab (HTML, text); tab: `insertText`, `selectTextRange`, `insertHtmlContent`, `pasteFromMarkdown`, `applyDiffs`, **`applyDiffsAsSuggestions`**, `addComment`, `getSelectedContent`, `deleteSelection` | — | `structure`, `read`, `replace`, `insertAfter`, `append`, `export` | suggestion mode, comments, Markdown paste, selection |
+| Google Sheets | read without a tab (`getSpreadsheetInfo`, `readSheet`, `readAllSheets`); tab: `writeMatrix`, `writeTsv`, `writeHtml`, `navigateToCell`, `switchSheet`, `setNote`, `addComment`, `readSelection`, `readSheetRich` | — | `info`, `read`, `readAll`, `cells`, `find`, `write`, `append`, `clear`, `export` | notes, comments, HTML write, rich (formatted) read |
+| Google Slides / Drive / Calendar | — | — | Slides `slides`, `setNotes`, `replace`, `read`, `export`; Drive `search`, `recent`, `download`, `create`, `trash` (draft first), `export`; Calendar `events`, `create` | cmux ahead |
+| Google Search | `search`; rule: never run queries in parallel (captcha) | URL templates, `&udm=14` web-only results | `search` | serialize queries in the site tool; add `udm=14` |
+| Search engine choice | Google | DuckDuckGo default ("less captchas"), Bing template | Google | add DuckDuckGo and Bing templates |
+| YouTube | `search`, `getMetadata`, `listTranscriptLanguages`, `getTranscript`, `getComments` | — | `search`, `metadata`, `captions`, `transcript`, `comments`, `videoId` | — |
+| Slack | `listWorkspaces`, `getClient` (full Web API incl. `filesUploadV2`); rule: copy the person's tone | — | `workspaces`, `channels`, `history`, `replies`, `search`, `user`, `post`, `call` (any Web API method) | file upload through `call` *unmeasured*; tone rule |
+| Notion | full client: search, read, append blocks and Markdown, child pages, title, transactions, **databases**, delete/move, uploads, lock/unlock, several accounts | — | `pageId`, `accounts`, `search`, `read`, `append` | databases, child pages, title, move/delete (draft first), uploads, lock |
+| LinkedIn | 17 methods: me, profile, people/company search, company, job, posts, **inbox, conversation, sendMessage, subscribeMessages, invitations (send/accept/ignore/withdraw)**; **built-in 1–1.75 s per-request floor with jitter**, risk tiers and daily caps | — | `me`, `profile`, `search`, `feed`, `post` | messages, invitations, companies, jobs; **request floor + daily caps in Rust** (account-ban risk) |
+| iMessage / SMS | `listChats`, `getHistory`, `search`, `contacts`, `waitForCode`, `send` with draft card | — | ❌ | add, behind the person's Messages consent (macOS) |
+| X | — | — | `user`, `userTweets`, `timeline`, `search`, `tweet`, `post` | cmux ahead |
+| GitHub / Linear / Jira | — | — | GitHub `issue`, `pull`, `diff`, `issues`, `assigned`, `file`; Linear `viewer`, `issue`, `search`, `assigned`, `query`; Jira `issue`, `search`, `sites`, `me` | cmux ahead |
+| Page assets / WebMCP / sign-in | — | — | `pageAssets.list/bundle`, `webmcp.tools/call`, `browserAuth.request` (person signs in) | cmux ahead |
+| Cookie banners | ? | loads "I still don't care about cookies" extension | ❌ | consent rule file (OneTrust, Cookiebot, Didomi, Quantcast, TrustArc, Sourcepoint, Usercentrics, IAB TCF reject), reject-only, in Rust |
+| Ads and trackers | ? | loads uBlock Origin, ClearURLs | 🟡 domain policy only | optional rule list; no bundled extensions |
+| Captcha pages | → person | keyword list (cloudflare, recaptcha, "access denied") → cloud solver | refused | add the detection keyword list so agents stop early and escalate |
+| "Next page" links | ? | words in 5 languages | ❌ | add to snapshot hints |
+| Search boxes | ? | class/id with "search" counts as clickable | ✅ via ARIA (REPL) / ❌ CLI | CLI snapshot rewrite |
+| Print buttons | ? | special-cased | `page.pdf` | — |
+
+## 4. Counts
+
+- Site tools: Aside 11 skills (one is Aside's own settings), cmux 19. cmux is ahead on Slides, Drive, Calendar, X, GitHub, Linear, Jira, WebMCP. Aside is ahead on iMessage, Notion, LinkedIn writes, Docs and Sheets editing, and Gmail compose pages.
+- browser-use has almost no per-site code (search templates, three bundled extensions, a few word lists). Its edge is the general techniques in section 2.
+- The largest gaps are not sites but access: codemode does not start a host, and agents get headless instead of the person's browser (section 1).
+
+## 5. Order of work
+
+1. Codemode reaches a host and the app's real browser; Aside-named aliases (helper running).
+2. CLI page verbs: land wait and hover fixes; snapshot rewrite (helper running); then route the CLI to the Rust host so both paths share one implementation.
+3. LinkedIn request floor and caps in Rust; Google Search serialized (account and captcha safety).
+4. Site depth to Aside level: Notion, LinkedIn messages and invitations, Docs suggestions and comments, Sheets notes and comments and rich read, Gmail compose pages.
+5. iMessage `waitForCode` and send with draft card, behind the person's consent.
+6. Consent-banner rules, captcha detection, DuckDuckGo and Bing search, date-picker rules, occlusion filter, network settle (Rust).
+7. Measure: dogfood suite through the CLI and through codemode, and the classic Aside/ChatGPT parity cases (helper running).
