@@ -534,7 +534,7 @@ cmux window list
 cmux action list [--category <c>] [--noun <n>] [--available]
 cmux action describe <id>
 cmux action run <id> [--target <id>] [--<arg> <value>] [--arg name=value] [--wait] [--interactive]
-cmux action run - [--no-wait] [--split] < ops
+cmux action run - [--no-wait] < ops
 cmux settings get [<path>]
 cmux settings set <path> <value> [--confirm]
 cmux settings reset <path> [--confirm]
@@ -554,22 +554,23 @@ declined sheet prints "declined in cmux" and exits 1. `--` ends the options:
 per line of `action.run` params (`{"action": "newColumn", "target": "pane:…",
 "args": {…}}`), and sends them as ONE `action.batch` request: the app checks
 every op before any runs (one bad op runs nothing and names its index, `op`,
-counted from 0; the CLI names a stdin parse error by line and column), runs
-them in order in one main-thread task, and answers once. What the app owns
-(selection, focus, settings) changes in that one task and shows together;
-what the session daemon owns (a daemon tab renamed, a column made, a close)
-shows as the daemon's echoes arrive, which can take more than one frame. It
-is not all-or-nothing: a refusal while running stops there, the ops before it
-stay applied, and the answer says how many (`applied`). The daemon work an op
-started (a rename, a close) can fail after the ops after it ran, so it does
-not stop them: the answer names the first such op (`op`, 0-based, with its
-own `action`), lists every op whose work failed (`failed`) and says how many
-ops ran (`applied`); an earlier op's failure answers before a later refusal.
-One transaction (one main-thread task, never rolled back) holds at most 64
-ops; `--split` (wire `split: true`) applies a longer list as consecutive
-transactions (one that never runs, because its deadline passed or the app was
-busy, ends the batch with `applied` set and is never `not_run`), and without
-it a longer list is refused (`batch_too_large`). Targets name
+counted from 0; the CLI names a stdin parse error by line and column), then
+runs them in order in slices, each within the main thread's automation budget
+for one frame, and answers once. A key or click of the person goes first,
+between two slices: a long batch takes more frames, it never delays a key.
+There is no op limit and nothing to split. What the batch changes in place
+(renames, pins, moves, reorders, also the session daemon's echoes of them) in
+the workspaces it touches shows once, when its last slice ran; other
+workspaces, and the person's own changes, never wait for it. Creates, splits
+and closes show in their op's own turn. It is not all-or-nothing (nothing is
+rolled back): a refusal while running stops there, the ops before it stay
+applied, and the answer says how many (`applied`); a slice that never runs
+(its deadline passed, the app was busy) ends the batch the same way and is
+never `not_run`. The daemon work an op started (a rename, a close) can fail
+after the ops after it ran, so it does not stop them: the answer names the
+first such op (`op`, 0-based, with its own `action`), lists every op whose
+work failed (`failed`) and says how many ops ran (`applied`); an earlier op's
+failure answers before a later refusal. Targets name
 objects that exist before the batch. Layout ops the session daemon owns
 (`cmux workspace <ws> move`, `cmux tab <id> move|rename`) are not app actions;
 send those to the daemon.

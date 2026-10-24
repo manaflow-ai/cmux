@@ -1,7 +1,7 @@
 //! `cmux action run -`: app actions read from stdin, sent as ONE `action.batch`
 //! request (the app's ControlRouter+ActionBatch): the app validates every op
-//! before any runs, runs them in order as one transaction in one main-thread
-//! task, and answers once. Stdin holds either one JSON array of `action.run`
+//! before any runs, runs them in order in slices that fit the main thread's
+//! automation budget (the person's input goes between them), and answers once. Stdin holds either one JSON array of `action.run`
 //! param objects or one such object per line (`{"action": "newColumn",
 //! "target": "pane:...", "args": {...}}`); blank lines are skipped.
 
@@ -12,7 +12,7 @@ use serde_json::{Map, Value, json};
 use super::{AppCommand, READ_TIMEOUT, UsageError, WAITING_RUN_TIMEOUT};
 use crate::localization::AppControlMessages;
 
-/// `cmux action run - [--no-wait] [--split]` with stdin's ops. `origin`
+/// `cmux action run - [--no-wait]` with stdin's ops. `origin`
 /// is set on every op that does not name its own.
 pub(super) fn parse_batch(
     args: &[String],
@@ -21,12 +21,10 @@ pub(super) fn parse_batch(
 ) -> Result<AppCommand, UsageError> {
     let messages = &crate::localization::catalog().app_control;
     let mut wait = true;
-    let mut split = false;
     for arg in args {
         match arg.as_str() {
             "--wait" => wait = true,
             "--no-wait" => wait = false,
-            "--split" => split = true,
             _ => {
                 return Err(UsageError::new(messages.unexpected_argument.replace("{value}", arg)));
             }
@@ -40,9 +38,6 @@ pub(super) fn parse_batch(
     let mut params = Map::new();
     params.insert("ops".into(), Value::Array(ops));
     params.insert("wait".into(), json!(wait));
-    if split {
-        params.insert("split".into(), json!(true));
-    }
     Ok(AppCommand::Call {
         method: "action.batch",
         params: Value::Object(params),
@@ -153,11 +148,11 @@ mod tests {
 
     #[test]
     fn a_json_array_and_the_flags_are_read() {
-        let command = parse(&["--no-wait", "--split"], "[{\"action\":\"newRow\"}]").unwrap();
+        let command = parse(&["--no-wait"], "[{\"action\":\"newRow\"}]").unwrap();
         let AppCommand::Call { params, .. } = command else { panic!("not a call") };
         assert_eq!(
             params,
-            json!({"ops": [{"action": "newRow", "origin": "script"}], "wait": false, "split": true})
+            json!({"ops": [{"action": "newRow", "origin": "script"}], "wait": false})
         );
     }
 
@@ -167,6 +162,9 @@ mod tests {
         assert!(parse(&[], "{\"action\":\"newRow\"}\nnot json\n").unwrap_err().contains('2'));
         assert!(parse(&[], "[1]").is_err());
         assert!(parse(&["--target"], "{\"action\":\"newRow\"}").is_err());
+        // A batch has no op limit, so nothing to split: `--split` and `--no-atomic` are gone.
+        assert!(parse(&["--split"], "{\"action\":\"newRow\"}").is_err());
+        assert!(parse(&["--no-atomic"], "{\"action\":\"newRow\"}").is_err());
     }
 
     #[test]

@@ -1,4 +1,5 @@
 public import CmuxNextSettings
+public import CmuxNextDaemon
 
 /// Runs actions for `action.run`. The router calls it on the main actor
 /// through ``MainActorWorkQueue`` after validating the request off-main, so
@@ -10,6 +11,15 @@ public protocol ControlActionExecutor: Sendable {
     /// Like `performAction`, plus the daemon work the handler started, so
     /// a caller can answer after the effect exists (cmux CLI compat).
     @MainActor func performActionTracked(_ request: ControlActionRequest) -> ControlActionRun
+    /// Opens a stage for a run of many actions (`action.batch`) under `scope`: what they change in
+    /// the app's model is held back until the returned commit runs (or `deadline` passes), so the
+    /// person sees the whole run once instead of slice by slice. Nil when the executor stages
+    /// nothing (the default).
+    @MainActor func stageChanges(scope: DaemonCommandScope, until deadline: ContinuousClock.Instant) -> (@MainActor @Sendable () -> Void)?
+}
+
+extension ControlActionExecutor {
+    @MainActor public func stageChanges(scope: DaemonCommandScope, until deadline: ContinuousClock.Instant) -> (@MainActor @Sendable () -> Void)? { nil }
 }
 
 /// `settings.get` / `settings.set` storage. `CmuxConfigFile` conforms, so
