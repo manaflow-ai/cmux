@@ -25,9 +25,9 @@ final class ComposeInlineRedraw {
 
     /// FIELD's redraw (made with it the first time).
     static func of(_ field: NSTextView) -> ComposeInlineRedraw {
-        if let made = objc_getAssociatedObject(field, &redrawKey) as? ComposeInlineRedraw { return made }
+        if let made = objc_getAssociatedObject(field, redrawKey.pointer) as? ComposeInlineRedraw { return made }
         let made = ComposeInlineRedraw(field: field)
-        objc_setAssociatedObject(field, &redrawKey, made, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        objc_setAssociatedObject(field, redrawKey.pointer, made, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
         return made
     }
 
@@ -79,5 +79,5 @@ final class ComposeInlineRedraw {
     }
 }
 
-// The associated-object key's address only; never read or written as a value.
-nonisolated(unsafe) private var redrawKey: UInt8 = 0
+// The associated-object key (its address only).
+private let redrawKey = AssociationKey()
