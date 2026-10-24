@@ -3,6 +3,7 @@ import CmuxNextWakeups
 import Darwin
 import Dispatch
 import Foundation
+import os
 import Testing
 
 /// Task traits (plans/cmux-next/threading-model.md): blocking work runs on BackgroundWork's lanes, never on the
@@ -76,7 +77,7 @@ import Testing
 
     @Test func theCPULaneRunsUpToItsWidthAtOnce() async throws {
         let work = BackgroundWork(cpuWidth: 3, label: "test.cpu")
-        let arrived = Mutex(0)
+        let arrived = OSAllocatedUnfairLock(initialState: 0)
         let all = DispatchSemaphore(value: 0)
         // Each item waits until all three run: it passes only when the lane runs three at once.
         try await withThrowingTaskGroup(of: Void.self) { group in
@@ -136,7 +137,7 @@ import Testing
     @MainActor @Test func theMainActorKeepsRunningWhileItAwaitsBestEffortWork() async throws {
         let work = BackgroundWork(label: "test.main")
         let release = DispatchSemaphore(value: 0)
-        let ran = Mutex(false)
+        let ran = OSAllocatedUnfairLock(initialState: false)
         // The main actor awaits a best-effort item that cannot finish until a main-actor probe has run:
         // a synchronous wait (the inversion) would deadlock here; the await lets the probe run.
         async let result: Bool = try work.run(.bestEffort, mayBlock: .system) {
@@ -159,7 +160,7 @@ import Testing
             release.wait()
         }
         await blocked.wait()
-        let ran = Mutex(false)
+        let ran = OSAllocatedUnfairLock(initialState: false)
         let waiter = Task(priority: .utility) {
             try await work.run(.bestEffort, mayBlock: .files) { ran.withLock { $0 = true } }
         }
@@ -175,7 +176,7 @@ import Testing
         let work = BackgroundWork(label: "test.shutdown")
         let release = DispatchSemaphore(value: 0)
         let blocked = Started()
-        let log = Mutex<[String]>([])
+        let log = OSAllocatedUnfairLock<[String]>(initialState: [])
         work.post(.bestEffort, mayBlock: .files) {
             blocked.signal()
             release.wait()
