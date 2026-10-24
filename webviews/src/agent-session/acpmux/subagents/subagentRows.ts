@@ -9,6 +9,9 @@ export const SUBAGENT_OF = "subagentOf";
 /// A subagent's one line where it ended, while running ones sit in the tray (SubagentDoneLine.tsx,
 /// runningTray.ts).
 export const SUBAGENT_DONE = "subagentDone";
+/// A Claude workflow's card where it started (Labs `workflowLabs`, summary/WorkflowCard.tsx;
+/// runningTray.ts `withSubagentLines`): a row per workflow a group started, in the group's place.
+export const WORKFLOW_CARD = "workflowCard";
 
 /// Every subagent the rows list, nested views' included.
 export function subagentsIn(

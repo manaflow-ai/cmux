@@ -101,6 +101,9 @@ export function modelName(model: string): string {
 const foldAgents = (node: Subagent): FoldAgent[] =>
   node.workflowAgents instanceof Map ? [...node.workflowAgents.values()] : [];
 
+/// One workflow node's summary, uncached (a transcript card; the panel's list uses the adapter).
+export const workflowOf = (node: Subagent, sessionId: string): WorkflowSummary => summarize(node, sessionId);
+
 function summarize(node: Subagent, sessionId: string): WorkflowSummary {
   const agents = foldAgents(node).map((agent) => agentOf(node, agent));
   const phases: WorkflowPhase[] = (node.phases ?? []).map((phase) => {
