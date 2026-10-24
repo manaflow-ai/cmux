@@ -17,6 +17,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import types
 import unittest
@@ -1277,6 +1278,53 @@ class HookTests(Fixture):
         self.assertNotEqual(link.resolve(), before, "each install writes a new copy")
         self.assertTrue((link / "guardrails.py").is_file())
         self.assertTrue((before / "guardrails.py").is_file(), "the replaced copy stays for a push already running")
+
+    def install(self):
+        result = subprocess.run(["bash", "scripts/install-git-hooks.sh"], cwd=self.repo, env=self.env, text=True,
+                                capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_a_push_running_on_an_old_checks_copy_keeps_it_through_later_installs(self):
+        # The gate resolves the checks link once. A push that started on a days-old copy and is still in swiftlint
+        # when two other worktrees reinstall (the stale-copy warning asks every agent to) must keep that copy.
+        hooks = self.repo / ".git" / "cmux-git-hooks"
+        link = hooks / "cmux-next-checks"
+        old = link.resolve()
+        days = time.time() - 3 * 86400
+        os.utime(old, (days, days))
+        spec = importlib.util.spec_from_file_location("cmux_next_installed_gate", hooks / "cmux_next_prepush_gate.py")
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        reached, release = threading.Event(), threading.Event()
+
+        class PushedRefs:  # the hook's stdin: the gate blocks here after it resolved its checks copy
+            def read(self):
+                reached.set()
+                release.wait(120)
+                return ""
+
+        result, stderr = {}, io.StringIO()
+
+        def push():
+            with mock.patch.object(sys, "stdin", PushedRefs()), contextlib.redirect_stdout(io.StringIO()):
+                result["code"] = gate.main(["--pre-push", "--repo", str(self.repo), "--trusted-scripts-dir", str(link)])
+
+        with mock.patch.dict(os.environ, self.env, clear=True), contextlib.redirect_stderr(stderr):
+            running = threading.Thread(target=push)
+            running.start()
+            try:
+                self.assertTrue(reached.wait(60), "the gate never read the pushed refs")
+                self.install()
+                self.install()
+                self.assertTrue((old / "guardrails.py").is_file(), "a push is still reading this copy")
+            finally:
+                release.set()
+                running.join(120)
+        self.assertEqual(result.get("code"), 0, stderr.getvalue())
+        self.assertNotIn("not installed", stderr.getvalue())
+        self.install()
+        self.assertFalse(old.exists(), "once no push reads it, the next install removes the old copy")
+        self.assertTrue((link / "guardrails.py").is_file())
 
     def test_a_sleep_poll_and_an_assume_isolated_are_refused_once_by_the_check_that_owns_them(self):
         # check-concurrency.sh's wakeup rule owns sleeps (escape `// wakeup-allow:`), crash_ratchet.py owns
