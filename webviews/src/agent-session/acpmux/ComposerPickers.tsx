@@ -365,11 +365,20 @@ export function ComposerPickers({
   const levelRow = ownRow?.efforts.length ? ownRow : (releaseRows.find((row) => row.efforts.length > 0) ?? ownRow);
   const defaultEffort =
     ownRow?.defaultEffort ?? releaseRows.find((row) => row.defaultEffort !== undefined)?.defaultEffort;
+  // A direct profile can declare an alias with `efforts: []` before the joined catalog has retained
+  // its `own` marker. Keep that explicit no-level declaration attached to the running release row.
+  const profileDeclaresNoEffort = snapshot.catalog
+    .find((entry) => entry.id === summary?.harness)
+    ?.models.some(
+      (model) => Object.hasOwn(model, "efforts") && Array.isArray(model.efforts) && model.efforts.length === 0,
+    );
   const efforts: Choice[] = reasoningChoices(
     effort?.options ?? [],
     {
       ...(levelRow ? { efforts: levelRow.efforts } : {}),
       ...(defaultEffort ? { defaultEffort } : {}),
+      ...(levelRow?.own?.efforts || profileDeclaresNoEffort ? { own: { efforts: true } } : {}),
+      ...(profileDeclaresNoEffort ? { noEffort: true } : {}),
     },
     t,
   );
@@ -842,7 +851,7 @@ export function ComposerPickers({
             onEffort(effort.id, value);
           },
         }
-      : heldLevels.length > 1 && chipHarness
+      : heldLevels.length > 1 && chipHarness && !profileDeclaresNoEffort
         ? {
             levels: heldLevels,
             current: heldValue,
@@ -2033,9 +2042,10 @@ const PLAIN_LEVELS = new Set(["none", "minimal", "low", "medium", "high", "xhigh
 /// not a level).
 export function reasoningChoices(
   options: { value: string; name?: string; description?: string }[],
-  model: { efforts?: readonly string[]; defaultEffort?: string } | undefined,
+  model: { efforts?: readonly string[]; defaultEffort?: string; own?: { efforts?: true }; noEffort?: true } | undefined,
   t: (key: StringKey) => string,
 ): Choice[] {
+  if (model?.noEffort || (model?.own?.efforts && (model.efforts ?? []).length === 0)) return [];
   const levels = model?.efforts && model.efforts.length > 0 ? new Set<string>(model.efforts) : undefined;
   const offered = options.filter((option) => {
     if (["default", "ultracode", "ultrathink"].includes(option.value)) return false;
