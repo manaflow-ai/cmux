@@ -14,14 +14,21 @@ final class RemoteViewPageService {
     /// Tab key -> the record URL a person confirmed for it.
     private var confirmed: [String: String] = [:]
     /// A record a person's action is opening in a new tab (Open Desktop): the first local tab
-    /// that shows it is the person's, once.
-    private var personOpening: String?
+    /// that shows it within `personOpenWindow` is the person's, once. A tab that never came
+    /// leaves nothing a later automated open could ride on.
+    private var personOpening: (url: String, at: ContinuousClock.Instant)?
+    private let personOpenWindow: Duration = .seconds(15)
+    private let now: () -> ContinuousClock.Instant
+
+    init(now: @escaping () -> ContinuousClock.Instant = { ContinuousClock.now }) {
+        self.now = now
+    }
 
     func source(for key: String, url: URL, isLocal: Bool) -> RemoteViewTabSource {
         guard isLocal else { return .remoteTree }
-        if confirmed[key] == nil, personOpening == url.absoluteString {
-            confirmed[key] = url.absoluteString
+        if confirmed[key] == nil, let opening = personOpening, opening.url == url.absoluteString {
             personOpening = nil
+            if now() - opening.at <= personOpenWindow { confirmed[key] = url.absoluteString }
         }
         return confirmed[key] == url.absoluteString ? .person : .unconfirmed
     }
@@ -29,7 +36,7 @@ final class RemoteViewPageService {
     /// A person's action (not CLI, MCP, scripts or agents) opens `url` in a new tab.
     func personOpens(_ url: URL, scope: ActionRunScope? = ActionRunScope.current) {
         guard Self.isPersonInput(scope) else { return }
-        personOpening = url.absoluteString
+        personOpening = (url.absoluteString, now())
     }
 
     /// A person opened or confirmed `url` in the tab `key`. Ignored inside

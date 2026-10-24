@@ -1,6 +1,9 @@
+import CmuxNextActions
+@testable import CmuxNextApp
 import CmuxNextBrowser
 import CmuxNextRemoteLocalhost
 import CmuxNextRemoteLocalhostService
+import CmuxNextRemoteView
 import Darwin
 import Foundation
 import Testing
@@ -150,6 +153,27 @@ struct CloudHubLoopbackTests {
         while echoed.count < 12, let chunk = try await reader.read() { echoed.append(chunk) }
         #expect(echoed == Data("RFB 003.008\n".utf8))
         tunnel.close()
+    }
+
+    /// Open Desktop's native viewer connects at once only for a person's open: the first local tab
+    /// that shows the record within the window is the person's, once; the CLI or an agent, a
+    /// remote tree, or a tab that comes too late asks first.
+    @Test @MainActor func onlyAPersonsOpenDesktopConnectsAtOnce() throws {
+        var clock = ContinuousClock.now
+        let pages = RemoteViewPageService(now: { clock })
+        let url = try #require(URL(string: "cmux://remote-view?host=vm-1&target=virtual&mode=control&via=cloud"))
+
+        pages.personOpens(url, scope: nil)
+        #expect(pages.source(for: "tab-1", url: url, isLocal: false) == .remoteTree)
+        #expect(pages.source(for: "tab-1", url: url, isLocal: true) == .person)
+        #expect(pages.source(for: "tab-2", url: url, isLocal: true) == .unconfirmed, "once")
+
+        pages.personOpens(url, scope: ActionRunScope(origin: .cli, allowsViewChange: false))
+        #expect(pages.source(for: "tab-3", url: url, isLocal: true) == .unconfirmed, "the CLI is not a person")
+
+        pages.personOpens(url, scope: nil)
+        clock = clock.advanced(by: .seconds(16))
+        #expect(pages.source(for: "tab-4", url: url, isLocal: true) == .unconfirmed, "too late")
     }
 
     @Test func onlyTheMachinesLocalhostGoesThroughTheHub() async throws {
