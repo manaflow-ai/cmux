@@ -2383,5 +2383,31 @@ class DiffBenchVersionTests(unittest.TestCase):
         self.assertEqual(cron.version_changed(rows(2), base), ["diff.stream.p95"])
 
 
+
+class RebaseListTests(OneRunRule):
+    """Lead 2026-10-24: every version rebase shows in the issue body, also one of an incomplete measurement."""
+    NAME = "cmd_d.e2e@" + cron.BENCH_WORKER
+
+    def setUp(self):
+        super().setUp()
+        self.state = cron.empty_state(T0)
+        self.n = 0
+
+    def measured(self, value, version, failed=False):
+        self.n += 1
+        self.state["current"] = cron.new_measurement((format(self.n, "x") * 40)[:40], "tip", [], at(self.n))
+        self.state["current"]["parts"] = {"motion": {"state": "done"}, **({"switch": {"state": "failed"}} if failed else {})}
+        rows = {self.NAME: {**row(value), "measure_version": version}}
+        return cron.finish_measurement(self.state, rows, None, cron.BENCH_WORKER, f"u{self.n}", at(self.n), budgets_mod)
+
+    def test_a_version_rebase_of_an_incomplete_measurement_is_listed(self):
+        for _ in range(3):
+            self.measured(20.0, 2)
+        self.measured(30.0, 3, failed=True)
+        body = cron.issue_body(self.state, "o/r", at(9))
+        self.assertIn("Rebases", body)
+        self.assertIn("measurement version or part args changed, 1 row(s) (" + self.NAME, body)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1630,6 +1630,15 @@ def issue_body(state, repo, now):
             lines += ["", f"Not compared: {len(last['refresh_skipped'])} frame row(s) ran at another display refresh than "
                           f"their last good value ({', '.join(last['refresh_skipped'][:8])}"
                           + (", ..." if len(last["refresh_skipped"]) > 8 else "") + ")."]
+    rebases = [x for x in state.get("rebases") or [] if isinstance(x, dict)][-5:]
+    if rebases:
+        lines += ["", "Rebases (a row measured another way starts a new reference and is not compared; a regression open "
+                      "on it closes, not judged):"]
+        lines += [f"- {x.get('at')} at {link(repo, x['sha']) if is_sha(x.get('sha')) else '?'}: {x.get('why')} changed, "
+                  f"{len(x.get('rows') or [])} row(s) ({', '.join((x.get('rows') or [])[:6])}"
+                  + (", ..." if len(x.get("rows") or []) > 6 else "") + ")"
+                  + (f"; closed: {', '.join(x['closed'][:6])}" if x.get("closed") else "") + f" ([run]({x.get('run_url')}))"
+                  for x in rebases]
     tried = state.get("last_tried") or {}
     if tried.get("sha") and tried.get("sha") != last.get("sha"):
         lines += ["", f"Newest attempt: {link(repo, tried['sha'])} at {tried.get('at')} ([run]({tried.get('run_url')})) measured no row, "
@@ -2056,6 +2065,13 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
             notes.append(note_list("rebased on a macOS change, not judged", sorted(set(closed) - set(by_version))))
     all_rebased = set(rebased) | set(os_rebased)
     if all_rebased:
+        # Every rebase goes into the issue (lead 2026-10-24), also one of an incomplete measurement (not `last`).
+        kinds = [("measurement version or part args", sorted(set(os_rebased) & versioned)),
+                 ("macOS", sorted(set(os_rebased) - versioned)), ("display refresh", sorted(rebased))]
+        log = state.setdefault("rebases", [])
+        log += [{"at": iso(t), "sha": cur["sha"], "run_url": run_url, "why": why, "rows": rows,
+                 "closed": sorted(n for n in rows if n in open_names)} for why, rows in kinds if rows]
+        state["rebases"] = log[-20:]
         entry["rebased"] = sorted(all_rebased)
         row_ok.update({name: cur["sha"] for name in all_rebased})
         skipped -= set(rebased)
