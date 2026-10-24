@@ -589,7 +589,7 @@
   text-overflow: ellipsis;
   text-align: start;
   font-size: var(--text-caption);
-  color: var(--ui-fg-2);
+  color: var(--ui-fg);
 }
 
 .keys-recorder-button {
