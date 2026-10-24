@@ -108,6 +108,7 @@ parser.add_argument("--limit", type=int, default=0, help="at most N actions per 
 parser.add_argument("--shard", default="", help="K/N or K1,K2/N: only every N-th action from the K-th (1-based), for N hosts in parallel")
 parser.add_argument("--settle", type=float, default=0.5, help="seconds of frames kept after each commit (animations)")
 parser.add_argument("--no-interactions", action="store_true")
+parser.add_argument("--write-gaps", action="store_true", help="rewrite every-action-gaps.json from this whole-catalog run")
 parser.add_argument("--keep", action="store_true", help="leave the app running")
 opts = parser.parse_args()
 
@@ -130,6 +131,13 @@ STORE_APPLY_S = 5.0
 # The exit status of a run (or a --merge) in which a session failed: the report still lands, with every failure in
 # failed_sessions and in every-action.md, but the run is not a pass (bench-launch-smoke, split-spring.sh's step).
 FAILED_SESSION_EXIT = 3
+# The exit status of a whole-catalog run (or --merge) in which an action has no fixture that is not in the gap
+# baseline (GAPS): a new action must come with its fixture (zero-latency.md, "Native actions: the budget contract").
+NEW_GAP_EXIT = 4
+GAPS = os.path.join(HERE, "every-action-gaps.json")
+# Skip reasons that are a missing fixture (the sweep could set the action up, it does not yet), as opposed to a
+# deliberate exclusion (the Cloud, another app, a file panel, destructive, a purchase, ...).
+GAP_REASONS = ("needs context the sweep does not set up", "needs a ", "argument ", "unavailable here", "no ")
 # A failed run prints its report into the step log as `EVERY-ACTION-REPORT k/N <gzip+base64 chunk>` lines.
 REPORT_LINE = "EVERY-ACTION-REPORT"
 # Base64 characters per line. Not measured against a log store: report_from() needs every line whole, and a store
@@ -2001,6 +2009,12 @@ def markdown(report):
     failed = report.get("failed_sessions") or []
     if failed:
         lines += ["", f"## FAILED: {len(failed)} session(s) did not finish", ""] + [failure_line(f) for f in failed]
+    checked = report.get("coverage")
+    if checked and checked.get("new"):
+        lines += ["", f"## COVERAGE: {len(checked['new'])} action(s) with no fixture (add one, or --write-gaps after review)", ""]
+        lines += [f"- {ident}: {reason}" for ident, reason in checked["new"].items()]
+    if checked and checked.get("closed"):
+        lines += ["", f"Covered now, drop from every-action-gaps.json: {', '.join(checked['closed'][:40])}"]
     if not report["sessions"]:
         lines += ["", "No session finished."]
     for session in report["sessions"]:
@@ -2064,6 +2078,8 @@ def main():
         env["shard"] = opts.shard
     if opts.limit:
         actions = actions[:opts.limit]
+    if only or opts.limit:
+        env["partial"] = True  # no derived-coverage verdict: not every action was offered
     surfaces = os.path.join(ROOT, "plans/cmux-next/action-surfaces.json")
     try:
         exported = {a["id"] for a in json.load(open(surfaces))["actions"]}
@@ -2124,10 +2140,19 @@ def main():
             f.write(markdown(report))
         if not opts.keep:
             app.stop()
+    if not opts.shard:
+        report["coverage"] = coverage(report)
+        if opts.write_gaps:
+            write_gaps(report)
+        with open(report_path, "w") as f:
+            json.dump(report, f, indent=1, default=str)
+        with open(os.path.join(OUT, "every-action.md"), "w") as f:
+            f.write(markdown(report))
     note(f"every-action: wrote {report_path} and {os.path.join(OUT, 'every-action.md')}")
     if report.get("failed_sessions"):
         report_to_log(report)
     fail_on_failed_sessions(report)
+    fail_on_new_gaps(report)
 
 
 def report_to_log(report):
@@ -2165,6 +2190,53 @@ def report_from(path):
     return json.loads(gzip.decompress(base64.b64decode("".join(pieces[k] for k in sorted(pieces)))))
 
 
+def gaps_of(report):
+    """{action id: skip reason} of every action no session could set up for lack of a fixture (GAP_REASONS); an action
+    one session ran (light or STRESS) is covered."""
+    ran, gaps = set(), {}
+    for session in report.get("sessions") or []:
+        for row in session["rows"]:
+            reason = row.get("skipped")
+            if reason is None:
+                ran.add(row["id"])
+            elif reason.startswith(GAP_REASONS):
+                gaps.setdefault(row["id"], reason)
+    return {ident: reason for ident, reason in sorted(gaps.items()) if ident not in ran}
+
+
+def coverage(report, baseline_path=GAPS):
+    """The derived-coverage check of a whole-catalog run: `new` gaps (no fixture, not in the baseline) fail it,
+    `closed` ones (in the baseline, covered now) are listed to drop from the baseline. None for a partial run (--only,
+    --limit) or a baseline that cannot be read (fail open: it says why)."""
+    if report["env"].get("partial"):
+        return None
+    try:
+        with open(baseline_path) as f:
+            baseline = set(json.load(f)["gaps"])
+    except (OSError, ValueError, KeyError) as error:
+        return {"error": f"gap baseline unreadable: {error}"}
+    gaps = gaps_of(report)
+    return {"gaps": len(gaps), "new": {k: v for k, v in gaps.items() if k not in baseline},
+            "closed": sorted(baseline - set(gaps))}
+
+
+def write_gaps(report, path=GAPS):
+    """Rewrites the gap baseline from `report` (`--write-gaps`, after adding fixtures)."""
+    with open(path, "w") as f:
+        json.dump({"_doc": "Actions the every-action sweep cannot set up yet (no fixture), from a whole-catalog run; "
+                           "a run fails on any gap not listed here. Shrink it as fixtures land "
+                           "(every-action-sweep.py --write-gaps).", "gaps": gaps_of(report)}, f, indent=1, sort_keys=True)
+        f.write("\n")
+
+
+def fail_on_new_gaps(report):
+    """Exits NEW_GAP_EXIT when the derived-coverage check found an action with no fixture outside the baseline."""
+    checked = report.get("coverage") or {}
+    if checked.get("new"):
+        note(f"every-action: COVERAGE: {len(checked['new'])} action(s) have no fixture: {', '.join(list(checked['new'])[:20])}")
+        raise SystemExit(NEW_GAP_EXIT)
+
+
 def fail_on_failed_sessions(report):
     """Exits FAILED_SESSION_EXIT when a session of `report` failed (after the report is written)."""
     failed = report.get("failed_sessions") or []
@@ -2197,12 +2269,16 @@ def merge(out, paths):
                 into.setdefault("failed", []).extend(failures)
     for session in merged["sessions"]:
         session["rows"].sort(key=lambda r: r["id"])
+    merged["env"].pop("shard", None)
+    merged["env"]["partial"] = any(r["env"].get("partial") for r in reports)
+    merged["coverage"] = coverage(merged)
     with open(out, "w") as f:
         json.dump(merged, f, indent=1, default=str)
     with open(os.path.splitext(out)[0] + ".md", "w") as f:
         f.write(markdown(merged))
     print(f"every-action: merged {len(paths)} shards into {out}")
     fail_on_failed_sessions(merged)
+    fail_on_new_gaps(merged)
 
 
 if __name__ == "__main__":
