@@ -193,9 +193,13 @@ fn waitpid(pid: libc::pid_t, flags: libc::c_int) -> io::Result<Option<ExitStatus
 }
 
 /// Block until `pid` exits or `limit` passes (kqueue `NOTE_EXIT`). A child
-/// that already exited (its registration fails with ESRCH) returns at once.
+/// that exited before the registration (a zombie: `EV_ADD` fails with
+/// ESRCH, as an `EV_ERROR` event or as `kevent`'s own error) returns at once;
+/// the caller reaps it. The registration is sent with every `kevent` call,
+/// so one interrupted before it took effect is not lost (`EV_ADD` of a
+/// registered event only updates it).
 #[cfg(target_vendor = "apple")]
-fn exit_event_within(pid: libc::pid_t, limit: Duration) -> io::Result<()> {
+pub(crate) fn exit_event_within(pid: libc::pid_t, limit: Duration) -> io::Result<()> {
     use std::os::fd::{FromRawFd, OwnedFd};
     // SAFETY: kqueue returns a new descriptor or -1.
     let queue = unsafe { libc::kqueue() };
@@ -214,7 +218,6 @@ fn exit_event_within(pid: libc::pid_t, limit: Duration) -> io::Result<()> {
         udata: std::ptr::null_mut(),
     };
     let deadline = std::time::Instant::now() + limit;
-    let mut registered = false;
     loop {
         let left = deadline.saturating_duration_since(std::time::Instant::now());
         let timeout = libc::timespec {
@@ -223,11 +226,8 @@ fn exit_event_within(pid: libc::pid_t, limit: Duration) -> io::Result<()> {
         };
         // SAFETY: zeroed kevent is valid output storage.
         let mut event: libc::kevent = unsafe { std::mem::zeroed() };
-        let (changes, count) =
-            if registered { (std::ptr::null(), 0) } else { (&change as *const _, 1) };
         // SAFETY: one change in, at most one event out, a live timeout.
-        let n = unsafe { libc::kevent(queue_fd, changes, count, &mut event, 1, &timeout) };
-        registered = true;
+        let n = unsafe { libc::kevent(queue_fd, &change, 1, &mut event, 1, &timeout) };
         if n >= 0 {
             if n == 1 && event.flags & libc::EV_ERROR != 0 && event.data as i32 != libc::ESRCH {
                 return Err(io::Error::from_raw_os_error(event.data as i32));
