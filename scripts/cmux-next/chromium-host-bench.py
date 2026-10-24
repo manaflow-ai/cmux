@@ -32,10 +32,14 @@ Per mode:
            `quit`) and then closed is SIGKILLed at the quit limit (15 s); SIGKILL to cmux itself ends the host
            within the quit limit (it reads EOF on the wire).
   pump     the baseline the move removes: the share of cmux's main thread spent inside Chromium's pump passes
-           (CefDoMessageLoopWork and every CEF callback it runs, `debug.cef` pump.work_ms over wall time), in process
-           only: `pump_share` idle (page shown, nothing happens) and while the page scrolls (one wheel event per frame),
-           light and, with --stress, in the STRESS session (perf-stress-session.py, its Chromium pages selected).
+           (CefDoMessageLoopWork and every CEF callback it runs, `debug.cef` pump.work_ms over wall time) and the
+           app's wakes (`wakes`, debug.wakeups: kernel wakeups and CPU of the app process, the wakeup ledger, and
+           its CEFMessagePump part), `pump_share` idle (page shown, nothing happens) and while the page scrolls (one
+           wheel event per frame). inproc: light and, with --stress, in the STRESS session (perf-stress-session.py,
+           its Chromium pages selected). helper: light, the host page idles and scrolls while the in-process tab
+           stays open, idle, in the other pane (cmux's pump still runs for it and the spare page).
            Key callbacks Chromium makes from cmux's own event dispatch are not in it (they run outside a pass).
+  failure  helper: when the host page never shows, the host's Chromium log tail and its crash reports.
 
 Debug build (reload.sh), not Release: the numbers compare the two paths, they are not shipping latencies.
 Not a gate: exit 1 only when a mode could not run (no host app, refused fork API, launch failure).
@@ -142,6 +146,44 @@ def probe_color_share():
             if all(abs(c - w) <= PROBE_TOLERANCE for c, w in zip((r, g, b), PROBE_RGB)):
                 hits += 1
     return round(hits / total, 4) if total else None
+
+
+BENCH_START = time.time()
+
+
+def log_tail(path, lines=40):
+    """The last lines of the host's Chromium log (warnings and fatal messages), or None."""
+    try:
+        return open(path, errors="replace").read().splitlines()[-lines:] if path else None
+    except OSError:
+        return None
+
+
+def host_crash_reports():
+    """Crash reports of a Chromium host written since this bench started: file, exception, abort message and the
+    crashed thread's top frames (image + offset; the framework is stripped, symbolicate with its dSYM)."""
+    found = []
+    for folder in ("/Library/Logs/DiagnosticReports", os.path.expanduser("~/Library/Logs/DiagnosticReports")):
+        try:
+            names = os.listdir(folder)
+        except OSError:
+            continue
+        for name in sorted(names):
+            path = os.path.join(folder, name)
+            if "Chromium Host" not in name or os.path.getmtime(path) < BENCH_START:
+                continue
+            entry = {"file": path}
+            try:
+                body = json.loads(open(path).read().split("\n", 1)[1])
+                images = body.get("usedImages") or []
+                thread = (body.get("threads") or [{}])[body.get("faultingThread", 0)]
+                entry.update(exception=body.get("exception"), asi=body.get("asi"), thread=thread.get("name"),
+                             frames=[f"{(images[f['imageIndex']] or {}).get('name')}+{f.get('imageOffset')} {f.get('symbol') or ''}".strip()
+                                     for f in (thread.get("frames") or [])[:24]])
+            except (OSError, ValueError, IndexError, KeyError) as error:
+                entry["unreadable"] = str(error)
+            found.append(entry)
+    return found
 
 
 def pid_gone(pid):
@@ -278,20 +320,45 @@ def pump_work_ms(rpc):
     return float(((rpc("debug.cef") or {}).get("pump") or {}).get("work_ms") or 0)
 
 
-def pump_share(rpc, page):
-    """Main-thread share inside Chromium pump passes, idle and while the shown page scrolls."""
+def wake_sample(rpc):
+    """The app's kernel wakeups and CPU, and the wakeup ledger's counts (all owners, and CEFMessagePump: the
+    in-process pump's timer and cross-thread wakes), from debug.wakeups."""
+    report = rpc("debug.wakeups") or {}
+    app = next((p for p in report.get("processes") or [] if p.get("kind") == "app"), {})
+    ledger = report.get("ledger") or []
+    return {"app_wakeups": app.get("wakeups") or 0, "app_cpu_ms": app.get("cpu_ms") or 0.0,
+            "ledger": sum(e.get("count") or 0 for e in ledger),
+            "cef_pump": sum(e.get("count") or 0 for e in ledger if e.get("owner") == "CEFMessagePump")}
+
+
+def wake_rates(before, after, seconds):
+    rate = lambda key: round((after[key] - before[key]) / seconds, 2)
+    out = {"app_wakeups_per_s": rate("app_wakeups"), "app_cpu_share": round((after["app_cpu_ms"] - before["app_cpu_ms"]) / (seconds * 1000), 4),
+           "ledger_per_s": rate("ledger"), "cef_pump_per_s": rate("cef_pump")}
+    # The pump's part of the app's sanctioned main wakes (the ledger), and of all its kernel wakeups.
+    out["cef_pump_share_of_ledger"] = round(out["cef_pump_per_s"] / out["ledger_per_s"], 4) if out["ledger_per_s"] > 0 else None
+    out["cef_pump_share_of_app_wakeups"] = (round(out["cef_pump_per_s"] / out["app_wakeups_per_s"], 4)
+                                            if out["app_wakeups_per_s"] > 0 else None)
+    return out
+
+
+def pump_share(rpc, page, scroll=None):
+    """Main-thread share inside Chromium pump passes, and the app's wakes, idle and while the shown page scrolls.
+    `scroll` sends one wheel event (default: to the focused in-process page)."""
+    scroll = scroll or (lambda: rpc("debug.mouse", {"target": "page", "action": "scroll", "dy": -12}))
     shares = {}
     for phase in ("idle", "scroll"):
         if page:
             page("window.scrollTo(0, 0); document.body.style.height = '40000px'")
-        start_ms, start = pump_work_ms(rpc), time.monotonic()
+        start_ms, start, wakes = pump_work_ms(rpc), time.monotonic(), wake_sample(rpc)
         deadline = start + opts.pump_seconds
         while time.monotonic() < deadline:
             if phase == "scroll":
-                rpc("debug.mouse", {"target": "page", "action": "scroll", "dy": -12})
+                scroll()
             time.sleep(1 / 60)  # test harness: one wheel event per 60 Hz frame (idle: just the wait)
         wall_ms = (time.monotonic() - start) * 1000
-        shares[phase] = {"share": round((pump_work_ms(rpc) - start_ms) / wall_ms, 4), "wall_ms": round(wall_ms)}
+        shares[phase] = {"share": round((pump_work_ms(rpc) - start_ms) / wall_ms, 4), "wall_ms": round(wall_ms),
+                         "wakes": wake_rates(wakes, wake_sample(rpc), wall_ms / 1000)}
     shares["pump"] = (rpc("debug.cef") or {}).get("pump")
     return shares
 
@@ -319,7 +386,9 @@ def run_helper(rpc, url, inproc_tab):
     state = wait(lambda: (lambda r: r if r.get("shown_context_id") and (r.get("title") or "").startswith("probe ") else None)(
         rpc("debug.chromium_host") or {}), 90, 0.25)
     if not state:
-        RESULT["modes"]["helper"] = {"error": "the host page never showed", "state": rpc("debug.chromium_host")}
+        failed = rpc("debug.chromium_host") or {}
+        RESULT["modes"]["helper"] = {"error": "the host page never showed", "state": failed,
+                                     "host_log": log_tail(failed.get("log_file")), "crash_reports": host_crash_reports()}
         return False
     time.sleep(0.5)  # test harness: the shown context's first frame reaches the screen
     pixels["shown"] = probe_color_share()
@@ -341,6 +410,14 @@ def run_helper(rpc, url, inproc_tab):
         fx, fy, dy = spots[element]
         return {"x": bx + bw * fx, "y": by + bh * fy + dy}
     row = drive(rpc, "helper", title, {}, {}, click_point)
+    # The same baseline with the page in the host: cmux's pump still runs for in-process Chromium (the
+    # in-process tab, idle in the other pane, and the spare page), the host's page idles and scrolls.
+    host_point = click_point("t")
+    row["pump_share"] = {"light": pump_share(rpc, None, scroll=lambda: rpc(
+        "debug.mouse", {"action": "scroll", "dy": -12, "hover": False, **host_point}))}
+    # Pointer moves in a burst: the host folds the moves its UI thread has not run into one (FrameQueue).
+    for i in range(200):
+        rpc("debug.mouse", {"action": "move", "x": host_point["x"] + (i % 40), "y": host_point["y"]})
     hop = rpc("debug.chromium_host.measure", {"op": "input"}) or {}
     row["hop_us"] = hop
     row["ping_us"] = rpc("debug.chromium_host.measure", {"op": "ping", "count": 500}, timeout=60)

@@ -39,7 +39,9 @@ cmux (app)                          <App> Chromium Host.app (new)              C
 - The host is a small app in `Contents/Frameworks/<Product> Chromium Host.app` with `LSUIElement`, its own bundle id
   (`<app id>.chromium-host`) and `NSPrincipalClass ChromiumHostApplication` (the `CefAppProtocol` app). It loads the
   app's CEF framework from `Contents/Frameworks` with `cef_load_library` while it has one thread, so no zone race.
-  It uses the same five helper apps as today (`browser_subprocess_path`). Prototype: `Packages/macOS/CmuxNext/ChromiumHost/src/browser_host_main.mm`,
+  It uses the same five helper apps as today (`browser_subprocess_path`), and Chromium's main bundle is the outer app
+  (`--main-bundle`, as in process), never the host's own small bundle: the helpers Chromium starts and sandboxes live
+  in the outer app (with the host's bundle the renderer ended at once and the host aborted, 2026-10-24). Prototype: `Packages/macOS/CmuxNext/ChromiumHost/src/browser_host_main.mm`,
   bundled by `scripts/cmux-next/embed-cef.sh` (Debug only).
 - cmux no longer maps the framework. The shim becomes a client library of the wire (Swift, no CEF).
 - One host for every profile, as Chrome has one browser process. A host crash then reloads every Chromium page. One
@@ -79,7 +81,10 @@ Two channels per host:
    main thread (one `write` on an `O_NONBLOCK` descriptor, a few us) and reads on a thread of its own, blocking on the
    other pair (macOS ignores `MSG_DONTWAIT` on Unix sockets, and file status flags are shared by every descriptor of
    a socket, so one socket cannot be both); the host reads on a thread of its own and posts each frame to its UI thread.
-   Bounded both ways (256 KB send buffer, 4,096 frames backlog); an overflow ends the host, never blocks cmux.
+   Bounded both ways (256 KB send buffer, 4,096 frames backlog). In the host, frames wait for the UI thread in one
+   queue (`cmux_host::FrameQueue`, one posted task per batch): a newer pointer move replaces a waiting one, wheel
+   deltas add up and a newer geometry replaces a waiting one, each only at the queue's tail, so order is kept; keys and
+   clicks are never dropped. More than 4,096 waiting frames ends the host, never blocks cmux.
 2. **Control: XPC over an anonymous listener endpoint** sent on channel 1 at start (production, not in the
    prototype). It carries what needs Mach ports or replies: CA fence ports for resize sync, file and folder access,
    request/response calls (navigation entries, extension actions, prefs, site settings: today's 9 string-returning
@@ -149,8 +154,12 @@ daemon talks CDP to the host through `--remote-debugging-pipe`), crash reports (
   the resize sync; exit 66), so cmux always starts it with the API 27 switch set. Exits 64-67 mean the host could not
   start (no wire, no framework, an old fork, `CefInitialize`): cmux does not restart such a host. The parent view has
   alpha 0 for the host's whole life, so the floating window never shows Chromium's pixels over other apps (the page's
-  layers live in the context). At most 4,096 frames wait for the host's UI thread; more and the host stops reading and
-  ends, so a hung UI thread ends the host instead of queueing every mouse move.
+  layers live in the context). Frames wait for the host's UI thread in one bounded queue (`FrameQueue`: moves, wheel
+  deltas and geometry coalesce at its tail, keys and clicks are kept, one posted task per batch); more than 4,096
+  waiting frames and the host stops reading and ends, so a hung UI thread ends the host instead of queueing every
+  frame. The fork's exports are bound from the framework's own image (`dlopen(RTLD_NOLOAD)` + `dlsym`):
+  `cef_load_library` opens it `RTLD_LOCAL`, so `RTLD_DEFAULT` found nothing and every host exited 66. Chromium's log
+  goes to `<root cache>/chromium-host.log` (warnings and fatal messages; `debug.chromium_host` `log_file`).
   The host window must stay ordered in and visible: the fork's tracker hides the page when its parent window is not
   visible, and observes the parent's occlusion state (a covered window throttles the renderer), so the prototype puts
   it at the floating level, click-through, with no pixels. The page window is an `addChildWindow` child of the host's
