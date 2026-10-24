@@ -80,13 +80,16 @@ class WorkflowShape(unittest.TestCase):
         self.assertEqual(doc["name"], "cmux-next fast gates")
         self.assertEqual(list(doc["jobs"]), ["resolve", "fast-gates", "post"])
         self.assertEqual(job(doc)["name"], "fast gates")
-        # The same Linux runner expression as cmux-next-guards.yml's jobs.
+        # Resolve/post are small status jobs and keep the guards' 4-vCPU route.
+        # The code-running fast-gates job uses the sized 16-vCPU fork route.
         guards_runner = yaml.safe_load(GUARDS.read_text(encoding="utf-8"))["jobs"]["crash-ratchet"]["runs-on"]
+        self.assertEqual(doc["jobs"]["resolve"]["runs-on"], guards_runner)
+        self.assertEqual(doc["jobs"]["post"]["runs-on"], guards_runner)
+        fast_runner = doc["jobs"]["fast-gates"]["runs-on"]
+        self.assertIn("blacksmith-16vcpu-ubuntu-2404", fast_runner)
+        self.assertNotIn("macos", fast_runner.lower())
         for key, each in doc["jobs"].items():
             with self.subTest(job=key):
-                self.assertEqual(each["runs-on"], guards_runner)
-                self.assertIn("blacksmith-4vcpu-ubuntu-2404", each["runs-on"])
-                self.assertNotIn("macos", each["runs-on"].lower())
                 self.assertLessEqual(int(each["timeout-minutes"]), 15)
 
     def test_triggers_have_no_paths_filter(self):

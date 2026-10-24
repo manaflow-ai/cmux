@@ -93,6 +93,10 @@ gh variable list --repo manaflow-ai/cmux
 | `CI_PAID_MACOS_OVERFLOW` | the repository-side switch for metered capacity; gates the four paid-overflow variables above (see "Break-glass" below) | unset (free capacity) | unset means the Blacksmith fallback wins |
 | `MACOS_RUNNER_BACKGROUND` | non-urgent macOS work only: `build-ghosttykit` and the macOS legs of `cmux-tui-artifacts` (post-merge). See "Background lane" below | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
 
+Fork pull requests may use the same ephemeral Blacksmith size as the trusted
+Linux compile or test job. They keep read-only contents permissions and receive
+no secrets; small routing/status jobs may remain on the 4-vCPU lane.
+
 A runner variable names a **machine capability** — an OS version, a GUI, a
 simulator, both SDKs, or a larger instance — and every job needing that
 capability reads the same one. It does not name the lane asking, which the

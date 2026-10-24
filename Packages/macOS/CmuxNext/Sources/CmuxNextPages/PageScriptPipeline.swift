@@ -87,11 +87,15 @@ final class PageScriptPipeline {
     private var generation: UInt64 = 0
 
     init(evaluate: @escaping @MainActor (String) -> Void,
-         render: @escaping @Sendable (JSONValue) async -> String = { envelope in
-             await Self.render(envelope)
-         }) {
+         render: @escaping @Sendable (JSONValue) async -> String) {
         self.evaluate = evaluate
         self.render = render
+    }
+
+    convenience init(evaluate: @escaping @MainActor (String) -> Void) {
+        self.init(evaluate: evaluate) { envelope in
+            await PageScriptPipeline.render(envelope)
+        }
     }
 
     /// True when nothing is queued or running, so a script may be evaluated at once.
