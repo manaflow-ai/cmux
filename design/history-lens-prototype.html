@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>History lens — cmux NEXT design prototype</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #111318;
+      --panel: #191c23;
+      --panel-strong: #20242d;
+      --panel-soft: #151820;
+      --line: #343a47;
+      --line-strong: #4a5262;
+      --text: #eef1f7;
+      --muted: #a6adbc;
+      --faint: #70798b;
+      --blue: #8fb8ff;
+      --green: #8dd9b1;
+      --amber: #f0c77d;
+      --red: #f29a9a;
+      --focus: #c5d8ff;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font: 13px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    body { margin: 0; min-width: 980px; background: var(--bg); color: var(--text); }
+    button, input, select { font: inherit; color: inherit; }
+    button { cursor: pointer; }
+    .app { min-height: 100vh; display: grid; grid-template-rows: auto 1fr; }
+    .topbar { display: flex; align-items: center; gap: 14px; padding: 12px 18px; border-bottom: 1px solid var(--line); background: var(--panel-soft); }
+    .brand { font-weight: 650; letter-spacing: .02em; white-space: nowrap; }
+    .context { color: var(--muted); font-family: var(--mono); font-size: 12px; white-space: nowrap; }
+    .search { flex: 1; min-width: 220px; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: #0f1116; outline: none; }
+    .search:focus { border-color: var(--focus); box-shadow: 0 0 0 2px #8fb8ff2e; }
+    .control, .filter { border: 1px solid var(--line); border-radius: 5px; background: var(--panel-strong); padding: 7px 10px; }
+    .control:hover, .filter:hover { border-color: var(--line-strong); }
+    .layout { display: grid; grid-template-columns: 285px minmax(400px, 1fr) 300px; min-height: 0; }
+    .column { min-width: 0; border-right: 1px solid var(--line); overflow: auto; }
+    .column:last-child { border-right: 0; }
+    .column-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 14px 15px 10px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--panel); z-index: 1; }
+    .column-title { font-weight: 650; }
+    .column-meta { color: var(--faint); font-size: 11px; }
+    .filters { display: flex; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+    .filters select { width: 100%; }
+    .events { list-style: none; padding: 8px; margin: 0; }
+    .event { display: grid; grid-template-columns: 12px 1fr; gap: 9px; padding: 10px 9px; border: 1px solid transparent; border-radius: 6px; text-align: left; }
+    .event:hover { background: #242936; }
+    .event.selected { border-color: var(--line-strong); background: #252c3a; }
+    .event-dot { width: 8px; height: 8px; margin-top: 5px; border-radius: 50%; background: var(--blue); }
+    .event-dot.agent { background: var(--green); }
+    .event-dot.effect { background: var(--amber); }
+    .event-dot.error { background: var(--red); }
+    .event-main { min-width: 0; }
+    .event-line { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+    .event-kind { font-family: var(--mono); font-size: 11px; color: var(--blue); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .event-time { color: var(--faint); font-size: 11px; white-space: nowrap; }
+    .event-title { margin-top: 3px; color: var(--text); }
+    .event-subject { margin-top: 3px; color: var(--muted); font-family: var(--mono); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .main { min-width: 0; background: #11141a; overflow: auto; }
+    .main-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 18px 12px; border-bottom: 1px solid var(--line); }
+    .main-head h1 { margin: 0; font-size: 16px; font-weight: 650; }
+    .main-head small { color: var(--muted); }
+    .main-tools { display: flex; gap: 6px; }
+    .run-graph { display: grid; grid-template-columns: repeat(3, minmax(100px, 1fr)); gap: 10px; padding: 16px 18px 4px; }
+    .stage { position: relative; padding: 11px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+    .stage::after { content: "→"; position: absolute; right: -18px; top: 31px; color: var(--faint); }
+    .stage:last-child::after { content: ""; }
+    .stage-label { color: var(--faint); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
+    .stage strong { display: block; margin-top: 4px; font-size: 12px; }
+    .stage span { display: block; margin-top: 4px; color: var(--muted); font-family: var(--mono); font-size: 11px; }
+    .terminal { margin: 14px 18px; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: #0d0f13; }
+    .terminal-head { display: flex; justify-content: space-between; padding: 8px 11px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 11px; }
+    .terminal-body { margin: 0; padding: 14px; min-height: 210px; color: #d7dce7; font: 12px/1.6 var(--mono); white-space: pre-wrap; }
+    .terminal-body .dim { color: var(--faint); }
+    .terminal-body .ok { color: var(--green); }
+    .terminal-body .hit { color: var(--focus); background: #506b9a55; }
+    .selection-actions { display: flex; align-items: center; gap: 8px; margin: 0 18px 14px; padding: 10px; border: 1px solid #667ea8; border-radius: 6px; background: #1c293d; }
+    .selection-actions strong { font-size: 12px; }
+    .selection-actions span { flex: 1; color: var(--muted); font-family: var(--mono); font-size: 11px; }
+    .action { border: 1px solid #718ab7; border-radius: 4px; background: #2b3d5a; padding: 6px 8px; }
+    .action:hover { background: #354b6d; }
+    .detail { margin: 0 18px 18px; padding: 14px; border-top: 1px solid var(--line); }
+    .detail h2 { margin: 0 0 8px; font-size: 13px; }
+    .kv { display: grid; grid-template-columns: 110px 1fr; gap: 6px 10px; margin: 0; }
+    .kv dt { color: var(--faint); }
+    .kv dd { margin: 0; color: var(--text); font-family: var(--mono); font-size: 11px; overflow-wrap: anywhere; }
+    .inspector { background: var(--panel); }
+    .inspector-body { padding: 14px 15px; }
+    .inspector h2 { margin: 0 0 4px; font-size: 14px; }
+    .inspector p { margin: 0 0 14px; color: var(--muted); }
+    .notice { padding: 9px 10px; border-left: 3px solid var(--amber); background: #2c2619; color: #e5d0a5; font-size: 12px; }
+    .inspector-section { margin-top: 18px; }
+    .inspector-section h3 { margin: 0 0 8px; color: var(--faint); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
+    .subject { display: flex; justify-content: space-between; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--line); }
+    .subject span:last-child { color: var(--muted); font-family: var(--mono); font-size: 11px; }
+    .inspector-actions { display: grid; gap: 7px; }
+    .inspector-actions button { width: 100%; text-align: left; }
+    .empty { padding: 22px 12px; color: var(--muted); text-align: center; }
+    .toast { position: fixed; right: 16px; bottom: 16px; max-width: 360px; padding: 9px 12px; border: 1px solid var(--line-strong); border-radius: 5px; background: var(--panel-strong); color: var(--text); box-shadow: 0 10px 30px #0008; }
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+  </style>
+</head>
+<body>
+  <div class="app" data-prototype="history-lens-v0">
+    <header class="topbar">
+      <div class="brand">cmux / history lens</div>
+      <div class="context">workspace: checkout · screen: build · sequence: 1842</div>
+      <label class="sr-only" for="query">Search history</label>
+      <input id="query" class="search" type="search" placeholder="Search chat, commands, scrollback, tabs…" autocomplete="off">
+      <select id="kind" class="filter" aria-label="Filter history kind">
+        <option value="all">all kinds</option>
+        <option value="agent">agent</option>
+        <option value="command">command</option>
+        <option value="scrollback">scrollback</option>
+        <option value="effect">effect</option>
+      </select>
+      <button id="close" class="control" type="button">Close lens</button>
+    </header>
+
+    <div class="layout">
+      <aside class="column" aria-label="History events">
+        <div class="column-head"><span class="column-title">Recent history</span><span id="count" class="column-meta">6 events</span></div>
+        <ol id="events" class="events"></ol>
+      </aside>
+
+      <main class="main" aria-live="polite">
+        <div class="main-head">
+          <div><h1 id="main-title">Agent turn · diagnose failing test</h1><small id="main-subtitle">causal path from prompt to terminal output</small></div>
+          <div class="main-tools"><button id="outline" class="control" type="button">Outline</button><button id="copy" class="control" type="button">Copy link</button></div>
+        </div>
+        <section class="run-graph" aria-label="Causal run graph">
+          <div class="stage"><div class="stage-label">input</div><strong>agent.turn.started</strong><span>seq 1836</span></div>
+          <div class="stage"><div class="stage-label">tool</div><strong>terminal.command</strong><span>seq 1840 · exit 1</span></div>
+          <div class="stage"><div class="stage-label">result</div><strong>agent.error.reported</strong><span>seq 1842</span></div>
+        </section>
+        <section class="terminal" aria-label="Referenced terminal output">
+          <div class="terminal-head"><span>surface: build-2 · rows 940–946</span><span>marker epoch 7</span></div>
+          <pre class="terminal-body"><span class="dim">$ </span><span class="hit">cargo test -p cmux-layout --locked</span>
+<span>running 14 tests</span>
+<span class="ok">test split_tree::round_trip ... ok</span>
+<span>test split_tree::undo_after_reconnect ... </span><span class="hit">FAILED</span>
+<span>thread 'split_tree::undo_after_reconnect' panicked at</span>
+<span>src/layout.rs:418:9: expected revision 7, got 6</span>
+<span class="dim">note: select a line to inspect its causal event</span></pre>
+        </section>
+        <div class="selection-actions" role="toolbar" aria-label="Selection actions">
+          <strong>Selected token</strong><span>src/layout.rs:418:9 · event-ref:evt_1842</span>
+          <button class="action" data-action="open-source" type="button">Open source</button>
+          <button class="action" data-action="event" type="button">Jump to event</button>
+          <button class="action" data-action="quote" type="button">Copy reference</button>
+        </div>
+        <section class="detail">
+          <h2>Event detail</h2>
+          <dl class="kv">
+            <dt>kind</dt><dd id="detail-kind">agent.error.reported</dd>
+            <dt>sequence</dt><dd id="detail-sequence">1842</dd>
+            <dt>causation</dt><dd id="detail-causation">evt_1840 → evt_1842</dd>
+            <dt>sensitivity</dt><dd id="detail-sensitivity">metadata</dd>
+            <dt>replay</dt><dd id="detail-replay">advisory · no effects are replayed</dd>
+          </dl>
+        </section>
+      </main>
+
+      <aside class="column inspector" aria-label="Resource inspector">
+        <div class="column-head"><span class="column-title">Resource inspector</span><span class="column-meta">modeless</span></div>
+        <div class="inspector-body">
+          <h2 id="inspector-title">agent.error.reported</h2>
+          <p id="inspector-copy">A failed test is linked to the terminal command that produced it.</p>
+          <div class="notice">Selecting output never runs a command. Actions show target, capability, and side effect first.</div>
+          <div class="inspector-section"><h3>Subjects</h3><div class="subject"><span>workspace</span><span>checkout</span></div><div class="subject"><span>pane</span><span>build-2</span></div><div class="subject"><span>event</span><span>evt_1842</span></div></div>
+          <div class="inspector-section"><h3>Safe actions</h3><div class="inspector-actions"><button class="control" data-action="copy-link" type="button">Copy stable link</button><button class="control" data-action="search-session" type="button">Find in session history</button><button class="control" data-action="open-surface" type="button">Focus build surface</button></div></div>
+        </div>
+      </aside>
+    </div>
+    <div id="toast" class="toast" hidden role="status"></div>
+  </div>
+  <script>
+    const history = [
+      { id: "evt_1842", kind: "error", label: "agent.error.reported", title: "test failed: revision mismatch", subject: "build-2 · seq 1842", time: "now", sensitivity: "metadata" },
+      { id: "evt_1840", kind: "effect", label: "terminal.command", title: "cargo test -p cmux-layout --locked", subject: "build-2 · exit 1", time: "18s", sensitivity: "sensitive" },
+      { id: "evt_1838", kind: "agent", label: "agent.tool.completed", title: "read src/layout.rs around the assertion", subject: "agent: codex · seq 1838", time: "24s", sensitivity: "metadata" },
+      { id: "evt_1836", kind: "agent", label: "agent.turn.started", title: "diagnose failing test", subject: "agent: codex · seq 1836", time: "31s", sensitivity: "metadata" },
+      { id: "evt_1824", kind: "scrollback", label: "terminal.output", title: "daemon reconnected", subject: "build-2 · marker 930", time: "2m", sensitivity: "metadata" },
+      { id: "evt_1811", kind: "command", label: "terminal.command", title: "git status --short", subject: "build-2 · exit 0", time: "5m", sensitivity: "sensitive" }
+    ];
+
+    const events = document.querySelector("#events");
+    const query = document.querySelector("#query");
+    const kind = document.querySelector("#kind");
+    const count = document.querySelector("#count");
+    const toast = document.querySelector("#toast");
+    let selected = history[0];
+    let toastTimer;
+
+    function showToast(message) {
+      toast.textContent = message;
+      toast.hidden = false;
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => { toast.hidden = true; }, 2200);
+    }
+
+    function filtered() {
+      const needle = query.value.trim().toLowerCase();
+      return history.filter((item) => (kind.value === "all" || item.kind === kind.value) && (!needle || `${item.label} ${item.title} ${item.subject}`.toLowerCase().includes(needle)));
+    }
+
+    function renderEvents() {
+      const rows = filtered();
+      count.textContent = `${rows.length} event${rows.length === 1 ? "" : "s"}`;
+      events.replaceChildren();
+      if (!rows.length) {
+        const empty = document.createElement("li");
+        empty.className = "empty";
+        empty.textContent = "No retained events match this query.";
+        events.append(empty);
+        return;
+      }
+      for (const item of rows) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = `event${item.id === selected.id ? " selected" : ""}`;
+        button.dataset.id = item.id;
+        button.innerHTML = `<span class="event-dot ${item.kind}" aria-hidden="true"></span><span class="event-main"><span class="event-line"><span class="event-kind"></span><span class="event-time"></span></span><span class="event-title"></span><span class="event-subject"></span></span>`;
+        button.querySelector(".event-kind").textContent = item.label;
+        button.querySelector(".event-time").textContent = item.time;
+        button.querySelector(".event-title").textContent = item.title;
+        button.querySelector(".event-subject").textContent = item.subject;
+        button.addEventListener("click", () => selectEvent(item.id));
+        const li = document.createElement("li");
+        li.append(button);
+        events.append(li);
+      }
+    }
+
+    function selectEvent(id) {
+      selected = history.find((item) => item.id === id) || selected;
+      document.querySelector("#main-title").textContent = selected.title;
+      document.querySelector("#main-subtitle").textContent = `${selected.label} · ${selected.subject}`;
+      document.querySelector("#detail-kind").textContent = selected.label;
+      document.querySelector("#detail-sequence").textContent = selected.id.replace("evt_", "");
+      document.querySelector("#detail-causation").textContent = selected.id === "evt_1842" ? "evt_1840 → evt_1842" : `prior → ${selected.id}`;
+      document.querySelector("#detail-sensitivity").textContent = selected.sensitivity;
+      document.querySelector("#inspector-title").textContent = selected.label;
+      document.querySelector("#inspector-copy").textContent = `${selected.title} · ${selected.subject}`;
+      renderEvents();
+    }
+
+    function actionMessage(action) {
+      const messages = {
+        "open-source": "Preview: open src/layout.rs:418:9 (read-only)",
+        event: `Preview: jump to ${selected.id} in the session journal`,
+        quote: `Copied redacted event reference ${selected.id}`,
+        "copy-link": `Copied stable link for ${selected.id}`,
+        "search-session": "Preview: search this session for matching events",
+        "open-surface": "Preview: focus build-2; terminal input unchanged"
+      };
+      showToast(messages[action] || "Action preview");
+    }
+
+    query.addEventListener("input", renderEvents);
+    kind.addEventListener("change", renderEvents);
+    document.querySelectorAll("[data-action]").forEach((button) => button.addEventListener("click", () => actionMessage(button.dataset.action)));
+    document.querySelector("#copy").addEventListener("click", () => actionMessage("copy-link"));
+    document.querySelector("#outline").addEventListener("click", () => showToast("Outline view would keep stable event numbers and jump targets."));
+    document.querySelector("#close").addEventListener("click", () => showToast("Prototype closed; the terminal keeps its focus and scroll position."));
+    renderEvents();
+  </script>
+</body>
+</html>
