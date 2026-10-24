@@ -28,7 +28,7 @@
     {"title": "Critical, version A: the triangle and the banner with acpmux's reasons and Show Details",
      "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "hostPressure.force", "value": "critical"}}, "wait": 2,
      "optional": "debug.tunables is DEBUG only"},
-    {"title": "The critical popover: acpmux's reasons and the busiest sessions with Stop",
+    {"title": "The critical popover: the load against its limit, acpmux's reasons and the busiest sessions (a forced level's sample sessions have no Stop)",
      "rpc": {"method": "debug.host_pressure", "params": {"action": "open"}}, "wait": 2,
      "optional": "debug.host_pressure is DEBUG only"},
     {"title": "Closed",

@@ -27,6 +27,28 @@ Usage: split-spring-terminal.py --tag <tag> --app PATH [--rounds 3] [--presses 5
 """
 import argparse, glob, json, os, signal, subprocess, sys, tempfile, time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from bench_launch import BenchApp, require_gui_session  # noqa: E402
+
+# Every suite but pane-bench (package tests, no window) needs this account's GUI login session on the console:
+# without it the app never opens its socket (bench_launch.py). Say so at once instead of after a launch timeout.
+if "--suite=pane-bench" not in sys.argv:
+    require_gui_session("split-spring")
+# `--suite=launch-check`: only launch the app, wait for its socket and a window, quit (bench_launch.py check): is
+# this worker able to run GUI benches at all.
+if "--suite=launch-check" in sys.argv:
+    def _flag(name, default=None):
+        for i, a in enumerate(sys.argv):
+            if a.startswith(name + "="):
+                return a.split("=", 1)[1]
+            if a == name and i + 1 < len(sys.argv):
+                return sys.argv[i + 1]
+        return default
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bench_launch.py")
+    rest = ["check", "--app", _flag("--app"), "--out", _flag("--out", "/tmp")]
+    if _flag("--json"):
+        rest += ["--json", _flag("--json")]
+    os.execv(sys.executable, [sys.executable, suite] + rest)
 # `--suite=pane-perf` (through the allowlisted fleet entry scripts/measure/split-spring.sh): the whole pane
 # motion suite instead, scripts/cmux-next/pane-perf-terminal.py, with the same --tag/--app/--out/--json.
 # `--suite=budgets`: every perf budget row, scripts/cmux-next/perf-budgets.py (one table, one gate).
@@ -61,6 +83,11 @@ if "--suite=pane-bench" in sys.argv:
 if "--suite=every-action" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "every-action-sweep.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=every-action"])
+# `--suite=typing-frame`: key to frame in a terminal, the Home composer and the omnibar, idle and under load
+# (optionally in the STRESS session), scripts/cmux-next/typing-frame-bench.py.
+if "--suite=typing-frame" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "typing-frame-bench.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=typing-frame"])
 if "--suite=anim-perf" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "anim-perf-terminal.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=anim-perf"])
@@ -86,6 +113,12 @@ if "--suite=perf-gate" in sys.argv:
     print(f"split-spring --suite=perf-gate: perf-gate.py exited {code}; report {report_path}"
           f"{'' if os.path.exists(report_path) else ' (missing)'}", flush=True)
     sys.exit(0 if os.path.exists(report_path) else (code or 1))
+# `--suite=batch2-verify`: base against head on this worker, interleaved (scripts/cmux-next/batch2-verify-bench.py):
+# perf-gate.py with a hang watchdog, and Cmd-Tab, tab switch and pane focus in STRESS. The base app comes from
+# this worker's app cache (a `--build-only` step of --base-sha). It keeps --tag/--app/--out/--json.
+if "--suite=batch2-verify" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "batch2-verify-bench.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=batch2-verify"])
 # `--suite=launch`: launch time, scripts/cmux-next/bench-startup.py (the launch-time budget that left the pull request
 # CI, 2026-10-23). bench-startup.py takes the app's tag from --app, so --tag and --out are dropped; --json stays.
 # The step passes whenever the JSON was written (an over-budget launch is in it).
@@ -244,24 +277,17 @@ def cleanup():
 
 
 def main():
-    global app
-    if os.path.exists(SOCKET):
-        os.remove(SOCKET)
-    env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
-           "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_CONFIG_FILE": CONFIG,
-           "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty"), "CMUX_NEXT_TEST_WINDOW_FRAME": "80,80,1600,1000"}
-    log = open(os.path.join(opts.out, f"app-{TAG}.log"), "a")
-    app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-    LAUNCHED.append(app.pid)
+    global app, SOCKET
+    # One launch path (bench_launch.py): socket in the state folder, bench env, a clear reason when it does not come up.
+    bench = BenchApp(APP, out=opts.out, log_name=f"app-{TAG}.log", window=(80, 80, 1600, 1000), screen=None, teardown=False,
+                     env={"CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty")})
+    try:
+        bench.launch(timeout=120, on_start=lambda process: LAUNCHED.append(process.pid))
+    finally:
+        app = bench.process
+    SOCKET = bench.socket
     print(f"launched pid {app.pid} macOS {subprocess.run(['sw_vers', '-productVersion'], capture_output=True, text=True).stdout.strip()}",
           flush=True)
-    if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 120):
-        # The step log is stdout only: say why here, with the app's own log.
-        print(f"the tagged app did not come up: socket {SOCKET} exists={os.path.exists(SOCKET)} "
-              f"debug.windows={rpc('debug.windows')} alive={app.poll() is None}", flush=True)
-        log.flush()
-        print(open(os.path.join(opts.out, f"app-{TAG}.log"), errors="replace").read()[-6000:], flush=True)
-        sys.exit(1)
     time.sleep(5)  # test harness: launch work settles
     report = {"tag": TAG, "stream": opts.stream, "scrollback": opts.scrollback, "presses": opts.presses,
               "interval_ms": opts.interval, "runs": []}

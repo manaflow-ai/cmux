@@ -58,6 +58,11 @@ Fleet (an owned mini's console; the allowlisted entry builds the tagged app at t
     --artifact artifacts/split-spring/report.json --arg=--suite=every-action [--arg=--sessions=light,stress]
   (also artifacts/split-spring/every-action.md in a second step with that --artifact)
 
+On the fleet pass --vdisplay=120 to split-spring.sh: a 1920x1080 120 Hz virtual display, so frames are judged at
+full ProMotion refresh and the STRESS grid (4 columns) fits; a 1024x768 console refuses the splits. The window
+opens on screen 0, the main display: the virtual one when split-spring.sh made it main, else the console.
+Pass --vdisplay-hold=SECONDS longer than the run (the helper ends itself after 1200 s by default).
+
 Usage: every-action-sweep.py --app APP --tag TAG --out DIR [--json PATH] [--sessions light,stress] [--repeat 3]
        [--only id,id] [--limit N] [--shard K/N] [--settle 0.5] [--no-interactions] [--keep]
 A sharded run (--shard K/N) times the interactions in shard 1 only; merge the shards' JSON with
@@ -67,6 +72,8 @@ import argparse, csv, signal, threading, glob, importlib.util, json, os, platfor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
+sys.path.insert(0, HERE)
+from tag_teardown import TagTeardown  # noqa: E402
 
 if len(sys.argv) > 2 and sys.argv[1] == "--merge":
     MERGE = (sys.argv[2], sys.argv[3:])
@@ -83,7 +90,7 @@ parser.add_argument("--sessions", default="light,stress")
 parser.add_argument("--repeat", type=int, default=3)
 parser.add_argument("--only", default="", help="comma-separated action ids (default: every action)")
 parser.add_argument("--limit", type=int, default=0, help="at most N actions per session (a smoke run)")
-parser.add_argument("--shard", default="", help="K/N: only every N-th action from the K-th (1-based), for N hosts in parallel")
+parser.add_argument("--shard", default="", help="K/N or K1,K2/N: only every N-th action from the K-th (1-based), for N hosts in parallel")
 parser.add_argument("--settle", type=float, default=0.5, help="seconds of frames kept after each commit (animations)")
 parser.add_argument("--no-interactions", action="store_true")
 parser.add_argument("--keep", action="store_true", help="leave the app running")
@@ -141,6 +148,35 @@ def error_of(reply):
     return None
 
 
+DESTRUCTIVE = set()  # ids action.list marks destructive: a socket caller passes confirm (ControlRouter+ActionRun)
+
+
+def hang_summary(hangs):
+    """debug.hangs: stall count, the longest stall, and the longest stall's main-thread stack (the cause)."""
+    records = [r for r in (hangs.get("records") or []) if r.get("kind", "stall") == "stall"] if isinstance(hangs, dict) else []
+    longest = max(records, key=lambda r: r.get("duration_ms") or 0, default=None)
+    out = {"count": hangs.get("count") if isinstance(hangs, dict) else None,
+           "max_ms": round((hangs.get("max_ms") if isinstance(hangs, dict) else 0) or 0, 2)}
+    if longest:
+        out["stack"] = {"ms": round(longest.get("duration_ms") or 0, 2), "cpu_ms": round(longest.get("cpu_ms") or 0, 2),
+                        "top": (longest.get("frames") or [])[:6],
+                        "app": [f for f in longest.get("frames") or [] if "cmux" in f.lower()][:14]}
+    return out
+
+
+def act(ident, target=None, args=None, timeout=30, **params):
+    """action.run of `ident`; a destructive action gets the script caller's confirm."""
+    args = dict(args or {})
+    if ident in DESTRUCTIVE:
+        args["confirm"] = True
+    call = {"action": ident, **params}
+    if args:
+        call["args"] = args
+    if target:
+        call["target"] = target
+    return rpc("action.run", call, timeout=timeout)
+
+
 def wait(predicate, seconds, step=0.05):
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:  # bounded poll of the app's socket state in a test script
@@ -194,7 +230,7 @@ class App:
         env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/zsh", "CMUX_DEV_BACKEND_MODE": "local",
                "CMUX_NEXT_AGENT_PANE_MOCK": "1", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
-               "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_TEST_WINDOW_FRAME": ",".join(map(str, WINDOW)),
+               "CMUX_NEXT_TEST_WINDOW_SCREEN": "0", "CMUX_NEXT_TEST_WINDOW_FRAME": ",".join(map(str, WINDOW)),
                "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": GHOSTTY, "CMUX_NEXT_CHIEF_ISOLATED": "1",
                "CMUX_NEXT_CHIEF_HOME": os.path.join(SCRATCH, "chief"), "CMUX_NEXT_TYPING_PROBE": PROBE,
                "CMUX_NEXT_HANG_THRESHOLD_MS": "8", "ACPMUX_AGENT_LAUNCH": "deny"}
@@ -220,6 +256,14 @@ class App:
         time.sleep(3)  # test script: launch work (restore, first pages) ends before the first measure
 
     def stop(self):
+        try:
+            self.quit()
+        finally:
+            # The tag's headless cmux-tui session and acpmux outlive a quit (keep-on-quit): end them, so the next
+            # session starts empty (a relaunch otherwise restores every workspace the last session left).
+            TagTeardown(opts.app, log=note).end()
+
+    def quit(self):
         if not self.process or self.process.poll() is not None:
             return
         rpc("action.run", {"action": "quitEndSessions"}, timeout=10)  # ends the tag's terminal sessions too
@@ -397,6 +441,13 @@ class Sweep:
 
     def build(self):
         self.builder = self.stress_module.Stress(rpc, log=note, settle=3.0)
+        # A session starts from one workspace: anything a restore brought back is closed first.
+        leftover = [w["id"] for w in topology().get("workspaces") or [] if w.get("id")][1:]
+        for workspace in leftover:
+            act("closeWorkspace", f"workspace:{workspace}", origin="script")
+        if leftover:
+            note(f"every-action: {self.session}: closed {len(leftover)} restored workspaces; "
+                 f"{len(topology().get('workspaces') or [])} left")
         if self.session == "stress":
             summary = self.builder.build()
             note("STRESS-SESSION " + json.dumps(summary))
@@ -485,11 +536,11 @@ class Sweep:
         drift = []
         for window in after["windows"]:
             if window not in before["windows"]:
-                rpc("action.run", {"action": "closeWindow", "target": f"window:{window}"})
+                act("closeWindow", f"window:{window}", origin="script")
                 drift.append("window+")
         for workspace in list(after["workspaces"]):
             if workspace not in before["workspaces"]:
-                rpc("action.run", {"action": "closeWorkspace", "target": f"workspace:{workspace}"})
+                act("closeWorkspace", f"workspace:{workspace}", origin="script")
                 drift.append("workspace+")
         for workspace, panes in after["workspaces"].items():
             old = before["workspaces"].get(workspace)
@@ -497,12 +548,12 @@ class Sweep:
                 continue
             for pane, tabs in panes.items():
                 if pane not in old:
-                    rpc("action.run", {"action": "closePane", "target": f"pane:{pane}"})
+                    act("closePane", f"pane:{pane}", origin="script")
                     drift.append("pane+")
                     continue
                 for tab in tabs:
                     if tab not in old[pane]:
-                        rpc("action.run", {"action": "closeTab", "target": f"tab:{tab}"})
+                        act("closeTab", f"tab:{tab}", origin="script")
                         drift.append("tab+")
         lost = self.lost(before, shape(topology()))
         if lost:
@@ -560,7 +611,7 @@ class Sweep:
             for kind in ["chromium", "chromium", "webkit", "chat", "terminal"]:
                 self.builder.add_tab(workspace, panes[0], kind)
             if base_ws in shape(topology())["workspaces"]:
-                rpc("action.run", {"action": "closeWorkspace", "target": f"workspace:{base_ws}"})
+                act("closeWorkspace", f"workspace:{base_ws}", origin="script")
         time.sleep(2)  # test script: rebuilt pages load
         self.snapshot_base(workspace)
 
@@ -599,7 +650,7 @@ class Sweep:
         time.sleep(settle)  # test script: the animation the action started runs out inside the frame window
         t_end = uptime()
         frames = rpc("debug.frames", {"action": "stop", "raw": True}) or {}
-        hangs = rpc("debug.hangs", {"limit": 3}) or {}
+        hangs = rpc("debug.hangs", {"limit": 8}) or {}
         runs = SIGNPOSTS.runs(t_send, t_end)
         mine = next((r for r in runs if r["id"] == action_id), None)
         first = mine or (runs[0] if runs else None)
@@ -618,8 +669,7 @@ class Sweep:
                          "main_over_8_3": frames.get("main_over_8_3_ms"),
                          "first_main_ms": round(busy[0], 2) if busy else None,
                          "first_interval_ms": round(intervals[0], 2) if intervals else None}
-        row["hangs"] = {"count": hangs.get("count", hangs.get("total")),
-                        "max_ms": max([h.get("ms") or h.get("duration_ms") or 0 for h in (hangs.get("hangs") or hangs.get("items") or [])] or [0])}
+        row["hangs"] = hang_summary(hangs)
         return row
 
     # One action.
@@ -674,17 +724,14 @@ class Sweep:
                     if not self.show(plan["context"]):
                         break
                     before = shape(topology())
-                    retry = self.measure(lambda t: rpc("action.run", {"action": ident, "focus": True}, timeout=30), ident)
+                    retry = self.measure(lambda t: act(ident, focus=True), ident)
                     retry["key_routed"] = False
                     retry["key_reply"] = sample["key_reply"]
                     retry["key_ran"] = key_runs
                     sample = retry
                     entry = "action"
             else:
-                params = {"action": ident, "focus": True}
-                if plan["args"]:
-                    params["args"] = plan["args"]
-                sample = self.measure(lambda t: rpc("action.run", params, timeout=30), ident)
+                sample = self.measure(lambda t: act(ident, args=plan["args"], focus=True), ident)
             sample["entry"] = entry
             err = error_of(sample["reply"])
             if isinstance(sample["reply"], dict) and sample["reply"].get("refused_action"):
@@ -715,6 +762,9 @@ class Sweep:
                          "main_max_ms": max([s["frames"]["main_max_ms"] for s in samples] or [0])}
         row["hangs"] = {"count": sum((s["hangs"]["count"] or 0) for s in samples),
                         "max_ms": max([s["hangs"]["max_ms"] or 0 for s in samples] or [0])}
+        stacks = [s["hangs"]["stack"] for s in samples if s["hangs"].get("stack")]
+        if stacks:
+            row["hangs"]["stack"] = max(stacks, key=lambda x: x["ms"])
         row["entries"] = sorted({s["entry"] for s in samples})
         row["key_routed"] = all(s.get("key_routed", True) for s in samples) if plan["key"] else None
         row["key_reply"] = next((s.get("key_reply") for s in samples if s.get("key_reply")), None)
@@ -769,13 +819,13 @@ class Sweep:
         wall = (uptime() - t0) * 1000
         time.sleep(settle)  # test script: trailing frames of the gesture
         frames = rpc("debug.frames", {"action": "stop"}) or {}
-        hangs = rpc("debug.hangs", {"limit": 3}) or {}
+        hangs = rpc("debug.hangs", {"limit": 8}) or {}
         return {"wall_ms": round(wall, 1), "frames": {"refresh_ms": round(frames.get("refresh_ms") or 0, 2), "count": frames.get("frames"),
                                                        "missed": frames.get("missed"), "p95_ms": round(frames.get("p95_ms") or 0, 2),
                                                        "max_ms": round(frames.get("max_ms") or 0, 2),
                                                        "main_p95_ms": round(frames.get("main_p95_ms") or 0, 2),
                                                        "main_max_ms": round(frames.get("main_max_ms") or 0, 2)},
-                "hangs": {"count": hangs.get("count", hangs.get("total"))}, **extra}
+                "hangs": hang_summary(hangs), **extra}
 
     def pane_chrome(self):
         reply = rpc("debug.pane_chrome") or {}
@@ -1023,18 +1073,23 @@ class Sweep:
             if re.match(WINDOW_CLOSERS, action["id"]) and self.session == "light":
                 later.append(action)
                 continue
-            row = self.run_action(action)
+            try:
+                row = self.run_action(action)
+            except Exception as error:  # a harness failure is this action's row; the session goes on
+                row = {"session": self.session, "kind": "action", "id": action["id"], "errors": [f"harness: {error!r}"[:240]],
+                       "frames": {"missed": None}, "check": "n/a"}
             self.rows.append(row)
             note(f"every-action: {self.session} {index + 1}/{len(actions)} {action['id']}: "
                  + (f"skipped ({row['skipped']})" if row.get("skipped") else
                     f"commit {(row.get('commit_ms') or {}).get('p95')} turn {(row.get('turn_ms') or {}).get('p95')} "
                     f"missed {row['frames']['missed']} errors {row['errors'][:2]} check {row['check']}"))
-            if (rpc("system.ping", timeout=10) or {}).get("pong") is not True:
+            if (rpc("system.ping", timeout=10) or {}).get("pong") is not True or any(e.startswith("harness:") for e in row.get("errors") or []):
                 note(f"every-action: the app stopped answering after {action['id']}; relaunching")
-                self.rows[-1]["errors"] = sorted(set(self.rows[-1].get("errors") or []) | {"the app stopped answering"})
+                if not any(e.startswith("harness:") for e in row.get("errors") or []):
+                    self.rows[-1]["errors"] = sorted(set(self.rows[-1].get("errors") or []) | {"the app stopped answering"})
                 self.app.relaunch()
                 self.build()
-        if not opts.no_interactions and (not opts.shard or opts.shard.startswith("1/")):
+        if not opts.no_interactions and (not opts.shard or "1" in opts.shard.split("/")[0].split(",")):
             self.run_interactions()
         for action in later:
             row = self.run_action(action)
@@ -1236,7 +1291,8 @@ def misses(row):
 
 def refusal(error):
     """A refusal the sweep's own context or missing arguments caused (the action says what it needs), not an app error."""
-    return error.startswith("unavailable:") or "unavailable" in error.split(":")[0]
+    head = error.split(":")[0]
+    return head in ("unavailable", "disabled", "not_found", "invalid_argument", "invalid_params") or "unavailable" in head
 
 
 def score(row):
@@ -1295,12 +1351,14 @@ def main():
     note(f"every-action: env {json.dumps(env)}")
     listed = rpc("action.list") or {}
     actions = sorted(listed.get("actions") or [], key=lambda a: a["id"])
+    DESTRUCTIVE.update(a["id"] for a in actions if a.get("destructive"))
     only = {a for a in opts.only.split(",") if a}
     if only:
         actions = [a for a in actions if a["id"] in only]
     if opts.shard:
-        k, n = (int(x) for x in opts.shard.split("/"))
-        actions = actions[k - 1::n]
+        ks, n = opts.shard.split("/")
+        picks = {int(k) - 1 for k in ks.split(",")}
+        actions = [a for index, a in enumerate(actions) if index % int(n) in picks]
         env["shard"] = opts.shard
     if opts.limit:
         actions = actions[:opts.limit]
@@ -1315,7 +1373,9 @@ def main():
     report = {"env": env, "sessions": []}
     report_path = opts.json or os.path.join(OUT, "every-action.json")
     try:
-        for name in [s for s in opts.sessions.split(",") if s]:
+        for index, name in enumerate([s for s in opts.sessions.split(",") if s]):
+            if index:
+                app.relaunch()  # each session starts from a fresh app: STRESS is exactly perf-stress-session's shape
             sweep = Sweep(app, name, stress_module)
             sweep.run(actions)
             report["sessions"].append({"name": name, "summary": sweep.summary, "validity": sweep.validity, "idle": sweep.idle,
