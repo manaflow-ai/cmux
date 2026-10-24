@@ -12,17 +12,30 @@ import CmuxNextSettings
 /// notification on the terminal's tab, as `cmux notify` does, so it marks the tab unread and
 /// follows the notification settings.
 extension NotificationCenterService {
-    /// One input of the keyed follower: the workspace set changed, or one workspace's status did.
+    /// One input of the keyed follower: the workspace set changed, or one workspace record's status
+    /// did. The record rides along, so a queued change of a record no longer followed can never be
+    /// taken for another record's.
     fileprivate enum StatusRunChange: Sendable {
         case membership
-        case status(ObjectIdentifier, WorkspaceStatus?)
+        case status(WorkspaceModel, WorkspaceStatus?)
+    }
+
+    /// One followed workspace: its record (held, so its identity names it while followed), the
+    /// observation of its status, and the runs it saw busy.
+    fileprivate struct StatusRunWatch {
+        let workspace: WorkspaceModel
+        let task: Task<Void, Never>
+        var tracker = FinishedStatusRunTracker()
     }
 
     /// Follows every workspace's status entries and posts each finished run's notice. Keyed: one
     /// observation per workspace's status, so a status change in one workspace (a script that sets
     /// statuses in 50) costs that workspace only; the workspace set is observed through its
-    /// revision, which moves only when a workspace comes or goes (CLAUDE.md "Go past Chrome where
-    /// cmux is scripted").
+    /// revision, which moves only when a workspace record comes or goes (a record replaced under
+    /// its id included), never for a move (CLAUDE.md "Go past Chrome where cmux is scripted").
+    ///
+    /// A workspace's first status is read when it is followed, with its observation armed in the
+    /// same step (`ObservationStream.current`), so a run that goes busy right after is seen busy.
     ///
     /// - Parameters:
     ///   - store: The store whose workspaces are followed.
@@ -37,54 +50,62 @@ extension NotificationCenterService {
         Task { [weak self] in // task-owner: start(services:) keeps the handle in tasks
             // concurrency-allow: one element per status change of a live workspace; this main-actor loop drains it every turn
             let (changes, sink) = AsyncStream<StatusRunChange>.makeStream()
+            // Read now with tracking armed: a set change after this first pass is never lost.
+            let (_, laterSets) = ObservationStream.current { store.workspaceSetRevision }
             let membership = Task { // task-owner: cancelled when this follower ends
-                for await _ in ObservationStream({ store.workspaceSetRevision }) { sink.yield(.membership) }
+                for await _ in laterSets { sink.yield(.membership) }
             }
-            var watches: [ObjectIdentifier: (task: Task<Void, Never>, tracker: FinishedStatusRunTracker)] = [:]
+            var watches: [ObjectIdentifier: StatusRunWatch] = [:]
             defer {
                 membership.cancel()
                 for watch in watches.values { watch.task.cancel() }
             }
+            /// Feeds `status` to `watch`'s tracker and posts the runs it shows finished.
+            @MainActor func examine(_ status: WorkspaceStatus?, _ watch: inout StatusRunWatch) {
+                guard let service = self else { return }
+                let notices = service.statusRunNotices(in: status.map { [$0] } ?? [], store: store, tracker: &watch.tracker,
+                                                       behavior: behavior(), visibility: visibility)
+                for notice in notices {
+                    if let post { post(notice) } else { service.postStatusRun(notice) }
+                }
+            }
+            /// Follows the listed records not followed yet and lets go of the ones no longer listed.
+            @MainActor func reconcile() {
+                let listed = Dictionary(store.workspaces.map { (ObjectIdentifier($0), $0) }, uniquingKeysWith: { first, _ in first })
+                for (id, watch) in watches where listed[id] == nil {
+                    watch.task.cancel()
+                    watches[id] = nil
+                }
+                for (id, workspace) in listed where watches[id] == nil {
+                    let (status, later) = ObservationStream.current { workspace.status }
+                    let task = Task { // task-owner: in watches, cancelled when the workspace leaves the set
+                        for await status in later { sink.yield(.status(workspace, status)) }
+                    }
+                    var watch = StatusRunWatch(workspace: workspace, task: task)
+                    examine(status, &watch)
+                    watches[id] = watch
+                }
+            }
+            reconcile()
             for await change in changes {
-                guard let self else { return }
+                guard self != nil else { return }
                 switch change {
                 case .membership:
-                    let listed = Dictionary(store.workspaces.map { (ObjectIdentifier($0), $0) }, uniquingKeysWith: { first, _ in first })
-                    for (id, watch) in watches where listed[id] == nil {
-                        watch.task.cancel()
-                        watches[id] = nil
-                    }
-                    for (id, workspace) in listed where watches[id] == nil {
-                        let task = Task { // task-owner: in watches, cancelled when the workspace leaves the set
-                            for await status in ObservationStream({ workspace.status }) { sink.yield(.status(id, status)) }
-                        }
-                        watches[id] = (task, FinishedStatusRunTracker())
-                    }
-                case .status(let id, let status):
-                    guard var watch = watches[id] else { continue }
-                    self.statusRunVisits += 1
-                    let notices = self.statusRunNotices(in: status.map { [$0] } ?? [], store: store, tracker: &watch.tracker,
-                                                        behavior: behavior(), visibility: visibility)
+                    reconcile()
+                case .status(let workspace, let status):
+                    let id = ObjectIdentifier(workspace)
+                    guard var watch = watches[id], watch.workspace === workspace else { continue }
+                    examine(status, &watch)
                     watches[id] = watch
-                    for notice in notices {
-                        if let post { post(notice) } else { self.postStatusRun(notice) }
-                    }
                 }
             }
         }
     }
 
-    /// The notices for the runs that finished since `tracker`'s last look, under `behavior`.
-    /// `visibility` says where a run's terminal is for the user (`visibility(of:)` when nil; tests
-    /// pass their own); a run whose terminal this client has no tab for counts as not visible.
-    func statusRunNotices(in store: DaemonStore, tracker: inout FinishedStatusRunTracker,
-                          behavior: StatusBehaviorSettings = DesignSettings.shared.statusBehavior,
-                          visibility: (@MainActor (LocatedTab) -> TerminalVisibility)? = nil) -> [StatusRunNotice] {
-        statusRunNotices(in: store.workspaces.compactMap(\.status), store: store, tracker: &tracker, behavior: behavior, visibility: visibility)
-    }
-
-    /// ``statusRunNotices(in:tracker:behavior:visibility:)`` over `statuses` only (one workspace's,
-    /// from the keyed follower).
+    /// The notices for the runs of `statuses` (one workspace's, from the keyed follower) that
+    /// finished since `tracker`'s last look, under `behavior`. `visibility` says where a run's
+    /// terminal is for the user (`visibility(of:)` when nil; tests pass their own); a run whose
+    /// terminal this client has no tab for counts as not visible.
     func statusRunNotices(in statuses: [WorkspaceStatus], store: DaemonStore, tracker: inout FinishedStatusRunTracker,
                           behavior: StatusBehaviorSettings = DesignSettings.shared.statusBehavior,
                           visibility: (@MainActor (LocatedTab) -> TerminalVisibility)? = nil) -> [StatusRunNotice] {
