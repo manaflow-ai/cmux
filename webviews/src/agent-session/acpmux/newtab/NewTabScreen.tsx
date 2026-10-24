@@ -19,6 +19,7 @@ import {
   useAttachmentIntake,
   useSendWhenAttached,
 } from "../composer/attachmentIntake";
+import { reordered } from "../composer/stripReorder";
 import { DropOverlay } from "../composer/DropOverlay";
 import { AllChatsList, type LoadChatsPage } from "./AllChatsList";
 import { ChatCards } from "./ChatCards";
@@ -1231,6 +1232,7 @@ export function NewTabScreen(props: Props) {
               field.current?.focus();
             }}
             onRetry={retry}
+            onReorder={(id, index) => setAttachments((current) => reordered(current, id, index))}
           />
           {!pill && !split && pickers}
         </div>
