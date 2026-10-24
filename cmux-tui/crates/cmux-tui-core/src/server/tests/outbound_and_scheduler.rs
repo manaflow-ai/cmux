@@ -562,7 +562,7 @@ fn blocking_wait_cannot_overtake_input_queued_behind_a_clear_barrier() {
         (2, Command::WaitFor { surface: 2, pattern: "never".to_string(), timeout_ms: 60_000 }),
     ] {
         state.requests.push_back(PendingSurfaceRequest {
-            request: Request { id: Some(json!(id)), cmd },
+            request: Request { id: Some(json!(id)), stream: None, cmd },
             retained_bytes: 0,
             _bytes_permit: admission.try_reserve_bytes(0).unwrap(),
         });
@@ -600,7 +600,7 @@ fn guarded_browser_pointer_input_overtakes_an_unrelated_clear_barrier() {
         let mut state = ConnectionSurfaceState::default();
         state.active_clear_surfaces.insert(1);
         state.requests.push_back(PendingSurfaceRequest {
-            request: Request { id: Some(json!(1)), cmd },
+            request: Request { id: Some(json!(1)), stream: None, cmd },
             retained_bytes: 0,
             _bytes_permit: admission.try_reserve_bytes(0).unwrap(),
         });
@@ -627,6 +627,7 @@ fn queued_same_surface_clears_do_not_reserve_worker_permits() {
     for id in 0..SERVER_SURFACE_WORKER_CAPACITY {
         let mut clear = Some(Request {
             id: Some(json!(id)),
+            stream: None,
             cmd: Command::ClearHistory { surface: surface.id, fallback_key: None },
         });
         assert_eq!(scheduler.dispatch(mux.clone(), 0, &mut clear, 0, writer.clone()), Some(true));
@@ -655,11 +656,13 @@ fn queued_wait_releases_clear_worker_permit_after_clear_settles() {
 
     let mut clear = Some(Request {
         id: Some(json!(1)),
+        stream: None,
         cmd: Command::ClearHistory { surface: surface.id, fallback_key: None },
     });
     assert_eq!(scheduler.dispatch(mux.clone(), 0, &mut clear, 0, writer.clone()), Some(true));
     let mut wait = Some(Request {
         id: Some(json!(2)),
+        stream: None,
         cmd: Command::WaitFor {
             surface: surface.id,
             pattern: "never-matches".to_string(),
@@ -708,11 +711,13 @@ fn connection_close_cancels_a_wait_queued_after_clear_history() {
 
     let mut clear = Some(Request {
         id: Some(json!(1)),
+        stream: None,
         cmd: Command::ClearHistory { surface: surface.id, fallback_key: None },
     });
     assert_eq!(scheduler.dispatch(mux.clone(), 0, &mut clear, 0, writer.clone()), Some(true));
     let mut wait = Some(Request {
         id: Some(json!(2)),
+        stream: None,
         cmd: Command::WaitFor {
             surface: surface.id,
             pattern: "release-wait".to_string(),

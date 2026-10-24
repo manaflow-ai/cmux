@@ -226,6 +226,10 @@ pub(super) fn advertised_capabilities(
         TERMINAL_COLOR_OVERRIDES_CAPABILITY,
         TERMINAL_PENDING_SEQUENCE_CAPABILITY,
         terminal_snapshot::TERMINAL_SNAPSHOT_CAPABILITY,
+        attach_frames::ATTACH_STREAMS_CAPABILITY,
+        attach_frames::ATTACH_FRAMES_CAPABILITY,
+        #[cfg(unix)]
+        attach_frames::TERMINAL_OUTPUT_RING_CAPABILITY,
         terminal_snapshot::TERMINAL_SNAPSHOT_HISTORY_CAPABILITY,
         terminal_snapshot::TERMINAL_SNAPSHOT_LOCAL_HISTORY_CAPABILITY,
         terminal_snapshot::TERMINAL_SNAPSHOT_IMAGES_CAPABILITY,

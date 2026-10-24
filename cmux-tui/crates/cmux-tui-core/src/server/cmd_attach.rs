@@ -17,6 +17,10 @@ use super::RenderClientState;
 use super::TERMINAL_COLOR_OVERRIDES_CAPABILITY;
 use super::TERMINAL_PENDING_SEQUENCE_CAPABILITY;
 use super::VtStateMessage;
+use super::attach_frames::ATTACH_FRAMES_CAPABILITY;
+use super::attach_frames::ATTACH_STREAMS_CAPABILITY;
+use super::attach_frames::ClientStreamId;
+use super::attach_frames::StreamFraming;
 use super::attach_overflow_json;
 use super::attach_response;
 use super::browser_state_message;
@@ -56,6 +60,68 @@ use std::sync::Arc;
 /// How long a sized terminal attach waits for its hosted PTY's resize before
 /// it builds the replay anyway (then a `resized` replay follows, as before).
 const INITIAL_HOSTED_RESIZE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// How an attach with client stream `stream` is written on `client`'s
+/// connection. Frames only on a local Unix connection that negotiated them
+/// (never the remote entry, a relay or a WebSocket: design 3.5).
+pub(super) fn stream_framing(
+    mux: &Mux,
+    client: u64,
+    stream: Option<ClientStreamId>,
+) -> anyhow::Result<StreamFraming> {
+    let Some(stream) = stream else { return Ok(StreamFraming::LEGACY) };
+    anyhow::ensure!(
+        mux.control_clients.supports_capability(client, ATTACH_STREAMS_CAPABILITY),
+        "attach-surface stream requires client capability {ATTACH_STREAMS_CAPABILITY}"
+    );
+    let frames = mux.control_clients.supports_capability(client, ATTACH_FRAMES_CAPABILITY)
+        && mux.control_clients.is_unix(client)
+        && !mux.is_remote_client(client);
+    Ok(StreamFraming::client(stream, frames))
+}
+
+/// Ends client stream `stream` after its `attach-surface` failed: the failed
+/// attach never opened it, or opened and rolled it back without an end
+/// (`detach_failed_surface`). An id still open belongs to another attach
+/// (a refused duplicate) and is left alone.
+pub(super) fn end_failed_stream(
+    mux: &Mux,
+    client: u64,
+    writer: &MessageWriter,
+    stream: ClientStreamId,
+) {
+    if mux.control_clients.client_stream(client, stream).is_some() {
+        return;
+    }
+    let framing = match stream_framing(mux, client, Some(stream)) {
+        Ok(framing) => framing,
+        // Without attach-streams-v1 the client gets plain JSON: the
+        // stream-end still names the id it chose.
+        Err(_) => StreamFraming::client(stream, false),
+    };
+    match writer.start_framed_stream(&json!({"event": "overflow"}), framing) {
+        Ok(ended) => writer.end_client_stream(&ended, None),
+        Err(_) => writer.close(),
+    }
+}
+
+/// `cancel-stream`: ends the request's client stream now. Its producers stop,
+/// its view detaches, and its `stream-end` follows every item already queued.
+/// An unknown or already ended stream answers `ended`.
+pub(super) fn cancel_stream(
+    mux: &Arc<Mux>,
+    client: u64,
+    stream: Option<ClientStreamId>,
+) -> anyhow::Result<Value> {
+    let stream =
+        stream.ok_or_else(|| anyhow::anyhow!("bad request: cancel-stream needs stream"))?;
+    let Some((surface, outbound)) = mux.control_clients.client_stream(client, stream) else {
+        return Ok(json!({"outcome": "ended"}));
+    };
+    outbound.close();
+    detach_committed_attach(mux, client, surface, outbound.id);
+    Ok(json!({"outcome": "applied"}))
+}
 
 pub(super) fn detach_client(
     mux: &Arc<Mux>,
@@ -176,7 +242,9 @@ pub(super) fn attach_surface(
     expected_generation: Option<String>,
     expected_terminal_id: Option<String>,
     snapshot: terminal_snapshot::SnapshotAttachParams,
+    stream: Option<ClientStreamId>,
 ) -> anyhow::Result<Value> {
+    let framing = stream_framing(mux, client, stream)?;
     let initial_size = match (cols, rows) {
         (Some(cols), Some(rows)) => Some((cols, rows)),
         (None, None) => None,
@@ -237,10 +305,10 @@ pub(super) fn attach_surface(
         && mode.as_deref().unwrap_or("bytes") == "bytes"
         && snapshot.wants_snapshot()?
     {
-        return snapshot.attach(mux, client, surface, writer, initial_size);
+        return snapshot.attach(mux, client, surface, writer, initial_size, framing);
     }
     let lifecycle = AttachLifecycle::default();
-    let outbound_stream = writer.start_stream(&attach_overflow_json(surface_id))?;
+    let outbound_stream = writer.start_framed_stream(&attach_overflow_json(surface_id), framing)?;
     let render_mode = match mode.as_deref().unwrap_or("bytes") {
         "bytes" => false,
         "render" => true,
@@ -316,7 +384,7 @@ pub(super) fn attach_surface(
                         &outbound_stream,
                     );
                 }
-                report_attach_overflow(&writer, surface_id, &lifecycle, &outbound_stream);
+                report_attach_overflow(&writer, &lifecycle, &outbound_stream);
                 detach_committed_attach(&mux, client, surface_id, outbound_stream.id);
             });
         if let Err(error) = spawned {
@@ -428,7 +496,7 @@ pub(super) fn attach_surface(
                     break;
                 }
             }
-            report_attach_overflow(&writer, surface_id, &lifecycle, &outbound_stream);
+            report_attach_overflow(&writer, &lifecycle, &outbound_stream);
             // Release this viewer's frame claim before the detach can resize
             // the page, so a natively hosted page is not restarted for nobody.
             drop(frames);
@@ -553,7 +621,7 @@ pub(super) fn attach_surface(
                 break;
             }
         }
-        report_attach_overflow(&writer, surface_id, &attach.lifecycle, &outbound_stream);
+        report_attach_overflow(&writer, &attach.lifecycle, &outbound_stream);
         detach_committed_attach(&mux, client, surface_id, outbound_stream.id);
     });
     if let Err(error) = spawned {

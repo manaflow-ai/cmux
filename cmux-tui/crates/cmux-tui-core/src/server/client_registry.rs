@@ -436,6 +436,7 @@ impl ClientRegistry {
                 browser_pointer_owner: None,
                 attached: BTreeMap::new(),
                 view_leases: HashMap::new(),
+                client_streams: HashMap::new(),
                 retired_view_leases: HashMap::new(),
                 retired_view_lease_order: VecDeque::new(),
                 retired_surfaces: HashSet::new(),
@@ -673,6 +674,10 @@ impl ClientRegistry {
                     || capability == crate::state::sidebar_doc_store::CAPABILITY
                     || capability == super::participant_avatars::PARTICIPANT_AVATARS_CAPABILITY
                     || capability == super::chief_registry_resource::CHIEF_EVENTS_CAPABILITY
+                    // Client streams and binary frames (server/attach_frames.rs).
+                    || capability == super::attach_frames::ATTACH_STREAMS_CAPABILITY
+                    || capability == super::attach_frames::ATTACH_FRAMES_CAPABILITY
+                    || capability == super::attach_frames::TERMINAL_OUTPUT_RING_CAPABILITY
             }));
             record.writer.negotiate_conversation_tabs(record.capabilities.iter());
         }

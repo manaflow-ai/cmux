@@ -18,6 +18,10 @@ pub(in crate::server) struct ClientRecord {
     pub(in crate::server) browser_pointer_owner: Option<BrowserPointerOwner>,
     pub(in crate::server) attached: BTreeMap<SurfaceId, AttachedSurface>,
     pub(in crate::server) view_leases: HashMap<String, (SurfaceId, u64)>,
+    /// Open client-minted attach streams (`attach-streams-v1`): the surface
+    /// and the daemon's stream of each id.
+    pub(in crate::server) client_streams:
+        HashMap<crate::server::attach_frames::ClientStreamId, (SurfaceId, u64)>,
     pub(in crate::server) retired_view_leases: HashMap<String, SurfaceId>,
     pub(in crate::server) retired_view_lease_order: VecDeque<String>,
     pub(in crate::server) retired_surfaces: HashSet<SurfaceId>,

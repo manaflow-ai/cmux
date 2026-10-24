@@ -595,6 +595,13 @@ use wire_values::{default_renderer_capability_ttl_ms, json_line_payload_len, mac
 #[derive(Deserialize)]
 struct Request {
     id: Option<Value>,
+    /// The client stream this request acts for (`attach-streams-v1`): it runs
+    /// on that stream's lane (server/stream_lanes.rs), after the stream's
+    /// earlier requests and independent of every other stream's and of the
+    /// control lane. Only the per-view commands of
+    /// [`Command::runs_on_stream_lane`] use it.
+    #[serde(default)]
+    stream: Option<attach_frames::ClientStreamId>,
     #[serde(flatten)]
     cmd: Command,
 }
@@ -2217,6 +2224,16 @@ enum Command {
         rows: Option<u16>,
         #[serde(flatten)]
         snapshot: terminal_snapshot::SnapshotAttachParams,
+        /// The request's client stream (`Request::stream`), set before dispatch.
+        #[serde(skip)]
+        stream: Option<attach_frames::ClientStreamId>,
+    },
+    /// Ends the request's client stream (`Request::stream`) at once, after
+    /// the stream's earlier requests (`attach-streams-v1`). Idempotent.
+    CancelStream {
+        /// The request's client stream, set before dispatch.
+        #[serde(skip)]
+        stream: Option<attach_frames::ClientStreamId>,
     },
     /// One READY snapshot on the caller's snapshot attach (`terminal-snapshot-v1`).
     SnapshotRequest(terminal_snapshot::SnapshotRequestParams),
@@ -2286,6 +2303,29 @@ impl Command {
 
     fn is_clear_history(&self) -> bool {
         matches!(self, Self::ClearHistory { .. })
+    }
+
+    /// The per-view commands a client stream's lane runs: they act for one
+    /// attached view, so they keep that view's order and nothing else's.
+    /// Everything else stays on the connection's control lane.
+    fn runs_on_stream_lane(&self) -> bool {
+        matches!(
+            self,
+            Self::AttachSurface { .. }
+                | Self::CancelStream { .. }
+                | Self::Send(_)
+                | Self::SendKey { .. }
+                | Self::ResizeAttachedView { .. }
+                | Self::ReleaseAttachedViewSize { .. }
+                | Self::DetachAttachedView { .. }
+                | Self::ReattachView { .. }
+                | Self::SetClientSizing { .. }
+                | Self::SetSizeCounts { .. }
+                | Self::SetSizePolicy { .. }
+                | Self::NoteSizeActivity { .. }
+                | Self::SnapshotRequest(_)
+                | Self::ScrollSurface { .. }
+        )
     }
 
     fn can_overtake_clear_barrier(&self) -> bool {
@@ -2572,7 +2612,10 @@ use render_service::{
 use render_service::{OutboundByteBudget, RenderGraphicBase64Cache};
 
 mod message_writer;
-use message_writer::{MessageSink, MessageWriter, OutboundStream};
+use message_writer::{MessageSink, MessageWriter, OutboundStream, WireMessage};
+
+mod attach_frames;
+mod stream_lanes;
 
 mod connection_scheduler;
 #[cfg(test)]
@@ -2582,9 +2625,11 @@ use connection_scheduler::{
 };
 
 mod bounded_outbound;
+#[cfg(test)]
+use bounded_outbound::write_line_outbound_item;
 use bounded_outbound::{
     BoundedOutbound, ConnectionPermit, OutboundItem, QueuedSink, SinkControl,
-    SynchronizedTcpStream, claim_connection, write_line_outbound_item,
+    SynchronizedTcpStream, claim_connection, write_stream_outbound_item,
 };
 #[cfg(test)]
 use bounded_outbound::{ControlOutbound, websocket_server_frame_header};

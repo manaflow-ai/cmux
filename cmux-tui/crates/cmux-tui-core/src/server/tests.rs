@@ -198,15 +198,11 @@ struct BlockingControlSink {
 }
 
 impl MessageSink for BlockingControlSink {
-    fn send_initial(
-        &self,
-        text: Arc<BudgetedText>,
-        stream: &OutboundStream,
-    ) -> std::io::Result<()> {
+    fn send_initial(&self, text: WireMessage, stream: &OutboundStream) -> std::io::Result<()> {
         self.outbound.push_initial(text, stream)
     }
 
-    fn send_stream(&self, text: Arc<BudgetedText>, stream: &OutboundStream) -> std::io::Result<()> {
+    fn send_stream(&self, text: WireMessage, stream: &OutboundStream) -> std::io::Result<()> {
         self.outbound.push_regular(text, stream)
     }
 
@@ -231,20 +227,20 @@ impl MessageSink for BlockingControlSink {
         self.outbound.push_control(text)
     }
 
-    fn send_terminal(
-        &self,
-        text: Arc<BudgetedText>,
-        stream: &OutboundStream,
-    ) -> std::io::Result<()> {
+    fn send_terminal(&self, text: WireMessage, stream: &OutboundStream) -> std::io::Result<()> {
         self.outbound.push_terminal(text, stream)
     }
 
     fn send_ordered_terminal(
         &self,
-        text: Arc<BudgetedText>,
+        text: WireMessage,
         stream: &OutboundStream,
     ) -> std::io::Result<()> {
         self.outbound.push_ordered_terminal(text, stream)
+    }
+
+    fn send_stream_end(&self, text: WireMessage, stream: &OutboundStream) -> std::io::Result<()> {
+        self.outbound.push_stream_end(text, stream)
     }
 
     fn is_open(&self) -> bool {
@@ -287,15 +283,11 @@ struct BlockingFlushSink {
 }
 
 impl MessageSink for BlockingFlushSink {
-    fn send_initial(
-        &self,
-        text: Arc<BudgetedText>,
-        stream: &OutboundStream,
-    ) -> std::io::Result<()> {
+    fn send_initial(&self, text: WireMessage, stream: &OutboundStream) -> std::io::Result<()> {
         self.outbound.push_initial(text, stream)
     }
 
-    fn send_stream(&self, text: Arc<BudgetedText>, stream: &OutboundStream) -> std::io::Result<()> {
+    fn send_stream(&self, text: WireMessage, stream: &OutboundStream) -> std::io::Result<()> {
         self.outbound.push_regular(text, stream)
     }
 
@@ -303,20 +295,20 @@ impl MessageSink for BlockingFlushSink {
         self.outbound.push_control(text)
     }
 
-    fn send_terminal(
-        &self,
-        text: Arc<BudgetedText>,
-        stream: &OutboundStream,
-    ) -> std::io::Result<()> {
+    fn send_terminal(&self, text: WireMessage, stream: &OutboundStream) -> std::io::Result<()> {
         self.outbound.push_terminal(text, stream)
     }
 
     fn send_ordered_terminal(
         &self,
-        text: Arc<BudgetedText>,
+        text: WireMessage,
         stream: &OutboundStream,
     ) -> std::io::Result<()> {
         self.outbound.push_ordered_terminal(text, stream)
+    }
+
+    fn send_stream_end(&self, text: WireMessage, stream: &OutboundStream) -> std::io::Result<()> {
+        self.outbound.push_stream_end(text, stream)
     }
 
     fn flush_control(&self, _timeout: Duration) -> std::io::Result<()> {
@@ -346,15 +338,11 @@ struct TimedOutFlushSink {
 }
 
 impl MessageSink for TimedOutFlushSink {
-    fn send_initial(
-        &self,
-        text: Arc<BudgetedText>,
-        stream: &OutboundStream,
-    ) -> std::io::Result<()> {
+    fn send_initial(&self, text: WireMessage, stream: &OutboundStream) -> std::io::Result<()> {
         self.outbound.push_initial(text, stream)
     }
 
-    fn send_stream(&self, text: Arc<BudgetedText>, stream: &OutboundStream) -> std::io::Result<()> {
+    fn send_stream(&self, text: WireMessage, stream: &OutboundStream) -> std::io::Result<()> {
         self.outbound.push_regular(text, stream)
     }
 
@@ -362,20 +350,20 @@ impl MessageSink for TimedOutFlushSink {
         self.outbound.push_control(text)
     }
 
-    fn send_terminal(
-        &self,
-        text: Arc<BudgetedText>,
-        stream: &OutboundStream,
-    ) -> std::io::Result<()> {
+    fn send_terminal(&self, text: WireMessage, stream: &OutboundStream) -> std::io::Result<()> {
         self.outbound.push_terminal(text, stream)
     }
 
     fn send_ordered_terminal(
         &self,
-        text: Arc<BudgetedText>,
+        text: WireMessage,
         stream: &OutboundStream,
     ) -> std::io::Result<()> {
         self.outbound.push_ordered_terminal(text, stream)
+    }
+
+    fn send_stream_end(&self, text: WireMessage, stream: &OutboundStream) -> std::io::Result<()> {
+        self.outbound.push_stream_end(text, stream)
     }
 
     fn flush_control(&self, _timeout: Duration) -> std::io::Result<()> {
@@ -480,6 +468,7 @@ fn active_clear_lanes_across_connections(request_count: usize, retained_bytes: u
         let scheduler = &schedulers[index % schedulers.len()];
         let mut request = Some(Request {
             id: Some(json!(index)),
+            stream: None,
             cmd: Command::ClearHistory { surface: surface.id, fallback_key: None },
         });
         assert_eq!(
@@ -545,6 +534,7 @@ fn run_json_command(mux: &Arc<Mux>, request: Value) -> anyhow::Result<Value> {
     handle_command(mux, mux.local_test_client(0), command, &test_writer())
 }
 
+mod attach_streams;
 mod detach_and_browser;
 mod event_shape_tests;
 mod identify_and_protocol;

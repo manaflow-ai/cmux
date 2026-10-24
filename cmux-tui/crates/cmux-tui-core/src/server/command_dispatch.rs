@@ -897,13 +897,14 @@ pub(super) fn handle_command_with_cancellation(
             expected_generation,
             expected_terminal_id,
             snapshot,
+            stream,
         } => {
             // A sized attach is a size report: it starts (or renews) the
             // lease before the size applies.
             if let Some(surface) = surface_id.filter(|_| cols.is_some() && rows.is_some()) {
                 size_lease::renew_size_lease(mux, client, surface);
             }
-            cmd_attach::attach_surface(
+            let attached = cmd_attach::attach_surface(
                 mux,
                 client,
                 writer,
@@ -914,7 +915,15 @@ pub(super) fn handle_command_with_cancellation(
                 expected_generation,
                 expected_terminal_id,
                 snapshot,
-            )
+                stream,
+            );
+            if attached.is_err()
+                && let Some(stream) = stream
+            {
+                cmd_attach::end_failed_stream(mux, client, writer, stream);
+            }
+            attached
         }
+        Command::CancelStream { stream } => cmd_attach::cancel_stream(mux, client, stream),
     }
 }

@@ -923,6 +923,7 @@ fn creation_attachment_identity_rejects_wrong_generation_and_terminal() {
             expected_generation: Some(generation),
             expected_terminal_id: Some(terminal),
             snapshot: Default::default(),
+            stream: None,
         };
         let error = handle_command(&mux, client, command, &writer).unwrap_err();
         assert!(error.to_string().contains(expected), "{error:#}");
@@ -935,6 +936,7 @@ fn creation_attachment_identity_rejects_wrong_generation_and_terminal() {
         expected_generation: Some(mux.registry_identity().1),
         expected_terminal_id: Some(terminal),
         snapshot: Default::default(),
+        stream: None,
     };
     handle_command(&mux, client, command, &writer).unwrap();
     disconnect_client(&mux, client, false);
@@ -974,6 +976,7 @@ fn guarded_browser_attach_rejects_a_late_capability_upgrade() {
             expected_generation: None,
             expected_terminal_id: None,
             snapshot: Default::default(),
+            stream: None,
         },
         &writer,
     );
