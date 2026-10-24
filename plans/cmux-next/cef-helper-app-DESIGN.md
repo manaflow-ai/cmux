@@ -121,6 +121,7 @@ daemon talks CDP to the host through `--remote-debugging-pipe`), crash reports (
 | Per moved page per motion frame | tracker `setFrame` of the page window (WindowServer round trip) | one geometry frame; the host's off-screen window (fork patch) |
 | Memory | browser process inside cmux (~40 MB footprint when CEF starts, browser.md) | the same in the host, plus a process baseline (measured below); cmux maps no framework |
 | A browser-process CHECK | ends cmux | ends the host; pages reload |
+| Idle main-thread wakes, app hidden | 27-107 per s (perf-lead F5); cmux-4f's lead: most of them are CEF pump passes for Chromium UI-thread tasks of each renderer (`bench_idle.py --scenarios app-hidden`, result pending) | the pump wakes the host's main thread, not cmux's |
 
 ### 3.6 Risks
 

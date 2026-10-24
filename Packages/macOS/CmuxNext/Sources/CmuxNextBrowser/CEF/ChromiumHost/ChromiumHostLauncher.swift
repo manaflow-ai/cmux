@@ -102,21 +102,25 @@ private nonisolated final class ChromiumHostExitWatch: @unchecked Sendable { // 
         queue.async { [self] in
             let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: queue)
             self.source = source
-            source.setEventHandler { [self] in finish() }
+            // NOTE_EXIT can come before the child is waitable, so after the
+            // event the read waits (the process is already exiting).
+            source.setEventHandler { [self] in finish(afterExitEvent: true) }
             source.resume()
             // The process may have ended before the source existed: then no
-            // event comes, and this check finds it.
-            finish()
+            // event comes, and this non-blocking check finds it.
+            finish(afterExitEvent: false)
         }
     }
 
-    /// Reads the exit if the process ended (WNOHANG: never blocks; WNOWAIT: the
-    /// zombie stays until ``ChromiumHostLauncher/reap(_:)``).
-    private func finish() {
+    /// Reads the exit (WNOWAIT: the zombie stays until ``ChromiumHostLauncher/reap(_:)``).
+    /// Before the exit event it only looks (WNOHANG); after it, it waits for the
+    /// exiting process to become a zombie.
+    private func finish(afterExitEvent: Bool) {
         guard let source else { return }
         var info = siginfo_t()
-        var result: Int32
-        repeat { result = waitid(P_PID, id_t(pid), &info, WEXITED | WNOWAIT | WNOHANG) } while result < 0 && errno == EINTR // wakeup-allow: an EINTR retry of one WNOHANG call on the exit queue, after the exit event; it never waits or polls
+        let options = WEXITED | WNOWAIT | (afterExitEvent ? 0 : WNOHANG)
+        var result = waitid(P_PID, id_t(pid), &info, options)
+        while result < 0 && errno == EINTR { result = waitid(P_PID, id_t(pid), &info, options) }
         guard result == 0, info.si_pid == pid else { return }  // still running: the exit event comes later
         source.cancel()
         self.source = nil
