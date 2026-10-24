@@ -326,27 +326,32 @@ fn first_line(s: &str, fallback: &str) -> String {
 /// Why the remote's ssh here failed, from its stderr, and what a person
 /// can do about it. No key is ever copied for them.
 pub(crate) fn why_no_ssh_back(stderr: &str, host: &str, dest: &str) -> (String, String) {
-    let has = |needle: &str| stderr.contains(needle);
-    if has("Permission denied") {
+    // OpenSSH's capitalization differs by platform/version (and wrappers
+    // frequently lowercase stderr before forwarding it).  Normalize once so
+    // the Add Machine checklist keeps giving a useful, actionable fix instead
+    // of falling through to the generic "ssh failed" message.
+    let normalized = stderr.to_ascii_lowercase();
+    let has = |needle: &str| normalized.contains(needle);
+    if has("permission denied") {
         (
             "key rejected".into(),
             format!(
                 "Add {host}'s ssh public key to ~/.ssh/authorized_keys on this machine, then check again."
             ),
         )
-    } else if has("Host key verification failed") || has("IDENTIFICATION HAS CHANGED") {
+    } else if has("host key verification failed") || has("identification has changed") {
         (
             "this machine's host key is not trusted there".into(),
             format!(
                 "On {host}, run `ssh {dest}` once and accept this machine's host key if it is the right one, then check again."
             ),
         )
-    } else if has("Connection refused") {
+    } else if has("connection refused") {
         (
             "ssh is off on this machine".into(),
             "Turn on ssh here (Remote Login on macOS), then check again.".into(),
         )
-    } else if has("Could not resolve") || has("timed out") || has("No route") || has("unreachable")
+    } else if has("could not resolve") || has("timed out") || has("no route") || has("unreachable")
     {
         (
             "no route".into(),
