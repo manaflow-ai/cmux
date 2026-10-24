@@ -59,6 +59,7 @@ export const SubagentTray = memo(function SubagentTray({
   onOpen,
   onOpenCommand,
   canOpenTerminal = false,
+  canReadTail = false,
   onOpenSession,
   stop,
   stopProcess,
@@ -78,6 +79,8 @@ export const SubagentTray = memo(function SubagentTray({
   onOpenCommand?: (command: BackgroundCommand) => void;
   /// The local process registry can replay this chat's output in a terminal.
   canOpenTerminal?: boolean;
+  /// A connected local process source is available for the expanded tail.
+  canReadTail?: boolean;
   /// Opens a chat the agent started (App.tsx `openOfferChat`).
   onOpenSession?: (sessionId: string) => void;
   /// Stops a running subagent, where the harness can.
@@ -201,7 +204,7 @@ export const SubagentTray = memo(function SubagentTray({
             working
             status="running"
             state={t("subagents.state.running")}
-            expanded={openCommands.has(key)}
+            expanded={canOpenTerminal ? openCommands.has(key) : undefined}
             time={
               item.command.startedAt === undefined
                 ? undefined
@@ -234,7 +237,7 @@ export const SubagentTray = memo(function SubagentTray({
           />
           <BackgroundTaskTail
             command={item.command}
-            open={openCommands.has(key) && canOpenTerminal}
+            open={openCommands.has(key) && canReadTail}
             onOpenTerminal={
               canOpenTerminal && onOpenCommand && item.command.toolCallId
                 ? () => onOpenCommand(item.command)
