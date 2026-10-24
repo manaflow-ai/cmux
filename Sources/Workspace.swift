@@ -727,6 +727,9 @@ extension Workspace {
             terminalSnapshot = nil
             if let browserPanel = panel as? BrowserPanel {
                 guard browserPanel.shouldPersistSessionSnapshot() else { return nil }
+                // Closing can race the delayed attached-inspector manual-close detector.
+                // Consume an already-stable manual close before preserving visibility intent.
+                _ = browserPanel.consumeAttachedDeveloperToolsManualCloseIfNeeded()
                 let historySnapshot = browserPanel.sessionNavigationHistorySnapshot()
                 let diffViewerComponents = browserPanel.diffViewerSessionComponents()
                 browserSnapshot = SessionBrowserPanelSnapshot(
@@ -734,7 +737,7 @@ extension Workspace {
                     profileID: browserPanel.profileID,
                     shouldRenderWebView: browserPanel.shouldRenderWebViewForSessionSnapshot(),
                     pageZoom: Double(browserPanel.currentPageZoomFactor()),
-                    developerToolsVisible: browserPanel.isDeveloperToolsVisible(),
+                    developerToolsVisible: browserPanel.preferredDeveloperToolsVisible || browserPanel.isDeveloperToolsVisible(),
                     isMuted: browserPanel.isMuted,
                     chromeVisibility: browserPanel.chromeVisibility,
                     omnibarVisible: browserPanel.isOmnibarVisible,
@@ -2782,10 +2785,6 @@ extension Workspace {
     }
 
 }
-/// Lifted to `CmuxBrowser.ClosedBrowserPanelRestoreSnapshot` (Workspace
-/// decomposition, Wave 3). This typealias keeps call sites byte-identical.
-typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRestoreSnapshot
-
 /// Workspace represents a sidebar tab.
 /// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
 final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHost {
@@ -3159,7 +3158,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     /// Callback used by TabManager to capture browser panels for closed-item restore.
-    var onClosedBrowserPanel: ((ClosedBrowserPanelRestoreSnapshot) -> Void)?
+    var onClosedBrowserPanel: ((LegacyClosedBrowserPanelRestoreSnapshot) -> Void)?
     weak var owningTabManager: TabManager?
 
     // Closing tabs mutates split layout immediately; terminal views handle their own AppKit
@@ -4942,7 +4941,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// Bonsplit pane-close does not emit per-tab didClose callbacks.
     private var pendingPaneClosePanelIds: [UUID: [UUID]] = [:]
     private var pendingPaneCloseHistoryEntries: [UUID: [ClosedPanelHistoryEntry]] = [:]
-    private var pendingClosedBrowserRestoreSnapshots: [TabID: ClosedBrowserPanelRestoreSnapshot] = [:]
+    private var pendingClosedBrowserRestoreSnapshots: [TabID: LegacyClosedBrowserPanelRestoreSnapshot] = [:]
     /// Re-entrancy guard for the tab-selection apply loop; stored in the
     /// surface-registry sub-model.
     private var isApplyingTabSelection: Bool {
@@ -4967,6 +4966,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         get { surfaceRegistry.pendingTabSelection }
         set { surfaceRegistry.pendingTabSelection = newValue }
     }
+    /// Invalidates view-originated focus callbacks captured before a panel restore.
+    @Published private(set) var focusRestoreTransactionId = UUID()
     private(set) var activeFocusTransactionId: UUID?
     private var isReconcilingFocusState = false
     private var focusReconcileScheduled = false
@@ -11555,7 +11556,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             return
         }
 
-        pendingClosedBrowserRestoreSnapshots[tab.id] = ClosedBrowserPanelRestoreSnapshot(
+        let fallbackSnapshot = CmuxBrowser.ClosedBrowserPanelRestoreSnapshot(
             workspaceId: id,
             url: resolvedURL,
             profileID: browserPanel.profileID,
@@ -11564,6 +11565,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             fallbackSplitOrientation: fallbackPlan?.orientation,
             fallbackSplitInsertFirst: fallbackPlan?.insertFirst ?? false,
             fallbackAnchorPaneId: fallbackPlan?.anchorPaneId
+        )
+        pendingClosedBrowserRestoreSnapshots[tab.id] = LegacyClosedBrowserPanelRestoreSnapshot(
+            fallbackSnapshot: fallbackSnapshot,
+            historyEntry: closedPanelHistoryEntry(panelId: panelId, tabId: tab.id, pane: pane)
         )
     }
 
@@ -12187,14 +12192,23 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         terminalPanel.hostedView.ensureFocus(for: id, surfaceId: preferredPanelId)
     }
 
+    func beginFocusRestoreTransaction() {
+        focusRestoreTransactionId = UUID()
+    }
+
     func focusPanel(
         _ panelId: UUID,
         previousHostedView: GhosttySurfaceScrollView? = nil,
         trigger: FocusPanelTrigger = .standard,
         focusIntent: PanelFocusIntent? = nil,
-        focusTransactionId: UUID? = nil
+        focusTransactionId: UUID? = nil,
+        expectedFocusRestoreTransactionId: UUID? = nil
     ) {
         guard !remoteTmuxMirrorInterceptsFocusPanel(panelId, previousHostedView: previousHostedView, trigger: trigger, focusIntent: focusIntent) else { return }
+        if let expectedFocusRestoreTransactionId,
+           expectedFocusRestoreTransactionId != focusRestoreTransactionId {
+            return
+        }
         let effectiveFocusTransactionId = focusTransactionId ?? activeFocusTransactionId
         markExplicitFocusIntent(on: panelId)
 #if DEBUG

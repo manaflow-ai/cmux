@@ -174,7 +174,7 @@ struct BrowserEphemeralRestorationTests {
         ))
         let tabID = try #require(workspace.surfaceIdFromPanelId(browserPanel.id))
         let tab = try #require(workspace.bonsplitController.tab(tabID))
-        var legacySnapshot: ClosedBrowserPanelRestoreSnapshot?
+        var legacySnapshot: LegacyClosedBrowserPanelRestoreSnapshot?
         workspace.onClosedBrowserPanel = { legacySnapshot = $0 }
         workspace.markCloseHistoryEligible(panelId: browserPanel.id)
 
