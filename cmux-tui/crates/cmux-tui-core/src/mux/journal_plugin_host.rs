@@ -29,6 +29,12 @@ impl Mux {
         }
     }
 
+    /// The running journal plugin's process group, if one runs.
+    #[cfg(unix)]
+    pub(crate) fn journal_plugin_process_group(&self) -> Option<libc::pid_t> {
+        self.journal_plugin.process_group()
+    }
+
     /// Journal a supervisor-observed plugin exit. The roster reducer removes
     /// only entries owned by this producer, so a crash cannot leave stale
     /// rows until the next terminal scan and the cleanup remains replayable.
