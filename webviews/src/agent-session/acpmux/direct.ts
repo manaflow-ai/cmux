@@ -572,7 +572,7 @@ export function mergeQueue(current: readonly QueuedPrompt[], listed: readonly an
       false,
       images,
       whole ? had.message : undefined,
-      had?.inlineParts,
+      recordedInlineParts(entry) ?? had?.inlineParts,
     );
   });
 }
@@ -2868,7 +2868,7 @@ export class AcpmuxDirectClient {
             false,
             images,
             queuedMessage(msg, this.incomingContext()),
-            this.optimisticPromptInlineParts.get(id),
+            recordedInlineParts(msg) ?? this.optimisticPromptInlineParts.get(id),
           ),
         ];
       }
