@@ -337,6 +337,50 @@ import Testing
         spring.deactivate()
     }
 
+    /// An idle queue's request outside any tick opens a window and spends the frame's 4 ms; the
+    /// link's tick right after it (often in the same run loop pass) keeps that window instead of
+    /// giving the pass another 4 ms.
+    @Test func aTickRightAfterAnOffTickDrainKeepsItsWindow() {
+        let clock = BudgetClock()
+        let budget = MainFrameBudget(uptimeNanos: clock.read)
+        let owner = budget.board.owner("control")
+        var ran = 0
+        while budget.mayRun(.automation) {
+            budget.run(.automation, owner: owner) { clock.advance(ms: 1) }
+            ran += 1
+        }
+        #expect(ran == 4, "the off-tick drain spends the frame's scheduled 4 ms")
+        clock.advance(ms: 0.1)
+        budget.beginFrame(timestamp: 1, refreshInterval: 1.0 / 60)
+        #expect(!budget.mayRun(.automation), "the tick 0.1 ms later gave the same pass a second budget")
+        clock.advance(ms: 16.7)
+        budget.beginFrame(timestamp: 2, refreshInterval: 1.0 / 60)
+        #expect(budget.mayRun(.automation), "the next real frame has its budget")
+    }
+
+    /// While the budgeted link runs, its ticks own the window: a request outside any tick (a late
+    /// tick, a key pending) neither opens a window nor rolls the input-yield memory, so automation
+    /// never passes the pending key between two real frames.
+    @Test func whileTheLinkRunsAnOffTickRequestOpensNoWindowAndWaitsForTheKey() {
+        let clock = BudgetClock()
+        let input = FakeInputPending()
+        let budget = MainFrameBudget(input: input, uptimeNanos: clock.read)
+        let work = MainWorkScheduler.testing(budget: budget) { _ in FakeFrameLink() }
+        let batch = FrameClient(owner: "Control.frames", budgeted: .automation, on: work) { _, _ in true }
+        batch.activate()
+        input.pending = true
+        work.frameDidFire(timestamp: 1, refreshInterval: 1.0 / 60)
+        #expect(budget.stats.yieldedToInput[1] == 1, "the tick held automation for the key")
+        // The next tick is late; a request arrives outside any tick first, the key still pending.
+        clock.advance(ms: 17)
+        #expect(!budget.mayRun(.automation), "an off-tick window let automation run ahead of the pending key")
+        #expect(budget.stats.frames == 1)
+        clock.advance(ms: 3)
+        work.frameDidFire(timestamp: 2, refreshInterval: 1.0 / 60)
+        #expect(budget.mayRun(.automation), "held one real frame, never two")
+        batch.deactivate()
+    }
+
     /// FIFO within a connection: a client that pipelines a focus change and then a key, without
     /// waiting for the first reply, gets them in that order (the key types into what it focused).
     @Test func anInjectedKeyNeverPassesItsOwnConnectionsEarlierRequest() {
