@@ -141,6 +141,10 @@ public final class StreamedBrowserModel: BrowserTabState {
     }
     /// The stream is being opened again after a stall: the page says so.
     @ObservationIgnored private var reconnecting = false
+    /// Reconnects after a stall since the page last stayed live a while: after
+    /// ``maxStallReconnects`` the page waits for Reopen instead of cycling.
+    @ObservationIgnored private var stallReconnects = 0
+    static let maxStallReconnects = 3
     static var reconnectingText: String { String(localized: "Reconnecting browser…") }
     /// A Back or Forward sent and not yet committed on the Mac (finding 5 of
     /// verify/parity-mac.md): the browser reports the old history while the page loads, so
@@ -293,6 +297,7 @@ public final class StreamedBrowserModel: BrowserTabState {
     /// another viewer took it).
     public func reopen() {
         autoReopens = 0
+        stallReconnects = 0
         if connection == nil { connect() }
     }
 
@@ -323,12 +328,14 @@ public final class StreamedBrowserModel: BrowserTabState {
 
     private func unavailable() {
         connecting = false
+        reconnecting = false
         sink = nil
         phase = .unavailable
     }
 
     private func failed(_ reason: String) {
         connecting = false
+        reconnecting = false
         sink = nil
         phase = .waiting(reason)
     }
@@ -382,8 +389,7 @@ public final class StreamedBrowserModel: BrowserTabState {
         case .reconnect:
             // The library's watchdog: the page stopped answering input, or the
             // channel stopped moving. A new stream, and the page says so.
-            reconnecting = true
-            connect()
+            reconnectAfterStall()
         case .reopen:
             // The Mac stopped this page to make room (its host limit): a shown
             // page opens again at once, never a frozen frame.
@@ -435,7 +441,10 @@ public final class StreamedBrowserModel: BrowserTabState {
         watchdog.pictureShown(at: .now)
         let instant = ContinuousClock.now
         if let liveSince {
-            if liveSince.duration(to: instant) >= Self.forgiveAfter { autoReopens = 0 }
+            if liveSince.duration(to: instant) >= Self.forgiveAfter {
+                autoReopens = 0
+                stallReconnects = 0
+            }
         } else {
             liveSince = instant
         }
@@ -582,7 +591,13 @@ public final class StreamedBrowserModel: BrowserTabState {
     /// Watches while the stream is open, welcomed and shown.
     private func updateWatch() {
         let watch = visible && welcomed && connection != nil
-        if watch, !watchdog.watching {
+        if !watch {
+            // Also after a reopen (the watchdog is restarted at the next welcome).
+            watchdogTask?.cancel()
+            watchdogTask = nil
+            if watchdog.watching { watchdog.stop() }
+        } else if !watchdog.watching {
+            watchdogTask?.cancel()
             watchdog.start(at: .now)
             let tick = watchdogTick
             // task-owner: the model's watchdog; cancelled when the page stops being watched
@@ -593,10 +608,6 @@ public final class StreamedBrowserModel: BrowserTabState {
                     self.checkStall(at: .now)
                 }
             }
-        } else if !watch, watchdog.watching {
-            watchdog.stop()
-            watchdogTask?.cancel()
-            watchdogTask = nil
         }
     }
 
@@ -618,6 +629,15 @@ public final class StreamedBrowserModel: BrowserTabState {
     }
 
     private func reconnectAfterStall() {
+        guard stallReconnects < Self.maxStallReconnects else {
+            close()
+            welcomed = false
+            reconnecting = false
+            canReopen = true
+            phase = .waiting(String(localized: "This page stopped responding."))
+            return
+        }
+        stallReconnects += 1
         connection?.close()
         connection = nil
         sink = nil

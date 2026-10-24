@@ -22,6 +22,8 @@ import Testing
         #expect(dog.check(at: at(14)) == .restartDecoder)
         #expect(dog.check(at: at(15)) == .none, "the decoder restarts once")
         #expect(dog.check(at: at(17)) == .reopen)
+        // The model stops it while the stream opens again.
+        dog.stop()
         #expect(!dog.watching)
         #expect(dog.check(at: at(30)) == .none)
     }
@@ -106,6 +108,25 @@ import Testing
         await until { opener.tabs.count == 2 }
         #expect(opener.tabs == ["s7", "s7"])
         #expect(model.phase == .waiting(StreamedBrowserModel.reconnectingText))
+    }
+
+    @Test func aPageThatKeepsStallingStopsAndOffersReopen() async throws {
+        let (model, opener) = try await shownPage()
+        for round in 1...StreamedBrowserModel.maxStallReconnects {
+            opener.sink("s7")?.browserClosed(code: "stalled", reason: "")
+            await until { opener.tabs.count == round + 1 }
+            #expect(model.phase == .waiting(StreamedBrowserModel.reconnectingText))
+            await settle()
+            opener.sink("s7")?.browserMessage(Data(#"{"t":"welcome","caps":["input.service"]}"#.utf8))
+            await settle()
+        }
+        opener.sink("s7")?.browserClosed(code: "stalled", reason: "")
+        await settle()
+        #expect(opener.tabs.count == StreamedBrowserModel.maxStallReconnects + 1, "no endless cycle")
+        #expect(model.canReopen)
+        model.reopen()
+        await until { opener.tabs.count == StreamedBrowserModel.maxStallReconnects + 2 }
+        #expect(opener.tabs.count == StreamedBrowserModel.maxStallReconnects + 2)
     }
 
     @Test func aHiddenStalledPageWaitsUntilShown() {

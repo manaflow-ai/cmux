@@ -66,7 +66,6 @@ struct BrowserStallWatchdog {
         if let asked {
             let waited = asked.duration(to: now)
             if waited >= Self.reopen {
-                stop()
                 return .reopen
             }
             if waited >= Self.restartDecoder, !restarted {

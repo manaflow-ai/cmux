@@ -240,7 +240,8 @@ struct Viewer {
     /// a keyframe.
     video_on_lane: bool,
     last_lane_ask_us: Option<u64>,
-    /// Since when input has waited for the host's acknowledgement.
+    /// Since when input has waited with no acknowledgement from the host
+    /// (reset by every ack, so a long scroll on a live page never trips it).
     input_waiting_since_us: Option<u64>,
     /// The WebRTC media session beside a WireGuard link, and this shown
     /// tab's hold on it.
@@ -428,7 +429,11 @@ impl Viewer {
     fn drain(&mut self, now: u64) {
         while let Some(message) = self.session.pop_message() {
             if message.kind != STREAM_CONTROL {
-                let _ = self.input.on_ack(&message.bytes);
+                // The host applied input: it is answering, however much more
+                // is still in flight (a pan streams events faster than RTT).
+                if self.input.on_ack(&message.bytes).is_ok() {
+                    self.input_waiting_since_us = None;
+                }
                 continue;
             }
             let Ok(control) = serde_json::from_slice::<Value>(&message.bytes) else { continue };
