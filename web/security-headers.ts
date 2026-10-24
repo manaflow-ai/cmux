@@ -28,6 +28,7 @@ const publicMarketingSources = [
   `/${localePrefix}/built-on-ghostty`,
   `/${localePrefix}/community`,
   `/${localePrefix}/nightly`,
+  `/${localePrefix}/rc`,
   `/${localePrefix}/assets`,
   `/${localePrefix}/wall-of-love`,
 ];
