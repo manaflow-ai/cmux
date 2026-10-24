@@ -16,8 +16,8 @@ import Foundation
 /// it and rewrites only the files that changed.
 @MainActor
 final class HomeClientViewCache {
-    /// The client's durable copy, nil for none.
-    let cache: HomeCache?
+    /// The client's durable copy (the ``HomeCache`` actor), nil for none.
+    let cache: (any HomeCacheWriting)?
     /// How long writes are coalesced (zero writes at once: tests).
     let writeDelay: Duration
     private let clock: any Clock<Duration>
@@ -38,7 +38,7 @@ final class HomeClientViewCache {
     /// A coalesced write is waiting for its delay.
     var hasPendingWrite: Bool { pendingWrite != nil }
 
-    init(cache: HomeCache?, writeDelay: Duration, clock: any Clock<Duration>) {
+    init(cache: (any HomeCacheWriting)?, writeDelay: Duration, clock: any Clock<Duration>) {
         self.cache = cache
         self.writeDelay = writeDelay
         self.clock = clock
