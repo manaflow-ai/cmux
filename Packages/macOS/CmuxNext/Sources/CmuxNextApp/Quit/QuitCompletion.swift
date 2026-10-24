@@ -15,7 +15,9 @@ enum QuitFailureAnswer: Equatable {
 /// but Home first). Agents end first: their tool shells must not see the
 /// terminals vanish under a turn that still runs. A step of the end that fails is shown
 /// with Retry and Quit Anyway (`confirmFailures`); the quit never goes on
-/// silently past one. Keep never touches the daemon. The browser
+/// silently past one. Keep never touches the daemon. Then quit waits,
+/// bounded, for the background work it promised (`drainBackgroundWork`:
+/// ``ShutdownBehavior/blockShutdown`` saves and the rollback keep). The browser
 /// engines stop last: Chromium's own Mac shutdown watchdog ends the
 /// process with exit code 2 when CefShutdown runs past 10 s (a loaded
 /// machine), so nothing the user asked for may come after it.
@@ -29,6 +31,9 @@ struct QuitSteps {
     /// Ends the local acpmux agents (`_acpmux/shutdown endAgents`), before
     /// the terminals; returns its failure, if any.
     var endLocalAgents: @MainActor () async -> [EndSessionsFailure] = { [] }
+    /// Waits, bounded, for the block-shutdown background work (``QuitCoordinator/drainBackgroundWork(_:limit:clock:)``),
+    /// after every step that can still queue a save and before the engines stop.
+    var drainBackgroundWork: @MainActor () async -> Void = {}
     var stopBrowserEngines: @MainActor () async -> Void
 }
 
@@ -43,6 +48,7 @@ enum QuitCompletion {
                 failures = await steps.endLocalAgents() + steps.endLocalSessions(choice)
             }
         }
+        await steps.drainBackgroundWork()
         await steps.stopBrowserEngines()
     }
 }
