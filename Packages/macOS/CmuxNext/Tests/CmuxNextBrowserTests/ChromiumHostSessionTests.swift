@@ -311,7 +311,10 @@ import Testing
     }
 
     /// Reads the host's frames until one of `kind`; nil when the wire ends first.
-    private func frame(_ kind: ChromiumHostFrame.Kind, from frames: inout AsyncStream<ChromiumHostFrame>.Iterator) async -> ChromiumHostFrame? {
+    /// A local iterator, as ``nextLaunch(_:)`` does: a stream is read by one iterator at a time, so
+    /// sequential calls continue where the last one stopped.
+    private func frame(_ kind: ChromiumHostFrame.Kind, in stream: AsyncStream<ChromiumHostFrame>) async -> ChromiumHostFrame? {
+        var frames = stream.makeAsyncIterator()
         while let frame = await frames.next() {
             if frame.kind == kind { return frame }
         }
@@ -343,11 +346,10 @@ import Testing
         try await until("running") { session.phase == .running }
         session.close()
         session.open("https://b.example/")
-        var frames = first.wire.frames.makeAsyncIterator()
-        _ = try #require(await frame(.quit, from: &frames))
+        _ = try #require(await frame(.quit, in: first.wire.frames))
         launcher.end(first, ChromiumHostExit(signal: nil, status: 0))
         // The quitting host never got the navigation; it went to a fresh host, not a crash restart.
-        #expect(await frame(.navigate, from: &frames) == nil)
+        #expect(await frame(.navigate, in: first.wire.frames) == nil)
         let second = try await nextLaunch(launcher)
         let opened = try await firstFrame(of: second)
         #expect(opened.kind == .navigate)
@@ -399,8 +401,7 @@ import Testing
         answer(host, context: 5, address: "https://a.example/")
         try await until("running") { session.phase == .running }
         let stats = Task { await session.hostInputStats() }
-        var frames = host.wire.frames.makeAsyncIterator()
-        let request = try #require(await frame(.stats, from: &frames))
+        let request = try #require(await frame(.stats, in: host.wire.frames))
         var stale = ChromiumHostFrame(.statsReply, v: [1])
         stale.seq = request.seq &+ 1  // another request's reply
         host.wire.send(stale)
