@@ -274,6 +274,7 @@ let package = Package(
                 "CmuxNextTerminalFind",
                 "CmuxNextTabs",
                 "CmuxNextSidebar",
+                "CmuxNextSidebarActions",
                 "CmuxNextPalette",
                 "CmuxNextLayout",
                 "CmuxNextBrowser",
@@ -356,6 +357,14 @@ let package = Package(
         .testTarget(
             name: "CmuxNextFloatingTests",
             dependencies: ["CmuxNextFloating"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Archive and Unarchive of sidebar items (plans/cmux-next/archiving-DESIGN.md): the actions
+        // on the sidebar document; the App only answers `SidebarArchiveHost`.
+        .target(
+            name: "CmuxNextSidebarActions",
+            dependencies: ["CmuxNextActions", "CmuxNextSidebar"],
+            resources: [.process("Resources")],
             swiftSettings: uiSwiftSettings
         ),
         // The Now Playing sources (cx-ouoxo): the playing browser tab, cmux's player, other apps

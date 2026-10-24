@@ -194,10 +194,7 @@ extension SidebarBridge {
     func layoutItemMenu(_ id: LayoutItemID) -> NSMenu? {
         let tile = model.layout.item(id), item = tile ?? model.listedItem(id)
         let menus = ContextMenuCatalog.shared
-        var removing = ChiefSidebar.menuRemovals(isApp: item?.owningAppID != nil, isChief: item?.ref == .builtIn(.chief))
-        // Archive is for list rows (archiving-DESIGN.md): a band tile (Pinned, custom and app sections) draws no dimmed look.
-        if tile != nil { removing.insert("sidebar.item.toggleArchive") }
-        let entries = menus.entries(for: .sidebarItem, removing: removing)
+        let entries = menus.entries(for: .sidebarItem, removing: ChiefSidebar.menuRemovals(isApp: item?.owningAppID != nil, isChief: item?.ref == .builtIn(.chief), isTile: tile != nil))
         return services.registry.makeContextMenu(for: .sidebarItem, target: ActionTargetRef(kind: .sidebarItem, id: id.rawValue),
                                                  entries: entries)
     }
