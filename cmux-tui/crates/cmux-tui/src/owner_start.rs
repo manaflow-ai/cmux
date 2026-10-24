@@ -9,7 +9,9 @@ mod owner_panic;
 ///
 /// The owner holds descriptors for every terminal, and the default soft
 /// limit (256 on macOS) stopped it at about 60 terminals. Terminal hosts and
-/// the programs in terminals get the original limit back at spawn.
+/// the programs in terminals get the original limit back at spawn: the one
+/// before this raise, or the launch limit a parent that raised its own named
+/// (`startup_env::take_launch_open_file_limit`, which runs first).
 ///
 /// The headless owner also records every panic (`owner_panic`, cx-urd.59)
 /// and sends the ones not sent yet to Sentry (`crash_forward`), and watches

@@ -1896,6 +1896,14 @@ fn run_main() {
         // SAFETY: still single-threaded startup, as for the captures above.
         unsafe { startup_env::take_agent_caller_env() };
     }
+    // Before `owner_start::prepare` raises the limit: a parent that started
+    // this process with a raised one (the app) names the launch limit, and
+    // every child this process starts gets that one back.
+    // SAFETY: still single-threaded startup, as for the captures above.
+    #[cfg(unix)]
+    unsafe {
+        startup_env::take_launch_open_file_limit()
+    };
     let headless = args.headless;
     let config = config::StartupConfigSnapshot::load();
     let provider = resolve_provider_launch(&args, &config)
