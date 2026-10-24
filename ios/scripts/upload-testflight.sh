@@ -1055,16 +1055,17 @@ WORKSPACE="$IOS_DIR/cmux.xcworkspace"
 SCHEME="cmux-ios"
 DEVELOPMENT_TEAM="${IOS_DEVELOPMENT_TEAM:-7WLXT3NR37}"
 CLOUD_VPN_BUNDLE_IDENTIFIER="${PRODUCT_BUNDLE_IDENTIFIER}.CloudVPN"
-# These public apps have provisioned packet-tunnel extensions. Internal/demo
-# app identities are separate Apple registrations and do not opt in implicitly.
+# The beta app has a provisioned packet-tunnel extension. The official App
+# Store app is permanently VPN-free: do not let a stale or manually inherited
+# IOS_APPSTORE_ENABLE_CLOUD_VPN value re-enable Apple's rejected capability.
+# Internal/demo app identities are separate Apple registrations and do not opt
+# in implicitly.
 CLOUD_VPN_REQUIRED=0
-if [[ "$PRODUCT_BUNDLE_IDENTIFIER" == "dev.cmux.app.beta" ]]; then
-  CLOUD_VPN_REQUIRED=1
-elif [[ "$LANE" == "appstore" && "${IOS_APPSTORE_ENABLE_CLOUD_VPN:-0}" == "1" ]]; then
+if [[ "$LANE" == "beta" && "$PRODUCT_BUNDLE_IDENTIFIER" == "dev.cmux.app.beta" ]]; then
   CLOUD_VPN_REQUIRED=1
 fi
 APPSTORE_SYSTEM_VPN_DISABLED=0
-if [[ "$LANE" == "appstore" && "$CLOUD_VPN_REQUIRED" -eq 0 ]]; then
+if [[ "$LANE" == "appstore" ]]; then
   APPSTORE_SYSTEM_VPN_DISABLED=1
 fi
 SHARED_XCCONFIG="$IOS_DIR/Config/Shared.xcconfig"
