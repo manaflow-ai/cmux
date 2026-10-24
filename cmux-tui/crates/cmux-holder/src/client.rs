@@ -162,6 +162,46 @@ pub fn launch_with(
     })
 }
 
+/// Make the process `command` starts inherit only its stdio from this
+/// one: every other descriptor is closed at its exec, also one that this
+/// process holds without close-on-exec (a test runner's jobserver pipe,
+/// say) and one another thread has not marked close-on-exec yet (on macOS
+/// std marks a new socket or pipe only after the call that made it, and a
+/// descriptor received over a link is marked after `recvmsg` returns).
+/// A [`launch_with`] `configure` step for a test that counts a holder's
+/// descriptors: an inherited descriptor counts in the holder's table, but
+/// takes one of the slots under a lowered `RLIMIT_NOFILE` only when its
+/// number is below that limit. Without this step, the holder's free
+/// descriptors depend on the process that runs the test.
+pub fn inherit_only_stdio(command: &mut Command) {
+    use std::os::unix::process::CommandExt;
+    // Every descriptor of this process is numbered below its soft limit:
+    // a new one gets the lowest free number, and nothing here lowers the
+    // limit. The kernels keep that limit at or under 2^20 by default
+    // (Linux `fs.nr_open`; macOS `kern.maxfilesperproc` is lower); the cap
+    // keeps the loop short if a limit reads as unlimited.
+    let mut limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+    // SAFETY: getrlimit fills one rlimit.
+    let soft = if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) } == 0 {
+        limit.rlim_cur
+    } else {
+        // SAFETY: sysconf takes no pointers.
+        unsafe { libc::sysconf(libc::_SC_OPEN_MAX) }.max(0) as libc::rlim_t
+    };
+    let end = soft.min(1 << 20) as libc::c_int;
+    // SAFETY: the step runs in the child between fork and exec, after Rust
+    // put the child's stdio on 0-2, and makes only `fcntl` calls, which are
+    // async-signal-safe.
+    unsafe {
+        command.pre_exec(move || {
+            for fd in 3..end {
+                libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
+            }
+            Ok(())
+        });
+    }
+}
+
 /// An authenticated link to a holder.
 pub struct HolderClient {
     stream: UnixStream,
