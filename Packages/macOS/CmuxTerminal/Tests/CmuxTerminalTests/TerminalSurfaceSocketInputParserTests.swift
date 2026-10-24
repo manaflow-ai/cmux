@@ -27,6 +27,42 @@ import CmuxTerminalCore
         #expect(containsUserInputEvents(events))
     }
 
+    /// A viewing Mac's mirror encodes keys for the mode the host program
+    /// negotiated (Kitty CSI-u, modified arrows, bracketed paste). Splitting
+    /// one into an Escape key plus its tail typed `[27u` into Claude Code
+    /// (https://github.com/manaflow-ai/cmux/issues/21775).
+    @Test(arguments: [
+        "\u{1B}[27u",             // Kitty Escape
+        "\u{1B}[13;2u",           // Kitty Shift+Enter
+        "\u{1B}[99;5u",           // Kitty Ctrl+C
+        "\u{1B}[1;5A",            // Ctrl+Up
+        "\u{1B}[Z",               // Shift+Tab
+        "\u{1B}[3;5~",            // Ctrl+Forward Delete
+        "\u{1B}[200~hi\u{1B}[201~", // bracketed paste
+    ])
+    func encodedKeySequencesReachThePTYIntact(sequence: String) {
+        let events = TerminalSurface.parsedSocketInputEvents(for: sequence)
+        #expect(!containsKeyOrTerminalBytes(events), "\(events)")
+        #expect(rawBytes(in: events) == Data(sequence.utf8))
+    }
+
+    @Test func bareEscapeStaysTheEscapeKey() {
+        let events = TerminalSurface.parsedSocketInputEvents(for: "\u{1B}")
+        #expect(containsKeyOrTerminalBytes(events))
+        #expect(rawBytes(in: events).isEmpty)
+    }
+
+    /// `ESC O` then text is Escape, then the text (vim's "open line above").
+    @Test func escapeThenCapitalOStaysTheEscapeKey() {
+        let events = TerminalSurface.parsedSocketInputEvents(for: "\u{1B}Ofix")
+        guard case .key(let key) = events.first else {
+            Issue.record("Expected the Escape key first: \(events)")
+            return
+        }
+        #expect(key.label == "escape")
+        #expect(rawBytes(in: events) == Data("Ofix".utf8))
+    }
+
     @Test func c1StringRepliesStayTerminalBytes() {
         let replies = ["\u{9B}50;1R", "\u{9D}11;rgb:1e1e/1e1e/1e1e\u{9C}", "\u{98}terminal-status\u{9C}"]
         let events = TerminalSurface.parsedSocketInputEvents(for: replies.joined())
@@ -43,6 +79,14 @@ import CmuxTerminalCore
 
     private func terminalBytePayloads(in events: [ParsedSocketInput]) -> [Data] {
         events.compactMap { if case .terminalBytes(let data) = $0 { data } else { nil } }
+    }
+
+    private func rawBytes(in events: [ParsedSocketInput]) -> Data {
+        events.reduce(into: Data()) { if case .rawBytes(let data) = $1 { $0.append(data) } }
+    }
+
+    private func containsKeyOrTerminalBytes(_ events: [ParsedSocketInput]) -> Bool {
+        events.contains { if case .rawBytes = $0 { false } else { true } }
     }
 
     private func containsUserInputEvents(_ events: [ParsedSocketInput]) -> Bool {

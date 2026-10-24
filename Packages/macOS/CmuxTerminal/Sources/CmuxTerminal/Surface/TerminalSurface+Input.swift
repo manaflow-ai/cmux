@@ -402,6 +402,14 @@ extension TerminalSurface {
             events.append(.terminalBytes(data))
         }
 
+        func appendRawBytes(length: Int, from start: Int) {
+            var sequence = ""
+            for offset in start..<(start + length) {
+                sequence.unicodeScalars.append(scalars[offset])
+            }
+            events.append(.rawBytes(Data(sequence.utf8)))
+        }
+
         var index = 0
         while index < scalars.count {
             let scalar = scalars[index]
@@ -437,6 +445,15 @@ extension TerminalSurface {
                 } else if let length = terminalControlSequenceLength(scalars, from: index) {
                     flushBufferedText()
                     appendTerminalBytes(length: length, from: index)
+                    index += length
+                } else if let length = encodedKeySequenceLength(scalars, from: index) {
+                    // Any other complete CSI sequence was already
+                    // encoded for the program's keyboard mode (a viewing
+                    // Mac's Kitty `ESC[27u`, modified arrows, bracketed
+                    // paste). Splitting it into Escape plus its tail typed
+                    // the tail as text.
+                    flushBufferedText()
+                    appendRawBytes(length: length, from: index)
                     index += length
                 } else {
                     flushBufferedText()
@@ -501,6 +518,25 @@ extension TerminalSurface {
         default:
             return nil
         }
+    }
+
+    /// Length of a complete 7-bit CSI (`ESC [ params intermediates final`)
+    /// at `start`, or nil for a bare or partial escape. SS3 stays out: Kitty
+    /// encodes keys as CSI, and `ESC O` followed by text is Escape then `O`.
+    private static func encodedKeySequenceLength(
+        _ scalars: [Unicode.Scalar],
+        from start: Int
+    ) -> Int? {
+        guard start + 2 < scalars.count, scalars[start].value == 0x1B,
+              scalars[start + 1].value == 0x5B else { return nil }
+        var cursor = start + 2
+        while cursor < scalars.count {
+            let value = scalars[cursor].value
+            if (0x40...0x7E).contains(value) { return cursor - start + 1 }
+            guard (0x20...0x3F).contains(value) else { return nil }
+            cursor += 1
+        }
+        return nil
     }
 
     /// Finds the terminator for 7-bit or C1 string controls without accepting partial sequences.
