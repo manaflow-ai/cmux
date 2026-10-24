@@ -61,9 +61,7 @@ pub(super) fn push_coalesced(batch: &mut Vec<QueuedJournalEvent>, next: QueuedJo
                 | JournalIngressEvent::TerminalOutputGap { terminal_id: other, .. } => {
                     other.as_ref() == terminal_id.as_ref()
                 }
-                JournalIngressEvent::TerminalBarrier
-                | JournalIngressEvent::Frontend { .. }
-                | JournalIngressEvent::Producer { .. } => true,
+                JournalIngressEvent::TerminalBarrier | JournalIngressEvent::Frontend { .. } => true,
             })
         }
         _ => None,
