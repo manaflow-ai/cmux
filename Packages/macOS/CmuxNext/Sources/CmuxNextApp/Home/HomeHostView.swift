@@ -365,6 +365,8 @@ final class HomeHostView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        let windowed = control.services.home.windowedViews
+        if window != nil { windowed.add(self) } else { windowed.remove(self) }
         openPendingSettings()
         watchHeaderPanels()
     }

@@ -25,6 +25,10 @@ final class HomeService {
     /// The Chief conversation whose settings open once its Home view shows it: Toggle Chief
     /// Settings with no Home in front brings Home forward there (`HomeChiefActions`).
     @ObservationIgnored var pendingChiefSettings: ConversationID?
+    /// The Home views in a window now (each files itself in `viewDidMoveToWindow`): the front
+    /// window's Chief Home is found among these few (`HomeChiefActions`), not by a walk of the
+    /// window's view tree on every read of Stop All's reason.
+    @ObservationIgnored let windowedViews = NSHashTable<HomeHostView>.weakObjects()
     #if DEBUG
     /// DEBUG: the Chiefs of `debug.home.sidebar_fixture`'s rows, which wear their own characters too.
     var debugChiefs: Set<String> = []
