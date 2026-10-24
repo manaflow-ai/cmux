@@ -36,11 +36,13 @@ nonisolated struct WireSplitter {
         let count = bytes.count
         while index < count {
             if var arriving = frame {
+                // Release the stored copy first, so the append grows a uniquely
+                // referenced payload in place instead of copying it.
+                frame = nil
                 let take = min(arriving.header.length - arriving.payload.count, count - index)
                 arriving.payload.append(base.advanced(by: index).assumingMemoryBound(to: UInt8.self), count: take)
                 index += take
                 if arriving.payload.count == arriving.header.length {
-                    frame = nil
                     emit(.frame(arriving.header, arriving.payload))
                 } else {
                     frame = arriving
