@@ -16,7 +16,12 @@ import os
 /// person's input go back. Leases arrive as frames; the app shows them.
 ///
 /// Everything runs on the main actor in frame order: a `lease` frame marks
-/// its tab agent-driven before the next frame is read. When the link drops,
+/// its tab agent-driven before the next frame is handled. With a frame queue
+/// (the app's: automation class, plans/cmux-next/main-thread-budget.md) each
+/// host frame runs as a budgeted automation task on the display frame, below
+/// the person's input and visible updates, so an agent's flood of commands
+/// never delays the person's typing; frames that leave the app (CDP replies,
+/// results) are encoded on the link's write queue. When the link drops,
 /// the provider reconnects when the credentials source reports new
 /// credentials, or after a `Backoff` delay on the injected clock. It never
 /// polls; with no credentials (before step c2) it stays idle.
@@ -58,6 +63,8 @@ public final class BrowserHostProvider {
     @ObservationIgnored let driver: (any DriverCallHandler)?
     @ObservationIgnored let clock: any Clock<Duration>
     @ObservationIgnored let dial: @Sendable (ProviderCredentials) async throws -> ProviderConnection
+    /// Runs each host frame as an automation task (nil: at once, as it is read).
+    @ObservationIgnored let frameQueue: FrameBatchQueue?
     /// How long `cdp.attach` may take to make a page ready (the host waits 10 s).
     @ObservationIgnored let prepareDeadline: Duration
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.next", category: "browser-host-provider")
@@ -100,6 +107,7 @@ public final class BrowserHostProvider {
                 clock: any Clock<Duration> = ContinuousClock(),
                 backoff: Backoff = Backoff(initial: .milliseconds(250), maximum: .seconds(30)),
                 prepareDeadline: Duration = .seconds(8),
+                frames: FrameBatchQueue? = nil,
                 dial: @escaping @Sendable (ProviderCredentials) async throws -> ProviderConnection = { try await ProviderConnection.dial(path: $0.socketPath) }) {
         self.identity = identity
         self.credentials = credentials
@@ -113,6 +121,7 @@ public final class BrowserHostProvider {
         self.backoff = backoff
         retryTimer = DemandTimer(owner: "browser-host.provider-retry", clock: clock)
         self.prepareDeadline = prepareDeadline
+        self.frameQueue = frames
         self.dial = dial
     }
 
@@ -243,12 +252,25 @@ public final class BrowserHostProvider {
         onAgentBundle?(bundle, sha)
         while let frame = await frames.next() {
             guard gen == generation else { return }
-            handle(frame)
+            inOrder { [weak self] in
+                guard let self, gen == self.generation else { return }
+                self.handle(frame)
+            }
         }
         guard gen == generation else { return }
-        logger.notice("browser host provider: link closed (\(link.closeReason ?? "", privacy: .public))")
-        dropConnection(reason: link.closeReason ?? "closed")
-        scheduleRetry(gen)
+        // After the frames queued before the close.
+        inOrder { [weak self] in
+            guard let self, gen == self.generation else { return }
+            self.logger.notice("browser host provider: link closed (\(link.closeReason ?? "", privacy: .public))")
+            self.dropConnection(reason: link.closeReason ?? "closed")
+            self.scheduleRetry(gen)
+        }
+    }
+
+    /// Runs `work` after the host frames queued before it: on the frame queue as an automation
+    /// task, or at once without one.
+    private func inOrder(_ work: @escaping @MainActor () -> Void) {
+        if let frameQueue { frameQueue.enqueue(work) } else { work() }
     }
 
     private func scheduleRetry(_ gen: Int) {
@@ -274,17 +296,16 @@ public final class BrowserHostProvider {
         for targetID in ended { notifyLease(targetID, nil) }
     }
 
-    /// Queues a frame on the current link; dropped when there is none.
+    /// Queues a frame on the current link; dropped when there is none. Encoded on the link's
+    /// write queue, off the main actor.
     func send(_ frame: ProviderFrame) {
-        guard let connection else { return }
-        do {
-            try connection.send(frame)
-        } catch {
-            logger.error("browser host provider: \(frame.description, privacy: .public) not sent: \(String(describing: error), privacy: .public)")
-            if case .result(let id, _, _) = frame {
-                _ = try? connection.send(.result(id: id, result: nil, error: DriverError(.invalid, "the result is too large to send").json))
-            }
-        }
+        connection?.send(frame)
+    }
+
+    /// Queues the frames `build` makes on the link's write queue, in order with every other send
+    /// (a CDP reply's id rewrite runs there, off the main actor).
+    func send(building build: @escaping @Sendable () -> [ProviderFrame]) {
+        connection?.send(building: build)
     }
 
     private func sendHello(_ link: ProviderConnection, secret: ProviderSecret) {
