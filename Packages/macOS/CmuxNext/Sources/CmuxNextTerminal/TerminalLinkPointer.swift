@@ -132,6 +132,14 @@ import GhosttyNextKit
         return true
     }
 
+    /// Ghostty asked for `cursor` (its `mouse_shape`). True: a wrapped link is under the
+    /// pointer, so the hand stays and `cursor` comes back when the link goes.
+    func absorbsCursor(_ cursor: NSCursor) -> Bool {
+        guard wrapped != nil else { return false }
+        if cursor != .pointingHand { cursorBeforeWrapped = cursor }
+        return true
+    }
+
     // MARK: Wrapped links
 
     private func hoverWrapped(at point: NSPoint, flags: NSEvent.ModifierFlags, force: Bool) {

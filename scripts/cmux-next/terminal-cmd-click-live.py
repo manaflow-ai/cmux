@@ -22,7 +22,12 @@ and in a full-screen program that reads the mouse (a fixture TUI, as Claude Code
   7. an OSC 8 hyperlink opens its target;
   8. a URL the program broke onto two rows itself opens whole from either row, and the
      hover reports the whole URL;
-  9. `src/app.ts:3:5` opens the code editor at line 3, column 5.
+  9. `src/app.ts:3:5` opens the code editor at line 3, column 5;
+
+and, with --agent PATH, in real Codex (it reads the mouse and wraps its own lines):
+
+ 10. a URL Codex printed, wrapped onto rows by Codex, shows and opens whole with Command;
+ 11. a path:line Codex printed opens the file at that line.
 
 Window snapshots go to --out. GUI host only (a capture mini). Exits 1 when a check fails.
 """
@@ -35,6 +40,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix="terminal-cmd-click-"))
 parser.add_argument("--app", help="tagged .app (default: found in DerivedData)")
+parser.add_argument("--agent", help="also run a real agent CLI at this path (Codex) that prints a long URL and a path")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
@@ -190,6 +196,71 @@ def presses():
     return len(re.findall(r"\x1b\[<0;\d+;\d+[Mm]", data))
 
 
+AGENT_URL = "https://example.com/codex-check/" + "-".join(f"part{i:02d}" for i in range(24)) + "/end?ok=1"
+
+
+def viewport_rows(marker):
+    """The rows of the terminal viewport that shows `marker` (debug.surfaces text)."""
+    for window in rpc("debug.surfaces", {"text": True}).get("windows") or []:
+        for pane in window.get("panes") or []:
+            text = pane.get("text") or ""
+            if marker in text:
+                return text.split("\n")
+    return None
+
+
+def run_agent():
+    """Real Codex prints a long URL and a path; Command over each shows and opens it."""
+    links(modifiers=[])
+    prompt = f"Reply with exactly these two lines and nothing else. Line 1: {AGENT_URL} Line 2: Edited src/app.ts:3:5"
+    send(f"clear && cd {REPO} && {opts.agent} -a never -s read-only '{prompt}'\n")
+    rows = wait_for(lambda: (lambda r: r if r and any("ok=1" in row for row in r) and any("src/app.ts:3:5" in row and "Line" not in row for row in r) else None)(viewport_rows("ok=1")),
+                    "Codex printed the URL and the path", 180)
+    time.sleep(2)  # test harness: Codex finishes drawing its turn
+    rows = viewport_rows("ok=1") or rows or []
+    with open(os.path.join(opts.out, "agent-viewport.txt"), "w") as f:
+        f.write("\n".join(rows))
+    start = next((i for i, row in enumerate(rows) if "https://example.com/codex-check" in row and "Line" not in row.split("https")[0]), None)
+    end = next((i for i, row in enumerate(rows) if "ok=1" in row and (start is None or i >= start)), None)
+    check(start is not None and end is not None, f"found the URL Codex drew (rows {start}..{end})")
+    if start is None or end is None:
+        return
+    report["agent_rows"] = [start, end]
+    check(end > start, f"Codex broke the URL onto {end - start + 1} rows itself")
+    col = rows[start].index("https://") + 10
+    hover(col, start, keys=())
+    links(modifiers=["command"])
+    settle()
+    state = hover(col + 1, start)
+    shown = state.get("wrapped") or state.get("hovered")
+    check(shown == AGENT_URL, f"Command over Codex's URL shows the whole URL ({(shown or '')[:70]!r})")
+    check(state.get("pointingHand") is True, f"the pointer shows the pointing hand over Codex's URL ({state.get('pointingHand')!r})")
+    snapshot("codex-url-hover")
+    opened = click(col + 1, start)
+    check(opened == [f"system:{AGENT_URL}"], f"Cmd-click on Codex's URL opens it whole ({[o[:80] for o in opened]})")
+    if end > start:
+        last = rows[end]
+        lcol = max(0, last.index("ok=1") - 2)
+        hover(lcol, end)
+        opened = click(lcol, end)
+        check(opened == [f"system:{AGENT_URL}"], f"Cmd-click on the URL's last row opens it whole ({[o[:80] for o in opened]})")
+    prow = next((i for i, row in enumerate(rows) if "src/app.ts:3:5" in row and "Line" not in row), None)
+    if check(prow is not None, "found the path Codex drew"):
+        pcol = rows[prow].index("src/app.ts:3:5") + 4
+        hover(pcol, prow)
+        hover(pcol + 1, prow)
+        state = links()
+        snapshot("codex-path-hover")
+        opened = click(pcol + 1, prow)
+        check(any(entry.startswith("file:") and entry.endswith("src/app.ts:3:5") for entry in opened),
+              f"Cmd-click on Codex's src/app.ts:3:5 opens the file at line 3, column 5 ({opened}; hovered {state.get('hovered')!r})")
+        time.sleep(2)  # test harness: the editor page loads
+        snapshot("codex-editor-at-line")
+    links(modifiers=[])
+    send("\x03")
+    send("\x03")
+
+
 APP = opts.app or next(iter(sorted(glob.glob(os.path.expanduser(
     f"~/Library/Developer/Xcode/DerivedData/*/Build/Products/Debug/cmux DEV {opts.tag}.app")))), None)
 if not APP:
@@ -307,6 +378,13 @@ try:
     col, row = layout.get("plain", [12, 2])
     hover(col, row, keys=())
     snapshot("tui-pointer-no-command")
+    # As a person does: the pointer rests on the URL, Command goes down, the pointer moves a cell.
+    links(modifiers=["command"])
+    settle()
+    state = links()
+    check(state.get("hovered") == "https://example.com/tui-plain",
+          f"Command pressed over a URL in a mouse-reading program shows the link ({state.get('hovered')!r})")
+    col += 1
     state = hover(col, row)
     check(state.get("hovered") == "https://example.com/tui-plain", f"Cmd-hover in a mouse-reading program finds the URL ({state.get('hovered')!r})")
     check(state.get("pointingHand") is True, f"the pointer shows the pointing hand ({state.get('pointingHand')!r})")
@@ -318,6 +396,7 @@ try:
     check(opened == ["system:https://example.com/tui-plain"], f"Cmd-click in a mouse-reading program opens the URL ({opened})")
     check(presses() == before, f"the program sees no press from the Cmd-click ({presses() - before} new)")
     links(modifiers=[])
+    settle()
     tcol, trow = layout.get("text", [4, 20])
     hover(tcol, trow, keys=())
     before = presses()
@@ -359,6 +438,9 @@ try:
     time.sleep(2)  # test harness: the editor page loads
     snapshot("editor-at-line")
     send("q")
+    time.sleep(1)  # test harness: the fixture TUI leaves the alternate screen
+    if opts.agent:
+        run_agent()
 finally:
     with open(os.path.join(opts.out, "report.json"), "w") as f:
         report["failures"] = failures

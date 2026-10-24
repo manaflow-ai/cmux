@@ -34,7 +34,9 @@ extension TerminalSurfaceView {
             // Never the blocking open: Ghostty holds the renderer lock here.
             NSWorkspace.shared.open(url, configuration: NSWorkspace.OpenConfiguration())
         case .mouseShape(let shape):
-            setCursor(Self.cursor(for: shape))
+            // Over a URL a program broke onto rows the hand stays (TerminalLinkPointer).
+            let cursor = Self.cursor(for: shape)
+            if !linkPointer.absorbsCursor(cursor) { setCursor(cursor) }
         case .mouseVisible(let visible):
             if !visible { NSCursor.setHiddenUntilMouseMoves(true) }
         case .mouseOverLink(let link):
