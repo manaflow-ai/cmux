@@ -725,6 +725,11 @@ class AppSizeTests(Fixture):
         self.git("mv", f"{APP}/Quit/QuitFlag.swift", f"{APP}/AppServices+QuitFlag.swift")
         self.commit("a feature file renamed into the root")
         self.assertRefused("a new root file is split from the root files")
+        self.reset()
+        self.rebase_on({f"{APP}/AppServices+Flag.swift": "import Foundation\n\nlet appFlag = true\n"}, "a small root file")
+        self.git("mv", f"{APP}/AppServices+Flag.swift", f"{APP}/Quit/Flag.swift")
+        self.commit("a root file renamed into a feature folder")
+        self.assertPasses("a rename out of the root is neutral, however short: no root shrink, no feature growth")
 
     def test_feature_logic_pasted_into_an_existing_app_services_file_is_refused(self):
         lines = swift_body(120, "textBox").splitlines(keepends=True)
@@ -819,6 +824,73 @@ class AppSizeTests(Fixture):
         grows = code(box[8:] + lines[40:136]) + 3 + code(swift_body(10, "zoomMore")) - code(box) - code(lines[40:136])
         self.assertGreater(grows, 0)
         self.assertWarned(f"App outside the root grows +{grows} source lines", "TextBox/TextBoxView.swift +3 new")
+
+    def test_a_file_s_own_re_indented_braces_beside_a_move_out_of_the_root_are_not_moved(self):
+        # AppDelegate moves 10 lines into TextBoxView, re-indents 20 of its own statements and adds 25 wiring lines;
+        # TextBoxView wraps its own 20 statements and the moved lines in `Task { @MainActor in ... }`. Each file's
+        # re-added `}` lines are its own: none moved out of the root (the wiring is +25, not +45), and none is new.
+        def statements(tag, indent):
+            pad = " " * indent
+            return "".join(f"{pad}if {tag}Ready{i} {{\n{pad}    {tag}Start{i}()\n{pad}}}\n" for i in range(20))
+        moved = "".join(f"        let delegateMoved{i} = delegateMove({i})\n" for i in range(10))
+        wire = "".join(f"        let delegateWire{i} = DelegateWire({i})\n" for i in range(25))
+        self.rebase_on({
+            f"{APP}/AppDelegate.swift": "final class AppDelegate {\n    func launch() {\n" + moved
+                                        + statements("delegate", 8) + "    }\n}\n",
+            f"{APP}/TextBox/TextBoxView.swift": "final class TextBoxView {\n    func reload() {\n"
+                                                + statements("textBox", 8) + "    }\n}\n",
+        }, "a launch and a reload")
+        self.write(f"{APP}/AppDelegate.swift", "final class AppDelegate {\n    func launch() {\n"
+                   + statements("delegate", 12) + wire + "    }\n}\n")
+        self.write(f"{APP}/TextBox/TextBoxView.swift", "final class TextBoxView {\n    func reload() {\n"
+                   "        Task { @MainActor in\n" + "".join("    " + line for line in moved.splitlines(keepends=True))
+                   + statements("textBox", 12) + "        }\n    }\n}\n")
+        self.commit("10 lines out of AppDelegate, both files re-indent their own statements, 25 wiring lines")
+        self.assertWarned("App outside the root grows +2 source lines", "CmuxNextApp grows +27 source lines",
+                          "AppDelegate.swift +25 added, TextBox/TextBoxView.swift +2 new")
+
+    def test_a_new_wrapper_around_a_block_moved_out_of_the_root_is_not_moved(self):
+        # The block moved out of AppDelegate goes into a new `extension TextBoxView { ... }`. The wrapper's `}`
+        # closes no opener of the block, so it is new feature code, not a line moved out of the root, even when the
+        # root re-adds braces (a re-indented function of its own) that could pay for it: the wiring count is exact.
+        lines = swift_body(200, "delegate").splitlines(keepends=True)
+        own = ["  " + line if line.strip() else line for line in lines[:8]]
+        block = "extension TextBoxView {\n" + "".join(lines[40:136]) + "}\n"
+        for wire, verdict in ((swift_body(34, "wire"), None), (swift_body(35, "wire"), ("root", 1))):
+            with self.subTest(wiring=code(wire)):
+                self.reset()
+                self.write(f"{APP}/AppDelegate.swift", "".join(own + lines[8:40] + lines[136:]) + wire)
+                self.append(f"{APP}/TextBox/TextBoxView.swift", block)
+                self.write(f"{APP}/Quit/QuitCoordinator.swift", "".join(self.quit[:200]))
+                self.commit(f"84 lines out of AppDelegate into a new extension, {code(wire)} new wiring lines")
+                if verdict is None:
+                    self.assertEqual(code(wire), guardrails.ROOT_BUDGET)
+                    self.assertPasses("wiring exactly at the budget")
+                else:
+                    found = self.assertRefused(f"the composition root grows +{code(wire)} source lines")
+                    self.assertEqual([(h.bucket, h.excess) for h in found], [verdict])
+
+    def test_the_growth_summary_counts_a_file_s_own_re_added_lines_whatever_the_root_removed(self):
+        # TextBoxView's `}` and `return 0` lines that its own removed lines explain are not new, whether or not the
+        # root also removes such lines in the push (AppDelegate deletes a function: its braces join the lines the
+        # root lost). Once in a re-indented function, once after new code that ends a run too short to credit.
+        box = swift_body(120, "textBox").splitlines(keepends=True)
+        delegate = swift_body(200, "delegate").splitlines(keepends=True)
+        reindented = "".join(["  " + line if line.strip() else line for line in box[:8]] + box[8:])
+        fresh = "".join(f"    let textBoxFresh{i} = {i}\n" for i in range(3))
+        after_new = ("    func textBoxFresh() -> Int {\n        textBoxRun()\n        return 0\n    }\n"
+                     + "".join(f"    let textBoxFresh{i} = {i}\n" for i in range(6)))
+        for name, text, new in (("re-indented", reindented + fresh, 3),
+                                ("own function replaced", "".join(box[8:]) + after_new, 8)):
+            for root_edit in (False, True):
+                with self.subTest(name, root_edit=root_edit):
+                    self.reset()
+                    self.write(f"{APP}/TextBox/TextBoxView.swift", text)
+                    if root_edit:
+                        self.write(f"{APP}/AppDelegate.swift", "".join(delegate[8:]))
+                    self.commit(f"TextBoxView: {name}; AppDelegate deletes a function: {root_edit}")
+                    self.assertWarned("App outside the root grows +3 source lines",
+                                      f"TextBox/TextBoxView.swift +{new} new")
 
     def test_one_host_conformance_file_of_forwards_per_push(self):
         self.write(f"{APP}/AppServices+FooHost.swift", host_file(25))
