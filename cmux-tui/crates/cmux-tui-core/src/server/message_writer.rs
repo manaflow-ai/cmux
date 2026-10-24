@@ -12,6 +12,7 @@ use super::attach_frames::BudgetedFrame;
 use super::attach_frames::FrameKind;
 use super::attach_frames::StreamFraming;
 use super::conversation_tabs_wire;
+use super::render_service::ReplayBytes;
 use crate::AttachFrame;
 use crate::SurfaceId;
 use crate::mux::ResourceWaitWake;
@@ -412,22 +413,10 @@ impl MessageWriter {
     ) -> std::io::Result<()> {
         self.ensure_open()?;
         if stream.framing.frame_stream().is_some() {
-            let meta = self.replay_meta(
-                &*self.render_service.serialize_vt_state(&VtStateMessage {
-                    replay: Arc::from([]),
-                    pending_sequence: Arc::from([]),
-                    kitty_image_aliases: value.kitty_image_aliases.clone(),
-                    colors: value.colors.clone(),
-                    ..*value
-                })?,
-                value.pending_sequence.len(),
-            )?;
-            return self.send_meta_frame(
-                FrameKind::Replay,
-                &meta,
+            let meta = self.render_service.serialize_vt_state_as(value, ReplayBytes::Omitted)?;
+            return self.send_replay_frame(
+                meta.as_bytes(),
                 &[&value.replay, &value.pending_sequence],
-                0,
-                || Value::Null,
                 stream,
                 true,
             );
@@ -442,20 +431,34 @@ impl MessageWriter {
         Self::stream_result(stream, result)
     }
 
-    /// The JSON meta of a REPLAY frame: the replay event serialized without
-    /// its bytes, plus how many trailing payload bytes are the pending
-    /// sequence. It re-reads the serializer's text (one parse per replay): a
-    /// REPLAY goes only to a byte-replay frames stream at attach and resize, and
-    /// one serializer keeps the meta's fields identical to the JSON event's.
-    fn replay_meta(&self, empty: &BudgetedText, pending_len: usize) -> std::io::Result<Value> {
-        let mut meta: Value = serde_json::from_str(empty).map_err(std::io::Error::other)?;
-        if let Some(fields) = meta.as_object_mut() {
-            fields.remove("data");
-            fields.remove("replay");
-            fields.remove("pending");
-            fields.insert("pending_len".into(), Value::from(pending_len));
-        }
-        Ok(meta)
+    /// A REPLAY frame: `meta` is the replay event written without its bytes
+    /// (`ReplayBytes::Omitted`), `data` the replay then the pending sequence.
+    fn send_replay_frame(
+        &self,
+        meta: &[u8],
+        data: &[&[u8]],
+        stream: &OutboundStream,
+        initial: bool,
+    ) -> std::io::Result<()> {
+        let Some(id) = stream.framing.frame_stream() else {
+            return Err(std::io::Error::other("a REPLAY frame needs a frames stream"));
+        };
+        let result = attach_frames::encode_raw_meta_frame(
+            &self.render_service.outbound_budget,
+            FrameKind::Replay,
+            id,
+            0,
+            meta,
+            data,
+        )
+        .and_then(|frame| {
+            if initial {
+                self.sink.send_initial(frame.into(), stream)
+            } else {
+                self.sink.send_stream_backpressured(frame.into(), stream)
+            }
+        });
+        Self::stream_result(stream, result)
     }
 
     pub(super) fn send_attach_frame_backpressured(
@@ -501,24 +504,14 @@ impl MessageWriter {
             }
             AttachFrame::Resized { replay, pending_sequence, .. }
             | AttachFrame::ResizedWithColors { replay, pending_sequence, .. } => {
-                let Some(empty) = without_replay_bytes(frame) else {
-                    return Err(std::io::Error::other("a resize frame without its resize"));
-                };
-                let empty = self.render_service.serialize_attach_frame(
+                // The resize's own fields, written without its bytes.
+                let meta = self.render_service.serialize_attach_frame_as(
                     surface,
-                    &empty,
+                    frame,
                     AttachWireShape { pending_sequence: true, ..shape },
+                    ReplayBytes::Omitted,
                 )?;
-                let meta = self.replay_meta(&empty, pending_sequence.len())?;
-                self.send_meta_frame(
-                    FrameKind::Replay,
-                    &meta,
-                    &[replay, pending_sequence],
-                    0,
-                    || Value::Null,
-                    stream,
-                    false,
-                )
+                self.send_replay_frame(meta.as_bytes(), &[replay, pending_sequence], stream, false)
             }
             AttachFrame::ColorsChanged(_) => {
                 let result = self
@@ -753,39 +746,5 @@ impl MessageWriter {
 
     pub(super) fn close(&self) {
         self.close_with(false);
-    }
-}
-
-/// A resize replay frame with its replay and pending bytes left out: the
-/// serializer's JSON of it is a REPLAY frame's meta. `None` for any other frame.
-fn without_replay_bytes(frame: &AttachFrame) -> Option<AttachFrame> {
-    match frame {
-        AttachFrame::Resized { cols, rows, kitty_image_aliases, kitty_state, .. } => {
-            Some(AttachFrame::Resized {
-                cols: *cols,
-                rows: *rows,
-                replay: Arc::from([]),
-                kitty_image_aliases: kitty_image_aliases.clone(),
-                kitty_state: *kitty_state,
-                pending_sequence: Arc::from([]),
-            })
-        }
-        AttachFrame::ResizedWithColors {
-            cols,
-            rows,
-            kitty_image_aliases,
-            kitty_state,
-            colors,
-            ..
-        } => Some(AttachFrame::ResizedWithColors {
-            cols: *cols,
-            rows: *rows,
-            replay: Arc::from([]),
-            kitty_image_aliases: kitty_image_aliases.clone(),
-            kitty_state: *kitty_state,
-            colors: colors.clone(),
-            pending_sequence: Arc::from([]),
-        }),
-        _ => None,
     }
 }

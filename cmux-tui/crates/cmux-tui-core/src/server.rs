@@ -2618,11 +2618,11 @@ mod attach_frames;
 mod stream_lanes;
 
 mod connection_scheduler;
-#[cfg(test)]
-use connection_scheduler::ConnectionSurfaceState;
 use connection_scheduler::{
     ConnectionCancellation, ConnectionSurfaceScheduler, PendingSurfaceRequest, run_pending_request,
 };
+#[cfg(test)]
+use connection_scheduler::{ConnectionSurfaceState, OrderLane};
 
 mod bounded_outbound;
 #[cfg(test)]

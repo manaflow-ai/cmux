@@ -565,6 +565,7 @@ fn blocking_wait_cannot_overtake_input_queued_behind_a_clear_barrier() {
             request: Request { id: Some(json!(id)), stream: None, cmd },
             retained_bytes: 0,
             _bytes_permit: admission.try_reserve_bytes(0).unwrap(),
+            order: None,
         });
     }
 
@@ -603,6 +604,7 @@ fn guarded_browser_pointer_input_overtakes_an_unrelated_clear_barrier() {
             request: Request { id: Some(json!(1)), stream: None, cmd },
             retained_bytes: 0,
             _bytes_permit: admission.try_reserve_bytes(0).unwrap(),
+            order: None,
         });
 
         assert_eq!(
@@ -1086,4 +1088,43 @@ fn client_detach_purges_attach_backlog_before_terminal_event() {
     let terminal: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
     assert_eq!(terminal, json!({"event": "detached", "surface": 41, "reason": "network"}));
     assert_eq!(outbound.try_pop(), None);
+}
+
+/// A clear-history on the control lane waits for the earlier, unfinished
+/// stream request of its surface (the input the clear must follow), and only
+/// for that surface: across lanes a surface keeps its wire order.
+#[test]
+fn clear_history_waits_for_its_surfaces_earlier_stream_input_and_nothing_else() {
+    let scheduler = Arc::new(ConnectionSurfaceScheduler::new(Arc::new(
+        ServerSurfaceOperationAdmission::default(),
+    )));
+    let admission = scheduler.admission.clone();
+    let mut state = scheduler.state.lock().unwrap();
+    // The view's stream input for surface 1 is still running.
+    let input = scheduler.take_order_ticket(&mut state, Some(1), OrderLane::Stream);
+    let mut queue = |state: &mut ConnectionSurfaceState, id: u64, cmd: Command| {
+        let surface = cmd.ordering_surface();
+        let order = scheduler.take_order_ticket(state, surface, OrderLane::Control);
+        state.requests.push_back(PendingSurfaceRequest {
+            request: Request { id: Some(json!(id)), stream: None, cmd },
+            retained_bytes: 0,
+            _bytes_permit: admission.try_reserve_bytes(0).unwrap(),
+            order,
+        });
+    };
+    queue(&mut state, 1, Command::ClearHistory { surface: 1, fallback_key: None });
+    queue(&mut state, 2, Command::ReadScreen { surface: 2 });
+    assert_eq!(
+        ConnectionSurfaceScheduler::next_runnable_index(&state),
+        None,
+        "the clear of surface 1 ran before that surface's earlier stream input finished, \
+         or a request queued behind it overtook it"
+    );
+    drop(state);
+    // The input finished: the clear runs first, in wire order.
+    drop(input);
+    let state = scheduler.state.lock().unwrap();
+    assert_eq!(ConnectionSurfaceScheduler::next_runnable_index(&state), Some(0));
+    drop(state);
+    scheduler.close();
 }
