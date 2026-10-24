@@ -246,7 +246,7 @@ Environment:
 | `ssh-pty-attach` | Internal helper used by SSH terminal startup scripts to bridge a local terminal surface to a remote PTY session. |
 | `ssh-session-end` | Internal helper that clears remote SSH session state. |
 | `__tmux-compat` | Internal tmux compatibility dispatcher. |
-| `report_pwd`, `report_git_branch`, `report_pr_action` | Internal shell integration entrypoints that forward one piece of sidebar metadata from a terminal's shell hooks and print the app's reply. |
+| `report_pwd`, `report_git_branch`, `clear_git_branch`, `report_pr_action` | Internal shell integration entrypoints that forward one piece of sidebar metadata from a terminal's shell hooks and print the app's reply. |
 | `simulate-sidebar-drag` | Internal test helper that replays a sidebar drag; requires `--window`, `--from`, and `--to`, with optional `--duration-ms` and `--steps`. |
 | `vm-tui-connect` | Internal helper that replaces itself with the cmux-tui client for one machine. Requires `--config <file>`, a one-shot JSON config it deletes as it reads. |
 | `__owned-process-supervisor` | Internal supervisor that spawns the executable named by its first argument with the rest of the line as that program's arguments, with the supervisor's own stdin inherited by the target. Its lease is the process that launched it: when that process exits, or the supervisor is sent `SIGTERM`, `SIGINT` or `SIGHUP`, it sends `SIGTERM` to the target's process group and `SIGKILL` one second later. Never run by hand. |
