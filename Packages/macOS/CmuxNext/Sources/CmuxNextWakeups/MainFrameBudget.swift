@@ -149,8 +149,10 @@ public final class MainFrameBudget {
     public func mayRun(_ workClass: MainWorkClass) -> Bool {
         guard let index = Self.index(workClass), let budget = budgets.budget(workClass) else { return true }
         let now = uptimeNanos()
-        // A task outside any tick (a request on an idle queue): a window older than one frame is over.
-        if now &- windowStart >= windowLength { roll(at: now) }
+        // A task outside any tick (a request on an idle queue): a window older than one frame is
+        // over. Never while a task runs: a long batch would otherwise reset its own budget and
+        // keep the main thread past the frame.
+        if open.isEmpty, now &- windowStart >= windowLength { roll(at: now) }
         if !yieldedLastFrame[index], inputPending(now) {
             if !yieldedThisFrame[index] { stats.yieldedToInput[index] += 1 }
             yieldedThisFrame[index] = true
