@@ -179,6 +179,8 @@ export type VmProviderGatewayShape = {
    * treat an absent member the same as a provider without the capability.
    */
   readonly supportsPrivateNetworking?: (provider: ProviderId) => boolean;
+  /** VPC provisioning can be available before a provider has tunnel enrollment. */
+  readonly supportsNetworkProvisioning?: (provider: ProviderId) => boolean;
   readonly ensureNetwork?: (
     provider: ProviderId,
     options: EnsureProviderNetworkOptions,
@@ -519,7 +521,11 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     if (!driver.revokeEndpointLeases) return Effect.void;
     return providerEffect(provider, "revokeEndpointLeases", () => driver.revokeEndpointLeases!(vmId));
   },
-  supportsPrivateNetworking: (provider) => !!getProvider(provider).privateNetworking,
+  supportsPrivateNetworking: (provider) => {
+    const driver = getProvider(provider);
+    return !!driver.privateNetworking && driver.privateNetworkingTunnels !== false;
+  },
+  supportsNetworkProvisioning: (provider) => !!getProvider(provider).privateNetworking,
   ensureNetwork: (provider, options) =>
     providerEffect(provider, "ensureNetwork", () =>
       privateNetworking(provider).ensureNetwork(options)

@@ -6,7 +6,7 @@ import {
 import { setSpanAttributes } from "../../../../../services/telemetry";
 import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
 import { pauseVm } from "../../../../../services/vms/workflows";
-import { gcpCredentialFromRequest, wipeProviderCredential } from "../../../../../services/vms/routeInput";
+import { gcpCredentialFromRequest, providerCredentialLifetime } from "../../../../../services/vms/routeInput";
 
 // Park a machine (`cmux vm pause <id>`): compute stops billing, the persistent
 // home and the daemon's durable session stay. A paused machine answers 200
@@ -31,13 +31,14 @@ export async function POST(
       if (!account.ok) return account.response;
       setSpanAttributes(span, { "cmux.vm.id": id });
       const providerCredential = gcpCredentialFromRequest(request);
+      const credentialLifetime = providerCredentialLifetime(providerCredential);
       const run = await runVmRoute(pauseVm({
         userId: user.id,
         billingTeamId: account.entitlements.billingTeamId,
         teamIds: user.teamIds,
         providerVmId: id,
         providerCredential,
-      }), { request, deadline: { operation: "pause" } }).finally(() => wipeProviderCredential(providerCredential));
+      }), { request, deadline: { operation: "pause", continueInBackground: credentialLifetime.continueInBackground } }).finally(() => credentialLifetime.finish());
       if (!run.ok) return run.response;
       return jsonResponse({ id: run.value.id, status: run.value.status });
     },
