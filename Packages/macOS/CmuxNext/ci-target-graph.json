@@ -274,6 +274,7 @@
         "CmuxNextFocus",
         "CmuxNextFocusUI",
         "CmuxNextHangReports",
+        "CmuxNextHibernation",
         "CmuxNextHistory",
         "CmuxNextHome",
         "CmuxNextHomeEngine",
@@ -376,6 +377,7 @@
         "CmuxNextFocus",
         "CmuxNextFocusUI",
         "CmuxNextHangReports",
+        "CmuxNextHibernation",
         "CmuxNextHistory",
         "CmuxNextHome",
         "CmuxNextHomeEngine",
@@ -1007,6 +1009,15 @@
       ],
       "packages": [],
       "reads": []
+    },
+    "CmuxNextHibernation": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHibernation",
+      "targets": [
+        "CmuxNextBridge",
+        "CmuxNextSettings"
+      ],
+      "packages": []
     },
     "CmuxNextHistory": {
       "kind": "regular",

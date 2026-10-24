@@ -55,6 +55,7 @@
     "CmuxNextHangReports": {"layer": "service"},
     "CmuxNextHomeEngine": {"layer": "ui", "mixes": ["service", "domain"], "plan": "views (4 NSView) to CmuxNextHome; engine drops Design, Icons, AgentPane"},
 
+    "CmuxNextHibernation": {"layer": "domain"},
     "CmuxNextSettings": {"layer": "domain", "plan": "drop Design: its 86 value types move to CmuxNextDesignTokens"},
     "CmuxNextBridge": {"layer": "domain", "plan": "maps daemon state to view models: the models it fills move out of Layout, Sidebar, Tabs into their domain packages"},
     "CmuxNextImportSuggestions": {"layer": "domain"},

@@ -242,6 +242,7 @@ let package = Package(
                 "CmuxNextHome",
                 "CmuxNextHomeEngine",
                 "CmuxNextHostPressure",
+                "CmuxNextHibernation",
                 "CmuxNextChiefPetWiring",
                 "CmuxNextHostedChief",
                 "CmuxNextDaemonService",
@@ -1465,6 +1466,14 @@ let package = Package(
             ],
             swiftSettings: uiSwiftSettings
         ),
+        // Browser tab hibernation policy (Memory Saver): which hidden pages freeze or are
+        // discarded and when, from facts the App's BrowserHibernation coordinator feeds it
+        // (plans/cmux-next/tab-lifecycle.md). Pure values; no engine, no I/O.
+        .target(
+            name: "CmuxNextHibernation",
+            dependencies: ["CmuxNextBridge", "CmuxNextSettings"],
+            swiftSettings: uiSwiftSettings
+        ),
         .target(
             name: "CmuxNextBrowser",
             dependencies: ["CmuxNextCompat", "CmuxNextWakeups", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextRemoteFetch", "CmuxNextRemoteLayer"],
@@ -1590,6 +1599,7 @@ let package = Package(
                 "CmuxNextFocus",
                 "CmuxNextFocusUI",
                 "CmuxNextHangReports",
+                "CmuxNextHibernation",
                 "CmuxNextHistory",
                 "CmuxNextHome",
                 "CmuxNextHomeEngine",

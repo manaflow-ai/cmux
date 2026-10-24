@@ -4,6 +4,7 @@ import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDesign
+import CmuxNextHibernation
 import CmuxNextSettings
 import CmuxNextWakeups
 import Observation
@@ -34,9 +35,11 @@ import os
 /// Which page goes first is a ranking (`HibernationPlanner.idleness`): how long it has been
 /// hidden, how often the person showed it in the last hour, and under memory pressure how much
 /// memory it holds. A few pages go per pass (`HibernationPlanner.Pace`), never all at once.
-/// A page never hibernates while it shows, plays, captures, has DevTools open, an agent holds
-/// its lease or called it lately, a download it started runs, or it holds the person's form
-/// input; pinned tabs and Never Hibernate hosts stay unless the setting says otherwise.
+/// A page never hibernates while it shows, plays (an element or Web Audio), captures, has DevTools
+/// open, an agent holds its lease or called it lately, a download it started runs, it holds the
+/// person's form input, its `beforeunload` would ask, or it has a connected WebRTC peer; the
+/// page's own answers keep it at every memory pressure (`PageProbe`). Pinned tabs and Never
+/// Hibernate hosts stay unless the setting says otherwise.
 @MainActor
 final class BrowserHibernation {
     private(set) weak var cache: TabContentCache?
@@ -66,16 +69,9 @@ final class BrowserHibernation {
     private var freezeProbing: Set<String> = []
     /// When a page the probe kept awake (playing audio) is asked again.
     private var freezeKeptAt: [String: ContinuousClock.Instant] = [:]
-    /// Probes in a row each hidden page did not answer (`PageProbe.answered`).
-    private var unanswered: [String: Int] = [:]
-    /// Pages whose last answer reported capture or Web Audio, which only the page's recorder
-    /// knows on Chromium: they stay awake while later probes go unanswered.
-    private var answeredBusy: Set<String> = []
-    /// Probes in a row a page may leave unanswered before it counts as idle. One miss can be a
-    /// load or a pause of a few seconds; three in a row (the freeze probes are `freezeSeconds`
-    /// apart) mean a page busy the whole time, the one that costs the most to keep awake. A
-    /// freeze is undone on show.
-    static let unansweredLimit = 3
+    /// What each hidden page's probes said lately: the benefit of the doubt while it does not
+    /// answer (the freeze probes, `freezeSeconds` apart, count the misses).
+    private var probeHistory = PageProbeHistory()
     private let freezeDeadline = DemandTimer(owner: "BrowserFreeze")
     private var pressureSource: (any DispatchSourceMemoryPressure)?
     /// Pinned state of a tab (the daemon record); injected by the App.
@@ -240,7 +236,7 @@ final class BrowserHibernation {
         if frozen.contains(key) { coldShows += 1 }
         thaw(key)
         freezeKeptAt[key] = nil
-        unanswered[key] = nil
+        probeHistory.clearMisses(key)
         hoveredAt[key] = nil
         hiddenAt[key] = nil
         prepared[key] = nil
@@ -287,8 +283,7 @@ final class BrowserHibernation {
         frozen.remove(key)
         freezeProbing.remove(key)
         freezeKeptAt[key] = nil
-        unanswered[key] = nil
-        answeredBusy.remove(key)
+        probeHistory.forget(key)
         hoveredAt[key] = nil
         awakeNeighbors.remove(key)
         focusedAt[key] = nil
@@ -451,23 +446,23 @@ final class BrowserHibernation {
         }
     }
 
-    /// Asks the page for playing media, Web Audio and capture, then freezes it
-    /// if it is still the same hidden page. A page that plays, or that did not
-    /// answer fewer than `unansweredLimit` times in a row, stays awake and is
-    /// asked again after `freezeSeconds`.
+    /// Asks the page for playing media, Web Audio, capture and WebRTC, then freezes it
+    /// if it is still the same hidden page. A page that plays, or that still gets the
+    /// benefit of the doubt (`PageProbeHistory`), stays awake and is asked again after
+    /// `freezeSeconds`.
     private func freeze(_ key: String) {
         guard let cache, let tab = cache.browsers[key]?.tab, let page = freezer(tab),
               let generation = cache.lifecycle.record(key)?.generation, freezeProbing.insert(key).inserted else { return }
         Task { @MainActor [weak self] in
-            let probe = await PageProbe.run(tab)
+            let probe = await Self.probe(tab, discarding: false)
             guard let self, let cache = self.cache else { return }
             self.freezeProbing.remove(key)
             guard cache.browsers[key]?.tab === tab, cache.lifecycle.record(key)?.generation == generation,
                   cache.lifecycle.phase(key) == .mountedHidden, self.hiddenAt[key] != nil else { return }
             // An agent called it, or it became a neighbor (or was hovered) while the probe ran.
             guard self.mayFreeze(key) else { return }
-            let doubted = self.doubts(key, probe)
-            if probe.capturing || probe.playingMedia || probe.webAudio || doubted {
+            let doubted = self.probeHistory.record(probe, for: key, step: .freeze)
+            if probe.stopsWhenFrozen || doubted {
                 self.freezeKeptAt[key] = .now
                 self.replan()
                 return
@@ -489,25 +484,6 @@ final class BrowserHibernation {
         page.setFrozen(true)
         frozen.insert(key)
         cache?.trace(key, "frozen")
-    }
-
-    /// Counts a probe `key` did not answer, and clears the count on an answer. True while the
-    /// page still gets the benefit of the doubt: fewer than `unansweredLimit` in a row, or its
-    /// last answer reported capture or Web Audio. A probe that ends after a show counts nothing.
-    private func doubts(_ key: String, _ probe: PageProbe) -> Bool {
-        guard !probe.answered else {
-            unanswered[key] = nil
-            if probe.capturing || probe.webAudio { answeredBusy.insert(key) } else { answeredBusy.remove(key) }
-            return false
-        }
-        guard hiddenAt[key] != nil, !answeredBusy.contains(key) else { return true }
-        unanswered[key, default: 0] += 1
-        return doubted(key)
-    }
-
-    /// The page still gets the benefit of the doubt, without counting a probe.
-    private func doubted(_ key: String) -> Bool {
-        answeredBusy.contains(key) || unanswered[key, default: 0] < Self.unansweredLimit
     }
 
     /// Thaws a frozen page (shown, driven by an agent, about to hibernate, or
@@ -561,13 +537,18 @@ final class BrowserHibernation {
         // The probe and the history capture run script: a frozen page runs none.
         thaw(key)
         Task { @MainActor [weak self] in
-            let probe = user ? PageProbe() : await PageProbe.run(tab)
-            let pressure = self?.pressure ?? .normal
-            // A page that keeps not answering hibernates only under memory pressure: its form edits are
-            // unknown. The freeze probe counts the misses (it runs beside this one and refreezes the page).
-            let doubted = probe.answered ? self?.doubts(key, probe) ?? false : self?.doubted(key) ?? true
-            let exemption = probe.exemption(pressure: pressure) ?? (source.showsFormSubmission ? .formSubmission : nil)
-                ?? (!probe.answered && (doubted || pressure == .normal) ? .unanswered : nil)
+            // The person's Hibernate Tab asks the page nothing (only a form result keeps it).
+            let exemption: HibernationPlanner.Exemption?
+            if user {
+                exemption = source.showsFormSubmission ? .formSubmission : nil
+            } else {
+                let probe = await Self.probe(tab, discarding: true)
+                // The freeze probe counts the misses (it runs beside this one and refreezes the
+                // page); this one records an answer only.
+                let doubted = probe.answered ? self?.probeHistory.record(probe, for: key) ?? false : self?.probeHistory.doubted(key) ?? true
+                exemption = probe.keepReason(pressure: self?.pressure ?? .normal, doubted: doubted,
+                                             showsFormSubmission: source.showsFormSubmission)
+            }
             // A page that stays needs no picture (each replan probes it again).
             let snapshot = exemption == nil ? await self?.snapshot(tab, key: key) : nil
             guard let self, let cache = self.cache else { return }
@@ -633,32 +614,16 @@ final class BrowserHibernation {
         hibernatedCount += 1
         logger.info("hibernated \(key, privacy: .public) \(token.description, privacy: .public)")
     }
-}
 
-/// What the page says right before it hibernates.
-struct PageProbe {
-    var playingMedia = false
-    var editedForm = false
-    /// Camera, microphone or screen capture the page started (`BrowserPageBusy`).
-    var capturing = false
-    /// A running Web Audio context. It may be silent (a chat app's notification sounds, a
-    /// game), unlike a playing element, so critical memory pressure overrides it.
-    var webAudio = false
-    /// False when the page did not answer (a script error, or no reply within the deadline):
-    /// only what the tab reported on its own (`BrowserTabState.media`) is known.
-    var answered = true
+    // MARK: Probe
 
-    func exemption(pressure: MemoryPressureLevel) -> HibernationPlanner.Exemption? {
-        if capturing { return .capturing }
-        if playingMedia { return .audio }
-        if editedForm { return .formInput }
-        return webAudio && pressure != .critical ? .webAudio : nil
-    }
-
-    static func run(_ tab: any BrowserTab) async -> PageProbe {
+    /// Asks hidden page `tab` what it does (`PageProbe`). `discarding` (the probe right before a
+    /// hibernation) also runs the top document's beforeunload handlers to learn whether it would
+    /// ask; a freeze loses nothing, so its probe does not.
+    static func probe(_ tab: any BrowserTab, discarding: Bool) async -> PageProbe {
         do {
             let (value, busy) = try await ControlDeadline.shared.run(method: "hibernation.probe", deadline: .now + .seconds(2)) { @MainActor in
-                (try await tab.evaluate(BrowserPageBusy.fieldProbeScript, world: .isolated), try await tab.pageBusy())
+                (try await tab.evaluate(BrowserPageBusy.fieldProbeScript, world: .isolated), try await tab.pageBusy(asksBeforeUnload: discarding))
             }
             guard case .string(let json) = value, let data = json.data(using: .utf8),
                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Bool] else { return unanswered(tab) }
@@ -668,7 +633,7 @@ struct PageProbe {
             let floating = tab.state.media?.isPictureInPicture == true
             // The recorder knows the person's edits (`BrowserPageBusy`); a page loaded before it compares every field.
             return PageProbe(playingMedia: muted || floating || (object["media"] ?? true), editedForm: busy.editedForm ?? object["form"] ?? true,
-                             capturing: busy.capturing, webAudio: busy.audio)
+                             capturing: busy.capturing, webAudio: busy.audio, beforeUnload: busy.beforeUnload, webRTC: busy.webRTC)
         } catch {
             return unanswered(tab)
         }

@@ -1,26 +1,28 @@
-import CmuxNextBridge
+package import CmuxNextBridge
 import CmuxNextSettings
 
 /// Which tabs stay awake beside each pane's shown tab
 /// (`browser.keepNeighborTabsAwake`, plans/cmux-next/neighbor-tabs-DESIGN.md).
 /// Pure: `BrowserHibernation` feeds it each pane's tab order and selection.
-struct NeighborTabs {
+package struct NeighborTabs {
     /// Each pane's tabs in strip order and its shown tab; keyed by the pane's presenter.
-    private(set) var panes: [ObjectIdentifier: (order: [String], selected: String?)] = [:]
+    private var panes: [ObjectIdentifier: (order: [String], selected: String?)] = [:]
+
+    package init() {}
 
     /// Records a pane's order and shown tab (nil: the pane shows nothing, or is parked).
-    mutating func set(_ pane: ObjectIdentifier, order: [String], selected: String?) {
+    package mutating func set(_ pane: ObjectIdentifier, order: [String], selected: String?) {
         panes[pane] = (order, selected)
     }
 
-    mutating func remove(_ pane: ObjectIdentifier) {
+    package mutating func remove(_ pane: ObjectIdentifier) {
         panes[pane] = nil
     }
 
     /// The tabs `radius` steps before and after each pane's shown tab,
     /// wrapping as Ctrl-Tab and Cmd-Shift-[ ] do (so the last tab's next
     /// neighbor is the first), without the shown tabs themselves.
-    func awake(radius: Int) -> Set<String> {
+    package func awake(radius: Int) -> Set<String> {
         guard radius > 0 else { return [] }
         var keys: Set<String> = []
         var shown: Set<String> = []
@@ -33,7 +35,7 @@ struct NeighborTabs {
     }
 
     /// The keys within `radius` of `index`, wrapping; fewer when the pane has few tabs.
-    static func around(_ index: Int, in order: [String], radius: Int) -> [String] {
+    package static func around(_ index: Int, in order: [String], radius: Int) -> [String] {
         let count = order.count
         guard count > 1, radius > 0 else { return [] }
         var keys: [String] = []
@@ -47,7 +49,7 @@ struct NeighborTabs {
     }
 
     /// The radius in effect: the setting, or 0 under memory pressure or in Low Power Mode.
-    static func radius(setting: Int, pressure: MemoryPressureLevel, lowPower: Bool) -> Int {
+    package static func radius(setting: Int, pressure: MemoryPressureLevel, lowPower: Bool) -> Int {
         guard pressure == .normal, !lowPower else { return 0 }
         return max(0, min(setting, BrowserHibernationSetting.neighborRadiusRange.upperBound))
     }

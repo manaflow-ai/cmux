@@ -22,6 +22,15 @@ import Foundation
 ///   was used (Chromium attaches late) has no such moment and compares with the defaults only;
 /// - a rich editor (`contenteditable`) the person typed in whose text differs from what it held
 ///   when they started, while it is in the document (a composer cleared by a send does not count).
+/// `beforeunload` (`unload`): the probe of the top document dispatches a `BeforeUnloadEvent` to it, as
+/// a close would, and the tab asks when a handler cancels it (`preventDefault()`, a `returnValue`, or
+/// an `onbeforeunload` that returns a message). Chromium and WebKit ask only after the person used
+/// the document, so a document nobody used never asks. A child frame cannot be asked from the top
+/// (it may be cross-origin), so it reports whether it has a handler and the person used it; that
+/// counts as asking. A frame's handlers run only at the probe, never on its own reports.
+///
+/// WebRTC (`rtc`): the recorder wraps the `RTCPeerConnection` constructors and reports a connected one.
+///
 /// A document nobody used whose script fills fields (a docs site's version menu, a wiki's appearance
 /// radios, a `<select>` with no default option) hibernates; those used to stay loaded forever (the
 /// 2026-10-14 hibernation audit: 7 of 20 sites, about 85 MB of renderer each).
@@ -33,11 +42,18 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
     /// The person's form edits in the tab's frames (see above); nil when the page's recorder did not
     /// answer (the probe then compares every field with its default, as before the recorder).
     public var editedForm: Bool?
+    /// The tab would ask before it unloads ("Leave site?"): the top document's `beforeunload`
+    /// cancels, or a child frame the person used has a `beforeunload` handler (see above).
+    public var beforeUnload: Bool
+    /// A connected `RTCPeerConnection` in the tab's frames.
+    public var webRTC: Bool
 
-    public init(audio: Bool = false, capturing: Bool = false, editedForm: Bool? = nil) {
+    public init(audio: Bool = false, capturing: Bool = false, editedForm: Bool? = nil, beforeUnload: Bool = false, webRTC: Bool = false) {
         self.audio = audio
         self.capturing = capturing
         self.editedForm = editedForm
+        self.beforeUnload = beforeUnload
+        self.webRTC = webRTC
     }
 
     /// Unmuted media playing or a video in Picture in Picture (it plays on in
@@ -66,6 +82,8 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
       if (window[key]) return;
       // Contexts weakly: a page that makes one per sound and never closes them keeps none alive.
       const contexts = new Set(), streams = new Set(), children = new Map(), fields = new Set(), seen = new WeakSet();
+      // Peer connections weakly; this window's beforeunload listeners, each with its capture flags.
+      const peers = new Set(), unloadListeners = new Map();
       // Editing hosts weakly, with the text each held when the person started typing in it.
       const editors = new Set(), started = new WeakMap();
       const live = (stream) => stream.getTracks().some((t) => t.readyState === 'live');
@@ -82,8 +100,21 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
         if (e.type === 'checkbox' || e.type === 'radio') return e.checked !== e.defaultChecked;
         return e.value !== e.defaultValue;
       };
-      const busy = () => {
-        const state = { audio: false, capturing: Array.from(streams).some(live), form: false };
+      const activated = () => used || navigator.userActivation?.hasBeenActive === true;
+      // Whether this document would ask before it unloads: its beforeunload handlers run, as for a close.
+      const asks = () => {
+        if (!activated()) return false;
+        let event;
+        try { event = document.createEvent('BeforeUnloadEvent'); } catch (_) { return false; }
+        event.initEvent('beforeunload', false, true);
+        dispatchEvent(event);
+        return event.defaultPrevented || !!event.returnValue;
+      };
+      const hasUnloadHandler = () => activated() && (unloadListeners.size > 0 || typeof window.onbeforeunload === 'function');
+      // `asking`: a discard probe of the top document, which alone runs the handlers.
+      const busy = (asking) => {
+        const state = { audio: false, capturing: Array.from(streams).some(live), form: false,
+                        unload: asking ? asks() : hasUnloadHandler(), rtc: false };
         for (const ref of fields) {
           const field = ref.deref();
           if (!field) { fields.delete(ref); continue; }
@@ -102,11 +133,18 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
           if (!context || context.state === 'closed') { contexts.delete(ref); continue; }
           state.audio = state.audio || context.state === 'running';
         }
+        for (const ref of peers) {
+          const peer = ref.deref();
+          if (!peer || peer.connectionState === 'closed') { peers.delete(ref); continue; }
+          state.rtc = state.rtc || peer.connectionState === 'connected';
+        }
         for (const [frame, child] of children) {
           if (frame.closed) { children.delete(frame); continue; }
           state.audio = state.audio || child.audio;
           state.capturing = state.capturing || child.capturing;
           state.form = state.form || child.form;
+          state.unload = state.unload || child.unload;
+          state.rtc = state.rtc || child.rtc;
         }
         return state;
       };
@@ -117,7 +155,7 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
       };
       const tell = () => {
         if (window === parent) return;
-        const state = busy();
+        const state = busy(false);
         if (JSON.stringify(state) !== told) post(state);
       };
       // Wrappers as proxies keep the originals' name, length and native toString.
@@ -135,6 +173,42 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
             return context;
           },
         });
+      }
+      for (const name of ['RTCPeerConnection', 'webkitRTCPeerConnection']) {
+        wrap(window, name, {
+          construct(target, args, newTarget) {
+            const peer = Reflect.construct(target, args, newTarget);
+            peers.add(new WeakRef(peer));
+            peer.addEventListener('connectionstatechange', tell);
+            return peer;
+          },
+        });
+      }
+      // This window's own beforeunload listeners (a child frame reports whether it has one).
+      for (const [name, add] of [['addEventListener', true], ['removeEventListener', false]]) {
+        wrap(window, name, {
+          apply(target, self, args) {
+            const result = Reflect.apply(target, self, args);
+            const listener = args[1];
+            if ((self ?? window) === window && args[0] === 'beforeunload' && listener) {
+              const capture = typeof args[2] === 'boolean' ? args[2] : !!args[2]?.capture;
+              const captures = unloadListeners.get(listener) ?? new Set();
+              if (add) captures.add(capture); else captures.delete(capture);
+              if (captures.size) unloadListeners.set(listener, captures); else unloadListeners.delete(listener);
+              tell();
+            }
+            return result;
+          },
+        });
+      }
+      // A handler set through the property after the person's first use is reported too.
+      for (let owner = window; owner; owner = Object.getPrototypeOf(owner)) {
+        const property = Object.getOwnPropertyDescriptor(owner, 'onbeforeunload');
+        if (!property) continue;
+        if (property.set && property.configurable) {
+          Object.defineProperty(window, 'onbeforeunload', { ...property, set(value) { property.set.call(this, value); tell(); } });
+        }
+        break;
       }
       const devices = typeof MediaDevices === 'function' ? MediaDevices.prototype : null;
       for (const name of ['getDisplayMedia', 'getUserMedia']) {
@@ -191,33 +265,41 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
         for (let i = 0; i < frames.length; i++) { if (frames[i] === from) { child = true; break; } }
         if (!child) return;
         const report = data.cmuxPageBusy;
-        children.set(from, { audio: report.audio === true, capturing: report.capturing === true, form: report.form === true });
+        children.set(from, { audio: report.audio === true, capturing: report.capturing === true, form: report.form === true,
+                             unload: report.unload === true, rtc: report.rtc === true });
         tell();
       });
       // A frame that navigates keeps its window: its new document reports at once, and the
       // old one clears its report when it goes.
       if (window !== parent) {
-        post(busy());
-        addEventListener('pagehide', () => post({ audio: false, capturing: false, form: false }));
+        post(busy(false));
+        addEventListener('pagehide', () => post({ audio: false, capturing: false, form: false, unload: false, rtc: false }));
       }
-      Object.defineProperty(window, key, { value: busy });
+      Object.defineProperty(window, key, { value: (asking) => busy(asking === true) });
     })();
     """#
 
-    /// The probe's question, in the page's world: `{"audio": Bool, "capturing": Bool, "form": Bool}` as JSON,
-    /// `{}` when the recorder is missing (a page loaded before it was installed).
-    static let probeScript = "(() => { const f = window[Symbol.for('cmux.pageBusy')]; return JSON.stringify(f ? f() : {}); })()"
+    /// The probe's question, in the page's world: `{"audio", "capturing", "form", "unload", "rtc"}` (Bools) as JSON,
+    /// `{}` when the recorder is missing (a page loaded before it was installed). `asking` runs the
+    /// top document's beforeunload handlers (a discard probe); without it `unload` says only whether
+    /// the person used a document that has a handler.
+    static func probeScript(asking: Bool) -> String {
+        "(() => { const f = window[Symbol.for('cmux.pageBusy')]; return JSON.stringify(f ? f(\(asking)) : {}); })()"
+    }
 }
 
 extension BrowserTab {
     /// Asks the page's recorder (`BrowserPageBusy`). Throws when the page does not answer.
-    public func pageBusy() async throws -> BrowserPageBusy {
-        let value = try await evaluate(BrowserPageBusy.probeScript, world: .page)
+    /// - Parameter asksBeforeUnload: Runs the top document's beforeunload handlers to learn whether
+    ///   it would ask (the probe right before a discard); false for a freeze, which loses nothing.
+    public func pageBusy(asksBeforeUnload: Bool) async throws -> BrowserPageBusy {
+        let value = try await evaluate(BrowserPageBusy.probeScript(asking: asksBeforeUnload), world: .page)
         guard case .string(let json) = value, let data = json.data(using: .utf8),
               let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw CocoaError(.coderReadCorrupt)
         }
         return BrowserPageBusy(audio: object["audio"] as? Bool ?? false, capturing: object["capturing"] as? Bool ?? false,
-                               editedForm: object["form"] as? Bool)
+                               editedForm: object["form"] as? Bool, beforeUnload: object["unload"] as? Bool ?? false,
+                               webRTC: object["rtc"] as? Bool ?? false)
     }
 }

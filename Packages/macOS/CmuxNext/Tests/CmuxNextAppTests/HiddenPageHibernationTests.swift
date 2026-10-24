@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextHibernation
 @testable import CmuxNextBridge
 @testable import CmuxNextBrowser
 import CmuxNextSettings
