@@ -86,7 +86,7 @@ function operationName(tool: Tool): DispatchKind | undefined {
   if (isRecord(input) && typeof input.server === "string" && typeof input.tool === "string" && "arguments" in input) {
     const server = input.server.toLowerCase();
     if (!["acpmux", "cmux", "codex_apps", "agent_dispatch"].includes(server)) return undefined;
-    const codexTool = input.tool.toLowerCase();
+    const codexTool = input.tool.toLowerCase().replace(/^agent_/, "");
     if (["dispatch", "steer", "report", "briefs", "briefs_ls", "briefs_list"].includes(codexTool)) {
       return codexTool === "dispatch"
         ? "dispatch"
