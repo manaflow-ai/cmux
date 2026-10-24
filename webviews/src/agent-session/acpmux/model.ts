@@ -488,6 +488,28 @@ export type AcpmuxContextBreakdown = {
   maxTokens: number;
 };
 
+/// Optional Labs workflow payload. acpmux does not emit this field yet; keeping the wire shape
+/// here gives the future event a typed adapter seam without deriving workflow state from rows.
+export type AcpmuxWorkflowWire = {
+  id: string;
+  title: string;
+  state: "pending" | "running" | "paused" | "completed" | "failed";
+  phase?: string;
+  phases?: { id: string; name: string; state: "pending" | "running" | "completed" | "failed"; agentIds?: string[] }[];
+  agents?: {
+    id: string;
+    name: string;
+    state: "pending" | "running" | "waiting" | "completed" | "failed";
+    doing?: string;
+    tokens?: number;
+    transcriptRowId?: string;
+  }[];
+  elapsedMs?: number;
+  tokens?: number;
+  large?: boolean;
+  selectedAgentId?: string;
+};
+
 /** Why a tab's chat is missing: the daemon's list lacked it when the pane opened
  * (`notListedAtOpen`), or it left the list while the pane showed it (`leftListWhileShown`). */
 export type MissingSessionReason = "notListedAtOpen" | "leftListWhileShown";
@@ -500,6 +522,8 @@ export type AcpmuxSnapshot = {
   /// (subagents/childRows.ts).
   subagentViews?: Record<string, AcpmuxRow[]>;
   sessions: AcpmuxSessionEntry[];
+  /// Present only when an acpmux workflow event is available; the Labs surface stays hidden otherwise.
+  workflow?: AcpmuxWorkflowWire;
   /** Connected peer names advertised by the acpmux daemon, including peers without chats yet. */
   peers?: string[];
   /// Each peer's transport by name: `ssh` for an `ssh://` peer, `cloud` for any other (environments.ts).

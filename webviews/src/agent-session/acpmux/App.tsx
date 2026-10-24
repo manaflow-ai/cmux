@@ -177,6 +177,7 @@ import {
 import { AgentTonesContext, agentTones } from "./subagents/agentTones";
 import { useSummaryCard, useSummaryColumn } from "./summary/cardState";
 import { chatHasSummaryContent } from "./summary/summaryContent";
+import { workflowFromWire } from "./summary/workflow";
 import {
   openSubagentPane,
   revealedSubagent,
@@ -482,6 +483,8 @@ declare global {
       /// Preview features on or off (Settings > Advanced > Labs, `labs.previewFeatures`, off by
       /// default): the session coverage label.
       applyPreview?(on: boolean): void;
+      /// Experimental workflow summary/detail (Labs), separate from environment preview and off by default.
+      applyWorkflowLabs?(on: boolean): void;
       /// The native Debug Settings baseline for the sidebar latest-reply preview.
       applySidebarPreviewVariant?(variant: unknown): void;
       /// Claude Code desktop's in-session status (the live plan card, the recap card) on or off: the
@@ -3913,6 +3916,9 @@ function AcpmuxPane() {
   // Debug measurement (acpmuxPerf): the pane's own render, before its children.
   const paneRenderStart = acpmuxPerf.enabled ? performance.now() : 0;
   const t = useT();
+  /// Labs preview features are off until the host explicitly enables them.
+  const [preview, setPreview] = useState(false);
+  const [workflowLabsEnabled, setWorkflowLabsEnabled] = useState(false);
   /// What a chat opened from another tab inherited (#16620); the composer starts with it.
   const [draft, setDraft] = useState<string | undefined>();
   const [newSession, setNewSession] = useState(false);
@@ -4659,9 +4665,13 @@ function AcpmuxPane() {
     () => ({ rows: subsessionRows(snapshot.sessions, shownSessionId), onOpen: openOfferChat }),
     [snapshot.sessions, shownSessionId],
   );
+  const workflow = useMemo(
+    () => (workflowLabsEnabled ? workflowFromWire(snapshot.workflow) : undefined),
+    [workflowLabsEnabled, snapshot.workflow],
+  );
   const summaryHasContent = useMemo(
-    () => chatHasSummaryContent(snapshot.rows) || chatSubsessions.rows.length > 0,
-    [snapshot.rows, chatSubsessions],
+    () => chatHasSummaryContent(snapshot.rows) || chatSubsessions.rows.length > 0 || workflow !== undefined,
+    [snapshot.rows, chatSubsessions, workflow],
   );
   const [shell, setShell] = useState<HTMLElement | null>(null);
   /// The chat's bottom stack (bottomStack.css): the transcript runs under it and keeps its end above it.
@@ -5282,7 +5292,6 @@ function AcpmuxPane() {
   // one palette). The host pushes the live bindings through applyShortcuts, so labels follow a rebind.
   const showAllChats = () => void callNative("action.run", { id: "agentPane.searchChats" }).catch(() => undefined);
   const [shortcuts, setShortcuts] = useState<ShortcutLabels>({});
-  const [preview, setPreview] = useState(false);
   // SSH… opens Connect to Machine; New Cloud Machine opens the host's create flow (Lawrence 2026-10-06).
   const connectMachine = (kind: ConnectKind) =>
     void callNative("action.run", { id: CONNECT_ACTIONS[kind] }).catch(() => undefined);
@@ -5594,6 +5603,24 @@ function AcpmuxPane() {
     [openFold],
   );
   showCallRef.current = showToolRow;
+  // Workflow transcript links use the adapter's stable row id. Reveal the row with the same
+  // bounded hold as the running-line links; if its turn is folded, open that fold first.
+  const openWorkflowTranscript = useCallback(
+    (rowId: string) => {
+      const { sourceRows: rows, transcriptRows: shown } = counted.current;
+      const index = rows.findIndex((row) => row.id === rowId);
+      const row = rows[index];
+      if (!row) return;
+      if (!shown.some((drawn) => isFindRow(drawn, row.id))) {
+        const fold = turnFoldFor(rows, index);
+        if (fold) openFold(fold);
+      }
+      const key = Date.now();
+      setRevealRow({ rowId: row.id, key, toolId: "" });
+      setTimeout(() => setRevealRow((current) => (current?.key === key ? undefined : current)), REVEAL_HOLD_MS);
+    },
+    [openFold],
+  );
   const workingCounts = useMemo<WorkingCounts>(() => {
     return {
       agents: runningAgents.length,
@@ -6050,6 +6077,13 @@ function AcpmuxPane() {
       applyPreview(on) {
         setPreview(on === true);
         setPromptSurfaces(on === true);
+        // The host's existing Advanced > Labs event is the only producer today. Keep workflow
+        // visibility as its own state so the summary never changes environment rendering rules;
+        // a future workflowLabs event can target applyWorkflowLabs directly.
+        setWorkflowLabsEnabled(on === true);
+      },
+      applyWorkflowLabs(on) {
+        setWorkflowLabsEnabled(on === true);
       },
       applySidebarPreviewVariant(variant) {
         configureNativeSidebarPreviewVariant(variant);
@@ -8521,6 +8555,8 @@ function AcpmuxPane() {
               localCwd && !quick && !readOnlySubagent ? () => void attachLinks().catch(() => undefined) : undefined
             }
             tools={chatTools}
+            workflow={workflow}
+            workflowActions={workflow ? { onOpenTranscript: openWorkflowTranscript } : undefined}
           />
         </SubagentHarnessContext.Provider>
       </SubagentClockContext.Provider>
