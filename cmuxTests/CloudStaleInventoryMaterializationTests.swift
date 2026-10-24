@@ -58,4 +58,73 @@ struct CloudStaleInventoryMaterializationTests {
         }
     }
 
+    @Test("a restored attachment stops retrying after showing Reconnect")
+    func restoredAttachmentStopsAfterRecoverableFailures() async throws {
+        _ = try #require(AppDelegate.shared)
+        let clock = SidebarTestManualClock()
+        let manager = TabManager(autoWelcomeIfNeeded: false, createInitialWorkspace: false)
+        let workspace = Workspace()
+        manager.tabs = [workspace]
+        manager.selectedTabId = workspace.id
+        defer { workspace.teardownAllPanels(); manager.tabs = [] }
+        try await LiveWorkspaceFixture.withAppRegistration(of: manager) {
+            let panelID = try #require(workspace.focusedPanelId)
+            let catalog = SurfaceCatalog()
+            let summary = VMSummary(id: "retry-stop-\(UUID())", provider: "freestyle", status: "running", image: "fixture", createdAt: 0, base: nil)
+            let provider = CmuxTuiSurfaceProvider(
+                summary: .cloud(summary),
+                links: ImmediateUnavailableLinks(),
+                catalog: catalog,
+                attachmentClock: clock
+            )
+            catalog.register(provider)
+            defer { provider.suspendForFeatureFlag(); catalog.unregister(machine: provider.machine) }
+            let resource = SurfaceResource(
+                id: .init(machine: provider.machine, kind: .terminal, key: "term_fixture"),
+                title: "Terminal", lifecycle: .running
+            )
+            let state = CloudVMState(
+                machine: provider.machine, cursor: nil, rawSnapshot: Data("{}".utf8),
+                workspaces: [], screens: [], panes: [], tabs: [], terminals: [], browsers: [], agents: []
+            )
+            catalog.replaceCloudState(state, resources: [resource], info: provider.info, observation: .current)
+            let reservation = CloudTerminalPaneReservation(
+                workspaceID: workspace.id, panelID: panelID, machine: provider.machine
+            )
+            workspace.cloudPendingCreations[panelID] = reservation
+            defer { reservation.cancel?(); workspace.cloudPendingCreations[panelID] = nil }
+
+            provider.attachReservedTerminalPane(reservation, resource: resource, remoteTabID: nil)
+            for delay in CloudTerminalAttachmentRetryPolicy.background.delays.prefix(3) {
+                await clock.waitUntilSleeping(for: delay)
+                clock.advance(by: delay)
+            }
+            let deadline = ContinuousClock.now + .seconds(2)
+            while workspace.cloudMaterializationFailures[panelID] == nil,
+                  ContinuousClock.now < deadline {
+                try? await Task.sleep(for: .milliseconds(10))
+            }
+
+            #expect(workspace.cloudMaterializationFailures[panelID] != nil)
+            #expect(provider.restoredAttachTasks[panelID] == nil)
+            #expect(!provider.materializedPanels.contains(panelID))
+        }
+    }
+
+}
+
+private actor ImmediateUnavailableLinks: RemoteTuiLinkManaging {
+    nonisolated let operations: CloudOperationRecorder? = nil
+
+    func connected(machineID: String) async throws -> CloudMachineLink.Connected {
+        throw URLError(.cannotConnectToHost)
+    }
+
+    func link(machineID: String) async -> CloudMachineLink? { nil }
+    func status(machineID: String) async -> CloudMachineLinkManager.LinkStatus? { nil }
+    func privateAddresses(for machineID: String) async -> [String] { [] }
+    func setPrivateAddresses(_ addresses: [String], for machineID: String) async {}
+    func browserProxy(machineID: String, remoteNetwork: Bool) async throws -> CloudBrowserProxyEndpoint {
+        throw URLError(.cannotConnectToHost)
+    }
 }
