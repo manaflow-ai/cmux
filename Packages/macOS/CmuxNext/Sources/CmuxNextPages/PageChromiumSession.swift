@@ -9,12 +9,11 @@ final class PageChromiumSession {
     let bridge: ChromiumPageHostBridge
     /// Cancelled when the page reaches the host or the session ends.
     let deadline: DemandTimer
-    /// The host that made the page; its ``PageChromiumHosting/freezePolicy`` is read at each report,
-    /// so a page that started before the app's hibernation did still freezes.
-    private let hosting: any PageChromiumHosting
-    /// Freezes the page while it stays hidden; nil never freezes.
-    var freezePolicy: (any PageFreezePolicy)? { hosting.freezePolicy }
-    /// The last ``setShown(_:)`` (Chromium draws the page); nil before the first.
+    /// Freezes the page while it stays hidden: the policy of the host that made the page
+    /// (``PageChromiumHosting/freezePolicy``).
+    let freezePolicy: any PageFreezePolicy
+    /// Whether Chromium draws the page now, as this session last set it (``setShown(_:)``, and the
+    /// hide of a ``freeze()``); nil before the first.
     private(set) var shown: Bool?
     /// The last ``setSeen(_:)`` (shown, in a window on screen); nil before the first.
     private(set) var seen: Bool?
@@ -33,7 +32,7 @@ final class PageChromiumSession {
          hosting: any PageChromiumHosting) {
         self.page = page
         self.bridge = bridge
-        self.hosting = hosting
+        freezePolicy = hosting.freezePolicy
         deadline = DemandTimer(owner: "page.chromium.deadline", clock: clock)
     }
 
@@ -41,9 +40,11 @@ final class PageChromiumSession {
     /// minimized or ordered out.
     var isHidden: Bool { seen == false }
 
-    /// Shows or hides the page (Chromium stops drawing a hidden page). Only a change is sent.
+    /// Shows or hides the page (Chromium stops drawing a hidden page). Only a change is sent, and
+    /// nothing while the page is frozen: a frozen page stays hidden, and ``thaw(shown:)`` sets the
+    /// visibility the view needs then.
     func setShown(_ shown: Bool) {
-        guard shown != self.shown else { return }
+        guard !frozen, shown != self.shown else { return }
         self.shown = shown
         page.setVisible(shown)
     }
@@ -57,19 +58,27 @@ final class PageChromiumSession {
         return true
     }
 
-    /// Freezes the page (``PageChromiumPage/setFrozen(_:)``); the caller checked that it may.
+    /// Hides and freezes the page (``PageChromiumPage/setFrozen(_:)``); the caller checked that it
+    /// may. Chromium hides a page it freezes (its lifecycle handler hides the WebContents first) and
+    /// shows it again only on a show, never on the thaw: so the session hides it itself, and
+    /// ``shown`` stays what Chromium does. A page frozen while it still draws (its window covered,
+    /// minimized or ordered out) then gets its show at the thaw.
     func freeze() {
+        setShown(false)
         frozen = true
         page.setFrozen(true)
     }
 
-    /// Thaws a frozen page; nothing for a live one.
+    /// Thaws a frozen page, then shows it again when the view shows (`shown`); nothing for a live
+    /// page.
     ///
+    /// - Parameter shown: Whether the view shows now (``PageWebView/isShownForChromium``).
     /// - Returns: True when the page was frozen.
-    func thaw() -> Bool {
+    func thaw(shown: Bool) -> Bool {
         guard frozen else { return false }
         frozen = false
         page.setFrozen(false)
+        setShown(shown)
         return true
     }
 

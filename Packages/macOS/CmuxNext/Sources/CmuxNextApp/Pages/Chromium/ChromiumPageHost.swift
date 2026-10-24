@@ -7,7 +7,8 @@ import Foundation
 
 /// The app's ``PageChromiumHosting``: cmux's own React pages in CEF tabs, so `browser.defaultEngine`
 /// decides their engine as it does for browser tabs. Made once at the composition root
-/// (`AppDelegate`) and handed to ``PageWebView/chromiumHosting``.
+/// (`AppServices.makeChromiumPageHost()`, called by `AppDelegate`) with the app's one cmux page
+/// freeze policy, and handed to ``PageWebView/chromiumHosting``.
 ///
 /// Every page shares one off-the-record profile: like the WebKit pages' non-persistent store, a
 /// page keeps nothing on disk, and no profile of the person's (their extensions, cookies) touches a
@@ -27,21 +28,24 @@ final class ChromiumPageHost: PageChromiumHosting {
     private var pageProfile: BrowserProfileID?
     /// One page's CEF tab per display frame, never in the frame of the action that showed it.
     private let startFrames: ChromiumPageFrameBudget
-    /// Freezes unseen pages after the hibernation's grace (``PageFreezing``); set by the
-    /// hibernation when it starts.
-    weak var freezePolicy: (any PageFreezePolicy)?
+    /// Freezes unseen pages after the hibernation's grace: the app's one ``PageFreezing``, which
+    /// the hibernation keeps on `browser.freezeHiddenTabs`.
+    let freezePolicy: any PageFreezePolicy
 
     /// - Parameters:
     ///   - cef: The app's Chromium engine.
     ///   - preference: Reads `browser.defaultEngine` now (the settings snapshot, so pages made while
     ///     windows restore already follow the file).
     ///   - keyRouter: Gets the app's shortcuts from a focused Chromium page.
+    ///   - freezePolicy: Freezes the pages while nobody sees them (the app's `cmuxPageFreezing`).
     ///   - startFrames: Spreads the pages' CEF tabs over display frames, one per frame.
     init(cef: CEFEngine, preference: @escaping @MainActor () -> BrowserDefaultEngine, keyRouter: KeyRouter?,
+         freezePolicy: any PageFreezePolicy,
          startFrames: ChromiumPageFrameBudget = ChromiumPageFrameBudget(scheduleFrame: FrameBatcher(owner: "ChromiumPageStart").scheduleFrame)) {
         self.cef = cef
         enginePreference = preference
         self.keyRouter = keyRouter
+        self.freezePolicy = freezePolicy
         self.startFrames = startFrames
     }
 

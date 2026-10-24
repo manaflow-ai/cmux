@@ -124,9 +124,9 @@ extension PageWebView {
         session.setShown(isShownForChromium)
         guard session.setSeen(seen) else { return }
         if seen {
-            session.freezePolicy?.pageIsNoLongerHidden(self)
+            session.freezePolicy.pageIsNoLongerHidden(self)
         } else {
-            session.freezePolicy?.hiddenPageWoke(self)
+            session.freezePolicy.hiddenPageWoke(self)
         }
     }
 
@@ -155,13 +155,14 @@ extension PageWebView {
     /// An unseen page did something: its grace starts again (nothing while it is frozen).
     private func noteHiddenActivity(_ session: PageChromiumSession) {
         guard session.isHidden, !session.frozen else { return }
-        session.freezePolicy?.hiddenPageWoke(self)
+        session.freezePolicy.hiddenPageWoke(self)
     }
 
-    /// Thaws a frozen page: Chromium first (so what follows runs), then the events its streams kept
-    /// (the newest of each), then the document's state if a script of it was skipped.
+    /// Thaws a frozen page: Chromium first (so what follows runs) and its visibility again (a freeze
+    /// hid it), then the events its streams kept (one per key), then the document's state if a
+    /// script of it was skipped.
     private func thaw(_ session: PageChromiumSession) {
-        guard session.thaw() else { return }
+        guard session.thaw(shown: isShownForChromium) else { return }
         router.thaw()
         if session.stateStale {
             session.stateStale = false

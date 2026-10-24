@@ -1,5 +1,7 @@
 import AppKit
+import CmuxNextActions
 @testable import CmuxNextApp
+import CmuxNextDesign
 @testable import CmuxNextPages
 import CmuxNextPagesTestSupport
 import CmuxNextSettings
@@ -70,11 +72,46 @@ struct CmuxPageFreezeTests {
         freezing.replan()
     }
 
+    /// The app's own wiring, in AppDelegate's order: the hibernation starts (with the settings) before
+    /// the Chromium page host is made. The host's pages report to the policy the hibernation drives,
+    /// so an unseen page freezes on `browser.freezeHiddenTabs`. Before, the hibernation attached its
+    /// policy to a host that did not exist yet (`chromiumHosting as? ChromiumPageHost` was nil), and
+    /// no cmux page ever froze.
+    @Test func theAppsPageHostFreezesAnUnseenPageOnTheHibernationsSetting() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        _ = NSApplication.shared
+        let url = root.appending(path: "cmux.json")
+        try Data("{}".utf8).write(to: url)
+        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+                                          managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
+        await settings.reload()
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        services.startHibernation(settings: settings)
+        let hibernation = try #require(services.cache.hibernation)
+        defer { hibernation.stop() }
+        let host = services.makeChromiumPageHost()
+        // The hibernation's setting, not the policy's own default: 5 s unseen.
+        var setting = BrowserHibernationSetting.fallback
+        setting.freezeSeconds = 5
+        hibernation.apply(setting)
+        let freezing = try #require(host.freezePolicy as? PageFreezing)
+        let time = time
+        freezing.now = { time.now }
+
+        let (view, page, pane) = try await bootedPage(FakeChromiumHosting(freezePolicy: host.freezePolicy))
+        pane.isHidden = true
+        pass(after: 4, freezing)
+        #expect(page.freezes.isEmpty)
+        pass(after: 2, freezing)
+        #expect(page.freezes == [true], "an unseen page of the app's page host never froze")
+        #expect(view.chromiumLifecycle == "frozen")
+        view.close()
+    }
+
     @Test func aHiddenPageFreezesAfterTheGraceAndThawsWhenItShows() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let freezing = policy()
-        let hosting = FakeChromiumHosting()
-        hosting.freezePolicy = freezing
+        let hosting = FakeChromiumHosting(freezePolicy: freezing)
         let (view, page, pane) = try await bootedPage(hosting)
         #expect(freezing.waitingCount == 0) // it shows
 
@@ -99,8 +136,7 @@ struct CmuxPageFreezeTests {
     @Test func workInAHiddenPageRestartsTheGrace() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let freezing = policy()
-        let hosting = FakeChromiumHosting()
-        hosting.freezePolicy = freezing
+        let hosting = FakeChromiumHosting(freezePolicy: freezing)
         let (view, page, pane) = try await bootedPage(hosting)
         pane.isHidden = true
 
@@ -126,8 +162,7 @@ struct CmuxPageFreezeTests {
         let freezing = policy()
         var busy = true
         freezing.exemption = { _ in busy ? "agent_busy" : nil }
-        let hosting = FakeChromiumHosting()
-        hosting.freezePolicy = freezing
+        let hosting = FakeChromiumHosting(freezePolicy: freezing)
         let (view, page, pane) = try await bootedPage(hosting)
         pane.isHidden = true
 
@@ -153,8 +188,7 @@ struct CmuxPageFreezeTests {
         var setting = BrowserHibernationSetting.fallback
         setting.freezeSeconds = nil
         freezing.update(setting: setting)
-        let hosting = FakeChromiumHosting()
-        hosting.freezePolicy = freezing
+        let hosting = FakeChromiumHosting(freezePolicy: freezing)
         let (view, page, pane) = try await bootedPage(hosting)
         pane.isHidden = true
         pass(after: 1_000, freezing)
@@ -168,8 +202,7 @@ struct CmuxPageFreezeTests {
     @Test func aPageThatStillBootsIsNotFrozenUntilItSaysItBooted() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let freezing = policy()
-        let hosting = FakeChromiumHosting()
-        hosting.freezePolicy = freezing
+        let hosting = FakeChromiumHosting(freezePolicy: freezing)
         let (view, page, pane) = try await bootedPage(hosting)
         view.chromiumSession?.booted = false
         pane.isHidden = true
@@ -188,8 +221,7 @@ struct CmuxPageFreezeTests {
     @Test func aClosedPageIsForgotten() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let freezing = policy()
-        let hosting = FakeChromiumHosting()
-        hosting.freezePolicy = freezing
+        let hosting = FakeChromiumHosting(freezePolicy: freezing)
         let (view, _, pane) = try await bootedPage(hosting)
         pane.isHidden = true
         #expect(freezing.waitingCount == 1)

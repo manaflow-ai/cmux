@@ -14,14 +14,19 @@ public final class FakeChromiumHosting: PageChromiumHosting {
     public private(set) var made: [FakeChromiumPage] = []
     /// Runs on each page made, before the host gets it (a test sets ``FakeChromiumPage/answer`` here).
     public var onMade: ((FakeChromiumPage) -> Void)?
-    /// The freeze policy the pages get; nil (the default) never freezes. Held weakly: the test keeps it.
-    public weak var freezePolicy: (any PageFreezePolicy)?
+    /// The freeze policy each page takes when it starts; set it before the page starts. The
+    /// default freezes nothing (a ``PageFreezing`` whose plan never makes a page due).
+    public var freezePolicy: any PageFreezePolicy
 
     /// The error ``makePage(_:)`` throws while ``fails`` is set.
     public struct Refused: Error {}
 
     /// Makes a host that serves every page.
-    public init() {}
+    ///
+    /// - Parameter freezePolicy: The policy its pages report to (by default one that freezes nothing).
+    public init(freezePolicy: any PageFreezePolicy = PageFreezing(plan: { _, _ in ([], nil) })) {
+        self.freezePolicy = freezePolicy
+    }
 
     /// Serves every page.
     public func serves(_ page: PageDescriptor) -> Bool { true }
