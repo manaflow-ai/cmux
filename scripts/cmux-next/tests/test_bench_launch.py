@@ -291,7 +291,10 @@ class LowPowerModeTests(unittest.TestCase):
                  "with bl.LowPowerModeSwitch(True):\n    print('on', flush=True)\n    time.sleep(60)\n", str(HERE)],
                 env=dict(os.environ, CMUX_CI_STEP_CLASS="exclusive"), stdout=subprocess.PIPE, text=True)
             try:
-                self.assertEqual(child.stdout.readline().strip(), "on")
+                lines = []
+                while not lines or lines[-1] not in ("on", ""):
+                    lines.append(child.stdout.readline().strip())  # the switch's own notes come first
+                self.assertEqual(lines[-1], "on", lines)
                 self.assertEqual(self.state(), "1")
                 child.send_signal(sig)  # the process this test started
                 child.wait(30)

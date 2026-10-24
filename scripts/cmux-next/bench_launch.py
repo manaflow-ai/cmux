@@ -57,7 +57,7 @@ caller's. A script or step that starts an app on its own can run under the same 
     python3 scripts/cmux-next/bench_launch.py finder-exec -- python3 scripts/cmux-next/my-bench.py ...
     python3 scripts/cmux-next/bench_launch.py limits     # launchd's soft limits and this shell's, one JSON line
 """
-import argparse, contextlib, glob, json, os, platform, pwd, re, resource, signal, socket, subprocess, sys, tempfile, time
+import argparse, atexit, contextlib, glob, json, os, platform, pwd, re, resource, signal, socket, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -349,7 +349,156 @@ def require_gui_session(who="bench", argv=None):
 
 def host_facts():
     macos = subprocess.run(["sw_vers", "-productVersion"], capture_output=True, text=True).stdout.strip()
-    return {"host": platform.node(), "macos": macos}
+    return {"host": platform.node(), "macos": macos, "low_power_mode": low_power_mode()}
+
+
+# Low Power Mode (2026-10-23): a Mac in Low Power Mode runs slower clocks and caps frame rates, so a bench there
+# measures wrong numbers. `launch()` refuses ("low-power-mode") unless the bench passes low_power_mode_ok=True (a
+# bench of the Low Power Mode behavior itself). Such a bench switches it with ``LowPowerModeSwitch``: only in an
+# exclusive fleet step (a system setting of a shared Mac, `sudo -n pmset`), and it switches it back at exit, SIGTERM
+# and SIGHUP. The switch writes a record (the value before it) under the account's state folder; while the record
+# says a switch is not proved undone and Low Power Mode differs from its value before, every launch is refused
+# ("low-power-mode-not-restored"). BENCH_LAUNCH_PMSET and BENCH_LAUNCH_LPM_MARKER replace pmset and the record's
+# path, and BENCH_LAUNCH_TEST_NO_SUDO runs pmset without sudo (tests only).
+
+def pmset_path():
+    return os.environ.get("BENCH_LAUNCH_PMSET") or "/usr/bin/pmset"
+
+
+def low_power_mode():
+    """True or False from `pmset -g` (its `lowpowermode` key), None when the key is absent or pmset fails."""
+    try:
+        out = subprocess.run([pmset_path(), "-g"], capture_output=True, text=True, timeout=10).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[0] == "lowpowermode" and parts[1] in ("0", "1"):
+            return parts[1] == "1"
+    return None
+
+
+def lpm_marker_path():
+    return os.environ.get("BENCH_LAUNCH_LPM_MARKER") or os.path.join(account_home(), ".local/state/cmux",
+                                                                     "bench-low-power-mode-switch.json")
+
+
+def pid_alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def lpm_switch_problem():
+    """None when no Low Power Mode switch is left unproved, else the detail. A record of a switch still running
+    (its process alive) is fine; an unproved one clears once Low Power Mode is back at its value before."""
+    path = lpm_marker_path()
+    try:
+        with open(path) as f:
+            record = json.load(f)
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError) as error:
+        return f"unreadable Low Power Mode switch record {path}: {error}"
+    if record.get("active") and isinstance(record.get("pid"), int) and pid_alive(record["pid"]):
+        return None
+    now = low_power_mode()
+    if now is not None and now == record.get("before"):
+        os.unlink(path)  # back at the value before the switch: proved
+        return None
+    return (f"a bench switched Low Power Mode at {record.get('at')} (pid {record.get('pid')}) and nobody proved it "
+            f"switched back: it was {record.get('before')}, it is {now} now. Set it back (sudo pmset -a lowpowermode "
+            f"{int(bool(record.get('before')))}); the next launch then clears {path}")
+
+
+class LowPowerModeSwitch:
+    """Switches Low Power Mode to `enabled` for the `with` block, then back, also at SIGTERM and SIGHUP (the step
+    timeout, a lost terminal) and at interpreter exit. Raises ``LaunchError``: "low-power-mode-switch" outside an
+    exclusive step or when pmset fails, "low-power-mode-not-restored" when the switch back does not take."""
+
+    def __init__(self, enabled):
+        self.enabled = bool(enabled)
+        self.before = None
+        self.switched = False
+        self.handlers = {}
+
+    def _pmset(self, value):
+        cmd = [pmset_path(), "-a", "lowpowermode", "1" if value else "0"]
+        if not os.environ.get("BENCH_LAUNCH_TEST_NO_SUDO"):
+            cmd = ["/usr/bin/sudo", "-n"] + cmd
+        try:
+            done = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            return str(error)
+        return None if done.returncode == 0 else (done.stderr.strip() or f"exit {done.returncode}")
+
+    def _record(self, active):
+        path = lpm_marker_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path + ".tmp", "w") as f:
+            json.dump({"before": self.before, "wanted": self.enabled, "pid": os.getpid(), "active": active,
+                       "at": time.strftime("%Y-%m-%dT%H:%M:%S%z")}, f)
+        os.replace(path + ".tmp", path)
+
+    def __enter__(self):
+        problem = lpm_switch_problem()
+        if problem:
+            raise LaunchError("low-power-mode-not-restored", {"detail": problem, "log_tail": ""})
+        if os.environ.get("CMUX_CI_STEP_CLASS") != "exclusive":
+            raise LaunchError("low-power-mode-switch", {"detail": "Low Power Mode is a system setting of a shared Mac: "
+                                                                  "a bench switches it only in an exclusive step "
+                                                                  "(cmux-ci run --class exclusive)", "log_tail": ""})
+        self.before = low_power_mode()
+        if self.before is None:
+            raise LaunchError("low-power-mode-switch", {"detail": "pmset -g shows no lowpowermode key", "log_tail": ""})
+        if self.before == self.enabled:
+            return self
+        self._record(True)
+        for sig in (signal.SIGTERM, signal.SIGHUP):
+            self.handlers[sig] = signal.signal(sig, self._on_signal)
+        atexit.register(self.restore)
+        self.switched = True
+        error = self._pmset(self.enabled)
+        if error or low_power_mode() != self.enabled:
+            self.restore()
+            raise LaunchError("low-power-mode-switch", {"detail": f"pmset could not switch Low Power Mode to "
+                                                                  f"{self.enabled}: {error or 'no change'}", "log_tail": ""})
+        note(f"bench-launch: Low Power Mode switched to {self.enabled} (was {self.before})")
+        return self
+
+    def restore(self):
+        """Switches back once and proves it; True when Low Power Mode is at its value before the switch."""
+        if not self.switched:
+            return True
+        self.switched = False
+        for sig, handler in self.handlers.items():
+            signal.signal(sig, handler)
+        atexit.unregister(self.restore)
+        self._pmset(self.before)
+        if low_power_mode() == self.before:
+            try:
+                os.unlink(lpm_marker_path())
+            except FileNotFoundError:
+                pass
+            note(f"bench-launch: Low Power Mode switched back to {self.before}")
+            return True
+        self._record(False)
+        note(f"bench-launch: Low Power Mode NOT switched back to {self.before}: {lpm_switch_problem()}")
+        return False
+
+    def _on_signal(self, signum, frame):
+        self.restore()
+        signal.signal(signum, signal.SIG_DFL)
+        os.kill(os.getpid(), signum)  # die of the signal, as without the handler
+
+    def __exit__(self, *exc):
+        if not self.restore():
+            raise LaunchError("low-power-mode-not-restored", {"detail": lpm_switch_problem() or "", "log_tail": ""})
+        return False
 
 
 def report_matches(path, pid=None, binary=None):
@@ -414,7 +563,8 @@ class BenchApp:
     """
 
     def __init__(self, app, out=None, env=None, config=None, window=(40, 40, 1440, 900), screen="0",
-                 log_name=None, teardown=True):
+                 log_name=None, teardown=True, low_power_mode_ok=False):
+        self.low_power_mode_ok = low_power_mode_ok
         self.app = os.path.realpath(app).rstrip("/")
         self.tag = tag_of(self.app)
         self.out = os.path.abspath(out or tempfile.mkdtemp(prefix=f"bench-launch-{self.tag}-"))
@@ -494,6 +644,14 @@ class BenchApp:
             # thread ~40 s; say so now instead of after the timeout. BENCH_LAUNCH_ANY_SESSION=1 tries anyway.
             self._fail("no-gui-session", {"tag": self.tag, **host_facts(), "gui_session": session,
                                           "detail": no_session_detail(session), "log_tail": ""})
+        problem = lpm_switch_problem()
+        if problem:
+            self._fail("low-power-mode-not-restored", {"tag": self.tag, **host_facts(), "detail": problem, "log_tail": ""})
+        if low_power_mode() and not self.low_power_mode_ok:
+            self._fail("low-power-mode", {"tag": self.tag, **host_facts(), "log_tail": "",
+                                          "detail": "this Mac is in Low Power Mode: its numbers are not comparable. Turn "
+                                                    "it off, or pass low_power_mode_ok=True for a bench of Low Power "
+                                                    "Mode itself"})
         running = self.running_pids()
         if running:
             self._fail("tag-in-use", {"tag": self.tag, **host_facts(), "pids": running, "log_tail": "",
@@ -652,6 +810,7 @@ def main(argv=None):
     check.add_argument("--out")
     check.add_argument("--timeout", type=float, default=180)
     check.add_argument("--json", help="also write the result here")
+    check.add_argument("--low-power-mode-ok", action="store_true", help="launch even in Low Power Mode")
     sub.add_parser("session", help="only report whether this account has a GUI session")
     sub.add_parser("limits", help="launchd's soft limits (a Finder launch's) and this process's, one JSON line")
     finder = sub.add_parser("finder-exec", help="run COMMAND with launchd's soft limits, as a Finder launch gets")
@@ -677,7 +836,7 @@ def main(argv=None):
         result = {**host_facts(), "gui_session": gui_session()}
         print("BENCH-LAUNCH " + json.dumps(result), flush=True)
         return 0 if result["gui_session"]["ok"] else 1
-    app = BenchApp(opts.app, out=opts.out)
+    app = BenchApp(opts.app, out=opts.out, low_power_mode_ok=opts.low_power_mode_ok)
     result = {"tag": app.tag, **host_facts(), "gui_session": gui_session()}
     try:
         app.launch(timeout=opts.timeout)
