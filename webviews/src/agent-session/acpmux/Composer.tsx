@@ -973,6 +973,7 @@ export function Composer({
     if (!command || !onShell) return;
     const run = onShell(command);
     if (!run) return;
+    field.current?.insertInlineAttachments([`shell-${run.id}`]);
     setAttachments((current) => cappedShellChips([...current, shellAttachment(run)]));
     setShell(false);
     setShellText("");

@@ -361,6 +361,7 @@ function inlineWidget(attachment: ComposerAttachment, onRemove: (id: string) => 
   root.className = "acpmux-md-inline-attachment";
   root.contentEditable = "false";
   root.dataset.attachmentId = attachment.id;
+  if (attachment.saved) root.dataset.saved = "";
   root.title = attachment.name;
   if (attachment.kind === "image" && attachment.data) {
     const image = document.createElement("img");

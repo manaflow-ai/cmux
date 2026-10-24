@@ -64,6 +64,7 @@ export function usePastedChips(
       const chip = pastedTextAttachment(text);
       // Ahead of the render, so a second paste at once counts this one.
       attachments.current = [...attachments.current, chip];
+      field.current?.insertInlineAttachments([chip.id]);
       setAttachments((current) => [...current, chip]);
       return true;
     },
@@ -71,6 +72,7 @@ export function usePastedChips(
     expand(id: string) {
       const chip = attachments.current.find((held) => held.id === id);
       if (chip?.kind !== "pasted" || chip.text === undefined) return;
+      field.current?.removeInlineAttachment(id);
       setAttachments((current) => current.filter((held) => held.id !== id));
       field.current?.focus();
       expanding.current = true;
