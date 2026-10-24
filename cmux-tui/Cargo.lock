@@ -952,6 +952,7 @@ name = "cmux-browser-host"
 version = "1.0.0"
 dependencies = [
  "chacha20poly1305",
+ "cmux-unix-socket",
  "getrandom 0.3.4",
  "hmac",
  "libc",

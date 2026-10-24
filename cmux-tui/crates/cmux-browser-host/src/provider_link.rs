@@ -53,6 +53,8 @@ pub struct ProviderDriver {
     pub(crate) downloads: Arc<crate::provider_downloads::ProviderDownloads>,
     /// Tabs agent sessions kept (`tab.keep`): deliverables later sessions list.
     pub(crate) kept_tabs: Mutex<std::collections::BTreeSet<String>>,
+    /// The engines the app offers (`hello {engines}`); empty until set.
+    engines: Mutex<Vec<String>>,
 }
 
 pub(crate) type CefTabs = Arc<Mutex<HashMap<String, Arc<crate::provider_source::CefTab>>>>;
@@ -253,7 +255,18 @@ impl ProviderDriver {
             downloads,
             kept_tabs: Mutex::default(),
             leases,
+            engines: Mutex::default(),
         }))
+    }
+
+    /// Records the engines the app offered in its `hello`.
+    pub fn set_engines(&self, engines: Vec<String>) {
+        *self.engines.lock().unwrap_or_else(PoisonError::into_inner) = engines;
+    }
+
+    /// Whether the app offered `engine` in its `hello`.
+    pub fn offers(&self, engine: &str) -> bool {
+        self.engines.lock().unwrap_or_else(PoisonError::into_inner).iter().any(|e| e == engine)
     }
 
     pub fn closed_reason(&self) -> Option<String> {

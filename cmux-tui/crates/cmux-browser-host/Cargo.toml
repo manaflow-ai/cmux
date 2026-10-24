@@ -26,3 +26,5 @@ rquickjs = "0.14"
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
+# The CLI's start-on-demand connect, shared with `cmux mcp` (on_demand).
+cmux-unix-socket.workspace = true

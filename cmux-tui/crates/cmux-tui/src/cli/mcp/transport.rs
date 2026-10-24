@@ -417,19 +417,43 @@ pub(super) enum Reach {
 /// `binary` there when nothing answers (headless, also on a Linux VM).
 pub(super) fn browser_host_routes(
     env: &dyn Fn(&str) -> Option<std::ffi::OsString>,
-    _daemon: Option<&std::path::Path>,
-    _binary: Option<std::path::PathBuf>,
+    daemon: Option<&std::path::Path>,
+    binary: Option<std::path::PathBuf>,
 ) -> Vec<HostRoute> {
-    vec![HostRoute { socket: browser_host_socket(env), reach: Reach::Existing }]
+    let default = browser_host_socket(env);
+    if cmux_unix_socket::on_demand::named_by_daemon(&default, "CMUX_BROWSER_HOST_SOCKET", env) {
+        return vec![HostRoute { socket: default, reach: Reach::Daemon }];
+    }
+    let mut routes = Vec::new();
+    if let Some(daemon) = daemon {
+        let socket = cmux_tui_core::browser_host::socket_path_for(daemon);
+        if socket != default && socket.exists() {
+            routes.push(HostRoute { socket, reach: Reach::DaemonHost });
+        }
+    }
+    let reach = binary.map_or(Reach::Existing, Reach::Start);
+    routes.push(HostRoute { socket: default, reach });
+    routes
 }
 
-/// Connects to the first route that answers, or explains why none did.
+/// Connects to the first route that answers (starting a host where the
+/// route says so), or explains why none did.
 pub(super) fn connect_browser_host(
     routes: &[HostRoute],
 ) -> Result<std::os::unix::net::UnixStream, CallFailure> {
+    use cmux_unix_socket::on_demand::{START_WAIT, WhenAbsent, connect_or_start};
     let mut failures = Vec::new();
     for route in routes {
-        match std::os::unix::net::UnixStream::connect(&route.socket) {
+        let (when_absent, within) = match &route.reach {
+            Reach::Daemon => (WhenAbsent::Wait, START_WAIT),
+            Reach::DaemonHost | Reach::Existing => (WhenAbsent::Wait, Duration::ZERO),
+            Reach::Start(binary) => {
+                let mut command = std::process::Command::new(binary);
+                command.args(["serve", "--socket"]).arg(&route.socket);
+                (WhenAbsent::Start(command), START_WAIT)
+            }
+        };
+        match connect_or_start(&route.socket, when_absent, within) {
             Ok(stream) => return Ok(stream),
             Err(error) => failures.push(format!("{} ({error})", route.socket.display())),
         }
@@ -438,7 +462,7 @@ pub(super) fn connect_browser_host(
         FailureKind::NotRun,
         "browser_host.unavailable",
         format!(
-            "no browser host listens on {}; start it with `cmux-browser-host serve`",
+            "no browser host answers on {}; the bundled `cmux-browser-host` was not found to start one",
             failures.join(", ")
         ),
     ))

@@ -27,6 +27,10 @@
 use std::io;
 use std::path::Path;
 
+/// Connecting to a local server that starts on demand.
+#[cfg(unix)]
+pub mod on_demand;
+
 /// The size of `sun_path`, including the trailing NUL.
 #[cfg(unix)]
 pub const SUN_PATH_CAPACITY: usize =

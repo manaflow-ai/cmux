@@ -136,7 +136,12 @@ impl BrowserTool {
             return Err(invalid(format!("{} has no argument {name:?}", self.name)));
         }
         let mut params = arguments.clone();
-        let _ = agent_session;
+        if fields.contains_key("session")
+            && !params.contains_key("session")
+            && let Some(name) = agent_session.and_then(agent_session_name)
+        {
+            params.insert("session".into(), Value::String(name));
+        }
         let mut timeout = REQUEST_TIMEOUT;
         if self.evaluates() {
             let eval_ms = match params.get("timeoutMs") {
@@ -154,7 +159,17 @@ impl BrowserTool {
     }
 }
 
-/// The browser session of an agent chat (not yet).
-pub(super) fn agent_session_name(_agent_session: &str) -> Option<String> {
-    None
+/// The browser session of an agent chat: `agent-` and the chat's session id
+/// in the host's session name alphabet (letters, digits, `_`, `.`, `-`;
+/// anything else becomes `-`), at most 64 characters. `None` for an empty id.
+pub(super) fn agent_session_name(agent_session: &str) -> Option<String> {
+    let id: String = agent_session
+        .trim()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || "_.-".contains(c) { c } else { '-' })
+        .collect();
+    if id.is_empty() {
+        return None;
+    }
+    Some(format!("agent-{id}").chars().take(64).collect())
 }

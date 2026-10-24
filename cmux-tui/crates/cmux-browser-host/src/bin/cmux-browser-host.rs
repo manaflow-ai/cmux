@@ -33,10 +33,9 @@ mod unix {
     use serde_json::{Value, json};
     use std::io::{BufRead, BufReader, Read, Write};
     use std::os::unix::net::UnixStream;
-    use std::os::unix::process::CommandExt;
     use std::path::PathBuf;
     use std::sync::Arc;
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
     #[derive(Clone)]
     struct Options {
@@ -390,55 +389,30 @@ mod unix {
     /// except on a socket a cmux daemon owns: there the daemon starts and
     /// supervises the host (with the app's provider secret), and a host
     /// started here would take its socket, so this waits for it instead.
+    /// `cmux mcp` reaches the host through the same function.
     fn connect(options: &Options) -> Result<UnixStream, String> {
-        if let Ok(stream) = UnixStream::connect(&options.socket) {
-            return Ok(stream);
-        }
-        if daemon_owns(&options.socket) {
-            return wait_for(&options.socket).map_err(|()| {
-                format!(
-                    "the cmux daemon's browser host does not answer on {}",
-                    options.socket.display()
-                )
-            });
-        }
-        let exe = std::env::current_exe().map_err(|e| format!("cannot find myself: {e}"))?;
-        std::process::Command::new(exe)
-            .args(["serve", "--socket"])
-            .arg(&options.socket)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            // Its own process group: Ctrl-C in the caller's terminal must
-            // not stop a host that other sessions use.
-            .process_group(0)
-            .spawn()
-            .map_err(|e| format!("cannot start the browser host: {e}"))?;
-        wait_for(&options.socket)
-            .map_err(|()| format!("the browser host did not start on {}", options.socket.display()))
-    }
-
-    /// The daemon's terminals name its host socket in `CMUX_BROWSER_HOST_SOCKET`
-    /// next to `CMUX_TUI_SOCKET`.
-    fn daemon_owns(socket: &std::path::Path) -> bool {
-        let named = std::env::var_os("CMUX_BROWSER_HOST_SOCKET").filter(|p| !p.is_empty());
-        let in_daemon = std::env::var_os("CMUX_TUI_SOCKET").is_some_and(|p| !p.is_empty());
-        in_daemon && named.is_some_and(|named| std::path::Path::new(&named) == socket)
-    }
-
-    /// Connects within 10 seconds (a host that is starting).
-    fn wait_for(socket: &std::path::Path) -> Result<UnixStream, ()> {
-        let deadline = Instant::now() + Duration::from_secs(10);
-        loop {
-            if let Ok(stream) = UnixStream::connect(socket) {
-                return Ok(stream);
+        use cmux_unix_socket::on_demand::{
+            OnDemandError, START_WAIT, WhenAbsent, connect_or_start, named_by_daemon,
+        };
+        let socket = &options.socket;
+        let env = |key: &str| std::env::var_os(key);
+        let when_absent = if named_by_daemon(socket, "CMUX_BROWSER_HOST_SOCKET", env) {
+            WhenAbsent::Wait
+        } else {
+            let exe = std::env::current_exe().map_err(|e| format!("cannot find myself: {e}"))?;
+            let mut command = std::process::Command::new(exe);
+            command.args(["serve", "--socket"]).arg(socket);
+            WhenAbsent::Start(command)
+        };
+        connect_or_start(socket, when_absent, START_WAIT).map_err(|error| match error {
+            OnDemandError::NoAnswer { started: false } => {
+                format!("the cmux daemon's browser host does not answer on {}", socket.display())
             }
-            if Instant::now() >= deadline {
-                return Err(());
+            OnDemandError::NoAnswer { started: true } => {
+                format!("the browser host did not start on {}", socket.display())
             }
-            // A bounded connect retry while the host starts, not a synchronization.
-            std::thread::sleep(Duration::from_millis(50));
-        }
+            OnDemandError::Start(error) => format!("cannot start the browser host: {error}"),
+        })
     }
 
     fn request(

@@ -219,6 +219,7 @@ fn accept_provider(
         info.tabs,
         on_change.clone(),
     )?;
+    driver.set_engines(info.engines);
     let mut current = slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     if current.as_ref().is_some_and(|provider| provider.closed_reason().is_none()) {
         // Another provider won the race: this one goes.
