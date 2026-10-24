@@ -96,7 +96,7 @@ export function WorkflowSummaryRow({
                 </button>
               ))}
             </div>
-            <div className="acpmux-workflow__agents" role="listbox" aria-label={t("summary.subagents.active", { n: workflow.agents.length })}>
+            <div className="acpmux-workflow__agents" role="list" aria-label={t("summary.subagents.active", { n: workflow.agents.length })}>
               <h4>{phase?.name ?? t("summary.subagents.active", { n: workflow.agents.length })}</h4>
               {(phase ? workflow.agents.filter((agent) => phase.agentIds.includes(agent.id)) : workflow.agents).map(
                 (agent) => (
@@ -105,8 +105,7 @@ export function WorkflowSummaryRow({
                     key={agent.id}
                     data-state={agent.state}
                     data-selected={agent.id === selected?.id || undefined}
-                    role="option"
-                    aria-selected={agent.id === selected?.id}
+                    role="listitem"
                     aria-current={agent.id === selected?.id ? "true" : undefined}
                   >
                     <span className="acpmux-workflow__agent-icon">
