@@ -1,0 +1,17 @@
+{
+  "rate": 120,
+  "entry": "agent-pane.motion-policy",
+  "variant": "flush-on-policy",
+  "url": "http://127.0.0.1:18796/gallery/frame.html?entry=agent-pane.motion-policy&variant=flush-on-policy",
+  "frames": 48,
+  "frameIntervalMs": {
+    "p50": 8.200000047683716,
+    "p95": 12.100000143051147,
+    "max": 14.5
+  },
+  "receipt": "Policy settled once on frame 6; no late completion.",
+  "settledFrame": 6,
+  "maxFrame": 6,
+  "finalSettled": true,
+  "lateCompletion": false
+}

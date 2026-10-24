@@ -1,0 +1,17 @@
+{
+  "rate": 120,
+  "entry": "agent-pane.motion-policy",
+  "variant": "content-pacing-exempt",
+  "url": "http://127.0.0.1:18796/gallery/frame.html?entry=agent-pane.motion-policy&variant=content-pacing-exempt",
+  "frames": 70,
+  "frameIntervalMs": {
+    "p50": 8.200000047683716,
+    "p95": 11.100000143051147,
+    "max": 15.600000143051147
+  },
+  "receipt": "Policy settled once on frame 26; no late completion.",
+  "settledFrame": 26,
+  "maxFrame": 26,
+  "finalSettled": true,
+  "lateCompletion": false
+}
