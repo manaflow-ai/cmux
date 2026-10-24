@@ -9,7 +9,10 @@ import CmuxNextResources
 /// rows are what the gallery shows.
 public struct TabHoverCardGallery {
     public init() {}
-    @MainActor public static func cards(now: Date = Date()) -> [(name: String, view: NSView)] {
+
+    /// The gallery cards, drawing their tab glyphs from `iconCaches` (the strip's injected
+    /// ``TabIconCaches``), so opening the gallery again draws no glyph twice.
+    @MainActor public static func cards(iconCaches: TabIconCaches, now: Date = Date()) -> [(name: String, view: NSView)] {
         var running = TabItem(id: TabID("gallery-terminal"), title: "cargo build --release", subtitle: "~/Projects/cmux",
                               icon: .symbol("terminal"), isBusy: true)
         running.hover = TabHoverFacts(kind: .terminal, activity: .running, since: now.addingTimeInterval(-12), branch: "main")
@@ -29,10 +32,9 @@ public struct TabHoverCardGallery {
             (running, [0.6, 1.2, 2.4, 3.1, 2.8, 3.4], 840), (failed, [], 0), (page, [0.05, 0.1, 0.02], 106), (blank, [], 0),
             (chat, [0.2, 0.3, 0.25], 46),
         ]
-        let caches = TabIconCaches()
         return [("Terminal running", 0), ("Terminal failed", 1), ("Browser tab", 2), ("Blank page", 3), ("Agent chat", 4)].map { name, index in
             let (item, cpu, megabytes) = samples[index]
-            let card = TabHoverCardView(iconCaches: caches)
+            let card = TabHoverCardView(iconCaches: iconCaches)
             card.configure(.tab(item))
             card.setThumbnailVisible(false)
             for value in cpu {

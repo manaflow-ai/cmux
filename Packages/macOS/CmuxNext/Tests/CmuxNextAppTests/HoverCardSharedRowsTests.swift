@@ -92,7 +92,7 @@ import Testing
 
     @Test(arguments: [true, false])
     func theGalleryShowsEveryKind(tabs: Bool) {
-        let cards = tabs ? TabHoverCardGallery.cards() : WorkspaceHoverCardGallery.cards()
+        let cards = tabs ? TabHoverCardGallery.cards(iconCaches: TabIconCaches()) : WorkspaceHoverCardGallery.cards()
         // The sidebar adds a chat that never left the home folder (no folder line, Leo 2026-10-21).
         let count = tabs ? 5 : 6
         #expect(cards.count == count)
