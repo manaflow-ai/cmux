@@ -6,7 +6,7 @@ import Foundation
 /// source names in the shared Actions module lets the palette, CLI argument
 /// completion and MCP schema use one vocabulary without making the catalog
 /// depend on the agent-pane UI.
-public extension ActionSuggestions {
+public nonisolated extension ActionSuggestions {
     /// Models currently advertised by the focused harness.
     static let agentModels = "agentModels"
     /// Effort/config values currently advertised by the focused harness.
