@@ -76,13 +76,8 @@ final class ProcessRun: Sendable {
         }
         let process = Process()
         // The child runs at its waiter's priority (a best-effort poll never competes at .default; a git run
-        // a person waits for gets userInitiated). Never userInteractive: WorkPriority has no such level.
-        process.qualityOfService = switch priority {
-        case .userBlocking: .userInitiated
-        case .userVisible: .default
-        case .bestEffort: .utility
-        case .idle: .background
-        }
+        // a person waits for gets userInitiated).
+        process.qualityOfService = priority.processQoS
         process.executableURL = request.executable
         process.arguments = request.arguments
         if let environment = request.environment { process.environment = environment }
