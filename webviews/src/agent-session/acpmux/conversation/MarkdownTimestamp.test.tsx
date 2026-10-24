@@ -51,13 +51,14 @@ test("does not decorate timestamps inside Markdown or bare URL destinations", ()
   const html = renderToStaticMarkup(
     <Markdown messageAt={messageAt}>
       {
-        "[logs](https://example.com/2026-10-24T05:21:28Z) https://example.com/2026-10-24T05:22:28Z [file](/tmp/2026-10-24T05:23:28Z.txt) [relative](docs/2026-10-24T05:24:28Z.txt)"
+        "[logs](https://example.com/2026-10-24T05:21:28Z) https://example.com/2026-10-24T05:22:28Z [quoted](https://example.com/O'Reilly/2026-10-24T05:22:58Z) [file](/tmp/2026-10-24T05:23:28Z.txt) [relative](docs/2026-10-24T05:24:28Z.txt)"
       }
     </Markdown>,
   );
 
   expect(html).toContain('href="https://example.com/2026-10-24T05:21:28Z"');
   expect(html).toContain('href="https://example.com/2026-10-24T05:22:28Z"');
+  expect(html).toContain('href="https://example.com/O&#x27;Reilly/2026-10-24T05:22:58Z"');
   expect(html).toContain('data-path="/tmp/2026-10-24T05:23:28Z.txt"');
   expect(html).toContain('data-path="docs/2026-10-24T05:24:28Z.txt"');
   expect(html).not.toContain("%EE%80%80");

@@ -44,10 +44,10 @@ export function decorateTimes(text: string, messageAt?: number): string {
 
 function decorateProse(text: string, messageAt?: number): string {
   if (!text || (!text.includes("Z") && !text.includes("UTC") && !text.includes("T"))) return text;
-  const ranges = [
+  const ranges = mergeRanges([
     ...textLinks(text).map((link) => ({ start: link.start, end: link.end })),
     ...markdownDestinations(text),
-  ].sort((a, b) => a.start - b.start || a.end - b.end);
+  ]);
   if (ranges.length) {
     let out = "";
     let from = 0;
@@ -60,6 +60,16 @@ function decorateProse(text: string, messageAt?: number): string {
     return out + decorateProseSegment(text.slice(from), messageAt);
   }
   return decorateProseSegment(text, messageAt);
+}
+
+function mergeRanges(ranges: { start: number; end: number }[]): { start: number; end: number }[] {
+  const merged: { start: number; end: number }[] = [];
+  for (const range of ranges.sort((a, b) => a.start - b.start || a.end - b.end)) {
+    const previous = merged.at(-1);
+    if (previous && range.start <= previous.end) previous.end = Math.max(previous.end, range.end);
+    else merged.push({ ...range });
+  }
+  return merged;
 }
 
 /// Markdown's destination syntax also carries local paths, which `textLinks` intentionally does
