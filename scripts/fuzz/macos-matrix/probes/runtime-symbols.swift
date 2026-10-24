@@ -48,9 +48,15 @@ guard !binaries.isEmpty else { print("runtime-symbols: no binaries in \(app)"); 
 let os = ProcessInfo.processInfo.operatingSystemVersion
 var missing: [String] = []
 var checked = 0
+var libraries = 0
 for binary in binaries {
     guard let dependents = run(["-dependents", binary]), let imports = run(["-imports", binary]) else {
         print("runtime-symbols: dyld_info could not read \(binary)"); exit(2)
+    }
+    if binary == binaries.first {
+        // The format this OS's dyld_info prints, for the record (it differs between majors).
+        print("dependents head: " + dependents.split(separator: "\n").prefix(4).joined(separator: " | "))
+        print("imports head: " + imports.split(separator: "\n").prefix(4).joined(separator: " | "))
     }
     // System libraries only (bundled @rpath ones are the same on every OS), keyed by their leaf name.
     var handles: [String: UnsafeMutableRawPointer] = [:]
@@ -63,6 +69,7 @@ for binary in binaries {
             continue
         }
         handles[leaf(path)] = handle
+        libraries += 1
     }
     for line in imports.split(separator: "\n") where !line.contains("[weak-import]") {
         guard let from = line.range(of: "(from "), line.hasSuffix(")") else { continue }
@@ -76,6 +83,8 @@ for binary in binaries {
         }
     }
 }
-print("runtime-symbols macOS \(os.majorVersion).\(os.minorVersion).\(os.patchVersion): \(checked) strong system imports in \(binaries.count) binaries, \(missing.count) missing")
+print("runtime-symbols macOS \(os.majorVersion).\(os.minorVersion).\(os.patchVersion): \(checked) strong system imports from \(libraries) system libraries in \(binaries.count) binaries, \(missing.count) missing")
 for line in missing.prefix(200) { print("MISSING \(line)") }
+// A check that read nothing proves nothing: no verdict, never a pass.
+guard checked > 0 else { print("runtime-symbols: no import was checked; the dyld_info format was not understood"); exit(2) }
 exit(missing.isEmpty ? 0 : 1)
