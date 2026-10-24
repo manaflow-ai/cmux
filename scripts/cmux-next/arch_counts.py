@@ -96,6 +96,10 @@ rewrites the json without comparing totals: reviewers compare the definitions):
                           decides counts once at its own statement, whatever calls it and whatever branch is
                           around it; one a parameter decides counts once per reference to its wrapper, at
                           any depth, and a literal loop multiplies the registrations that use its binding
+  blocking_allow_escapes  main-thread blocking allowances (BlockingViolationLog, CmuxNextCompat): every
+                          `// blocking-allow:` comment and every `allowBlocking(` call (not a
+                          `func allowBlocking(` declaration); ratchets down only (Performance Lead
+                          2026-10-24)
   app_lines               physical lines (newlines) of CmuxNextApp Swift (report only here)
 
 Every row reads the whole closure: a Shared package's static or observer counts under its module, and its
@@ -231,6 +235,7 @@ ROWS = (
     Row("assume_isolated_total", "MainActor.assumeIsolated, all sites", False),
     Row("app_broadcast_names", "app-internal Notification.Name broadcasts", True),
     Row("observer_sites", "NotificationCenter/KVO observer sites", True),
+    Row("blocking_allow_escapes", "main-thread blocking allowances (`// blocking-allow:`, allowBlocking()", True),
     Row("app_lines", "CmuxNextApp Swift lines", False),
 )
 ROW_IDS = tuple(row.id for row in ROWS)
@@ -492,6 +497,9 @@ LOCK_MEMBER = re.compile(
     rf"(?::\s*(?:{LOCK_NAMES})\b|(?::[^=\n]*)?=\s*(?:{LOCK_NAMES})\b)"
 )
 ASSUME = re.compile(r"\bMainActor\s*\.\s*assumeIsolated\b")
+BLOCKING_ALLOW_COMMENT = re.compile(r"//[ \t]*blocking-allow:")  # matched in the raw text, at a blanked (comment) position
+BLOCKING_ALLOW_CALL = re.compile(r"\ballowBlocking\s*\(")
+BLOCKING_ALLOW_DECL = re.compile(r"\bfunc\s+$")  # `func allowBlocking(` declares one, it is no site
 BROADCAST = re.compile(
     r"\b(?:NS)?Notification\s*\.\s*Name\s*(?:\.\s*init\s*)?(\()|\bName\s*(\()\s*rawValue\s*:|"
     r":\s*(?:NS)?Notification\s*\.\s*Name\s*=\s*\.init\s*(\()|\bpost\s*\(\s*name\s*:\s*\.init\s*(\()"
@@ -1060,6 +1068,15 @@ def analyze(path: str, raw: str) -> FileFacts:
                    and _is_proved(raw_lines, line - 1))
         if not adapter:
             site("assume_isolated_outside_adapters", m.start(), (_scope_key(path, braces, owners, scopes),))
+
+    if BLOCKING_ALLOW_COMMENT.search(raw):
+        commented = strip(raw, keep_strings=True)  # comments blanked, strings kept: a match there is a comment
+        for m in BLOCKING_ALLOW_COMMENT.finditer(raw):
+            if commented[m.start()] == " ":
+                site("blocking_allow_escapes", m.start())
+    for m in BLOCKING_ALLOW_CALL.finditer(code):
+        if not BLOCKING_ALLOW_DECL.search(code[max(0, m.start() - 40):m.start()]):
+            site("blocking_allow_escapes", m.start())
 
     parens: set[int] = set()
     for m in BROADCAST.finditer(code):
