@@ -34,7 +34,9 @@ import CmuxNextSettings
 /// clicks Chromium's page view instead (`DebugMouse+Page`).
 enum DebugMouse {
     static func send(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
-        if params["target"]?.stringValue == "page" { return clickPage(params, services: services) }
+        if params["target"]?.stringValue == "page" {
+            return params["action"]?.stringValue == "scroll" ? scrollPage(params, services: services) : clickPage(params, services: services)
+        }
         let windowID = params["window"]?.stringValue
         guard let controller = services.windows.controllers.first(where: { windowID == nil || $0.state.id == windowID }),
               let window = controller.window else { return .object(["error": .string("no window")]) }
@@ -147,7 +149,8 @@ enum DebugMouse {
         return InputJournal.topLeftPoint(center, in: window, relativeTo: window)
     }
 
-    private static func baseLocation(_ point: NSPoint, in window: NSWindow) -> NSPoint {
+    /// `point` (top-left window points, the journal's) in `window`'s base coordinates (bottom-left).
+    static func baseLocation(_ point: NSPoint, in window: NSWindow) -> NSPoint {
         let height = window.contentView?.bounds.height ?? window.frame.height
         return NSPoint(x: point.x, y: height - point.y)
     }
@@ -196,6 +199,13 @@ enum DebugMouse {
     /// `flags` are the modifier keys held (NSEvent's flag bits are CGEvent's).
     private static func scroll(at point: NSPoint, in window: NSWindow, dx: Double, dy: Double, phase: String? = nil,
                                flags: NSEvent.ModifierFlags = []) -> NSEvent? {
+        scroll(atBase: baseLocation(point, in: window), in: window, dx: dx, dy: dy, phase: phase, flags: flags)
+    }
+
+    /// ``scroll(at:in:dx:dy:phase:flags:)`` at `base`, a point in `window`'s base coordinates (a page
+    /// window's, `scrollPage`).
+    static func scroll(atBase base: NSPoint, in window: NSWindow, dx: Double, dy: Double, phase: String? = nil,
+                       flags: NSEvent.ModifierFlags = []) -> NSEvent? {
         guard let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2,
                                wheel1: Int32(dy.rounded()), wheel2: Int32(dx.rounded()), wheel3: 0) else { return nil }
         cg.flags = CGEventFlags(rawValue: UInt64(flags.rawValue))
@@ -205,7 +215,7 @@ enum DebugMouse {
             cg.setDoubleValueField(.scrollWheelEventPointDeltaAxis2, value: dx)
             cg.setDoubleValueField(.scrollWheelEventPointDeltaAxis1, value: dy)
         }
-        let screen = window.convertPoint(toScreen: baseLocation(point, in: window))
+        let screen = window.convertPoint(toScreen: base)
         let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
         cg.location = CGPoint(x: screen.x, y: primaryHeight - screen.y)
         cg.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(window.windowNumber))
