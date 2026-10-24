@@ -1205,10 +1205,12 @@ def parse_owners(text: str) -> list[tuple[str, list[str], str, str]]:
 
 
 def glob_match(path: str, pattern: str) -> bool:
-    """PATTERN from OWNERS.md: a trailing `/` is a directory prefix, `**` crosses folders, `*` does not."""
+    """PATTERN from OWNERS.md: a trailing `/` is a directory prefix, `**/` is zero or more folders, `**` crosses
+    folders, `*` does not."""
     if pattern.endswith("/"):
         return path.startswith(pattern)
-    regex = re.escape(pattern).replace(r"\*\*", "\0").replace(r"\*", "[^/]*").replace("\0", ".*")
+    regex = (re.escape(pattern).replace(r"\*\*/", "\1").replace(r"\*\*", "\0").replace(r"\*", "[^/]*")
+             .replace("\1", "(?:.*/)?").replace("\0", ".*"))
     return re.fullmatch(regex, path) is not None
 
 
