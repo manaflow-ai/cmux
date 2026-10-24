@@ -1,4 +1,4 @@
-public import Foundation
+public import AppKit
 
 /// Byte transport for one terminal, the seam between a Ghostty surface and
 /// whatever owns the PTY.
@@ -30,8 +30,9 @@ public nonisolated protocol TerminalIO: Sendable {
     /// ordered ``resize(cols:rows:pixelWidth:pixelHeight:)``. `final`: the grid the view will have
     /// when its pane's layout spring lands, sent at the spring's start (a split or a close resizes
     /// the program in the terminal before the motion ends). Returns false when the IO has no
-    /// main-actor path; the session then sends `resize` in order.
-    @MainActor func resizeOnMain(cols: Int, rows: Int, final: Bool) -> Bool
+    /// main-actor path; the session then sends `resize` in order. `window`: the view's window, whose
+    /// full screen transition holds the grid.
+    @MainActor func resizeOnMain(cols: Int, rows: Int, final: Bool, window: NSWindow?) -> Bool
 
     /// True when the owner keeps its own VT state and answers terminal
     /// queries (DA, DSR, OSC color queries). The cmux-tui daemon does, so the
@@ -72,7 +73,7 @@ public nonisolated protocol TerminalIO: Sendable {
 public extension TerminalIO {
     var answersTerminalQueries: Bool { true }
     @MainActor func appliesViewGrid(reporting: Bool) -> Bool { false }
-    @MainActor func resizeOnMain(cols: Int, rows: Int, final: Bool) -> Bool { false }
+    @MainActor func resizeOnMain(cols: Int, rows: Int, final: Bool, window: NSWindow?) -> Bool { false }
     func focusGained() async {}
     func takeOverSize(setLatest: Bool) async {}
     func reconnectRequested() async {}

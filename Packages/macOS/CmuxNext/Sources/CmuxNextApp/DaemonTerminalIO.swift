@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
@@ -47,6 +48,8 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     let events: AsyncStream<TerminalIOEvent>
     private let driver: TerminalAttachDriver<TerminalAttachment>
     private let creatingInput: CreatingTerminalInput?
+    /// The app's grid sender (`AppServices.resizes`): next frame, one in flight, a final grid now.
+    private let resizes: ResizeCoordinator
     /// The id of the terminal still being created whose keys go to the daemon by id, nil otherwise.
     var creatingTerminalID: String? { creatingInput?.terminalID }
 
@@ -54,9 +57,12 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     ///   feature that reaches this terminal's machine: every disconnect shows
     ///   "Turned off by your organization" and the endpoint refuses re-attaches.
     /// `gate`: the view of a terminal not created yet attaches only once the gate names it.
-    init(target: Target, visible: Bool = true, gate: TerminalTargetGate? = nil, creatingInput: CreatingTerminalInput? = nil,
+    /// `resizes`: the app's grid sender (``ResizeCoordinator``), from its composition root.
+    init(target: Target, resizes: ResizeCoordinator, visible: Bool = true, gate: TerminalTargetGate? = nil,
+         creatingInput: CreatingTerminalInput? = nil,
          policyBlocked: @escaping @Sendable () -> Bool = { false },
          endpoint: @escaping @Sendable () async throws -> DaemonEndpoint) {
+        self.resizes = resizes
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.terminal")
         let surface = target.attachment.surface.rawValue
         let driver = TerminalAttachDriver<TerminalAttachment>(
@@ -151,20 +157,20 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     func resize(cols: Int, rows: Int, pixelWidth: Int, pixelHeight: Int) async {
         guard cols > 0, rows > 0 else { return }
         let size = CellSize(cols: cols, rows: rows)
-        await MainActor.run { ResizeCoordinator.shared.submit(self, size: size) }
+        await MainActor.run { resizes.submit(self, size: size) }
     }
 
     // MARK: App control
 
     /// Takes the view's grid in the caller's turn (`TerminalIO.resizeOnMain`): a final grid goes now
     /// (`ResizeCoordinator.submitFinal`), any other the next frame.
-    @MainActor func resizeOnMain(cols: Int, rows: Int, final: Bool) -> Bool {
+    @MainActor func resizeOnMain(cols: Int, rows: Int, final: Bool, window: NSWindow?) -> Bool {
         guard cols > 0, rows > 0 else { return true }
         let size = CellSize(cols: cols, rows: rows)
         if final {
-            ResizeCoordinator.shared.submitFinal(self, size: size)
+            resizes.submitFinal(self, size: size, window: window)
         } else {
-            ResizeCoordinator.shared.submit(self, size: size)
+            resizes.submit(self, size: size, window: window)
         }
         return true
     }
@@ -221,7 +227,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     /// keeps running in the daemon.
     @MainActor func close() {
         driver.close()
-        ResizeCoordinator.shared.cancel(self)
+        resizes.cancel(self)
     }
 
     /// Attachment state for diagnostics and tests.
