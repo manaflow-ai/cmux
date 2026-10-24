@@ -196,6 +196,36 @@ class CompileTrailerTests(unittest.TestCase):
             else:
                 os.environ["CMUX_PREPUSH_REMOTE_URL"] = old
 
+    def test_a_shim_only_push_needs_a_passing_app_build(self):
+        self.write(f"{PKG}/CEFShim/src/shim_browser.mm", "namespace cmux { void f(); }\n")
+        base = self.commit("shim base")
+        self.write(f"{PKG}/CEFShim/src/shim_browser.mm", "namespace cmux { void f() {} }\n")
+        compiled = self.commit("shim change")
+        refused, lines = self.check(compiled, base=base)
+        self.assertTrue(refused)
+        self.assertIn(f"cmux-ci build cmux --ref {compiled}", lines[0])
+        check = self.job(compiled)  # a passing compile check does not build the shim
+        self.git("commit", "-q", "--amend", "-m", f"shim change\n\nCompiled: {check}")
+        refused, lines = self.check(self.git("rev-parse", "HEAD"), base=base)
+        self.assertTrue(refused, lines)
+        self.assertIn("full app build", lines[0])
+        build = self.job(self.git("rev-parse", "HEAD"), kind=ct.BUILD_KIND, command="")
+        self.git("commit", "-q", "--amend", "-m", f"shim change\n\nCompiled: {build}")
+        refused, lines = self.check(self.git("rev-parse", "HEAD"), base=base)
+        self.assertFalse(refused, lines)
+
+    def test_a_fork_pin_change_needs_an_app_build_of_the_same_pin(self):
+        self.write("scripts/cmux-next/cef-manifest.json", '{"version": "a"}\n')
+        base = self.commit("pin base")
+        self.write("scripts/cmux-next/cef-manifest.json", '{"version": "b"}\n')
+        built = self.commit("pin b")
+        build = self.job(built, kind=ct.BUILD_KIND, command="")
+        self.write("scripts/cmux-next/cef-manifest.json", '{"version": "c"}\n')
+        head = self.commit(f"pin c\n\nCompiled: {build}")
+        refused, lines = self.check(head, base=base)
+        self.assertTrue(refused, lines)
+        self.assertIn("fork pin differs", lines[0])
+
     def test_the_manifest_parser_reads_one_line_and_multi_line_targets(self):
         deps = ct.module_deps(MANIFEST)
         self.assertEqual(deps, {"Base": set(), "Kit": {"Base"}, "Other": set()})

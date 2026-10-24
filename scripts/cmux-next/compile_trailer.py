@@ -15,6 +15,11 @@ matches the pushed head:
     changes touch, nor in a module those modules depend on (their target's dependencies in Package.swift, one level).
     Without the module check, an upstream rename the push's files use (the case that broke the tip) would pass.
 
+The CEF shim (C++/Objective-C++ under Packages/macOS/CmuxNext/CEFShim/) and the CEF fork pin
+(scripts/cmux-next/cef-manifest.json) are built only by the full fleet app build, not by the compile check (PL-cef-layer
+2026-10-24: a shim namespace error passed compile-check and failed the app build, job 2577a32f). A push that changes
+them must name a passing `cmux-ci build cmux` job (kind `cmux`) of the same shim and pin.
+
 `Compiled-skip: <reason>` on the newest commit lets the push through for an emergency; the gate prints it loudly. The
 check fails open: a controller that does not answer within CONTROLLER_TIMEOUT, a git error or a parse error lets the
 push through with a warning. It is local only (the pre-push gate's guardrails path), never a CI gate.
@@ -35,12 +40,20 @@ COMPILED = re.compile(r"^Compiled:[ \t]*([0-9a-f]{12,40})[ \t]*$", re.MULTILINE)
 COMPILED_SKIP = re.compile(r"^Compiled-skip:[ \t]*(\S.*)$", re.MULTILINE)
 PACKAGES = "Packages/"
 CHECK_KIND = "cmux-next-swift-check"
+BUILD_KIND = "cmux"  # `cmux-ci build cmux`: the full app build, the CEF shim included
 MANIFEST = "Package.swift"
+CEF_SHIM = "Packages/macOS/CmuxNext/CEFShim/"
+CEF_PIN = "scripts/cmux-next/cef-manifest.json"
 
 
 def swift_path(path: str) -> bool:
     """A file whose change can break the Swift build: a `.swift` file or a package manifest, under Packages/."""
     return path.startswith(PACKAGES) and (path.endswith(".swift") or path.rsplit("/", 1)[-1] == MANIFEST)
+
+
+def shim_path(path: str) -> bool:
+    """A file only the full app build compiles: the CEF shim's sources and headers, or the CEF fork pin."""
+    return path == CEF_PIN or (path.startswith(CEF_SHIM) and path.endswith((".mm", ".cc", ".cpp", ".h", ".hpp", ".m")))
 
 
 def git(repo: Path, *args: str) -> str:
@@ -52,10 +65,14 @@ def git(repo: Path, *args: str) -> str:
 
 
 def changed(repo: Path, a: str, b: str) -> list[str]:
-    return [p for p in git(repo, "diff", "--name-only", "--no-renames", a, b, "--", PACKAGES).split("\n") if p]
+    return [p for p in git(repo, "diff", "--name-only", "--no-renames", a, b, "--", PACKAGES, CEF_PIN).split("\n") if p]
 
 
-def command(head: str) -> str:
+def command(head: str, shim: bool = False) -> str:
+    if shim:
+        return (f"cmux-ci build cmux --ref {head} --tag shim-{head[:8]} (the CEF shim and fork pin are built only by the "
+                "full app build; then add the trailer line `Compiled: <the job id it prints>` to the newest commit and push "
+                "again)")
     return (f'cmux-ci compile-check --app --package CmuxNext --ref {head}'
             " (then add the trailer line `Compiled: <the job id it prints>` to the newest commit and push again)")
 
@@ -73,9 +90,18 @@ def fetch_job(job_id: str, timeout: float = CONTROLLER_TIMEOUT, url: str | None 
     return value if isinstance(value, dict) else {}
 
 
-def passed_compile(job: dict) -> str | None:
-    """Why JOB is not a passing app + package compile check, or None when it is."""
+def passed_compile(job: dict, shim: bool = False) -> str | None:
+    """Why JOB is not a passing app + package compile check (or, with SHIM, a passing full app build), or None."""
     words = str(job.get("command") or "").split()
+    if shim:
+        if job.get("kind") != BUILD_KIND:
+            return (f"job {job.get('id')} is a {job.get('kind') or 'unknown'} job; a push that changes the CEF shim or fork "
+                    "pin needs a full app build (`cmux-ci build cmux`, kind cmux): the compile check does not build the shim")
+        if job.get("state") != "done":
+            return f"job {job.get('id')} did not pass (state {job.get('state') or 'unknown'})"
+        if not re.fullmatch(r"[0-9a-f]{40}", str(job.get("ref") or "")):
+            return f"job {job.get('id')} names no commit"
+        return None
     if job.get("kind") != CHECK_KIND:
         return f"job {job.get('id')} is a {job.get('kind') or 'unknown'} job, not a compile check ({CHECK_KIND})"
     if "--app" not in words or not any(w == "CmuxNext" and i > 0 and words[i - 1] == "--package" for i, w in enumerate(words)):
@@ -168,7 +194,8 @@ def check(repo: Path, ranges: list[tuple[str, str]], fetch=fetch_job) -> tuple[b
     try:
         for base, head in ranges:
             own = changed(repo, base, head)
-            if not any(swift_path(p) for p in own):
+            shim = any(shim_path(p) for p in own)
+            if not shim and not any(swift_path(p) for p in own):
                 continue
             message = git(repo, "log", "-1", "--format=%B", head)
             skip = COMPILED_SKIP.search(message)
@@ -178,8 +205,10 @@ def check(repo: Path, ranges: list[tuple[str, str]], fetch=fetch_job) -> tuple[b
                 continue
             named = COMPILED.search(message)
             if not named:
-                return True, [f"prepush-gate: this push changes Swift ({next(p for p in own if swift_path(p))}) and its "
-                              "newest commit names no passing compile. Run: " + command(head)]
+                what = next(p for p in own if shim_path(p) or swift_path(p))
+                return True, [f"prepush-gate: this push changes {'the CEF shim or fork pin' if shim else 'Swift'} ({what}) and "
+                              "its newest commit names no passing " + ("app build" if shim else "compile") + ". Run: "
+                              + command(head, shim)]
             job = fetch(named.group(1))
             if job is None:
                 lines.append(f"prepush-gate: WARNING: the build controller did not answer within {CONTROLLER_TIMEOUT:.0f} s, "
@@ -187,18 +216,23 @@ def check(repo: Path, ranges: list[tuple[str, str]], fetch=fetch_job) -> tuple[b
                 continue
             if not job:
                 return True, [f"prepush-gate: compile job {named.group(1)} is not known to the build controller. Run: "
-                              + command(head)]
-            why = passed_compile(job)
+                              + command(head, shim)]
+            why = passed_compile(job, shim)
             if why:
-                return True, [f"prepush-gate: {why}. Run: " + command(head)]
+                return True, [f"prepush-gate: {why}. Run: " + command(head, shim)]
             ran = job["ref"]
             if ran != head:
-                same = not any(swift_path(p) for p in changed(repo, ran, head))
-                if not same:
+                delta = changed(repo, ran, head)
+                shim_delta = [p for p in delta if shim_path(p)]
+                if shim and shim_delta:
+                    # The shim builds as one unit with the fork: any shim or pin difference needs a build of the head.
+                    return True, [f"prepush-gate: build job {job['id']} ran on {ran[:12]}, and the CEF shim or fork pin "
+                                  f"differs from the push's ({shim_delta[0]}). Run: " + command(head, shim)]
+                if any(swift_path(p) for p in delta):
                     unsafe = rebase_safe(repo, ran, head, own)
                     if unsafe:
                         return True, [f"prepush-gate: compile job {job['id']} ran on {ran[:12]}, and its Swift differs "
-                                      f"from the push's: {unsafe}. Run: " + command(head)]
+                                      f"from the push's: {unsafe}. Run: " + command(head, shim)]
             lines.append(f"prepush-gate: compile job {job['id']} passed on {ran[:12]} (Compiled trailer)")
     except (RuntimeError, OSError, subprocess.SubprocessError, ValueError, KeyError) as error:
         return False, [f"prepush-gate: WARNING: the compile trailer check failed ({type(error).__name__}: {error}); "
