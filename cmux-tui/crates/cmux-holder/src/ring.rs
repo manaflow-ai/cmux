@@ -23,6 +23,7 @@
 
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Header bytes before the data.
@@ -50,7 +51,8 @@ pub struct Ring {
     /// The offset after the newest byte; mirrors the header's `end`.
     end: u64,
     /// The shared segment, `None` for a private ring (no shared memory).
-    segment: Option<OwnedFd>,
+    /// Shared with each frame that passes it ([`Self::segment`]).
+    segment: Option<Arc<OwnedFd>>,
 }
 
 // SAFETY: the mapping is owned by this value and only reached through
@@ -128,11 +130,15 @@ impl Ring {
         let capacity = capacity as usize;
         let map_len = HEADER + capacity;
         let map = map_shared(segment.as_raw_fd(), map_len)?;
-        Ok(Self { map, map_len, capacity, base, end, segment: Some(segment) })
+        Ok(Self { map, map_len, capacity, base, end, segment: Some(Arc::new(segment)) })
     }
 
     /// The shared segment, to pass to the daemon; `None` for a private ring.
-    pub fn segment(&self) -> Option<&OwnedFd> {
+    /// A frame that passes it holds a clone of this handle, not a dup of the
+    /// descriptor, so passing it costs the holder no descriptor, and the
+    /// segment stays open until the frame is written even if the ring is
+    /// gone by then.
+    pub fn segment(&self) -> Option<&Arc<OwnedFd>> {
         self.segment.as_ref()
     }
 

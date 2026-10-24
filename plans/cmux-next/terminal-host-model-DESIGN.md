@@ -118,8 +118,14 @@ processes and ~2,000 threads fewer.
   (`FLAG_FDS_STATED` and a 3-bit count in its flags; an older build's frame counts by kind). The
   receiver gives a frame exactly the descriptors that arrived with its first byte; a missing one,
   one no frame states, or one the kernel dropped (`MSG_CTRUNC`) ends the link, never a shift of
-  every later terminal's master. A holder that cannot dup a terminal's descriptors refuses the
-  HELLO (`NO_DESCRIPTORS`) and keeps its link instead of listing the terminal without them.
+  every later terminal's master. A frame the holder sends passes the holder's own descriptors
+  (shared handles that keep them open until the frame is written), so a WELCOME's listing or a
+  SPAWNED costs it no descriptor: a holder short of descriptors still lists every terminal with
+  its master and ring (holder-core deep review: before, it dup'd two per terminal and refused
+  every HELLO with `NO_DESCRIPTORS`, so a daemon could not get back in after a descriptor
+  fault). An accept that fails for want of a descriptor stops the holder polling its listener
+  (Linux keeps the connection queued, so polling it spun the loop); it accepts again at the end
+  of each turn, the only place one of its descriptors frees.
   A daemon frame whose descriptors the holder cannot take (it is out of descriptors: macOS fails
   the read with EMFILE, measured on macOS 27, or with EMSGSIZE, XNU's `fdavail` failure, which
   is taken as the same fault; Linux sets `MSG_CTRUNC`) or bytes

@@ -182,8 +182,8 @@ pub const FLAG_RING: u16 = 2;
 /// A receiver of an older build ignores it (it counts by kind, and this
 /// build passes what the kind says); a receiver of this build takes exactly
 /// that many, so a frame that passes no descriptor where its kind would
-/// (a terminal whose master the holder could not dup) never takes the next
-/// frame's.
+/// (never from this build's holder, which passes its own descriptors and
+/// makes none) never takes the next frame's.
 pub const FLAG_FDS_STATED: u16 = 1 << 12;
 /// The shift of the descriptor count in a header's flags.
 const FDS_SHIFT: u32 = 13;
