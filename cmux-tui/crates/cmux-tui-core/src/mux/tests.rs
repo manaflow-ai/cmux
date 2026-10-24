@@ -9,6 +9,7 @@ mod agent_hook_retry;
 mod agent_presence;
 mod agent_reports;
 mod agent_roster_restore;
+mod agent_turn_resume;
 mod cell_pixel_fanout;
 mod cell_pixels;
 mod column_update;

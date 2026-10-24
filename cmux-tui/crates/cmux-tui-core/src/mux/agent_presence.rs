@@ -10,7 +10,7 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use super::*;
-use crate::agent_hooks::semantic_key;
+use crate::agent_hooks::{is_post_tool_event, is_pre_tool_event, semantic_key};
 
 const MAX_PRESENCE_TOOL_BYTES: usize = 128;
 
@@ -131,8 +131,7 @@ pub(super) fn next_presence(
         "agent.approval.requested" | "agent.question.requested" | "agent.plan_review.requested" => {
             PresenceStep::Set(keep_target(AgentActivity::Waiting))
         }
-        // A failed tool call (PostToolUseFailure) ends the call like any
-        // other post-tool event; other errors leave presence as it was.
+        // A failed tool call from an older hook helper, which still sends it as an error.
         "agent.error.reported" if is_post_tool_event(&event) => {
             PresenceStep::Set(keep_target(AgentActivity::Thinking))
         }
@@ -158,38 +157,6 @@ pub(super) fn next_presence(
         }
         _ => PresenceStep::Unchanged,
     }
-}
-
-fn is_pre_tool_event(event: &str) -> bool {
-    matches!(
-        event,
-        "pretooluse"
-            | "beforetool"
-            | "beforeshellexecution"
-            | "beforemcpexecution"
-            | "beforereadfile"
-            | "toolexecutebefore"
-            | "pretoolcall"
-            | "toolexecutionstart"
-            | "toolcall"
-    )
-}
-
-fn is_post_tool_event(event: &str) -> bool {
-    matches!(
-        event,
-        "posttooluse"
-            | "posttoolusefailure"
-            | "posttoolbatch"
-            | "aftertool"
-            | "aftershellexecution"
-            | "aftermcpexecution"
-            | "afterfileedit"
-            | "toolexecuteafter"
-            | "posttoolcall"
-            | "toolexecutionend"
-            | "toolresult"
-    )
 }
 
 /// What a tool call is doing, from the tool's name across harnesses (Claude,

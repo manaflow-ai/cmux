@@ -495,10 +495,11 @@ fn semantic_kind(
     let event = semantic_key(native_event);
     let tool =
         normalized.get("tool_name").and_then(Value::as_str).map(semantic_key).unwrap_or_default();
-    if tool == "askuserquestion" {
+    // The tool's own post-tool event means the person answered: the turn goes on.
+    if tool == "askuserquestion" && !is_post_tool_event(&event) {
         return "agent.question.requested";
     }
-    if tool == "exitplanmode" {
+    if tool == "exitplanmode" && !is_post_tool_event(&event) {
         return "agent.plan_review.requested";
     }
     if event == "questionasked" {
@@ -538,7 +539,9 @@ fn semantic_kind(
             _,
             "permissionrequest" | "permissionasked" | "preapprovalrequest" | "ontoolpermission",
         ) => "agent.approval.requested",
-        (_, "stopfailure" | "onerror" | "error" | "posttoolusefailure") => "agent.error.reported",
+        // A failed tool call (PostToolUseFailure) is part of a running turn, like any other
+        // post-tool event: the agent reads the failure and goes on, so it is no error report.
+        (_, "stopfailure" | "onerror" | "error") => "agent.error.reported",
         (_, "sessionend" | "onsessionend" | "onsessionfinalize" | "sessionshutdown") => {
             "agent.session.ended"
         }
@@ -1039,6 +1042,40 @@ fn truncate_utf8(value: &str, max_bytes: usize) -> String {
         boundary -= 1;
     }
     value[..boundary].into()
+}
+
+/// A harness hook that fires before a tool call runs (normalized with [`semantic_key`]).
+pub(crate) fn is_pre_tool_event(event: &str) -> bool {
+    matches!(
+        event,
+        "pretooluse"
+            | "beforetool"
+            | "beforeshellexecution"
+            | "beforemcpexecution"
+            | "beforereadfile"
+            | "toolexecutebefore"
+            | "pretoolcall"
+            | "toolexecutionstart"
+            | "toolcall"
+    )
+}
+
+/// A harness hook that fires after a tool call ran, whether it succeeded or failed.
+pub(crate) fn is_post_tool_event(event: &str) -> bool {
+    matches!(
+        event,
+        "posttooluse"
+            | "posttoolusefailure"
+            | "posttoolbatch"
+            | "aftertool"
+            | "aftershellexecution"
+            | "aftermcpexecution"
+            | "afterfileedit"
+            | "toolexecuteafter"
+            | "posttoolcall"
+            | "toolexecutionend"
+            | "toolresult"
+    )
 }
 
 pub(crate) fn semantic_key(value: &str) -> String {

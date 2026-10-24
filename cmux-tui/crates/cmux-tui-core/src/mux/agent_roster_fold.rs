@@ -28,7 +28,16 @@ impl Mux {
         {
             return Ok(());
         }
-        let Some(state) = agent_state_for_hook_kind(&ingress.kind) else { return Ok(()) };
+        let native_event = ingress.payload.get("native_event").and_then(Value::as_str);
+        if !crate::journal_reducers::hook_event_may_set_state(&ingress.kind, native_event) {
+            return Ok(());
+        }
+        let observed_at_ms = crate::journal_reducers::hook_observed_at_ms(&ingress.payload);
+        let tool = ingress
+            .payload
+            .get("normalized")
+            .and_then(|value| value.get("tool_name"))
+            .and_then(Value::as_str);
         let Some(terminal_subject) =
             ingress.subjects.iter().find(|subject| subject.kind == "terminal")
         else {
@@ -36,6 +45,38 @@ impl Mux {
         };
         let terminal_id = TerminalPublicId::parse(&terminal_subject.id)
             .with_context(|| format!("invalid terminal subject {:?}", terminal_subject.id))?;
+        let resume_candidate =
+            crate::journal_reducers::hook_lifecycle_state(&ingress.kind, native_event).is_none();
+        // A tool call can only resume a wait, so it depends on the rows before it: one that
+        // waits for its terminal (or a restart) keeps it in the retry queue, in journal order,
+        // as the roster folds them.
+        if resume_candidate
+            && self
+                .workspace_registry
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .agent_hook_pending_before(&terminal_id, sequence)?
+        {
+            return Err(anyhow::Error::new(AgentHookTerminalUnavailable)
+                .context(format!("terminal {terminal_id} has earlier agent hooks to project")));
+        }
+        // Most tool calls set nothing (only one that resumes a blocked turn does): skip them
+        // before the terminal lookup. The decision is taken again under the fence lock below.
+        if resume_candidate
+            && crate::journal_reducers::hook_event_state(
+                &ingress.kind,
+                native_event,
+                tool,
+                observed_at_ms,
+                self.agent_hook_fences
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .get(&terminal_id),
+            )
+            .is_none()
+        {
+            return Ok(());
+        }
         let Some(surface) = self.resource_surface_for_terminal(&terminal_id) else {
             // A durable terminal that is still live may be between journal
             // commit and host materialization. A missing or tombstoned
@@ -93,6 +134,9 @@ impl Mux {
         // update as one operation. The projection path takes registry, state,
         // then agent-record locks, so teardown acquires sequence before those
         // locks as well.
+        // A row the startup restore already folded records no wait (`restored_through`).
+        let records_wait = sequence
+            > self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner).restored_through;
         let mut fences = self.agent_hook_fences.lock().unwrap();
         let explicit_session_id = ingress
             .payload
@@ -101,8 +145,16 @@ impl Mux {
             .and_then(Value::as_str)
             .filter(|session_id| !session_id.is_empty());
         let is_session_start = ingress.kind == "agent.session.started";
-        let observed_at_ms = crate::journal_reducers::hook_observed_at_ms(&ingress.payload);
         let previous_fence = fences.get(&terminal_id).cloned();
+        let Some(state) = crate::journal_reducers::hook_event_state(
+            &ingress.kind,
+            native_event,
+            tool,
+            observed_at_ms,
+            previous_fence.as_ref(),
+        ) else {
+            return Ok(());
+        };
         let JournalHookTransition::Apply(agent_session_id) = HookFence::journal_transition(
             previous_fence.as_ref(),
             terminal_id.as_str(),
@@ -119,7 +171,8 @@ impl Mux {
             sequence,
             state == AgentState::Done,
             observed_at_ms,
-        );
+        )
+        .after_state(state, tool, observed_at_ms.filter(|_| records_wait));
         // Attention-worthy transitions become durable notifications before
         // the agent report commits. The notification key is derived from the
         // journal sequence, so a retry after a crash between the two commits

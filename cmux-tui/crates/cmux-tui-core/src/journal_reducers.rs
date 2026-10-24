@@ -22,7 +22,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::agent_hooks::AGENT_HOOK_PRODUCER_ID;
+use crate::agent_hooks::{AGENT_HOOK_PRODUCER_ID, is_post_tool_event, semantic_key};
 use crate::workspace_registry::SessionJournalRecord;
 use crate::{AgentSource, AgentState, JournalSubject};
 
@@ -92,6 +92,66 @@ fn state_for_hook_kind(kind: &str) -> Option<AgentState> {
         "agent.session.ended" => AgentState::Done,
         _ => return None,
     })
+}
+
+/// The lifecycle state a hook event implies, given its terminal's current `fence`. The hook
+/// projector and the roster fold both decide with it, so they agree.
+///
+/// A lifecycle kind sets its state. A tool call (a pre- or post-tool hook, including a failed
+/// call) runs inside a turn and sets nothing, with one exception: the post-tool hook of the
+/// tool a blocked turn waits on (the approved command, the answered question) means the person
+/// answered, so the turn works again. Another tool finishing meanwhile (a parallel read, a
+/// subagent's call) does not. Claude delivers its hooks asynchronously, so the order is the
+/// hooks' observed times, not the journal's: a post-tool hook observed before the wait, or
+/// delivered after the turn ended, changes nothing.
+pub(crate) fn hook_event_state(
+    kind: &str,
+    native_event: Option<&str>,
+    tool: Option<&str>,
+    observed_at_ms: Option<u64>,
+    fence: Option<&HookFence>,
+) -> Option<AgentState> {
+    if let Some(state) = hook_lifecycle_state(kind, native_event) {
+        return Some(state);
+    }
+    if !hook_event_may_set_state(kind, native_event) {
+        return None;
+    }
+    let wait = fence.filter(|fence| !fence.ended)?.wait.as_ref()?;
+    let resumes = wait.tool.is_some()
+        && wait.tool == tool.map(semantic_key)
+        && observed_at_ms? > wait.observed_at_ms;
+    resumes.then_some(AgentState::Working)
+}
+
+/// The state a hook event's lifecycle kind sets whatever its fence, or `None` for a tool call
+/// (which can only resume a wait, [`hook_event_state`]) and other kinds.
+pub(crate) fn hook_lifecycle_state(kind: &str, native_event: Option<&str>) -> Option<AgentState> {
+    // Journals written before a failed tool call stopped being an error report keep that kind.
+    if kind == "agent.error.reported"
+        && is_post_tool_event(&semantic_key(native_event.unwrap_or_default()))
+    {
+        return None;
+    }
+    state_for_hook_kind(kind)
+}
+
+/// Whether a hook event can set a state at all ([`hook_event_state`] with some fence): a cheap
+/// test that lets every other event skip the projection.
+pub(crate) fn hook_event_may_set_state(kind: &str, native_event: Option<&str>) -> bool {
+    state_for_hook_kind(kind).is_some()
+        || (matches!(kind, "agent.state.changed" | "agent.error.reported")
+            && is_post_tool_event(&semantic_key(native_event.unwrap_or_default())))
+}
+
+/// What a blocked hook turn waits on ([`HookFence::wait`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct HookWait {
+    /// When the hook that blocked the turn was observed.
+    pub(crate) observed_at_ms: u64,
+    /// The tool it waits on ([`semantic_key`] of `tool_name`): the command to approve, the
+    /// question to answer. `None` (an error, a wait with no tool) never resumes on a tool hook.
+    pub(crate) tool: Option<String>,
 }
 
 /// One journal record reduced to the fields the roster fold reads. Built
@@ -335,6 +395,13 @@ pub(crate) struct HookFence {
     /// resume and resets when another session takes the terminal.
     #[serde(default)]
     pub(crate) ended_at_ms: Option<u64>,
+    /// What the session's blocked turn waits on (approval, question, plan review); `None`
+    /// while it works, idles or ended. That tool's post-tool hook resumes the turn
+    /// ([`hook_event_state`]). Not persisted, and the roster forgets it after its startup
+    /// replay: after a restart a wait ends only at the next turn event, in the projector and
+    /// the roster alike.
+    #[serde(skip)]
+    pub(crate) wait: Option<HookWait>,
 }
 
 pub(crate) enum JournalHookTransition {
@@ -445,7 +512,24 @@ impl HookFence {
             .filter(|fence| fence.session_id == session_id)
             .and_then(|fence| fence.ended_at_ms);
         let ended_at_ms = if ended { observed_at_ms.or(carried) } else { carried };
-        Self { session_id, sequence, ended, ended_at_ms }
+        Self { session_id, sequence, ended, ended_at_ms, wait: None }
+    }
+
+    /// This fence after a hook event about `tool` left the turn in `state`: a blocked turn
+    /// keeps what it waits on and when, so that tool's later post-tool hook can resume it.
+    pub(crate) fn after_state(
+        mut self,
+        state: AgentState,
+        tool: Option<&str>,
+        observed_at_ms: Option<u64>,
+    ) -> Self {
+        self.wait = observed_at_ms.filter(|_| state == AgentState::Blocked).map(|observed_at_ms| {
+            HookWait {
+                observed_at_ms,
+                tool: tool.map(semantic_key).filter(|tool| !tool.is_empty()),
+            }
+        });
+        self
     }
 
     /// Decide one direct hook-source report. Internal hook markers are not
@@ -671,7 +755,12 @@ impl AgentRoster {
             {
                 match fence.direct_transition(session.as_deref()) {
                     Err(_) => return Vec::new(),
-                    Ok(DirectHookTransition::Continue) => {}
+                    // The projector rebuilds its fence from the report, with no wait.
+                    Ok(DirectHookTransition::Continue) => {
+                        if let Some(fence) = self.hook_fences.get_mut(terminal_id) {
+                            fence.wait = None;
+                        }
+                    }
                     Ok(DirectHookTransition::Restart(session_id)) => {
                         let restarted =
                             HookFence::next(Some(fence), session_id, fence.sequence, false, None);
@@ -690,15 +779,20 @@ impl AgentRoster {
             let agent = event.adapter_id().map(str::to_string);
             (state, AgentSource::Detected, None, None, None, agent, event.committed_at_ms)
         } else {
-            let Some(state) = state_for_hook_kind(event.kind) else { return Vec::new() };
+            let observed_at_ms = hook_observed_at_ms(event.payload);
+            let current = self.hook_fences.get(terminal_id);
+            let tool = event.normalized("tool_name");
+            let Some(state) =
+                hook_event_state(event.kind, event.native_event(), tool, observed_at_ms, current)
+            else {
+                return Vec::new();
+            };
             // The session fence shared with the hook projector decides
             // whether this event belongs to the terminal's current
             // session. It advances even when timestamp arbitration below
             // keeps the existing entry, exactly like the projector.
             let explicit_session_id =
                 event.normalized("agent_session_id").filter(|session_id| !session_id.is_empty());
-            let observed_at_ms = hook_observed_at_ms(event.payload);
-            let current = self.hook_fences.get(terminal_id);
             let JournalHookTransition::Apply(session_id) = HookFence::journal_transition(
                 current,
                 terminal_id,
@@ -715,7 +809,8 @@ impl AgentRoster {
                 event.sequence,
                 state == AgentState::Done,
                 observed_at_ms,
-            );
+            )
+            .after_state(state, tool, observed_at_ms);
             self.hook_fences.insert(terminal_id.to_string(), next);
             let agent = event.adapter_id().map(str::to_string);
             (state, AgentSource::Hook, None, None, None, agent, event.committed_at_ms)
@@ -916,6 +1011,14 @@ impl AgentRoster {
         }
     }
 
+    /// Drop every hook fence's wait. The hook projector keeps no wait across a restart, so
+    /// after its startup replay the roster forgets the waits it rebuilt, and the two agree.
+    pub(crate) fn forget_hook_waits(&mut self) {
+        for fence in self.hook_fences.values_mut() {
+            fence.wait = None;
+        }
+    }
+
     pub(crate) fn snapshot(&self) -> Value {
         serde_json::to_value(self).unwrap_or(Value::Null)
     }
@@ -1059,7 +1162,13 @@ mod tests {
         assert_eq!(roster.entries["term_a"].state, "idle");
         assert_eq!(
             roster.hook_fences["term_a"],
-            HookFence { session_id: "new".into(), sequence: 2, ended: false, ended_at_ms: None }
+            HookFence {
+                session_id: "new".into(),
+                sequence: 2,
+                ended: false,
+                ended_at_ms: None,
+                wait: None
+            }
         );
 
         roster.apply(&hook_event(5, "agent.turn.started", &subjects, &new));
@@ -1092,7 +1201,13 @@ mod tests {
         assert_eq!(roster.entries["term_a"].state, "working");
         assert_eq!(
             roster.hook_fences["term_a"],
-            HookFence { session_id: "new".into(), sequence: 1, ended: false, ended_at_ms: None }
+            HookFence {
+                session_id: "new".into(),
+                sequence: 1,
+                ended: false,
+                ended_at_ms: None,
+                wait: None
+            }
         );
         let completed = session_payload("old");
         assert!(
@@ -1118,7 +1233,13 @@ mod tests {
         assert_eq!(roster.entries["term_a"].state, "idle");
         assert_eq!(
             roster.hook_fences["term_a"],
-            HookFence { session_id: "a".into(), sequence: 4, ended: false, ended_at_ms: None }
+            HookFence {
+                session_id: "a".into(),
+                sequence: 4,
+                ended: false,
+                ended_at_ms: None,
+                wait: None
+            }
         );
     }
 
