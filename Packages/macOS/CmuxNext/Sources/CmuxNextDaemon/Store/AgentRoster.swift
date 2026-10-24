@@ -58,10 +58,14 @@ public struct AgentRoster: Sendable {
     /// A hook-reported agent works only after a submitted prompt (`agent.turn.started`:
     /// UserPromptSubmit and its kin), so each hook `working` report with a new time is one.
     /// Other reporters say `working` through a turn too, so only their start of work
-    /// counts; out of `blocked` is an approval resuming the same turn.
+    /// counts; out of `blocked` is an approval resuming the same turn. A hook agent that
+    /// leaves `blocked` with the same prompt resumes that turn too (its next tool hook, #22995).
     static func startsPromptedTurn(from old: AgentStatus?, to new: AgentStatus) -> Bool {
         guard new.state == .working else { return false }
-        if new.source == "hook" { return old?.state != .working || old?.updatedAtMs != new.updatedAtMs }
+        if new.source == "hook" {
+            if old?.state == .blocked, new.lastPrompt == old?.lastPrompt { return false }
+            return old?.state != .working || old?.updatedAtMs != new.updatedAtMs
+        }
         return old?.state != .working && old?.state != .blocked
     }
 }

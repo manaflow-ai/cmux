@@ -257,6 +257,45 @@ pub(crate) fn journal_plugin_exit_journal_ingress(
     })
 }
 
+/// Internal lifecycle event emitted when a terminal's process ends while an
+/// agent hook session still claims the terminal working or blocked (#22995).
+pub(crate) const TERMINAL_EXIT_NATIVE_EVENT: &str = "AgentTerminalExited";
+
+/// Build the core-owned end of `agent_session_id`, the hook session of `agent`
+/// in `terminal_id`, whose process ended (it exited, or its host was lost: a
+/// crash, a daemon restart that could not keep it). The agent can no longer
+/// send its own `SessionEnd`, so its last `working` would stay forever. Like
+/// a real `SessionEnd`, this goes through the session fence; its observation
+/// time lets a resumed session (`claude --resume`, same id) start again.
+pub(crate) fn terminal_exit_session_ended_journal_ingress(
+    terminal_id: &TerminalPublicId,
+    agent: &str,
+    agent_session_id: &str,
+) -> anyhow::Result<JournalIngress> {
+    validate_agent_source(agent)?;
+    Ok(JournalIngress {
+        producer_id: AGENT_HOOK_PRODUCER_ID.into(),
+        manifest_version: AGENT_HOOK_MANIFEST_VERSION,
+        kind: "agent.session.ended".into(),
+        schema_version: 1,
+        occurred_at_ms: None,
+        subjects: vec![JournalSubject { kind: "terminal".into(), id: terminal_id.to_string() }],
+        sensitivity: Some(JournalSensitivity::Sensitive),
+        payload: json!({
+            "format": AGENT_HOOK_FORMAT,
+            "adapter": {"id": agent, "version": 1},
+            "native_event": TERMINAL_EXIT_NATIVE_EVENT,
+            "normalized": {
+                "agent_session_id": agent_session_id,
+                "observed_at_ms": crate::workspace_registry::unix_epoch_ms()?.to_string(),
+            },
+            "native": {},
+        }),
+        causation_id: None,
+        correlation_id: None,
+    })
+}
+
 const MAX_TOOL_TARGET_PATH_BYTES: usize = 1024;
 
 /// The file a tool call targets, copied from the tool input before it is
@@ -493,8 +532,13 @@ fn semantic_kind(
     normalized: &Map<String, Value>,
 ) -> &'static str {
     let event = semantic_key(native_event);
-    let tool =
-        normalized.get("tool_name").and_then(Value::as_str).map(semantic_key).unwrap_or_default();
+    // A question or a plan review waits from its pre-tool or permission hook. The
+    // post-tool hook of the same tool is the answer: the turn goes on (#22995).
+    let tool = if is_post_tool_event(&event) {
+        String::new()
+    } else {
+        normalized.get("tool_name").and_then(Value::as_str).map(semantic_key).unwrap_or_default()
+    };
     if tool == "askuserquestion" {
         return "agent.question.requested";
     }
@@ -538,12 +582,61 @@ fn semantic_kind(
             _,
             "permissionrequest" | "permissionasked" | "preapprovalrequest" | "ontoolpermission",
         ) => "agent.approval.requested",
-        (_, "stopfailure" | "onerror" | "error" | "posttoolusefailure") => "agent.error.reported",
+        // A failed tool call (PostToolUseFailure) is a tool result the agent reads and
+        // works on; only a failed turn reports an error and waits.
+        (_, "stopfailure" | "onerror" | "error") => "agent.error.reported",
         (_, "sessionend" | "onsessionend" | "onsessionfinalize" | "sessionshutdown") => {
             "agent.session.ended"
         }
         _ => "agent.state.changed",
     }
+}
+
+/// A hook before a tool runs (Claude's `PreToolUse` and its kin across harnesses),
+/// as a [`semantic_key`].
+pub(crate) fn is_pre_tool_event(event: &str) -> bool {
+    matches!(
+        event,
+        "pretooluse"
+            | "beforetool"
+            | "beforeshellexecution"
+            | "beforemcpexecution"
+            | "beforereadfile"
+            | "toolexecutebefore"
+            | "pretoolcall"
+            | "toolexecutionstart"
+            | "toolcall"
+    )
+}
+
+/// A hook after a tool ran, failed or not (Claude's `PostToolUse` and its kin), as a
+/// [`semantic_key`].
+pub(crate) fn is_post_tool_event(event: &str) -> bool {
+    matches!(
+        event,
+        "posttooluse"
+            | "posttoolusefailure"
+            | "posttoolbatch"
+            | "aftertool"
+            | "aftershellexecution"
+            | "aftermcpexecution"
+            | "afterfileedit"
+            | "toolexecuteafter"
+            | "posttoolcall"
+            | "toolexecutionend"
+            | "toolresult"
+    )
+}
+
+/// A hook `agent.state.changed` that says a waiting agent works again: a tool runs or
+/// ran in its turn, so the approval, question or plan review it waited on was answered
+/// (#22995). The hook projector and the roster fold both move a `blocked` hook agent
+/// back to `working` on it; any other state stays as it was.
+pub(crate) fn resumes_blocked_turn(kind: &str, native_event: Option<&str>) -> bool {
+    kind == "agent.state.changed"
+        && native_event
+            .map(semantic_key)
+            .is_some_and(|event| is_pre_tool_event(&event) || is_post_tool_event(&event))
 }
 
 fn is_resumable_opencode_interruption(source: &str, native_event: &str, native: &Value) -> bool {

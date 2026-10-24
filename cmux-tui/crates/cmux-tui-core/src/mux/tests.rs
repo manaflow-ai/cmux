@@ -5,10 +5,12 @@ use super::*;
 use std::collections::HashMap;
 
 mod agent_hook_fences;
+mod agent_hook_resume;
 mod agent_hook_retry;
 mod agent_presence;
 mod agent_reports;
 mod agent_roster_restore;
+mod agent_terminal_exit;
 mod cell_pixel_fanout;
 mod cell_pixels;
 mod column_update;
@@ -54,6 +56,27 @@ use crate::workspace_registry::{
 
 fn test_mux() -> Arc<Mux> {
     Mux::new_for_test("test", SurfaceOptions::default())
+}
+
+/// Whether `mux` journaled, after sequence `after`, the end of the agent hook session that a
+/// lost terminal's process took with it (#22995). It is journaled only for an agent the roster
+/// held working or blocked, so after a reopen it also proves the replay restored that state.
+fn terminal_exit_end_journaled(mux: &Mux, after: u64, terminal_id: &str) -> bool {
+    mux.workspace_registry
+        .lock()
+        .unwrap()
+        .session_journal_after(after, 1024)
+        .unwrap()
+        .records
+        .iter()
+        .any(|record| {
+            record.kind == "agent.session.ended"
+                && record.payload["native_event"] == crate::agent_hooks::TERMINAL_EXIT_NATIVE_EVENT
+                && record
+                    .subjects
+                    .iter()
+                    .any(|subject| subject.kind == "terminal" && subject.id == terminal_id)
+        })
 }
 
 fn open_persistent_test_mux(session: &str, state_root: &Path) -> Arc<Mux> {
