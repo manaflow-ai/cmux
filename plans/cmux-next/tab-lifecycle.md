@@ -113,9 +113,23 @@ cmux.json:
   DevTools, camera, microphone or screen capture in use, unmuted media
   elements playing, edited form fields (probe script with a 2 s deadline; no
   answer counts as busy), pages whose engine cannot restore their history.
-  A running Web Audio context (`web_audio`) also keeps a page, except under
-  critical memory pressure: it can be silent (a chat app's notification
-  sounds, a game), and Chrome exempts audible tabs only. Web Audio and
+  A running Web Audio context (`web_audio`) also keeps a page, at every
+  memory pressure (lead rule 2026-10-24: audio, capture, form input, a running
+  download and a `beforeunload` that asks are never discarded). It can be
+  silent (a chat app's notification sounds); only the engine knows whether it
+  is heard (Chromium's `WebContents::IsCurrentlyAudible`, a fork request).
+  A `beforeunload` that asks (`before_unload`): the discard probe dispatches a
+  `BeforeUnloadEvent` to the top document, as a close would, if the person
+  used it (Chromium and WebKit ask only after a use); a child frame the person
+  used reports whether it has a handler, which counts as asking. A connected
+  `RTCPeerConnection` (`web_rtc`) keeps the page and stops it freezing, and
+  so does an open USB, HID or serial device or a connected Bluetooth GATT
+  server (`connected_device`; Chrome's kConnectedToUSB/Bluetooth). A child
+  frame the person moved into that has no recorder (Chromium's cross-origin
+  frames) counts as holding their input (`unreadable_frame`) while it is in
+  the document; a frame the page focused itself does not. A page
+  whose last answer kept it keeps the benefit of the doubt while it does not
+  answer (`PageProbeHistory`). Web Audio and
   capture streams have no element, so a page-world recorder
   (`BrowserPageBusy`, installed at document start next to the media hub's
   actions script) wraps `AudioContext`, `getUserMedia` and `getDisplayMedia`;
@@ -132,6 +146,17 @@ cmux.json:
   every hibernated tab wakes to its picture. They used to share the decoded
   32 MB preview cache at up to a quarter of it each, so only the last four kept
   one. Debug Settings > Tab Hibernation turns the old behavior back on.
+- A woken page keeps the tab's last frame over it until the page's own first
+  contentful paint (`BrowserWakeStandIn`; WebKit: `WebKitFirstPaintHandler`,
+  Paint Timing in its own content world), or until its load ends with nothing
+  painted, fails, is stopped, its process ends or the tab closes, and at most
+  500 ms (a page that paints later shows itself loading; `uncovered_wakes_total`
+  in `debug.surfaces` counts wakes whose page could show no picture). The web view
+  stays visible to the engine under the picture, so it paints. Chromium tabs
+  get the same with layer hosting (the picture over the page's CALayerHost,
+  PL-cef-layer); until then a woken Chromium page shows the theme color until
+  it paints. Known gap: WebKit restores the scroll position after the load,
+  so a page that paints before that shows its top for a moment.
 - Wakes are timed from the restore effect to the page being back and to its
   load ending, with whether a snapshot covered the pane and whether the tab
   was shown (`debug.surfaces` `wakes`, the latest 32).
@@ -180,8 +205,12 @@ Now (`HibernationPlanner.plan`):
   decides. Under pressure a page the probe kept in the last 60 s comes last,
   so it does not hold up the rest.
 - Never: shown pages; playing, muted-playing or Picture in Picture media;
-  camera, microphone or screen capture; open DevTools; the person's form
-  input or a POST result; a running download the tab started (`downloading`);
+  Web Audio; camera, microphone or screen capture; open DevTools; the
+  person's form input or a POST result, also in a child frame cmux cannot
+  read; a `beforeunload` that asks; a connected WebRTC peer; an open device;
+  without memory pressure, a page whose site may show notifications
+  (`notifications`, WebKit tabs; Chrome's kNotificationsEnabled keeps such a
+  tab from proactive discards only); a running download the tab started (`downloading`);
   an agent's browser lease (`agent_lease`, also never frozen) or an agent
   call in the last 30 s; neighbors of a shown tab and hovered tabs; pinned
   tabs and Never Hibernate hosts unless the settings say otherwise.

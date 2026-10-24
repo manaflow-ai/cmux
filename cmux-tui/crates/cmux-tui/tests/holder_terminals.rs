@@ -27,7 +27,7 @@
 #![cfg(unix)]
 
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -207,6 +207,14 @@ fn parent_of(pid: i32) -> i32 {
     String::from_utf8_lossy(&out.stdout).trim().parse().unwrap()
 }
 
+/// The command line of `pid`, as `ps` shows it (the test reads its own
+/// daemon's holder).
+fn command_line(pid: i32) -> String {
+    let out =
+        Command::new("ps").args(["-ww", "-o", "args=", "-p", &pid.to_string()]).output().unwrap();
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
 fn alive(pid: i32) -> bool {
     // SAFETY: signal 0 only probes a pid this test's daemon started.
     unsafe { libc::kill(pid, 0) == 0 }
@@ -248,6 +256,14 @@ fn shells_on_the_holder_survive_a_holder_crash_and_a_daemon_crash() {
         terminals.iter().map(|(_, surface)| shell_pid(&daemon.socket, *surface)).collect();
     let holder = parent_of(shells[0]);
     assert!(holder > 1, "the shell's parent is the holder");
+    // The holder carries its daemon's owner mark, as a terminal host does,
+    // so a teardown finds it after the daemon is gone (tag_teardown.py).
+    let holder_args = command_line(holder);
+    let daemon_pid = daemon.child.as_ref().map(Child::id).unwrap();
+    assert!(
+        holder_args.contains(" --owner ") && holder_args.contains(&format!("@{daemon_pid}")),
+        "the holder names no owner: {holder_args}"
+    );
 
     // 2. The daemon crashes and starts again on the same state: every
     // terminal comes back with its whole screen from the holder's ring.
@@ -481,11 +497,13 @@ fn a_restart_after_two_mib_of_output_keeps_the_alternate_screen() {
 /// (SIGSTOP), the gate opens and the program prints [`FLOOD_LINES`] numbered
 /// colored lines: with nobody reading its link, the holder takes one credit
 /// window and reads the rest into its ring. The program then says, through
-/// a second pipe, that its last write returned: every byte is in the holder
-/// or still in the PTY (where the next holder reads it), and the dead holder
-/// holds what it read past the credit window. The holder is then SIGKILLed
-/// and the daemon continued: every line, the last included, must reach the screen
-/// in order. Then the program stops in the middle of an SGR sequence, and
+/// a second pipe, that its last write returned, and one holder turn later
+/// ([`holder_turn`]) the holder has read and published every byte: it holds
+/// what it read past the credit window, and no PTY read is in flight (a
+/// SIGKILL inside one loses that read; the daemon then reports the loss,
+/// `cmux_holder::ring::interrupted_read`, which this test does not cover).
+/// The holder is then SIGKILLed and the daemon continued: every line, the
+/// last included, must reach the screen in order. Then the program stops in the middle of an SGR sequence, and
 /// later in the middle of `é`, and the holder is SIGKILLed at each stop.
 /// The live history and screen must be exact, and a daemon restart must
 /// show the same screen and the same styled history rows.
@@ -549,6 +567,8 @@ exec sleep 3600
     // The program's own signal that its last write returned; the deadline
     // only fails a program that never gets there.
     read_line_within(&written, Duration::from_secs(60), "the flood was never written");
+    // The holder read and published it all; nothing is left to read.
+    holder_turn(&holder_socket(holder));
     // SAFETY: SIGKILL of the holder this test's daemon started.
     unsafe { libc::kill(holder, libc::SIGKILL) };
     // SAFETY: SIGCONT of the daemon this test stopped.
@@ -608,6 +628,40 @@ exec sleep 3600
     for (index, (want, got)) in tail.iter().zip(&restored).enumerate() {
         assert_eq!(got["runs"], want["runs"], "restored history row {index} differs");
     }
+}
+
+/// One turn of the holder serving `socket`, without touching its daemon
+/// link: a connection with a wrong token says HELLO, and the holder answers
+/// it (an ERROR, then the connection's end) in a turn whose `poll` returned
+/// after the HELLO arrived. In each turn the holder reads every master that
+/// `poll` found ready, to its end or its terminal's room, publishing each
+/// read before the next, before it reads such a connection
+/// (`cmux_holder::holder`). So once the answer is here, the holder has read
+/// what every program wrote before the HELLO (a PTY buffers far less than
+/// one turn reads), and no PTY read is in flight. On Linux the PTY hands
+/// bytes to the master on a kernel worker, but a `poll` or `read` of the
+/// master runs that worker first.
+fn holder_turn(socket: &Path) {
+    use cmux_holder::wire::{self, Kind, Out};
+    let mut stream = UnixStream::connect(socket).unwrap();
+    // Only fails a holder that never answers.
+    stream.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
+    let hello = Out::default().u16(wire::VERSION).bytes(&[0u8; 32]).0;
+    stream.write_all(&wire::encode(Kind::Hello, 0, &hello)).unwrap();
+    let mut answer = Vec::new();
+    stream.read_to_end(&mut answer).expect("the holder answers a HELLO with a wrong token");
+}
+
+/// The socket the holder `pid` serves (its `--socket` argument).
+fn holder_socket(pid: i32) -> PathBuf {
+    let out = Command::new("ps").args(["-ww", "-o", "args=", "-p", &pid.to_string()]).output();
+    let args = String::from_utf8_lossy(&out.unwrap().stdout).into_owned();
+    let mut words = args.split_whitespace();
+    words
+        .find(|word| *word == "--socket")
+        .and_then(|_| words.next())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| panic!("no --socket in the holder's arguments: {args:?}"))
 }
 
 /// A named pipe at `path` (0600): a signal between the test and its program.
@@ -875,8 +929,10 @@ fn a_new_daemon_adopts_an_older_holder_by_its_wire_version() {
 /// swapped and the old one deleted, and a daemon from the new bundle starts:
 /// every shell lives, every screen comes back, input works, and the new
 /// daemon adopts the running holder (the same process runs new terminals).
-/// Both bundles carry this build's binaries: a holder that did not change
-/// across an update (the common case, one copy); an older holder's wire is
+/// Both bundles carry this build's binaries, the daemon's too: this covers
+/// the bundle swap and a holder that did not change across an update (the
+/// common case, one copy), not a changed daemon build. A daemon of another
+/// build adopting an older holder by its wire is
 /// `a_new_daemon_adopts_an_older_holder_by_its_wire_version`.
 #[cfg(target_os = "macos")]
 #[test]
@@ -947,10 +1003,15 @@ fn an_update_that_swaps_the_app_bundle_keeps_every_shell_and_the_new_daemon_adop
     let stop = json!({"id": 1, "cmd": "shutdown-daemon", "pid": identity["pid"], "generation": generation});
     (&stream).write_all(format!("{stop}\n").as_bytes()).unwrap();
     let mut old = daemon.child.take().unwrap();
-    let deadline = Instant::now() + Duration::from_secs(30);
-    while old.try_wait().unwrap().is_none() {
-        assert!(Instant::now() < deadline, "the old daemon did not exit for the update");
-        std::thread::sleep(Duration::from_millis(50));
+    let (exited, exit) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = exited.send(old.wait());
+    });
+    // The deadline only fails a daemon that never exits.
+    match exit.recv_timeout(Duration::from_secs(30)) {
+        Ok(Ok(_)) => {}
+        Ok(Err(error)) => panic!("wait for the old daemon: {error}"),
+        Err(_) => panic!("the old daemon did not exit for the update"),
     }
     // Sparkle: the old bundle goes away, the new one takes its place, and
     // the old one is deleted.

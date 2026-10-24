@@ -1,4 +1,5 @@
 import CmuxNextRemote
+import CmuxNextRemoteLocalhostService
 import Foundation
 
 /// User-facing SSH machine text. Keys live in Resources/Remote.xcstrings. One accessor per line
@@ -140,6 +141,35 @@ enum RemoteStrings {
     static func browserRunsOnThisMac(_ machine: String) -> String {
         String(format: String(localized: "remote.browser.runsOnThisMac",
                               defaultValue: "This tab runs on this Mac, not on %@.", table: "Remote", bundle: .module), machine)
+    }
+
+    /// The notice under a browser tab of another machine's workspace, by what
+    /// its `localhost` reaches: forwarded to the machine, or this Mac (and why).
+    /// No route (unknown) keeps the plain text.
+    static func browserRunsOnThisMac(_ machine: String, route: RemoteLocalhostRoute?) -> String {
+        switch route {
+        case .machine(let name):
+            return String(format: String(localized: "remote.browser.runsOnThisMac.forwarded",
+                                         defaultValue: "This tab runs on this Mac. localhost goes to %@.",
+                                         table: "Remote", bundle: .module), name)
+        case .thisMacInstead(let name, let reason):
+            let why: String = switch reason {
+            case .turnedOff:
+                String(localized: "remote.browser.localhostReason.turnedOff",
+                       defaultValue: "forwarding is turned off", table: "Remote", bundle: .module)
+            case .updateMachine:
+                String(format: String(localized: "remote.browser.localhostReason.updateMachine",
+                                      defaultValue: "%@ needs a cmux update", table: "Remote", bundle: .module), name)
+            case .webKit:
+                String(localized: "remote.browser.localhostReason.webKit",
+                       defaultValue: "WebKit tabs cannot forward localhost", table: "Remote", bundle: .module)
+            }
+            return String(format: String(localized: "remote.browser.runsOnThisMac.fallback",
+                                         defaultValue: "This tab runs on this Mac, and localhost is this Mac too (%@).",
+                                         table: "Remote", bundle: .module), why)
+        case .thisMac, nil:
+            return browserRunsOnThisMac(machine)
+        }
     }
 
     /// The refusal of a new browser tab in a workspace of a machine that is not connected.

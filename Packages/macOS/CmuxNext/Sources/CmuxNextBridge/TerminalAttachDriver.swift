@@ -61,6 +61,11 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
     private let observer: Observer?
     private let cursorDefault: TerminalCursorDefault
     private let backoffDelay: BackoffDelay
+    private let onGridSent: GridSent?
+
+    /// Told each grid this view sends to the PTY and whether the daemon will echo it (a grid other than
+    /// the one the stream last announced, or one sent while an earlier echo is still due).
+    public typealias GridSent = @Sendable (_ size: CellSize, _ expectsEcho: Bool) -> Void
 
     /// Waits before a re-attach that follows `failedReconnects` failed ones
     /// in a row (the App passes a capped ``Backoff``). Throws when cancelled.
@@ -68,6 +73,10 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
 
     /// `restoring`: the view attaches to a terminal that already runs
     /// (``TerminalAttachMachine/init(initialSize:visible:restoring:)``).
+    /// `onGridSent`: told each grid this view sends to the PTY (a claim or a take over of the live link),
+    /// in reduction order under the reducer's lock, as the effect is queued (the applier sends it right
+    /// after, in order); never a resize the machine dropped (no live link, hidden, or the grid it already
+    /// holds). Must not block (the burst bench's trace).
     public init(
         initialSize: CellSize,
         visible: Bool = true,
@@ -78,7 +87,8 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
         onReattach: @escaping @Sendable (_ attempt: Int) -> Void = { _ in },
         observer: Observer? = nil,
         cursorDefault: TerminalCursorDefault = .ghostty,
-        backoffDelay: @escaping BackoffDelay = { _ in }
+        backoffDelay: @escaping BackoffDelay = { _ in },
+        onGridSent: GridSent? = nil
     ) {
         core = Mutex(Core(machine: Machine(initialSize: initialSize, visible: visible, restoring: restoring)))
         queue = TerminalStepQueue(highWater: outputHighWater)
@@ -88,6 +98,7 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
         self.observer = observer
         self.cursorDefault = cursorDefault
         self.backoffDelay = backoffDelay
+        self.onGridSent = onGridSent
     }
 
     deinit {
@@ -142,7 +153,9 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
 
     private func send(_ event: Machine.Event) {
         var batch = core.withLock { core -> [Machine.Effect] in
-            core.outbox += core.machine.reduce(event)
+            let effects = core.machine.reduce(event)
+            if let onGridSent { Self.reportGrids(effects, of: core.machine, to: onGridSent) }
+            core.outbox += effects
             observer?(event, core.machine)
             guard !core.applying, !core.outbox.isEmpty else { return [] }
             core.applying = true
@@ -182,6 +195,17 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
             // A re-attach still waiting out its backoff must not open.
             let tasks = core.withLock { core in core.tasks.values }
             tasks.forEach { $0.cancel() }
+        }
+    }
+
+    /// Reports the grids `effects` send (``GridSent``). A claim adds its grid to the machine's due echoes
+    /// exactly when the daemon will echo it, so the last due echo names it then.
+    private static func reportGrids(_ effects: [Machine.Effect], of machine: Machine, to report: GridSent) {
+        for effect in effects {
+            switch effect {
+            case .claim(_, let size), .takeOver(_, let size, _): report(size, machine.echoesDue.last == size)
+            default: continue
+            }
         }
     }
 

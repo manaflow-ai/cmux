@@ -42,6 +42,13 @@ public final class HoverCardCoordinator {
     /// The last pointer move was on the card.
     private var pointerWasOnCard = false
     private var observers: [MainActorObservation] = []
+    /// The last window-server answer to "which window is on top here", for its point and the time it was
+    /// asked: valid for one display frame (``topWindowLifetime``), so a burst of relayouts under a still
+    /// pointer asks once, and a window of another app or a non-key panel brought forward shows by the
+    /// next frame (no notification of this app says so).
+    var topWindowCache: (point: CGPoint, at: CFTimeInterval, number: Int)?
+    /// One frame at 120 Hz: how long a cached top window holds.
+    static let topWindowLifetime: CFTimeInterval = 1.0 / 120
     /// Machine events delivered (debug report).
     public private(set) var eventCount = 0
 
@@ -67,6 +74,8 @@ public final class HoverCardCoordinator {
         if let eventPointer, eventPointer.mouse == mouse { return eventPointer.point }
         return mouse
     }
+    /// The clock the cached top window expires on, in seconds (tests inject one).
+    public var now: () -> CFTimeInterval = { CACurrentMediaTime() }
     /// The number of the topmost window under a screen point, ignoring
     /// the card itself (tests inject one).
     public var windowNumberAt: ((CGPoint) -> Int?)?

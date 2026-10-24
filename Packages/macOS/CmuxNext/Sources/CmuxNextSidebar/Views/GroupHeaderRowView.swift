@@ -30,7 +30,8 @@ final class GroupHeaderRowView: SidebarRowView {
     /// A collapsed group's member count, after the name.
     private let count = SidebarRowView.label(font: SidebarStyle.headerFont)
     private let chevron = DecorativeImageView()
-    private let activity = StatusIndicatorView()
+    /// The members' roll-up, in the sidebar's status colors (Lawrence msg 11983).
+    private let activity: StatusIndicatorView = { let view = StatusIndicatorView(); view.usesStatusColors = true; return view }()
     /// The spinner's slot: it fades and collapses its width as loading starts and stops (u-group-header-detail).
     private lazy var activitySlot = SidebarRevealSlotView(activity) { [weak activity] in activity?.showsGlyph ?? false }
     /// Loading stopped: the spinner keeps drawing while its slot fades and collapses, then goes idle.
@@ -127,13 +128,18 @@ final class GroupHeaderRowView: SidebarRowView {
         var collapsed: Bool
         var fontSize: CGFloat
         var details: GroupHeaderDetails
+        var status: StatusIndicatorState?
     }
 
     /// Shows `group`. A collapsed header shows its loading spinner on the right; `details` turns
     /// on its member count, unread total and other states (all off by default).
-    func configure(_ group: SidebarGroup, row: SidebarRow, details: GroupHeaderDetails = GroupHeaderDetails(), animated: Bool) {
+    ///
+    /// `status` is the header's roll-up over its whole subtree (``SidebarGroup/statusRollUp(collapsed:)``
+    /// of the group and its subgroups); nil rolls up `group`'s own members.
+    func configure(_ group: SidebarGroup, row: SidebarRow, details: GroupHeaderDetails = GroupHeaderDetails(),
+                   status rollUp: StatusIndicatorState? = nil, animated: Bool) {
         let content = Content(group: group, childCount: row.childCount, collapsed: row.isCollapsed,
-                              fontSize: SidebarStyle.headerFont.pointSize, details: details)
+                              fontSize: SidebarStyle.headerFont.pointSize, details: details, status: rollUp)
         guard needsConfigure(content) else { return }
         tint = group.tint
         isEmpty = group.workspaces.isEmpty && group.items.isEmpty
@@ -146,8 +152,8 @@ final class GroupHeaderRowView: SidebarRowView {
         count.stringValue = details.memberCount && collapsed && row.childCount > 0 ? "\(row.childCount)" : ""
         chevronIcon = Self.disclosureIcon(collapsed: collapsed)
         chevron.image = NSImage.icon(chevronIcon, size: .iconRowSize(forLabelPointSize: Metrics.smallIconSize - Metrics.space2))
-        // Lawrence 2026-10-20: "All we care about is the loading."
-        let status = collapsed ? (details.otherStates ? group.aggregateActivity : group.loadingActivity) : .idle
+        // Lawrence 2026-10-20: "All we care about is the loading"; msg 11983: and blue, orange and red.
+        let status = collapsed && details.otherStates ? group.aggregateActivity : rollUp ?? group.statusRollUp(collapsed: collapsed)
         if status.isVisible {
             activityEnding = false
             activity.configure(status)

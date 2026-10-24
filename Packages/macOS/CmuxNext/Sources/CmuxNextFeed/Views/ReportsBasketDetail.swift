@@ -2,10 +2,13 @@ import CmuxNextDesign
 import SwiftUI
 
 /// The selected report in the Labs reports basket: its sender, when it arrived, its text, and a
-/// reply field whose Reply button sends `draft` through `onSend`.
+/// reply field whose Reply button sends `draft` through `onSend`. `sending`: a reply is in flight
+/// (the button waits for it); `notSent`: the last reply was not sent.
 struct ReportsBasketDetail: View {
     let item: FeedReport
     @Binding var draft: String
+    let sending: Bool
+    let notSent: Bool
     let onSend: () -> Void
     @Environment(\.feedColors) private var colors
 
@@ -26,11 +29,16 @@ struct ReportsBasketDetail: View {
             }
             Spacer(minLength: 0)
             FeedHairline()
+            if notSent {
+                Text(FeedStrings.reportsNotSent)
+                    .font(.system(size: TypeScale.caption)).foregroundStyle(colors.danger)
+                    .padding(.horizontal, 14).padding(.top, 10)
+            }
             HStack(alignment: .bottom, spacing: 8) {
                 TextField(FeedStrings.reportsReplyPlaceholder, text: $draft, axis: .vertical)
-                    .textFieldStyle(.roundedBorder).lineLimit(1...4)
+                    .textFieldStyle(.roundedBorder).lineLimit(1...4).focusEffectDisabled()
                 Button(FeedStrings.reportsReply, action: onSend).buttonStyle(.borderedProminent)
-                    .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(sending || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             .padding(14)
         }

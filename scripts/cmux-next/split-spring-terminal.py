@@ -48,22 +48,53 @@ if "--suite=launch-check" in sys.argv:
 # Every other suite but pane-bench (package tests, no window) needs this account's GUI login session on the console:
 # without it the app never opens its socket (bench_launch.py). Say so at once instead of after a launch timeout (the
 # build in split-spring.sh has run by then). launch-check above reports it itself, in `check`'s own --json shape.
-if "--suite=pane-bench" not in sys.argv:
+if "--suite=pane-bench" not in sys.argv and "--suite=action-budget-bench" not in sys.argv:
     require_gui_session("split-spring")
 # `--suite=bench-smoke`: one short run of each bench that launches through bench_launch.py (bench-launch-smoke.py).
 if "--suite=bench-smoke" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bench-launch-smoke.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=bench-smoke"])
+# `--suite=command-pan`: Command + scroll pans the columns strip, light and STRESS (scripts/cmux-next/bench-command-pan.py).
+if "--suite=command-pan" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bench-command-pan.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=command-pan"])
 # `--suite=open-panel`: click to file picker, light and STRESS (scripts/cmux-next/open-panel-bench.py).
 if "--suite=open-panel" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "open-panel-bench.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=open-panel"])
+# `--suite=cef-tab`: new Chromium and WebKit tabs, key to visible and to page pixels, light and STRESS
+# (scripts/cmux-next/cef-tab-bench.py, PL-cef-tab).
+if "--suite=cef-tab" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cef-tab-bench.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=cef-tab"])
 # `--suite=pane-perf` (through the allowlisted fleet entry scripts/measure/split-spring.sh): the whole pane
 # motion suite instead, scripts/cmux-next/pane-perf-terminal.py, with the same --tag/--app/--out/--json.
 # `--suite=budgets`: every perf budget row, scripts/cmux-next/perf-budgets.py (one table, one gate).
 if "--suite=budgets" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "perf-budgets.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=budgets"])
+# `--suite=config-parity`: is the bench build (split-spring.sh --config=bench builds --app) as fast as Release?
+# Builds a Release app of this checkout (tag cfgparity-rel), then scripts/cmux-next/bench-config-parity.py
+# runs the same actions on both, interleaved (--runs, --rounds, --idle pass through).
+if "--suite=config-parity" in sys.argv:
+    here = os.path.dirname(os.path.abspath(__file__))
+    root = os.path.dirname(os.path.dirname(here))
+    rest = [a for a in sys.argv[1:] if a != "--suite=config-parity"]
+    bench_app = rest[rest.index("--app") + 1]
+    out = rest[rest.index("--out") + 1] if "--out" in rest else "/tmp/config-parity"
+    passthrough = [a for a in rest if a.startswith(("--runs=", "--rounds=", "--idle=", "--settle="))]
+    log = os.path.join(out, "reload-release.log")
+    os.makedirs(out, exist_ok=True)
+    with open(log, "w") as handle:
+        built = subprocess.run(["./scripts/reload.sh", "--tag", "cfgparity-rel", "--config", "release"], cwd=root,
+                               env={**os.environ, "CMUX_DEV_BACKEND_MODE": "local"}, stdout=handle, stderr=subprocess.STDOUT)
+    lines = open(log).read().splitlines()
+    paths = [lines[i + 1].strip() for i, line in enumerate(lines[:-1]) if line.startswith("App path:")]
+    if built.returncode != 0 or not paths:
+        print("\n".join(lines[-60:]))
+        raise SystemExit("config-parity: the Release build failed")
+    suite = os.path.join(here, "bench-config-parity.py")
+    os.execv(sys.executable, [sys.executable, suite, "--release", paths[-1], "--bench", bench_app, "--out", out] + passthrough)
 if "--suite=pane-perf" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pane-perf-terminal.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=pane-perf"])
@@ -79,10 +110,66 @@ if "--suite=app-perf" in sys.argv:
 if "--suite=chromium-tab-count" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "chromium-tab-count-live.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=chromium-tab-count"])
+# `--suite=cli-storm`: the CLI storm (bench_cli_storm.py) in a launched app, light or STRESS (--session=stress), with
+# debug.main_budget and the display links made around it, scripts/cmux-next/cli-storm-session.py.
+# `--sessions=light,stress` (cli-storm and sidebar-churn): one fleet step runs the suite once per session, each in its
+# own launch, --out and --json; report.json then holds {"sessions": {session: that run's report}}.
+def _run_per_session(script, name):
+    args = [a for a in sys.argv[1:] if a != f"--suite={name}"]
+    sessions = next(a.split("=", 1)[1] for a in args if a.startswith("--sessions="))
+    args = [a for a in args if not a.startswith("--sessions=")]
+
+    def value(flag):
+        for i, a in enumerate(args):
+            if a.startswith(flag + "="):
+                return a.split("=", 1)[1]
+            if a == flag and i + 1 < len(args):
+                return args[i + 1]
+        return None
+
+    def without(flags):
+        out, skip = [], False
+        for a in args:
+            if skip:
+                skip = False
+                continue
+            if a in flags:
+                skip = True
+                continue
+            if not any(a.startswith(f + "=") for f in flags):
+                out.append(a)
+        return out
+
+    out, report = value("--out") or tempfile.mkdtemp(prefix=f"{name}-"), value("--json")
+    rest, combined, code = without({"--out", "--json"}), {"suite": name, "sessions": {}}, 0
+    for session in sessions.split(","):
+        folder = os.path.join(out, session)
+        os.makedirs(folder, exist_ok=True)
+        path = os.path.join(folder, "report.json")
+        status = subprocess.call([sys.executable, script, *rest, f"--session={session}", "--out", folder, "--json", path])
+        code = code or status
+        try:
+            with open(path) as f:
+                combined["sessions"][session] = json.load(f)
+        except (OSError, ValueError) as error:
+            combined["sessions"][session] = {"error": f"exit {status}: {error}"}
+        combined["sessions"][session]["exit"] = status
+    with open(report or os.path.join(out, "report.json"), "w") as f:
+        json.dump(combined, f, indent=1, default=str)
+    sys.exit(code)
+
+
 # `--suite=sidebar-churn`: terminal typing idle and while the sidebar rearranges, scripts/cmux-next/sidebar-churn-typing.py.
 if "--suite=sidebar-churn" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sidebar-churn-typing.py")
+    if any(a.startswith("--sessions=") for a in sys.argv):
+        _run_per_session(suite, "sidebar-churn")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=sidebar-churn"])
+if "--suite=cli-storm" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cli-storm-session.py")
+    if any(a.startswith("--sessions=") for a in sys.argv):
+        _run_per_session(suite, "cli-storm")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=cli-storm"])
 # `--suite=automation-typing`: terminal typing idle and while agents automate the app (terminal writes, a Chromium page
 # driven through the control socket, optional AX walks), scripts/cmux-next/automation-typing-bench.py.
 if "--suite=automation-typing" in sys.argv:
@@ -102,6 +189,25 @@ if "--suite=pane-bench" in sys.argv:
     env = dict(os.environ, CMUX_PANE_BENCH="1", CMUX_SWIFT_SUITE_CONFIGURATION=config)
     sys.exit(subprocess.run([os.path.join(root, "scripts/ci/package-test-lane.sh"), "suite", "Packages/macOS/CmuxNext",
                              "PaneMotionWorkTests,PaneMotionBench"], cwd=root, env=env).returncode)
+# `--suite=action-budget-bench`: the per-action budget monitor's always-on cost in ns per run and per batch
+# (ActionBudgetMonitorBench, CmuxNextActionsTests), no app window; --config=release|debug (default release). Run
+# it on each macOS major (perf lead, not a CI gate) and quote its `action-budget bench:` lines.
+if "--suite=action-budget-bench" in sys.argv:
+    root = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True).stdout.strip() or "."
+    config = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--config=")), "release")
+    env = dict(os.environ, CMUX_ACTION_BUDGET_BENCH="1", CMUX_SWIFT_SUITE_CONFIGURATION=config)
+    sys.exit(subprocess.run([os.path.join(root, "scripts/ci/package-test-lane.sh"), "suite", "Packages/macOS/CmuxNext",
+                             "ActionBudgetMonitorBench"], cwd=root, env=env).returncode)
+# `--suite=gui-tests --tests=SuiteA,SuiteB`: CmuxNext package suites that need a screen (a window zoom, a real
+# display link), run through the same lane script on a measure host, which has the console session and a
+# display the suite runners lack (there such tests are skipped: `.enabled(if: NSScreen.main != nil)`).
+if "--suite=gui-tests" in sys.argv:
+    root = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True).stdout.strip() or "."
+    tests = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--tests=")), "")
+    if not tests:
+        sys.exit("split-spring --suite=gui-tests needs --tests=SuiteA,SuiteB")
+    sys.exit(subprocess.run([os.path.join(root, "scripts/ci/package-test-lane.sh"), "suite", "Packages/macOS/CmuxNext", tests],
+                            cwd=root).returncode)
 # `--suite=every-action`: every catalog action through its real entrypoint plus the non-catalog interactions,
 # light and STRESS, scripts/cmux-next/every-action-sweep.py (also artifacts/split-spring/every-action.md).
 if "--suite=every-action" in sys.argv:
@@ -112,6 +218,11 @@ if "--suite=every-action" in sys.argv:
 if "--suite=typing-frame" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "typing-frame-bench.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=typing-frame"])
+# `--suite=terminal-resize`: Ghostty live resize, idle cursor and STRESS drag (PL-ghostty),
+# scripts/cmux-next/bench-terminal-resize.py; --json is its terminal-resize.json too.
+if "--suite=terminal-resize" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bench-terminal-resize.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=terminal-resize"])
 if "--suite=anim-perf" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "anim-perf-terminal.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=anim-perf"])

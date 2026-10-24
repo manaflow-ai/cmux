@@ -8,7 +8,9 @@ import { createDiffViewerLabelResolver } from "../src/labels";
 const label = createDiffViewerLabelResolver(undefined, { language: "en" });
 const noop = () => {};
 const revert = (extra: Record<string, unknown> = {}) =>
-  ({ busy: false, stageAll: noop, revertAll: noop, ...extra }) as unknown as Parameters<typeof DiffBulkBar>[0]["revert"];
+  ({ busy: false, stageAll: noop, revertAll: noop, ...extra }) as unknown as Parameters<
+    typeof DiffBulkBar
+  >[0]["revert"];
 const bar = (props: Partial<Parameters<typeof DiffBulkBar>[0]>) =>
   renderToStaticMarkup(<DiffBulkBar revert={revert()} label={label} {...props} />);
 

@@ -27,15 +27,22 @@ extension KeyRouter {
         }
     }
 
-    /// Holds `candidate` until the page reports `event` unhandled.
-    func offerToPage(_ event: NSEvent, candidate: Candidate, context: KeyContext, window: String) {
-        pageFirstOffer.offer(event, PageFirstKeyOffer.Held(candidate: candidate, context: context, window: window))
+    /// The browser tab `controller`'s focused pane shows while a page has the keyboard.
+    func focusedBrowserTab(in controller: WindowController) -> (any BrowserTab)? {
+        guard case .browserPage = controller.focus.state.resolved, let pane = controller.focus.state.resolved.pane,
+              case .browser(let entry)? = controller.content?.paneController(key: pane)?.currentContent else { return nil }
+        return entry.tab
+    }
+
+    /// Holds `candidate` until the page of `tab` reports `event` unhandled.
+    func offerToPage(_ event: NSEvent, candidate: Candidate, context: KeyContext, window: String, tab: ObjectIdentifier) {
+        pageFirstOffer.offer(event, PageFirstKeyOffer.Held(candidate: candidate, context: context, window: window, tab: tab))
         trace?("dispatcher: the page gets the key first; \(candidate.id.rawValue) runs if it is left unhandled")
     }
 
-    /// The page did not handle `event`: runs the action held for it. Returns whether one ran.
-    func runUnhandledPageKey(_ event: NSEvent) -> Bool {
-        guard let held = pageFirstOffer.take(event) else { return false }
+    /// The page of `tab` did not handle `event`: runs the action held for it. Returns whether one ran.
+    func runUnhandledPageKey(_ event: NSEvent, from tab: ObjectIdentifier) -> Bool {
+        guard let held = pageFirstOffer.take(event, from: tab) else { return false }
         run(held.candidate, context: held.context, window: held.window)
         return true
     }

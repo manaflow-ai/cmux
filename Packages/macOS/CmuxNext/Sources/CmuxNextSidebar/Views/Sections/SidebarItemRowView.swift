@@ -63,7 +63,11 @@ class SidebarItemRowView: NSView {
     let rowBadge = RowBadgeView()
     let avatarView = SidebarAvatarView()
     /// The workspace item's status: the shared indicator (`info.activity`).
-    let activity: StatusIndicatorView = { let view = StatusIndicatorView(); view.tracksWindowOcclusion = true; return view }()
+    let activity: StatusIndicatorView = {
+        let view = StatusIndicatorView()
+        (view.tracksWindowOcclusion, view.usesStatusColors) = (true, true) // the sidebar's status colors (Lawrence msg 11983)
+        return view
+    }()
     /// Set only by the hover owner (`PointerHover`, cx-3wu5): the pointer
     /// now over the row's frame now. Leaving also ends a press.
     private(set) var isHovered = false {
@@ -265,7 +269,10 @@ class SidebarItemRowView: NSView {
         var badgeX = style == .chip
             ? (badge.isHidden ? trailing : trailing - Metrics.space2 - badgeWidth)
             : b.width - inset * 2 - badgeWidth
-        if !rowBadge.isHidden { badgeX = layoutTrailingDot(in: b) }
+        if let columnStart = layoutColumnMark(in: b) {
+            // A count beside the column's mark (a Chief's) sits left of the column.
+            badgeX = badge.isHidden || style == .chip ? columnStart : columnStart - Metrics.space2 - badgeWidth
+        }
         // A dot is round: as tall as it is wide, centered on the row.
         let badgeHeight = badge.state == .dot ? badgeWidth : bh
         badge.frame = NSRect(x: badgeX, y: (b.height - badgeHeight) / 2, width: badgeWidth, height: badgeHeight)
@@ -274,17 +281,28 @@ class SidebarItemRowView: NSView {
         title.frame = NSRect(x: textX, y: (b.height - th) / 2, width: max(0, activityLeading(before: badgeX) - Metrics.space2 - textX), height: th)
     }
 
-    /// Places the blue unread dot as a workspace row places its lone glyph: centered on the
-    /// trailing column (the group header chevron's x, `SidebarStyle+TrailingColumn`), or after a
-    /// chip's label. Returns where the title's room ends. A workspace row's bounds are its fill;
-    /// this row's fill is inset by `horizontalInset`, so the column is measured from the fill's end.
-    private func layoutTrailingDot(in b: NSRect) -> CGFloat {
-        let side = rowBadge.cellSide, width = rowBadge.preferredWidth
-        let column = SidebarStyle.trailingColumnCenterX(rowWidth: b.width - SidebarStyle.horizontalInset)
-        let x = style == .chip ? b.width - Metrics.space2 - width : column - width + side / 2
-        rowBadge.frame = NSRect(x: x.rounded(.down), y: ((b.height - side) / 2).rounded(), width: width, height: side)
-        guard style != .chip else { return rowBadge.frame.minX }
-        return min(rowBadge.frame.minX, column - SidebarStyle.trailingSlotSide / 2)
+    /// Places the row's trailing mark as a workspace row places its own: the blue unread dot, else
+    /// the status (a band workspace that needs you or works, `info.activity`), centered on the
+    /// trailing column (the group header chevron's x, `SidebarStyle+TrailingColumn`); a chip puts
+    /// the dot after its label. Returns where the room left of the mark starts, nil with no mark.
+    /// A workspace row's bounds are its fill; this row's fill is inset by `horizontalInset`, so the
+    /// column is measured from the fill's end. Lawrence msg 11914: the status drew after the title,
+    /// 3.5 pt right of the column every other dot and spinner shares.
+    private func layoutColumnMark(in b: NSRect) -> CGFloat? {
+        let rowWidth = b.width - SidebarStyle.horizontalInset
+        let column = SidebarStyle.trailingColumnCenterX(rowWidth: rowWidth)
+        if !rowBadge.isHidden {
+            let side = rowBadge.cellSide, width = rowBadge.preferredWidth
+            let x = style == .chip ? b.width - Metrics.space2 - width : column - width + side / 2
+            rowBadge.frame = NSRect(x: x.rounded(.down), y: ((b.height - side) / 2).rounded(), width: width, height: side)
+            guard style != .chip else { return rowBadge.frame.minX }
+            return min(rowBadge.frame.minX, SidebarStyle.trailingColumnStart(rowWidth: rowWidth))
+        }
+        guard activityOnColumn else { return nil }
+        let side = SidebarStyle.indicatorSize, scale = window?.backingScaleFactor ?? 2
+        func snapped(_ value: CGFloat) -> CGFloat { (value * scale).rounded() / scale }
+        activity.frame = NSRect(x: snapped(column - side / 2), y: snapped((b.height - side) / 2), width: side, height: side)
+        return min(activity.frame.minX, SidebarStyle.trailingColumnStart(rowWidth: rowWidth))
     }
 
     /// A large tile: the glyph well centered over a one-line caption, the

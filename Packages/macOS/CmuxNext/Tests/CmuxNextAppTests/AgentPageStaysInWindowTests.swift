@@ -53,7 +53,7 @@ import Testing
         try await Task.sleep(for: .milliseconds(300))
 
         // Cmd-T into a browser, then Cmd-W back to the page.
-        let chrome = BrowserChromeView(tab: WebKitEngine().makeWebKitTab())
+        let chrome = BrowserChromeView(tab: WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab())
         pane.show(chrome)
         pane.layoutSubtreeIfNeeded()
         try await Task.sleep(for: .milliseconds(300)) // any paint hold on the browser ends

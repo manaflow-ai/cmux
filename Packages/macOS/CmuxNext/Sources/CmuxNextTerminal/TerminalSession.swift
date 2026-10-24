@@ -178,7 +178,7 @@ public final class TerminalSession {
         // The first grid report fired inside the surface init, before
         // `session` was set; report it now.
         surfaceView.updateSurfaceSize(forceReport: true)
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         if NewTerminalTrace.shared.isArmed { traceSurfaceCreated(io: io) }
         #endif
     }
@@ -287,7 +287,7 @@ public final class TerminalSession {
             var lane: TerminalOutputLane?
             for await event in events {
                 if case .output(let data) = event, let lane {
-                    TypingLatencyProbe.shared.mark(.outputMain)
+                    TypingLatencyProbe.shared.mark(.outputReceived)
                     ExpectedActivity.shared.note(.terminalOutput)
                     await lane.waitForCapacity()
                     lane.processOutput(data)
@@ -307,7 +307,7 @@ public final class TerminalSession {
     }
 
     private func apply(_ event: TerminalIOEvent) async {
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         if NewTerminalTrace.shared.isArmed { traceEvent(event) }
         #endif
         switch event {
@@ -337,7 +337,7 @@ public final class TerminalSession {
             frameHold.contentQueued()
             TerminalTimings.contentApplied()
         case .output(let data):
-            TypingLatencyProbe.shared.mark(.outputMain)
+            TypingLatencyProbe.shared.mark(.outputReceived)
             ExpectedActivity.shared.note(.terminalOutput)
             guard let lane = surfaceView.lane else { return }
             await lane.waitForCapacity()
@@ -394,7 +394,7 @@ public final class TerminalSession {
         let wasFirstResponder = old.isFirstResponder
         let fresh = TerminalSurfaceView(io: ioMode, input: input, session: self)
         swappedSurfaces += 1
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         if NewTerminalTrace.shared.isArmed { traceSurfaceSwapped(fresh) }
         #endif
         fresh.ownsGeometry = ownsGeometry
@@ -449,8 +449,13 @@ public final class TerminalSession {
         input.focusGained()
     }
 
-    func surfaceDidReport(grid: TerminalGridSize, pixelWidth: Int, pixelHeight: Int) {
+    /// The surface reports its grid to the PTY owner. `final`: the grid its pane's layout spring will
+    /// land at (``TerminalIO/resizeOnMain(cols:rows:final:window:)``).
+    func surfaceDidReport(grid: TerminalGridSize, pixelWidth: Int, pixelHeight: Int, final: Bool = false) {
         guard ownsGeometry else { return }
+        // An IO with a main-actor path takes every grid there, so a final grid never overtakes, or
+        // is overtaken by, an older grid still in the ordered input stream.
+        if io.resizeOnMain(cols: grid.columns, rows: grid.rows, final: final, window: surfaceView.window) { return }
         input.resize(grid, pixelWidth: pixelWidth, pixelHeight: pixelHeight)
     }
 }

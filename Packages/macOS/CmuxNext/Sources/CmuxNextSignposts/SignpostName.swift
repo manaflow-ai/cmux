@@ -5,8 +5,8 @@
 /// strings. Add a case here, with what its interval spans, before a call site uses it. The cases
 /// are the catalog: `allCases` is the list tests and readers enumerate, so no second list exists.
 ///
-/// Only ``actionPerform``, ``actionCommit``, ``actionGate``, ``stallMainTask`` and ``stallOverBudget`` have an
-/// emitter today. The other cases are
+/// ``actionPerform``, ``actionCommit``, ``actionGate``, ``keyToFrame``, ``keyFlow``, ``scrollToFrame``,
+/// ``stallMainTask`` and ``stallOverBudget`` have an emitter today. The other cases are
 /// **reserved**: the lane named on each adds the emitter (plans/cmux-next/architecture-refactor-DESIGN.md
 /// section 7). Until then no build records them, and no bench or report may quote them.
 ///
@@ -44,10 +44,27 @@ public nonisolated enum SignpostName: Sendable, Hashable, CaseIterable, CustomSt
     /// Reserved. A whole motion: the structural change to the spring at rest.
     case motionRun
 
-    // MARK: key (reserved: PL-typing)
+    // MARK: key (PL-typing)
 
-    /// Reserved. A key event received by the app to the committed frame that shows its effect.
+    /// A key-down the app dispatches to the end of the Core Animation commit that ends that turn (the app's
+    /// `KeyFrameSignpost`, from `CmuxApplication.sendEvent`). Message: `target=<view|terminal> age_ms=<age>`,
+    /// the key's age when its dispatch began (its wait in the event queue). For a text view the commit shows
+    /// the typed character; for a terminal it is the key's main-thread share, and the echo comes later.
     case keyToFrame
+    /// One hop of a key press's flow across processes (a point event, not an interval), emitted only
+    /// while `CMUX_TRACE_FLOWS` is set (`TypingLatencyProbe`). Message: `hop=<hop> flow=<id>
+    /// age_us=<n>`, where `flow` is the id the app minted for the key press (the daemon's `send`
+    /// request carries it) and `age_us` the key event's age at the hop, or -1.
+    /// scripts/cmux-next/trace.py joins these with the daemon's, host's and holder's flow marks.
+    case keyFlow
+    /// A scroll event (a trackpad gesture's touch, began, change or end, its momentum, or a mouse-wheel notch)
+    /// the app dispatches to the end of the Core Animation commit that ends that turn (``ScrollFrameSignpost``,
+    /// from the app's one input dispatch context, as ``keyToFrame``). Begin message: `phase=<touch|began|changed|
+    /// ended|momentum|wheel> age_ms=<age>`, the event's wait in the queue. End message: `target=<layout|content>`,
+    /// who took it: `layout` when the layout scrolled the strip, rows, an area or a canvas (that commit shows the
+    /// move), `content` when it went on to the view under the pointer (a terminal or page may show it in a later
+    /// frame); `commit=missed` as for ``actionCommit``.
+    case scrollToFrame
 
     // MARK: switch (reserved: PL-switch, SwitchFrameTimer)
 
@@ -91,6 +108,8 @@ public nonisolated enum SignpostName: Sendable, Hashable, CaseIterable, CustomSt
         case .motionFrame: "motion.frame"
         case .motionRun: "motion.run"
         case .keyToFrame: "key.frame"
+        case .keyFlow: "key.flow"
+        case .scrollToFrame: "key.scroll_frame"
         case .switchWorkspace: "switch.workspace"
         case .switchTab: "switch.tab"
         case .switchPaneFocus: "switch.pane_focus"

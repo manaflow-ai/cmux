@@ -17,30 +17,51 @@ keys in each phase:
                 host's Accessibility grant for the step's process, else the report says `ax: not trusted` and the
                 phase runs without it)
 
+Layouts (--layouts, both by default, reported side by side): `light` types into the focused `typing` workspace
+above; `stress` then builds the standard STRESS session around it (perf-stress-session.py, Stress(rpc).build(): 60
+workspaces, the 4x3 grid of 6-tab panes with 10 busy terminals, 10 workspaces of Chromium pages), prints its
+STRESS-SESSION line and types into the measured workspace's focused terminal under the same agents.
+
+Validity: the browser agent's page must be Chromium. Before the first phase the bench reads `debug.cef` (no error,
+no `unavailable`, no WebKit fallback, state ready, no web-dev.json dev server) and the page's engine in
+`debug.layers`; anything else exits 2 without measuring (a WebKit page would be measured silently otherwise). The
+report records the host, its macOS and each display's resolution line with its refresh rate.
+
 Each key is `debug.key` with the client's send time as the event's timestamp (CLOCK_UPTIME_RAW), so the probe's
 `contents_ms` is send to the frame that shows the echo, the wait for the main thread included. Per phase: key to frame
 p50/p95/max, the main-thread stalls over 8 ms (`debug.hangs`, each naming the scheduled task it caught), the tasks past
 their class budget with stacks (`debug.hangs` over_budget), the scheduler counters (`debug.main_budget`), the agents'
 operation counts and latencies.
 
-  automation-typing-bench.py --app APP --out DIR [--json DIR/report.json] [--agents 10] [--agent-hz 40]
-      [--samples 120] [--rounds 1] [--ax] [--gate-p95-ms 8] [--gate-stall-ms 8]
+  automation-typing-bench.py --app APP --out DIR [--json DIR/report.json] [--layouts light,stress] [--agents 10]
+      [--agent-hz 40] [--samples 120] [--rounds 1] [--ax] [--gate-p95-ms 8] [--gate-stall-ms 8]
 
-Gates (exit 1): the automation phase's key-to-frame p95 over --gate-p95-ms, or a main-thread stall longer than
+Gates (exit 1): any layout's automation phase key-to-frame p95 over --gate-p95-ms, or a main-thread stall longer than
 --gate-stall-ms. Fleet: `cmux-ci run --class exclusive --measurement --label measure --script
 scripts/measure/split-spring.sh --ref SHA --artifact artifacts/split-spring/report.json --arg=--suite=automation-typing`.
 """
-import argparse, csv, json, os, pathlib, random, statistics, subprocess, sys, threading, time
+import argparse, csv, importlib.util, json, os, pathlib, random, statistics, subprocess, sys, threading, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from bench_launch import BenchApp, LaunchError  # noqa: E402
+
+
+def load(name, file):
+    spec = importlib.util.spec_from_file_location(name, os.path.join(HERE, file))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+STRESS = load("perf_stress_session", "perf-stress-session.py")
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
 parser.add_argument("--tag")  # split-spring.sh passes it; the app's own tag is read from the bundle
 parser.add_argument("--out", required=True)
 parser.add_argument("--json")
+parser.add_argument("--layouts", default="light,stress", help="comma list of light and stress (STRESS session)")
 parser.add_argument("--agents", type=int, default=10)
 parser.add_argument("--agent-hz", type=float, default=40.0, help="terminal agent writes per second, all agents together")
 parser.add_argument("--samples", type=int, default=120)
@@ -51,10 +72,14 @@ parser.add_argument("--rows", type=int, default=3000, help="rows on the browser 
 parser.add_argument("--gate-p95-ms", type=float)
 parser.add_argument("--gate-stall-ms", type=float)
 opts = parser.parse_args()
+LAYOUTS = [name for name in opts.layouts.split(",") if name]
+if not LAYOUTS or set(LAYOUTS) - {"light", "stress"}:
+    parser.error("--layouts takes light and stress")
 OUT = os.path.abspath(opts.out)
 os.makedirs(OUT, exist_ok=True)
 PROBE = os.path.join(OUT, "typing.csv")
-results = {"host": os.uname().nodename, "opts": vars(opts), "log": [], "phases": []}
+results = {"host": load("action_signposts_bench", "action-signposts-bench.py").host_facts(), "opts": vars(opts), "log": [],
+           "phases": []}
 
 
 def note(text):
@@ -291,6 +316,38 @@ PAGE = """<!doctype html><title>agent page</title><button id=b onclick="this.dat
 <ul>{rows}</ul>"""
 
 
+def chromium_problems(cef):
+    """Why the browser agent's page may not be Chromium (`debug.cef`, and the engine `debug.layers` shows for the
+    browser pane of the shown window); empty when it is."""
+    problems = STRESS.cef_problems(cef, STRESS.WEB_DEV_CONFIG)
+    layers = rpc("debug.layers", timeout=20)
+    windows = layers.get("windows") if isinstance(layers, dict) else None
+    engines = sorted({b.get("engine") for w in windows or [] for b in w.get("browsers") or []})
+    if engines != ["cef"]:
+        problems.append(f"the shown browser panes' engines are {engines}, not cef")
+    return problems
+
+
+def run_layout(layout, tabs, browser_tab, pid):
+    """The idle and automation phases of `layout` (--rounds each), typed into the focused terminal."""
+    rpc("debug.mouse", {"x": 900, "y": 450, "action": "hover"})  # the pointer rests over the terminal
+    time.sleep(4)
+    type_keys(10, f"{layout}-warmup")
+    for r in range(opts.rounds):
+        phase(f"{layout}-idle-{r}", [], pid)
+        loads = ([terminal_agents(tabs)] if tabs else []) + ([browser_agent(browser_tab)] if browser_tab else [])
+        phase(f"{layout}-automation-{r}", loads, pid, ax=opts.ax)
+    idle = [p for p in results["phases"] if p["phase"].startswith(f"{layout}-idle") and p.get("key_to_frame_ms")]
+    busy = [p for p in results["phases"] if p["phase"].startswith(f"{layout}-automation") and p.get("key_to_frame_ms")]
+    if not (idle and busy):
+        return None
+    return {"idle_p95_ms": max(p["key_to_frame_ms"]["p95"] for p in idle),
+            "automation_p95_ms": max(p["key_to_frame_ms"]["p95"] for p in busy),
+            "automation_max_ms": max(p["key_to_frame_ms"]["max"] for p in busy),
+            "automation_stalls": sum(p["hangs"].get("count") or 0 for p in busy),
+            "automation_stall_max_ms": max((p["hangs"].get("max_ms") or 0) for p in busy)}
+
+
 def main():
     try:
         APP.launch()
@@ -312,34 +369,35 @@ def main():
         browser_tab = wait(lambda: (lambda r: r.get("tab") if isinstance(r, dict) and r.get("value") is True else None)(
             rpc("browser.page.eval", {"script": "document.readyState === 'complete' && !!document.getElementById('b')"}, timeout=20)), 60, 0.5)
         note(f"browser agent tab: {browser_tab}")
+        cef = rpc("debug.cef", timeout=20)
+        results["cef"] = cef
+        not_chromium = chromium_problems(cef) if browser_tab else ["the browser agent's page never loaded"]
+        if not_chromium:
+            results["invalid"] = not_chromium
+            note(f"not measured: the browser agent's page is not Chromium: {not_chromium}")
+            return 2
         cli("workspace", "create", "--name", "typing", "--focus", "--shell", "exec cat")
         typing = terminal_of("typing")
-        rpc("debug.mouse", {"x": 900, "y": 450, "action": "hover"})  # the pointer rests over the terminal
-        time.sleep(4)
         results["setup"] = {"agent_terminals": len(tabs), "browser_tab": browser_tab, "typing": typing}
-        type_keys(10, "warmup")
-        for r in range(opts.rounds):
-            phase(f"idle-{r}", [], pid)
-            loads = ([terminal_agents(tabs)] if tabs else []) + ([browser_agent(browser_tab)] if browser_tab else [])
-            phase(f"automation-{r}", loads, pid, ax=opts.ax)
-        idle = [p for p in results["phases"] if p["phase"].startswith("idle") and p.get("key_to_frame_ms")]
-        busy = [p for p in results["phases"] if p["phase"].startswith("automation") and p.get("key_to_frame_ms")]
-        if idle and busy:
-            summary = {"idle_p95_ms": max(p["key_to_frame_ms"]["p95"] for p in idle),
-                       "automation_p95_ms": max(p["key_to_frame_ms"]["p95"] for p in busy),
-                       "automation_max_ms": max(p["key_to_frame_ms"]["max"] for p in busy),
-                       "automation_stalls": sum(p["hangs"].get("count") or 0 for p in busy),
-                       "automation_stall_max_ms": max((p["hangs"].get("max_ms") or 0) for p in busy)}
+        for layout in LAYOUTS:
+            if layout == "stress":
+                session = STRESS.Stress(rpc, log=note).build()
+                results["stress_session"] = session
+                print("STRESS-SESSION " + json.dumps(session), flush=True)
+            summary[layout] = run_layout(layout, tabs, browser_tab, pid)
     finally:
         results["summary"] = summary
         note(f"summary: {json.dumps(summary)}")
         with open(opts.json or os.path.join(OUT, "report.json"), "w") as f:
             json.dump(results, f, indent=1, default=str)
         APP.stop()
-    if opts.gate_stall_ms is not None and summary and summary["automation_stall_max_ms"] > opts.gate_stall_ms:
-        sys.exit(f"gate: main-thread stall {summary['automation_stall_max_ms']} ms under automation is over {opts.gate_stall_ms} ms")
-    if opts.gate_p95_ms is not None and summary and summary["automation_p95_ms"] > opts.gate_p95_ms:
-        sys.exit(f"gate: key-to-frame p95 {summary['automation_p95_ms']} ms under automation is over {opts.gate_p95_ms} ms")
+    for layout, numbers in summary.items():
+        if not numbers:
+            continue
+        if opts.gate_stall_ms is not None and numbers["automation_stall_max_ms"] > opts.gate_stall_ms:
+            sys.exit(f"gate ({layout}): main-thread stall {numbers['automation_stall_max_ms']} ms under automation is over {opts.gate_stall_ms} ms")
+        if opts.gate_p95_ms is not None and numbers["automation_p95_ms"] > opts.gate_p95_ms:
+            sys.exit(f"gate ({layout}): key-to-frame p95 {numbers['automation_p95_ms']} ms under automation is over {opts.gate_p95_ms} ms")
+    return 0
 
-
-main()
+sys.exit(main())

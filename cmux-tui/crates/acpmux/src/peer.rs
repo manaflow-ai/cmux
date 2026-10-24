@@ -85,6 +85,8 @@ pub struct Peer {
     file_put: AtomicBool,
     /// Whether the peer serves `_acpmux/media_open` and `_acpmux/media_range` (`hub/media_read.rs`).
     media_read: AtomicBool,
+    /// Whether the peer serves `_acpmux/subagent_transcript` (`hub/subagent_transcript.rs`).
+    subagent_transcript: AtomicBool,
     /// The peer token was held back: the transport is plain `ws://` to a
     /// host that is not loopback (`carries_peer_token`). Logged once.
     withheld: AtomicBool,
@@ -131,6 +133,7 @@ impl Peer {
             trust_gate: AtomicBool::new(false),
             file_put: AtomicBool::new(false),
             media_read: AtomicBool::new(false),
+            subagent_transcript: AtomicBool::new(false),
             withheld: AtomicBool::new(false),
             attached: StdMutex::new(HashSet::new()),
             notices,
@@ -288,6 +291,11 @@ impl Peer {
     /// Whether the peer said at its last handshake that it serves the media reader.
     pub fn supports_media_read(&self) -> bool {
         self.media_read.load(Ordering::SeqCst)
+    }
+
+    /// Whether the peer said at its last handshake that it serves subagent transcripts.
+    pub fn supports_subagent_transcript(&self) -> bool {
+        self.subagent_transcript.load(Ordering::SeqCst)
     }
 
     pub fn summary(&self) -> Value {
@@ -514,6 +522,8 @@ impl Peer {
             };
             me.file_put.store(lists(crate::hub::FILE_PUT_FEATURE), Ordering::SeqCst);
             me.media_read.store(lists(crate::hub::MEDIA_READ_FEATURE), Ordering::SeqCst);
+            me.subagent_transcript
+                .store(lists(crate::hub::SUBAGENT_TRANSCRIPT_FEATURE), Ordering::SeqCst);
             let watch = me.request(method::MUX_WATCH, json!({"enabled": true})).await?;
             let sessions = watch
                 .get("sessions")
