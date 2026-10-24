@@ -179,11 +179,13 @@ public struct DaemonLauncher: Sendable {
     }
 
     /// The Chief owner's `server ensure` environment: the user's basic
-    /// variables only, never a build's `CMUX_*` identity; the brain's tools socket (chief.*) and
-    /// what the owner needs to run the other Chiefs' brains (`CMUX_TUI_CHIEF_BRAINS`).
+    /// variables only, never a build's `CMUX_*` identity; the brain's tools socket (chief.*),
+    /// what the owner needs to run the other Chiefs' brains (`CMUX_TUI_CHIEF_BRAINS`), and the
+    /// open-file limit the app was launched with (`OpenFileLimit.originalSoftLimitKey`), which the
+    /// owner gives back to the brains and their tool shells.
     static func chiefEnvironment(_ base: [String: String]) -> [String: String] {
         let kept = ["HOME", "USER", "LOGNAME", "PATH", "LANG", "LC_ALL", "SHELL", "CMUX_TUI_CHIEF_TOOLS_SOCKET",
-                    "CMUX_TUI_CHIEF_BRAINS"]
+                    "CMUX_TUI_CHIEF_BRAINS", OpenFileLimit.originalSoftLimitKey]
         return base.filter { kept.contains($0.key) }
     }
 
