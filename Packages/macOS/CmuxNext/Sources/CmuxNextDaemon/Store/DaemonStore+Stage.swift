@@ -32,6 +32,10 @@ extension DaemonStore {
             return ofSurface(surface).map { [$0] }
         case .renameWorkspace(let key, _), .moveWorkspace(let key, _), .setWorkspaceGroup(let key, _), .placeWorkspace(let key, _, _):
             return workspace(key: key).map { [$0.handle] }
+        case .renamePane(let pane, _):
+            return workspace(containing: pane).map { [$0.handle] }
+        case .renameScreen(let screen, _), .setScreenColor(let screen, _), .setScreenIcon(let screen, _), .setScreenPinned(let screen, _):
+            return self.screen(screen).flatMap { index.workspace(holding: $0) }.map { [$0.handle] }
         case .setWorkspaceGroupCollapsed, .setTabGroupCollapsed, .setRowHeights, .createTab, .bindAgentSession, .splitPane,
              .createWorkspace, .closeTabs:
             return nil
