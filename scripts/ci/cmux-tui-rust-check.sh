@@ -634,7 +634,7 @@ prune_target() {
   [[ -d "$deps" ]] || return 0
   list="$(mktemp "${TMPDIR:-/tmp}/rust-check-artifacts.XXXXXX")"
   if ! cargo test --workspace --locked --no-run --message-format=json >"$list" 2>/dev/null \
-    || { [[ "$mode" == all ]] && ! cargo clippy --workspace --all-targets --locked --message-format=json >>"$list" 2>/dev/null; }; then
+    || { [[ "$mode" == all ]] && ! cargo clippy --workspace --exclude cmux-holder-v3 --all-targets --locked --message-format=json >>"$list" 2>/dev/null; }; then
     rm -f "$list"
     echo "prune: skipped (cargo did not list the build's artifacts)"
     return 0
@@ -807,7 +807,9 @@ if [[ "$mode" == fmt || "$mode" == all ]] && [[ "$shard_i" == 1 ]]; then
   step fmt cargo fmt --all --check
 fi
 if [[ "$mode" == clippy || "$mode" == all ]] && [[ "$shard_i" == 1 ]]; then
-  step clippy cargo clippy --workspace --all-targets --locked -- -D warnings
+  # The frozen holder fixture (cmux-holder-v3) is an old shipped holder, never edited: no new
+  # lint may fail it (its own [lints] allow everything; `-D warnings` here would override them).
+  step clippy cargo clippy --workspace --exclude cmux-holder-v3 --all-targets --locked -- -D warnings
 fi
 if [[ "$mode" == test || "$mode" == all ]]; then
   step "base-red list" load_base_red

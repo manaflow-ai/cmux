@@ -208,15 +208,15 @@ def test_lint_is_one_required_job_and_os_matrix_only_runs_behavior_tests() -> No
     oses = lambda job: [row["os"] for row in job["strategy"]["matrix"]["include"]]
     assert oses(test) == oses(lint) == ["linux"]
     assert "cargo fmt --check" in lint_commands
-    assert "cargo clippy --workspace --all-targets --locked -- -D warnings" in lint_commands
+    assert "cargo clippy --workspace --exclude cmux-holder-v3 --all-targets --locked -- -D warnings" in lint_commands
     # Formatting is gated once, by lint; a format diff must not stop the tests.
     assert "cargo fmt --check" not in test_commands
-    assert "cargo clippy --workspace --all-targets --locked -- -D warnings" not in test_commands
+    assert "cargo clippy --workspace --exclude cmux-holder-v3 --all-targets --locked -- -D warnings" not in test_commands
     macos_commands = "\n".join(str(step.get("run", "")) for step in macos["steps"])
     assert macos["name"] == "macOS lint and tests"
     # Formatting is host-independent and runs once, on Linux (#17095).
     assert "cargo fmt --check" not in macos_commands
-    assert "cargo clippy --workspace --all-targets --locked -- -D warnings" in macos_commands
+    assert "cargo clippy --workspace --exclude cmux-holder-v3 --all-targets --locked -- -D warnings" in macos_commands
     assert "platform::tests::" in macos_commands
     # mac_process_scope / macos_pty_ unit tests were deleted with the unit suites (c38b54db5a6e, cx-034r).
     assert "a_daemon_integrated_zsh_titles_a_long_command_with_every_argument" in macos_commands
@@ -251,7 +251,7 @@ def test_lint_matrix_runs_clippy_with_each_host_cfg() -> None:
         clippy_steps = [step for step in steps if step.get("name") == "cargo clippy"]
         assert len(clippy_steps) == 1
         assert clippy_steps[0]["working-directory"] == "cmux-tui"
-        assert "cargo clippy --workspace --all-targets --locked -- -D warnings" in clippy_steps[0]["run"]
+        assert "cargo clippy --workspace --exclude cmux-holder-v3 --all-targets --locked -- -D warnings" in clippy_steps[0]["run"]
 
 
 def test_relay_filter_runs_on_the_linux_test_job() -> None:

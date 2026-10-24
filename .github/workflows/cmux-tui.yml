@@ -395,7 +395,8 @@ jobs:
 
       - name: cargo clippy
         working-directory: cmux-tui
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+        # cmux-holder-v3 is the frozen fixture of an old shipped holder: never edited, never linted.
+        run: cargo clippy --workspace --exclude cmux-holder-v3 --all-targets --locked -- -D warnings
 
       # Panic ratchet (plans/cmux-next/rust-panic-free.md): production targets
       # only (--lib --bins), so tests, benches and build scripts stay free.
@@ -725,7 +726,8 @@ jobs:
       - name: cargo clippy (macOS targets)
         id: clippy
         working-directory: cmux-tui
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+        # cmux-holder-v3 is the frozen fixture of an old shipped holder: never edited, never linted.
+        run: cargo clippy --workspace --exclude cmux-holder-v3 --all-targets --locked -- -D warnings
 
       # Focused mode runs the requested filter here too (cx-jcfoz): before, this job ran only
       # its fixed groups, so a filtered dispatch reported macOS green without running the
