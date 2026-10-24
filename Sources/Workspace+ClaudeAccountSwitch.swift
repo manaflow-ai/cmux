@@ -176,6 +176,8 @@ extension Workspace {
         ) else {
             return .respawnFailed
         }
+        // The pane keeps this account through later respawns and, via its snapshot, a relaunch.
+        panel.claudeAccountEnvironment = ClaudeAccountPaneEnvironment(accountEnvironment)
         // Start the new shell now, even in a hidden pane, so its rc files run while the old
         // Claude exits. This is the start socket input gets, not the restore-paced one.
         panel.surface.requestInputDemandSurfaceStartIfNeeded()

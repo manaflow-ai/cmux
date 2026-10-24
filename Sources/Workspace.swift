@@ -715,7 +715,7 @@ extension Workspace {
                 claudeBackgroundViewer: localTmuxStartCommand == nil
                     ? claudeBackgroundViewerForSnapshot(panelId: panelId, terminal: terminalPanel)
                     : nil,
-                restoreRecovery: terminalPanel.restoreRecovery.sessionSnapshot
+                restoreRecovery: terminalPanel.restoreRecovery.sessionSnapshot, claudeAccountEnvironment: terminalPanel.claudeAccountEnvironment
             )
             browserSnapshot = nil
             markdownSnapshot = nil
@@ -2008,7 +2008,7 @@ extension Workspace {
                 ? (restoredBindingLaunch?.initialInput ??
                     restoredAgentResumeLaunch?.initialInput ??
                     deferredAgentResumeStartupInput ??
-                    claudeBackgroundAttach?.startupInput)
+                    claudeBackgroundAttach?.startupInput).map { restoredClaudeAccountStartupInput($0, snapshot.terminal) }
                 : nil
             let startupHandlesWorkingDirectory =
                 restoredTmuxStartupScript != nil ||
@@ -2096,7 +2096,7 @@ extension Workspace {
                 initialCommand: restoredStartupCommand,
                 tmuxStartCommand: restoredTmuxStartCommand,
                 initialInput: restoredStartupInput,
-                startupEnvironment: replayEnvironment,
+                startupEnvironment: replayEnvironment, initialEnvironmentOverrides: restoredClaudeAccountEnvironmentOverrides(snapshot.terminal),
                 runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
                     requestedPolicy: .pacedSessionRestore,
                     willRunStartupInput: restoredAgentWillRunStartupInput,
@@ -2137,7 +2137,7 @@ extension Workspace {
                 }
                 return nil
             }
-            terminalPanel.restoreRecovery.restore(from: snapshot.terminal?.restoreRecovery)
+            terminalPanel.restoreRecovery.restore(from: snapshot.terminal?.restoreRecovery); terminalPanel.claudeAccountEnvironment = snapshot.terminal?.claudeAccountEnvironment
             if deferredAgentResumeAdmission { terminalPanel.restoreRecovery.markCheckingPreservingFailure() }
             terminalPanel.adoptOwnedSessionScrollbackReplayArtifact(replayFileURL)
             if let restoredRemotePTYSessionID {
@@ -9655,7 +9655,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         tmuxStartCommand: String? = nil,
         initialInput: String? = nil,
         startupRestoreAgent: SessionRestorableAgentSnapshot? = nil,
-        startupEnvironment: [String: String] = [:],
+        startupEnvironment: [String: String] = [:], initialEnvironmentOverrides: [String: String] = [:],
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
         autoRefreshMetadata: Bool = true,
         preserveFocusWhenUnfocused: Bool = true,
@@ -9678,7 +9678,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             tmuxStartCommand: tmuxStartCommand,
             initialInput: initialInput,
             startupRestoreAgent: startupRestoreAgent,
-            startupEnvironment: startupEnvironment,
+            startupEnvironment: startupEnvironment, initialEnvironmentOverrides: initialEnvironmentOverrides,
             runtimeSpawnPolicy: runtimeSpawnPolicy,
             autoRefreshMetadata: autoRefreshMetadata,
             preserveFocusWhenUnfocused: preserveFocusWhenUnfocused,
@@ -9706,7 +9706,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         tmuxStartCommand: String? = nil,
         initialInput: String? = nil,
         startupRestoreAgent: SessionRestorableAgentSnapshot? = nil,
-        startupEnvironment: [String: String] = [:],
+        startupEnvironment: [String: String] = [:], initialEnvironmentOverrides: [String: String] = [:],
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
         autoRefreshMetadata: Bool = true,
         preserveFocusWhenUnfocused: Bool = true,
@@ -9759,7 +9759,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
            let selectedPanelID = panelIdFromSurfaceId(selectedTab.id),
            let source = cloudTerminalSourcePlacement(forPanel: selectedPanelID) {
             guard initialCommand == nil, initialInput == nil, tmuxStartCommand == nil,
-                  remotePTYSessionID == nil, workingDirectory == nil, startupEnvironment.isEmpty,
+                  remotePTYSessionID == nil, workingDirectory == nil, startupEnvironment.isEmpty, initialEnvironmentOverrides.isEmpty,
                   !suppressWorkspaceRemoteStartupCommand else {
                 return rejectCloudTerminalCreation(source: source, panelID: selectedPanelID)
             }
@@ -9775,7 +9775,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             tmuxStartCommand: tmuxStartCommand,
             initialInput: initialInput,
             startupRestoreAgent: startupRestoreAgent,
-            startupEnvironment: startupEnvironment,
+            startupEnvironment: startupEnvironment, initialEnvironmentOverrides: initialEnvironmentOverrides,
             runtimeSpawnPolicy: runtimeSpawnPolicy,
             autoRefreshMetadata: autoRefreshMetadata,
             preserveFocusWhenUnfocused: preserveFocusWhenUnfocused,
@@ -9801,7 +9801,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         tmuxStartCommand: String?,
         initialInput: String?,
         startupRestoreAgent: SessionRestorableAgentSnapshot?,
-        startupEnvironment: [String: String],
+        startupEnvironment: [String: String], initialEnvironmentOverrides: [String: String],
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy,
         autoRefreshMetadata: Bool,
         preserveFocusWhenUnfocused: Bool,
@@ -9882,7 +9882,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             portOrdinal: portOrdinal,
             initialCommand: startupCommand,
             tmuxStartCommand: tmuxStartCommand,
-            initialInput: initialInput,
+            initialInput: initialInput, initialEnvironmentOverrides: initialEnvironmentOverrides,
             additionalEnvironment: effectiveStartupEnvironment,
             stableSurfaceId: restoredStableSurfaceId,
             isRemoteTerminal: tracksRemoteTerminalSurface,

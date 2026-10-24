@@ -16,6 +16,9 @@ extension Workspace {
     /// win over that env, the workspace's env and a removal of the same key, and keep empty values.
     /// The new surface carries the result into later plain respawns, except that a value equal to the
     /// workspace's own is treated as inherited workspace env and follows the current workspace (#5995).
+    /// Those overrides last only as long as this process. The account keys a Claude account switch set
+    /// also live in the panel's `claudeAccountEnvironment`, which the replacement panel inherits and
+    /// the session snapshot persists, so a restore after an app relaunch replays them too.
     /// `initialInput` is typed once the shell is ready. An SSH-owned surface or a `nativeReservation`
     /// respawn cannot carry any of these, so it returns `nil` when one is given instead of dropping it.
     @discardableResult
@@ -154,6 +157,7 @@ extension Workspace {
             )
         }
         replacementPanel.adoptOwnedSessionScrollbackReplayArtifact(effectiveReplayFileURL)
+        replacementPanel.claudeAccountEnvironment = oldPanel.claudeAccountEnvironment
         // Respawn replaces the panel object but keeps the logical tab identity.
         replacementPanel.adoptStableSurfaceId(oldPanel.stableSurfaceId)
         configureNewTerminalPanel(

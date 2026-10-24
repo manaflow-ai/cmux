@@ -4521,6 +4521,7 @@
 		078F2E4F32DC4B2AA5A84A4A /* Workspace+BrowserDuplication.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05CFF7107D1F48BC805549F3 /* Workspace+BrowserDuplication.swift */; };
 		CA52B0150000000000000000 /* Workspace+CanvasLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0150000000000000000 /* Workspace+CanvasLayout.swift */; };
 		C41EFACBE73CD68808192358 /* Workspace+ChiefPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EF5154E74C65D67FF3666 /* Workspace+ChiefPane.swift */; };
+		AECA0F93F1874E4BEB5CA6CD /* Workspace+ClaudeAccountRestore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD51E74B21C1F47586EFB99B /* Workspace+ClaudeAccountRestore.swift */; };
 		B7CDCF239EC4B966DB3BA776 /* Workspace+ClaudeAccountSwitch.swift in Sources */ = {isa = PBXBuildFile; fileRef = F26D008C4F7EC4ACCBB875AA /* Workspace+ClaudeAccountSwitch.swift */; };
 		C41AA429682C75E21476D542 /* Workspace+ClaudeAccountSwitchResumeDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD29DB9857422B23B0ED2231 /* Workspace+ClaudeAccountSwitchResumeDelivery.swift */; };
 		4A83C8FAE42926923935E37A /* Workspace+ClaudeBackgroundSessionRestore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B836EB9A0E8E762A7FFAD0ED /* Workspace+ClaudeBackgroundSessionRestore.swift */; };
@@ -9198,6 +9199,7 @@
 		05CFF7107D1F48BC805549F3 /* Workspace+BrowserDuplication.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+BrowserDuplication.swift"; sourceTree = "<group>"; };
 		CA52C0150000000000000000 /* Workspace+CanvasLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CanvasLayout.swift"; sourceTree = "<group>"; };
 		C41EF5154E74C65D67FF3666 /* Workspace+ChiefPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+ChiefPane.swift"; sourceTree = "<group>"; };
+		FD51E74B21C1F47586EFB99B /* Workspace+ClaudeAccountRestore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+ClaudeAccountRestore.swift"; sourceTree = "<group>"; };
 		F26D008C4F7EC4ACCBB875AA /* Workspace+ClaudeAccountSwitch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+ClaudeAccountSwitch.swift"; sourceTree = "<group>"; };
 		BD29DB9857422B23B0ED2231 /* Workspace+ClaudeAccountSwitchResumeDelivery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+ClaudeAccountSwitchResumeDelivery.swift"; sourceTree = "<group>"; };
 		B836EB9A0E8E762A7FFAD0ED /* Workspace+ClaudeBackgroundSessionRestore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+ClaudeBackgroundSessionRestore.swift"; sourceTree = "<group>"; };
@@ -12713,6 +12715,7 @@
 				8AA4E712D4BCF49C81579F0B /* SidebarAgentProfileLabel+RowRefresh.swift */,
 				AD8B02ED602FD95BE1C75140 /* ClaudeAccountSwitchReplacedAgents.swift */,
 				EB6E5EB7C2F8101C5CFB2376 /* ClaudeAccountPaneEnvironment.swift */,
+				FD51E74B21C1F47586EFB99B /* Workspace+ClaudeAccountRestore.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -17810,6 +17813,7 @@
 				078F2E4F32DC4B2AA5A84A4A /* Workspace+BrowserDuplication.swift in Sources */,
 				CA52B0150000000000000000 /* Workspace+CanvasLayout.swift in Sources */,
 				C41EFACBE73CD68808192358 /* Workspace+ChiefPane.swift in Sources */,
+				AECA0F93F1874E4BEB5CA6CD /* Workspace+ClaudeAccountRestore.swift in Sources */,
 				B7CDCF239EC4B966DB3BA776 /* Workspace+ClaudeAccountSwitch.swift in Sources */,
 				C41AA429682C75E21476D542 /* Workspace+ClaudeAccountSwitchResumeDelivery.swift in Sources */,
 				4A83C8FAE42926923935E37A /* Workspace+ClaudeBackgroundSessionRestore.swift in Sources */,
