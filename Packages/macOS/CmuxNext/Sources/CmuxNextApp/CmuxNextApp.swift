@@ -22,9 +22,12 @@ public struct CmuxNextApp {
         // Without this, a free() on another thread in that moment crashed
         // with "No zone found" (browser-isolation.md, allocator zone race).
         _ = cmux_early_malloc_zone_registration()
-        // Before any socket or pipe exists (ChildSignalDefaults); the open-file limit before CefInitialize
-        // (OpenFileLimit: launchd's 256 stopped the app at 80-100 Chromium tabs).
-        ChildSignalDefaults.installAppSignalPolicy(); let openFiles = OpenFileLimit().raise()
+        // Before any socket or pipe exists (ChildSignalDefaults).
+        ChildSignalDefaults.installAppSignalPolicy()
+        // The open-file limit before CefInitialize (OpenFileLimit: launchd's 256 stopped the app at
+        // 80-100 Chromium tabs). One log line on every launch: raised, kept, refused or unknown.
+        let openFiles = OpenFileLimit().raise()
+        FileHandle.standardError.write(Data((openFiles.line + "\n").utf8))
         // Before any thread starts or anything reads the environment: drop
         // cmux variables inherited from a shell inside another cmux, so they
         // cannot pick this app's socket, tag, or daemon session.
@@ -36,7 +39,8 @@ public struct CmuxNextApp {
         // Pure launch work (action catalog, string tables) overlaps AppKit's start.
         LaunchWarmup.start()
         DebugTimings.markLaunch("main.warmup_started")
-        var environment = AppEnvironment.current(openFiles: openFiles) // shells get the launch limit back
+        // The daemons this app starts get the launch limit back for their shells (daemonEnvironment).
+        var environment = AppEnvironment.current(openFiles: openFiles.change)
         environment.marksRun = true
         environment.sidebarSnapshotFile = SidebarSnapshotFile.standard(launch: environment.launch)
         environment.layoutTemplatesFile = environment.sidebarSnapshotFile?.url.deletingLastPathComponent().appending(path: "layout-templates.json")
@@ -46,6 +50,7 @@ public struct CmuxNextApp {
         AgentPaneDraftAttachments.shared = AgentPaneDraftAttachments(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
         // The daemon connect overlaps AppKit's start (off the main thread).
         let prestart = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
+                                              daemonEnvironment: environment.daemonEnvironment,
                                               terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
                                               resolvesShellIntegration: environment.resolvesShellIntegration,
                                               echoesPlacementShift: SidebarMirror.isLinked)

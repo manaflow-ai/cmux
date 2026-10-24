@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextCompat
 public import CmuxNextDaemon
 public import Foundation
 public import Observation
@@ -51,12 +52,18 @@ public final class ChiefConversationOwner {
 
     /// The owner's process environment: the app's, plus the brain host's
     /// tools socket, so `chief.engine.*` and `chief.stop` reach this home's
-    /// brain (cmux-tui forwards them there, as chief-inspect), and the
+    /// brain (cmux-tui forwards them there, as chief-inspect), the
     /// values the owner needs to run the other Chiefs' brains
-    /// (`brainsValue`). An owner that another build already started keeps
-    /// its environment until it restarts.
-    static func ownerEnvironment(home: ChiefHome, process: [String: String], bundle: Bundle = .main) -> [String: String] {
+    /// (`brainsValue`), and `launch`, the app's launch values for its owners
+    /// (`AppEnvironment.daemonEnvironment`: the open-file limit the app was
+    /// launched with; a copy the app's own environment inherited is dropped).
+    /// An owner that another build already started keeps its environment
+    /// until it restarts.
+    static func ownerEnvironment(home: ChiefHome, process: [String: String], launch: [String: String] = [:],
+                                 bundle: Bundle = .main) -> [String: String] {
         var environment = process
+        environment[OpenFileLimit.originalSoftLimitKey] = nil
+        environment.merge(launch) { _, launch in launch }
         environment["CMUX_TUI_CHIEF_TOOLS_SOCKET"] = home.muxHome.appendingPathComponent("optchat/tools.sock").path
         environment["CMUX_TUI_CHIEF_BRAINS"] = brainsValue(home: home, process: process, bundle: bundle)
         return environment
@@ -74,13 +81,16 @@ public final class ChiefConversationOwner {
         await connection?.endpoint?.socketPath
     }
 
-    /// Ensures the owner and keeps a connection to it. Idempotent.
-    public func start(bundle: Bundle = .main, environment: [String: String] = ProcessInfo.processInfo.environment) {
+    /// Ensures the owner and keeps a connection to it. Idempotent. `launch` joins the owner's
+    /// environment only (``ownerEnvironment(home:process:launch:bundle:)``).
+    public func start(bundle: Bundle = .main, environment: [String: String] = ProcessInfo.processInfo.environment,
+                      launch: [String: String] = [:]) {
         guard runTask == nil else { return }
         let launcher: DaemonLauncher
         do {
             launcher = try DaemonLauncher.forChief(session: home.session, stateDirectory: home.daemonStateDirectory,
-                                                   bundle: bundle, processEnvironment: Self.ownerEnvironment(home: home, process: environment, bundle: bundle))
+                                                   bundle: bundle, processEnvironment: Self.ownerEnvironment(home: home, process: environment, launch: launch,
+                                                                                             bundle: bundle))
         } catch {
             lastError = String(describing: error)
             logger.error("chief owner: \(String(describing: error), privacy: .public)")

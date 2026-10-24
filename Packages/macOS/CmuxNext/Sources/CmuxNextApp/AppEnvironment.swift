@@ -29,6 +29,11 @@ struct AppEnvironment: Sendable {
     /// daemon's launch overrides, so terminals it creates without a
     /// per-terminal `env` match. Resolved once per launch.
     let terminalEnvironment: [String: String]
+    /// What every cmux-tui owner this app starts (its daemon, the Chief owner) gets in its own
+    /// process environment and no terminal gets: the open-file limit this app was launched with,
+    /// when `main` raised it (``OpenFileLimit/Change/daemonEnvironment``). The owner records it
+    /// and removes it, so its shells, hooks and plugins get that limit back.
+    let daemonEnvironment: [String: String]
     /// Ghostty resources directory and bundled CLI helper for shell
     /// integration (`GhosttyShellIntegration`). Resolved once per launch.
     var ghosttyResources: String?
@@ -91,7 +96,8 @@ struct AppEnvironment: Sendable {
             noActivate: noActivate,
             showcase: showcase,
             testWindow: TestWindowPlacement.parse(environment, noActivate: noActivate),
-            terminalEnvironment: terminalEnvironment(launch: launch, environment: environment).merging(openFiles?.childEnvironment ?? [:]) { $1 },
+            terminalEnvironment: terminalEnvironment(launch: launch, environment: environment),
+            daemonEnvironment: openFiles?.daemonEnvironment ?? [:],
             ghosttyResources: GhosttyRuntime.resourcesDirectory(environment: environment),
             ghosttyBinary: GhosttyRuntime.cliHelperPath()
         )

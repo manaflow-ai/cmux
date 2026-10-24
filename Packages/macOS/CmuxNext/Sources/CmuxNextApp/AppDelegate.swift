@@ -133,6 +133,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         launchSettle.install(daemon: services.daemon)
         daemonPrompts = DaemonPrompts.start(services)
         services.daemon.start(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
+                              daemonEnvironment: environment.daemonEnvironment,
                               terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
                               resolvesShellIntegration: environment.resolvesShellIntegration, prestart: daemonPrestart)
         FeaturePolicyEnforcer(services: services).start()
