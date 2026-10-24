@@ -338,6 +338,21 @@ pub fn check(params: &Value) -> Result<(&str, &str), RpcError> {
     Ok((name, data))
 }
 
+/// Validates a resumable chunk before a peer forward sends its base64 frame over the link.
+pub fn check_chunk(params: &Value) -> Result<(), RpcError> {
+    let data = params
+        .get("data")
+        .and_then(Value::as_str)
+        .ok_or_else(|| RpcError::invalid_params("data (base64) is required"))?;
+    if decoded_len(data) > CHUNK_BYTES {
+        return Err(RpcError::invalid_params(format!(
+            "a chunk is at most {} KiB",
+            CHUNK_BYTES >> 10
+        )));
+    }
+    Ok(())
+}
+
 /// The bytes padded base64 `data` decodes to, read from its length and padding with no decode,
 /// so a file one byte past [`MAX_BYTES`] is refused here and never sent on.
 fn decoded_len(data: &str) -> usize {

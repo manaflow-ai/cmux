@@ -128,6 +128,12 @@ async fn forward_inner(
                 return Err(crate::hub::file_uploads::peer_unsupported(&peer));
             }
         }
+        if m == method::MUX_FILE_PUT_CHUNK {
+            crate::hub::file_uploads::check_chunk(params)?;
+            if !peer.supports_file_put() {
+                return Err(crate::hub::file_uploads::peer_unsupported(&peer));
+            }
+        }
         // The media reader runs on the peer that owns the chat, if it has one (`hub/media_read.rs`).
         if matches!(m, method::MUX_MEDIA_OPEN | method::MUX_MEDIA_RANGE)
             && !peer.supports_media_read()
