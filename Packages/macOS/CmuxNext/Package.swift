@@ -1643,6 +1643,7 @@ let package = Package(
                 "CmuxNextTestExitTrace",
                 "CmuxNextVSCodeServer",
                 "CmuxNextWakeups",
+                "CmuxNextWakeupsTestSupport",
                 "CmuxNextWorkspaceNaming",
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                 // GhosttyGlassMinimumContrastTests builds a Ghostty config.
