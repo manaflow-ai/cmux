@@ -4,8 +4,12 @@ import Testing
 
 /// ``MainDirectoryWatch`` is the one adapter for the socket clients' directory sources
 /// (AgentActivitySocketSource, AgentTurnStateFeed, SocketTasksSource): a change in the directory
-/// runs the main-actor handler on the main thread, and a released watch runs nothing (the clients'
-/// deinits used to cancel their raw sources only when released on the main thread).
+/// runs the main-actor handler on the main thread, and a released watch runs nothing.
+///
+/// These are behavior checks of the adapter, not regression guards for a leak: libdispatch also
+/// cancels a resumed source when its last reference goes, so the raw sources the clients held
+/// before most likely stopped on release too, and `aReleasedWatchRunsNothing` most likely passes
+/// without the watch's explicit `deinit { source.cancel() }` (not shown red).
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
 struct MainDirectoryWatchTests {

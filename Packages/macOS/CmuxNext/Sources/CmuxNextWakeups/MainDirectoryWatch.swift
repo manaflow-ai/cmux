@@ -39,6 +39,8 @@ public final class MainDirectoryWatch {
         source.resume()
     }
 
+    // Explicit, though libdispatch also cancels a resumed source when its last reference goes:
+    // the release-stops-the-watch contract does not rest on that.
     deinit {
         source.cancel()
     }

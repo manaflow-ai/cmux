@@ -41,10 +41,11 @@ public nonisolated final class AgentActivityLineConnection: @unchecked Sendable 
         self.acceptsServer = acceptsServer
     }
 
-    /// A connection released without ``cancel()`` (its owner went away) ends here, so its
-    /// descriptor and read source do not outlive it and the owner's deinit has no body. No callback
-    /// runs. Nothing else can touch the fields now: every `queue` block holds `self` strongly and
-    /// the read source holds it weakly.
+    /// A connection released without ``cancel()`` (its owner went away) ends here, so the owner's
+    /// deinit has no body. No callback runs. libdispatch would also cancel the released read source
+    /// (its cancel handler closes the descriptor); the explicit cancel states the contract instead
+    /// of relying on that. Nothing else can touch the fields now: every `queue` block holds `self`
+    /// strongly and the read source holds it weakly.
     deinit {
         if let source {
             source.cancel()
