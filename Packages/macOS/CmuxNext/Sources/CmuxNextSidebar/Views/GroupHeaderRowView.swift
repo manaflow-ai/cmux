@@ -147,7 +147,7 @@ final class GroupHeaderRowView: SidebarRowView {
         chevronIcon = Self.disclosureIcon(collapsed: collapsed)
         chevron.image = NSImage.icon(chevronIcon, size: .iconRowSize(forLabelPointSize: Metrics.smallIconSize - Metrics.space2))
         // Lawrence 2026-10-20: "All we care about is the loading."
-        let status = collapsed ? (details.otherStates ? group.aggregateActivity : group.loadingActivity) : .idle
+        let status = collapsed && details.otherStates ? group.aggregateActivity : group.statusRollUp(collapsed: collapsed)
         if status.isVisible {
             activityEnding = false
             activity.configure(status)

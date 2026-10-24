@@ -125,6 +125,14 @@ public nonisolated struct SidebarGroup: Identifiable, Hashable, Sendable {
         return StatusStack.resolve(loading.map { StatusReport(id: $0.id.rawValue, source: .explicit, state: $0.activity, style: $0.activityStyle) }).state
     }
 
+    /// The one state the group's header shows by default: a collapsed header shows its members'
+    /// loading (``loadingActivity``), an open header nothing.
+    /// - Parameter collapsed: Whether the header is collapsed (its members hidden).
+    /// - Returns: The state the header's status glyph draws.
+    public func statusRollUp(collapsed: Bool) -> StatusIndicatorState {
+        collapsed ? loadingActivity : .idle
+    }
+
     /// Strongest activity among children, shown on a collapsed group header
     /// with `sidebar.detailedStatusIcons` on.
     public var aggregateActivity: StatusIndicatorState {

@@ -115,6 +115,10 @@ import Testing
                 }
             }
         }
+        for dark in [true, false] {
+            let image = try Self.renderStatusColors(dark: dark)
+            try AAGroupHeaderDensityGalleryTests.write(image, to: out.appending(path: "status-\(dark ? "dark" : "light").png"))
+        }
         let tar = Process()
         tar.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
         tar.currentDirectoryURL = root
@@ -169,5 +173,34 @@ import Testing
             image = ctx.makeImage()
         }
         return try #require(image)
+    }
+
+    /// Lawrence msg 11983: "make sure sidebar has blue, orange/yellow for needs attention, and red for errors".
+    /// The `SidebarStatusColorTests` fixture (Home unread, band items waiting and failed, rows unread, needing
+    /// permission and failed, open and collapsed group headers rolling up their members) at the default density.
+    static func renderStatusColors(dark: Bool) throws -> CGImage {
+        let h = SidebarStatusColorTests.Harness(dark: dark)
+        defer { h.window.close() }
+        let root = try #require(h.window.contentView)
+        root.wantsLayer = true
+        root.appearance = h.window.appearance
+        let theme = dark ? "Soft Blue" : "Soft Blue Light"
+        let input = try AANestedGroupsGalleryTests.input(theme)
+        _ = ThemeScope.app.store.apply(input)
+        let scope = ThemeScope(level: .room)
+        scope.setOverride(ThemeSpec(theme), input: input, animated: false)
+        scope.root(root)
+        root.layer?.backgroundColor = scope.perform { Palette.windowBackground.withAlphaComponent(1) }.cgColor
+        for view in AANestedGroupsGalleryTests.all(root) {
+            view.needsLayout = true
+            view.layoutSubtreeIfNeeded()
+            view.layer?.removeAllAnimations()
+            view.needsDisplay = true
+            view.displayIfNeeded()
+        }
+        CATransaction.flush()
+        let rep = try #require(root.bitmapImageRepForCachingDisplay(in: root.bounds))
+        root.cacheDisplay(in: root.bounds, to: rep)
+        return try #require(rep.cgImage)
     }
 }
