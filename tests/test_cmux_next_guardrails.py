@@ -438,12 +438,12 @@ class RuleTests(Fixture):
         self.commit("a class in an extension of a generic type declared in an unchanged file")
         self.assertEqual(self.refused(), [("generic-class-deinit", ["Ledger+Cursor.swift: final class Cursor {"])])
 
-    def test_the_generic_class_rule_passes_nonisolated_or_plain_deinits_and_non_generic_context(self):
+    def test_the_generic_class_rule_passes_nonisolated_deinits_and_non_generic_context(self):
         self.write(f"{KIT}/Cache.swift",
                    "@MainActor final class Cache<Key, Value> {\n"
                    "    final class Slot {\n        var value: Value?\n        nonisolated deinit {}\n    }\n"
                    "    nonisolated final class Entry {\n        var key: Key?\n    }\n"
-                   "    deinit {}\n}\n")
+                   "    nonisolated deinit {}\n}\n")
         self.write(f"{KIT}/Plain.swift", "final class Plain {\n    final class Inner {\n        var x = 0\n    }\n}\n"
                    "extension Plain {\n    final class Other {\n        var y = 0\n    }\n}\n"
                    "final class Holder<T> {\n    class func make() -> Holder { Holder() }\n    class var name: String { \"\" }\n"
@@ -459,6 +459,86 @@ class RuleTests(Fixture):
                    "    nonisolated deinit {}\n}\n")
         self.commit("Pool becomes generic")
         self.assertEqual(self.refused(), [("generic-class-deinit", ["Pool.swift: final class Lease {"])])
+
+    def test_a_plain_deinit_is_no_fix(self):
+        # 136798fb6f3 took a plain `deinit` as the fix. In a uiSwiftSettings target it takes the
+        # default isolation (#20408 215fe45c7a2; check-concurrency.sh refuses it there), so it is the
+        # isolated deinit the 6.3.3 inliner crashes on. Every known fix is `nonisolated deinit`.
+        self.write(f"{KIT}/Cache.swift", "@MainActor final class Cache<K, V> {\n    var values: [K: V] = [:]\n"
+                   "    deinit {}\n}\n")
+        self.write("Packages/macOS/CmuxNext/Tests/CmuxNextFooTests/Seen.swift",
+                   "final class Seen<T> {\n    var v: T?\n    deinit {}\n}\n")
+        self.commit("generic classes with plain deinits")
+        self.assertEqual(sorted(self.refused()[0][1]), [
+            "Cache.swift: @MainActor final class Cache<K, V> {",
+            "Seen.swift: final class Seen<T> {",
+        ])
+
+    def test_changing_only_the_deinit_of_an_existing_generic_class_to_isolated_is_refused(self):
+        # The rule judged a class only when its declaration line changed, so an edit of the deinit
+        # line alone was never judged.
+        self.rebase_on({f"{KIT}/Box.swift": "@MainActor final class Box<T> {\n    var value: T?\n"
+                                            "    nonisolated deinit {}\n}\n"})
+        self.write(f"{KIT}/Box.swift", "@MainActor final class Box<T> {\n    var value: T?\n"
+                   "    isolated deinit { print(1) }\n}\n")
+        self.commit("the deinit becomes isolated")
+        self.assertEqual(self.refused(), [("generic-class-deinit", ["Box.swift: @MainActor final class Box<T> {"])])
+
+    def test_deleting_only_the_nonisolated_deinit_of_an_existing_generic_class_is_refused(self):
+        # A deletion-only push has no changed head line, so the rule returned before reading context.
+        self.rebase_on({f"{KIT}/Box.swift": "@MainActor final class Box<T> {\n    var value: T?\n"
+                                            "    nonisolated deinit {}\n}\n"})
+        self.write(f"{KIT}/Box.swift", "@MainActor final class Box<T> {\n    var value: T?\n}\n")
+        self.commit("the nonisolated deinit goes")
+        self.assertEqual(self.refused(), [("generic-class-deinit", ["Box.swift: @MainActor final class Box<T> {"])])
+
+    def test_deleting_the_deinit_of_a_class_in_an_extension_of_a_generic_type_in_another_file_is_refused(self):
+        self.rebase_on({f"{KIT}/Ledger.swift": "struct Ledger<Entry> {\n    var entries: [Entry]\n}\n",
+                        f"{KIT}/Ledger+Cursor.swift": "extension Ledger {\n    final class Cursor {\n"
+                                                      "        var entry: Entry?\n        nonisolated deinit {}\n"
+                                                      "    }\n}\n"})
+        self.write(f"{KIT}/Ledger+Cursor.swift",
+                   "extension Ledger {\n    final class Cursor {\n        var entry: Entry?\n    }\n}\n")
+        self.commit("the cursor's nonisolated deinit goes")
+        self.assertEqual(self.refused(), [("generic-class-deinit", ["Ledger+Cursor.swift: final class Cursor {"])])
+
+    def test_editing_a_class_that_already_has_the_debt_adds_none(self):
+        # Touching the body of a class that is base debt pairs with the base: base debt never blocks.
+        self.rebase_on({f"{KIT}/Box.swift": "@MainActor final class Box<T> {\n    var value: T?\n"
+                                            "    var count = 0\n}\n"})
+        self.write(f"{KIT}/Box.swift", "@MainActor final class Box<T> {\n    var value: T?\n"
+                   "    func reset() { value = nil }\n}\n")
+        self.commit("a member changes")
+        self.assertEqual(self.refused(), [])
+        self.write(f"{KIT}/Box.swift", "@MainActor final class Box<T> {\n    var value: T?\n"
+                   "    func reset() { value = nil }\n    func clear() { value = nil }\n}\n")
+        self.commit("a member is added")
+        self.assertEqual(self.refused(), [])
+
+    def test_deleting_a_line_next_to_the_opener_of_old_debt_adds_none(self):
+        # A deletion marks the lines around it on both sides, so an old sleep in the loop around it pairs.
+        self.rebase_on({f"{KIT}/Wait.swift": "func wait() async throws {\n    while !ready() {\n        tick()\n"
+                                             "        try await Task.sleep(for: .milliseconds(5))\n    }\n}\n"})
+        self.write(f"{KIT}/Wait.swift", "func wait() async throws {\n    while !ready() {\n"
+                   "        try await Task.sleep(for: .milliseconds(5))\n    }\n}\n")
+        self.commit("a line in the loop goes")
+        self.assertEqual(self.refused(), [])
+
+    def test_the_generic_class_rule_reads_the_target_isolation_like_check_concurrency(self):
+        # One crash class, one detector: a class in a daemonSwiftSettings target is nonisolated by
+        # default, so its implicit deinit is too, unless the class is `@MainActor` (check-concurrency.sh).
+        self.rebase_on({"Packages/macOS/CmuxNext/Package.swift":
+                        'let package = Package(name: "CmuxNext", targets: [\n'
+                        '    .target(name: "CmuxNextKit", swiftSettings: daemonSwiftSettings),\n'
+                        '    .testTarget(name: "CmuxNextFooTests", swiftSettings: uiSwiftSettings),\n])\n'},
+                       "the manifest")
+        self.write(f"{KIT}/Race.swift", "private final class Race<T: Sendable>: Sendable {\n    var value: T?\n}\n"
+                   "@MainActor final class Box<T> {\n    var value: T?\n}\n")
+        self.write("Packages/macOS/CmuxNext/Tests/CmuxNextFooTests/Wait.swift",
+                   "final class Once<T> {\n    var value: T?\n}\n")
+        self.commit("generic classes in a daemon target and a UI test target")
+        self.assertEqual(sorted(self.refused()[0][1]), ["Race.swift: @MainActor final class Box<T> {",
+                                                       "Wait.swift: final class Once<T> {"])
 
     def test_other_rules_do_not_read_test_targets(self):
         self.write("Packages/macOS/CmuxNext/Tests/CmuxNextFooTests/Fake.swift",
