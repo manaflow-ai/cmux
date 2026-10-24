@@ -9,6 +9,12 @@ every cmux process on one time axis. With that file, "why did this lag" takes mi
 
 All sources use one clock: `CLOCK_UPTIME_RAW` (mach_absolute_time) in microseconds.
 
+`log` stamps a signpost's `machTimestamp` with mach_continuous_time, which also counts the time the
+host slept since boot (3 days on mac26 on 2026-10-24). `signposts.ndjson` starts with the difference
+(`#continuous-minus-uptime-us`, read when `log stream` starts) and ends with it again; trace.py takes it
+off every signpost. A file with no such line (an older recording) or with two different values (the host
+slept during the recording) gives a `WARNING` in the summary.
+
 | Source | How it is recorded | Where it shows |
 |---|---|---|
 | Stack samples, every process | `xctrace record --all-processes`, Time Profiler with os_signpost and Points of Interest (System Trace with `--system-trace`) | Nested slices (a flame chart over time) on the real thread: app main thread, Ghostty renderer and IO threads, Chromium threads, daemon, holder, terminal hosts, acpmux, CLI processes, WindowServer |
@@ -98,8 +104,9 @@ hand-written export shapes, the merge, the xctrace clock (a signpost match, a co
 back to the start date with a warning, the start date's precision, the recorder start), the
 `debug.cef` validity, the stage bounds and errors, a source whose stop raises or hangs, a wrapped
 command's process group, the export's part files, a bound that fires inside `perf-stress-session.py`'s
-`wait()`, a SIGTERM during the export, one SIGINT only to xctrace, track ids that fit uint32, and a CLI
-process named `cmux` that is not the app. It has no real xctrace export yet: the time-profile, os-signpost
+`wait()`, a SIGTERM during the export, one SIGINT only to xctrace, track ids that fit uint32, a CLI
+process named `cmux` that is not the app, and signposts of a host that slept since boot (they land on
+the stalls they happened with). It has no real xctrace export yet: the time-profile, os-signpost
 and syscall columns are not checked against xctrace 15, 16, 26 or 27. The parsers key each cell by its
 column's `<mnemonic>` from the table's `<schema>` (in column order), and fall back to the cell's element
 tag. If the os-signpost columns differ, the clock falls back to the start date, and the summary prints a

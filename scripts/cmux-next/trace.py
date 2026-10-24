@@ -23,7 +23,8 @@ into one Chrome trace event file (JSON, gzip) keyed by pid and thread, that ui.p
                    pids (thread ids mapped by name)
   driver           what the scenario did and when: every key sent, every CLI call of the storm
 
-Every source is on one clock: CLOCK_UPTIME_RAW (mach_absolute_time) in microseconds. It then prints a short
+Every source is on one clock: CLOCK_UPTIME_RAW (mach_absolute_time) in microseconds (the signposts' machTimestamp
+is mach_continuous_time: the host's sleep since boot, read when `log stream` starts, is taken off). It then prints a short
 summary (also SUMMARY.txt and summary.json): the longest main-thread stalls with their stacks, input to commit
 per action, and cross-process waits (main thread off CPU inside an action or a stall, by what it waited on:
 the daemon, Chromium, a lock, WindowServer, disk, XPC).
@@ -68,7 +69,8 @@ Usage (a fleet GUI host, never Lawrence's Mac):
   trace.py summary DIR         print DIR's summary again
   trace.py --self-test         check the parsers (hand-written export shapes, not yet a real xctrace export),
                                the merge, the clock alignment, the stage bounds, the stop path, the export,
-                               the signals, the one SIGINT to xctrace and the uint32 track ids
+                               the signals, the one SIGINT to xctrace, the uint32 track ids and the
+                               signpost clock of a host that slept
 
 Docs: plans/cmux-next/trace.md (how to record, open in ui.perfetto.dev, read it). Not a CI gate.
 """
@@ -116,6 +118,16 @@ stress_lib = load("perf_stress_session", "perf-stress-session.py")
 def uptime_us():
     """CLOCK_UPTIME_RAW (mach_absolute_time) in microseconds: the clock of every source in the trace."""
     return time.clock_gettime_ns(time.CLOCK_UPTIME_RAW) / 1000.0
+
+
+def continuous_minus_uptime_us():
+    """mach_continuous_time minus mach_absolute_time in microseconds: how long the host slept since boot.
+    `log` stamps machTimestamp with mach_continuous_time (CLOCK_MONOTONIC_RAW on Darwin), so a signpost's
+    CLOCK_UPTIME_RAW time is its machTimestamp minus this (constant while the host stays awake)."""
+    before = time.clock_gettime_ns(time.CLOCK_UPTIME_RAW)
+    continuous = time.clock_gettime_ns(time.CLOCK_MONOTONIC_RAW)
+    after = time.clock_gettime_ns(time.CLOCK_UPTIME_RAW)
+    return (continuous - (before + after) / 2) / 1000.0
 
 
 def note(text):
@@ -426,6 +438,8 @@ class SignpostStream:
         self.file = open(self.path, "w")
         if timebase:
             self.file.write(f"#timebase {timebase[0]}/{timebase[1]}\n")
+        # The file carries its own clock: `trace.py export` may run on another Mac, after this one slept.
+        self.file.write(f"#continuous-minus-uptime-us {continuous_minus_uptime_us()}\n")
 
         def drain():
             # Reads for the whole run: a full pipe would block `log stream` and logd would drop events.
@@ -452,8 +466,7 @@ class SignpostStream:
                 self.proc.wait()
         if self.reader:
             self.reader.join(timeout=15)
-        if self.file:
-            self.file.close()
+        self._close()
 
     def kill(self):
         """Ends `log stream` at once (its stop passed the bound)."""
@@ -462,8 +475,16 @@ class SignpostStream:
             self.proc.wait()
         if self.reader:
             self.reader.join(timeout=5)
-        if self.file:
-            self.file.close()
+        self._close()
+
+    def _close(self):
+        """Closes the file with the clock line of the recording's end (a sleep during it shows as a change),
+        written only once the reader has ended (it writes the same file)."""
+        if not self.file or self.file.closed:
+            return
+        if not (self.reader and self.reader.is_alive()):
+            self.file.write(f"#continuous-minus-uptime-us-end {continuous_minus_uptime_us()}\n")
+        self.file.close()
 
 
 class XcTrace:
@@ -1823,8 +1844,14 @@ def find_app_pid(meta, known, roles, intervals):
     return pid, "process name" if pid is not None else "none"
 
 
+CLOCK_LINE = re.compile(r"^#continuous-minus-uptime-us(-end)? (-?[0-9.e+]+)$")
+
+
 def read_signposts(path):
-    """Signpost intervals and events with absolute times (us) from a saved `log stream --signpost` file."""
+    """Signpost intervals and events on CLOCK_UPTIME_RAW (us) from a saved `log stream --signpost` file, plus
+    `clock`: the file's mach_continuous_time minus CLOCK_UPTIME_RAW (SignpostStream's clock lines, taken off
+    every machTimestamp) and a warning when the times could not be put on CLOCK_UPTIME_RAW (no clock line) or
+    the host slept during the recording (the end line differs)."""
     numer = denom = 0
     timebase = signposts_lib.local_timebase()
     if timebase:
@@ -1833,7 +1860,23 @@ def read_signposts(path):
     try:
         lines = open(path).read().splitlines()
     except OSError:
-        return {"intervals": [], "events": [], "lost": 0, "unpaired": 0}
+        return {"intervals": [], "events": [], "lost": 0, "unpaired": 0, "clock": {"offset_us": 0.0, "warning": None}}
+    clock = {"offset_us": 0.0, "warning": None}
+    start_offset = end_offset = None
+    for raw in lines:
+        match = CLOCK_LINE.match(raw.strip())
+        if match and match.group(1) and end_offset is None:
+            end_offset = float(match.group(2))
+        elif match and not match.group(1) and start_offset is None:
+            start_offset = float(match.group(2))
+    if start_offset is None:
+        clock["warning"] = ("signposts.ndjson has no clock line (a trace.py before the clock fix wrote it): its times "
+                            "are mach_continuous_time, ahead of every other source by the host's sleep since boot")
+    else:
+        clock["offset_us"] = start_offset
+        if end_offset is not None and abs(end_offset - start_offset) > 1000:
+            clock["warning"] = (f"the host slept {(end_offset - start_offset) / 1e6:.1f} s during the recording: "
+                                f"signposts after the sleep are that much late against the other sources")
     for raw in lines:
         line = raw.strip()
         header = signposts_lib.TIMEBASE_HEADER.match(line)
@@ -1854,7 +1897,7 @@ def read_signposts(path):
         mach = event.get("machTimestamp")
         if not (isinstance(mach, int) and denom):
             continue
-        at = mach * numer / denom / 1000.0
+        at = mach * numer / denom / 1000.0 - clock["offset_us"]
         key = (event.get("processID"), event.get("category"), event.get("signpostName"), event.get("signpostID"))
         kind = event.get("signpostType")
         message = event.get("eventMessage", "")
@@ -1870,7 +1913,7 @@ def read_signposts(path):
         elif kind == "event":
             events.append({"name": key[2], "category": key[1], "pid": key[0], "tid": event.get("threadID"), "at_us": at,
                            "message": message})
-    return {"intervals": intervals, "events": events, "lost": lost, "unpaired": len(open_intervals)}
+    return {"intervals": intervals, "events": events, "lost": lost, "unpaired": len(open_intervals), "clock": clock}
 
 
 def flame_events(samples, offset_us, keep):
@@ -2166,7 +2209,7 @@ def build(out):
         "samples": len(samples), "sampled_processes": len(names), "xctrace_clock": offset_how,
         "app_pid": app_pid, "app_pid_from": app_pid_from, "missing_tables": missing,
         "os_tids_over_uint32": sorted(t for t in os_tids if not 0 <= t < 1 << 32)[:8],
-        "xctrace_clock_warning": clock_warning, "unreadable_tables": unreadable,
+        "xctrace_clock_warning": clock_warning, "unreadable_tables": unreadable, "signpost_clock": signposts["clock"],
         "signpost_intervals": len(signposts["intervals"]), "signposts_lost": signposts["lost"],
         "system_trace_states": len(states), "hang_records": len(stall_records), "hangs_dropped": hangs.get("dropped"),
         "daemon_span_lines": span_info["lines"], "chromium": chrome_info, "processes": dict(collections.Counter(roles.values())),
@@ -2353,11 +2396,12 @@ def summarize(meta, roles, app_pid, samples, offset_us, signposts, stalls, block
     by_role = collections.Counter()
     for t, w, thread, _ in samples:
         by_role[roles.get(thread.get("pid"), "other")] += w / 1e6
-    window_s = max(1e-9, ((meta.get("window_end_us") or start) - start) / 1e6)
+    # None when the window never started (a stage before it failed): the stop path stamps the end anyway.
+    window_s = None if meta.get("window_start_us") is None else max(1e-9, ((meta.get("window_end_us") or start) - start) / 1e6)
     return {
         "host": meta.get("host"), "macos": meta.get("macos"), "tag": meta.get("tag"), "scenario": meta.get("scenario"),
         "scenario_label": meta.get("scenario_label"),
-        "window_s": round(window_s, 1), "load_at_start": meta.get("load_at_start"), "stress": meta.get("stress"), "storm_ops": meta.get("storm_ops"),
+        "window_s": None if window_s is None else round(window_s, 1), "load_at_start": meta.get("load_at_start"), "stress": meta.get("stress"), "storm_ops": meta.get("storm_ops"),
         "light": meta.get("light"), "storm_targets": meta.get("storm_targets"),
         "keys": meta.get("keys"), "chords": meta.get("chords"), "key_to_frame_ms": meta.get("key_to_frame_ms"),
         "frames": meta.get("frames"), "cef": meta.get("cef"), "window_state": meta.get("window_state"),
@@ -2391,7 +2435,8 @@ def unobserved(roles, signposts, span_rows):
 
 def summary_text(s):
     lines = [f"TRACE {s.get('scenario_label') or s.get('scenario')} on {s.get('host')} (macOS {s.get('macos')}), tag {s.get('tag')}, "
-             f"window {s.get('window_s')} s, load average at start {s.get('load_at_start')}"
+             + (f"window {s['window_s']} s" if s.get('window_s') is not None else "no window (it never started)")
+             + f", load average at start {s.get('load_at_start')}"
              + (f", exit code {s['exit_code']}" if s.get("exit_code") is not None else "")]
     if s.get("terminated") is not None:
         lines.append(f"  TERMINATED by a signal (exit {s['terminated']}): recorders and app stopped; the export and "
@@ -2422,6 +2467,8 @@ def summary_text(s):
                      f"{src.get('system_trace_states')} System Trace syscall waits")
         if src.get("xctrace_clock_warning"):
             lines.append(f"  WARNING: {src['xctrace_clock_warning']}")
+        if (src.get("signpost_clock") or {}).get("warning"):
+            lines.append(f"  WARNING: {src['signpost_clock']['warning']}")
         for schema, error in (src.get("unreadable_tables") or {}).items():
             lines.append(f"  WARNING: xctrace table {schema} skipped: {error}")
         if src.get("missing_tables"):
@@ -3138,6 +3185,8 @@ def check_refuses_a_running_bundle():
             assert code == 3 and "bundle-in-use" in meta["errors"][0]["error"], meta["errors"]
             assert rec.wrapped is None and other.poll() is None, "a process this run did not start was signalled"
             assert other.pid in rec.processes["before"], rec.processes
+            text = open(os.path.join(out, "SUMMARY.txt")).read()
+            assert "no window (it never started)" in text, text
         finally:
             other.kill()
             other.wait()
