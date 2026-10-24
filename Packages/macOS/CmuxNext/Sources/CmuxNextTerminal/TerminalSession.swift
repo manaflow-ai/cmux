@@ -206,13 +206,37 @@ public final class TerminalSession {
     }
 
     #if DEBUG
-    /// Moves the pointer over viewport cell (`column`, `row`) with Cmd held, as a mouse
-    /// does (live checks).
-    public func hoverLinkForTesting(column: Int, row: Int) {
-        guard let surface = surfaceView.surface else { return }
-        let cell = surfaceView.cellPointSize
-        let point = CGPoint(x: (Double(column) + 0.5) * cell.width, y: (Double(row) + 0.5) * cell.height)
-        ghostty_surface_mouse_pos(surface, point.x, point.y, GhosttyInput.mods(.command))
+    /// Moves the pointer over viewport cell (`column`, `row`) as a mouse does, with
+    /// `flags` held (live checks): the view's own mouse-move path.
+    public func hoverLinkForTesting(column: Int, row: Int, flags: NSEvent.ModifierFlags = .command) {
+        guard let event = surfaceView.linkTestEvent(.mouseMoved, column: column, row: row, flags: flags) else { return }
+        surfaceView.mouseMoved(with: event)
+    }
+
+    /// A left click on viewport cell (`column`, `row`) with `flags` held, through the
+    /// view's own press and release handlers (live checks).
+    public func clickLinkForTesting(column: Int, row: Int, flags: NSEvent.ModifierFlags = .command) {
+        guard let down = surfaceView.linkTestEvent(.leftMouseDown, column: column, row: row, flags: flags),
+              let up = surfaceView.linkTestEvent(.leftMouseUp, column: column, row: row, flags: flags) else { return }
+        surfaceView.mouseDown(with: down)
+        surfaceView.mouseUp(with: up)
+    }
+
+    /// Modifier keys went down or up with the pointer still (live checks): the key path
+    /// when this terminal has focus, the app-wide watcher's either way.
+    public func modifiersChangedForTesting(_ flags: NSEvent.ModifierFlags) {
+        // A Command key event as AppKit delivers it: flagsChanged, left Command (key code 55).
+        let key = CGEvent(keyboardEventSource: nil, virtualKey: 55, keyDown: flags.contains(.command))
+        key?.type = .flagsChanged
+        key?.flags = CGEventFlags(rawValue: UInt64(flags.rawValue))
+        if surfaceView.isFirstResponder, let key, let event = NSEvent(cgEvent: key) {
+            surfaceView.flagsChanged(with: event)
+        }
+    }
+
+    /// The wrapped link under the pointer and whether the pointer shows the pointing hand.
+    public var linkPointerStateForTesting: (wrapped: String?, pointingHand: Bool) {
+        (nil, surfaceView.cursor == .pointingHand)
     }
     #endif
 
