@@ -1435,7 +1435,10 @@ MEASURE_SCRIPT = "scripts/measure/split-spring.sh"
 BUILD_FAILED_MARK = "the tagged reload printed no app path"
 
 
-MEASURE_VERSION_RE = re.compile(r"^SPLIT_SPRING_MEASURE_VERSION=(\d+)\s*$", re.MULTILINE)
+# The assignment line, with an optional export/readonly/declare, quotes and a trailing `# comment` (5d4878cf9dd wrote
+# `SPLIT_SPRING_MEASURE_VERSION=3  # 3: ...`, which an end-anchored pattern read as no version: nothing was measured).
+MEASURE_VERSION_RE = re.compile(r"""^(?:(?:export|readonly|declare(?:\s+-\w+)*)\s+)?SPLIT_SPRING_MEASURE_VERSION=(["']?)(\d+)\1"""
+                                r"""\s*(?:#.*)?$""", re.MULTILINE)
 # split-spring.sh blobs from before SPLIT_SPRING_MEASURE_VERSION, with the version they measure as. The cron passes no
 # --config, so it measures the default Debug build with each: 626c77ac (b5b629ddfd2..36289e3cd3b^), 07ed24bb
 # (36289e3cd3b, which added --config=bench, unused here) and 9a147625 (3c2bfd8efbb, which added a report key, macos).
@@ -1474,7 +1477,7 @@ def measure_version_of(blob, text):
     """The measurement version of a split-spring.sh blob (pure): its SPLIT_SPRING_MEASURE_VERSION, else the known
     version of an older blob, else None (not measurable)."""
     m = MEASURE_VERSION_RE.search(text or "")
-    return int(m.group(1)) if m else KNOWN_MEASURE_VERSIONS.get(blob)
+    return int(m.group(2)) if m else KNOWN_MEASURE_VERSIONS.get(blob)
 
 
 def measure_version(sha):

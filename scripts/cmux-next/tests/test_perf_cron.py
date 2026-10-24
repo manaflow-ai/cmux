@@ -1543,6 +1543,12 @@ class MeasureVersionTests(unittest.TestCase):
         self.assertEqual(cron.measure_version_of("x", self.SCRIPT), 2)
         self.assertEqual(cron.measure_version_of("y", self.SCRIPT.replace("echo hi", "# why\necho hello")), 2)
         self.assertEqual(cron.measure_version_of("z", self.SCRIPT.replace("=2", "=3")), 3)
+        # 5d4878cf9dd's form: a trailing comment (it read as no version, and the cron measured nothing for hours).
+        self.assertEqual(cron.measure_version_of("c", self.SCRIPT.replace("=2", "=3  # 3: the display is 1920x1200")), 3)
+        for line in ('export SPLIT_SPRING_MEASURE_VERSION="4"', "readonly SPLIT_SPRING_MEASURE_VERSION='4' # x",
+                     "declare -r SPLIT_SPRING_MEASURE_VERSION=4"):
+            self.assertEqual(cron.measure_version_of("d", "#!/bin/bash\n" + line + "\n"), 4, line)
+        self.assertIsNone(cron.measure_version_of("0" * 40, "#!/bin/bash\nSPLIT_SPRING_MEASURE_VERSION=$X\n"))
 
     def test_an_old_blob_has_a_version_only_when_known(self):
         self.assertEqual(cron.measure_version_of("07ed24bb2427ca2681f2762221a579d6185feeda", "#!/bin/bash\n"), 2)
