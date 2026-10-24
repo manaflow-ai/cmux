@@ -2,7 +2,7 @@
   "_doc": "Architecture counts the pre-push ratchet holds (scripts/cmux-next/guardrails.py runs scripts/cmux-next/arch-ratchet.py; the method is scripts/cmux-next/arch_counts.py, whose docstring defines every row). A push may not raise a ratcheted row's total, in the code or in this file's totals, nor swap a counted global, broadcast or layer edge for another; when one drops, rerun `scripts/cmux-next/arch-ratchet.py --update` (the only writer). The one escape is a dated exception: add {\"date\": \"YYYY-MM-DD\", \"row\": \"<row>\", \"allow\": <n>, \"why\": \"...\"} to exceptions; the push that adds it may raise that row by n, and the next --update folds it into the totals and marks it with applied_sha (an applied entry is never edited or removed). --update refuses a rise that no pending exception covers, except a rise that commits already on origin/feat-cmux-next made past the hook (a GitHub merge, --no-verify): it records that one with a generated applied entry whose raised_by names those commits. A generated entry allows no rise in any push's code, and the push that brings it is re-checked: its commits must be on origin/feat-cmux-next, after the old measured_sha and in the new one, named by no other entry, and its allow at most their rise. Never CI.",
   "method": "arch_counts",
   "method_version": 5,
-  "measured_sha": "98b020961a613c685cf7016ff7b295838102b89a",
+  "measured_sha": "b8261760f242d3b18847c8e27412a949785e71c0",
   "measured_date": "2026-10-24",
   "rows": {
     "layer_hard": {
@@ -45,6 +45,10 @@
       "title": "NotificationCenter/KVO observer sites",
       "ratchet": true
     },
+    "blocking_allow_escapes": {
+      "title": "main-thread blocking allowances (`// blocking-allow:`, allowBlocking()",
+      "ratchet": true
+    },
     "app_lines": {
       "title": "CmuxNextApp Swift lines",
       "ratchet": false
@@ -55,13 +59,14 @@
     "layer_soft": 12,
     "layer_upward": 3,
     "layer_unplaced": 0,
-    "stateful_singletons": 204,
+    "stateful_singletons": 200,
     "global_mutable_statics": 478,
     "assume_isolated_outside_adapters": 152,
     "assume_isolated_total": 202,
     "app_broadcast_names": 13,
     "observer_sites": 336,
-    "app_lines": 143341
+    "blocking_allow_escapes": 0,
+    "app_lines": 143502
   },
   "packages": {
     "CmuxAuthRuntime": {
@@ -125,7 +130,7 @@
       "assume_isolated_outside_adapters": 22,
       "assume_isolated_total": 33,
       "observer_sites": 104,
-      "app_lines": 143341
+      "app_lines": 143502
     },
     "CmuxNextApps": {
       "stateful_singletons": 1,
@@ -140,7 +145,7 @@
       "global_mutable_statics": 1
     },
     "CmuxNextBrowser": {
-      "stateful_singletons": 15,
+      "stateful_singletons": 13,
       "global_mutable_statics": 21,
       "assume_isolated_outside_adapters": 19,
       "assume_isolated_total": 22,
@@ -155,7 +160,7 @@
       "observer_sites": 2
     },
     "CmuxNextBrowserCore": {
-      "stateful_singletons": 4,
+      "stateful_singletons": 2,
       "app_broadcast_names": 1
     },
     "CmuxNextBrowserHistory": {
