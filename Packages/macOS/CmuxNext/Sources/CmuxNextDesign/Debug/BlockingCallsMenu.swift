@@ -4,8 +4,8 @@ public import CmuxNextCompat
 
 /// Debug menu > Main-Thread Blocking (N): how many call sites blocked the main thread since launch
 /// (the main-thread blocking detector, plans/cmux-next/threading-model.md), one row per site with
-/// its count, and Reset Counts. Debug builds only: a Nightly sends its sites to the opt-in hang
-/// reports and shows nothing.
+/// its count, and Reset Counts. Debug builds only: a Nightly (to come) will send its sites to the opt-in hang
+/// reports and show nothing.
 ///
 /// It is the delegate of the Debug menu that holds its item (``attach(to:)``), so the count is read
 /// when that menu opens and the rows when the submenu opens; nothing runs while they are closed.
