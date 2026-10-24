@@ -8,21 +8,29 @@ and a host that runs many scripts runs out of them. `TagTeardown.end()`:
 2. `cmux-tui --socket <its socket> session <its session> shutdown --force` for the tag's headless
    session;
 3. waits for every process of the tag to exit, then stops each leftover by its exact PID (TERM, then
-   KILL); never a pattern kill. A process is the tag's by the tag itself, never by name or by
-   ancestry (the daemons detach through `cmux-tui server ensure`): its executable is inside the app
-   bundle; or it is a terminal host whose `--owner <bundle>:<tag>@<pid>` names the app's bundle id
-   (hosts run from a content-addressed copy outside the bundle, host_exe.rs); or its environment
-   holds the app's `CMUX_BUNDLE_ID` (the shells of its terminals); or it is the holder or host
-   process a shell of the tag runs under (the shell's direct parent, from a host-exe copy);
+   KILL); never a pattern kill. A process is the tag's by this bundle path, never by name, bundle id,
+   environment or launcher ancestry (the daemons detach through `cmux-tui server ensure`; two copies of a
+   tag at two paths, two tags that sanitize to one id, or a `reload.sh --bundle-id` share a bundle id):
+   its executable is inside the app bundle; or it is a terminal host whose
+   `--owner <bundle>:<tag>@<pid>` names this bundle id AND, as `<pid>`, a daemon of this bundle path
+   (hosts run from a content-addressed copy outside the bundle, host_exe.rs, and keep the pid of the
+   daemon that spawned them); or its direct parent is one of those (the daemon's holder, `cmux-holder`
+   or `__holder`, and the app's own children); or its direct parent is a host or holder of the tag (the
+   shells of its terminals). A process matched once stays matched while the same pid runs the same
+   command, so a host or holder whose daemon already exited (the shutdown in steps 1-2) is still found.
+   This script and its ancestors never match (a script run from a terminal of the tag);
 4. prints the counts.
 
 Use: `teardown = TagTeardown(app_path)`, `teardown.install()` once (SIGTERM and SIGHUP raise
-SystemExit, so a `finally` runs), and `teardown.end()` in the script's `finally`.
+SystemExit, so a `finally` runs), and `teardown.end()` in the script's `finally`. A script whose app
+daemon may restart mid-run calls `teardown.remember()` after each launch, so hosts the earlier daemon
+spawned are still found by its pid.
 """
 import os, plistlib, re, signal, subprocess, sys, time
 
-# Where cmux-tui runs terminal hosts and holders from on macOS (host_exe.rs): a copy, outside the bundle.
-HOST_EXE_ROOT = os.path.expanduser("~/Library/Application Support/cmux-tui/host-exe/")
+# A terminal host's argv (host_session.rs host_owner_args): `--owner <bundle>:<tag>@<daemon pid>`, each part
+# sanitized to [A-Za-z0-9._-].
+OWNER = re.compile(r"(?:^|\s)--owner ([A-Za-z0-9._-]+):([A-Za-z0-9._-]+)@(\d+)(?:\s|$)")
 
 
 class TagTeardown:
@@ -33,6 +41,7 @@ class TagTeardown:
         self.acpmux_socket = acpmux_socket
         self.log = log or (lambda line: print(line, flush=True))
         self.done = False
+        self.seen = {}  # pid -> (command, role) of every process matched so far (matches)
 
     def install(self):
         def stop(signum, _frame):
@@ -50,11 +59,12 @@ class TagTeardown:
     @staticmethod
     def _owner_part(value):
         """cmux-tui's `--owner` spelling of a bundle id (host_session.rs owner_part)."""
-        return re.sub(r"[^A-Za-z0-9._-]", "_", value) if value else "-"
+        return re.sub(r"[^A-Za-z0-9._-]", "_", value[:96]) if value else "-"
 
     @staticmethod
-    def _ps(*flags):
-        out = subprocess.run(["ps", "-A", *flags, "-o", "pid=,ppid=,command="], capture_output=True, text=True).stdout
+    def _table():
+        """{pid: (ppid, command)} of every process (`ps -A`; no environment is read)."""
+        out = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,command="], capture_output=True, text=True).stdout
         rows = {}
         for line in out.splitlines():
             parts = line.strip().split(None, 2)
@@ -62,37 +72,77 @@ class TagTeardown:
                 rows[int(parts[0])] = (int(parts[1]), parts[2])
         return rows
 
-    @classmethod
-    def _table(cls):
-        """[(pid, ppid, command, command and environment words)] of every process. The environment (`ps eww`, this
-        user's processes only) is read only to match; it is never logged (it can hold tokens)."""
-        plain, with_env = cls._ps(), cls._ps("eww")
-        return [(pid, ppid, command, with_env.get(pid, (ppid, command))[1]) for pid, (ppid, command) in plain.items()]
+    @staticmethod
+    def _lineage(rows, pid):
+        """`pid` and each of its ancestors in `rows` ({pid: (ppid, command)})."""
+        seen = set()
+        while pid > 1 and pid not in seen:
+            seen.add(pid)
+            pid = rows.get(pid, (0, ""))[0]
+        return seen
 
-    def matches(self, rows, bundle):
-        """The rows that are this tag's processes (see the module doc), as (pid, command)."""
-        owner = f"--owner {self._owner_part(bundle)}:" if bundle else None
-        env_mark = f"CMUX_BUNDLE_ID={bundle}" if bundle else None
-        by_pid = {pid: (ppid, command) for pid, ppid, command, _ in rows}
+    def in_bundle(self, command):
+        # The app names some helpers by /var/... or /tmp/... without the /private its realpath
+        # carries (an app copy in $TMPDIR); match them by the resolved spelling.
+        resolved = "/private" + command if command.startswith(("/var/", "/tmp/")) else command
+        return resolved.startswith(self.app + "/") or resolved.startswith(self.app + " ")
+
+    @staticmethod
+    def _is_holder(command):
+        """A terminal holder: the standalone `cmux-holder` (argv0, host_exe.rs HOLDER_NAME) or the host binary's
+        built-in `__holder`."""
+        words = command.split()
+        return bool(words) and (os.path.basename(words[0]) == "cmux-holder" or (len(words) > 1 and words[1] == "__holder"))
+
+    def matches(self, rows, bundle, exclude=None):
+        """The rows ({pid: (ppid, command)}) that are this tag's processes (see the module doc), as sorted
+        (pid, command). `exclude` (default: this process and its ancestors) never matches. Records what it matched
+        in `self.seen` ({pid: (command, role)}), so a later call still finds a host or holder whose daemon exited."""
+        seen = self.seen
+        exclude = self._lineage(rows, os.getpid()) if exclude is None else set(exclude)
+        roles = {}
+        # A process matched before keeps its role while the same pid runs the same command.
+        for pid, (ppid, command) in rows.items():
+            if pid in seen and seen[pid][0] == command:
+                roles[pid] = seen[pid][1]
+        for pid, (ppid, command) in rows.items():
+            if self.in_bundle(command):
+                roles[pid] = "bundle"
+        # A host's `@<pid>` must be a daemon of this bundle path, now or earlier (a daemon that exited keeps its pid
+        # in `seen`), and its bundle part this bundle id: another path's daemon with the same id has another pid.
+        daemons = {pid for pid, role in roles.items() if role == "bundle"} | {pid for pid, (_, role) in seen.items() if role == "bundle"}
+        owner_bundle = self._owner_part(bundle) if bundle else None
+        for pid, (ppid, command) in rows.items():
+            found = OWNER.search(command) if owner_bundle else None
+            if found and found.group(1) == owner_bundle and int(found.group(3)) in daemons:
+                roles[pid] = "host"
+        # One level down from a bundle process (its holder, the app's own children), one from a host or holder (the
+        # shells of the tag's terminals); never further, never by environment.
+        for parents, child_role in ((("bundle", "host"), None), (("host", "holder"), "child")):
+            for pid, (ppid, command) in rows.items():
+                if pid in roles or roles.get(ppid) not in parents:
+                    continue
+                roles[pid] = child_role or ("holder" if self._is_holder(command) else "child")
         found = {}
-        for pid, ppid, command, environment in rows:
-            # The app names some helpers by /var/... or /tmp/... without the /private its realpath
-            # carries (an app copy in $TMPDIR); match them by the resolved spelling.
-            resolved = "/private" + command if command.startswith(("/var/", "/tmp/")) else command
-            mine = resolved.startswith(self.app + "/") or resolved.startswith(self.app + " ")
-            mine = mine or (owner is not None and owner in command)
-            if env_mark is not None and env_mark in environment.split():
-                mine = True
-                parent = by_pid.get(ppid)
-                if parent and parent[1].startswith(HOST_EXE_ROOT):
-                    found[ppid] = parent[1]
-            if mine:
-                found[pid] = command
+        for pid, role in roles.items():
+            if pid in exclude:
+                continue
+            seen[pid] = (rows[pid][1], role)
+            found[pid] = rows[pid][1]
         return sorted(found.items())
 
     def processes(self):
         """(pid, command) of every process of this tag."""
         return self.matches(self._table(), self.bundle_id())
+
+    def remember(self):
+        """Records the tag's processes now (its daemons' pids): call after a launch when the daemon may restart
+        before end()."""
+        return self.processes()
+
+    def shown(self, command):
+        """`command` for the log: relative to the bundle when it runs from it, else whole; shortened."""
+        return (command[len(self.app):] if self.in_bundle(command) else command)[:160]
 
     @staticmethod
     def _environment(pid):
@@ -168,7 +218,7 @@ class TagTeardown:
         self.log(f"teardown: {len(before)} processes of the bundle at exit, {len(left)} left after the shutdowns "
                  f"(TERM by PID), {len(killed)} after TERM (KILL by PID), {len(after)} left now")
         for pid, cmd in after:
-            self.log(f"teardown: STILL RUNNING {pid} {cmd[len(self.app):][:120]}")
+            self.log(f"teardown: STILL RUNNING {pid} {self.shown(cmd)}")
 
 
 def pty_count():
