@@ -14,9 +14,7 @@ import CmuxNextCompat
 /// the pane's `contentPresented` event re-applies. Ghostty surface focus
 /// follows the responder (first responder in the key window).
 final class FocusEffectApplier: FocusEffectApplying {
-    // cx-t7hu: nonisolated, so a release (inside an action's task-local scope, or off the main
-    // thread) runs no runtime hop; an implicit deinit is isolated in this target. Its stored
-    // self-ending handles end on the releasing thread.
+    // cx-t7hu: no isolated-deinit hop on release (the contract: OwnedTask).
     nonisolated deinit {}
 
     private unowned let controller: WindowController

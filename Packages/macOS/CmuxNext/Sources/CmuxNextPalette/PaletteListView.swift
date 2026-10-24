@@ -59,9 +59,8 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
 
     private var boundsObserver: MainActorObservation?
 
-    // cx-t7hu: nonisolated, so a release (inside an action's task-local scope, or off the main
-    // thread) runs no runtime hop; an implicit deinit is isolated in this target. The clip view's
-    // bounds observer (a MainActorObservation) is removed on the releasing thread.
+    // cx-t7hu: no isolated-deinit hop on release (see OwnedTask). It holds AppKit objects:
+    // release it on main.
     nonisolated deinit {}
 
     // MARK: Updates from the model

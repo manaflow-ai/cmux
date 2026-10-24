@@ -10,25 +10,40 @@ import Testing
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
 struct TabSearchLiveUpdatesTests {
-    /// A source whose changes stream reports when its follower went away, and whether that
-    /// happened on the main thread.
+    /// A source whose changes stream reports when its follower first waits in it, and when (and
+    /// on which thread) that follower went away.
     final class EndingSource: TabSearchSource {
+        /// One element once the follow task asked the changes stream for its first element.
+        let started: AsyncStream<Void>
+        /// Whether the follow ended on the main thread (one element per end).
         let ended: AsyncStream<Bool>
+        private let start: AsyncStream<Void>.Continuation
         private let end: AsyncStream<Bool>.Continuation
-        private var continuations: [AsyncStream<Void>.Continuation] = []
 
         init() {
-            let pair = AsyncStream.makeStream(of: Bool.self, bufferingPolicy: .bufferingNewest(1))
-            ended = pair.stream
-            end = pair.continuation
+            let starts = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
+            started = starts.stream
+            start = starts.continuation
+            let ends = AsyncStream.makeStream(of: Bool.self, bufferingPolicy: .bufferingNewest(1))
+            ended = ends.stream
+            end = ends.continuation
         }
 
+        /// A stream that yields nothing. Its first `next()` reports `started`, then waits until
+        /// the follow task is cancelled; the cancel ends the wait on the cancelling thread, which
+        /// `ended` reports. A follow cancelled before it asked (`onCancel`) reports the thread
+        /// that asks.
         func changes() -> AsyncStream<Void> {
-            let (stream, continuation) = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
+            let start = start
             let end = end
-            continuation.onTermination = { _ in end.yield(Thread.isMainThread) }
-            continuations.append(continuation)
-            return stream
+            return AsyncStream(unfolding: {
+                start.yield()
+                let (wait, waiting) = AsyncStream.makeStream(of: Void.self)
+                waiting.onTermination = { _ in end.yield(Thread.isMainThread) }
+                for await _ in wait {}
+                waiting.finish()
+                return nil
+            }, onCancel: { end.yield(Thread.isMainThread) })
         }
 
         func tabSearchEntries() -> [TabSearchEntry] { [] }
@@ -71,10 +86,12 @@ struct TabSearchLiveUpdatesTests {
         let source = EndingSource()
         let model = PaletteModel()
         var updates: TabSearchLiveUpdates? = Self.following(source, in: model)
-        // follow(_:in:) queued its follow task on the main actor; this main-actor task is queued
-        // after it, so once it ran the follow task waits in the changes stream, and a cancel ends
-        // that wait at once, on the thread that cancels.
-        await Task {}.value
+        // The follow task reports when it asks the changes stream for its first element (no
+        // reliance on the order of main-actor jobs). From then on a cancel ends its wait on the
+        // thread that cancels. A gap between the report and the wait exists only when the stream
+        // runs off the main actor; a cancel in that gap ends the wait on that thread, also not main.
+        var started = source.started.makeAsyncIterator()
+        #expect(await started.next() != nil, "the follow task waits in the changes stream")
         // The capture holds the only reference, and the detached task never runs on the main
         // actor: it completes on a cooperative-pool thread, and its completion drops the last
         // reference there. (A main-actor turn inside it let a Release build complete it on the

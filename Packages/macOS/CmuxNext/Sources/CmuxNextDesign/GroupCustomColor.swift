@@ -92,11 +92,6 @@ public final class GroupCustomSwatchView: NSView {
 /// borrows: it stays the panel's target after any editor that opened it is gone.
 @MainActor
 public final class GroupColorPanel: NSObject {
-    // cx-t7hu: nonisolated, so a release (inside an action's task-local scope, or off the main
-    // thread) runs no runtime hop; an implicit deinit is isolated in this target. Its stored
-    // self-ending handles end on the releasing thread.
-    nonisolated deinit {}
-
     public static let shared = GroupColorPanel()
 
     private var onColor: ((GroupTint) -> Void)?

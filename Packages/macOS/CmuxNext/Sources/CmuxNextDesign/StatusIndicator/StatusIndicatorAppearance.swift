@@ -110,11 +110,6 @@ public extension StatusIndicatorConfigClient {
 /// The shared config and its change broadcast.
 @MainActor
 public final class StatusIndicatorAppearance {
-    // cx-t7hu: nonisolated, so a release (inside an action's task-local scope, or off the main
-    // thread) runs no runtime hop; an implicit deinit is isolated in this target. Its stored
-    // self-ending handles end on the releasing thread.
-    nonisolated deinit {}
-
     public static let shared = StatusIndicatorAppearance()
 
     public private(set) var config: StatusIndicatorConfig
