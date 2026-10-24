@@ -1031,10 +1031,12 @@ async fn dispatch_request(
             let declared = crate::hub::declared_sender(&params)?;
             // A sender that named itself, with neither (`--from`, `ACPMUX_FROM`, a peer daemon
             // forwarding its own session's prompt): that agent's message,
-            // so the transcript never shows it as the person's. Not a note a session sends itself.
+            // so the transcript never shows it as the person's. Not a note a session here sends
+            // itself; names are each daemon's own, so a peer's `coordinator` is another session.
             let provenance = provenance.or_else(|| {
                 let own = s.meta().name;
-                let name = declared.as_deref().filter(|name| *name != own)?;
+                let name = declared.as_deref()
+                    .filter(|name| conn.origin == super::Origin::Peer || *name != own)?;
                 Some(crate::prompt_provenance::named_sender(name, &s.id))
             });
             // Another agent's message with no provenance (`hub/digest.rs`): one that names its

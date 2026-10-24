@@ -253,6 +253,33 @@ async fn a_prompt_queued_before_a_restart_is_still_replaced() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// An agent's report queued before a restart is still that agent's when it runs: its sender's
+/// card, not the person's bubble (review of #24939).
+#[tokio::test]
+async fn a_report_queued_before_a_restart_keeps_its_sender() {
+    let dir = std::env::temp_dir().join(format!("acpmux-supersede-{}", uuid::Uuid::now_v7()));
+    let hub = durable_hub(&dir);
+    let mut c = Client::open(&hub);
+    let session = c.new_session().await;
+    c.busy(&session, None).await;
+    c.accepted(prompt(&session, "p-report", "report", "lane-a", None)).await;
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+
+    let hub = durable_hub(&dir);
+    let mut c = Client::open(&hub);
+    hub.resume_queues();
+    // The person's prompt queues behind the resumed report: once it ran, so did the report.
+    c.call("session/prompt", prompt(&session, "p-after", "after", "person", None)).await;
+    assert!(c.ran(&session, "p-report").await, "the report never ran");
+    let ran = c.records(&session, "user_message").await;
+    let report = ran.iter().find(|m| m["promptId"] == "p-report").expect("its user_message");
+    assert_eq!(report.pointer("/_meta/provenance/fromName"), Some(&json!("lane-a")), "{report}");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[tokio::test]
 async fn a_key_that_is_not_a_short_string_is_refused() {
     let hub = hub();
