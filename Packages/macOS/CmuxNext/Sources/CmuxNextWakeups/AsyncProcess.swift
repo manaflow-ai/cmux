@@ -44,7 +44,7 @@ public struct AsyncProcess: Sendable {
             try await withCheckedThrowingContinuation { continuation in
                 run.start(continuation)
                 if let deadline, let timeout = request.timeout {
-                    deadline.schedule(after: timeout) { run.stop(.timedOut) }
+                    deadline.schedule(after: timeout) { run.stop(ProcessFailure.timedOut) }
                 }
             }
         } onCancel: {
