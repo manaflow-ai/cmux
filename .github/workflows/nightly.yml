@@ -5681,7 +5681,7 @@ jobs:
           if [ -n "$SOURCE_RUN" ]; then
             mkdir -p prepared-in
             gh run download "$SOURCE_RUN" --repo "$GITHUB_REPOSITORY" \
-              --pattern "cmux-next-prepared-app-arm64-*" --dir prepared-in
+              --pattern "cmux-nightly-prepared-app-arm64-*" --dir prepared-in
           else
             gh release download "$CHANNEL_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
               --pattern "${CHANNEL_DMG_PREFIX}-arm64-${NIGHTLY_BUILD}.dmg" --dir next-in
