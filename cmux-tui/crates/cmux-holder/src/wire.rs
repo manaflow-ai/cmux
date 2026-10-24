@@ -446,8 +446,8 @@ impl Reader {
 pub enum Fault {
     /// This process could not take the descriptors the peer passed (it is
     /// out of descriptors), so the kernel dropped them: macOS fails the read
-    /// with `EMFILE` and leaves the bytes, Linux delivers the descriptors
-    /// that fit and sets `MSG_CTRUNC`.
+    /// with `EMFILE`, `ENFILE` or `EMSGSIZE` and leaves the bytes, Linux
+    /// delivers the descriptors that fit and sets `MSG_CTRUNC`.
     Descriptors,
     /// The bytes are not frames of this wire: a bad magic, a frame too
     /// large, or descriptors that do not match what the frames state.
@@ -625,9 +625,7 @@ unsafe fn recv_with_fds(
         let error = io::Error::last_os_error();
         match error.raw_os_error() {
             Some(libc::EINTR) => {}
-            // macOS: no room for the descriptors that came with the bytes.
-            // It dropped them and left the bytes, which now lack them.
-            Some(libc::EMFILE | libc::ENFILE) => {
+            Some(errno) if dropped_descriptors(errno) => {
                 let message = format!("the kernel dropped descriptors the link passed: {error}");
                 return Err(fault(Fault::Descriptors, message));
             }
@@ -667,6 +665,22 @@ unsafe fn recv_with_fds(
         }
     }
     Ok((n, fds))
+}
+
+/// Whether a failed `recvmsg` on a Unix stream socket means the kernel
+/// could not hand over the descriptors that came with the bytes: it
+/// dropped them and left the bytes, which now lack them. `EMFILE` or
+/// `ENFILE`: allocating one of them failed (macOS 27.0, measured).
+/// `EMSGSIZE`, on macOS: XNU's `unp_externalize` fails with it when the
+/// descriptor table has no room for them all (its `fdavail` check, in the
+/// BSD code since 4.4BSD), which other macOS majors may return for the
+/// same exhaustion; a stream socket's `recvmsg` has no other source of it,
+/// since a message is never too long for a stream. Linux does not fail the
+/// read for them: it delivers what fits and sets `MSG_CTRUNC`
+/// ([`recv_with_fds`]).
+fn dropped_descriptors(errno: i32) -> bool {
+    matches!(errno, libc::EMFILE | libc::ENFILE)
+        || (cfg!(target_vendor = "apple") && errno == libc::EMSGSIZE)
 }
 
 /// Little-endian payload builder.
