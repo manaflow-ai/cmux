@@ -23,6 +23,8 @@ final class SettingsPageProvider: PageProvider {
     private let hostLists: (@MainActor () -> JSONValue)?
     /// The Accounts part of the page (R82 commit 3): its state, and one gesture; nil in tests
     /// without an app.
+    /// The backgrounds folder changed (an imported image): the wallpaper grid lists it at once.
+    var backdropsChanged: (@MainActor () -> Void)?
     var accountsState: (@MainActor () -> JSONValue)?
     var accountsRun: (@MainActor (JSONValue) async throws -> JSONValue)?
     /// Settings > Agents (BRING-YOUR-OWN-HARNESS): the harness list and its gestures; nil in tests

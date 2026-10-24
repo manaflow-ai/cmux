@@ -13,6 +13,7 @@ import CmuxNextWebUpdates
 /// `cmux.app.action.run`, the same path as the palette and the CLI.
 extension SettingsWindowService {
     func pageHostLists() -> JSONValue {
+        hostListRuns += 1
         // The app scope is not observable; reading the store's generation makes the page's
         // host-lists watch re-send the Ghostty config preview after a config edit.
         _ = services.themeStore.generation
@@ -56,7 +57,7 @@ extension SettingsWindowService {
             // Chief > Voice input: home.voiceInput, null where the tunable does not exist (Release).
             "voice_input": ChiefVoiceInputPageRoute().hostJSON,
             "settings_file": services.settings.map { .string($0.file.url.path(percentEncoded: false)) } ?? .null,
-            "backdrops": Self.backdrops.pageRows,
+            "backdrops": backdropSource.pageRows,
             "derived": .object(pageDerivedNumbers()),
         ]
     }
@@ -71,16 +72,12 @@ extension SettingsWindowService {
         return derived
     }
 
-    /// The wallpaper grid's choices, read each time so an image the person just added, or a
-    /// macOS wallpaper they just downloaded, is listed as it is now.
-    static var backdrops: BackdropCatalog {
-        BackdropCatalog(systemDirectory: AppleWallpapers.system.desktopPictures, fileManager: .default, userImages: userImages)
-    }
+    /// The wallpaper grid's choices as they are now: listed again only after a change in a folder
+    /// they come from (an image the person just added, a macOS wallpaper they just downloaded).
+    var backdrops: BackdropCatalog { backdropSource.catalog }
 
     /// The person's own background images, in the backgrounds folder.
-    static var userImages: BackdropUserImages? {
-        BackdropArtDownloads.defaultFolder.map(BackdropUserImages.init(folder:))
-    }
+    static var userImages: BackdropUserImages? { BackdropCatalogSource.userImages }
 
     /// The theme picker's write: the same theme actions as the palette, at `level` of the active
     /// window; nil `spec` returns the level to the Ghostty config.
