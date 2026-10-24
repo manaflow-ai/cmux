@@ -235,7 +235,7 @@ class Stress:
     def focus_pane(self, pane_id):
         """Focuses `pane_id` in the window that shows its workspace; raises StressShapeError when that window's
         focused pane does not become it."""
-        self.action("pane.focus", target=f"pane:{pane_id}")
+        reply = self.action("pane.focus", target=f"pane:{pane_id}")
 
         def focused():
             topology = self.topology()
@@ -245,7 +245,20 @@ class Stress:
         if not wait(focused, 10, step=0.05):
             topology = self.topology()
             raise StressShapeError(f"focus never reached pane {pane_id} (active focus {topology.get('focus')}, "
-                                   f"windows {[(w.get('key'), w.get('workspace'), w.get('focused_pane')) for w in topology.get('windows') or []]})")
+                                   f"windows {[(w.get('key'), w.get('workspace'), w.get('focused_pane')) for w in topology.get('windows') or []]}; "
+                                   f"pane.focus reply {json.dumps(reply)[:400]}; focus model {self.focus_model()})")
+
+    def focus_model(self):
+        """Each window's focus machine (debug.focus: its pane, expectation, generation, topology workspace and
+        last events), for a focus failure's message; a short note when the build has no debug.focus."""
+        try:
+            reply = self.rpc("debug.focus")
+        except Exception as error:  # a diagnostic: the failure is raised either way
+            return f"debug.focus failed: {error}"
+        windows = (reply or {}).get("windows") or [] if isinstance(reply, dict) else []
+        return json.dumps([{"id": w.get("id"), "workspace": w.get("workspace"), "model": w.get("model"),
+                            "layout_focused_pane": w.get("layout_focused_pane"), "panes": [p.get("pane") for p in w.get("topology") or []],
+                            "recent_events": w.get("recent_events")} for w in windows])[:4000]
 
     def tabs(self, workspace_id, pane_id):
         pane = next((p for p in self.panes(self.workspace(workspace_id)) if p.get("id") == pane_id), None)
