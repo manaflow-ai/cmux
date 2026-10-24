@@ -19,7 +19,7 @@ import WebRTC
 struct HighFrameRateStreamTests {
     static let enabled = ProcessInfo.processInfo.environment["CMUX_VNC_120FPS"] == "1"
 
-    @Test(.enabled(if: enabled), .timeLimit(.minutes(2)), arguments: [ScreenQuality.auto, .smooth])
+    @Test(.enabled(if: enabled), .timeLimit(.minutes(3)), arguments: [ScreenQuality.auto, .smooth])
     func aProMotionScreenStreamsAt120Fps(quality: ScreenQuality) async throws {
         let (hostSide, viewerSide) = LoopbackSignaling.pair()
         let lines = LogLines()
@@ -46,8 +46,8 @@ struct HighFrameRateStreamTests {
         for _ in 0 ..< 100 where counter.snapshot.0 == 0 { try await Task.sleep(for: .milliseconds(100)) }
         #expect(counter.snapshot.0 > 0, "no picture arrived")
 
-        // Let congestion control ramp up, then measure a 6 s window.
-        try await Task.sleep(for: .seconds(4)) // warm-up
+        // Let congestion control ramp up (it starts near 300 kbit/s), then measure a 6 s window.
+        try await Task.sleep(for: .seconds(20)) // warm-up
         let before = await viewer.videoStats()
         let start = ContinuousClock.now
         try await Task.sleep(for: .seconds(6)) // measurement window
@@ -68,7 +68,10 @@ struct HighFrameRateStreamTests {
         for line in lines.matching("video:").suffix(2) { print("MAC-SCREEN-120FPS encoder \(line)") }
 
         #expect(agreed.value == 120, "the host agreed on 120 fps with a 120 Hz viewer")
-        #expect(Int(size.width) == 3456 && Int(size.height) == 2234, "streamed at the display's full size")
+        // The size the hardware encoder sustains at 120 fps (ScreenQuality.maximumEncodedPixelRate), never smaller.
+        let pixelRate = size.width * size.height * 120
+        #expect(pixelRate <= Double(ScreenQuality.maximumEncodedPixelRate) * 1.01 && pixelRate >= Double(ScreenQuality.maximumEncodedPixelRate) * 0.97,
+                "streamed at \(Int(size.width))x\(Int(size.height)), \(Int(pixelRate / 1e6)) Mpixel/s")
         #expect(source.deliveredFps >= 115, "the synthetic source itself kept 120 fps (the Mac was too busy to measure)")
         #expect(decodedFps >= 110, "a 120 fps stream decodes at \(Int(decodedFps)) fps")
     }

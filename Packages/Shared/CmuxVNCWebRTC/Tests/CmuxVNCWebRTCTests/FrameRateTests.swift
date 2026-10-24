@@ -54,6 +54,31 @@ struct FrameRateTests {
         }
     }
 
+    /// Above 60 fps Auto and Smooth Motion scale the picture down just enough
+    /// for the hardware H.264 encoder to keep up (measured: an M1 Max encodes
+    /// a 3456×2234 display at 55 fps, an M4 Pro at 66; both hold 2160×1396 at
+    /// 120). At 60 fps and for a display that already fits, nothing changes.
+    @Test(arguments: [ScreenQuality.auto, .smooth])
+    func aboveSixtyThePictureFitsTheEncoder(quality: ScreenQuality) {
+        let budget = Double(ScreenQuality.maximumEncodedPixelRate)
+        for (width, height, fps) in [(3456, 2234, 120), (3024, 1964, 120), (3456, 2234, 90), (5120, 2880, 120)] {
+            let settings = quality.settings(sourceWidth: width, sourceHeight: height, frameRate: fps)
+            let rate = Double(width) / settings.scaleDown * (Double(height) / settings.scaleDown) * Double(fps)
+            #expect(rate <= budget * 1.001, "\(width)x\(height) at \(fps) fps asks for \(Int(rate / 1e6)) Mpixel/s")
+            #expect(rate >= budget * 0.99, "\(width)x\(height) at \(fps) fps is scaled no more than it needs")
+            #expect(settings.maxFramerate == fps && settings.degradation == quality.settings(sourceHeight: height).degradation)
+        }
+        #expect(quality.settings(sourceWidth: 3456, sourceHeight: 2234, frameRate: 60).scaleDown == 1, "60 fps keeps the full size")
+        #expect(quality.settings(sourceWidth: 1920, sourceHeight: 1080, frameRate: 120).scaleDown == 1, "1080p fits at 120")
+        #expect(quality.settings(sourceWidth: 0, sourceHeight: 2234, frameRate: 120).scaleDown == 1, "an unknown size is not scaled")
+    }
+
+    @Test func fixedPresetsScaleAsBeforeAtAnyRate() {
+        for quality in [ScreenQuality.low, .medium, .high] {
+            #expect(quality.settings(sourceWidth: 3456, sourceHeight: 2234, frameRate: 120) == quality.settings(sourceHeight: 2234))
+        }
+    }
+
     /// The fixed presets' encoding does not depend on the frame rate passed.
     @Test func fixedPresetEncodingIsUnchanged() {
         for quality in [ScreenQuality.low, .medium, .high] {

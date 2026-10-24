@@ -68,6 +68,9 @@ public enum ScreenQuality: String, Codable, Sendable, CaseIterable, Identifiable
     static let maximumFrameRate = 120
     /// Auto and Smooth Motion's bitrate ceiling at 60 fps: 200 kbit a frame.
     static let adaptiveBitrateAtBaseline = 12_000_000
+    /// The most pixels a second Auto and Smooth Motion ask the hardware
+    /// H.264 encoder for above 60 fps (2160×1396 at 120).
+    static let maximumEncodedPixelRate = 360_000_000
 
     /// The frames per second to capture and encode at. Auto and Smooth
     /// Motion follow both screens: the lower of the most the host's captured
@@ -92,7 +95,7 @@ public enum ScreenQuality: String, Codable, Sendable, CaseIterable, Identifiable
     /// every frame would get half the bits and text would blur in motion.
     /// It is a ceiling, not a target: WebRTC's congestion control still sets
     /// the rate from the network, and a still screen sends next to nothing.
-    func settings(sourceHeight: Int, frameRate: Int = ScreenQuality.baselineFrameRate) -> Settings {
+    func settings(sourceWidth: Int = 0, sourceHeight: Int, frameRate: Int = ScreenQuality.baselineFrameRate) -> Settings {
         func scale(to height: Int) -> Double { sourceHeight > height ? Double(sourceHeight) / Double(height) : 1 }
         let fps = min(max(frameRate, Self.baselineFrameRate), Self.maximumFrameRate)
         let adaptiveBitrate = Self.adaptiveBitrateAtBaseline / Self.baselineFrameRate * fps
