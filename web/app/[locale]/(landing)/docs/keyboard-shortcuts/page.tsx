@@ -55,6 +55,17 @@ export default function KeyboardShortcutsPage() {
         <li>{t("chordsRuleSyntax")}</li>
       </ul>
 
+      <DocsHeading level={2} id="base-keymaps" className="scroll-mt-24">{t("presetsTitle")}</DocsHeading>
+      <p>{t("presetsIntro")}</p>
+      <ul>
+        <li><strong>cmux (Default)</strong> — {t("presetCmux")}</li>
+        <li><strong>iTerm2</strong> — {t("presetIterm2")}</li>
+        <li><strong>Terminal.app</strong> — {t("presetTerminal")}</li>
+        <li><strong>Prefix chords (Ctrl-B)</strong> — {t("presetTmux")}</li>
+      </ul>
+      <p>{t("presetsApply")}</p>
+      <Callout type="info">{t("presetsPreserve")}</Callout>
+
       <KeyboardShortcuts />
     </>
   );
