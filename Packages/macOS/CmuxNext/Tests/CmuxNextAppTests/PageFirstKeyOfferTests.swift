@@ -43,6 +43,21 @@ struct PageFirstKeyOfferTests {
         #expect(offers.take(handled, from: ObjectIdentifier(tab)) == nil, "a key older than a reported one is still held")
     }
 
+    /// Chromium reports keys in order only within one renderer: tabs in other renderer processes report in any
+    /// order. Cmd-F to tab A (its renderer busy), then a click on tab B and Cmd-G: B's report comes first and must
+    /// not drop A's held Find.
+    @Test func anotherTabsReportKeepsAnOlderKey() throws {
+        let first = NSObject(), second = NSObject()
+        var offers = PageFirstKeyOffer()
+        let find = try Self.key("f", keyCode: 3, at: 40)
+        let next = try Self.key("g", keyCode: 5, at: 41)
+        offers.offer(find, Self.held("find", tab: first))
+        offers.offer(next, Self.held("findNext", tab: second))
+        #expect(offers.take(next, from: ObjectIdentifier(second))?.candidate.id == "findNext")
+        #expect(offers.take(find, from: ObjectIdentifier(first))?.candidate.id == "find", "another tab's report dropped the key")
+        #expect(offers.count == 0)
+    }
+
     @Test func aReportFromAnotherTabRunsNothing() throws {
         let offered = NSObject(), other = NSObject()
         var offers = PageFirstKeyOffer()
