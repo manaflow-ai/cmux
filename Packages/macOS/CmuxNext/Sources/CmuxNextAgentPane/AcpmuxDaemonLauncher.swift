@@ -10,7 +10,9 @@ import CmuxNextCompat
 /// control on (`set -m`), so it gets its own process group, is adopted by
 /// launchd when the shell exits, and outlives the app (its sessions are
 /// durable state). The launcher reaps the shell. Its fd 3 is our pipe; stdout and stderr go to
-/// `<home>/daemon.log`.
+/// `<home>/daemon.log`. The shell also sets the daemon's soft open-file limit to the one the app
+/// was launched with (``AcpmuxEnvironment/launchOpenFileLimit``) before the daemon's `exec`:
+/// `posix_spawn` cannot set a child's limits, and the app raised its own for Chromium.
 nonisolated enum AcpmuxDaemonLauncher {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.acpmux")
     nonisolated enum Failure: Error, Equatable {
@@ -23,7 +25,10 @@ nonisolated enum AcpmuxDaemonLauncher {
         case noWebSocket(logPath: String)
     }
 
-    static let script = #"set -m; "$@" 3>&1 1>>"$ACPMUX_LAUNCH_LOG" 2>&1 </dev/null &"#
+    /// `$1` is the soft open-file limit for the daemon (empty: the app's own); the rest is the
+    /// daemon's command. A limit the shell cannot set fails the launch, with the shell's reason
+    /// in the daemon's log, rather than starting the daemon at the app's raised limit.
+    static let script = #"set -m; if [ -n "$1" ]; then ulimit -S -n "$1" 2>>"$ACPMUX_LAUNCH_LOG" || exit 1; fi; shift; "$@" 3>&1 1>>"$ACPMUX_LAUNCH_LOG" 2>&1 </dev/null &"#
     /// The daemon reads its person key (``AcpmuxPersonKey``) from this descriptor and
     /// closes it before it starts any agent; the key never goes into argv or the environment.
     static let personKeyDescriptor: Int32 = 4
@@ -37,7 +42,8 @@ nonisolated enum AcpmuxDaemonLauncher {
     ]
 
     static func arguments(for environment: AcpmuxEnvironment) -> [String] {
-        ["-c", script, "acpmux-launch", environment.executable.path, "daemon", "run", "--ready-fd", "3"]
+        ["-c", script, "acpmux-launch", environment.launchOpenFileLimit.map { String($0) } ?? "",
+         environment.executable.path, "daemon", "run", "--ready-fd", "3"]
             + (environment.passesPersonKeyAtSpawn ? ["--person-key-fd", String(personKeyDescriptor)] : [])
             + environment.daemonArguments
     }

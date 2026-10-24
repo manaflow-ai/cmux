@@ -40,6 +40,11 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     /// Whether an unsigned development daemon needs its person key on an
     /// inherited descriptor. Signed builds enroll only after checking the peer.
     public var passesPersonKeyAtSpawn = true
+    /// The soft open-file limit the daemon this app spawns starts with: the one the app was
+    /// launched with when `main` raised the app's own (`AppEnvironment.launchOpenFileLimit`), as
+    /// launchd starts a standalone daemon. Nil: the daemon inherits the app's limit. The daemon
+    /// raises its own limit at start; the limit it started with is the one its agents get back.
+    public var launchOpenFileLimit: rlim_t?
 
     /// The Computer Use variables (AgentActivitySocketSource.Configuration).
     /// The spawn environment drops all three when inherited and takes only
