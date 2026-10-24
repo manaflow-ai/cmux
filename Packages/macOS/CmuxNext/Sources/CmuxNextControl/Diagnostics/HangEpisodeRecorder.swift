@@ -95,6 +95,12 @@ public final class HangEpisodeRecorder: Sendable {
         queue.async { [self] in loadEntries() }
     }
 
+    /// Ends every ``changes()`` stream: a replaced or released recorder never changes again.
+    /// (The queued writes hold the recorder, so this runs after the last of them.)
+    deinit {
+        for subscriber in state.withLock({ Array($0.subscribers.values) }) { subscriber.finish() }
+    }
+
     /// `~/Library/Logs/<bundle id>/hangs`.
     public static func defaultDirectory(bundleID: String?, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
         home.appending(path: "Library/Logs").appending(path: bundleID ?? "com.cmuxterm.app.next").appending(path: "hangs")
@@ -108,7 +114,8 @@ public final class HangEpisodeRecorder: Sendable {
     /// Changes the subscriber has not taken yet fold into one pending element.
     ///
     /// Only this recorder's subscribers hear it, and only while they iterate: the stream ends,
-    /// and the recorder forgets it, when the iterating task is cancelled. Subscribe before the
+    /// and the recorder forgets it, when the iterating task is cancelled. Every stream ends when
+    /// the recorder goes away, so no subscriber waits for a change that cannot come. Subscribe before the
     /// change you wait for (the stream does not replay earlier changes); read ``entries`` for
     /// the list itself.
     ///

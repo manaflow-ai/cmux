@@ -37,6 +37,10 @@ final class DebugSettingsPageProvider: PageProvider {
         self.hangs = hangs
     }
 
+    /// A provider released while a page still listens ends its hang watch: the task stops and
+    /// the recorder forgets its stream now, not at the next hang change.
+    nonisolated deinit { hangWatch?.cancel() }
+
     /// The model's page state with the recent hangs.
     private func state() -> JSONValue {
         guard case .object(var fields) = model.pageState() else { return model.pageState() }
@@ -86,7 +90,7 @@ final class DebugSettingsPageProvider: PageProvider {
         listeners[id] = onEvent
         if !watching { watch() }
         if hangWatch == nil, let changes = hangs?.changes() { // subscribed now: no later change is missed
-            // task-owner: one change event per written hang file; the last listener leaving cancels it
+            // task-owner: one change event per hang file change; the last listener leaving, or deinit, cancels it
             hangWatch = Task { @MainActor [weak self] in
                 for await _ in changes { if let self { emit() } else { return } } // gone: the stream ends
             }
