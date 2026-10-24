@@ -512,6 +512,11 @@
     async function snapshot(target, options) {
       [target, options] = splitTarget(target, options);
       const page = pageOf(target);
+      // Aside's scope options: snapshot(page, { ref }) or { selector } (CSS).
+      if (target === undefined || target instanceof core.Page) {
+        if (options.ref !== undefined) target = page.ref(options.ref);
+        else if (options.selector !== undefined) target = page.locator(options.selector);
+      }
       return ns.snapshot.takeSnapshot(page, target instanceof core.Page ? undefined : target, options);
     }
 
@@ -804,6 +809,8 @@
     // storage state, downloads, recording, search, custom tools, Markdown and
     // structured extraction.
     if (ns.agentTools) ns.agentTools.install({ session, host, globals, sessionApi, fetch: fetchWithCookies, fs, path, currentPage, tabs, show });
+    // Aside-compatible names (aside-compat.js) over tabs, screenshot and the session's directory.
+    if (ns.asideCompat) ns.asideCompat.install({ globals, tabs, screenshot, workDir, state });
     return { globals, show, importModule, state };
   }
 

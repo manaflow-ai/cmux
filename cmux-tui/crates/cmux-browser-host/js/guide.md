@@ -100,6 +100,32 @@ binds to your cmux workspace, or to the focused workspace outside cmux.
 - To drop files on a drop zone:
   `locator.dispatchEvent("drop", { dataTransfer: { files: [path or { name, mimeType, buffer }] } })`.
 
+## Aside names
+
+A script written for `aside repl` runs unchanged. These globals are thin
+wrappers over the cmux API above:
+
+- `listBrowserTabs()`: `tabs.list({ all: true })` as
+  `{ targetId, title, url, active, state, workspace }`.
+- `attachBrowserTab(targetId)` (an id or a row): `tabs.use(id)`; it becomes
+  `page`. `attachActiveBrowserTab()`: the tab the person sees (this
+  workspace's active tab, else any window's). `getTabByTargetId(id)`:
+  `tabs.get(id)`.
+- `openTab(url)`: `tabs.open(url)`, waits for the load, becomes `page`.
+  `closeTab(tab)` (a `Page`, a row or an id; `page` when omitted):
+  `page.close()`; the next use of `page` opens a new tab.
+- `snapshot(page, { ref, selector })`: the same as `snapshot(ref)` and
+  `snapshot(page.locator(selector))`.
+- `annotatedScreenshot(page)`: `screenshot(page, { annotate: true })`.
+- `pwd`: the session's directory, as `pwd()` or where a string is expected.
+
+Where the cmux app runs, a named session (`session: "work"`, or the agent
+chat's own session that `cmux mcp` picks when the call names none) drives the
+app's in-app Chromium: tabs open in the background of the person's window and
+show there, and `tabs.list({ all: true })` lists the person's tabs. Without
+the app (a Linux VM) and in the implicit `default` session it drives a
+headless Chromium. `browser_repl_open` answers which (`engine`).
+
 ## Snapshot
 
     title: Sign up
