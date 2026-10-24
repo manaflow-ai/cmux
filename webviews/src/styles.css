@@ -109,23 +109,26 @@ html {
 }
 /* Glass over an image background or a see-through window (data-cmux-see-through, desktop.ts), so
    the backdrop shows through as it does through every other surface:
-   - the file bars, the files panel and the floating bars are one material: the theme surface at
-     the clearer glass tint (--ds-glass-lens-tint) with the shared blur (ui/glass/glass.css).
+   - the file bars and the files panel are a clear film (a 5% tint of the text color) with the
+     shared blur (ui/glass/glass.css); the floating bars take the same film.
    The tree's own layers go clear so the tint does not stack. Reduce Transparency (the system's or
    the host's) keeps them solid. */
 :root[data-cmux-see-through]:not([data-reduce-transparency]) {
   --cmux-diff-files-bg: var(--cmux-diff-header-bg);
   --cmux-diff-files-filter: var(--cmux-diff-glass-filter);
   --cmux-diff-files-layer-bg: transparent;
-  /* The clearer glass (--ds-glass-lens-tint, 40%): transparent, with the blur doing the work. */
-  --cmux-diff-header-bg: color-mix(in srgb, var(--glass-surface) var(--ds-glass-lens-tint), transparent);
-  --cmux-diff-glass-filter: var(--glass-backdrop);
+  /* A clear film: a tint of the text color, not the theme surface (no navy or other theme hue),
+     with the blur doing the work where the engine can blur. */
+  --cmux-diff-header-bg: color-mix(in srgb, var(--cmux-diff-fg) 5%, transparent);
+  /* The blur alone: the shared glass blur's saturate(1.4) would push the backdrop's own hues
+     (a navy or a vivid image) through the film. */
+  --cmux-diff-glass-filter: blur(20px);
 }
 /* Chromium (cmux's default page engine) draws a backdrop-filter's blurred copy over the page's own
    pixels, so code under a frosted bar reads crisp through its tint (ui/glass/glass.css, CHROMIUM
-   OVER THE WINDOW GLASS). As the app's floating glass does there, what floats over code (the file
-   bars, the Stage all / Revert all bar, the hunk pill, the tree's sticky rows) lays its tint over
-   the theme surface at --glass-underlay, so the code under it fades. WebKit keeps the real blur. */
+   OVER THE WINDOW GLASS). As the app's floating glass does there, the Stage all / Revert all bar
+   and the hunk pill lay their tint over the theme surface at --glass-underlay, so the code under
+   them fades. The file bars and the files panel stay a clear film. WebKit keeps the real blur. */
 @media not (prefers-reduced-transparency: reduce) {
   @supports not (-webkit-backdrop-filter: none) {
     :root[data-cmux-see-through]:not([data-glass-lens], [data-reduce-transparency]) {
