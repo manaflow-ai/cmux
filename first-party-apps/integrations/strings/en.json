@@ -94,7 +94,7 @@
   "provider.linear.blurb": "Create issues and follow team updates",
   "provider.mcp.blurb": "A remote MCP server over Streamable HTTP",
   "provider.openapi.blurb": "Any REST API with an OpenAPI 3 description",
-  "provider.slack.blurb": "Post to channels as the cmux bot",
+  "provider.slack.blurb": "Post updates and open message permalinks",
   "revoke.done": "Disconnected {name}.",
   "row.subtitle.private": "{provider} · Only you",
   "row.subtitle.team": "{provider} · Shared with team",

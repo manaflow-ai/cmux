@@ -269,6 +269,25 @@ export const SlackPostAsBot = providerOp(
   "Post a message to a Slack channel as the cmux bot."
 )
 
+export const SlackMessagePermalink = def({
+  name: "slack.message.permalink",
+  owner: "cloud:ConnectionDO",
+  class: "read",
+  risk: "read",
+  target: "connection",
+  principals: ["session", "install"],
+  params: Schema.Struct({
+    connection: ConnectionId,
+    channel: Schema.String.check(Schema.isPattern(/^[A-Z0-9]{2,30}$/)),
+    message_ts: Schema.String.check(Schema.isPattern(/^\d{10}\.\d{1,6}$/))
+  }),
+  result: Schema.Struct({ permalink: Schema.String }),
+  errors: ["auth.unauthenticated", "auth.forbidden", "selector.not_found", "integration.unavailable", "provider.error"],
+  docs: "Resolve a posted Slack message timestamp to a workspace permalink.",
+  cli: { path: "slack message permalink", visible: true },
+  mcp: { expose: "default", group: "slack" }
+})
+
 export const LinearTeamsList = def({
   name: "linear.teams.list",
   owner: "cloud:ConnectionDO",
@@ -285,7 +304,7 @@ export const LinearTeamsList = def({
 })
 
 /** Provider reads: no idempotency key, no effect; answered by the gateway with the stored token. */
-export const providerReadOpNames: ReadonlySet<string> = new Set([LinearTeamsList.name])
+export const providerReadOpNames: ReadonlySet<string> = new Set([LinearTeamsList.name, SlackMessagePermalink.name])
 
 export const integrationOps = [
   IntegrationConnect,
@@ -298,7 +317,8 @@ export const integrationOps = [
   GitHubIssueComment,
   LinearIssueCreate,
   LinearTeamsList,
-  SlackPostAsBot
+  SlackPostAsBot,
+  SlackMessagePermalink
 ] as const
 export const providerOpNames: ReadonlySet<string> = new Set([GitHubIssueComment.name, LinearIssueCreate.name, SlackPostAsBot.name])
 

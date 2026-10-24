@@ -233,6 +233,17 @@ export const slack: ProviderImpl = {
   },
   call: async (_env, http, credential, op, params) => {
     if (credential.kind !== "oauth") throw new ProviderError("provider.error", "wrong credential kind")
+    if (op === "slack.message.permalink") {
+      const query = new URLSearchParams({ channel: String(params.channel), message_ts: String(params.message_ts) })
+      const res = await http(new Request(`https://slack.com/api/chat.getPermalink?${query}`, { headers: { authorization: `Bearer ${credential.access_token}` } }))
+      if (!res.ok) throw failed("slack", res, "chat.getPermalink")
+      const b = await json(res)
+      if (b.ok !== true || typeof b.permalink !== "string") {
+        const err = String(b.error ?? "unknown")
+        throw new ProviderError(err === "invalid_auth" || err === "token_revoked" || err === "account_inactive" ? "needs_reauth" : "provider.error", `slack chat.getPermalink: ${err}`)
+      }
+      return { value: { permalink: b.permalink } }
+    }
     if (op !== "slack.post_as_bot") throw new ProviderError("provider.error", `slack cannot run ${op}`)
     const res = await effectCall(
       http,

@@ -3030,6 +3030,17 @@ export interface CloudOps {
       readonly install_revoked: boolean
     }
   }
+  /** Resolve a posted Slack message timestamp to a workspace permalink. */
+  readonly "slack.message.permalink": {
+    readonly params: {
+      readonly connection: ConnectionId
+      readonly channel: string
+      readonly message_ts: string
+    }
+    readonly result: {
+      readonly permalink: string
+    }
+  }
   /** Post a message to a Slack channel as the cmux bot. */
   readonly "slack.post_as_bot": {
     readonly params: {
@@ -3802,6 +3813,7 @@ export const cloudOpMeta = {
   "server.pair.approve": { class: "mutation", owner: "cloud:PairingDO", risk: "mutate-shared" },
   "server.pair.preview": { class: "read", owner: "cloud:PairingDO", risk: "read" },
   "server.revoke": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
+  "slack.message.permalink": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
   "slack.post_as_bot": { class: "mutation", owner: "cloud:ConnectionDO", risk: "send-external" },
   "sso.connection.activate": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "sso.connection.create": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },

@@ -4,6 +4,51 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamDevicePolicyResult {
+    pub team: TeamId,
+    pub managed: bool,
+    pub team_name: String,
+    pub version: i64,
+    pub defaults: TeamDevicePolicyResultDefaults,
+    pub enforced: TeamDevicePolicyResultEnforced,
+    pub features: TeamDevicePolicyResultFeatures,
+    pub revision: String,
+}
+
+wire_errors! {
+    /// The error codes team.device.policy declares.
+    TeamDevicePolicyError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
+    /// Stop managing an install: team admins for any install; the install's user only for an install they accepted (not one enrolled by an MDM token). Agents never.
+    TeamDeviceReleaseOp {
+        name: "team.device.release",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: TeamDeviceReleaseParams,
+        result: TeamDeviceReleaseResult,
+        error: TeamDeviceReleaseError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamDeviceReleaseParams {
+    pub install: InstallId,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamDeviceReleaseResult {
+    pub install: InstallId,
+}
+
 wire_errors! {
     /// The error codes team.device.release declares.
     TeamDeviceReleaseError {
@@ -842,58 +887,4 @@ pub struct TeamVmRetiredDeleteParams {
 pub struct TeamVmRetiredDeleteResult {
     pub vm: String,
     pub deleted: bool,
-}
-
-wire_errors! {
-    /// The error codes team_vm.retired.delete declares.
-    TeamVmRetiredDeleteError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerUnreachable = "owner.unreachable",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        TeamVmInUse = "team_vm.in_use",
-        TeamVmNotConfigured = "team_vm.not_configured",
-        TeamVmNotInLedger = "team_vm.not_in_ledger",
-        TeamVmNotTainted = "team_vm.not_tainted",
-        TeamVmPlanGateMissing = "team_vm.plan_gate_missing",
-        TeamVmRetiredFilesUnconfirmed = "team_vm.retired_files_unconfirmed",
-        TeamVmRetiredFull = "team_vm.retired_full",
-        TeamVmStaleEpoch = "team_vm.stale_epoch",
-        TeamVmStaleTaint = "team_vm.stale_taint",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Download the team files (/srv/team) of a VM that a rebuild replaced (team_vm.status `retired`) as one tar, without starting it: only a paused retired VM whose run budget is spent (fenced) is read, through the provider's file API. Answers a single-use download path valid for 5 minutes; refuses more than 2 GiB of files or 5000 entries (team_vm.export_too_large) and a VM not fenced yet (team_vm.retired_not_fenced). Symlinks and special files are skipped and listed. Owners and admins only, in a person's session; audited.
-    TeamVmRetiredExportOp {
-        name: "team_vm.retired.export",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "mutate-shared",
-        principals: [Session],
-        params: TeamVmRetiredExportParams,
-        result: TeamVmRetiredExportResult,
-        error: TeamVmRetiredExportError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmRetiredExportParams {
-    pub vm: String,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmRetiredExportResult {
-    pub vm: String,
-    pub path: String,
-    pub expires_at: i64,
-    pub files: i64,
-    pub bytes: i64,
-    pub archive_bytes: i64,
-    pub skipped: Vec<String>,
-    pub skipped_count: i64,
 }

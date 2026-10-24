@@ -113,6 +113,19 @@ describe("provider clients (fake HTTP)", () => {
     const f = fakeHttp({ "https://slack.com/api/chat.postMessage": () => ok({ ok: false, error: "invalid_auth" }) })
     await expect(slack.call(e, f.http, { kind: "oauth", access_token: "xoxb" }, "slack.post_as_bot", { channel: "C1", text: "x" })).rejects.toMatchObject({ code: "needs_reauth" })
   })
+
+  it("Slack: resolves a message timestamp to a permalink without posting", async () => {
+    const f = fakeHttp({
+      "https://slack.com/api/chat.getPermalink": (req) => {
+        expect(new URL(req.url).search).toBe("?channel=C1&message_ts=1712345678.123456")
+        expect(req.headers.get("authorization")).toBe("Bearer xoxb")
+        return ok({ ok: true, channel: "C1", message_ts: "1712345678.123456", permalink: "https://acme.slack.com/archives/C1/p1712345678123456" })
+      }
+    })
+    const r = await slack.call(e, f.http, { kind: "oauth", access_token: "xoxb" }, "slack.message.permalink", { channel: "C1", message_ts: "1712345678.123456" })
+    expect(r.value).toEqual({ permalink: "https://acme.slack.com/archives/C1/p1712345678123456" })
+    expect(f.calls).toHaveLength(1)
+  })
 })
 
 describe("connections end to end (workerd)", () => {
