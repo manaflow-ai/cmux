@@ -58,6 +58,9 @@ public final class FakeChromiumPage: PageChromiumPage {
     public var answer: ((_ method: String, _ params: [String: any Sendable]) -> String?)?
     /// Runs when the host closes the page.
     public var onClose: (() -> Void)?
+    /// Runs after each ``load(_:)`` with its URL (the host's page start ends with the first load,
+    /// so a test waits on it).
+    public var onLoad: ((URL) -> Void)?
 
     /// Makes a page with no calls yet.
     public init() {}
@@ -73,10 +76,11 @@ public final class FakeChromiumPage: PageChromiumPage {
         return #"{"result":{}}"#
     }
 
-    /// Records `url` in ``loaded``.
+    /// Records `url` in ``loaded`` and runs ``onLoad``.
     public func load(_ url: URL) {
         if loaded.isEmpty { seeThroughAtFirstLoad = .some(seeThrough) }
         loaded.append(url)
+        onLoad?(url)
     }
 
     /// Records the value in ``seeThrough``.
