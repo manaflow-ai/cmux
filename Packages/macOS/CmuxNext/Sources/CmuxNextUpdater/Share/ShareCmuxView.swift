@@ -225,6 +225,18 @@ final class ShareCmuxMessageTextView: NSTextView {
     /// Tab (false) or Shift-Tab (true).
     var onTab: ((Bool) -> Void)?
 
+    /// Setting the text from code drops the undo history: the typing actions already recorded
+    /// still point at the old text's ranges, and Undo would replay them against the new text
+    /// (NSRangeException, issue 24912). A full reset of the manager is used because AppKit's
+    /// typing undo is not registered against a target this view can name.
+    override var string: String! {
+        get { super.string }
+        set {
+            super.string = newValue
+            undoManager?.removeAllActions()
+        }
+    }
+
     override func insertTab(_ sender: Any?) { onTab?(false) }
     override func insertBacktab(_ sender: Any?) { onTab?(true) }
 
