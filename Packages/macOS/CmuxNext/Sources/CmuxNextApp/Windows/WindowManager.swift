@@ -37,7 +37,6 @@ final class WindowManager {
     /// Writes the window records (WindowRecordSaver).
     lazy var recordSaver = WindowRecordSaver(manager: self)
     private var loadObservation: Task<Void, Never>?
-    private var unavailableObservation: Task<Void, Never>?
     var membershipObservation: Task<Void, Never>?
     /// Records connected sessions in the home session (rooms, data-model.md 1.1).
     private(set) lazy var sessionRegistrar = SessionRegistrar(machines: services.machines)
@@ -85,9 +84,9 @@ final class WindowManager {
     /// A restored window is entering full screen (one at a time).
     var fullScreenRestoreRunning = false
     var onFirstWindow: ((WindowController) -> Void)?
-    /// The restored windows that have not installed workspace content yet; nil before the restore
-    /// ends and once all did (``releaseLaunchFramesWhenShown()``).
-    private var restoredAwaitingContent: Set<String>?
+    /// When the panes' last frames no pane took are dropped (``LaunchFrameRelease``); made in
+    /// ``restoreWhenLoaded()``.
+    private var launchFrameRelease: LaunchFrameRelease?
     /// A window installed workspace content (links opened at launch wait for it).
     var onContentDidAppear: ((WindowController) -> Void)?
     /// One-shot work for a workspace a reveal is still mounting, by window
@@ -186,16 +185,10 @@ final class WindowManager {
         let store = services.daemon.store
         // A launch whose daemon does not answer restores nothing: the panes' last frames go then rather
         // than stay for the session (`LaunchFiles`; a later connect shows each pane's live content).
-        if !restored {
-            let launchFiles = services.launchFiles
-            let daemon = services.daemon
-            unavailableObservation?.cancel()
-            // task-owner: one observation per launch; it ends at the first unavailable startup or the restore (cancelled there)
-            unavailableObservation = Task {
-                for await unavailable in ObservationStream({ daemon.startup.isUnavailable }) where unavailable {
-                    launchFiles.release()
-                    return
-                }
+        if !restored, launchFrameRelease == nil {
+            let (daemon, launchFiles, presentation) = (services.daemon, services.launchFiles, services.presentation)
+            launchFrameRelease = LaunchFrameRelease(daemonUnavailable: { daemon.startup.isUnavailable }) {
+                presentation.whenIdle { launchFiles.release() }
             }
         }
         loadObservation = Task { [weak self] in
@@ -271,21 +264,15 @@ final class WindowManager {
         // registry never overwrites where its workspaces land.
         let onboarding = AppOnboardingServices(owner: services.onboarding)
         Task { await onboarding.migrateClassicAtLaunch(firstWorkspace: firstWorkspace) }
-        // This Mac's windows only: its tree is loaded now, while another machine's may never answer.
-        unavailableObservation?.cancel()
-        restoredAwaitingContent = Set(controllers.filter { $0.content == nil && $0.state.machineID == MachineRegistry.localID }.map(\.state.id))
-        releaseLaunchFramesWhenShown()
-    }
-
-    /// Drops the panes' last frames no pane took (`LaunchFiles.release`) once each restored window of
-    /// this Mac installed its first content (a window shows its workspace from an observation that runs
-    /// after `restore()` returns) and every pane they show presented its selection: not at the launch
-    /// settle, which comes on the first pane while the scheduler still makes one new surface per frame.
-    private func releaseLaunchFramesWhenShown() {
-        guard restoredAwaitingContent?.isEmpty == true else { return }
-        restoredAwaitingContent = nil
-        let launchFiles = services.launchFiles
-        services.presentation.whenIdle { launchFiles.release() }
+        // The panes' last frames go once each restored window of this Mac installed its first content
+        // (a window shows its workspace from an observation that runs after `restore()` returns) and
+        // every pane they show presented its selection: not at the launch settle, which comes on the
+        // first pane while the scheduler still makes one new surface per frame.
+        launchFrameRelease?.restoreEnded(controllers.map { controller in
+            LaunchFrameRelease.Window(id: controller.state.id, showsContent: controller.content != nil,
+                                      isLocal: controller.state.machineID == MachineRegistry.localID,
+                                      hasWorkspaceToShow: registry.value.window(controller.state.id).map(hasMirroredWorkspace) ?? false)
+        })
     }
 
     /// The launch window takes the frontmost saved window's identity and
@@ -361,7 +348,7 @@ final class WindowManager {
     /// screen for it is ordered in now.
     func contentDidAppear(_ controller: WindowController) {
         defer {
-            if restoredAwaitingContent?.remove(controller.state.id) != nil { releaseLaunchFramesWhenShown() }
+            launchFrameRelease?.windowDone(controller.state.id)
             onContentDidAppear?(controller)
             let shown = controller.content?.workspace.id
             for waiter in contentWaiters.removeValue(forKey: controller.state.id) ?? [] where waiter.workspaceID == shown {
@@ -412,7 +399,7 @@ final class WindowManager {
         awaitingContent[id] = nil
         contentWaiters[id] = nil
         restacking.remove(id)
-        if restoredAwaitingContent?.remove(id) != nil { releaseLaunchFramesWhenShown() }
+        launchFrameRelease?.windowDone(id)
         controller.teardown()
         if programmaticCloses.remove(id) != nil || isTerminating { return }
         if id == launchWindowID {
