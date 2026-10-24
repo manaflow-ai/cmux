@@ -73,29 +73,24 @@ fn binary() -> OsString {
 
 /// `cmux vm …`. `None` for any other command. The child runs with this
 /// process's stdio and its exit status is ours.
-/// A local error as `cli/app.rs`'s `failure` prints it, through the cross-platform wire printer:
-/// `app` is Unix only and `cmux vm` runs everywhere.
-fn failure(code: &str, message: &str, output: OutputMode, exit_code: i32) -> i32 {
-    super::wire::print_local_error(
-        &serde_json::json!({ "code": code, "message": message, "details": {}, "retryable": false }),
-        output,
-        exit_code,
-    )
-}
-
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let (global, command_args) = super::parse_globals(args).ok()?;
     let rest = split(&command_args)?;
     let plan = match plan(rest, global.output) {
         Ok(plan) => plan,
         Err(error) => {
-            return Some(failure("usage.invalid", &format!("cmux: {}", error.0), global.output, 2));
+            return Some(super::app::failure(
+                "usage.invalid",
+                &format!("cmux: {}", error.0),
+                global.output,
+                2,
+            ));
         }
     };
     let program = binary();
     match cmux_process::Command::new(&program).args(plan).status() {
         Ok(status) => Some(status.code().unwrap_or(1)),
-        Err(error) => Some(failure(
+        Err(error) => Some(super::app::failure(
             "vm.unavailable",
             &format!("cmux: cannot start {}: {error}", std::path::Path::new(&program).display()),
             global.output,
