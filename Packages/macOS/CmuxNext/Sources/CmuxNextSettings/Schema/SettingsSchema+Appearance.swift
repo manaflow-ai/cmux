@@ -218,6 +218,10 @@ nonisolated enum AppearanceSettingsSchema {
                    keywords: ["sidebar", "width", "size", "sidebarWidth"]),
             metric(.columnGap, SettingsText.keyed("settings.appearance.columnGap", "Column Gap"), look, densityDefault,
                    keywords: ["column", "gap", "spacing", "columnGap"]),
+            metric(.dividerThickness, SettingsText.keyed("settings.appearance.dividerThickness", "Divider Thickness"), look, densityDefault,
+                   keywords: ["divider", "split", "pane", "line", "thickness", "dividerThickness"]),
+            metric(.dividerHitWidth, SettingsText.keyed("settings.appearance.dividerHitWidth", "Divider Drag Width"), look, densityDefault,
+                   keywords: ["divider", "split", "pane", "drag", "hit", "width", "dividerHitWidth"]),
             metric(.titlebarHeight, SettingsText.keyed("settings.appearance.titlebarHeight", "Titlebar Height"), look, densityDefault,
                    keywords: ["titlebar", "title bar", "header", "height", "titlebarHeight"]),
             SettingDescriptor(
