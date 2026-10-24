@@ -165,24 +165,21 @@ enum DebugLayers {
     }
 
     /// `CALayerHost` layers in the context the first `CALayerHost` under `layer` shows (the pane's
-    /// `CEFHostedPageView`); nil without one, or when that context is not in this process.
+    /// `CEFHostedPageView`); nil without one, or when that context is not in this process. Every
+    /// QuartzCore SPI message (``QuartzLayerHostingSPI``) is sent only after `responds(to:)` proved the
+    /// receiver implements it, so an OS without it gives nil, never an unrecognized selector.
     private static func hostedContextLayerHostCount(_ layer: CALayer?) -> Int? {
-        guard let host = firstLayerHost(layer),
-              // crash-allow: CALayer's KVC returns nil for a key it does not know; it never raises
-              let id = (host.value(forKey: "contextId") as? NSNumber)?.uint32Value, id != 0,
-              let contextClass: AnyClass = NSClassFromString("CAContext") else { return nil }
-        // crash-allow: only builds a selector to ask responds(to:), which never raises
-        let all = NSSelectorFromString("allContexts")
-        guard (contextClass as AnyObject).responds(to: all),
-              // crash-allow: performed only after responds(to:) proved the class method exists (line above)
-              let contexts = (contextClass as AnyObject).perform(all)?.takeUnretainedValue() as? [NSObject] else { return nil }
-        // crash-allow: only builds selectors to ask responds(to:), which never raises
-        let contextId = NSSelectorFromString("contextId"), rootLayer = NSSelectorFromString("layer")
-        for context in contexts where context.responds(to: contextId) && context.responds(to: rootLayer) {
-            // crash-allow: read only after responds(to:) proved the getter exists (line above)
-            guard (context.value(forKey: "contextId") as? NSNumber)?.uint32Value == id else { continue }
-            // crash-allow: read only after responds(to:) proved the getter exists (loop condition)
-            return layerHostCount(context.value(forKey: "layer") as? CALayer)
+        let contextIdGetter = #selector(getter: QuartzLayerHostingSPI.contextId)
+        let rootLayerGetter = #selector(getter: QuartzLayerHostingSPI.layer)
+        guard let host = firstLayerHost(layer), host.responds(to: contextIdGetter) else { return nil }
+        let id = unsafeBitCast(host, to: QuartzLayerHostingSPI.self).contextId
+        guard id != 0, let contextClass: AnyClass = NSClassFromString("CAContext"),
+              (contextClass as AnyObject).responds(to: #selector(QuartzLayerHostingSPI.allContexts)),
+              let contexts = unsafeBitCast(contextClass, to: QuartzLayerHostingSPI.Type.self).allContexts() else { return nil }
+        for context in contexts where context.responds(to: contextIdGetter) && context.responds(to: rootLayerGetter) {
+            let spi = unsafeBitCast(context, to: QuartzLayerHostingSPI.self)
+            guard spi.contextId == id else { continue }
+            return layerHostCount(spi.layer)
         }
         return nil
     }
@@ -274,4 +271,13 @@ enum DebugLayers {
     private static func rect(_ rect: CGRect) -> JSONValue {
         .array([rect.minX, rect.minY, rect.width, rect.height].map { .number(Double($0)) })
     }
+}
+
+/// The QuartzCore SPI `debug.layers` reads: `+[CAContext allContexts]`, `-[CAContext contextId]`,
+/// `-[CAContext layer]` and `-[CALayerHost contextId]`. No class conforms; a caller casts an object
+/// it asked `responds(to:)` for the one message it sends.
+@objc private protocol QuartzLayerHostingSPI {
+    static func allContexts() -> [NSObject]?
+    var contextId: UInt32 { get }
+    var layer: CALayer? { get }
 }
