@@ -183,6 +183,9 @@ pub fn models() -> &'static [(String, String)] {
     &MODELS
 }
 
+pub(crate) mod agent_transcript;
+#[cfg(test)]
+mod agent_transcript_tests;
 #[cfg(test)]
 mod background_output_tests;
 mod early_calls;

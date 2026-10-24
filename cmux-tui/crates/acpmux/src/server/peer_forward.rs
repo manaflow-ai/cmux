@@ -140,6 +140,11 @@ async fn forward_inner(
         {
             return Err(crate::hub::media_read::peer_unsupported(&peer, m));
         }
+        // So does a subagent's transcript (`hub/subagent_transcript.rs`).
+        if m == method::MUX_SUBAGENT_TRANSCRIPT && !peer.supports_subagent_transcript() {
+            return Err(crate::hub::media_read::peer_unsupported(&peer, m)
+                .with_data(json!({"reason": "transcriptRead.unsupported"})));
+        }
         let mut p = if params.is_null() { json!({}) } else { params.clone() };
         if let Some(obj) = p.as_object_mut() {
             obj.remove("session");
