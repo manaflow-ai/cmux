@@ -120,6 +120,14 @@ EVERYWHERE = [
      r"|\bAsync(Throwing)?Stream(<[^>]*>)?(\([^)]*\.self\))?\s*\{\s*(\[[^\]]*\]\s*)?\w+\s+in\b"),
 ]
 
+# Every call that suspends for a duration: Task.sleep, a clock's or sleeper's
+# `.sleep(for:/until:)`, and an awaited injected sleeper (`try await sleep(delay)`,
+# `await self.sleep(d)`: the `Sleep` closure CLAUDE.md prescribes for tests).
+# One definition for the idle-wakeup rule and the task-group deadline rule;
+# scripts/cmux-next/guardrails.py has no sleep rule of its own.
+SLEEP_CALL = (r"\bTask\.sleep\(|\.sleep\((for|until):|\bclock\.sleep\b"
+              r"|\bawait\s+(?:[A-Za-z_]\w*\??\.)*sleep\(")
+
 # Idle wakeups: nothing polls; waits are events, one-shot DemandTimer
 # deadlines, Backoff after a failure, or FrameClient frames.
 WAKEUP_PRIMITIVES_MODULE = "CmuxNextWakeups"
@@ -128,8 +136,7 @@ WAKEUP_RULES = [
      r"\bTimer\.(scheduledTimer|publish)\b|\bTimer\((timeInterval|fire|fireAt)|\bNSTimer\b|\bCFRunLoopTimerCreate|\bmakeTimerSource\(|\brepeating:\s*\.(seconds|milliseconds|microseconds|nanoseconds|never)"),
     ("raw display link (use a FrameClient of the window's FrameScheduler)",
      r"\bdisplayLink\(target:|\bCADisplayLink\(|\bCVDisplayLink"),
-    ("sleep (wait for an event; DemandTimer for a deadline, Backoff.wait after a failure)",
-     r"\bTask\.sleep\(|\.sleep\((for|until):|\bclock\.sleep\b"),
+    ("sleep (wait for an event; DemandTimer for a deadline, Backoff.wait after a failure)", SLEEP_CALL),
     ("loop that can spin (block or await readiness; end on EOF and fatal errors)",
      r"\bwhile\s+true\b|\bwhile\s+!\s*(Task\.)?isCancelled\b|\brepeat\s*\{"),
 ]
@@ -141,7 +148,7 @@ WAKEUP_PENDING_FILES: set[str] = set()
 # A task group whose body sleeps within this many lines is a deadline race.
 TASK_GROUP_WINDOW = 8
 TASK_GROUP = re.compile(r"\bwith(Throwing)?(Discarding)?TaskGroup\b")
-GROUP_SLEEP = re.compile(r"\bsleep\((for|until):")
+GROUP_SLEEP = re.compile(SLEEP_CALL)
 
 # macOS 14 floor (plans/cmux-next/macos-floor.md): Synchronization (Mutex,
 # Atomic) needs macOS 15; CmuxNextCompat has the same API on macOS 14.

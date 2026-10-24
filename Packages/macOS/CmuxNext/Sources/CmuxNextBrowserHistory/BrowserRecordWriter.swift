@@ -248,7 +248,7 @@ public final class BrowserRecordWriter {
         guard pending == nil else { return }
         let delay = delay, sleep = sleep
         pending = Task { [weak self] in
-            do { try await sleep(delay) } catch { return }
+            do { try await sleep(delay) } catch { return } // wakeup-allow: one `delay` write window per burst of changes; flushNow() and cancel() cancel it
             guard let self, !Task.isCancelled else { return }
             let latest = self.unsent
             self.pending = nil
