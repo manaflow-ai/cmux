@@ -87,4 +87,27 @@ SC_ARG="$outside" run || fail "a new kept path outside /tmp exited $?"
 [[ $(sort -u "$TMP/paths") == "$outside" ]] || fail "the new kept DerivedData was not used"
 [[ -s "$outside/.cmux-binary-module-inputs" ]] || fail "the guard wrote no header digest"
 
+# 5. A Package.resolved that xcodebuild rewrote is restored on exit, so the
+#    glaeda job-start hook finds a clean workspace and keeps it (a reset
+#    workspace rewrites every file and the kept DerivedData rebuilds every
+#    module). A clean file, a missing file and a non-repository are no-ops,
+#    and none of them fails the build.
+# shellcheck source=scripts/cmux-next/lib/workspace-resolved.sh
+source "$ROOT/scripts/cmux-next/lib/workspace-resolved.sh"
+repo="$TMP/repo"; rel=cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+mkdir -p "$repo/$(dirname "$rel")"
+git -C "$repo" init -q
+printf '{ "pins" : [] }\n' > "$repo/$rel"
+git -C "$repo" add "$rel"
+git -C "$repo" -c user.name=t -c user.email=t@t commit -qm init
+cmux_next_restore_workspace_resolved "$repo" >"$TMP/out" 2>&1 || fail "clean restore failed"
+[[ ! -s "$TMP/out" ]] || fail "a clean Package.resolved printed output"
+printf '{ "pins" : [ "swift-atomics" ] }\n' > "$repo/$rel"
+cmux_next_restore_workspace_resolved "$repo" >"$TMP/out" 2>&1 || fail "dirty restore failed"
+git -C "$repo" diff --quiet -- "$rel" || fail "the rewritten Package.resolved was not restored"
+grep -q '^::warning file=cmux.xcodeproj/.*Package.resolved::' "$TMP/out" || fail "no warning for a stale Package.resolved"
+cmux_next_restore_workspace_resolved "$TMP/steptmp" >"$TMP/out" 2>&1 || fail "a non-repository failed"
+git -C "$repo" rm -q "$rel"
+cmux_next_restore_workspace_resolved "$repo" >"$TMP/out" 2>&1 || fail "a repository without the file failed"
+
 printf 'scheme compile DerivedData tests: ok\n'
