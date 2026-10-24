@@ -95,4 +95,36 @@ import Testing
         #expect(dragged.rect == dragged.targetRect, "the dragged pane does not follow the pointer at once")
         harness.model.setGestureActive(false)
     }
+
+    /// M8 (PL-burst, suspected): an animated width change of a column left of the camera (a width preset, an
+    /// equalize) moves the strip; no pane may jump in the change's own turn, and every frame moves each pane by a
+    /// small step (no frame covers more than half of a pane's whole travel).
+    @Test func anAnimatedWidthChangeMovesTheStripWithoutAJump() async throws {
+        let columns = (0..<5).map { PaneMotionBench.column($0, rows: 1, width: 0.5) }
+        let harness = PaneMotionBench.Harness([LayoutScreen(id: "s", name: "s", layout: .columns(columns))], focused: PaneID("p3-0"))
+        _ = await harness.frame()
+        let screen = try #require(harness.root.screenViews.values.first)
+        let hosts = screen.subviews.compactMap { $0 as? PaneHostView }
+        var shown = Dictionary(uniqueKeysWithValues: hosts.map { ($0.pane, $0.frame.minX) })
+        harness.model.setColumnWidth(ColumnID("c0"), width: 0.8, transaction: .make(), phase: .ended)
+        harness.root.syncWithModel()
+        for host in hosts {
+            #expect(abs(host.frame.minX - (shown[host.pane] ?? 0)) < 0.5, "\(host.pane) jumped in the change's turn")
+        }
+        var steps: [PaneID: [CGFloat]] = [:]
+        for _ in 0..<240 {
+            let moving = await harness.frame().moving
+            for host in hosts {
+                steps[host.pane, default: []].append(host.frame.minX - (shown[host.pane] ?? 0))
+                shown[host.pane] = host.frame.minX
+            }
+            if !moving { break }
+        }
+        for (pane, moves) in steps {
+            let travel = moves.reduce(0) { $0 + abs($1) }
+            guard travel > 1 else { continue }
+            let largest = moves.map(abs).max() ?? 0
+            #expect(largest <= travel / 2, "\(pane) moved \(largest) of its \(travel) pt travel in one frame")
+        }
+    }
 }
