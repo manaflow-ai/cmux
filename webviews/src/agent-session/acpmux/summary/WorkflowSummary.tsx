@@ -5,13 +5,33 @@ import { formatDuration } from "../conversation/turns";
 import { Spinner } from "../conversation/icons";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
-import type { WorkflowAgent, WorkflowSummary } from "./workflow";
+import type { WorkflowAgent, WorkflowPhase, WorkflowSummary } from "./workflow";
 
 export type WorkflowActions = {
   onPause?: () => void;
   onStop?: () => void;
   onSave?: () => void;
   onOpenTranscript?: (rowId: string) => void;
+};
+
+const localizedState = (
+  t: ReturnType<typeof useT>,
+  state: WorkflowAgent["state"] | WorkflowPhase["state"] | WorkflowSummary["state"],
+): string => {
+  switch (state) {
+    case "running":
+      return t("subagents.state.running");
+    case "completed":
+      return t("subagents.state.completed");
+    case "failed":
+      return t("subagents.state.failed");
+    case "waiting":
+      return t("subagents.state.waiting");
+    case "paused":
+      return t("goal.paused");
+    default:
+      return t("plan.status.pending");
+  }
 };
 
 export function WorkflowSummaryRow({
@@ -35,17 +55,10 @@ export function WorkflowSummaryRow({
   );
   if (!workflow) return null;
   const completed = workflow.agents.filter((agent) => agent.state === "completed").length;
-  const selected = workflow.agents.find((agent) => agent.id === workflow.selectedAgentId) ?? workflow.agents[0];
-  const stateLabel =
-    workflow.state === "running"
-      ? t("subagents.state.running")
-      : workflow.state === "completed"
-        ? t("subagents.state.completed")
-        : workflow.state === "failed"
-          ? t("subagents.state.failed")
-          : workflow.state === "paused"
-            ? t("goal.paused")
-            : t("plan.status.pending");
+  const selected = workflow.selectedAgentId
+    ? workflow.agents.find((agent) => agent.id === workflow.selectedAgentId)
+    : undefined;
+  const workflowStateLabel = localizedState(t, workflow.state);
   const state =
     workflow.state === "running" ? <Spinner size={12} loading /> : <Icon name="agent.session" size={12} row />;
   const canPause = workflow.state === "running" && actions.onPause;
@@ -65,8 +78,8 @@ export function WorkflowSummaryRow({
           {state}
         </span>
         <span className="acpmux-summary-text acpmux-workflow__title">{workflow.title}</span>
-        <span className="acpmux-workflow__state" aria-label={`${workflow.title}: ${stateLabel}`}>
-          {stateLabel}
+        <span className="acpmux-workflow__state" aria-label={`${workflow.title}: ${workflowStateLabel}`}>
+          {workflowStateLabel}
         </span>
         {workflow.phase && <span className="acpmux-summary-meta">{workflow.phases.find((entry) => entry.id === workflow.phase)?.name}</span>}
         <span className="acpmux-summary-meta">
@@ -81,12 +94,12 @@ export function WorkflowSummaryRow({
         <div className="acpmux-workflow__detail">
           {workflow.large && (
             <p className="acpmux-workflow__warning" role="alert">
-              Large workflow
+              {t("composer.tooLarge", { name: workflow.title })}
             </p>
           )}
           <div className="acpmux-workflow__columns">
             <div className="acpmux-workflow__phases">
-              <h4>Phases</h4>
+              <h4>{t("summary.subagents.active", { n: workflow.phases.length })}</h4>
               {workflow.phases.map((entry) => (
                 <button
                   type="button"
@@ -97,7 +110,7 @@ export function WorkflowSummaryRow({
                   onClick={() => setPhaseId(entry.id)}
                 >
                   <span>{entry.name}</span>
-                  <span>{entry.state}</span>
+                  <span>{localizedState(t, entry.state)}</span>
                 </button>
               ))}
             </div>
@@ -125,13 +138,7 @@ export function WorkflowSummaryRow({
                       {agent.doing && <span className="acpmux-workflow__doing">{agent.doing}</span>}
                     </span>
                     <span className="acpmux-summary-meta">
-                      {agent.state === "pending" || agent.state === "waiting"
-                        ? t("subagents.state.waiting")
-                        : agent.state === "running"
-                          ? t("subagents.state.running")
-                          : agent.state === "completed"
-                            ? t("subagents.state.completed")
-                            : t("subagents.state.failed")}
+                      {localizedState(t, agent.state)}
                     </span>
                     {agent.tokens !== undefined && <span className="acpmux-summary-meta">{agent.tokens}</span>}
                     {agent.transcriptRowId && actions.onOpenTranscript && (
@@ -170,7 +177,7 @@ export function WorkflowSummaryRow({
             </div>
           )}
           {controlsUnavailable && (
-            <div className="acpmux-workflow__actions" aria-label={t("summary.empty")}>
+            <div className="acpmux-workflow__actions" aria-label={t("summary.subagents.noneActive")}>
               <button type="button" disabled aria-disabled="true">
                 {t("replay.pause")}
               </button>
