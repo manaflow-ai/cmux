@@ -10,10 +10,11 @@ import VideoToolbox
 /// scaled to at most ``maximumLongSide`` and converted to 4:2:0 in one pixel
 /// transfer. Access units are Annex B with the SPS and PPS before each IDR,
 /// as the browser host sends them.
-nonisolated final class SurfaceFrameEncoder: @unchecked Sendable {
+@MainActor
+final class SurfaceFrameEncoder {
     /// The longest side of the encoded picture: a 3x iPhone screen (2622 px) is
     /// scaled to 1920, which reads sharp on a phone and stays inside H.264 level 4.2.
-    static let maximumLongSide = 1920
+    nonisolated static let maximumLongSide = 1920
     let width: Int
     let height: Int
     let sourceWidth: Int
@@ -24,7 +25,7 @@ nonisolated final class SurfaceFrameEncoder: @unchecked Sendable {
     private var kbps = 0
 
     /// The encoded size for a surface of `width` x `height`: scaled to fit, even sides.
-    static func encodedSize(width: Int, height: Int) -> (width: Int, height: Int) {
+    nonisolated static func encodedSize(width: Int, height: Int) -> (width: Int, height: Int) {
         let even = { (value: Int) in max(2, value & ~1) }
         let long = max(width, height, 1)
         guard long > maximumLongSide else { return (even(width), even(height)) }
@@ -81,7 +82,8 @@ nonisolated final class SurfaceFrameEncoder: @unchecked Sendable {
         VTCompressionSessionCompleteFrames(session, untilPresentationTimeStamp: .invalid)
     }
 
-    deinit {
+    // The sessions are CF objects owned only by this encoder; tearing them down needs no actor.
+    nonisolated deinit {
         VTCompressionSessionCompleteFrames(session, untilPresentationTimeStamp: .invalid)
         VTCompressionSessionInvalidate(session)
         VTPixelTransferSessionInvalidate(transfer)
@@ -116,39 +118,48 @@ nonisolated final class SurfaceFrameEncoder: @unchecked Sendable {
         let properties = forceKeyframe ? [kVTEncodeFrameOptionKey_ForceKeyFrame: true] as CFDictionary : nil
         let status = VTCompressionSessionEncodeFrame(
             session, imageBuffer: target, presentationTimeStamp: pts, duration: .invalid,
-            frameProperties: properties, infoFlagsOut: nil
-        ) { status, _, sample in
-            guard status == noErr, let sample else { return completion(nil) }
-            let keyframe = Self.isKeyframe(sample)
-            completion(Self.annexB(sample, keyframe: keyframe).map { ($0, keyframe) })
-        }
+            frameProperties: properties, infoFlagsOut: nil, outputHandler: Self.outputHandler(completion))
         if status != noErr { completion(nil) }
     }
 
-    static func isKeyframe(_ sample: CMSampleBuffer) -> Bool {
+    /// The VideoToolbox output handler, made outside the main actor: VideoToolbox calls it on its
+    /// own thread, so it must not inherit main-actor isolation from `encode`.
+    nonisolated static func outputHandler(
+        _ completion: @escaping @Sendable ((data: Data, keyframe: Bool)?) -> Void
+    ) -> VTCompressionOutputHandler {
+        { status, _, sample in
+            guard status == noErr, let sample else { return completion(nil) }
+            let keyframe = isKeyframe(sample)
+            completion(annexB(sample, keyframe: keyframe).map { ($0, keyframe) })
+        }
+    }
+
+    nonisolated static func isKeyframe(_ sample: CMSampleBuffer) -> Bool {
         guard let attachments = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: false) as? [[CFString: Any]],
               let first = attachments.first else { return true }
         return !(first[kCMSampleAttachmentKey_NotSync] as? Bool ?? false)
     }
 
     /// Length-prefixed encoder output to Annex B, SPS and PPS before a keyframe.
-    static func annexB(_ sample: CMSampleBuffer, keyframe: Bool) -> Data? {
+    nonisolated static func annexB(_ sample: CMSampleBuffer, keyframe: Bool) -> Data? {
         guard let block = CMSampleBufferGetDataBuffer(sample) else { return nil }
         let startCode: [UInt8] = [0, 0, 0, 1]
         var out = Data()
         if keyframe, let format = CMSampleBufferGetFormatDescription(sample) {
+            // The format names how many parameter sets it holds (H.264: SPS and PPS); copy each once.
             var count = 0
-            var index = 0
-            repeat {
+            _ = CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
+                format, parameterSetIndex: 0, parameterSetPointerOut: nil, parameterSetSizeOut: nil,
+                parameterSetCountOut: &count, nalUnitHeaderLengthOut: nil)
+            for index in 0..<min(count, 8) {
                 var pointer: UnsafePointer<UInt8>?
                 var size = 0
                 guard CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
                     format, parameterSetIndex: index, parameterSetPointerOut: &pointer, parameterSetSizeOut: &size,
-                    parameterSetCountOut: &count, nalUnitHeaderLengthOut: nil) == noErr, let pointer else { break }
+                    parameterSetCountOut: nil, nalUnitHeaderLengthOut: nil) == noErr, let pointer else { continue }
                 out.append(contentsOf: startCode)
                 out.append(UnsafeBufferPointer(start: pointer, count: size))
-                index += 1
-            } while index < count
+            }
         }
         let total = CMBlockBufferGetDataLength(block)
         var raw = [UInt8](repeating: 0, count: total)
