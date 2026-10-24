@@ -5,6 +5,8 @@
 #   Contents/Frameworks/Chromium Embedded Framework.framework   (artifact)
 #   Contents/Frameworks/libcmux_cef_shim.dylib                  (CEFShim)
 #   Contents/Frameworks/<PRODUCT_NAME> Helper.app               (+ GPU, Renderer, Plugin, Alerts)
+#   Contents/Frameworks/<PRODUCT_NAME> Chromium Host.app        (Debug builds only, prototype;
+#                                                                build-chromium-host.sh)
 #
 # then signs them inside out with the build's identity (ad hoc for dev
 # builds) through sign-cef.sh. Xcode signs the outer app afterwards; release
@@ -121,22 +123,51 @@ identity="${EXPANDED_CODE_SIGN_IDENTITY:-}"
 shim_for() { # <arch> <dist>
   CMUX_CEF_ARCH="$1" "$SCRIPT_DIR/build-cef-shim.sh" "$2" "$cache_root/shim" | tail -n 1
 }
+# The single-arch shim builds, whose wrappers the Chromium host links (3b).
+arch_shims=()
 if (( ${#shim_archs[@]} == 2 )); then
   arm_shim="$(shim_for arm64 "$arm_dir")"
   x86_shim="$(shim_for x86_64 "$x86_dir")"
+  arch_shims=("$arm_shim" "$x86_shim")
   universal_key="$(printf '%s %s' "$(cat "$arm_shim/.build-key")" "$(cat "$x86_shim/.build-key")" | shasum -a 256 | awk '{print $1}')"
   shim_out="$cache_root/shim/universal-${universal_key:0:16}"
   if [[ ! -f "$shim_out/.build-key" ]]; then
     shim_tmp="$(mktemp -d "$cache_root/shim/.universal.XXXXXX")"
     lipo -create "$arm_shim/libcmux_cef_shim.dylib" "$x86_shim/libcmux_cef_shim.dylib" -output "$shim_tmp/libcmux_cef_shim.dylib"
     lipo -create "$arm_shim/cmux-cef-helper" "$x86_shim/cmux-cef-helper" -output "$shim_tmp/cmux-cef-helper"
-    lipo -create "$arm_shim/cmux-chromium-host" "$x86_shim/cmux-chromium-host" -output "$shim_tmp/cmux-chromium-host"
-    chmod +x "$shim_tmp/cmux-cef-helper" "$shim_tmp/cmux-chromium-host"
+    chmod +x "$shim_tmp/cmux-cef-helper"
     printf '%s' "$universal_key" > "$shim_tmp/.build-key"
     /usr/bin/python3 -c 'import os, sys; os.rename(sys.argv[1], sys.argv[2])' "$shim_tmp" "$shim_out" 2>/dev/null || rm -rf "$shim_tmp"
   fi
 else
   shim_out="$(shim_for "${shim_archs[0]}" "$cef_dir")"
+  arch_shims=("$shim_out")
+fi
+
+# 1b. The Chromium host's executable (Debug builds only; see 3b), cached by
+# build-chromium-host.sh apart from the shim, so a host edit changes neither
+# the shim's key nor the runtime pack's.
+host_out=""
+host_key=""
+if [[ "${CONFIGURATION:-}" == "Debug" ]]; then
+  host_dirs=()
+  for arch_shim in "${arch_shims[@]}"; do
+    host_dirs+=("$("$SCRIPT_DIR/build-chromium-host.sh" "$arch_shim" "$cache_root/chromium-host" | tail -n 1)")
+  done
+  if (( ${#host_dirs[@]} == 2 )); then
+    host_key="$(printf '%s %s' "$(cat "${host_dirs[0]}/.build-key")" "$(cat "${host_dirs[1]}/.build-key")" | shasum -a 256 | awk '{print $1}')"
+    host_out="$cache_root/chromium-host/universal-${host_key:0:16}"
+    if [[ ! -f "$host_out/.build-key" ]]; then
+      host_tmp="$(mktemp -d "$cache_root/chromium-host/.universal.XXXXXX")"
+      lipo -create "${host_dirs[0]}/cmux-chromium-host" "${host_dirs[1]}/cmux-chromium-host" -output "$host_tmp/cmux-chromium-host"
+      chmod +x "$host_tmp/cmux-chromium-host"
+      printf '%s' "$host_key" > "$host_tmp/.build-key"
+      /usr/bin/python3 -c 'import os, sys; os.rename(sys.argv[1], sys.argv[2])' "$host_tmp" "$host_out" 2>/dev/null || rm -rf "$host_tmp"
+    fi
+  else
+    host_out="${host_dirs[0]}"
+    host_key="$(cat "$host_out/.build-key")"
+  fi
 fi
 
 # 2. Framework and shim.
@@ -270,10 +301,17 @@ done
 # app of its own, which uses the helpers above for its child processes. Debug
 # builds only, so Release, RC and NIGHTLY bundles do not change.
 host_app="$frameworks/$product Chromium Host.app"
-if [[ "${CONFIGURATION:-}" == "Debug" ]]; then
+if [[ -n "$host_out" ]]; then
   host_name="$product Chromium Host"
+  host_binary="$host_app/Contents/MacOS/$host_name"
+  host_stamp="$stamp_dir/chromium-host"
   mkdir -p "$host_app/Contents/MacOS"
-  copy_if_changed "$shim_out/cmux-chromium-host" "$host_app/Contents/MacOS/$host_name"
+  # Signing rewrites the binary: compare the host build key, not the bytes.
+  if [[ ! -f "$host_binary" || ! -f "$host_stamp" || "$(cat "$host_stamp")" != "$host_key $product" ]]; then
+    rm -f "$host_binary"  # never overwrite a signed Mach-O in place
+    cp "$host_out/cmux-chromium-host" "$host_binary"
+    printf '%s' "$host_key $product" > "$host_stamp"
+  fi
   tmp_plist="$(mktemp)"
   cat > "$tmp_plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -306,7 +344,7 @@ printf '%s' "$shim_key $product" > "$binary_stamp"
 
 # 4. Sign inside out, unless nothing changed since the last signature.
 stamp="$stamp_dir/signed"
-stamp_value="$(basename "$cef_dir") $LAYOUT $shim_key $product $identity"
+stamp_value="$(basename "$cef_dir") $LAYOUT $shim_key ${host_key:-no-host} $product $identity"
 if [[ -f "$stamp" && "$(cat "$stamp")" == "$stamp_value" ]] &&
   codesign --verify "$frameworks/$FW_NAME" >/dev/null 2>&1 &&
   codesign --verify "$frameworks/$product Helper.app" >/dev/null 2>&1; then

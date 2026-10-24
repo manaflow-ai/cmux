@@ -1,9 +1,10 @@
 // The wire between cmux and the Chromium host app (prototype behind
 // `browserHost.helperPrototype`; plans/cmux-next/cef-helper-app-DESIGN.md).
-// Needs no CEF: scripts/cmux-next/test-chromium-host-wire-cpp.sh compiles it
-// alone. CmuxNextBrowser mirrors it in ChromiumHostFrame.swift; the golden
-// bytes in tests/chromium_host_wire_test.cpp and
-// ChromiumHostFrameTests.swift are the same, so the two sides cannot drift.
+// Needs no CEF: scripts/cmux-next/tests/chromium-host-wire.test.sh compiles
+// it alone. CmuxNextBrowser mirrors it in ChromiumHostFrame.swift; the golden
+// bytes in ../tests/chromium_host_wire_test.cpp and
+// ChromiumHostFrameTests.swift are the same. CI runs neither the C++ test nor
+// this script (no new CI tests): whoever changes either side runs both.
 //
 // A frame is a 64-byte little-endian header and `payload` bytes after it
 // (UTF-8 text: a URL, a title). Fields by kind are listed with each kind.

@@ -1,7 +1,7 @@
 public import Foundation
 
 /// How cmux starts its Chromium host app: the executable and its arguments
-/// (`CEFShim/src/browser_host_main.mm` reads them).
+/// (`ChromiumHost/src/browser_host_main.mm` reads them).
 public nonisolated struct ChromiumHostConfiguration: Sendable, Equatable {
     public var executable: URL
     public var arguments: [String]
