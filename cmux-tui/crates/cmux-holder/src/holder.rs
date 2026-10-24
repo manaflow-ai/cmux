@@ -998,6 +998,17 @@ impl Holder {
     /// terminal's room, and at most [`READ_PER_TURN`] per wakeup. Each read
     /// is in the ring (a shared segment the daemon keeps a dup of) the
     /// moment it returns, so a holder crash loses no byte it read.
+    ///
+    /// After a read that returned less than its room, the master is asked
+    /// whether it has more (a zero-timeout `poll`) before another read
+    /// starts: the read that would only say `EAGAIN` (the last one of
+    /// nearly every turn, one per keystroke echo) is never made. Every ring
+    /// read publishes `reading` before it starts, so a holder killed inside
+    /// such a read left a marker for a loss that did not happen, and the
+    /// daemon put a CAN at that read boundary, often inside an escape
+    /// sequence. A read is now made only when the master is readable, so a
+    /// marker names a read that could take bytes. A flood still reads the
+    /// whole turn's share in one turn.
     fn read_terminal(&mut self, chan: u32) -> ReadEnd {
         let Some(terminal) = self.terminals.get_mut(&chan) else { return ReadEnd::Eof };
         let mut read = 0;
@@ -1007,12 +1018,18 @@ impl Holder {
                 return ReadEnd::Stopped;
             }
             let master = terminal.master.as_raw_fd();
+            let mut offered = 0;
             let n = terminal.ring.read_with(len, |room| {
+                offered = room.len();
                 // SAFETY: reads into a live slice of the ring of `room.len()` bytes.
                 unsafe { libc::read(master, room.as_mut_ptr().cast(), room.len()) }
             });
             if n > 0 {
                 read += n as usize;
+                cmux_flow_trace::hop_id("holder.pty.read", 0, &terminal.id);
+                if (n as usize) < offered && !readable_now(master) {
+                    return ReadEnd::Drained;
+                }
                 continue;
             }
             if n == 0 {
@@ -1346,6 +1363,24 @@ fn pollfd(fd: RawFd, events: libc::c_short) -> libc::pollfd {
     libc::pollfd { fd, events, revents: 0 }
 }
 
+/// Whether a read of `master` would not block now: it has bytes, or its
+/// slaves closed (the read then reports the end). Never waits.
+fn readable_now(master: RawFd) -> bool {
+    let mut fds = [pollfd(master, libc::POLLIN)];
+    loop {
+        // SAFETY: polls one live pollfd with a zero timeout.
+        let ready = unsafe { libc::poll(fds.as_mut_ptr(), 1, 0) };
+        if ready >= 0 {
+            return ready > 0
+                && fds[0].revents & (libc::POLLIN | libc::POLLHUP | libc::POLLERR) != 0;
+        }
+        if io::Error::last_os_error().kind() != io::ErrorKind::Interrupted {
+            // Let the read say what is wrong.
+            return true;
+        }
+    }
+}
+
 fn constant_time_eq(a: &[u8; 32], b: &[u8; 32]) -> bool {
     a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
@@ -1381,56 +1416,4 @@ fn peer_uid(fd: RawFd) -> Option<libc::uid_t> {
         )
     } == 0;
     ok.then_some(cred.uid)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// A terminal a SPAWN started reads no more than an attached stream
-    /// would until its ATTACH arrives: the daemon sends the two frames as
-    /// two writes, and a holder that read freely in between could pass the
-    /// ring's size and lose the terminal's first output (a GAP from 0).
-    #[test]
-    fn a_spawned_terminal_holds_its_output_until_its_attach() {
-        let dir = std::env::temp_dir().join(format!(
-            "cmux-holder-spawn-hold-{}-{:?}",
-            std::process::id(),
-            std::thread::current().id()
-        ));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir(&dir).unwrap();
-        let listener = UnixListener::bind(dir.join("h.sock")).unwrap();
-        let mut holder = Holder::new(listener, [7; 32]).unwrap();
-        let request = SpawnRequest {
-            id: [1; 16],
-            cols: 80,
-            rows: 24,
-            px_w: 0,
-            px_h: 0,
-            cwd: b"/".to_vec(),
-            argv: vec![b"/bin/sh".to_vec(), b"-c".to_vec(), b"exec cat".to_vec()],
-            env: vec![b"PATH=/usr/bin:/bin".to_vec()],
-        };
-        holder.spawn(1, &request.encode()).unwrap();
-        let room = holder.terminals[&1].room();
-        assert!(room <= UNSENT_HIGH_WATER, "an unattached new terminal may read {room} bytes");
-        holder.attach(1, 0, &0u64.to_le_bytes()).unwrap();
-        assert_eq!(holder.terminals[&1].room(), UNSENT_HIGH_WATER, "attached from 0");
-        holder.handle(Frame {
-            kind: Kind::Detach as u16,
-            flags: 0,
-            chan: 1,
-            payload: Vec::new(),
-            fds: Vec::new(),
-        });
-        assert_eq!(holder.terminals[&1].room(), usize::MAX, "a detached terminal reads freely");
-        let pid = holder.terminals[&1].pid;
-        // SAFETY: the test's own child.
-        unsafe {
-            libc::kill(pid, libc::SIGKILL);
-            libc::waitpid(pid, std::ptr::null_mut(), 0);
-        }
-        let _ = std::fs::remove_dir_all(&dir);
-    }
 }

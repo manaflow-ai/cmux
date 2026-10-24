@@ -799,7 +799,12 @@
       this.closedTargets = new Set();
       this.defaultTimeout = DEFAULT_TIMEOUT;
       // Agent pointer motion settings (`browser.agentMouse.*`, human-mouse.js).
-      this.agentMouse = ns.humanMouse.config(host && host.agentMouse);
+      // Tabs nobody sees (headless Chromium) default to instant motion: the
+      // human path is for a person watching the cursor and cost every click
+      // 0.4-0.5 s. Settings and page.mouse.configure still choose.
+      const caps = driver && typeof driver.capabilities === "function" ? driver.capabilities() : [];
+      const unseen = Array.isArray(caps) && caps.includes("headless") ? { motion: "instant" } : {};
+      this.agentMouse = ns.humanMouse.config({ ...unseen, ...((host && host.agentMouse) || {}) });
       this.defaultNavigationTimeout = DEFAULT_TIMEOUT;
       this.errors = [];
       this._lazyCounter = 0;
@@ -1435,7 +1440,30 @@
         if (this._session.now() >= deadline) throw new TimeoutError(`${title}: Timeout ${this._timeout(options)}ms exceeded.\n  - ${hit} intercepts pointer events`);
         await this._session.sleep([20, 50, 100, 100, 500][Math.min(attempt, 4)]);
       }
-      await perform(target);
+      // The selector in the target's frame, for the host's re-render rule
+      // (gate/press.rs); a ref names one element, so it has none.
+      const lastHop = this._selector.split(" >> internal:control=enter-frame >> ").pop();
+      const pressSelector = /^aria-ref=/.test(lastHop) ? null : lastHop;
+      for (;;) {
+        try {
+          await perform(target.selector || !pressSelector ? target : { ...target, selector: pressSelector });
+          break;
+        } catch (e) {
+          // The host refused the press: the page changed the point after
+          // the check. Nothing was pressed, so the action starts over.
+          if (!/^no press was sent: /.test((e && e.message) || "")) throw e;
+          if (this._session.now() >= deadline) throw new TimeoutError(`${title}: Timeout ${this._timeout(options)}ms exceeded.\n  - ${e.message}`);
+          // A re-render: when the locator now matches the element at the
+          // point, press that one there at once (as after the move above).
+          const again = await this._resolveOne(true).catch(() => null);
+          if (again && again.frame === target.frame && (await again.frame._agent("hitTarget", again.handle, target.local, "button-link").catch(() => "")) === "done") {
+            target = { ...target, handle: again.handle, instant: true };
+            continue;
+          }
+          target = { ...(await this._actionPoint(options, title, states)), instant: true };
+          await this._page.mouse.move(target.x, target.y, { motion: "instant" });
+        }
+      }
       await this._page._afterAction();
     }
 
@@ -2713,7 +2741,9 @@
       }, detached);
       // A human path to the target when the pointer is elsewhere (a
       // locator action already moved it there through mouse.move).
-      const motion = this.mouse._motion(options);
+      // A press the host refused once goes without the dwell and hold: the
+      // page changes the point faster than a person's pause (a re-render).
+      const motion = target.instant ? null : this.mouse._motion(options);
       if (motion && (this.mouse._x !== target.x || this.mouse._y !== target.y)) {
         await this.mouse._glide({ x: target.x, y: target.y }, motion, { modifiers });
       }
@@ -2722,9 +2752,17 @@
       this.mouse._y = target.y;
       const activeBefore = await target.frame._agent("activeHandle").catch(() => undefined);
       if (motion) await this.mouse._pause(motion.dwellMs);
+      // The press names its target (`expect`): the host checks it again
+      // right before the press goes out and refuses it (`no press was
+      // sent: …`) when the page put another element at the point meanwhile
+      // (gate/press.rs). Only the first press: a second one follows the
+      // first at once, on what the first one pressed.
+      const expect = !options.force && target.handle !== undefined
+        ? { frameId: target.frame._id || null, handle: target.handle, x: target.local.x, y: target.local.y, owners: [], ...(target.selector ? { selector: target.selector } : {}) }
+        : null;
       for (let i = 1; i <= count; i++) {
         if (i > 1 && motion) await this.mouse._pause(motion.doubleClickGapMs);
-        await call("down", { clickCount: i });
+        await call("down", i === 1 && expect ? { clickCount: i, expect } : { clickCount: i });
         const opened = !!this._heldDialog;
         if (i === 1 && !opened) await target.frame._agent("emulateClickFocus", target.handle, activeBefore).catch(() => {});
         if (options.delay && !opened) await this._session.sleep(options.delay);
@@ -2782,6 +2820,9 @@
       if (frame === this._mainFrame) {
         this._mainFrame._id = this._mainFrame._id || p.frameId;
         this._url = p.url;
+        // A new document starts its snapshots over: a diff against another
+        // document's tree says nothing and costs a whole-tree diff.
+        if (p.sameDocument !== true) this._snapshotBaselines = null;
       } else frame._url = p.url;
       this.emit("framenavigated", frame);
     }

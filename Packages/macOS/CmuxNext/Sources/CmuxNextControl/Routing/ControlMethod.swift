@@ -60,6 +60,10 @@ public struct ControlMethod: Sendable {
     /// person's input (``injectingInput()``).
     public private(set) var workClass: MainWorkClass = .automation
 
+    /// ``name`` interned on the app's main-thread board, once, when the router registers the
+    /// method (nil before, or without a board): each request starts its task with no lock.
+    public internal(set) var owner: MainTaskOwner?
+
     /// This method, whose `mainActor` body injects a person's input (`debug.key`, `debug.view_key`):
     /// it runs on the next main run loop turn, ahead of queued requests, as a real key is
     /// dispatched from the event queue, and batches yield while it waits.
@@ -160,6 +164,9 @@ public struct ControlCall: Sendable {
     /// initializer: now): main-thread time in Chromium's start after it moves
     /// `deadline` out.
     public let engineStartMark: Duration
+    /// The method's owner on the app's main-thread board (``ControlMethod/owner``), set by the
+    /// router; nil for a call built by hand (the work queue interns its method then).
+    public internal(set) var owner: MainTaskOwner?
 
     public init(request: ControlRequest, snapshot: ControlSnapshot, connection: ControlConnectionID,
                 deadline: ContinuousClock.Instant, startsTerminal: Bool = false, progress: ControlCallProgress = ControlCallProgress(),

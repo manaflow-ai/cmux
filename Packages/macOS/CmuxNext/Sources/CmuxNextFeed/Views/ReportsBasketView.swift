@@ -6,10 +6,18 @@ import SwiftUI
 /// addressed message through the host callback and never mutates the report.
 struct ReportsBasketView: View {
     let model: FeedModel
-    let onReply: (@MainActor (String, String) async -> Bool)?
+    let onReply: (@MainActor (ReportReply) async -> Bool)?
     @Environment(\.feedColors) private var colors
     @State private var selected: String?
     @State private var draft = ""
+    /// Reports whose reply is being sent: their Reply button waits for the answer, so a second
+    /// press or key repeat cannot send the same reply twice.
+    @State private var sending: Set<String> = []
+    /// The report whose last reply was not sent (its draft stays).
+    @State private var notSent: String?
+    /// Each report's last reply that was not sent: the same reply sent again keeps its id, so a
+    /// send that passed its deadline after acpmux queued it is not delivered twice.
+    @State private var unsent: [String: ReportReply] = [:]
 
     private var reports: [FeedReport] { model.reports }
 
@@ -57,14 +65,28 @@ struct ReportsBasketView: View {
             .frame(minWidth: 340, idealWidth: 380, maxWidth: 420)
             FeedHairline(vertical: true)
             if let report = reports.first(where: { $0.id == selected }) {
-                ReportsBasketDetail(item: report, draft: $draft, onSend: {
+                ReportsBasketDetail(item: report, draft: $draft, sending: sending.contains(report.id),
+                                    notSent: notSent == report.id, onSend: {
                     let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !text.isEmpty, let onReply else { return }
-                    // The host sends off the main thread; the draft clears once it was sent,
-                    // unless the person typed on meanwhile.
-                    // task-owner: one reply send; it ends when the host answers
+                    let id = report.id
+                    guard !text.isEmpty, let onReply, !sending.contains(id) else { return }
+                    let reply = ReportReply(session: report.sender, text: text, retrying: unsent[id])
+                    sending.insert(id)
+                    notSent = nil
+                    // The host sends off the main thread and answers once acpmux took the reply (or
+                    // refused, or passed its deadline). A sent reply clears the draft unless the
+                    // person typed on or chose another report; a refused one keeps it.
+                    // task-owner: one reply send; it ends when the host answers (bounded by its deadline)
                     Task { @MainActor in
-                        if await onReply(report.sender, text), draft.trimmingCharacters(in: .whitespacesAndNewlines) == text { draft = "" }
+                        let sent = await onReply(reply)
+                        sending.remove(id)
+                        if !sent {
+                            notSent = id
+                            unsent[id] = reply
+                        } else {
+                            unsent[id] = nil
+                            if selected == id, draft.trimmingCharacters(in: .whitespacesAndNewlines) == text { draft = "" }
+                        }
                     }
                 })
             } else {

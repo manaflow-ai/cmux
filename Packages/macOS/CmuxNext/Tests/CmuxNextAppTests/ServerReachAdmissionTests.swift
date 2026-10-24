@@ -1,6 +1,7 @@
 import CmuxNextDaemonService
 @testable import CmuxNextDaemon
 import CmuxNextRemote
+import CmuxNextWakeups
 import Foundation
 import Testing
 @testable import CmuxNextApp
@@ -20,7 +21,7 @@ struct ServerReachAdmissionTests {
         var listed = true
         var calls: [String] = []
         var removed: [DaemonService] = []
-        lazy var service = ServerReachService(machines: machines, call: { [unowned self] path, body in
+        lazy var service = ServerReachService(machines: machines, mainWork: MainWorkScheduler(budget: MainFrameBudget()), call: { [unowned self] path, body in
             #expect(path == "v1/read")
             let op = body["op"] as? String ?? ""
             calls.append(op)

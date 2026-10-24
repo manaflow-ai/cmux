@@ -26,6 +26,8 @@ new focused pane in the measured workspace, closed again, the typed tab still th
              app-rename  action.run renameTab (wait: false) of a background tab: the app-side load (control socket).
                          Each run emits the always-on action.perform/action.commit signposts, so this load also adds
                          about 4 log events per op to the `log stream` the split rows come from.
+             batch       one action.batch (wait: false) of BATCH_OPS renameTab ops on background tabs per step: the
+                         app-side transaction (control socket); the rate is batches per second (default 10: 640 ops/s)
 
 Per session and phase:
   key_to_contents_ms   the probe's contents_ms (see KEY_COLUMN): NOT a committed frame and not comparable with the
@@ -55,7 +57,7 @@ script phase refuse to start when the PTYs in use plus the ones they open would 
 and the column load checks the PTYs in use before each create.
 
   script-storm-bench.py --app APP --out DIR [--sessions light,stress] [--seconds 15] [--samples 120]
-      [--rates reorder=1000,move=200,column=100,rename=500,app-rename=640] [--background 50] [--json FILE]
+      [--rates reorder=1000,move=200,column=100,rename=500,app-rename=640,batch=10] [--background 50] [--json FILE]
 
 The STRESS session is built by perf-stress-session.py, which checks its shape: a session of another shape reports
 "STRESS shape missed" and no numbers. The app launches through bench_launch.py.
@@ -371,6 +373,19 @@ def app_rename_load(plan, rng):
                        "wait": False, "focus": False, "origin": "script"}))
 
 
+# One action.batch transaction: ControlRouter.batchOpLimit, the most one transaction takes.
+BATCH_OPS = 64
+
+
+def batch_load(plan, rng):
+    connection = Connection(plan["control"], control_frame, plan["max_inflight"])
+    ids = [t for ws in plan["background"] for t in ws["tab_ids"]]
+    return Load("batch", plan["rates"]["batch"], connection, lambda i: connection.send(
+        "action.batch", {"ops": [{"action": "renameTab", "target": f"tab:{rng.choice(ids)}", "args": {"name": f"batch {i}.{k}"},
+                                  "focus": False} for k in range(BATCH_OPS)],
+                         "wait": False, "origin": "script"}))
+
+
 class ColumnLoad(Load):
     """New panes in background workspaces, each closed again from its create's reply. A terminal counts as live from
     its create's send until its close's ok reply, so the live terminals never pass --live-columns per workspace or
@@ -485,7 +500,7 @@ class ColumnLoad(Load):
 
 
 LOADS = {"reorder": reorder_load, "move": move_load, "column": ColumnLoad, "rename": rename_load,
-         "app-rename": app_rename_load}
+         "app-rename": app_rename_load, "batch": batch_load}
 
 
 def storm_worker(plan_path):
@@ -552,7 +567,7 @@ parser.add_argument("--samples", type=int, default=120)
 parser.add_argument("--interval", type=float, default=0.1,
                     help="the person's pace: at least this many seconds between key sends (each also waits for the last key's row)")
 parser.add_argument("--splits", type=int, default=10, help="Cmd-D then Cmd-W pairs per phase")
-parser.add_argument("--rates", default="reorder=1000,move=200,column=100,rename=500,app-rename=640")
+parser.add_argument("--rates", default="reorder=1000,move=200,column=100,rename=500,app-rename=640,batch=10")
 parser.add_argument("--background", type=int, default=50, help="background workspaces the script works in")
 parser.add_argument("--live-columns", type=int, default=2, help="script-made panes alive per workspace before closing")
 # STRESS plus the setup's two terminals per background workspace hold about 190 PTYs; 40 more keeps the host under
@@ -1045,7 +1060,7 @@ class Session:
         rows = report.get("rows") or []
         problems = []
         if report.get("lost"):
-            problems.append(f"log stream lost messages {report['lost']} time(s) (the app-rename load adds about 4 "
+            problems.append(f"log stream lost messages {report['lost']} time(s) (the app-rename and batch loads add about 4 "
                             "action signposts per op): the person's intervals may be missing")
         if report.get("status") == 3:
             problems.append("user action runs carry no input age: input to commit is empty")
@@ -1121,8 +1136,8 @@ class Session:
                  "split_input_to_commit": None if split_problems else split_rows, "split_presses": presses,
                  "split_input_to_commit_invalid": split_invalid,
                  "signposts": {k: (signpost_report or {}).get(k) for k in ("lost", "unpaired", "status", "error")},
-                 "signpost_load": "app-rename adds about 4 action signposts per op to the stream the split rows come from"
-                 if script is not None and RATES.get("app-rename") else None,
+                 "signpost_load": "app-rename and batch add about 4 action signposts per op to the stream the split rows come from"
+                 if script is not None and (RATES.get("app-rename") or RATES.get("batch")) else None,
                  "frames": frames,
                  "hangs": {k: hangs.get(k) for k in ("count", "max_ms", "total_ms", "frames_over_8_3ms", "max_gap_ms", "records")}
                  if isinstance(hangs, dict) else hangs,
@@ -1153,7 +1168,7 @@ class Session:
         try:
             time.sleep(3)  # bench script: launch work settles
             methods = (self.rpc("system.capabilities") or {}).get("methods") or []
-            missing = [m for m in ("action.run", "snapshot.get", "debug.key", "debug.frames") if m not in methods]
+            missing = [m for m in ("action.run", "action.batch", "snapshot.get", "debug.key", "debug.frames") if m not in methods]
             if missing:
                 note(f"{self.name}: the app has no {missing}; nothing measured")
                 results["runs"].append({"session": self.name, "phase": "build", "missing_methods": missing})

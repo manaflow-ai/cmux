@@ -125,6 +125,22 @@ public nonisolated struct SidebarGroup: Identifiable, Hashable, Sendable {
         return StatusStack.resolve(loading.map { StatusReport(id: $0.id.rawValue, source: .explicit, state: $0.activity, style: $0.activityStyle) }).state
     }
 
+    /// The one state the group's header shows by default, open or collapsed: its members' most
+    /// urgent row state, red over orange over blue (Lawrence msg 11983: "blue, orange/yellow for
+    /// needs attention, and red for errors"). An error, else needs you (`waiting`), else something
+    /// unread or done (`success`, the blue dot); with none of those a collapsed header shows its
+    /// members' loading (``loadingActivity``, Lawrence 2026-10-20) and an open one nothing, its
+    /// rows show their own spinners. Each member counts as its row draws it (`WorkspaceRowBadges`).
+    /// - Parameter collapsed: Whether the header is collapsed (its members hidden).
+    /// - Returns: The state the header's status glyph draws.
+    public func statusRollUp(collapsed: Bool) -> StatusIndicatorState {
+        let states = workspaces.compactMap { WorkspaceRowBadges(unread: $0.unread, activity: $0.activity, detailed: false).first }
+        if states.contains(.error) { return .error }
+        if states.contains(where: { if case .waiting = $0 { true } else { false } }) { return .waiting }
+        if states.contains(.success) { return .success }
+        return collapsed ? loadingActivity : .idle
+    }
+
     /// Strongest activity among children, shown on a collapsed group header
     /// with `sidebar.detailedStatusIcons` on.
     public var aggregateActivity: StatusIndicatorState {

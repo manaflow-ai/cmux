@@ -1,10 +1,5 @@
+public import CmuxNextCompat
 import Foundation
-
-/// The system's memory pressure, from the memory pressure dispatch source
-/// (never polled).
-public enum MemoryPressureLevel: String, Hashable, Sendable, Codable {
-    case normal, warning, critical
-}
 
 /// How much hidden content stays warm (architecture.md section 4): the one
 /// memory budget of hidden GPU surfaces. A window keeps every workspace it

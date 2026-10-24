@@ -12,6 +12,8 @@ extension ActionID {
     /// Show ACP Inspector: toggles the agent pane's ACP inspector
     /// (`AgentPaneView.toggleInspector`).
     public static let toggleAcpInspector: ActionID = "agentPane.toggleInspector"
+    /// Stop the focused agent chat's active turn through the page's composer path.
+    public static let stopTurn: ActionID = "agentPane.stopTurn"
     /// Open File: a file in a tab of the pane or in the text editor
     /// (`AgentPaneFileOpening`).
     public static let fileOpen: ActionID = "file.open"

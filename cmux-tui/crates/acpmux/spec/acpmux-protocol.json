@@ -309,6 +309,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/subagent_transcript",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/app_reply",
       "params": true,
       "result": true
@@ -352,6 +358,12 @@
     {
       "kind": "request",
       "name": "_acpmux/step_now",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/steer_withdraw",
       "params": true,
       "result": true
     },
@@ -451,6 +463,12 @@
     {
       "kind": "request",
       "name": "_acpmux/info",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/session_files",
       "params": true,
       "result": true
     },
@@ -1954,7 +1972,7 @@
           ]
         },
         "recipient": {
-          "description": "Session recipient for ordinary mail. Omit when target is supplied.",
+          "description": "Session recipient for ordinary mail. Omit when `target` is supplied.",
           "type": [
             "string",
             "null"
@@ -1964,7 +1982,7 @@
           "type": "string"
         },
         "target": {
-          "description": "Quiet reports alias (reports:<person>). Omit for session mail.",
+          "description": "Quiet reports alias (`reports:<person>`). Omit for session mail.",
           "type": [
             "string",
             "null"

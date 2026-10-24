@@ -1,9 +1,10 @@
 public import Foundation
 
-/// Starts a process (``AcpmuxReplySender``'s seam; tests pass a fake).
+/// Runs a process to its end (``AcpmuxReplySender``'s seam; tests pass a fake).
 public protocol ProcessLaunching: Sendable {
-    /// Starts `executable` with `arguments` and `environment`.
+    /// Runs `executable` with `arguments` and `environment` until it exits or passes the launcher's
+    /// deadline (it is then killed).
     ///
-    /// - Returns: True when the process started.
-    nonisolated func launch(_ executable: URL, arguments: [String], environment: [String: String]) -> Bool
+    /// - Returns: The exit status; nil when the process did not start or passed its deadline.
+    nonisolated func run(_ executable: URL, arguments: [String], environment: [String: String]) async -> Int32?
 }

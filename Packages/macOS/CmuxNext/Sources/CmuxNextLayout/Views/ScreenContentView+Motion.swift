@@ -93,6 +93,7 @@ extension ScreenContentView {
         var clips: [(host: PaneHostView, scrolls: Bool)] = []
         var changed = force
         let scale = self.scale
+        let laysOutNow = window != nil && bounds.width >= 1 && bounds.height >= 1
         for (pane, frame) in paneFrames {
             guard let host = context.hosts[pane], host.superview === self else { continue }
             let scrolls = geometry.scrolls(pane: pane)
@@ -104,6 +105,8 @@ extension ScreenContentView {
             let rest = frame.targetRect.offsetBy(dx: (scrolls ? restStrip : 0) - areaOffset(of: pane), dy: -rowOffset(of: pane))
             let restOffset = CGVector(dx: rest.minX - placed.minX, dy: rest.minY - placed.minY)
             if host.restOffset != restOffset { host.restOffset = restOffset }
+            // A new rest size (a split's new pane has none before its first one) on a running spring.
+            let restChanged = host.restSize != rest.size
             if host.restSize != rest.size { host.restSize = rest.size }
             // On a spring until the frame it lands at is laid out (`PaneHostView.isOnLayoutSpring`).
             let springing = frame.rect != frame.targetRect
@@ -112,8 +115,12 @@ extension ScreenContentView {
             if host.frame.size != placed.size {
                 host.frame = placed
                 // Its tab strip and content lay out in this frame's step, with the frame: never a
-                // layout pass behind it (`PaneContentView.layout` sizes the strip).
-                host.layoutSubtreeIfNeeded()
+                // layout pass behind it (`PaneContentView.layout` sizes the strip). Only at a real size in a
+                // window: before the root is placed (a new window's content builds its layout first) the
+                // frames come from an empty viewport, and laying every pane out there broke Auto Layout
+                // constraints in each one (4.77 s for moveWorkspaceToNewWindow in STRESS); the window's
+                // layout pass lays them out once the root has its size.
+                if laysOutNow, placed.width >= 1, placed.height >= 1 { host.layoutSubtreeIfNeeded() }
                 changed = true
             } else if host.frame.origin != placed.origin {
                 // A pane that only moves (the strip camera, a column opening beside it) keeps its
@@ -121,6 +128,9 @@ extension ScreenContentView {
                 host.frame = placed
                 changed = true
             }
+            // A spring that starts or retargets (a press during the motion) to a new size: the content
+            // hears the size it will rest at now, once (a terminal sends its final grid at the start).
+            if restChanged, springing { host.announceRest() }
             if host.alphaValue != frame.alpha.value {
                 host.alphaValue = frame.alpha.value
                 changed = true
@@ -166,6 +176,18 @@ extension ScreenContentView {
             view.cursorClip = pointerClip
         }
         updateScrollbar()
+        // A pan with the finger down is layout motion too (hasMotion leaves user gestures out): motion-time content
+        // (divider catcher panels, page windows) waits for the landing. The landing frame's advanceFrame clears it.
+        let gesturing = isUserScrolling || rowScrolls.values.contains(where: \.state.isGestureActive)
+            || areaScrolls.values.contains(where: \.state.isGestureActive)
+        if gesturing, changed {
+            userMotionActive = true
+            context.userMotionStepped()
+        } else if !gesturing, userMotionActive {
+            // The gesture ended: a fling springs on (advanceFrame ends the motion when it lands), else it ends now.
+            userMotionActive = false
+            if !hasMotion { context.userMotionEnded() }
+        }
         // The handles moved under a still pointer, or the panes did (a zoom covers handles).
         if dividersChanged || changed { refreshDividerHover() }
         if dividersChanged || changed { context.overlayNeedsSync() }

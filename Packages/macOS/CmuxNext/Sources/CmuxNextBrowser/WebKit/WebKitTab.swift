@@ -26,7 +26,11 @@ public final class WebKitTab: NSObject, BrowserTab {
     /// The web view's container (`WebKitPageContainer`): WebKit places an
     /// attached Web Inspector beside the web view inside it.
     public var contentView: NSView { container }
-    @ObservationIgnored private let container: WebKitPageContainer
+    @ObservationIgnored let container: WebKitPageContainer
+    /// A woken tab's last frame over the page until it paints (`WebKitTab+WakeStandIn`).
+    @ObservationIgnored var standIn: NSView?
+    /// The stand-in's cap (`showStandIn`).
+    @ObservationIgnored var standInCap: DemandTimer?
     /// Web Inspector's visibility, for the toolbar's DevTools button.
     @ObservationIgnored public let inspectorWatch = WebKitInspectorWatch()
 
@@ -105,6 +109,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         WebKitDesignModeHandler.install(on: self, into: controller)
         WebKitPasskeyInstaller.install(self, into: controller)
         WebKitNotificationBridge.install(on: self, into: controller)
+        WebKitFirstPaintHandler.install(on: self, into: controller)
         observeWebView()
         if configuration.zoom != 1 {
             setZoom(configuration.zoom)
@@ -139,6 +144,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         // Whatever committed keeps the page area from now on, so WebKit draws
         // its background again even if no `didFail` follows the stop.
         pageDidFinish()
+        removeStandIn()
         apply(.stopped)
     }
 
@@ -167,11 +173,15 @@ public final class WebKitTab: NSObject, BrowserTab {
         return cgImage
     }
 
-    public func evaluate(_ script: String, world: BrowserScriptWorld) async throws -> BrowserJSValue {
+    public func evaluate(_ script: String, world: BrowserScriptWorld, gesture: BrowserScriptGesture) async throws -> BrowserJSValue {
         guard !isClosed else { throw BrowserTabError.closed }
         do {
-            let result = try await webView.evaluateJavaScript(script, in: nil, contentWorld: world.contentWorld)
-            return BrowserJSValue(foundation: result)
+            // Every public WKWebView evaluation forces a user gesture; cmux's own scripts use the
+            // gesture-free one (`WebKitGestureFreeEvaluation`).
+            switch gesture {
+            case .agent: return BrowserJSValue(foundation: try await webView.evaluateJavaScript(script, in: nil, contentWorld: world.contentWorld))
+            case .cmux: return try await WebKitGestureFreeEvaluation(webView: webView).evaluate(script, in: world.contentWorld)
+            }
         } catch let error as WKError where error.code == .javaScriptResultTypeIsUnsupported {
             return .null
         } catch let error as WKError where error.code == .javaScriptExceptionOccurred {
@@ -255,6 +265,7 @@ public final class WebKitTab: NSObject, BrowserTab {
     public func close() {
         guard !isClosed else { return }
         isClosed = true
+        removeStandIn()
         faviconTask?.cancel()
         titleTimer.cancel()
         rateReshow?.cancel()
@@ -358,7 +369,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         faviconTask?.cancel()
         faviconTask = Task { [weak self] in
             guard let self,
-                  let value = try? await self.evaluate(FaviconScript.source, world: .isolated),
+                  let value = try? await self.evaluate(FaviconScript.source, world: .isolated, gesture: .cmux),
                   let string = value.stringValue,
                   let url = URL(string: string),
                   !Task.isCancelled else { return }

@@ -1319,6 +1319,11 @@ export function ContextRing({
   const label = known ? t(PICKER_LABELS.context, { percent }) : t("context.title");
   const breakdown = known ? contextBreakdown(reported) : undefined;
   const shown = known && (pinned || hover.open);
+  const dismissHover = hover.dismiss;
+  const closeCard = useCallback(() => {
+    setPinned(false);
+    dismissHover();
+  }, [dismissHover]);
   // As Claude desktop's: a 14 px ring, a faint track with the share used drawn over it as an arc
   // from twelve o'clock (round ends), not a pie and not a spinner.
   const arcRadius = 6;
@@ -1333,9 +1338,8 @@ export function ContextRing({
   }, [known, t]);
   useEffect(() => {
     // Usage can disappear when a session resets: no pinned card over a stale reading.
-    if (!known) setPinned(false);
-  }, [known]);
-  const dismissHover = hover.dismiss;
+    if (!known) closeCard();
+  }, [closeCard, known]);
   useEffect(() => {
     // Escape closes the card however it opened (hover, keyboard focus or a click), and takes the
     // press, so it doesn't also reach the composer.
@@ -1347,12 +1351,11 @@ export function ContextRing({
       // Focus in the card goes back to the ring, before the card closes (the ring's focus would
       // open it again otherwise).
       if (card.current?.contains(document.activeElement)) trigger.current?.focus();
-      setPinned(false);
-      dismissHover();
+      closeCard();
     };
     document.addEventListener("keydown", onKey, true);
     return () => document.removeEventListener("keydown", onKey, true);
-  }, [shown, dismissHover]);
+  }, [shown, closeCard]);
   useEffect(() => {
     // A pinned card goes on a press outside the ring and the card. The card is its outer element,
     // so a press on its padding is inside.
@@ -1360,11 +1363,11 @@ export function ContextRing({
     const onPress = (event: PointerEvent) => {
       const target = event.target as Node | null;
       if (target && (wrapper.current?.contains(target) || card.current?.contains(target))) return;
-      setPinned(false);
+      closeCard();
     };
     document.addEventListener("pointerdown", onPress, true);
     return () => document.removeEventListener("pointerdown", onPress, true);
-  }, [pinned]);
+  }, [closeCard, pinned]);
   /// The card's buttons the keyboard reaches (Compact, Details ›).
   const cardButtons = () => [...(card.current?.querySelectorAll<HTMLElement>("button:not(:disabled)") ?? [])];
   /// Leaves the card forward: to whatever the page tabs to after the ring, and the card closes.
@@ -1377,8 +1380,7 @@ export function ContextRing({
     const next = order[order.indexOf(ring) + 1];
     if (next) next.focus();
     else ring.blur();
-    setPinned(false);
-    dismissHover();
+    closeCard();
   };
   // Tab inside the open card: Shift-Tab off its first button goes back to the ring, Tab off its
   // last goes on past the ring. A document listener, as Escape's, since the card is a portal.
@@ -1464,6 +1466,7 @@ export function ContextRing({
         interactive
         ariaLabel={t("context.title")}
         popupRef={card}
+        hoverBridgeId={hover.card["data-cmux-hover-bridge"]}
         // On the card's outer element, so its padding counts as inside the card.
         onPointerEnter={hover.card.onPointerEnter}
         onPointerLeave={hover.card.onPointerLeave}
@@ -1479,14 +1482,14 @@ export function ContextRing({
               onCompact={
                 onCompact &&
                 (() => {
-                  setPinned(false);
+                  closeCard();
                   onCompact();
                 })
               }
               onOpenDetails={
                 onOpenDetails &&
                 (() => {
-                  setPinned(false);
+                  closeCard();
                   onOpenDetails();
                 })
               }

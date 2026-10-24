@@ -33,6 +33,10 @@ What the action rows mean:
                            perform, commit or input_to_commit rows (the run it lets through has
                            its own)
 
+Categories (SignpostCategory.swift): action, motion, key, switch, create, cef, launch, stall, and
+burst (events, not intervals: scripts/cmux-next/burst-bench.py reads those; this script pairs
+intervals only, so --category burst prints no rows).
+
 The stream is drained on a reader thread while the scenario runs (a full pipe would block
 `log stream` and logd would drop events). Lost-message reports from `log stream` are counted;
 any loss fails the run (exit 2) unless --allow-loss, because the percentiles would then come from
@@ -107,7 +111,8 @@ def is_loss(line: str, event: dict | None) -> bool:
 
 
 def parse(lines, timebase: tuple[int, int] | None) -> dict:
-    """{intervals: [{name, category, ms, fields, missed, nested_loop}], lost, unpaired}."""
+    """{intervals: [{name, category, ms, at_s, fields, missed, nested_loop}], lost, unpaired}. `at_s` is the
+    begin's time in seconds (machTimestamp with a timebase: the clock of NSEvent.timestamp)."""
     numer, denom = timebase or (0, 0)
     open_intervals: dict[tuple, tuple[float, dict]] = {}
     done = []
@@ -141,7 +146,7 @@ def parse(lines, timebase: tuple[int, int] | None) -> dict:
         elif kind == "end" and key in open_intervals:
             start, info = open_intervals.pop(key)
             end = fields(event.get("eventMessage", ""))
-            done.append({"name": key[2], "category": key[1], "ms": (at - start) * 1000, "fields": info,
+            done.append({"name": key[2], "category": key[1], "ms": (at - start) * 1000, "at_s": start, "fields": info,
                          "missed": end.get("commit") == "missed", "nested_loop": end.get("loop") == "nested"})
     return {"intervals": done, "lost": lost, "unpaired": len(open_intervals)}
 

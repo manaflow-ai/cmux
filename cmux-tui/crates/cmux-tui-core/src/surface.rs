@@ -573,6 +573,16 @@ impl Surface {
         }
     }
 
+    /// The hex terminal id key-press flow marks name this terminal by (`cmux_flow_trace`): the host's
+    /// terminal id, which the terminal host and the holder also know. Empty for a browser surface or a
+    /// local PTY with no host identity.
+    pub(crate) fn flow_terminal_id(&self) -> &str {
+        match self {
+            Self::Pty(surface) => surface.flow_terminal_id(),
+            Self::Browser(_) => "",
+        }
+    }
+
     /// Create another view placement for this terminal without creating a
     /// second process or terminal emulator.
     pub(crate) fn project_terminal(

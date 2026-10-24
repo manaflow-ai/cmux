@@ -80,6 +80,16 @@
       "group": "exact"
     },
     {
+      "query": "session info",
+      "expect": ["action:agentPane.toggleInspector"],
+      "group": "exact"
+    },
+    {
+      "query": "stop turn",
+      "expect": ["action:agentPane.stopTurn"],
+      "group": "exact"
+    },
+    {
       "query": "reload tab",
       "expect": ["action:reloadTab"],
       "group": "exact"
@@ -137,6 +147,36 @@
     {
       "query": "full screen",
       "expect": ["action:toggleFullScreen"],
+      "group": "exact"
+    },
+    {
+      "query": "copy agent name",
+      "expect": ["action:agentChat.copyName"],
+      "group": "exact"
+    },
+    {
+      "query": "copy harness session id",
+      "expect": ["action:agentChat.copyHarnessSessionID"],
+      "group": "exact"
+    },
+    {
+      "query": "copy conversation markdown",
+      "expect": ["action:agentChat.copyConversation"],
+      "group": "exact"
+    },
+    {
+      "query": "copy session details",
+      "expect": ["action:agentChat.copySessionDetails"],
+      "group": "exact"
+    },
+    {
+      "query": "copy working directory",
+      "expect": ["action:agentChat.copyWorkingDirectory"],
+      "group": "exact"
+    },
+    {
+      "query": "copy chat host",
+      "expect": ["action:agentChat.copyHost"],
       "group": "exact"
     },
     {
@@ -1051,6 +1091,21 @@
       "note": "Recent follows the pins"
     },
     {
+      "query": "set model",
+      "expect": ["action:agentPane.setModel"],
+      "group": "exact"
+    },
+    {
+      "query": "agent effort",
+      "expect": ["action:agentPane.setEffort"],
+      "group": "exact"
+    },
+    {
+      "query": "agent mode",
+      "expect": ["action:agentPane.setMode"],
+      "group": "exact"
+    },
+    {
       "query": "",
       "expect": ["action:newTab.default"],
       "at": 1,
@@ -1080,6 +1135,60 @@
         }
       ],
       "note": "a pinned Recent row shows once, as a pin: Suggested follows at once"
+    },
+    {
+      "query": "text width",
+      "expect": ["action:agentPane.toggleDisplaySettings"],
+      "group": "exact",
+      "note": "Agent chat header/menu action"
+    },
+    {
+      "query": "replay conversation",
+      "expect": ["action:agentPane.replayConversation"],
+      "group": "exact",
+      "note": "Agent chat header/menu action"
+    },
+    {
+      "query": "project instructions",
+      "expect": ["action:agentPane.editInstructions"],
+      "group": "exact",
+      "note": "Agent chat header/menu action"
+    },
+    {
+      "query": "project files",
+      "expect": ["action:agentPane.addProjectFiles"],
+      "group": "exact",
+      "note": "Agent chat header/menu action"
+    },
+    {
+      "query": "mark chat unread",
+      "expect": ["action:agentPane.markUnread"],
+      "group": "exact",
+      "note": "Agent chat header/menu action"
+    },
+    {
+      "query": "floating chat",
+      "expect": ["action:agentPane.moveToFloatingChat"],
+      "group": "exact",
+      "note": "Agent chat header/menu action"
+    },
+    {
+      "query": "thread minimap",
+      "expect": ["action:agentPane.toggleMinimap"],
+      "group": "exact",
+      "note": "Agent chat header/menu action"
+    },
+    {
+      "query": "reveal chat folder finder",
+      "expect": ["action:agentPane.revealCwdInFinder"],
+      "group": "exact",
+      "note": "Agent chat header/menu action"
+    },
+    {
+      "query": "open chat folder terminal",
+      "expect": ["action:agentPane.openCwdInTerminal"],
+      "group": "exact",
+      "note": "Agent chat header/menu action"
     }
   ]
 }

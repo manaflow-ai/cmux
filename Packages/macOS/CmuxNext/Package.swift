@@ -229,6 +229,7 @@ let package = Package(
                 "CmuxNextKeepAwake",
                 "CmuxNextChromiumWarmup",
                 "CmuxNextChromiumRuntime",
+                "CmuxNextBrowserTabs",
                 "CmuxNextPhoneAccess",
                 "CmuxNextPhone",
                 "CmuxNextPopups",
@@ -244,6 +245,7 @@ let package = Package(
                 "CmuxNextHome",
                 "CmuxNextHomeEngine",
                 "CmuxNextHostPressure",
+                "CmuxNextHibernation",
                 "CmuxNextChiefPetWiring",
                 "CmuxNextHostedChief",
                 "CmuxNextDaemonService",
@@ -630,7 +632,7 @@ let package = Package(
         ),
         .target(
             name: "CmuxNextFocusUI",
-            dependencies: ["CmuxNextActions", "CmuxNextDesign"],
+            dependencies: ["CmuxNextActions", "CmuxNextDesign", "CmuxNextSignposts"],
             resources: [
                 .process("Resources"),
             ],
@@ -684,7 +686,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextPagesTests",
-            dependencies: ["CmuxNextPages", "CmuxNextPagesTestSupport", "CmuxNextSettings", "CmuxNextDesign"],
+            dependencies: ["CmuxNextCompat", "CmuxNextPages", "CmuxNextPagesTestSupport", "CmuxNextSettings", "CmuxNextDesign"],
             swiftSettings: uiSwiftSettings
         ),
         // Settings > Agents > Agent integrations: the coding-agent hooks the bundled CLI
@@ -833,6 +835,13 @@ let package = Package(
             name: "CmuxNextChromiumRuntimeTests",
             dependencies: ["CmuxNextChromiumRuntime"],
             swiftSettings: daemonSwiftSettings
+        ),
+        // Browser tabs (the App's browser tab domain, moved out leaf-first): the engine a new tab
+        // gets (BrowserEngineResolver) and where it goes (BrowserTabRoute). Pure; the App composes it.
+        .target(
+            name: "CmuxNextBrowserTabs",
+            dependencies: ["CmuxNextBrowser", "CmuxNextDaemon", "CmuxNextSettings"],
+            swiftSettings: uiSwiftSettings
         ),
         .target(
             name: "CmuxNextChromiumWarmup",
@@ -1237,7 +1246,8 @@ let package = Package(
         ),
         .target(
             name: "CmuxNextWakeups",
-            // Signposts: the main-thread scheduler's `stall.main_task` and `stall.over_budget` (MainFrameBudget).
+            // Signposts: the main-thread scheduler's `stall.main_task` and `stall.over_budget` (MainFrameBudget), and
+            // the typing probe's key-press flow hops (`key.flow`).
             dependencies: ["CmuxNextCompat", "CmuxNextSignposts"],
             swiftSettings: daemonSwiftSettings
         ),
@@ -1331,10 +1341,13 @@ let package = Package(
         ),
         .target(
             name: "CmuxNextActions",
-            dependencies: ["CmuxNextSignposts"],
+            // Wakeups: the main-thread task board, where an action run is published as a span so the
+            // watchdog samples a run past its 10 ms budget (ActionBudgetMonitor).
+            dependencies: ["CmuxNextSignposts", "CmuxNextWakeups"],
             resources: [
                 .process("AccountsActions.xcstrings"),
                 .process("ActionCatalog.xcstrings"),
+                .process("AgentConfigurationActions.xcstrings"),
                 .process("AppStoreActions.xcstrings"),
                 .process("BookmarkActions.xcstrings"),
                 .process("BrowserProfileActions.xcstrings"),
@@ -1468,6 +1481,14 @@ let package = Package(
             ],
             swiftSettings: uiSwiftSettings
         ),
+        // Browser tab hibernation policy (Memory Saver): which hidden pages freeze or are
+        // discarded and when, from facts the App's BrowserHibernation coordinator feeds it
+        // (plans/cmux-next/tab-lifecycle.md). Pure values; no engine, no I/O.
+        .target(
+            name: "CmuxNextHibernation",
+            dependencies: ["CmuxNextCompat", "CmuxNextSettings"],
+            swiftSettings: uiSwiftSettings
+        ),
         // The browser's engine-neutral half: tab and engine values, intents, capability protocols, omnibox
         // and page-info models; no views, no engine (plans/cmux-next/architecture-refactor-DESIGN.md
         // section 8). CmuxNextBrowser depends on it and re-exports it.
@@ -1504,6 +1525,11 @@ let package = Package(
         .target(
             name: "CmuxNextBrowserHost",
             dependencies: ["CmuxNextCompat", "CmuxNextBrowser", "CmuxNextBrowserAutomation", "CmuxNextWakeups"],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextBrowserHostTests",
+            dependencies: ["CmuxNextBrowser", "CmuxNextBrowserAutomation", "CmuxNextBrowserHost", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         .target(
@@ -1581,6 +1607,7 @@ let package = Package(
                 "CmuxNextApps",
                 "CmuxNextBrowserHistory",
                 "CmuxNextBrowserImport",
+                "CmuxNextBrowserTabs",
                 "CmuxNextChiefPetWiring",
                 "CmuxNextChromiumRuntime",
                 "CmuxNextCompat",
@@ -1601,6 +1628,7 @@ let package = Package(
                 "CmuxNextFocus",
                 "CmuxNextFocusUI",
                 "CmuxNextHangReports",
+                "CmuxNextHibernation",
                 "CmuxNextHistory",
                 "CmuxNextHome",
                 "CmuxNextHomeEngine",

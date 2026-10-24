@@ -1218,7 +1218,7 @@ pre.cv-math-source {
   border-radius: 8px;
   background: color-mix(in srgb, var(--agent-accent) 8%, transparent);
 }
-.acpmux-row[data-transcript-active="true"]:focus-visible {
+[data-focus-ring-enabled="true"] .acpmux-row[data-transcript-active="true"]:focus-visible {
   outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
   outline-offset: -1.5px;
   border-radius: 8px;
@@ -3656,6 +3656,14 @@ a.cv-sha:focus-visible {
   flex: none;
   font-variant-numeric: tabular-nums;
 }
+/* A live line under a plan is the finished turn footer's slot. Keep its content at the same
+   leading edge while the row holds the footer's 24px line plus turn gap, so `turnSummary` can
+   replace it in place when the turn ends. */
+.acpmux-row.acpmux-activityLine.acpmux-row--below {
+  min-height: 0;
+  height: calc(var(--cv-meta-row) + var(--cv-turn-gap));
+  padding-bottom: 0;
+}
 
 /* ---------- A background shell's end (BackgroundTaskNote.tsx, cx-ncc.84) ---------- */
 /* A failed task keeps its red mark, open or closed. A click opens it in place (`.is-toggle`: the
@@ -3892,6 +3900,23 @@ article.acpmux-row:empty {
   color: var(--cv-text);
 }
 .cv-user__send-now:disabled {
+  opacity: 0.5;
+}
+/* The X that takes a waiting steer back to edit (PendingSteer.tsx): a plain glyph, as muted as
+   Send now's text, on the same centred line. */
+.cv-user__take-back {
+  display: inline-flex;
+  align-items: center;
+  border: 0;
+  padding: 0;
+  background: none;
+  color: inherit;
+  cursor: default;
+}
+.cv-user__take-back:hover:not(:disabled) {
+  color: var(--cv-text);
+}
+.cv-user__take-back:disabled {
   opacity: 0.5;
 }
 /* Reply on another agent's message (IncomingMessageCard.tsx): the editor under the opened

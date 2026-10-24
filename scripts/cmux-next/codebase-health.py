@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """Measure cmux-next codebase health: the debt the guardrails ratchet (plans/cmux-next/codebase-health.md).
 
-Counts code (comments stripped) in Packages/macOS/CmuxNext/Sources: stateful singletons and global mutable
+Counts code (comments stripped) in Packages/macOS/CmuxNext/Sources and in the Sources of every package of its local
+package closure (arch_counts.read_paths at HEAD: the arch ratchet's scope since method v5): stateful singletons and global mutable
 statics, MainActor.assumeIsolated, @unchecked Sendable, nonisolated(unsafe), raw locks, sleeps, main-queue hops,
 NotificationCenter broadcast names and their observers, NSHostingView, #if DEBUG, plus target sizes, the
 Package.swift target graph checked against the 5-layer rule (CLAUDE.md "Refactor architecture"), docs sprawl
 with stale references, and script and workflow counts. Reads the working tree's tracked files only.
 
 The singleton, global-static, assumeIsolated, broadcast-name and observer rows and the layer edges are
-scripts/cmux-next/arch_counts.py's (count_texts(), layers(), observer_calls()): the definitions
-plans/cmux-next/arch-ratchet.json and the pre-push ratchet hold, so the three reports never disagree. An
-observer site is a `MainActorObservation(` wrapper call too, and a call may span lines.
+scripts/cmux-next/arch_counts.py's (count_texts(), layers(), observer_registrations()): the definitions
+plans/cmux-next/arch-ratchet.json and the pre-push ratchet hold, so the reports never disagree. An observer is a
+registration, counted through wrappers such as `MainActorObservation(` (each use of a wrapper that a caller
+configures counts, the wrapper's own body does not), and a call may span lines.
 
   scripts/cmux-next/codebase-health.py           # print the report
   scripts/cmux-next/codebase-health.py --write   # rewrite plans/cmux-next/codebase-health.md
@@ -40,7 +42,6 @@ UPSTREAM = "origin/feat-cmux-next"
 # What the report reads besides the app sources: every Swift file (section 6), the plans, the scripts, the workflows.
 MEASURED = ("*.swift", "plans/cmux-next/", "scripts/cmux-next/", ".github/workflows/", f":(exclude){OUT}")
 BENCHES = "scripts/cmux-next/perf-hot-benches.json"
-PERF_HOT_ID = re.compile(r"//\s*perf-hot:\s*\S+\s+([\w-]+)")
 
 def load_arch_counts():
     """scripts/cmux-next/arch_counts.py: the one definition of the architecture rows and the layer rule."""
@@ -65,8 +66,8 @@ ARCH_CATEGORIES = (
      "a static or file-scope var, lock or cache: state no owner injects"),
     ("assume_isolated", "`MainActor.assumeIsolated`", "assume_isolated_total", "assume_isolated_outside_adapters",
      "traps off main; allowed only in a small seam adapter with `// main-proof: <why>`"),
-    ("observers", "NotificationCenter observers (call sites, `MainActorObservation(` wrapper and KVO included; "
-     "arch_counts `observer_sites`)", "observer_sites", None, "each one wakes on every post of its name"),
+    ("observers", "NotificationCenter observers (registrations through wrappers such as `MainActorObservation(`, "
+     "KVO included; arch_counts `observer_sites`)", "observer_sites", None, "each one wakes on every post of its name"),
     ("notification_names", "custom `Notification.Name` declarations (arch_counts `app_broadcast_names`)",
      "app_broadcast_names", None, "a broadcast signal: every observer reacts, O(all)"),
 )
@@ -143,11 +144,23 @@ def waived(lines: list[str], index: int, marker: re.Pattern) -> bool:
 
 
 def module_of(path: str) -> str:
-    return path[len(SOURCES):].split("/", 1)[0]
+    """The Swift module of a counted file: arch_counts' package_of (the directory after its package's Sources/)."""
+    return ARCH.package_of(path)
+
+
+def closure(repo: Path):
+    """arch_counts.read_paths at HEAD (the counted packages: CmuxNext and its local package closure), or None when
+    HEAD is no commit (then CmuxNext alone). The closure is HEAD's; the files are the working tree's."""
+    try:
+        return ARCH.read_paths(repo, "HEAD")
+    except RuntimeError:
+        return None
 
 
 def scan(repo: Path) -> dict:
-    files = [p for p in tracked(repo, SOURCES) if p.endswith(".swift")]
+    scope = closure(repo)
+    dirs = [s + "/" for s in scope.sources] if scope is not None else [SOURCES]
+    files = [p for p in tracked(repo, *dirs) if p.endswith(".swift")]
     ids = [c[0] for c in ARCH_CATEGORIES] + [c[0] for c in CATEGORIES]
     hits: dict[str, collections.Counter] = {cid: collections.Counter() for cid in ids}
     unwaived: dict[str, collections.Counter] = {cid: collections.Counter() for cid in ids}
@@ -155,7 +168,6 @@ def scan(repo: Path) -> dict:
     texts: dict[str, list[str]] = {}
     raw: dict[str, str] = {}
     compiled = [(c[0], re.compile(c[2]), re.compile(c[3]) if c[3] else None) for c in CATEGORIES]
-    sites: dict[str, list[ObserverSite]] = {}
     blanked: dict[str, str] = {}
     for path in files:
         try:
@@ -166,7 +178,6 @@ def scan(repo: Path) -> dict:
         lines = text.split("\n")
         texts[path] = lines
         blanked[path] = ARCH.strip(text)
-        sites[path] = observer_sites(blanked[path])  # section 2; section 1's row is arch_counts' observer_sites
         lines_per_module[module_of(path)] += text.count("\n") + (0 if text.endswith("\n") or not text else 1)
         for index, line in enumerate(lines):
             code = strip_comment(line)
@@ -183,54 +194,61 @@ def scan(repo: Path) -> dict:
             return (repo / rel).read_text(encoding="utf-8")
         except OSError:
             return None
-    arch, edges = ARCH.count_texts(raw, read(ARCH.MANIFEST), read(ARCH.LAYERS_JSON))
+    observers = ARCH.observer_registrations(raw, scope)  # one resolution for section 1's row and section 2's names
+    sites = observer_sites(observers, blanked)
+    manifests = {p: read(p) for p in scope.manifests} if scope is not None else read(ARCH.MANIFEST)
+    arch, edges = ARCH.count_texts(raw, manifests, read(ARCH.LAYERS_JSON), observers, scope)
     for cid, _, row, waiver_row, _ in ARCH_CATEGORIES:
         for site in arch.sites[row]:
             hits[cid][site.path] += 1
         for site in (arch.sites[waiver_row] if waiver_row else []):
             unwaived[cid][site.path] += 1
+    app_modules = {module_of(p) for p in files if p.startswith(SOURCES)}
     return {"files": files, "hits": hits, "unwaived": unwaived, "lines": lines_per_module, "texts": texts,
-            "edges": edges, "sites": sites, "blanked": blanked}
+            "edges": edges, "sites": sites, "blanked": blanked, "scope": scope, "app_modules": app_modules}
 
 
 VIEW_CLASS = re.compile(r"\bclass\s+\w+\s*:\s*[^{]*\bNS\w*(View|Window|Panel)\b")
 OBSERVED_NAME = re.compile(r"\b(?:forName|named|name|for):\s*([\w.]+)")
-# CmuxNextCompat's main-actor NotificationCenter observer: the name is its first, unlabeled argument.
-WRAPPED = re.compile(r"\s*([\w.]+)")
+# A wrapper call such as `MainActorObservation(name, ...)`: the name is its first, unlabeled argument.
+WRAPPED = re.compile(r"\s*([\w.]+)\s*(?:,|$)")
 
 
 
 class ObserverSite(NamedTuple):
-    """One observer call: its first and last 0-based line, the notification name it observes ("?" when the
-    arguments do not name one), whether that name is a variable (a bare identifier such as a loop's `name`, not
-    `.paneMoved` or `Type.member`) and whether it observes every sender (no `object:` argument, or `object: nil`)."""
+    """One counted registration statement (a raw call, or a use of a wrapper): its first and last 0-based line, the
+    notification name it observes ("?" when the arguments do not name one), whether that name is a variable (a
+    bare identifier such as a loop's `name`, not `.paneMoved` or `Type.member`), whether it observes every sender
+    (no `object:` argument, or `object: nil`) and how many registrations it makes (arch_counts' count for it: a
+    wrapper's per-call count, times the elements of a literal loop it uses)."""
     first: int
     last: int
     name: str
     variable: bool
     every_sender: bool
+    count: int = 1
 
 
-def observer_sites(code: str) -> list[ObserverSite]:
-    """The observer sites arch_counts counts in CODE (`ARCH.strip`'s text: comments and string contents
-    blanked, same length, so a call's parentheses balance and offsets keep their lines)."""
-    found = []
-    for match in ARCH.observer_calls(code):
-        open_paren = code.index("(", match.start())
-        depth, close = 0, len(code)
-        for i in range(open_paren, len(code)):
-            depth += {"(": 1, ")": -1}.get(code[i], 0)
-            if depth == 0:
-                close = i
-                break
-        arguments = code[open_paren + 1:close]
-        named = (WRAPPED.match(arguments) if match.group(0).startswith("MainActorObservation")
-                 else OBSERVED_NAME.search(arguments))
-        # NotificationCenter's `object:` defaults to nil (every sender) in every form that may omit it.
-        every = "object:" not in arguments or re.search(r"\bobject:\s*nil\b", arguments) is not None
-        raw = named.group(1) if named else "?"
-        found.append(ObserverSite(code.count("\n", 0, match.start()), code.count("\n", 0, close),
-                                  raw.split(".")[-1], raw != "?" and "." not in raw, every))
+def observer_sites(observers, blanked: dict[str, str]) -> dict[str, list[ObserverSite]]:
+    """The registrations arch_counts counts (OBSERVERS: `ARCH.observer_registrations`), per file. BLANKED is each
+    file's `ARCH.strip` text (comments and string contents blanked, same length, so offsets keep their lines)."""
+    found: dict[str, list[ObserverSite]] = {}
+    for path, hits in observers.hits.items():
+        code = blanked[path]
+        for reg, count in hits:
+            end = reg.end if reg.end > reg.pos else reg.pos
+            open_paren = code.find("(", reg.pos, end)
+            arguments = code[open_paren + 1:ARCH._closing(code, open_paren)] if open_paren >= 0 else ""
+            if reg.kind == "raw":
+                named = OBSERVED_NAME.search(arguments)
+            else:  # a wrapper: its first, unlabeled argument when it has one
+                named = WRAPPED.match(arguments) if reg.kind == "call" and reg.args and not reg.args[0][0] else None
+            # NotificationCenter's `object:` defaults to nil (every sender) in every form that may omit it.
+            every = "object:" not in arguments or re.search(r"\bobject:\s*nil\b", arguments) is not None
+            raw = named.group(1) if named else "?"
+            found.setdefault(path, []).append(ObserverSite(
+                code.count("\n", 0, reg.pos), code.count("\n", 0, end), raw.split(".")[-1],
+                raw != "?" and "." not in raw, every, count))
     return found
 
 
@@ -257,15 +275,18 @@ def notification_report(code_of: dict[str, str], sites_of: dict[str, list[Observ
     any_name = re.compile(r"\.(" + "|".join(re.escape(n) for n in sorted(names)) + r")\b") if names else None
     for path, sites in sites_of.items():
         for site in sites:
-            for name in attributed_names(site, lines_of[path], names, any_name):
+            attributed = attributed_names(site, lines_of[path], names, any_name)
+            # A statement that names several observed names registers once per name; one name gets them all.
+            each = 1 if len(attributed) > 1 else site.count
+            for name in attributed:
                 entry = observed.setdefault(name, [0, []])
-                entry[0] += 1
+                entry[0] += each
                 if is_view[path] and path not in entry[1]:
                     entry[1].append(path)
                 if name in stats:
                     row = stats[name]
-                    row[0] += 1
-                    row[1] += site.every_sender
+                    row[0] += each
+                    row[1] += each if site.every_sender else 0
                     if is_view[path] and path not in row[3]:
                         row[3].append(path)
     for path, code in lines_of.items():
@@ -285,8 +306,31 @@ def notification_report(code_of: dict[str, str], sites_of: dict[str, list[Observ
     return rows, top
 
 
-def targets(repo: Path) -> dict[str, dict]:
-    """Package.swift targets: {name: {kind, deps}} (in-package string dependencies only)."""
+def targets(repo: Path, scope=None) -> dict[str, dict]:
+    """Package.swift targets: {name: {kind, deps}}: CmuxNext's (with its test targets) and, with SCOPE (closure()),
+    every non-test target of the other closure packages; deps add the edges arch_counts' closure_manifest reads
+    (a `.product` of a local package is its targets)."""
+    out = cmux_next_targets(repo)
+    if scope is None:
+        return out
+    texts = {}
+    for path in scope.manifests:
+        try:
+            texts[path] = (repo / path).read_text(encoding="utf-8")
+        except OSError:
+            texts[path] = None
+    try:
+        merged = ARCH.closure_manifest(texts)
+    except ARCH.AmbiguousModule:
+        return out
+    for name, target in merged.targets.items():
+        entry = out.setdefault(name, {"kind": target.kind, "deps": []})
+        entry["deps"] = sorted(set(entry["deps"]) | target.deps)
+    return out
+
+
+def cmux_next_targets(repo: Path) -> dict[str, dict]:
+    """CmuxNext's Package.swift targets: {name: {kind, deps}} (in-package string dependencies only)."""
     text = (repo / PKG / "Package.swift").read_text(encoding="utf-8")
     out: dict[str, dict] = {}
     calls = list(TARGET_CALL.finditer(text))
@@ -379,31 +423,37 @@ def file_list(counter: collections.Counter, limit: int | None = None) -> str:
 
 
 class Marker(NamedTuple):
-    """One `// perf-hot: <budget> <path-id>` marker: the file, its 1-based line and its path id."""
+    """One `// perf-hot: <budget> <path-id>` marker: the file, its 1-based line, its path id, and the 1-based line
+    of the declaration it marks as the pre-push hook resolves it (None: it marks no declaration)."""
     path: str
     line: int
     pid: str
+    declaration: int | None
 
 
-def perf_hot_markers(repo: Path) -> list[Marker]:
-    """Every `// perf-hot:` marker with a path id in the working tree's tracked Swift.
+def marked_texts(repo: Path) -> dict[str, str]:
+    """{path: working-tree text} of every tracked Swift file in the repository with a `perf-hot:` in it.
 
-    Reads every tracked Swift file in the repository (markers live in shared packages too, e.g.
-    Packages/Shared/CmuxMessagesLab), not only the app sources the debt counts cover.
+    Reads every tracked Swift file (markers live in shared packages too, e.g. Packages/Shared/CmuxMessagesLab),
+    not only the app sources the debt counts cover.
     """
-    # git grep exits 1 when nothing matches: no marker anywhere is a result, not an error.
-    found = subprocess.run(["git", "-C", str(repo), "grep", "-I", "-z", "-n", "-F", "perf-hot:", "--", "*.swift"],
-                           capture_output=True, text=True)
+    # git grep exits 1 when nothing matches: no marker anywhere is a result, not an error. A fixed output format:
+    # color.grep would put escape codes around each name.
+    found = subprocess.run(["git", "-C", str(repo), "grep", "-I", "-z", "-l", "--no-color", "-F", "perf-hot:",
+                            "--", "*.swift"], capture_output=True, text=True)
     if found.returncode not in (0, 1):
         raise SystemExit(f"codebase-health: git grep failed: {found.stderr.strip()}")
-    markers = []
-    for record in found.stdout.splitlines():
-        path, _, rest = record.partition("\0")
-        number, _, line = rest.partition("\0")
-        match = PERF_HOT_ID.search(line)
-        if match:
-            markers.append(Marker(path, int(number), match.group(1)))
-    return markers
+    return {path: (repo / path).read_text(encoding="utf-8", errors="replace")
+            for path in found.stdout.split("\0") if path}
+
+
+def perf_hot_markers(guardrails, texts: dict[str, str]) -> list[Marker]:
+    """Every `// perf-hot:` marker with a path id in TEXTS, resolved to its declaration by the hook's own
+    resolver (guardrails.perf_hot_markers: the comment block above, the declaration line, or the `{` line of a
+    wrapped signature), never a copy of it."""
+    return [Marker(path, found.line, found.path_id, found.span[0] if found.span else None)
+            for path, text in sorted(texts.items())
+            for found in guardrails.perf_hot_markers(text.split("\n")) if found.path_id]
 
 
 def load_guardrails():
@@ -419,6 +469,8 @@ def load_guardrails():
 # guardrails.perf_hot_warnings' line for an edited marked declaration: `<path>:<line>: changes perf-hot ... (budget
 # <budget>, <path-id>...`.
 HOOK_WARNING = re.compile(r"^(?P<path>[^:]+):(?P<line>\d+): changes perf-hot .*\(budget [^,]+, (?P<pid>[\w-]+)")
+# Its line for a touched marker that marks no declaration: `<path>:<line>: this `// perf-hot:` marks no declaration`.
+HOOK_DANGLING = re.compile(r"^(?P<path>[^:]+):(?P<line>\d+): this `// perf-hot:` marks no declaration")
 
 
 def git_env(repo: Path, env: dict[str, str], *args: str, stdin: str | None = None) -> str:
@@ -480,6 +532,8 @@ def hook_warnings_for_edits(repo: Path, guardrails, texts: dict[str, str]) -> li
             raise SystemExit(f"codebase-health: guardrails could not judge the perf-hot markers: {text}")
         if kind != "perf-hot":
             continue
+        if HOOK_DANGLING.match(text):  # the marker's own line, not an edit of a hot function: it warns for nobody's
+            continue                   # function, which the resolver's declaration None already says
         match = HOOK_WARNING.match(text)
         if not match:  # never guess: a reworded warning must not read as "no marker warns"
             raise SystemExit(f"codebase-health: cannot read guardrails' perf-hot warning (reworded?): {text}")
@@ -487,31 +541,26 @@ def hook_warnings_for_edits(repo: Path, guardrails, texts: dict[str, str]) -> li
     return found
 
 
-def hook_view(repo: Path, markers: list[Marker]) -> dict[Marker, str]:
-    """Per marker, what the pre-push hook does when a push edits its function: "warns"; "outside" (the hook's
-    parser finds the declaration, but the hook never diffs the file); or "unparsed" (the hook's parser finds no
-    declaration for the marker, e.g. a trailing marker on the last line of a multi-line signature)."""
+def hook_view(repo: Path, guardrails, texts: dict[str, str], markers: list[Marker]) -> dict[Marker, str]:
+    """Per marker, what the pre-push hook does when a push edits its function: "warns"; "outside" (the hook
+    resolves the declaration, but never diffs the file); or "unparsed" (the marker marks no declaration, e.g. a
+    trailing marker on a statement line)."""
     if not markers:
         return {}
-    guardrails = load_guardrails()
-    in_file: dict[str, list[Marker]] = collections.defaultdict(list)
-    for marker in markers:
-        in_file[marker.path].append(marker)
-    texts = {path: (repo / path).read_text(encoding="utf-8", errors="replace") for path in in_file}
+    warned = set(hook_warnings_for_edits(repo, guardrails, {m.path: texts[m.path] for m in markers}))
 
-    def owner(path: str, first: int, pid: str) -> Marker | None:
-        # A declaration's marker is the nearest one of its id at or above it (on its line, or in the comment above).
-        return max((m for m in in_file[path] if m.pid == pid and m.line <= first), key=lambda m: m.line, default=None)
+    def state(marker: Marker) -> str:
+        if marker.declaration is None:
+            return "unparsed"
+        # The hook names a warned function by its file, its declaration line and its marker's path id.
+        return "warns" if (marker.path, marker.declaration, marker.pid) in warned else "outside"
 
-    parsed = {owner(path, span[0], span[4]) for path, text in texts.items()
-              for span in guardrails.function_spans(text.split("\n"))}
-    warned = {owner(path, line, pid) for path, line, pid in hook_warnings_for_edits(repo, guardrails, texts)}
-    return {m: "warns" if m in warned else "outside" if m in parsed else "unparsed" for m in markers}
+    return {m: state(m) for m in markers}
 
 
 NO_WARNING = {
     "outside": "outside the pre-push hook's diff scope: no warning",
-    "unparsed": "not on a declaration line the hook parses (a multi-line signature's last line?): no warning",
+    "unparsed": "marks no declaration (not above one, on its line, or on a wrapped signature's `{` line): no warning",
 }
 
 
@@ -540,7 +589,7 @@ def measured_at(repo: Path) -> str:
 
 def report(repo: Path) -> str:
     data = scan(repo)
-    total_lines = sum(data["lines"].values())
+    total_lines = sum(n for m, n in data["lines"].items() if m in data["app_modules"])
     pkg_lines = 0
     for path in tracked(repo, PKG + "/"):
         if path.endswith(".swift"):
@@ -548,7 +597,7 @@ def report(repo: Path) -> str:
                 pkg_lines += (repo / path).read_bytes().count(b"\n")
             except OSError:
                 pass
-    graph = targets(repo)
+    graph = targets(repo, data["scope"])
     layers = placed_layers(repo, graph)
     edges = data["edges"]
     memo: dict[str, int] = {}
@@ -568,8 +617,10 @@ def report(repo: Path) -> str:
     w("")
     w(f"Measured {datetime.date.today().isoformat()} {measured_at(repo)} by "
       "`scripts/cmux-next/codebase-health.py --write` (rerun it to refresh; do not edit numbers by hand).")
-    w("Scope: tracked Swift in `Packages/macOS/CmuxNext/Sources`, comments stripped (section 6's perf-hot markers:")
-    w("every tracked Swift file). The pre-push guardrails")
+    w("Scope: tracked Swift in `Packages/macOS/CmuxNext/Sources` and in the Sources of every local package it links,")
+    w("directly or through another one (the arch ratchet's scope, arch_counts.py method v5), comments stripped")
+    w("(section 3's App share: CmuxNext's Sources only; section 6's perf-hot markers: every tracked Swift file).")
+    w("The pre-push guardrails")
     w("(`scripts/cmux-next/guardrails.py`, run by `prepush-gate.py`) refuse NEW instances of the ratcheted rows;")
     w("the debt below never blocks a push. Owners: [OWNERS.md](OWNERS.md). Guardrail rules: section 6.")
     w("")
@@ -621,7 +672,7 @@ def report(repo: Path) -> str:
     w("")
     w("## 3. Target sizes")
     w("")
-    w(f"`{APP}`: **{data['lines'][APP]:,} lines** of {total_lines:,} in `Sources` "
+    w(f"`{APP}`: **{data['lines'][APP]:,} lines** of {total_lines:,} in CmuxNext's `Sources` "
       f"({100 * data['lines'][APP] / max(total_lines, 1):.0f} %); {pkg_lines:,} lines with Tests and the package manifest.")
     w("Every edit in the App target re-emits the whole module (check-app-size.sh), so new code goes in a feature target.")
     w("")
@@ -636,10 +687,10 @@ def report(repo: Path) -> str:
     w("## 4. Target graph vs the 5-layer rule")
     w("")
     counts = collections.Counter(layers[n] for n in graph)
-    w(f"`Package.swift`: {len(graph)} targets ({len(non_test)} non-test: "
+    w(f"`Package.swift` and its local packages' manifests: {len(graph)} targets ({len(non_test)} non-test: "
       + ", ".join(f"{counts[k]} {k}" for k in ("app", "ui", "domain", "service", "core", "unplaced") if counts[k])
       + f"; {counts['test']} test). The App depends directly on {app_deps} targets; {len(leaves)} targets have no")
-    w(f"in-package dependency; the longest dependency chain is {max_depth} targets.")
+    w(f"dependency among them; the longest dependency chain is {max_depth} targets.")
     w("")
     w("Layer per target from `plans/cmux-next/architecture-layers.json`; the rule is arch_counts.py's `layers()`,")
     w("the one plans/cmux-next/arch-ratchet.json and the pre-push ratchet hold: hard, a core/service/domain target")
@@ -685,7 +736,7 @@ def report(repo: Path) -> str:
     w("lines the push adds under `Packages/macOS/CmuxNext/Sources` and takes well under a second. Per file and rule it")
     w("is a count ratchet: an edit of a line that already has the debt adds none, and a line moved from another file")
     w("does not count. Removed lines pay only when they were debt in the base (same context and escape rules), and an")
-    w("unchanged line counts when the push changes its context (a new loop around a sleep, `struct` -> `class`). Lines a")
+    w("unchanged line counts when the push changes its context (`struct` -> `class` around a static, a view renamed to a row) or deletes its escape comment. Lines a")
     w("push only brings in from origin/feat-cmux-next (a merge or a rebase onto it) never count. Refusals print the rule,")
     w("why, the right pattern and the escape. One rule is not per line: `app-size` is a net count over the push in")
     w("CmuxNextApp source lines (CI's lexer, as `check-app-size.sh --base` counts them), where removed App lines pay")
@@ -693,8 +744,10 @@ def report(repo: Path) -> str:
     w("(`ROOT_BUDGET` in guardrails.py, `--list` prints it; lines moved into the root count) and a new App file that is")
     w("neither a move nor the push's one `AppServices+<Domain>Host.swift` of one-line forwards; growth of the App total")
     w("and of the App outside the composition root warns (bytes added, the package the code goes to) until the large")
-    w("domains are out of CmuxNextApp. It is the only App-size limit in force on a")
-    w("push. Skip one rule for one push with")
+    w("domains are out of CmuxNextApp. `app-type`, a second net rule, refuses a new type in an existing App file")
+    w("or in a new App file that passes as a move, when the type is not a move (any depth: top-level, in an")
+    w("`extension`, or a nested type over `PRIVATE_TYPE_MAX` source lines with its `extension` blocks in the file).")
+    w("They are the only App-size limits in force on a push. Skip one rule for one push with")
     w("`CMUX_GUARDRAILS_SKIP_REASON=\"<rule>[,<rule>]: <why>\"` (the other rules still refuse) and say so in your report.")
     w("`guardrails.py --list` prints every rule. The guardrails also run the arch ratchet (`arch-ratchet.py`): the")
     w("arch_counts rows of section 1 and the layer edges of section 4 may not rise over a push, and their totals in")
@@ -708,8 +761,10 @@ def report(repo: Path) -> str:
         known = json.loads((repo / BENCHES).read_text(encoding="utf-8")).get("paths", {})
     except (OSError, ValueError):
         known = {}
-    markers = perf_hot_markers(repo)
-    states = hook_view(repo, markers)
+    guardrails = load_guardrails()
+    texts = marked_texts(repo)
+    markers = perf_hot_markers(guardrails, texts)
+    states = hook_view(repo, guardrails, texts, markers)
     per_id: dict[str, list[Marker]] = collections.defaultdict(list)
     for marker in markers:
         per_id[marker.pid].append(marker)
@@ -718,10 +773,11 @@ def report(repo: Path) -> str:
     silent = [m for m in markers if states[m] != "warns"]
     w("Perf-hot markers per path id, from every tracked Swift file. An id with no marker never warns: its owner")
     w("marks the hot function (a trailing `// perf-hot: <budget> <path-id>` on the line that has `func`, `init` or")
-    w("`var` adds no line; or a comment line right above the declaration). Whether a marker warns is what")
-    w("`guardrails.check` itself reports for a push that edits every line of the marked files (its own diff scope and")
-    w("declaration parser, not a copy), so a marker outside the hook's diff scope, or on a line the hook does not")
-    w("read as a declaration, is flagged: an edit of that function warns nobody.")
+    w("`var`, or on the line with the body's `{` of a wrapped signature, adds no line; or a comment line right above")
+    w("the declaration). Which declaration a marker marks is what the hook's own resolver says, and whether it")
+    w("warns is what `guardrails.check` itself reports for a push that edits every line of the marked files (its own")
+    w("diff scope, not a copy), so a marker outside the hook's diff scope, or one that marks no declaration, is")
+    w("flagged: an edit of that function warns nobody.")
     w("")
     w(f"Marked: {len(marked)} of {len(known)} path ids ({len(markers)} markers); {len(warning)} of {len(known)} "
       f"warn at push; {len(silent)} of {len(markers)} markers never warn.")

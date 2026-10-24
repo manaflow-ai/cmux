@@ -277,6 +277,47 @@ pub fn open_in(
     Ok(Opened { file, identity, mime })
 }
 
+/// Opens the regular file `parts` names below `root`, the way [`open_in`] opens media: the root
+/// resolved once and opened from `/` without following a link, each component below it opened
+/// with `O_NOFOLLOW` on the root's mount, the file's folder's `..` chain back to the root, and
+/// the file a regular file with one link. For a reader of files the daemon's own agents write
+/// under a root it chose (`subagent_transcript.rs`), so no type sniff and no private-place check.
+/// Blocking: run it off the runtime.
+pub(crate) fn open_regular_below(root: &Path, parts: &[OsString]) -> Result<File, RpcError> {
+    let root = resolve(root).ok_or_else(unreadable)?;
+    let mut dir = sys::open_root(&root.path).ok_or_else(unreadable)?;
+    if sys::dev_ino(&dir.metadata().map_err(|_| unreadable())?) != root.id {
+        return Err(unreadable());
+    }
+    let device = sys::mount(&dir).ok_or_else(unreadable)?;
+    let (name, folders) = parts.split_last().ok_or_else(unreadable)?;
+    for folder in folders {
+        dir = sys::open_below(&dir, folder, true).ok_or_else(unreadable)?;
+        if sys::mount(&dir).ok_or_else(unreadable)? != device {
+            return Err(mount());
+        }
+    }
+    let file = sys::open_below(&dir, name, false).ok_or_else(unreadable)?;
+    let mut up = dir;
+    for _ in folders {
+        up = sys::open_below(&up, std::ffi::OsStr::new(".."), true).ok_or_else(unreadable)?;
+    }
+    if sys::dev_ino(&up.metadata().map_err(|_| unreadable())?) != root.id {
+        return Err(outside());
+    }
+    if sys::mount(&file).ok_or_else(unreadable)? != device {
+        return Err(mount());
+    }
+    let meta = file.metadata().map_err(|_| unreadable())?;
+    if !meta.is_file() {
+        return Err(refused("media.notFile", "the path is not a regular file"));
+    }
+    if sys::links(&meta) != 1 {
+        return Err(refused("media.linked", "the file has another name (a hard link)"));
+    }
+    Ok(file)
+}
+
 /// Fills `buf` from `offset` until it is full or the file ends; answers how many bytes it read.
 fn read_at(file: &File, buf: &mut [u8], offset: u64) -> Result<usize, RpcError> {
     let mut got = 0;

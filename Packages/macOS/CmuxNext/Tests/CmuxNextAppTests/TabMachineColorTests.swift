@@ -1,6 +1,7 @@
 import CmuxNextDaemonService
 import CmuxNextRemote
 import CmuxNextRemoteLocalhostService
+import CmuxNextWakeups
 import Foundation
 import Testing
 @testable import CmuxNextApp
@@ -16,7 +17,7 @@ struct TabMachineColorTests {
         let host = try SSHHost(destination: SSHDestination(parsing: "leo@huge-blue.tail1.ts.net")).named("lab")
         let session = SSHMachineSession(host: host, binary: URL(fileURLWithPath: "/usr/bin/false"),
                                         paths: SSHPaths(root: URL(fileURLWithPath: "/private/tmp/cn-tab-machine-color-unused")),
-                                        environment: { [:] })
+                                        environment: { [:] }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         machines.add(session)
         return session
     }

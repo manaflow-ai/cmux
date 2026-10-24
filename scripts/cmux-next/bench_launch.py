@@ -62,7 +62,7 @@ caller's. A script or step that starts an app on its own can run under the same 
     python3 scripts/cmux-next/bench_launch.py finder-exec -- python3 scripts/cmux-next/my-bench.py ...
     python3 scripts/cmux-next/bench_launch.py limits     # launchd's soft limits and this shell's, one JSON line
 """
-import argparse, atexit, contextlib, glob, json, os, platform, pwd, re, resource, select, signal, socket, subprocess, sys, tempfile, time
+import argparse, atexit, contextlib, glob, json, os, platform, pwd, re, resource, select, shutil, signal, socket, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -679,8 +679,10 @@ class BenchApp:
     """
 
     def __init__(self, app, out=None, env=None, config=None, window=(40, 40, 1440, 900), screen="0",
-                 log_name=None, teardown=True, low_power_mode_ok=False, session=None, socket_only=False):
+                 log_name=None, teardown=True, low_power_mode_ok=False, session=None, socket_only=False,
+                 fresh_state=True):
         self.low_power_mode_ok = low_power_mode_ok
+        self.fresh_state = fresh_state
         self.app = os.path.realpath(app).rstrip("/")
         self.tag = tag_of(self.app)
         self.out = os.path.abspath(out or tempfile.mkdtemp(prefix=f"bench-launch-{self.tag}-"))
@@ -757,6 +759,26 @@ class BenchApp:
     def rpc(self, method, params=None, timeout=60):
         return rpc_at(self.socket, method, params, timeout)
 
+    def state_root(self):
+        """The tag's saved state: `~/Library/Application Support/cmux/tags/<tag>` (BuildIdentity
+        daemonStateDirectory's parent; its `tui` holds the daemon's saved sessions and their workspaces)."""
+        base = os.environ.get("BENCH_LAUNCH_STATE_BASE") or os.path.join(account_home(), "Library/Application Support/cmux")
+        return os.path.join(base, "tags", self.tag)
+
+    def start_fresh(self):
+        """Every bench launch starts from an empty saved session for its tag (2026-10-24: STRESS refused "the app
+        already has 60 workspaces", restored from an earlier run on that host). The tag's state moves aside to
+        `<root>.bench-prev` (one kept, the older one removed). BENCH_LAUNCH_KEEP_STATE=1, or
+        BenchApp(fresh_state=False), keeps it."""
+        root = self.state_root()
+        if not os.path.lexists(root):
+            return
+        prev = root + ".bench-prev"
+        if os.path.lexists(prev):
+            shutil.rmtree(prev, ignore_errors=True)
+        os.rename(root, prev)
+        note(f"bench-launch: {self.tag} starts from an empty saved session (earlier state moved to {prev})")
+
     def launch(self, timeout=180, ready="debug.windows", on_start=None):
         """Starts the app and returns once `ready` answers (debug.windows: with a window).
 
@@ -779,6 +801,8 @@ class BenchApp:
                                                     "Mode itself"})
         note(f"bench-launch: {mute_output()}")
         running = self.running_pids()
+        if not running and self.fresh_state and not os.environ.get("BENCH_LAUNCH_KEEP_STATE"):
+            self.start_fresh()  # only with no app of the tag running: its state is not in use
         if running:
             self._fail("tag-in-use", {"tag": self.tag, **host_facts(), "pids": running, "log_tail": "",
                                       "detail": f"an app of {self.app} already runs (pid {', '.join(map(str, running))}); "

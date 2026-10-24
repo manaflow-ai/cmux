@@ -112,6 +112,10 @@ pub(super) struct SendParams {
     /// `send-expect-agent-v1`: Return as its own key right after the text, under the same checks.
     #[serde(default)]
     pub(super) submit: bool,
+    /// The app's id of the key press this input carries (`CMUX_TRACE_FLOWS`, trace.py key-press
+    /// flows); only recorded, never acted on. An older daemon ignores it.
+    #[serde(default)]
+    pub(super) flow: Option<u64>,
 }
 
 pub(super) fn send(
@@ -129,6 +133,7 @@ pub(super) fn send(
         expect_foreground,
         expect_agent,
         submit,
+        flow,
     } = params;
     let surface = match (surface, terminal_id) {
         (Some(surface), None) => surface,
@@ -199,7 +204,17 @@ pub(super) fn send(
         }
         if let Some(b64) = bytes {
             let raw = base64::engine::general_purpose::STANDARD.decode(b64)?;
+            cmux_flow_trace::hop(
+                "daemon.send.write",
+                flow.unwrap_or(0),
+                surface.flow_terminal_id(),
+            );
             surface.write_bytes(&raw)?;
+            cmux_flow_trace::hop(
+                "daemon.send.written",
+                flow.unwrap_or(0),
+                surface.flow_terminal_id(),
+            );
         }
     }
     if submit {

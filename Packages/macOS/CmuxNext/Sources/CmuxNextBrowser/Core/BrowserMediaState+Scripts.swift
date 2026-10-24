@@ -223,7 +223,10 @@ extension BrowserTab {
     /// Runs a media hub command in the page (`BrowserMediaCommand.script`).
     public func media(_ command: BrowserMediaCommand) async {
         let script = command.script
-        _ = try? await evaluate(script.source, world: script.world)
+        // The person's command (Play, Next, Picture in Picture) acts as the user; keeping the tab's
+        // mute in a new document is cmux's own.
+        let gesture: BrowserScriptGesture = if case .muteTab = command { .cmux } else { .agent }
+        _ = try? await evaluate(script.source, world: script.world, gesture: gesture)
     }
 
     /// Floats the page's video in Picture in Picture, or brings a floating
@@ -231,7 +234,7 @@ extension BrowserTab {
     /// page did not answer (closed, still loading).
     public func togglePictureInPicture() async -> BrowserPictureInPicture? {
         let script = BrowserMediaCommand.pictureInPicture.script
-        guard case .string(let answer)? = try? await evaluate(script.source, world: script.world) else { return nil }
+        guard case .string(let answer)? = try? await evaluate(script.source, world: script.world, gesture: .agent) else { return nil }
         return BrowserPictureInPicture(rawValue: answer)
     }
 

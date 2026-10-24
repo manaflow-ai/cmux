@@ -64,6 +64,7 @@ final class CEFFirstPaintBridge {
         if Self.isFirstContentfulPaint(json, mainFrame: mainFrame) {
             #if DEBUG || CMUX_BENCH_HOOKS
             ChatOpenTrace.shared.mark(.firstContentfulPaint, chromiumPane: tab?.host.key.pane.rawValue)
+            if let tab { tab.runtime.benchMarks.firstPaint(tab.id.rawValue) }
             #endif
             tab?.documentDidSettle()
         }

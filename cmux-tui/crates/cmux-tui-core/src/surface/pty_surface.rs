@@ -107,7 +107,13 @@ impl PtySurface {
         TerminalColors::from_terminal(term, defaults)
     }
 
+    /// The hex terminal id flow marks name this terminal by (empty without a host identity).
+    pub(crate) fn flow_terminal_id(&self) -> &str {
+        self.host_identity.as_ref().map_or("", |id| id.terminal_id.as_str())
+    }
+
     pub(super) fn broadcast_attach_output(&self, bytes: &[u8]) -> bool {
+        cmux_flow_trace::hop("daemon.output.attach", 0, self.flow_terminal_id());
         self.snapshot_position.add_output(bytes.len());
         let mut taps = self.taps.lock().unwrap();
         if taps.is_empty() {

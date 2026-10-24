@@ -181,6 +181,20 @@ impl Api {
         ))
     }
 
+    /// One `PUT /v1/chiefs/<id>/memory` (the append mode of memory_sync.rs).
+    pub fn put_memory(
+        &self,
+        chief: &str,
+        conversation: &str,
+        body: &Value,
+    ) -> Result<(u16, Value), String> {
+        self.call(
+            "PUT",
+            &format!("/v1/chiefs/{chief}/memory?conversation={conversation}"),
+            Some(body),
+        )
+    }
+
     fn memory(&self, chief: &str, conversation: &str) -> Result<Value, String> {
         let (status, value) = self.call(
             "GET",
