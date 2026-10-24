@@ -1241,7 +1241,7 @@ export function isPlan(modeId: string): boolean {
 const TABBABLE =
   'a[href],button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[tabindex]:not([tabindex="-1"])';
 
-/// How much of the context window the session has used, as a ring that fills. Resting the pointer
+/// How much of the context window the session has used, as a neutral ring that fills. Resting the pointer
 /// on it, or focusing it, shows the context card with no click (ContextCard.tsx; Leo 2026-10-21,
 /// after Claude's and Codex's): the share and tokens used, the window as a stacked bar, and
 /// Details ›, which opens the Inspector's Context section. A click pins the card until a press
@@ -1326,9 +1326,6 @@ export function ContextRing({
     document.addEventListener("pointerdown", onPress, true);
     return () => document.removeEventListener("pointerdown", onPress, true);
   }, [pinned]);
-  // Keep the usage threshold scoped to the details card. The ring is a neutral affordance and
-  // must not inherit a state color from an ancestor, including from older host styles.
-  const cardFull = fraction >= 0.8 ? " acpmux-context-full" : "";
   /// The card's buttons the keyboard reaches (Compact, Details ›).
   const cardButtons = () => [...(card.current?.querySelectorAll<HTMLElement>("button:not(:disabled)") ?? [])];
   /// Leaves the card forward: to whatever the page tabs to after the ring, and the card closes.
@@ -1423,7 +1420,7 @@ export function ContextRing({
       <AnchoredCard
         anchor={shown ? trigger.current : null}
         // AnchoredCard makes it the shared glass hover card (ui-tooltip ui-card ui-glass).
-        className={`acpmux-context-card acpmux-context-pop${breakdown ? " acpmux-context-pop--breakdown" : " acpmux-context-pop--compact"}${cardFull}`}
+        className={`acpmux-context-card acpmux-context-pop${breakdown ? " acpmux-context-pop--breakdown" : " acpmux-context-pop--compact"}`}
         side="top"
         interactive
         ariaLabel={t("context.title")}
