@@ -58,10 +58,12 @@ final class WorkspaceContentView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    // cx-t7hu: not an isolated deinit (its runtime hop traps when released inside an action's task-local
-    // scope), and no main-thread guard: a release on any thread cancels the observations (a Task is Sendable).
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
     nonisolated deinit {
-        tokenObservation?.cancel()
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            tokenObservation?.cancel()
+        }
     }
 
     nonisolated override var isFlipped: Bool { true }
