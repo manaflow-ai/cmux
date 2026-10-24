@@ -1613,6 +1613,18 @@ class Sweep:
                                                        "main_max_ms": round(frames.get("main_max_ms") or 0, 2)},
                 "hangs": hang_summary(hangs), **extra}
 
+    def second_tab(self):
+        """The base pane holds at least two tabs: a light base pane holds one, so a tab click selected the tab already
+        selected and a tab drag emptied (and closed) its pane, and both rows read `wrong` (sweep 2026-10-24). Adds a
+        terminal tab when needed (an extra the restore closes) and returns the id of a tab that is not selected."""
+        workspace, pane = self.base["workspace"], self.base["pane"]
+        tabs = tabs_at(topology(), workspace, pane)
+        if len(tabs) < 2:
+            act("newSurface", target=f"pane:{pane}", focus=True)
+            wait(lambda: len(tabs_at(topology(), workspace, pane)) >= 2, 3.0)
+            tabs = tabs_at(topology(), workspace, pane)
+        return next((t.get("id") for t in tabs if not t.get("selected")), None)
+
     def pane_chrome(self, synced=False):
         reply = rpc("debug.pane_chrome", {"after": "sync"} if synced else None) or {}
         window = (reply.get("windows") or [{}])[0] if isinstance(reply, dict) else {}
@@ -1708,13 +1720,18 @@ class Sweep:
         self.interaction("click.pane", click_pane)
 
         def click_tab():
-            window = self.pane_chrome()
+            other = self.second_tab()
+            window = self.pane_chrome(synced=True)
             pane = next((p for p in window.get("panes") or [] if p.get("pane") == self.base["pane"]), None)
             if not pane or not pane.get("strip") or not pane.get("tab_slots"):
                 return {"skipped": "no tab strip geometry (debug.pane_chrome)"}
             sx, sy, sw, sh = pane["strip"]
             slots = pane["tab_slots"]
-            target = slots[1] if len(slots) > 1 else slots[0]
+            if len(slots) < 2 or not other:
+                return {"skipped": "the base pane has no second tab to click"}
+            # The tab that is not selected, by its place in the strip.
+            order = [t.get("id") for t in tabs_at(topology(), self.base["workspace"], self.base["pane"])]
+            target = slots[order.index(other)] if other in order and order.index(other) < len(slots) else slots[0]
             x = sx + target[0] + target[1] / 2
             y = sy + sh / 2
             rpc("debug.tab_switch", {"action": "start"})
@@ -1826,23 +1843,29 @@ class Sweep:
         self.interaction("activate.cmd_tab", cmd_tab)
 
         def tab_drag():
-            window = self.pane_chrome()
+            dragged = self.second_tab()
+            window = self.pane_chrome(synced=True)
             panes = window.get("panes") or []
             src = next((p for p in panes if p.get("pane") == self.base["pane"]), None)
             dst = next((p for p in panes if p.get("pane") != self.base["pane"] and p.get("cell")), None)
-            if not src or not dst or not src.get("tab_slots"):
-                return {"skipped": "no two panes with geometry"}
+            if not src or not dst or not src.get("tab_slots") or not dragged:
+                return {"skipped": "no two panes with geometry, or no second tab"}
             sx, sy, sw, sh = src["strip"]
-            slot = src["tab_slots"][0]
+            order = [t.get("id") for t in tabs_at(topology(), self.base["workspace"], self.base["pane"])]
+            index = order.index(dragged) if dragged in order else 0
+            slot = src["tab_slots"][min(index, len(src["tab_slots"]) - 1)]
             cx, cy, cw, ch = dst["cell"]
             before = counts(shape(topology()))
             def body():
                 rpc("debug.mouse", {"action": "drag", "x": sx + slot[0] + slot[1] / 2, "y": sy + sh / 2,
                                     "to_x": cx + cw / 2, "to_y": cy + ch / 2, "steps": 30})
             out = self.frames_during(body, settle=0.8)
-            moved = [p for p in panes_of(next((w for w in topology().get("workspaces") or [] if w.get("id") == self.base["workspace"]), {}))
-                     if p.get("id") == self.base["pane"]]
-            out["check"] = "ok" if moved and len(moved[0].get("tabs") or []) < len(self.base["shape"]["workspaces"][self.base["workspace"]][self.base["pane"]]) else "wrong"
+            # The dragged tab is in the pane it was dropped on.
+            landed = wait(lambda: dragged in [t.get("id") for t in tabs_at(topology(), self.base["workspace"], dst["pane"])], 2.0)
+            out["check"] = "ok" if landed else "wrong"
+            if not landed:
+                out["wrong"] = {"dragged": dragged, "to": dst["pane"],
+                                "source_tabs": [t.get("id") for t in tabs_at(topology(), self.base["workspace"], self.base["pane"])]}
             out["counts_before"] = before
             return out
         self.interaction("drag.tab_to_pane", tab_drag)
