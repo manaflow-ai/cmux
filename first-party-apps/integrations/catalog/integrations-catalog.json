@@ -2,6 +2,42 @@
   "family": "integrations",
   "operations": [
     {
+      "name": "integrations.linear.teams",
+      "owner": "app:cmux/integrations",
+      "class": "read",
+      "risk": "read",
+      "idempotency": "forbidden",
+      "focuses": true,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "connection": {
+            "type": "string",
+            "description": "Active Linear connection (conn_…)."
+          }
+        },
+        "required": [
+          "connection"
+        ]
+      },
+      "cli": {
+        "path": "linear-teams",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "palette": {
+        "title": "List Linear Teams"
+      },
+      "docs": "List the teams available on an active Linear connection.",
+      "since": "integrations/1",
+      "export": "linearTeams"
+    },
+    {
       "name": "integrations.open",
       "owner": "app:cmux/integrations",
       "class": "mutation",

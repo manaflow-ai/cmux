@@ -19,6 +19,7 @@
     connect: () => connect3,
     cycleVariant: () => cycleVariant3,
     importApi: () => importApi2,
+    linearTeams: () => linearTeams2,
     openIntegrations: () => openIntegrations2,
     renderPane: () => renderPane,
     renderSection: () => renderSection
@@ -51,6 +52,11 @@
     "catalog.title": "ツール",
     "command.connect.invalid": "provider には次のいずれかを指定してください: {list}",
     "command.import.invalid": "source には仕様の URL または JSON を指定してください",
+    "command.linearTeams.invalidConnection": "connection には空でない ID を指定してください",
+    "command.linearTeams.notFound": "connection {connection} が見つかりません",
+    "command.linearTeams.notLinear": "connection {connection} は Linear の接続ではありません",
+    "command.linearTeams.notActive": "connection {connection} はアクティブではありません",
+    "command.linearTeams.invalidResponse": "Linear から無効なチーム応答が返されました",
     "connect.browser": "ブラウザで {provider} を承認してください。",
     "connect.notOpened": "この cmux はまだアプリから {provider} の承認ページを開けません。",
     "detail.account": "アカウント",
@@ -1776,6 +1782,31 @@
         sayProblem(p);
     }
   }
+  var nonEmptyText = (value) => {
+    if (typeof value !== "string")
+      return null;
+    const text = value.trim();
+    return text ? text : null;
+  };
+  function normalizeTeams(value) {
+    if (!value || typeof value !== "object" || !Array.isArray(value.teams))
+      throw new TypeError("Linear teams response must contain a teams array");
+    const teams = [];
+    const seen = new Set;
+    for (const row of value.teams) {
+      if (!row || typeof row !== "object")
+        continue;
+      const record = row;
+      const id = nonEmptyText(record.id);
+      const key = nonEmptyText(record.key);
+      const name = nonEmptyText(record.name);
+      if (!id || !key || !name || seen.has(id))
+        continue;
+      seen.add(id);
+      teams.push({ id, key, name });
+    }
+    return { teams };
+  }
   var VARIANTS = ["connections", "gallery", "catalog"];
   var DEFAULT_VARIANT = "connections";
   var [variantOverride, setVariantOverride] = signal(null);
@@ -1825,6 +1856,29 @@
     open({ screen: "import" });
     await submitImport(args.source);
     return { opened: await openPane() };
+  }
+  async function linearTeams(args = {}) {
+    if (typeof args.connection !== "string" || !args.connection.trim())
+      throw invalid(t("command.linearTeams.invalidConnection", "connection must be a non-empty id"));
+    const connection = args.connection.trim();
+    await reload();
+    const record = findConnection(connection);
+    if (!record)
+      throw invalid(t("command.linearTeams.notFound", "connection {connection} was not found", { connection }));
+    if (record.provider !== "linear")
+      throw invalid(t("command.linearTeams.notLinear", "connection {connection} is not a Linear connection", { connection }));
+    if (record.status !== "active")
+      throw invalid(t("command.linearTeams.notActive", "connection {connection} is not active", { connection }));
+    let result;
+    try {
+      result = normalizeTeams(await cmux.call("linear.teams.list", { connection }));
+    } catch (error) {
+      if (error instanceof TypeError && error.message.startsWith("Linear teams response"))
+        throw invalid(t("command.linearTeams.invalidResponse", "Linear returned an invalid teams response"));
+      throw error;
+    }
+    open({ screen: "detail", id: connection });
+    return { connection, ...result, opened: await openPane() };
   }
   async function cycleVariant2() {
     return cycleVariant();
@@ -2406,6 +2460,7 @@
   var openIntegrations2 = openIntegrations;
   var connect3 = connect2;
   var importApi2 = importApi;
+  var linearTeams2 = linearTeams;
   var cycleVariant3 = cycleVariant2;
   globalThis.__cmuxAppExports = { ...exports_main };
 })();

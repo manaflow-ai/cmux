@@ -43,4 +43,5 @@ export function renderPane(ctx: Record<string, unknown> = {}) {
 export const openIntegrations = commands.openIntegrations
 export const connect = commands.connect
 export const importApi = commands.importApi
+export const linearTeams = commands.linearTeams
 export const cycleVariant = commands.cycleVariant
