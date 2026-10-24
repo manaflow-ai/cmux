@@ -19,6 +19,7 @@ Scenarios:
 
   cmdw-terminal / cmdw-chromium / cmdw-chat   N Cmd-W on N tabs of that kind in one pane
   cmdd / cmdshiftd                            N Cmd-D or Cmd-Shift-D
+  cmdd-one / cmdshiftd-one                    one Cmd-D or Cmd-Shift-D (key -> grid of each press)
   mixed                                       Cmd-D, Cmd-Shift-D, Cmd-W in turn, N presses
   held-cmdw                                   Cmd-W held: one key-down, N - 1 auto-repeats
   newtab-{terminal,chromium}-{one,burst,held,mixed}
@@ -31,38 +32,63 @@ gaps (--gap-ms). Each event carries its intended press time (the sequence's base
 a hardware key carries its HID time, so a press that waits behind a busy main thread has that wait in
 its input age. A held key repeats as this host does: the first repeat after the app's key repeat
 delay, the rest at its interval (`debug.burst` start reports both; --repeat-delay-ms / --repeat-ms
-override). The app runs with CMUX_NEXT_NO_ACTIVATE=1: no window is key, so a "Chromium-focused" pane
-is one whose selected tab is a Chromium page, not one whose page window is key.
+override). The app runs with CMUX_NEXT_NO_ACTIVATE=1 (never activated), and each sequence first makes
+the window a person's key would go to the app's key window (`key_window`): the shell window for the
+terminal and chat rows, the Chromium page window of the pane's selected page for the Chromium rows,
+as when a person clicked into the page. So a Chromium row's keys take the page-first path a key in a
+focused page takes (the page window's sendEvent and the router's page-first offer).
+
+Each press is matched to what it did by its key event's timestamp: the action signposts give each
+user run's event time (begin minus input_age_ms) and `debug.burst` marks each outcome with the event
+that ran it. A press matches the run and marks within half the smallest gap between presses of its
+time, so a mark is never given to another press.
+
+After the last key the bench waits for the app to say the burst is done (`debug.burst status`: no
+key left to post, no create still asking the daemon, no terminal grid waiting to go or waiting for its
+echo), with --deadline only as the failure bound, and stops `debug.frames` there. It then waits up to
+--redraw-wait for each echoed terminal's first output (a program that does not redraw on SIGWINCH
+prints nothing; those are counted, not failed).
 
 Per scenario it reports:
 
-  input_to_next_commit  per press: the key's age at the action plus the next CA commit (action.commit
-                        from perf-signposts.py), p50/p95/p99/max. It is a lower bound of the time to
+  input_to_next_commit  per press that changed the layout (created or closed): the key's age at the
+                        action plus the next CA commit (action.commit from perf-signposts.py),
+                        p50/p95/p99/max; presses that did nothing by design (swallowed, cancelled,
+                        refused) are in noop_input_to_next_commit. It is a lower bound of the time to
                         the frame that shows the result: work the action defers (Chromium
                         CreateBrowser, daemon replies, split creation) commits later, so the < 10 ms
                         target needs each action's own end signal; the resize columns below give the
                         later terminal stages
   commit_missed         presses whose commit boundary missed its turn (action.commit.missed): not in
                         the percentiles, so any is a failure
-  performed             action runs of the scenario's action ids that a person started (origin user)
-  swallowed             Cmd-W presses the close guard swallowed by design: quickly after one that
-                        emptied its pane (TabCloseGuard.swallowsCmdW), `debug.burst` close_swallowed
-  cancelled             Cmd-W presses that cancelled a creation still on its way (CancelledCreation):
-                        neither that Cmd-W nor the creating press changes the layout
-  refused               refusals the person saw (the refusal HUD)
-  missing               presses that never reached their action (presses - performed)
-  unexplained           the model's change (panes or tabs) the runs, swallows, cancels and refusals do
-                        not explain
-  lost                  missing + unexplained (must be 0)
+  fates                 each press's fate, from its own run and marks: created, closed, swallowed,
+                        cancelled (a Cmd-W that cancelled a creation still on its way), creation_cancelled
+                        (that creating press), refused (the refusal HUD), and the lost ones: missing
+                        (never reached its action), no_outcome (its run did nothing and said nothing),
+                        close_not_applied (a closed tab still there afterwards), swallowed_after_create
+                        (a Cmd-W swallowed by the close guard though a split or new tab came between it
+                        and the close that emptied the pane: the person was looking at that new pane)
+  extra                 runs no press explains: a second run of one press (double dispatch) or a run
+                        whose event matches no press (must be 0)
+  unexplained           the model's change (panes or tabs) the created presses and the verified closes
+                        do not explain: creates that never landed, or more than were asked
+  lost                  missing + no_outcome + close_not_applied + swallowed_after_create + unexplained
+                        (must be 0)
   frames                `debug.frames` over the burst: refresh, intervals p50/p95/p99/max, missed vsyncs
-  resize                for split and close bursts: key -> PTY grid sent and key -> first TUI output
-                        after it (`debug.burst` pty_grid, first_output), p50/p95/max, and grids sent per
-                        terminal (more than one per motion is a second resize)
+  resize                terminal grids (`debug.burst`): a grid the attach driver really sent (pty_grid),
+                        the daemon's echo of it (grid_echo), and the terminal's first output after the
+                        echo (first_output; the busy terminals of STRESS, which print every 20 ms, are
+                        left out and counted). A grid is not tied to the press that caused it, so a
+                        one-press row reports key -> grid / echo / output; a burst row reports each
+                        since the latest press before it (a lower bound, labelled) and the last press
+                        -> the burst's last one. Grids per terminal: more than one per motion is a
+                        second resize
   invalid               why the row does not measure what it names: Chromium not running or a tab that
                         is not Chromium, agent chats replaced by the New Tab page, a STRESS shape lost
 
 Prints one `BURST-BENCH {json}` line and writes report.json to --out. Exit 1 when a press was lost,
-a commit missed, or a row is invalid. Run on a fleet GUI host, never on Lawrence's Mac, and quote the
+a run was extra, a commit missed, or a row is invalid (also when the signpost stream or the trace
+dropped records). Run on a fleet GUI host, never on Lawrence's Mac, and quote the
 host, macOS and refresh rate:
 
   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/burst-bench.sh ...
@@ -77,13 +103,18 @@ sys.path.insert(0, HERE)
 
 KEY = {"w": 13, "d": 2, "l": 37, "cmd": 55, "shift": 56}
 NEWTAB = [f"newtab-{focus}-{shape}" for focus in ("terminal", "chromium") for shape in ("one", "burst", "held", "mixed")]
-SCENARIOS = ["cmdw-terminal", "cmdw-chromium", "cmdw-chat", "cmdd", "cmdshiftd", "mixed", "held-cmdw"] + NEWTAB
+SCENARIOS = ["cmdw-terminal", "cmdw-chromium", "cmdw-chat", "cmdd", "cmdshiftd", "cmdd-one", "cmdshiftd-one", "mixed",
+             "held-cmdw"] + NEWTAB
 # Press letters: lower case with Command, upper case with Command-Shift.
 ACTIONS = {"w": "closeTab", "d": "splitRight", "D": "splitDown", "L": "openBrowser"}
 CLOSE_KINDS = {"cmdw-terminal": "terminal", "cmdw-chromium": "chromium", "cmdw-chat": "chat", "held-cmdw": "terminal"}
 FRAME_FIELDS = ("frames", "refresh_ms", "p50_ms", "p95_ms", "p99_ms", "max_ms", "missed", "main_p95_ms", "main_max_ms")
-FOCUS_NOTE = ("focus is the selected tab: the app runs with CMUX_NEXT_NO_ACTIVATE=1, so no window is key "
-              "(a Chromium-focused pane has a Chromium page selected; its page window is not key)")
+FOCUS_NOTE = ("each sequence makes its key window first (debug.key key_window, the app never activated): the shell "
+              "window for terminal and chat rows, the selected Chromium page's window for Chromium rows")
+# What a press's `debug.burst` marks can say it did.
+PRESS_MARKS = ("refusal", "close_swallowed", "creation_cancelled", "closed")
+LOST_FATES = ("missing", "no_outcome", "close_not_applied", "swallowed_after_create")
+APPLIED_FATES = ("created", "closed")
 
 
 def load(name, file):
@@ -98,7 +129,8 @@ def scenario_presses(name, n):
     if name.startswith("newtab-"):
         shape = name.split("-")[-1]
         return {"one": ["L"], "burst": ["L"] * n, "held": ["L"] * n, "mixed": (["L", "w"] * n)[:n]}[shape]
-    return {"cmdd": ["d"] * n, "cmdshiftd": ["D"] * n, "mixed": (["d", "D", "w"] * n)[:n]}.get(name, ["w"] * n)
+    return {"cmdd": ["d"] * n, "cmdshiftd": ["D"] * n, "cmdd-one": ["d"], "cmdshiftd-one": ["D"],
+            "mixed": (["d", "D", "w"] * n)[:n]}.get(name, ["w"] * n)
 
 
 def is_held(name):
@@ -157,29 +189,99 @@ def percentiles(values):
 
 def unit_of(name):
     """What a scenario's presses change in the model: the scenario pane's tabs, or the workspace's panes."""
-    return "panes" if name in ("cmdd", "cmdshiftd", "mixed") else "tabs"
+    return "panes" if name in ("cmdd", "cmdshiftd", "cmdd-one", "cmdshiftd-one", "mixed") else "tabs"
 
 
-def account(presses, performed, counts, before, after, unit):
-    """Each press's fate from the app's own records, not from a model delta alone.
+def is_chromium(name):
+    """A row whose keys go to a Chromium page window."""
+    return name == "cmdw-chromium" or name.startswith("newtab-chromium-")
 
-    `performed`: user action runs by action id (signposts); `counts`: `debug.burst` marks by kind;
-    `before`/`after`: {"tabs", "panes"}. A create (split, new tab) adds one `unit`; a close removes one
-    (in `mixed` the Cmd-W closes a fresh split's only tab, so its pane goes with it). A swallowed Cmd-W
-    changes nothing; a cancelled creation takes away both its Cmd-W's close and the creating press's
-    add. A refusal changes nothing, whichever press it was, so it may account for one unit either way."""
-    closes = presses.count("w")
-    create_ids = {ACTIONS[p] for p in presses if p != "w"}
-    ran_creates = sum(performed.get(i, 0) for i in create_ids)
-    ran_closes = performed.get(ACTIONS["w"], 0) if closes else 0
-    swallowed, cancelled, refused = (counts.get(k, 0) for k in ("close_swallowed", "creation_cancelled", "refusal"))
-    expected = (ran_creates - cancelled) - (ran_closes - swallowed - cancelled)
+
+def press_bound(times):
+    """How far (s) a run or mark may be from its press's time: half the smallest gap between presses, so
+    a record is never given to the press next to it; unbounded for one press."""
+    gaps = [b - a for a, b in zip(times, times[1:])]
+    return min(gaps) / 2 if gaps else float("inf")
+
+
+def nearest(times, at, bound):
+    """The index of the press nearest `at` (seconds, the key event's timestamp) within `bound`, or None."""
+    if not isinstance(at, (int, float)) or not times:
+        return None
+    index = min(range(len(times)), key=lambda i: abs(times[i] - at))
+    return index if abs(times[index] - at) <= bound else None
+
+
+def account(presses, times, runs, marks, before, after, unit, tabs_after):
+    """Each press's fate from its own run and marks, then the model change the fates must explain.
+
+    `presses`/`times`: the press letters and their key times (s); `runs`: the user runs of the scenario's
+    action ids, each {"id", "event_s"} (event_s: the run's begin minus its input age, None without
+    one); `marks`: `debug.burst` events (kind, event_s, tabs, empties_pane); `before`/`after`:
+    {"tabs", "panes"}; `tabs_after`: every tab id of the workspace after the burst.
+
+    A Cmd-W's fate is what the app marked for its key event: closed (its tabs must be gone afterwards),
+    swallowed, cancelled (and the latest create before it is then creation_cancelled) or refused; a
+    create's is refused (its HUD) or created. Closes are checked by tab id, so the model change left to
+    explain is the creates': observed - (created - removed by closes) is unexplained either way."""
+    bound = press_bound(times)
+    runs_of = [0] * len(presses)
+    extra = 0
+    for run in runs:
+        index = nearest(times, run.get("event_s"), bound)
+        if index is None or ACTIONS[presses[index]] != run.get("id"):
+            extra += 1  # a run no press explains
+        else:
+            runs_of[index] += 1
+    double = sum(max(0, count - 1) for count in runs_of)
+    marks_of = [[] for _ in presses]
+    unattributed = {}
+    for mark in marks:
+        if mark.get("kind") not in PRESS_MARKS:
+            continue
+        index = nearest(times, mark.get("event_s"), bound)
+        if index is None:
+            unattributed[mark["kind"]] = unattributed.get(mark["kind"], 0) + 1
+        else:
+            marks_of[index].append(mark)
+    fates, closes = [], {}
+    for index, letter in enumerate(presses):
+        kinds = [m["kind"] for m in marks_of[index]]
+        if not runs_of[index]:
+            fate = "missing"
+        elif letter == "w":
+            fate = next((f for k, f in (("creation_cancelled", "cancelled"), ("close_swallowed", "swallowed"),
+                                        ("closed", "closed"), ("refusal", "refused")) if k in kinds), "no_outcome")
+            if fate == "closed":
+                closes[index] = next(m for m in marks_of[index] if m["kind"] == "closed")
+                if set(closes[index].get("tabs") or []) & set(tabs_after):
+                    fate = "close_not_applied"
+        else:
+            fate = "refused" if "refusal" in kinds else "created"
+        fates.append(fate)
+    for index, fate in enumerate(fates):
+        if fate == "cancelled":
+            # The creation it cancelled: the latest create before it that still counts as created.
+            made = [i for i in range(index) if fates[i] == "created"]
+            if made:
+                fates[made[-1]] = "creation_cancelled"
+        elif fate == "swallowed":
+            # The close guard is for a Cmd-W that would close a tab the person never looked at, after one
+            # that emptied its pane. A split or new tab since then moved them to a pane they look at.
+            emptied = [i for i in range(index) if i in closes and closes[i].get("empties_pane")]
+            if emptied and any(fates[i] == "created" for i in range(emptied[-1] + 1, index)):
+                fates[index] = "swallowed_after_create"
+    created = fates.count("created")
+    removed = sum((len(closes[i].get("tabs") or []) if unit == "tabs" else int(bool(closes[i].get("empties_pane"))))
+                  for i, fate in enumerate(fates) if fate == "closed")
+    expected = created - removed
     observed = after[unit] - before[unit]
-    missing = max(0, len(presses) - ran_creates - ran_closes)
-    unexplained = max(0, abs(observed - expected) - refused)
-    return {"performed": ran_creates + ran_closes, "swallowed": swallowed, "cancelled": cancelled, "refused": refused,
-            "missing": missing, "unit": unit, "observed_delta": observed, "expected_delta": expected,
-            "unexplained": unexplained, "lost": missing + unexplained}
+    unexplained = abs(observed - expected)
+    counts = {fate: fates.count(fate) for fate in dict.fromkeys(fates)}
+    lost = sum(counts.get(f, 0) for f in LOST_FATES) + unexplained
+    return {"fates": counts, "press_fates": fates, "performed": sum(runs_of), "extra": extra + double,
+            "double_dispatch": double, "unattributed_marks": unattributed, "unit": unit,
+            "observed_delta": observed, "expected_delta": expected, "unexplained": unexplained, "lost": lost}
 
 
 def browser_problems(builder, stress, want_chromium):
@@ -227,6 +329,8 @@ def scenario(opts):
             record["invalid"].append(f"before the burst: {'; '.join(problems)[:300]}")
     presses = scenario_presses(name, n)
     before = {"tabs": len(builder.tabs(workspace, pane)), "panes": len(builder.panes(builder.workspace(workspace)))}
+    # The window a person's keys go to: the selected Chromium page's own window for the Chromium rows.
+    key_window = "page" if is_chromium(name) else "shell"
     rpc("debug.frames", {"action": "start"})
     armed = rpc("debug.burst", {"action": "start"}) or {}
     if armed.get("error"):
@@ -239,14 +343,32 @@ def scenario(opts):
             record["errors"].append(f"no key repeat to play a held key with: {armed}")
             return dump(opts, record)
     steps, offsets = sequence(presses, opts.gap_ms, repeat)
-    sent = rpc("debug.key", {"sequence": steps}) or {}
+    sent = rpc("debug.key", {"sequence": steps, "key_window": key_window, "pane": pane}) or {}
     if sent.get("error") or "base_s" not in sent:
         record["errors"].append(f"debug.key: {sent}")
     duration = float(sent.get("duration_ms") or 0) / 1000
-    time.sleep(duration + opts.settle)  # test script: the burst lands, then the motion and the daemon settle
+    started = time.monotonic()
+
+    def status():
+        return rpc("debug.burst", {"action": "status"}) or {}
+
+    def done(reply):
+        return (reply.get("recording") and not reply.get("sequence_playing") and reply.get("pending_intents") == 0
+                and reply.get("resize_idle") and reply.get("terminals_awaiting_echo") == 0)
+
+    # The burst is done when the app says so: every key posted, no create still asking the daemon, no grid
+    # waiting to go or for its echo. The deadline only bounds a burst that never settles (a failure).
+    settled = stress.wait(lambda: done(status()), duration + opts.deadline, step=0.02)
+    settled_after = time.monotonic() - started
     frames = rpc("debug.frames", {"action": "stop", "raw": True}) or {}
+    if not settled:
+        record["invalid"].append(f"the burst never settled within {duration + opts.deadline:.0f} s: {status()}")
+    # Each echoed grid's first output: a program that does not redraw at a new size prints nothing, so
+    # this is bounded and what never came is counted in the row, not failed.
+    stress.wait(lambda: status().get("awaiting_output_surfaces") == 0, opts.redraw_wait, step=0.02)
     trace = rpc("debug.burst", {"action": "stop"}) or {}
     after = {"tabs": len(builder.tabs(workspace, pane)), "panes": len(builder.panes(builder.workspace(workspace)))}
+    tabs_after = [t.get("id") for p in builder.panes(builder.workspace(workspace)) for t in p.get("tabs") or []]
     if chromium:
         # After a Cmd-Shift-L burst the pane shows the last tab it opened, which must be Chromium.
         problems = browser_problems(builder, stress, want_chromium=newtab and after["tabs"] > before["tabs"])
@@ -257,7 +379,8 @@ def scenario(opts):
                    "press_times_s": [base + o / 1000 for o in offsets] if isinstance(base, (int, float)) else [],
                    "key_repeat": {k: armed.get(k) for k in ("key_repeat_delay_s", "key_repeat_interval_s", "quick_press_window_s")},
                    "held_repeat_ms": repeat, "trace": trace, "frames": {k: frames.get(k) for k in FRAME_FIELDS},
-                   "sequence_ms": duration * 1000})
+                   "sequence_ms": duration * 1000, "settled_ms": round(settled_after * 1000), "key_window": key_window,
+                   "tabs_after": tabs_after})
     return dump(opts, record)
 
 
@@ -267,44 +390,85 @@ def dump(opts, record):
     return 0
 
 
-def summarize(signposts, ndjson, record):
+def event_time(interval):
+    """A user run's key event time (s): its begin minus its input age, or None without one."""
+    age = float(interval["fields"].get("input_age_ms", "-1"))
+    return interval["at_s"] - age / 1000 if age >= 0 and isinstance(interval.get("at_s"), (int, float)) else None
+
+
+def resize_stats(events, times, busy):
+    """Terminal grids from the trace: sent, echoed and the first output after each echo, timed from the
+    press. A grid carries no press id, so only a one-press row times each from its press; a burst row
+    reports each since the latest press before it (a lower bound) and the last press -> the last one."""
+    busy = set(busy)
+    grids = [e for e in events if e.get("kind") == "pty_grid"]
+    if not grids:
+        return None
+    echoes = [e for e in events if e.get("kind") == "grid_echo"]
+    outputs = [e for e in events if e.get("kind") == "first_output" and e.get("surface") not in busy]
+    per_surface = {}
+    for grid in grids:
+        per_surface[grid.get("surface")] = per_surface.get(grid.get("surface"), 0) + 1
+    out = {"grids": len(grids), "echoed": len(echoes), "terminals": len(per_surface),
+           "grids_per_terminal_max": max(per_surface.values()),
+           "first_output": len(outputs), "busy_left_out": sum(1 for e in events if e.get("kind") == "first_output" and e.get("surface") in busy),
+           "echoed_without_output": len({e.get("surface") for e in echoes} - {e.get("surface") for e in events if e.get("kind") == "first_output"})}
+    if not times:
+        return out
+
+    def since(at):
+        earlier = [t for t in times if t <= at]
+        return (at - max(earlier)) * 1000 if earlier else None
+    stages = (("grid_sent", grids), ("grid_echo", echoes), ("first_output", outputs))
+    if len(times) == 1:
+        for stage, marks in stages:
+            out[f"key_to_{stage}_ms"] = percentiles([d for d in (since(m["at_s"]) for m in marks) if d is not None])
+    else:
+        for stage, marks in stages:
+            out[f"since_latest_press_to_{stage}_ms"] = percentiles([d for d in (since(m["at_s"]) for m in marks) if d is not None])
+            out[f"last_press_to_last_{stage}_ms"] = round((max(m["at_s"] for m in marks) - times[-1]) * 1000, 2) if marks else None
+    return out
+
+
+def summarize(signposts, ndjson, record, busy_surfaces=()):
     """The scenario's row from its signpost stream and its record."""
     with open(ndjson) as f:
         parsed = signposts.parse(f.read().splitlines(), signposts.local_timebase())
-    ids = {ACTIONS[p] for p in record.get("press_letters") or []}
+    letters = record.get("press_letters") or []
+    ids = {ACTIONS[p] for p in letters}
     user = [i for i in parsed["intervals"] if i["fields"].get("id") in ids and i["fields"].get("origin") == "user"]
-    performed = {}
-    for i in user:
-        if i["name"] == "action.perform":
-            performed[i["fields"]["id"]] = performed.get(i["fields"]["id"], 0) + 1
-    aged = [i for i in user if i["name"] == "action.commit" and float(i["fields"].get("input_age_ms", "-1")) >= 0]
     trace = record.get("trace") or {}
-    out = {"scenario": record.get("scenario"), "presses": record.get("presses"),
-           "input_to_next_commit_ms": percentiles([float(i["fields"]["input_age_ms"]) + i["ms"] for i in aged if not i.get("missed")]),
-           "commit_missed": sum(1 for i in aged if i.get("missed")),
+    times = list(record.get("press_times_s") or [])
+    out = {"scenario": record.get("scenario"), "presses": record.get("presses"), "key_window": record.get("key_window"),
            "chat_fallbacks": record.get("chat_fallbacks"), "frames": record.get("frames"),
            "key_repeat": record.get("key_repeat"), "held_repeat_ms": record.get("held_repeat_ms"),
-           "stream_lost": parsed["lost"], "trace_dropped": trace.get("dropped"),
+           "settled_ms": record.get("settled_ms"), "stream_lost": parsed["lost"], "trace_dropped": trace.get("dropped"),
            "errors": record.get("errors"), "invalid": list(record.get("invalid") or [])}
-    if record.get("before") and record.get("after"):
-        out.update(account(record["press_letters"], performed, trace.get("counts") or {}, record["before"], record["after"], record["unit"]))
-    else:
+    if parsed["lost"]:
+        # A lost action.perform would read as a missing press: the app would be blamed for the stream's loss.
+        out["invalid"].append(f"the signpost stream lost {parsed['lost']} records")
+    if trace.get("dropped"):
+        out["invalid"].append(f"debug.burst dropped {trace['dropped']} marks")
+    if not record.get("before") or not record.get("after") or len(times) != len(letters):
         out["invalid"].append("the scenario never ran its burst")
-    events = trace.get("events") or []
-    grids = [e for e in events if e.get("kind") == "pty_grid"]
-    if grids:
-        presses = sorted(record.get("press_times_s") or [])
-
-        def since_press(at):
-            earlier = [p for p in presses if p <= at]
-            return (at - max(earlier)) * 1000 if earlier else None
-        per_surface = {}
-        for grid in grids:
-            per_surface[grid.get("surface")] = per_surface.get(grid.get("surface"), 0) + 1
-        sent = [d for d in (since_press(g["at_s"]) for g in grids) if d is not None]
-        first = [d for d in (since_press(e["at_s"]) for e in events if e.get("kind") == "first_output") if d is not None]
-        out["resize"] = {"key_to_grid_sent_ms": percentiles(sent), "key_to_first_output_ms": percentiles(first),
-                         "grids_per_terminal_max": max(per_surface.values()), "terminals": len(per_surface)}
+        return out
+    runs = [{"id": i["fields"]["id"], "event_s": event_time(i)} for i in user if i["name"] == "action.perform"]
+    out.update(account(letters, times, runs, trace.get("events") or [], record["before"], record["after"],
+                       record["unit"], record.get("tabs_after") or []))
+    # input -> next commit, apart for presses that did something and presses that did nothing by design.
+    fates, bound = out["press_fates"], press_bound(times)
+    applied, noop, missed = [], [], 0
+    for interval in user:
+        if interval["name"] != "action.commit" or float(interval["fields"].get("input_age_ms", "-1")) < 0:
+            continue
+        if interval.get("missed"):
+            missed += 1
+            continue
+        index = nearest(times, event_time(interval), bound)
+        total = float(interval["fields"]["input_age_ms"]) + interval["ms"]
+        (applied if index is not None and fates[index] in APPLIED_FATES else noop).append(total)
+    out.update({"input_to_next_commit_ms": percentiles(applied), "noop_input_to_next_commit_ms": percentiles(noop),
+                "commit_missed": missed, "resize": resize_stats(trace.get("events") or [], times, busy_surfaces)})
     return out
 
 
@@ -312,8 +476,11 @@ def failures_of(phase, row):
     """The report's failures for one row."""
     found = []
     if row.get("lost"):
-        found.append(f"{phase} {row['scenario']}: {row['lost']} presses lost ({row.get('missing')} missing, "
-                     f"{row.get('unexplained')} unexplained)")
+        lost = {f: n for f, n in (row.get("fates") or {}).items() if f in LOST_FATES}
+        found.append(f"{phase} {row['scenario']}: {row['lost']} presses lost ({lost}, {row.get('unexplained')} unexplained)")
+    if row.get("extra"):
+        found.append(f"{phase} {row['scenario']}: {row['extra']} runs no press explains "
+                     f"({row.get('double_dispatch')} a second run of one press)")
     if row.get("commit_missed"):
         found.append(f"{phase} {row['scenario']}: {row['commit_missed']} commits missed their boundary (not in the percentiles)")
     if row.get("invalid"):
@@ -351,12 +518,17 @@ def run_phase(opts, phase, app, signposts, stress, report):
     builder = stress.Stress(app.rpc)
     rows = []
     measured = state = first = None
+    busy_surfaces = []
     if phase == "stress":
         session = builder.build()  # raises StressShapeError: another shape is never measured as STRESS
         report["stress_session"] = session
         print("STRESS-SESSION " + json.dumps(session), flush=True)
         measured = builder.measured
         state = start_state(builder, measured)
+        # The terminals STRESS keeps printing: their next output is no redraw, so the redraw stats leave them out.
+        busy = set(getattr(builder, "busy", []) or [])
+        busy_surfaces = [t.get("surface") for p in builder.panes(builder.workspace(measured))
+                         for t in p.get("tabs") or [] if t.get("id") in busy]
         first = builder.panes(builder.workspace(measured))[0]["id"]
     for name in opts.scenarios.split(","):
         if phase == "light":
@@ -376,7 +548,7 @@ def run_phase(opts, phase, app, signposts, stress, report):
                    "--category", "action", "--save", ndjson, "--allow-loss", "--json", "--",
                    sys.executable, os.path.abspath(__file__), "--scenario", name, "--socket", app.socket,
                    "--workspace", workspace, "--pane", pane, "--out", out, "--presses", str(opts.presses),
-                   "--gap-ms", str(opts.gap_ms), "--settle", str(opts.settle)]
+                   "--gap-ms", str(opts.gap_ms), "--deadline", str(opts.deadline), "--redraw-wait", str(opts.redraw_wait)]
         for flag, value in (("--repeat-ms", opts.repeat_ms), ("--repeat-delay-ms", opts.repeat_delay_ms)):
             if value is not None:
                 command += [flag, str(value)]
@@ -386,7 +558,7 @@ def run_phase(opts, phase, app, signposts, stress, report):
                 record = json.load(f)
         except (OSError, ValueError) as error:
             record = {"scenario": name, "presses": opts.presses, "errors": [f"no scenario record (exit {done.returncode}): {error}"]}
-        row = summarize(signposts, ndjson, record) if os.path.exists(ndjson) else \
+        row = summarize(signposts, ndjson, record, busy_surfaces) if os.path.exists(ndjson) else \
             {"scenario": name, "presses": opts.presses, "errors": record.get("errors", []) + ["no signpost stream"], "invalid": []}
         if phase == "light":
             builder.action("closeWorkspace", {"confirm": True}, target=f"workspace:{workspace}", focus=False)
@@ -425,7 +597,10 @@ def main():
     parser.add_argument("--gap-ms", type=float, default=40, help="between presses (a fast person: 40-60 ms)")
     parser.add_argument("--repeat-delay-ms", type=float, help="a held key's first repeat (default: the app's key repeat delay)")
     parser.add_argument("--repeat-ms", type=float, help="a held key's repeat interval (default: the app's key repeat interval)")
-    parser.add_argument("--settle", type=float, default=2.0, help="seconds after the burst before reading")
+    parser.add_argument("--deadline", type=float, default=30.0,
+                        help="seconds after the last key by which the app must say the burst is done (a failure bound)")
+    parser.add_argument("--redraw-wait", type=float, default=2.0,
+                        help="seconds to wait for each echoed terminal's first output (a program that never redraws prints nothing)")
     parser.add_argument("--no-stress", action="store_true", help="the light phase only")
     parser.add_argument("--self-test", action="store_true", help="check the accounting and the key sequences")
     opts = parser.parse_args()
@@ -460,48 +635,135 @@ def main():
 
 
 def self_test():
-    """The accounting on synthetic runs of each scenario shape, and the key sequences."""
-    def run(name, n, performed, counts, before, after):
-        return account(scenario_presses(name, n), performed, counts, before, after, unit_of(name))
+    """The per-press accounting on synthetic runs of each scenario shape, the resize stats and the key sequences."""
+    gap = 0.04
+
+    class Burst:
+        """A synthetic burst of scenario `name`: the press times, and runs and marks to add per press."""
+        def __init__(self, name, n):
+            self.name, self.letters = name, scenario_presses(name, n)
+            self.times = [100 + i * gap for i in range(len(self.letters))]
+            self.runs, self.marks = [], []
+
+        def run(self, i, jitter=0.002, letter=None):
+            self.runs.append({"id": ACTIONS[letter or self.letters[i]], "event_s": self.times[i] + jitter})
+
+        def mark(self, i, kind, **extra):
+            self.marks.append({"kind": kind, "event_s": self.times[i], **extra})
+
+        def close(self, i, tab, empties=False):
+            self.mark(i, "closed", tabs=[tab], empties_pane=empties)
+
+        def account(self, before, after, tabs_after=()):
+            return account(self.letters, self.times, self.runs, self.marks, before, after, unit_of(self.name), list(tabs_after))
+
+    def mixed(swallow_after_create=False, extra_close_run=False, lost_split=None):
+        """mixed, 21 presses (d, D, w x 7): each Cmd-W closes the split the Cmd-Shift-D before it made, which
+        empties that pane; 14 splits, 7 closes, 7 panes more."""
+        burst = Burst("mixed", 21)
+        for i, letter in enumerate(burst.letters):
+            if i == lost_split:
+                continue
+            burst.run(i)
+            if letter == "w":
+                if swallow_after_create and i > 2:
+                    burst.mark(i, "close_swallowed")
+                else:
+                    burst.close(i, f"t{i}", empties=True)
+        if extra_close_run:
+            burst.run(2, jitter=0.004)  # one Cmd-W dispatched twice
+        return burst
 
     one = {"tabs": 1, "panes": 1}
-    # mixed, 20 presses = 14 splits + 6 closes, every close applied: 8 panes more, nothing lost.
-    row = run("mixed", 20, {"splitRight": 7, "splitDown": 7, "closeTab": 6}, {}, one, {"tabs": 1, "panes": 9})
-    assert row["lost"] == 0 and row["expected_delta"] == 8, row
-    # mixed with the close guard: the first Cmd-W empties its pane, the 5 after it come quickly and are swallowed.
-    row = run("mixed", 20, {"splitRight": 7, "splitDown": 7, "closeTab": 6}, {"close_swallowed": 5}, one, {"tabs": 1, "panes": 14})
-    assert row["lost"] == 0 and row["swallowed"] == 5, row
-    # mixed with one Cmd-W that cancelled the split before it: neither press changes the panes.
-    row = run("mixed", 20, {"splitRight": 7, "splitDown": 7, "closeTab": 6}, {"creation_cancelled": 1}, one, {"tabs": 1, "panes": 9})
-    assert row["lost"] == 0, row
-    # mixed: one Cmd-W ran and closed nothing, with no reason: lost.
-    row = run("mixed", 20, {"splitRight": 7, "splitDown": 7, "closeTab": 6}, {}, one, {"tabs": 1, "panes": 10})
-    assert row["lost"] == 1 and row["unexplained"] == 1, row
-    # mixed: one Cmd-D never reached its action: lost.
-    row = run("mixed", 20, {"splitRight": 6, "splitDown": 7, "closeTab": 6}, {}, one, {"tabs": 1, "panes": 8})
-    assert row["lost"] == 1 and row["missing"] == 1, row
-    # A lost split and a lost close cancel in the pane count, but not in the runs: both lost.
-    row = run("mixed", 20, {"splitRight": 6, "splitDown": 7, "closeTab": 5}, {}, one, {"tabs": 1, "panes": 9})
-    assert row["lost"] == 2, row
+    row = mixed().account(one, {"tabs": 1, "panes": 8})
+    assert row["lost"] == 0 and row["extra"] == 0 and row["expected_delta"] == 7, row
+    # The close guard swallows every Cmd-W after the first, though a split came between: each is lost (the
+    # person was looking at the split they just made: "some cmd w doesnt register").
+    row = mixed(swallow_after_create=True).account(one, {"tabs": 1, "panes": 14})
+    assert row["fates"]["swallowed_after_create"] == 6 and row["lost"] == 6, row
+    # One Cmd-W runs twice and one Cmd-D never reaches its action: the pane count matches (7 more), yet
+    # the per-press view says one missing and one double dispatch.
+    burst = mixed(extra_close_run=True, lost_split=3)
+    row = burst.account(one, {"tabs": 1, "panes": 7})
+    assert row["fates"]["missing"] == 1 and row["double_dispatch"] == 1 and row["extra"] == 1, row
+    # A split that ran but created nothing and a Cmd-W that ran but closed nothing: the pane count matches.
+    burst = mixed()
+    burst.marks = [m for m in burst.marks if m["event_s"] != burst.times[5]]  # press 5 (w) said nothing
+    # 13 splits landed of 14 and 6 closes: 7 more, as the pooled count of 14 - 7 would have it.
+    row = burst.account(one, {"tabs": 1, "panes": 8})
+    assert row["fates"]["no_outcome"] == 1 and row["unexplained"] == 1 and row["lost"] == 2, row
+    # A refusal belongs to its own press: a refused Cmd-D does not cover a Cmd-W that closed nothing.
+    burst = mixed()
+    burst.mark(0, "refusal")
+    burst.marks = [m for m in burst.marks if m["event_s"] != burst.times[2]]
+    row = burst.account(one, {"tabs": 1, "panes": 8})  # 13 splits, 6 closes
+    assert row["fates"]["refused"] == 1 and row["fates"]["no_outcome"] == 1 and row["lost"] == 1, row
+    # A Cmd-W that cancelled the split before it: neither press changes the panes, nothing lost.
+    burst = mixed()
+    burst.marks = [m for m in burst.marks if m["event_s"] != burst.times[2]]
+    burst.mark(2, "creation_cancelled")
+    row = burst.account(one, {"tabs": 1, "panes": 8})  # 13 splits landed, 6 closes
+    assert row["lost"] == 0 and row["fates"]["creation_cancelled"] == 1 and row["fates"]["cancelled"] == 1, row
+    # A run whose event matches no press (another press's time is too far): extra.
+    burst = mixed()
+    burst.runs.append({"id": "splitRight", "event_s": burst.times[-1] + 1})
+    assert burst.account(one, {"tabs": 1, "panes": 8})["extra"] == 1
+
     # cmdw-terminal: 20 Cmd-W on 20 added tabs, all closed.
-    row = run("cmdw-terminal", 20, {"closeTab": 20}, {}, {"tabs": 21, "panes": 1}, {"tabs": 1, "panes": 1})
+    burst = Burst("cmdw-terminal", 20)
+    for i in range(20):
+        burst.run(i)
+        burst.close(i, f"t{i}")
+    row = burst.account({"tabs": 21, "panes": 1}, {"tabs": 1, "panes": 1}, tabs_after=["kept"])
     assert row["lost"] == 0, row
-    # held-cmdw: 2 repeats ran and closed nothing.
-    row = run("held-cmdw", 20, {"closeTab": 20}, {}, {"tabs": 21, "panes": 1}, {"tabs": 3, "panes": 1})
-    assert row["lost"] == 2, row
+    # A closed tab that is still there afterwards: the close did not apply.
+    row = burst.account({"tabs": 21, "panes": 1}, {"tabs": 2, "panes": 1}, tabs_after=["kept", "t7"])
+    assert row["fates"]["close_not_applied"] == 1 and row["lost"] == 1, row
+    # held-cmdw: 2 repeats ran and said nothing.
+    burst = Burst("held-cmdw", 20)
+    for i in range(20):
+        burst.run(i)
+        if i < 18:
+            burst.close(i, f"t{i}")
+    row = burst.account({"tabs": 21, "panes": 1}, {"tabs": 3, "panes": 1})
+    assert row["lost"] == 2 and row["fates"]["no_outcome"] == 2, row
     # cmdd: 5 splits refused at the minimum pane size, with their HUD.
-    row = run("cmdd", 20, {"splitRight": 20}, {"refusal": 5}, one, {"tabs": 1, "panes": 16})
-    assert row["lost"] == 0 and row["refused"] == 5, row
-    # cmdshiftd: 5 splits did nothing and showed nothing: lost.
-    row = run("cmdshiftd", 20, {"splitDown": 20}, {}, one, {"tabs": 1, "panes": 16})
-    assert row["lost"] == 5, row
+    burst = Burst("cmdd", 20)
+    for i in range(20):
+        burst.run(i)
+        if i >= 15:
+            burst.mark(i, "refusal")
+    row = burst.account(one, {"tabs": 1, "panes": 16})
+    assert row["lost"] == 0 and row["fates"]["refused"] == 5, row
+    # cmdshiftd: 5 splits did nothing and showed nothing: unexplained.
+    burst = Burst("cmdshiftd", 20)
+    for i in range(20):
+        burst.run(i)
+    row = burst.account(one, {"tabs": 1, "panes": 16})
+    assert row["lost"] == 5 and row["unexplained"] == 5, row
     # newtab-*-mixed: each Cmd-W closes the tab the Cmd-Shift-L before it opened.
-    row = run("newtab-chromium-mixed", 20, {"openBrowser": 10, "closeTab": 10}, {}, {"tabs": 2, "panes": 1}, {"tabs": 2, "panes": 1})
+    burst = Burst("newtab-chromium-mixed", 20)
+    for i, letter in enumerate(burst.letters):
+        burst.run(i)
+        if letter == "w":
+            burst.close(i, f"t{i}")
+    row = burst.account({"tabs": 2, "panes": 1}, {"tabs": 2, "panes": 1})
     assert row["lost"] == 0, row
-    row = run("newtab-terminal-burst", 20, {"openBrowser": 20}, {}, one, {"tabs": 21, "panes": 1})
-    assert row["lost"] == 0, row
-    row = run("newtab-terminal-one", 20, {}, {}, one, one)
-    assert row["lost"] == 1 and row["missing"] == 1, row
+    burst = Burst("newtab-terminal-one", 20)
+    row = burst.account(one, one)
+    assert row["lost"] == 1 and row["fates"]["missing"] == 1, row
+
+    # Resize: one press times each stage from it; a burst labels its values as since the latest press.
+    events = [{"kind": "pty_grid", "at_s": 100.004, "surface": "1"}, {"kind": "pty_grid", "at_s": 100.006, "surface": "2"},
+              {"kind": "grid_echo", "at_s": 100.008, "surface": "1"}, {"kind": "first_output", "at_s": 100.010, "surface": "1"},
+              {"kind": "grid_echo", "at_s": 100.009, "surface": "2"}, {"kind": "first_output", "at_s": 100.011, "surface": "2"}]
+    stats = resize_stats(events, [100.0], busy=["2"])
+    assert stats["key_to_grid_sent_ms"]["max"] == 6 and stats["key_to_first_output_ms"]["n"] == 1, stats
+    assert stats["busy_left_out"] == 1 and stats["echoed_without_output"] == 0, stats
+    stats = resize_stats(events, [99.9, 100.0], busy=[])
+    assert "key_to_grid_sent_ms" not in stats and stats["since_latest_press_to_grid_sent_ms"]["n"] == 2, stats
+    assert stats["last_press_to_last_first_output_ms"] == 11, stats
+    assert press_bound([1.0]) == float("inf") and abs(press_bound([1.0, 1.04, 1.1]) - 0.02) < 1e-9
 
     # Sequences: one key-down per press, Command held around them; a held key repeats after the delay, then at the interval.
     steps, offsets = sequence(["d", "D", "w"], 40)
@@ -512,6 +774,7 @@ def self_test():
     steps, offsets = sequence(["w"] * 5, 40, repeat=(375, 30))
     assert len(offsets) == 5 and offsets[1] - offsets[0] == 375 and offsets[4] - offsets[3] == 30, offsets
     assert sum(1 for s in steps if s.get("repeat")) == 4 and steps[1]["key_code"] == KEY["w"], steps
+    assert scenario_presses("cmdd-one", 20) == ["d"] and is_chromium("newtab-chromium-held") and not is_chromium("cmdw-chat")
     print("self-test ok")
     return 0
 

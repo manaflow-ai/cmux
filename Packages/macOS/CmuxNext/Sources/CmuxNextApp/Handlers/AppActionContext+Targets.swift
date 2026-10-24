@@ -24,7 +24,8 @@ extension AppActionContext {
         registry.refusalObserver = { reason, quiet in
             Self.logger.notice("action refused: \(reason, privacy: .public)")
             guard Self.showsNotice(quiet: quiet, hasCaller: registry.refusalHasCaller) else { return }
-            services.burstTrace.mark(.refusal)
+            // Keyed by the key event that ran the refused action, so the burst bench matches it to its press.
+            services.burstTrace.mark(.refusal, input: registry.dispatchingInputEvent()?.timestamp)
             services.refusalHUD.show(reason, in: services.windows.active?.window ?? NSApp.keyWindow)
         }
         // An action's local change was rolled back because the daemon refused it: say so where
