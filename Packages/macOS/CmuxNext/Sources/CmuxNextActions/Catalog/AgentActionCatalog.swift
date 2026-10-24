@@ -48,7 +48,6 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 id: "agentPane.togglePointerInspector",
                 title: "Point at cmux UI",
                 keywords: ["agent", "ui", "pointer", "inspect", "pick", "element", "debug"],
-                defaultShortcut: Shortcut("p", modifiers: [.control, .option, .command]),
                 category: .agents, symbol: "scope", surfaces: [.palette, .keyboard, .contextMenu],
                 cliName: "agent toggle-ui-pointer",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [ContextMenuPlacement(.agentChat, .inspect, 1)])
