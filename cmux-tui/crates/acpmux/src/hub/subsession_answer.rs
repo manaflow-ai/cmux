@@ -268,6 +268,7 @@ mod tests {
             ancestor_may_answer: may,
             prev_status: SessionStatus::Waiting,
             agent_request: None,
+            agent_host_incarnation: None,
         };
         session.permissions.lock().unwrap().pending.insert(id.clone(), entry);
         (id, rx)
@@ -288,7 +289,7 @@ mod tests {
                 entry.agent_request = Some(json!(1008));
             }
         }
-        hub.withdraw_permission(&session, &json!(1007));
+        hub.withdraw_permission(&session, None, &json!(1007));
         let outcome = rx.await.unwrap_or(Value::Null);
         assert_eq!(outcome, json!({"outcome": "cancelled"}));
         let state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
@@ -301,7 +302,8 @@ mod tests {
     #[tokio::test]
     async fn an_agent_cancel_request_before_registration_is_consumed() {
         let (hub, session, _conn) = hub_with_session().await;
-        hub.withdraw_permission(&session, &json!(1009));
+        hub.register_agent_request(&session, &json!(1009), None);
+        hub.withdraw_permission(&session, None, &json!(1009));
         let request = json!({
             "toolCall": {"toolCallId": "e1", "kind": "other", "status": "pending"},
             "options": [{"optionId": "allow_once", "name": "Allow", "kind": "allow_once"}],
@@ -315,15 +317,12 @@ mod tests {
                 session.turn().map(|t| t.turn_id),
                 Some(&json!(1009)),
                 None,
+                None,
             )
             .await;
         assert_eq!(outcome, json!({"outcome": {"outcome": "cancelled"}}));
-        assert!(session
-            .permissions
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .pending
-            .is_empty());
+        hub.finish_agent_request(&session, &json!(1009), None);
+        assert!(session.permissions.lock().unwrap_or_else(|e| e.into_inner()).pending.is_empty());
     }
 
     /// The withdrawal record is replayed for the same host incarnation, so a
@@ -331,12 +330,7 @@ mod tests {
     #[tokio::test]
     async fn an_agent_withdrawal_survives_host_recovery() {
         let (hub, session, _conn) = hub_with_session().await;
-        hub.append(
-            &session,
-            "mux",
-            "host_started",
-            json!({"incarnation": "inc-1"}),
-        );
+        hub.append(&session, "mux", "host_started", json!({"incarnation": "inc-1"}));
         hub.append(
             &session,
             "in",
@@ -353,11 +347,12 @@ mod tests {
             &session,
             "mux",
             "permission_withdrawn",
-            json!({"agentRequestId": 1009}),
+            json!({"agentRequestId": 1009, "incarnation": "inc-1"}),
         );
         let work = hub.open_work(&session, "inc-1");
         let decision = work.permissions.get("1009").and_then(|entry| entry.2.clone());
         assert_eq!(decision, Some(json!({"outcome": "cancelled"})));
+        assert!(work.cancelled_permissions.contains("1009"));
     }
 
     /// A withdrawal logged before the permission record still suppresses the
@@ -365,12 +360,7 @@ mod tests {
     #[tokio::test]
     async fn an_early_withdrawal_survives_host_recovery() {
         let (hub, session, _conn) = hub_with_session().await;
-        hub.append(
-            &session,
-            "mux",
-            "host_started",
-            json!({"incarnation": "inc-early"}),
-        );
+        hub.append(&session, "mux", "host_started", json!({"incarnation": "inc-early"}));
         hub.append(
             &session,
             "in",
@@ -381,7 +371,7 @@ mod tests {
             &session,
             "mux",
             "permission_withdrawn",
-            json!({"agentRequestId": 1010}),
+            json!({"agentRequestId": 1010, "incarnation": "inc-early"}),
         );
         let work = hub.open_work(&session, "inc-early");
         assert!(work.withdrawn.contains("1010"));
@@ -392,12 +382,7 @@ mod tests {
     #[tokio::test]
     async fn a_withdrawal_from_an_older_host_does_not_cross_incarnations() {
         let (hub, session, _conn) = hub_with_session().await;
-        hub.append(
-            &session,
-            "mux",
-            "host_started",
-            json!({"incarnation": "new-host"}),
-        );
+        hub.append(&session, "mux", "host_started", json!({"incarnation": "new-host"}));
         hub.append(
             &session,
             "mux",
@@ -421,12 +406,7 @@ mod tests {
     #[tokio::test]
     async fn a_deferred_withdrawal_does_not_advance_the_resume_cursor() {
         let (hub, session, _conn) = hub_with_session().await;
-        hub.append(
-            &session,
-            "mux",
-            "host_started",
-            json!({"incarnation": "new-host"}),
-        );
+        hub.append(&session, "mux", "host_started", json!({"incarnation": "new-host"}));
         hub.append_with_host_seq(
             &session,
             "mux",
@@ -497,6 +477,7 @@ mod tests {
             ancestor_may_answer: true,
             prev_status: SessionStatus::Waiting,
             agent_request: None,
+            agent_host_incarnation: None,
         };
         session.permissions.lock().unwrap().pending.insert(id.clone(), entry);
         let prompt = "child wants to work in /tmp/untrusted. Do you trust this folder?";

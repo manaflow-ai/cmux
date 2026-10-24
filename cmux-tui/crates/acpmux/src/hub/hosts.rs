@@ -40,6 +40,9 @@ pub(super) struct OpenWork {
     /// Agent request ids withdrawn before their permission request was
     /// recorded. These are scoped to the adopted host incarnation.
     pub(super) withdrawn: std::collections::HashSet<String>,
+    /// Permission records whose durable withdrawal has not yet been settled
+    /// with a `permission_decision` record.
+    pub(super) cancelled_permissions: std::collections::HashSet<String>,
     /// Largest `hostSeq` logged under this incarnation. Every entry kind is
     /// logged in entry order before its ack, so this is the logged prefix.
     pub(super) last_host_seq: u64,
@@ -343,7 +346,7 @@ impl Hub {
         // inbound loop and are handled there; only earlier ones were the
         // previous daemon's to answer.
         work.requests.retain(|(_, _, _, h)| h.is_none_or(|h| h <= resume_after));
-        self.recover_work(session, &child, work).await;
+        self.recover_work(session, &child, &incarnation, work).await;
         self.restart_unproven(session, proven);
         self.save_meta(session);
         Ok(())
@@ -392,6 +395,7 @@ impl Hub {
         let mut answered: std::collections::HashSet<String> = Default::default();
         let mut asked: HashMap<String, (String, Value, Option<Value>)> = HashMap::new();
         let mut by_permission: HashMap<String, String> = HashMap::new();
+        let mut open_request_ids: std::collections::HashSet<String> = Default::default();
         // permissionId -> the ids of its "allow always" options.
         let mut lasting: HashMap<String, Vec<String>> = HashMap::new();
         let always = |request: Option<&Value>| -> Vec<String> {
@@ -467,6 +471,8 @@ impl Hub {
                     asked.clear();
                     by_permission.clear();
                     work.withdrawn.clear();
+                    work.cancelled_permissions.clear();
+                    open_request_ids.clear();
                     work.prompt_request = None;
                     work.prompt_response = None;
                     work.steers.clear();
@@ -507,21 +513,29 @@ impl Hub {
                         e.msg.get("agentRequestId").filter(|v| !v.is_null()),
                     ) {
                         let request = e.msg.get("request").cloned().unwrap_or(Value::Null);
-                        let decided = work
-                            .withdrawn
-                            .remove(&aid.to_string())
-                            .then(|| json!({"outcome": "cancelled"}));
+                        let key = aid.to_string();
+                        let decided = work.withdrawn.remove(&key).then(|| {
+                            work.cancelled_permissions.insert(key.clone());
+                            json!({"outcome": "cancelled"})
+                        });
                         asked.insert(aid.to_string(), (pid.to_owned(), request, decided));
                         by_permission.insert(pid.to_owned(), aid.to_string());
                     }
                 }
-                ("mux", "permission_withdrawn") if current => {
-                    if let Some(aid) = e.msg.get("agentRequestId") {
+                ("mux", "permission_withdrawn")
+                    if current
+                        && e.msg.get("incarnation").and_then(Value::as_str)
+                            == Some(incarnation) =>
+                {
+                    if let Some(aid) = e.msg.get("agentRequestId")
+                        && open_request_ids.contains(&aid.to_string())
+                    {
                         if let Some(entry) = asked.get_mut(&aid.to_string()) {
                             // A decision already logged won the race before
                             // the withdrawal reached the hub.
                             if entry.2.is_none() {
                                 entry.2 = Some(json!({"outcome": "cancelled"}));
+                                work.cancelled_permissions.insert(aid.to_string());
                             }
                         } else {
                             work.withdrawn.insert(aid.to_string());
@@ -537,6 +551,7 @@ impl Hub {
                         && let Some(entry) = asked.get_mut(aid)
                     {
                         entry.2 = e.msg.get("outcome").cloned();
+                        work.cancelled_permissions.remove(aid);
                     }
                 }
                 ("out", method::SESSION_PROMPT) if current && work.turn.is_some() => {
@@ -565,18 +580,23 @@ impl Hub {
                 ("out", "response") if current => {
                     if let Some(id) = e.msg.get("id") {
                         answered.insert(id.to_string());
+                        open_request_ids.remove(&id.to_string());
                     }
                 }
                 ("in", kind)
                     if current && e.msg.get("id").is_some() && e.msg.get("method").is_some() =>
                 {
                     let id = e.msg["id"].clone();
+                    open_request_ids.insert(id.to_string());
                     let params = e.msg.get("params").cloned();
                     requests.push((id, kind.to_owned(), params, e.host_seq));
                 }
                 _ => {}
             }
-            if current && let Some(h) = e.host_seq {
+            if current
+                && e.kind != "permission_withdrawn"
+                && let Some(h) = e.host_seq
+            {
                 work.last_host_seq = work.last_host_seq.max(h);
             }
             true
@@ -610,6 +630,7 @@ impl Hub {
         self: &Arc<Self>,
         session: &Arc<Session>,
         child: &Arc<ChildAgent>,
+        incarnation: &str,
         work: OpenWork,
     ) {
         Self::recover_floor(session, &work);
@@ -697,6 +718,11 @@ impl Hub {
         // now for an unsandboxed agent): its permissions are cancelled too,
         // never answered from the log or shown again.
         let floored = Self::web_turn(session) && self.remote_floor_breach(session).is_some();
+        for (id, kind, _, _) in &work.requests {
+            if kind == method::SESSION_REQUEST_PERMISSION {
+                self.register_agent_request(session, id, Some(incarnation));
+            }
+        }
         // Every request that starts its own task is counted before the
         // answers below are sent, so no group of them is shown while one
         // still waits for its spawn (`AskInFlight`).
@@ -710,11 +736,10 @@ impl Hub {
             })
             .collect();
         for ((id, m, params, _), ask) in work.requests.into_iter().zip(asks) {
-            if m == method::SESSION_REQUEST_PERMISSION
-                && work.withdrawn.contains(&id.to_string())
-            {
+            if m == method::SESSION_REQUEST_PERMISSION && work.withdrawn.contains(&id.to_string()) {
                 let cancelled = json!({"outcome": {"outcome": "cancelled"}});
-                let _ = child.respond(id, Ok(cancelled)).await;
+                let _ = child.respond(id.clone(), Ok(cancelled)).await;
+                self.finish_agent_request(session, &id, Some(incarnation));
                 continue;
             }
             if m == method::SESSION_REQUEST_PERMISSION
@@ -723,15 +748,35 @@ impl Hub {
             {
                 if floored {
                     let cancelled = json!({"outcome": {"outcome": "cancelled"}});
-                    let _ = child.respond(id, Ok(cancelled)).await;
+                    let _ = child.respond(id.clone(), Ok(cancelled)).await;
+                    self.finish_agent_request(session, &id, Some(incarnation));
                     continue;
                 }
                 match decided {
                     // Decided but the answer never reached the agent: send it.
                     Some(outcome) => {
-                        let _ = child.respond(id, Ok(permission_answer(outcome))).await;
+                        if work.cancelled_permissions.contains(&id.to_string()) {
+                            self.append(
+                                session,
+                                "mux",
+                                "permission_decision",
+                                json!({"permissionId": permission_id, "outcome": outcome.clone()}),
+                            );
+                        }
+                        let _ = child.respond(id.clone(), Ok(permission_answer(outcome))).await;
+                        self.finish_agent_request(session, &id, Some(incarnation));
                     }
-                    None => self.reregister_permission(session, child, id, permission_id, request),
+                    None => {
+                        self.reregister_permission(
+                            session,
+                            child,
+                            id,
+                            permission_id,
+                            request,
+                            incarnation,
+                        )
+                        .await;
+                    }
                 }
                 continue;
             }
@@ -739,40 +784,77 @@ impl Hub {
             let hub = self.clone();
             let s = session.clone();
             let turn_id = turn_id.clone();
+            let request_id = id.clone();
+            let incarnation = incarnation.to_owned();
             tokio::spawn(async move {
-                hub.on_agent_request(s, id, m, params, epoch, turn_id, ask).await
+                hub.on_agent_request(
+                    s.clone(),
+                    id,
+                    m,
+                    params,
+                    epoch,
+                    turn_id,
+                    ask,
+                    Some(incarnation.clone()),
+                )
+                .await;
+                hub.finish_agent_request(&s, &request_id, Some(&incarnation));
             });
         }
     }
 
     /// A permission prompt the previous daemon showed: keep the same id so a
     /// client answers it as before, and answer the agent's original request.
-    fn reregister_permission(
+    async fn reregister_permission(
         self: &Arc<Self>,
         session: &Arc<Session>,
         child: &Arc<ChildAgent>,
         agent_request_id: Value,
         permission_id: String,
         mut request: Value,
+        incarnation: &str,
     ) {
         // A record from a daemon without question normalization gets it here,
         // so its answers are checked like a new ask's.
         super::questions::normalize(&mut request, Self::preview_format(session));
         let (tx, rx) = oneshot::channel();
         let decision_nonce = super::person::new_nonce();
-        session.permissions.lock().unwrap().pending.insert(
-            permission_id.clone(),
-            PendingPermission {
-                // The agent's own ask, judged like a fresh one (a re-adopted AskUserQuestion).
-                ancestor_may_answer: super::questions::ancestor_answerable(&request, true),
-                request: request.clone(),
-                reply: tx,
-                decision_nonce: decision_nonce.clone(),
-                // Settled by the task below, from a turn or none (`status_after_ask`).
-                prev_status: SessionStatus::Waiting,
-                agent_request: Some(agent_request_id.clone()),
-            },
-        );
+        let key =
+            super::permission_groups::AgentRequestKey::new(Some(incarnation), &agent_request_id);
+        let cancelled = {
+            let mut state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
+            if state.cancelled_requests.remove(&key) {
+                true
+            } else {
+                state.pending.insert(
+                    permission_id.clone(),
+                    PendingPermission {
+                        // The agent's own ask, judged like a fresh one (a re-adopted AskUserQuestion).
+                        ancestor_may_answer: super::questions::ancestor_answerable(&request, true),
+                        request: request.clone(),
+                        reply: tx,
+                        decision_nonce: decision_nonce.clone(),
+                        // Settled by the task below, from a turn or none (`status_after_ask`).
+                        prev_status: SessionStatus::Waiting,
+                        agent_request: Some(agent_request_id.clone()),
+                        agent_host_incarnation: Some(incarnation.to_owned()),
+                    },
+                );
+                false
+            }
+        };
+        if cancelled {
+            let outcome = json!({"outcome": "cancelled"});
+            self.append(
+                session,
+                "mux",
+                "permission_decision",
+                json!({"permissionId": permission_id, "outcome": outcome}),
+            );
+            let _ = child.respond(agent_request_id.clone(), Ok(permission_answer(outcome))).await;
+            self.finish_agent_request(session, &agent_request_id, Some(incarnation));
+            return;
+        }
         // The prompt's new nonce under this daemon run, for a relayed allow
         // (`person.rs`): clients get it as `_acpmux/permission_pending`.
         self.append(
@@ -787,6 +869,7 @@ impl Hub {
         let hub = self.clone();
         let s = session.clone();
         let c = child.clone();
+        let incarnation = incarnation.to_owned();
         tokio::spawn(async move {
             let outcome = rx.await.unwrap_or_else(|_| json!({"outcome": "cancelled"}));
             hub.append(
@@ -796,7 +879,7 @@ impl Hub {
                 json!({"permissionId": permission_id, "outcome": outcome}),
             );
             {
-                let state = s.permissions.lock().unwrap();
+                let state = s.permissions.lock().unwrap_or_else(|e| e.into_inner());
                 if state.pending.is_empty()
                     && s.status() == SessionStatus::Waiting
                     && !hub.secrets.waiting_in(&s.id)
@@ -810,6 +893,7 @@ impl Hub {
                 }
             }
             let _ = c.respond(agent_request_id, Ok(permission_answer(outcome))).await;
+            hub.finish_agent_request(&s, &agent_request_id, Some(&incarnation));
         });
     }
 }

@@ -219,6 +219,8 @@ pub(super) struct PendingPermission {
     /// The agent's JSON-RPC id for the request, when the agent asked. A
     /// matching `$/cancel_request` withdraws this prompt.
     pub(super) agent_request: Option<Id>,
+    /// The hosted child generation that owns `agent_request`.
+    pub(super) agent_host_incarnation: Option<String>,
 }
 
 #[derive(Debug, Clone)]

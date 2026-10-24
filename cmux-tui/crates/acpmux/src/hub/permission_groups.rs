@@ -1,7 +1,7 @@
 //! Session-local permission batches. One lock owns membership, chat grants,
 //! callbacks and receipts, so a decision cannot approve an unseen member.
 use super::*;
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::time::{Duration, Instant};
 
 pub const PERMISSION_GROUP_OPERATIONS: [&str; 3] = [
@@ -16,13 +16,29 @@ const LANDING_BOUND: Duration = Duration::from_secs(2);
 const MAX_ITEMS: usize = 32;
 const MAX_GROUPS: usize = 64;
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(super) struct AgentRequestKey {
+    pub(super) host_incarnation: Option<String>,
+    pub(super) request_id: String,
+}
+
+impl AgentRequestKey {
+    pub(super) fn new(host_incarnation: Option<&str>, request_id: &Value) -> Self {
+        Self {
+            host_incarnation: host_incarnation.map(str::to_owned),
+            request_id: request_id.to_string(),
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 pub(super) struct PermissionState {
     pub pending: HashMap<String, PendingPermission>,
-    /// Request ids withdrawn while their spawned handler is still on the way
-    /// to the permission lock. No cap: ids are process-scoped and are cleared
-    /// when the child exits.
-    pub withdrawn: std::collections::HashSet<String>,
+    /// Permission requests whose handlers have been admitted but have not
+    /// completed. Cancellation markers are limited to this set and are
+    /// removed when the handler finishes.
+    pub active_requests: HashSet<AgentRequestKey>,
+    pub cancelled_requests: HashSet<AgentRequestKey>,
     groups: VecDeque<Group>,
     pub chat_allowed: bool,
 }
