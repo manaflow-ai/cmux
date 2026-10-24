@@ -1337,8 +1337,10 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
     private let touchedTabEnvironmentKeys: [String] = [
         RightSidebarBetaFeatureSettings.feedEnabledKey,
         RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey,
+        BetaFeaturesCatalogSection().customSidebars.userDefaultsKey,
         RightSidebarTabPreferences.orderKey,
         RightSidebarTabPreferences.hiddenKey,
+        "rightSidebar.customSidebarName",
     ]
     private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore!
     private var savedShortcutData: [KeyboardShortcutSettings.Action: Data?] = [:]
@@ -1360,6 +1362,8 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         )
         UserDefaults.standard.set(true, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
         UserDefaults.standard.set(true, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
+        UserDefaults.standard.removeObject(forKey: BetaFeaturesCatalogSection().customSidebars.userDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: "rightSidebar.customSidebarName")
         UserDefaults.standard.removeObject(forKey: RightSidebarTabPreferences.orderKey)
         UserDefaults.standard.removeObject(forKey: RightSidebarTabPreferences.hiddenKey)
 
@@ -1434,6 +1438,16 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         XCTAssertEqual(
             RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "6", modifiers: [.control], keyCode: 22)),
             .machines
+        )
+    }
+
+    func testCustomSidebarUsesItsVisiblePositionalShortcut() {
+        UserDefaults.standard.set(true, forKey: BetaFeaturesCatalogSection().customSidebars.userDefaultsKey)
+        UserDefaults.standard.set("status-board", forKey: "rightSidebar.customSidebarName")
+
+        XCTAssertEqual(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "7", modifiers: [.control], keyCode: 26)),
+            .customSidebar
         )
     }
 

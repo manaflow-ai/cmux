@@ -667,8 +667,7 @@ final class HostSettingsActions: SettingsHostActions {
         return RightSidebarTabPreferences.orderedModes()
             .filter(available.contains)
             .map { mode in
-                let shortcut = mode.shortcutAction.map { KeyboardShortcutSettings.shortcut(for: $0) }
-                    ?? .unbound
+                let shortcut = mode.effectiveShortcut
                 return RightSidebarTabSettingsItem(
                     id: mode.rawValue,
                     title: mode.label,
