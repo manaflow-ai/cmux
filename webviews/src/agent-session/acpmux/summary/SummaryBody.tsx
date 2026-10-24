@@ -11,8 +11,9 @@ import { SourcesAddMenu, type ChatToolsControl } from "./SourcesAddMenu";
 import { SubagentStack } from "./SubagentStack";
 import { SummarySection } from "./SummarySection";
 import { SummaryTasks } from "./SummaryTasks";
-import { WorkflowSummaryRow, type WorkflowActions } from "./WorkflowSummary";
+import { WorkflowSummaries, WorkflowSummaryRow, type WorkflowActions } from "./WorkflowSummary";
 import type { WorkflowSummary } from "./workflow";
+import type { WorkflowCapacitySignal } from "./foldWorkflows";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -53,6 +54,9 @@ export function SummaryBody({
   onStopCommand,
   workflow,
   workflowActions,
+  workflows,
+  workflowActionsFor,
+  workflowCapacity,
 }: {
   summary: SessionSummary;
   galleryCount?: number;
@@ -76,6 +80,9 @@ export function SummaryBody({
   /// Labs-only workflow data; absent until acpmux sends the typed workflow event.
   workflow?: WorkflowSummary;
   workflowActions?: WorkflowActions;
+  workflows?: readonly WorkflowSummary[];
+  workflowActionsFor?: (workflow: WorkflowSummary) => WorkflowActions;
+  workflowCapacity?: WorkflowCapacitySignal;
 }) {
   const t = useT();
   // With tools to offer, Sources' + is a menu (Attach files or folders, Use tools), and Sources
@@ -116,6 +123,7 @@ export function SummaryBody({
   const empty =
     !subagents &&
     !workflow &&
+    !workflows?.length &&
     tasks.length === 0 &&
     outputs.length === 0 &&
     galleryCount === 0 &&
@@ -128,6 +136,12 @@ export function SummaryBody({
     <>
       <SummaryTasks commands={tasks} onStop={onStopCommand} onFollow={onFollow} />
       <WorkflowSummaryRow workflow={workflow} actions={workflowActions} />
+      <WorkflowSummaries
+        key={workflows?.[0]?.sessionId}
+        workflows={workflows}
+        actionsFor={workflowActionsFor}
+        daemonCapacity={workflowCapacity}
+      />
       <SummarySection
         title={t("summary.outputs")}
         items={outputs}
