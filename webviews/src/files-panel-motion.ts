@@ -20,7 +20,8 @@ import { MOTION_MS } from "./motion/scale.generated";
  *   fills the strip it gave up until the panel arrives over it.
  *
  * Toggling again mid-way starts from the panel's current on-screen position,
- * so the motion reverses with no jump, and the diff stays at the width it has.
+ * so the motion reverses with no jump, and the diff takes the new resting width
+ * two frames later.
  * The curve is the app's own spring (`appear` to open, `disappear` to close,
  * as for the cmux-next sidebar), sampled from the spring's step response into
  * keyframes, so WebKit runs it in Core Animation at the display rate (120 Hz
@@ -268,7 +269,8 @@ export function createFilesPanelMotion(host: FilesPanelMotionHost): FilesPanelMo
         // the diff gave up until the panel arrives over it.
         host.requestFrame(() =>
           host.requestFrame(() => {
-            if (token !== generation) return;
+            // A slide that already ended (finish(), a long task) settled everything itself.
+            if (token !== generation || !running.includes(slide)) return;
             host.body.dataset.filesHidden = resting;
             if (next) {
               startCurtain();
