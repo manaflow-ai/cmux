@@ -13,11 +13,16 @@ extension AppServices {
         DebugTimings.markLaunch("launch.non_paint_services")
     }
 
-    /// Warm-ups for later tabs (WebKit for agent pages, Chromium, the New Tab spare, page hosts)
-    /// and the agent tab import. Each reads current state when it starts, so nothing the window build did is missed.
-    func startLaterTabWarmups() {
+    /// WebKit's process-wide start for agent pages (the shared process pool and data store, the
+    /// first web view), in a frame of its own before any deferred chat makes its view.
+    func startWebKitWarmup() {
         AgentPaneView.startWarmup()
         DebugTimings.markLaunch("launch.agent_page_warmup")
+    }
+
+    /// Warm-ups for later tabs (Chromium, the New Tab spare, page hosts) and the agent tab import.
+    /// Each reads current state when it starts, so nothing the window build did is missed.
+    func startLaterTabWarmups() {
         if !crashRecovery.recovery.skipsBrowserPages { startChromiumWarmup() }
         newTabSpares.start()
         pageHostPool.start(

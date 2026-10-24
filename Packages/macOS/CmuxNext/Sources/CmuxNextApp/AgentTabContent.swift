@@ -22,7 +22,8 @@ struct AgentTabContent {
             key, reveal: services.launchReveal, firstFrame: services.firstFrame, focusedPane: focused, pane: pane.paneKey,
             focusedDraws: focused.flatMap { key in pane.workspace?.panes.values.first { $0.paneKey == key } }?.showsLiveTerminal ?? false
         ) { [weak pane] in
-            if let pane, pane.currentTabKey == key { pane.showSelected() }
+            // Within the presentation budget (one new surface per display frame), not in the gate's turn.
+            if let pane, pane.currentTabKey == key { pane.services.presentation.setNeedsShowSelected(pane) }
         }
         if deferred {
             drawLastPage(key, until: nil)
