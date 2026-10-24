@@ -18,6 +18,24 @@ import Testing
         }
     }
 
+    /// Lane bodies (synchronous) report that they started; the async test awaits the reports.
+    struct Started: Sendable {
+        private let stream: AsyncStream<Void>
+        private let continuation: AsyncStream<Void>.Continuation
+
+        init() { (stream, continuation) = AsyncStream.makeStream(of: Void.self) }
+
+        func signal() { continuation.yield() }
+
+        func wait(_ count: Int = 1) async {
+            var left = count
+            for await _ in stream {
+                left -= 1
+                if left == 0 { return }
+            }
+        }
+    }
+
     @Test(arguments: BlockingLane.allCases, WorkPriority.allCases)
     func aMayBlockItemRunsOnItsLaneAtItsQoSNeverOnTheCooperativePool(lane: BlockingLane, priority: WorkPriority) async throws {
         let work = BackgroundWork(cpuWidth: 2, label: "test.work")
@@ -33,7 +51,7 @@ import Testing
     @Test func blockedLaneItemsLeaveTheCooperativePoolFree() async throws {
         let work = BackgroundWork(cpuWidth: 4, label: "test.pool")
         let release = DispatchSemaphore(value: 0)
-        let started = DispatchSemaphore(value: 0)
+        let started = Started()
         let levels = WorkPriority.allCases.count
         // More blocked items than the pool has threads: on the pool they would starve every task below.
         let blockers = max(2 * levels, ProcessInfo.processInfo.activeProcessorCount + 2 * levels)
@@ -45,12 +63,12 @@ import Testing
             }
         }
         // Wait until every slot (4 priorities on 2 lanes) holds a blocked item.
-        for _ in 0..<(2 * WorkPriority.allCases.count) { started.wait() }
+        await started.wait(2 * levels)
         // The pool still runs a burst of short tasks (one per core and more) while every lane slot is blocked.
         let count = ProcessInfo.processInfo.activeProcessorCount * 4
         let done = await withTaskGroup(of: Int.self) { group in
             for index in 0..<count { group.addTask { index } }
-            return await group.reduce(0) { $0 + 1 }
+            return await group.reduce(0) { total, _ in total + 1 }
         }
         #expect(done == count)
         for _ in 0..<blockers { release.signal() }
@@ -77,13 +95,13 @@ import Testing
     @Test func aWaiterAbovePriorityBoostsTheItemPastBlockedLowerWork() async throws {
         let work = BackgroundWork(label: "test.boost")
         let release = DispatchSemaphore(value: 0)
-        let blocked = DispatchSemaphore(value: 0)
+        let blocked = Started()
         // The best-effort slot of the files lane is held.
         work.post(.bestEffort, mayBlock: .files) {
             blocked.signal()
             release.wait()
         }
-        blocked.wait()
+        await blocked.wait()
         // A user-blocking caller asks for best-effort work: it runs at the caller's priority, on the
         // user-blocking slot, while the best-effort slot is still held (else this await never returns).
         let seen = try await Task(priority: .high) {
@@ -98,12 +116,12 @@ import Testing
         guard #available(macOS 26.0, *) else { return }
         let work = BackgroundWork(label: "test.escalate")
         let release = DispatchSemaphore(value: 0)
-        let blocked = DispatchSemaphore(value: 0)
+        let blocked = Started()
         work.post(.bestEffort, mayBlock: .files) {
             blocked.signal()
             release.wait()
         }
-        blocked.wait()
+        await blocked.wait()
         // A best-effort waiter queues behind the held slot ...
         let waiter = Task(priority: .utility) {
             try await work.run(.bestEffort, mayBlock: .files) { Seen.here() }
@@ -135,12 +153,12 @@ import Testing
     @Test func aCancelledQueuedItemNeverRuns() async throws {
         let work = BackgroundWork(label: "test.cancel")
         let release = DispatchSemaphore(value: 0)
-        let blocked = DispatchSemaphore(value: 0)
+        let blocked = Started()
         work.post(.bestEffort, mayBlock: .files) {
             blocked.signal()
             release.wait()
         }
-        blocked.wait()
+        await blocked.wait()
         let ran = Mutex(false)
         let waiter = Task(priority: .utility) {
             try await work.run(.bestEffort, mayBlock: .files) { ran.withLock { $0 = true } }
@@ -156,13 +174,13 @@ import Testing
     @Test func shutdownWaitsForBlockShutdownItemsAndDropsTheRest() async throws {
         let work = BackgroundWork(label: "test.shutdown")
         let release = DispatchSemaphore(value: 0)
-        let blocked = DispatchSemaphore(value: 0)
+        let blocked = Started()
         let log = Mutex<[String]>([])
         work.post(.bestEffort, mayBlock: .files) {
             blocked.signal()
             release.wait()
         }
-        blocked.wait()
+        await blocked.wait()
         work.post(.bestEffort, mayBlock: .files, shutdown: .skipOnShutdown) { log.withLock { $0.append("skip") } }
         work.post(.bestEffort, mayBlock: .files, shutdown: .blockShutdown) { log.withLock { $0.append("save") } }
         let reader = Task(priority: .utility) {
