@@ -485,7 +485,9 @@ fn mutate(
             {
                 super::participant_avatars::publish(mux, &record.id, record.avatar.as_ref());
             }
-            if !replayed && rev_before != Some(record.rev) {
+            // A delete answers the record as it was (same rev): it is still a change.
+            if !replayed && (operation == Op::ChiefProfileDelete || rev_before != Some(record.rev))
+            {
                 let change = match operation {
                     Op::ChiefProfileCreate | Op::ChiefProfileAdopt => "created",
                     Op::ChiefProfileDelete => "deleted",
@@ -557,9 +559,8 @@ fn audit_actor(
     if agent_claim {
         return "agent".to_owned();
     }
-    match request_actor {
-        Actor::AcpSession { .. } => return request_actor.wire(),
-        _ => {}
+    if let Actor::AcpSession { .. } = request_actor {
+        return request_actor.wire();
     }
     match caller {
         Caller::Chief(me) => me.clone(),
