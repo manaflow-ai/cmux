@@ -555,7 +555,9 @@ def run_session(session):
                      env={"CMUX_NEXT_TYPING_PROBE": PROBE, "CMUX_NEXT_HANG_THRESHOLD_MS": "8"})
     try:
         try:
-            bench.launch(timeout=180, settle=5.0)
+            # Ready when debug.windows answers with a window (no settle sleep: BenchApp.launch has none). Launch work
+            # still running shows in round 0's rows, which are kept per round.
+            bench.launch(timeout=180)
         except LaunchError as error:
             note(f"{session}: the app did not come up: {error.reason}")
             results.setdefault("launch_failures", []).append({"session": session, "reason": error.reason,
