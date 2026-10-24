@@ -101,6 +101,7 @@ use test_pty::FdMasterPty;
 #[cfg(test)]
 use test_pty::{
     StartupChild, StartupChildState, TestChildKiller, TestMasterPty, TestMasterPtyControl,
+    TestPtyWriter,
 };
 #[cfg(any(unix, windows))]
 mod clipboard_read;

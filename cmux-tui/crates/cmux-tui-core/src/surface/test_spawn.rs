@@ -185,7 +185,7 @@ impl Surface {
                     LockRank::Runtime,
                     "pty.runtime",
                     PtyRuntime::Local {
-                        writer: Box::new(std::io::sink()),
+                        writer: Box::new(TestPtyWriter { control: test_master_control.clone() }),
                         master: Some(Box::new(TestMasterPty {
                             size: Mutex::new(initial_pty_size),
                             control: test_master_control.clone(),

@@ -247,6 +247,18 @@ impl Surface {
         }
     }
 
+    /// Holds (true) or releases (false) a test PTY's input: while held, a
+    /// write blocks, as the input of a program that stopped reading does.
+    #[cfg(test)]
+    pub(crate) fn hold_test_input(&self, held: bool) {
+        let control = self
+            .as_pty()
+            .and_then(|pty| pty.test_master_control.as_ref())
+            .expect("test PTY surface");
+        *control.input_held.lock().unwrap() = held;
+        control.input_released.notify_all();
+    }
+
     #[cfg(test)]
     pub(crate) fn fail_next_test_master_resize(&self) {
         self.as_pty()
