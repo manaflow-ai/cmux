@@ -81,6 +81,9 @@ public final class TabStripView: NSView {
     let windowVisibility = WindowVisibilityObserver()
     /// In a window and not hidden (`syncShown`).
     private(set) var isShownInWindow = false
+    /// Files the strip under its window while it shows, so its busy tabs resync with that window
+    /// (`TabStripView+StatusIndicators`).
+    let indicatorPlacement = StatusIndicatorPlacement()
     /// An appearance or scale change came while hidden; applied when shown.
     private var appearanceIsStale = false
     /// Group chips, bands, drag, and optimistic membership.
@@ -340,18 +343,19 @@ public final class TabStripView: NSView {
         syncShown()
     }
 
-    /// The window-wide fan-outs (hover-card hit tests, main and occlusion changes) reach only a
-    /// shown strip: a hidden one (a parked workspace, still in its window, or a hidden screen bar)
-    /// is not in them, and an appearance or scale change waits until it shows. Showing re-reads
+    /// The window-wide fan-outs (hover-card hit tests, main and occlusion changes, indicator
+    /// resyncs) reach only a shown strip: a hidden one (a parked workspace, still in its window, or
+    /// a hidden screen bar) is not in them, and an appearance or scale change waits until it shows. Showing re-reads
     /// the window's state; its model observation never stopped, so its cells are current.
     func syncShown(_ shown: Bool? = nil) {
         let shown = shown ?? (window != nil && !isHiddenOrHasHiddenAncestor)
+        // Last, once the strip reads its window again: a resync it missed while hidden runs then.
+        defer { indicatorPlacement.update(self, in: window, shown: shown) }
         guard shown != isShownInWindow else { return }
         isShownInWindow = shown
         hoverCards.unregister(hoverCard)
         windowMain.observe(shown ? window : nil) { [weak self] isMain in self?.cells.values.forEach { $0.isWindowMain = isMain } }
         windowVisibility.observe(shown ? window : nil) { [weak self] visible in self?.cells.values.forEach { $0.isWindowVisible = visible } }
-        for cell in cells.values { cell.isStripShown = shown }
         guard shown else {
             if window != nil { endPointerState() }
             return

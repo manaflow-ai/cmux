@@ -92,40 +92,31 @@ public nonisolated struct StatusIndicatorConfig: Hashable, Sendable {
     }
 }
 
-/// A host that redraws its indicators when the config changes.
+/// A host that redraws its indicators when the config changes. Checking itself again when its
+/// window's state changes is ``StatusIndicatorResyncClient``'s, per window.
 @MainActor
 public protocol StatusIndicatorConfigClient: AnyObject {
     func statusIndicatorConfigDidChange(_ config: StatusIndicatorConfig)
-    /// Checks the indicator against what it should show now (its window's visibility, a loop it
-    /// lacks) when the app comes back: to the front, unhidden, a window made main, or after sleep.
-    func statusIndicatorResync()
 }
 
-public extension StatusIndicatorConfigClient {
-    func statusIndicatorResync() {
-        statusIndicatorConfigDidChange(StatusIndicatorAppearance.shared.config)
-    }
-}
-
-/// The shared config and its change broadcast.
+/// The shared config and its change broadcast. A config change (a setting, a Debug Settings
+/// tunable, Reduce Motion) restyles every indicator; a resync after a Cmd-Tab, window switch,
+/// activation or wake is per window (`WindowIndicatorResync`), not this broadcast.
 @MainActor
 public final class StatusIndicatorAppearance {
     public static let shared = StatusIndicatorAppearance()
 
     public private(set) var config: StatusIndicatorConfig
-    /// Indicators a resync reached and checked again (`debug.layout_counters` `indicator_resyncs`):
-    /// an app activation should touch the indicators on screen only, never every row and tab.
+    /// Indicators that did a resync's work (`debug.layout_counters` `indicator_resyncs`): a Cmd-Tab
+    /// or window switch should touch the indicators shown in the window that changed, never every
+    /// row and tab.
     public static var resyncs: UInt64 = 0
     private let clients = NSHashTable<AnyObject>.weakObjects()
     private var observation: Task<Void, Never>?
     private var reduceMotionObserver: MainActorObservation?
     private var reduceMotionOverrideObserver: (any NSObjectProtocol)?
-    private var resyncObservers: [MainActorObservation] = []
 
-    /// - Parameters:
-    ///   - appCenter: Where the app and window notices arrive (tests post to their own).
-    ///   - workspaceCenter: Where the wake notices arrive.
-    init(appCenter: NotificationCenter = .default, workspaceCenter: NotificationCenter = NSWorkspace.shared.notificationCenter) {
+    init() {
         config = StatusIndicatorConfig.current
         startObserving()
         // Reduce Motion is not observable through Observation.
@@ -139,29 +130,6 @@ public final class StatusIndicatorAppearance {
         reduceMotionOverrideObserver = NotificationCenter.default.addObserver(
             forName: Motion.reduceMotionDidChange, object: nil, queue: nil) { [weak self] _ in
             MainDelivery().run { self?.apply(StatusIndicatorConfig.current) }
-        }
-        observeResyncMoments(app: appCenter, workspace: workspaceCenter)
-    }
-
-    /// Indicators pause while their window is hidden and resume on its occlusion notice; a notice
-    /// that never comes (a row out of the list when it was posted, a wake that posts none) used to
-    /// leave every row's spinner still until its state changed (Leo 2026-10-20). Whenever the app
-    /// comes back, every indicator checks itself again.
-    private func observeResyncMoments(app: NotificationCenter, workspace: NotificationCenter) {
-        let moments: [(NotificationCenter, Notification.Name)] = [
-            (app, NSApplication.didBecomeActiveNotification), (app, NSApplication.didUnhideNotification),
-            (app, NSWindow.didBecomeMainNotification), (workspace, NSWorkspace.didWakeNotification),
-            (workspace, NSWorkspace.screensDidWakeNotification), (workspace, NSWorkspace.sessionDidBecomeActiveNotification),
-        ]
-        resyncObservers = moments.map { center, name in
-            MainActorObservation(name, center: center) { [weak self] in self?.resync() }
-        }
-    }
-
-    /// Tells every client to check its indicator again (`statusIndicatorResync`).
-    public func resync() {
-        for case let client as any StatusIndicatorConfigClient in clients.allObjects {
-            client.statusIndicatorResync()
         }
     }
 

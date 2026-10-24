@@ -140,14 +140,14 @@ extension TabCell: StatusIndicatorConfigClient {
         isSpinnerExiting = false
     }
 
-    /// Checks the indicator again (the app came back, a window became main, the Mac woke): now
-    /// when the strip shows, else when it shows again.
+    /// The cell draws a status mark or a busy indicator: a resync reaches it (`showsStatusIndicator`
+    /// is what registered it with the appearance).
+    var showsStatusIndicator: Bool { item.isBusy || item.status != .none }
+
+    /// Checks the indicator again. Its strip calls it only while the strip shows, when the strip's
+    /// window became main or came back (`TabStripView+StatusIndicators`), and once when a parked
+    /// strip shows after it missed that.
     func statusIndicatorResync() {
-        guard isStripShown else {
-            owesIndicatorResync = true
-            return
-        }
-        owesIndicatorResync = false
         StatusIndicatorAppearance.resyncs &+= 1
         statusIndicatorConfigDidChange(StatusIndicatorAppearance.shared.config)
     }

@@ -6,7 +6,7 @@ public import CmuxNextDesignTokens
 /// group headers, section items, Home, pane headers). Follows the shared
 /// config live, resolves colors in its theme scope, and stops animating
 /// while its window is occluded, off screen or under Reduce Motion.
-public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
+public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient, StatusIndicatorResyncClient {
     public let indicator = StatusIndicatorLayer()
     public private(set) var state: StatusIndicatorState = .idle
     /// The reporter's style hint (`cmux status set --style`); nil uses the
@@ -43,6 +43,8 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
 
     private var occlusionObserver: MainActorObservation?
     private weak var observedWindow: NSWindow?
+    /// Files the view under its window while it shows there, so its window's resyncs reach it.
+    private let placement = StatusIndicatorPlacement()
 
     public override init(frame: NSRect) {
         super.init(frame: frame)
@@ -77,27 +79,31 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
         superview?.needsLayout = true
     }
 
-    /// A resync arrived while the view was out of a window or hidden (its own flag or an
-    /// ancestor's: a parked workspace, a collapsed group); it runs when the view shows again.
-    private var owesResync = false
-
-    /// Checks the indicator again (the app came back, a window became main, the Mac woke). Only
-    /// an indicator on screen does the work now: an activation costs what shows, not every row
-    /// and tab of the session (user 2026-10-21, Cmd-Tab lag with many workspaces).
+    /// Checks the indicator again (its window became main, or the app came back while the window
+    /// is on screen, or the window showed after it missed that). Its window's indicator set calls
+    /// only shown views (`StatusIndicatorPlacement`): a Cmd-Tab costs the indicators shown in the
+    /// window that changed, not every row and tab of the session (user 2026-10-21, Cmd-Tab lag with
+    /// many workspaces); a hidden view catches up once when it shows.
     public func statusIndicatorResync() {
-        guard window != nil, !isHiddenOrHasHiddenAncestor else {
-            owesResync = true
-            return
-        }
-        owesResync = false
         StatusIndicatorAppearance.resyncs &+= 1
         if let window { isWindowVisible = window.occlusionState.contains(.visible) }
         refresh()
     }
 
+    public override func viewDidHide() {
+        super.viewDidHide()
+        place()
+    }
+
     public override func viewDidUnhide() {
         super.viewDidUnhide()
-        if owesResync, !isHiddenOrHasHiddenAncestor { statusIndicatorResync() }
+        place()
+    }
+
+    /// Files the view under its window, shown or hidden there (its own flag or an ancestor's: a
+    /// parked workspace, a collapsed group, an idle indicator that hides itself).
+    private func place() {
+        placement.update(self, in: window, shown: window != nil && !isHiddenOrHasHiddenAncestor)
     }
 
     private func refresh() {
@@ -139,10 +145,10 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        owesResync = false
         observeOcclusion()
         if let window { isWindowVisible = window.occlusionState.contains(.visible) }
         refresh()
+        place()
     }
 
     /// Watches the current window's occlusion while `tracksWindowOcclusion` is on; a window that

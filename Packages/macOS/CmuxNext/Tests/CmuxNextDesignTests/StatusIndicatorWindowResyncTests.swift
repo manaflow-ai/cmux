@@ -17,12 +17,7 @@ import Testing
         let workspace = NotificationCenter()
         var visible: Set<ObjectIdentifier> = []
         var pending: [@MainActor () -> Void] = []
-        let appearance: StatusIndicatorAppearance
         var windows: [NSWindow] = []
-
-        init() {
-            appearance = StatusIndicatorAppearance(appCenter: center, workspaceCenter: workspace)
-        }
 
         var environment: WindowKeyEnvironment {
             WindowKeyEnvironment(center: center, keyWindow: { nil }, isAppActive: { true },
@@ -48,7 +43,6 @@ import Testing
             let fixture = Fixture(window: window, parked: hidden,
                                   shown: (0..<shown).map { _ in Self.indicator(in: content) },
                                   hidden: (0..<parked).map { _ in Self.indicator(in: hidden) })
-            for view in fixture.shown + fixture.hidden { appearance.register(view) }
             return fixture
         }
 
@@ -96,6 +90,9 @@ import Testing
                           (app.center, NSWindow.didBecomeMainNotification, front.window)]) == 4,
                 "a window switch resynced indicators of a window whose state did not change")
         #expect(app.post([(app.center, NSWindow.didBecomeMainNotification, back.window)]) == 6)
+        // The calls each window's set made: its shown indicators, per event that changed it.
+        #expect(WindowKeyFamily.of(front.window).indicators.touches == 4)
+        #expect(WindowKeyFamily.of(back.window).indicators.touches == 6)
     }
 
     @Test func aCmdTabResyncsTheWindowsOnScreenOnce() {
@@ -150,5 +147,26 @@ import Testing
         front.parked.isHidden = false
         #expect(StatusIndicatorAppearance.resyncs - before == 50, "an indicator that owed nothing resynced when it showed")
         #expect(app.post([(app.center, NSWindow.didBecomeMainNotification, front.window)]) == 52)
+    }
+
+    @Test func showingAParkedIndicatorThatMissedNothingCostsNothing() {
+        let app = App()
+        defer { app.close() }
+        let front = app.window(shown: 1, parked: 20)
+        let before = StatusIndicatorAppearance.resyncs
+        front.parked.isHidden = false
+        front.parked.isHidden = true
+        front.parked.isHidden = false
+        #expect(StatusIndicatorAppearance.resyncs == before)
+    }
+
+    @Test func aWindowWithNoIndicatorObservesNothing() {
+        let app = App()
+        defer { app.close() }
+        let front = app.window(shown: 2, parked: 0)
+        let indicators = WindowKeyFamily.of(front.window).indicators
+        #expect(indicators.isObserving)
+        for view in front.shown { view.removeFromSuperview() }
+        #expect(!indicators.isObserving, "a window whose indicators left still hears every notice")
     }
 }

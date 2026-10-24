@@ -12,10 +12,15 @@ import ObjectiveC
 /// associated object), so no process-wide instance exists, and it observes only while the window
 /// has a material view: a window kept alive with none (a reused panel, a swapped backdrop) costs
 /// nothing per key change.
+///
+/// It also holds the window's status indicators (``indicators``): a resync reaches the window whose
+/// state changed, not every indicator of the app.
 @MainActor
 final class WindowKeyFamily {
     private weak var window: NSWindow?
     private let environment: WindowKeyEnvironment
+    /// The status indicators in this window (``WindowIndicatorResync``).
+    let indicators: WindowIndicatorResync
     private let views = NSHashTable<WindowMaterialView>.weakObjects()
     private var observers: [MainActorObservation] = []
     /// The keyboard left the window's family after the family held it.
@@ -49,6 +54,7 @@ final class WindowKeyFamily {
     private init(window: NSWindow, environment: WindowKeyEnvironment) {
         self.window = window
         self.environment = environment
+        indicators = WindowIndicatorResync(window: window, environment: environment)
     }
 
     func add(_ view: WindowMaterialView) {
