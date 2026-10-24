@@ -204,47 +204,76 @@ class FileChange:
         return Version(self.path, self.base_lines, changed, changed | self.base_touched, kinds=self.base_kinds)
 
 
-# A type declaration at the start of a line: `public final class Name`, `actor Name`, `enum Name`.
+# A type declaration at the start of a line: `public final class Name`, `actor Name`, `enum Name`. TYPE_DECL
+# decides, on a grep hit and on a diff line alike; TYPE_DECL_GREP is git grep's wider prefilter for it.
 TYPE_DECL = re.compile(r"^\s*(?:(?:@\w+(?:\([^)]*\))?|public|package|internal|private|fileprivate|final|open|"
                        r"nonisolated|indirect|distributed)\s+)*(class|actor|struct|enum|protocol)\s+(\w+)")
-TYPE_DECL_GREP = (r"^[[:space:]]*((@[A-Za-z_]+(\([^)]*\))?|public|package|internal|private|fileprivate|final|open|"
-                  r"nonisolated|indirect|distributed)[[:space:]]+)*(class|actor|struct|enum|protocol)[[:space:]]+[A-Za-z_]")
+TYPE_DECL_GREP = (r"^[[:space:]]*((@[[:alnum:]_]+(\([^)]*\))?|public|package|internal|private|fileprivate|final|"
+                  r"open|nonisolated|indirect|distributed)[[:space:]]+)*(class|actor|struct|enum|protocol)[[:space:]]+"
+                  r"[A-Za-z_]")
+
+
+def declarations(lines) -> dict[str, collections.Counter]:
+    """name -> {keyword: how many of LINES declare it so} (TYPE_DECL)."""
+    found: dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
+    for line in lines:
+        match = TYPE_DECL.match(line)
+        if match:
+            found[match.group(2)][match.group(1)] += 1
+    return found
+
+
+def classify(keywords: set[str]) -> str | None:
+    """"reference" (only class or actor), "value" (only struct or enum), or None (undeclared, or both ways)."""
+    keywords = keywords - {"protocol"}
+    if keywords and keywords <= {"class", "actor"}:
+        return "reference"
+    if keywords and keywords <= {"struct", "enum"}:
+        return "value"
+    return None
 
 
 class TypeIndex:
-    """Whether a name is declared as a reference type (class, actor) or a value type in the Swift sources at a rev.
+    """Whether a name is declared as a reference type (class, actor) or a value type in the Swift sources.
 
-    Read with one `git grep` per rev, and only when a rule asks (a named static outside a class or actor):
-    about 0.7 s on the whole tree, so a push that adds no such line pays nothing.
+    One `git grep` of HEAD's Sources (about 1 s on the whole tree: git inflates every blob, whatever the
+    pattern), read only when a rule asks (a named static outside a class or actor), so a push that adds no such
+    line pays nothing. Another rev's declarations are HEAD's with that rev's diff to HEAD undone (its added
+    declaration lines out, its removed ones back), so every range of one push (check_push checks two for a
+    merged branch) shares the one grep.
     """
 
-    def __init__(self, repo: Path):
+    def __init__(self, repo: Path, head: str):
         self.repo = repo
-        self.revs: dict[str, dict[str, set[str]]] = {}
+        self.head = head
+        self.found: collections.Counter | None = None
 
-    def kind(self, rev: str, name: str) -> str | None:
-        """"reference", "value", or None (not declared in Sources, or declared both ways)."""
-        if rev not in self.revs:
-            self.revs[rev] = self.scan(rev)
-        kinds = self.revs[rev].get(name, set()) - {"protocol"}
-        if kinds and kinds <= {"class", "actor"}:
-            return "reference"
-        if kinds and kinds <= {"struct", "enum"}:
-            return "value"
-        return None
+    def at_head(self) -> dict[str, collections.Counter]:
+        if self.found is None:
+            result = git_batch.run(self.repo, ["grep", "-h", "-I", "-E", TYPE_DECL_GREP, self.head, "--",
+                                               SWIFT_SOURCES], env=git_env())
+            if result.returncode not in (0, 1):  # 1: no match
+                raise git_batch.GitError(f"git grep of type declarations at {self.head} failed: "
+                                         f"{result.stderr.decode('utf-8', 'replace').strip()}")
+            self.found = declarations(result.stdout.decode("utf-8", "replace").split("\n"))
+        return self.found
 
-    def scan(self, rev: str) -> dict[str, set[str]]:
-        result = git_batch.run(self.repo, ["grep", "-h", "-I", "-E", TYPE_DECL_GREP, rev, "--", SWIFT_SOURCES],
-                               env=git_env())
-        if result.returncode not in (0, 1):  # 1: no match
-            raise git_batch.GitError(f"git grep of type declarations at {rev} failed: "
-                                     f"{result.stderr.decode('utf-8', 'replace').strip()}")
-        declared: dict[str, set[str]] = collections.defaultdict(set)
-        for line in result.stdout.decode("utf-8", "replace").split("\n"):
-            match = TYPE_DECL.match(line)
-            if match:
-                declared[match.group(2)].add(match.group(1))
-        return declared
+    def sides(self, changes: list[FileChange]) -> tuple[Callable[[str], str | None], Callable[[str], str | None]]:
+        """(kind at HEAD, kind at the base of CHANGES), CHANGES being one range's diff to HEAD (TypeIndex)."""
+        swift = [c for c in changes if c.path.startswith(SOURCES) and c.path.endswith(".swift")]
+        added = declarations(a.text for c in swift for a in c.added)
+        removed = declarations(r.text for c in swift for r in c.removed)
+        empty = collections.Counter()
+
+        def head_kind(name: str) -> str | None:
+            return classify(set(+self.at_head().get(name, empty)))
+
+        def base_kind(name: str) -> str | None:
+            # Counter arithmetic keeps positive counts only: what HEAD declares, less what the range added, plus
+            # what it removed.
+            return classify(set(self.at_head().get(name, empty) - added.get(name, empty) + removed.get(name, empty)))
+
+        return head_kind, base_kind
 
 
 @dataclass
@@ -1288,8 +1317,12 @@ def check_failure(name: str, error: Exception) -> str:
             "(fail open); the other rules were. Tell the Performance Lead (PL-guardrails) with this line.")
 
 
-def check(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Added]]], list[tuple[str, str]]]:
-    """(refusals [(rule, hits)], warnings [(kind, text)]) for what HEAD adds over BASE."""
+def check(repo: Path, base: str, head: str, types: TypeIndex | None = None
+          ) -> tuple[list[tuple[Rule, list[Added]]], list[tuple[str, str]]]:
+    """(refusals [(rule, hits)], warnings [(kind, text)]) for what HEAD adds over BASE.
+
+    TYPES is HEAD's type index; check_push passes one for all its ranges (they share HEAD).
+    """
     # Fixed prefixes: a user's diff.noprefix / diff.srcPrefix would otherwise drop every file from the parse.
     diff, names = run_both(repo, ["diff", "-U0", "--no-color", "--no-renames", "--no-ext-diff", "--src-prefix=a/",
                                   "--dst-prefix=b/", base, head, "--", SWIFT_SOURCES, SWIFT_TESTS,
@@ -1313,10 +1346,9 @@ def check(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Added
         change.head_lines = text.split("\n")
         change.base_lines = texts.get((base, path), "").split("\n")
         change.has_perf_hot = "perf-hot:" in text
-    types = TypeIndex(repo)
+    head_kinds, base_kinds = (types or TypeIndex(repo, head)).sides(list(changes.values()))
     for change in changes.values():
-        change.head_kinds = lambda name, rev=head: types.kind(rev, name)
-        change.base_kinds = lambda name, rev=base: types.kind(rev, name)
+        change.head_kinds, change.base_kinds = head_kinds, base_kinds
     files = [changes[p] for p in paths]
     moved = collections.Counter(r.text.strip() for c in files for r in c.removed if r.text.strip())
     refusals = []
@@ -1363,8 +1395,9 @@ def check_push(repo: Path, base: str, head: str, upstream_ref: str = UPSTREAM):
         return check(repo, base, head)
     if is_ancestor(repo, base, upstream):
         return check(repo, upstream, head)
-    pushed, pushed_warnings = check(repo, base, head)
-    branch, warnings = check(repo, upstream, head)
+    types = TypeIndex(repo, head)  # both ranges end at HEAD: one type grep serves them
+    pushed, pushed_warnings = check(repo, base, head, types)
+    branch, warnings = check(repo, upstream, head, types)
     # A rule that failed on the pushed range is off for this push even when it ran on the branch's own range.
     warnings += [w for w in pushed_warnings if w[0] == "guardrails" and w not in warnings]
     own = collections.Counter((rule.id, h.path, h.text.strip()) for rule, hits in branch for h in hits)
