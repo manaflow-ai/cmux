@@ -113,11 +113,11 @@ test("Send now on a waiting steer asks queue_edit send_now for its promptId, and
       daemon.push(record([["mux", "user_message", { promptId: "p-next", text: "Then open a PR" }]], 3));
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    await render();
-    expect(sendNowButtons().map((button) => Boolean(button.closest(".cv-user__pending--leaving")))).toEqual([true]);
-    // The fold's timer is the behavior: fake timers run it out.
+    // The fold's timer is the behavior: it starts on this render, on fake timers that run it out.
     jest.useFakeTimers();
     try {
+      await render();
+      expect(sendNowButtons().map((button) => Boolean(button.closest(".cv-user__pending--leaving")))).toEqual([true]);
       await act(() => void jest.advanceTimersByTime(1_000));
     } finally {
       jest.useRealTimers();
