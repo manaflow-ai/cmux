@@ -810,6 +810,58 @@ class RatchetTests(Repo):
         refusals, notes = ratchet.check_range(self.repo, base, own, [], upstream_ref="upstream")
         self.assertEqual(refusals, [], notes)
 
+    def merge_push(self, upstream_files, own_files, upstream_json=None):
+        """(base, head) of a merge push: the pushed branch is on the remote at BASE (a commit of its own after
+        the fork point), upstream lands UPSTREAM_FILES ({path: text or None to remove}) and UPSTREAM_JSON,
+        and the push adds OWN_FILES and merges upstream in."""
+        fork = self.git("rev-parse", "HEAD")
+        self.write("README", "the pushed branch, already on the remote\n")
+        base = self.commit("pushed earlier")
+        self.git("checkout", "--quiet", "-b", "upstream", fork)
+        for path, text in upstream_files.items():
+            self.remove(path) if text is None else self.write(path, text)
+        if upstream_json is not None:
+            self.write(counts.RATCHET_JSON, json.dumps(upstream_json))
+        self.commit("landed upstream")
+        self.git("checkout", "--quiet", "feat-cmux-next")
+        for path, text in own_files.items():
+            self.write(path, text)
+        self.commit("the push's own change")
+        self.git("merge", "--quiet", "--no-edit", "--no-ff", "upstream")
+        head = self.git("rev-parse", "HEAD")
+        self.assertNotIn(self.git("merge-base", base, "upstream"), (base, self.git("rev-parse", "upstream")))
+        return base, head
+
+    def test_a_merge_push_refuses_its_own_rise_next_to_an_upstream_drop(self):
+        # The review's case: upstream drops three statics of a row, the push adds one in another package and
+        # merges upstream in. Over base..head the row reads -2 (the minimum of two ranges took it), but the push
+        # itself added +1: one range from where HEAD meets upstream counts it.
+        cache = f"{SRC}/CmuxNextSidebar/Cache.swift"
+        self.write(cache, "enum Cache {\n    static var a = 0\n    static var b = 0\n    static var c = 0\n}\n")
+        self.commit("standing debt")
+        base, head = self.merge_push({cache: None}, {f"{SRC}/CmuxNextBrowser/Other.swift":
+                                                     "enum Other {\n    static var d = 0\n}\n"})
+        refusals, notes = ratchet.check_range(self.repo, base, head, [], upstream_ref="upstream")
+        self.assertEqual(self.rows(refusals), ["global_mutable_statics"], notes)
+        self.assertIn("+1 (CmuxNextBrowser +1)", refusals[0][1])
+        self.assertIn("Other.swift:2: static var d = 0", refusals[0][1])
+        self.assertFalse(any(ratchet.UPDATE_HINT in n for n in notes), notes)
+
+    def test_a_merge_push_cannot_raise_the_record_upstream_lowered(self):
+        # The record rule refused only a rise every range showed: upstream removed a singleton and lowered the
+        # record (1 -> 0); the push merged that in and wrote 1 back by hand. Over base..head the json reads 1 -> 1,
+        # so the two-range rule let it through. Over the one range from where HEAD meets upstream it is 0 -> 1.
+        self.record_singletons(1)
+        self.add_singleton()
+        base, head = self.merge_push({f"{SRC}/CmuxNextDomain/Store+Shared.swift": None}, {},
+                                     upstream_json={"method_version": counts.METHOD_VERSION, "measured_sha": "0" * 40,
+                                                    "totals": {"stateful_singletons": 0}, "exceptions": []})
+        self.record_singletons(1)
+        head = self.commit("writes the merged record back up by hand")
+        refusals, notes = ratchet.check_range(self.repo, base, head, [], upstream_ref="upstream")
+        self.assertEqual(self.rows(refusals), [ratchet.RECORD_ROW], notes)
+        self.assertIn("raises stateful_singletons from 0 to 1", refusals[0][1])
+
     def test_a_push_that_raises_or_deletes_the_recorded_totals_is_refused(self):
         code, out = self.update()
         self.assertEqual(code, 0, out)
@@ -1069,7 +1121,7 @@ class RatchetTests(Repo):
         self.git("merge", "--quiet", "--no-edit", "--no-ff", "upstream")
         self.record_singletons(1, sha="2" * 40)  # true at HEAD: upstream's singleton is left
         head = self.commit("lowers the record")
-        self.assertNotEqual(self.git("merge-base", base, "upstream"), base)  # two ranges: base..head, upstream..head
+        self.assertNotEqual(self.git("merge-base", base, "upstream"), base)  # one range: upstream..head
         refusals, notes = ratchet.check_range(self.repo, base, head, [], upstream_ref="upstream")
         self.assertEqual(refusals, [])
         self.assertTrue(any(n.startswith("arch-ratchet: stateful_singletons -1 ") for n in notes), notes)

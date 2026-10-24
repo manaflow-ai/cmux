@@ -131,13 +131,12 @@ class LayerGateTests(unittest.TestCase):
         head = self.repo.commit(files)
         refusals, notes = gate.check(self.base, head, Changes(self.repo, self.base, head))
         self.assertEqual(notes, [])
-        for rule, text, key, row in refusals:
+        for rule, text, row in refusals:
             self.assertEqual(rule, "layer-gate")
             self.assertIn('"row": "layer-gate", "allow": 1', text)
             self.assertNotIn("ARCH_RATCHET_SKIP_REASON", text)
-            self.assertTrue(key, text)
             self.assertIn(row, (None, "layer_hard", "layer_soft", "layer_upward", "layer_unplaced"), text)
-        return [text for _, text, _, _ in refusals]
+        return [text for _, text, _ in refusals]
 
     def with_deps(self, **changes: list[str]) -> dict[str, list[str]]:
         deps = {name: list(entries) for name, entries in BASE_DEPS.items()}
@@ -565,7 +564,9 @@ class ThroughTheRatchetTests(unittest.TestCase):
         git("merge", "-q", "--no-edit", "upstream")
         own = {**landed, "CmuxNextService": landed["CmuxNextService"] + ['"CmuxNextUI"']}
         head = self.repo.commit({gate.PACKAGE_SWIFT: manifest(own)})
-        self.assertEqual(len(self.ratchet.ranges_to_count(self.repo.root, pushed, head, "upstream")), 2)
+        # One range, from where HEAD meets upstream: upstream's edge is in its base.
+        self.assertEqual(self.ratchet.range_to_count(self.repo.root, pushed, head, "upstream"),
+                         (git("rev-parse", "upstream"), head))
         refusals, _ = self.ratchet.check_range(self.repo.root, pushed, head, upstream_ref="upstream")
         gate_texts = [text for row, text in refusals if row == "layer-gate"]
         self.assertEqual(len(gate_texts), 1, gate_texts)
@@ -573,8 +574,8 @@ class ThroughTheRatchetTests(unittest.TestCase):
 
     def test_a_merge_whose_upstream_relabels_the_source_keeps_the_push_own_edge(self):
         # origin/feat-cmux-next relabelled CmuxNextService domain (with its code change and entry); the push merges
-        # it in and adds CmuxNextService -> CmuxNextUI. Over the pushed range the source spans service..domain,
-        # over the upstream range it is domain: the texts differ, the refusal is the same (matched by key).
+        # it in and adds CmuxNextService -> CmuxNextUI. The one range starts where HEAD meets upstream, so the
+        # relabel is in the base: the source is domain there, and the push's own edge is refused once.
         git = self.repo.git
         git("checkout", "-q", "-b", "upstream")
         entry = {"target": "CmuxNextService", "from": "service", "to": "domain", "date": "2026-10-23",
@@ -586,11 +587,12 @@ class ThroughTheRatchetTests(unittest.TestCase):
         git("merge", "-q", "--no-edit", "upstream")
         own = {**BASE_DEPS, "CmuxNextService": BASE_DEPS["CmuxNextService"] + ['"CmuxNextUI"']}
         head = self.repo.commit({gate.PACKAGE_SWIFT: manifest(own)})
-        self.assertEqual(len(self.ratchet.ranges_to_count(self.repo.root, pushed, head, "upstream")), 2)
+        self.assertEqual(self.ratchet.range_to_count(self.repo.root, pushed, head, "upstream"),
+                         (git("rev-parse", "upstream"), head))
         refusals, _ = self.ratchet.check_range(self.repo.root, pushed, head, upstream_ref="upstream")
         gate_texts = [text for row, text in refusals if row == "layer-gate"]
         self.assertEqual(len(gate_texts), 1, gate_texts)
-        self.assertIn("new edge CmuxNextService (service) -> CmuxNextUI (ui)", gate_texts[0])
+        self.assertIn("new edge CmuxNextService (domain) -> CmuxNextUI (ui)", gate_texts[0])
 
 
 if __name__ == "__main__":
