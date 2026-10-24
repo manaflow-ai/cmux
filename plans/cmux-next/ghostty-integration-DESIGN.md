@@ -258,6 +258,18 @@ frame what it does not need (create the app and load the config at idle or off m
 the first surface waits for it, not the window). cmux-4f rewrites `TerminalLaunchFrames.swift` (launch code,
 on `CmuxNextLaunch.SavedFrameDirectory`); rebase on it before touching launch.
 
+### Sweep items (every-action sweep, 2026-10-24)
+
+Targets: < 10 ms to commit, 0 dropped frames at 120 Hz, light and STRESS, macOS 26 and 27. Evidence:
+pl-sweep `artifacts/sweep/groups.json` key `terminal`, `m27.json` `scroll.terminal`.
+- `ghostty.showDiagnostics` 120 ms to commit (STRESS, 27.0.1): `TabContentCache.present` builds the view
+  synchronously. Fix: show it like any tab (stand-in in the key's turn, content built after).
+- Font size changes 16 ms: every surface resizes in one turn. Fix: only shown surfaces resize then;
+  hidden ones on show (G1's size path).
+- `scroll.terminal` 41 dropped of 40 wheel events, main 32 ms (light, 27.0.1; 0-2 on 26.7);
+  `scrollPageDown` 34 ms: same root as the fling item (scroll takes the terminal lock on main).
+Each with a red guard first (sweep rows run by hand).
+
 ## 5. Measurements
 
 Filled in as fleet runs land: host, build sha, refresh rate, light and STRESS side by side.
