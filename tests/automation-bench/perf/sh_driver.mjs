@@ -13,7 +13,8 @@ function xpathFor(target) {
   const hits = [];
   for (const line of snap.formattedTree.split("\n")) {
     const m = LINE.exec(line);
-    if (!m || m.groups.role !== target.role) continue;
+    const roles = Array.isArray(target.role) ? target.role : [target.role];
+    if (!m || !roles.includes(m.groups.role)) continue;
     const name = (m.groups.name ?? "").trim();
     if (target.name != null) {
       if (target.exact ? name !== target.name : !name.toLowerCase().includes(target.name.toLowerCase())) continue;
