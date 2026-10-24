@@ -128,7 +128,10 @@ public final class WebPopupHost {
     public func update(_ model: Model) {
         // A menu closing here stays closed: the page may still post an update for it.
         guard self.model != nil, panel?.isVisible == true else { return }
-        if model.items != self.model?.items || model.anchor != self.model?.anchor { show(model); return }
+        if model.items != self.model?.items || model.anchor != self.model?.anchor ||
+            model.tooltip != self.model?.tooltip || model.width != self.model?.width ||
+            model.side != self.model?.side || model.trailing != self.model?.trailing ||
+            model.instant != self.model?.instant { show(model); return }
         self.model = model
         panel?.rows.update(model.items, highlighted: model.highlighted)
     }
@@ -217,13 +220,35 @@ final class WebPopupRows: NSView {
     }
 
     func update(_ items: [WebPopupHost.Item], highlighted: String?) {
-        if items != self.items || plain != builtPlain || rows.isEmpty != items.isEmpty { rebuild(items) }
+        if plain != builtPlain || rows.isEmpty != items.isEmpty || (items != self.items && !updateLabelsInPlace(items)) {
+            rebuild(items)
+        }
         self.highlighted = highlighted
         for (item, view) in rows { (view as? PopupRowView)?.isHighlighted = item.id == highlighted }
         setFrameSize(NSSize(width: superview?.bounds.width ?? frame.width, height: contentHeight))
         needsLayout = true
         layoutSubtreeIfNeeded()
         scrollToHighlight()
+    }
+
+    /// Keeps native row views when only tooltip labels change; menu structure and state changes
+    /// still rebuild their rows.
+    private func updateLabelsInPlace(_ next: [WebPopupHost.Item]) -> Bool {
+        guard plain, plain == builtPlain, next.count == items.count, rows.count == next.count,
+              zip(items, next).allSatisfy({ old, new in
+                  old.id == new.id && old.shortcut == new.shortcut && old.checked == new.checked &&
+                      old.disabled == new.disabled && old.separator == new.separator
+              }) else { return false }
+        for (index, item) in next.enumerated() {
+            guard let row = rows[index].view as? PopupRowView else { return false }
+            if row.titleLabel.stringValue != item.label {
+                row.titleLabel.stringValue = item.label
+                row.setAccessibilityLabel(item.label)
+                row.needsLayout = true
+            }
+        }
+        self.items = next
+        return true
     }
 
     private func rebuild(_ items: [WebPopupHost.Item]) {
