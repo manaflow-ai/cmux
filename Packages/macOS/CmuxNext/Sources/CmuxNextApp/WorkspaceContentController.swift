@@ -109,10 +109,6 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         focus = state.focus
         layoutModel.intentHandler = { [weak self] intent in self?.handle(intent) }
         _ = layoutView  // built here, then the bar and the content view, as before
-        // A pane close's neighbours resize their PTYs once, at rest (close-animation DESIGN.md).
-        layoutView.onTerminalGridHold = { [weak layoutView] held in
-            if let layoutView { ResizeCoordinator.shared.setHeld(held, by: layoutView) }
-        }
         // A scroll the layout took is timed as the layout's (`key.scroll_frame target=layout`).
         layoutView.onScrollTaken = { [inputDispatch = services.inputDispatch] in inputDispatch.noteLayoutTookScroll() }
         // A link dragged in from another app or a page: the drop zones a dragged tab has (LinkDropPlan).
@@ -147,7 +143,6 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     }
 
     func teardown() {
-        ResizeCoordinator.shared.setHeld(false, by: layoutView)
         observation?.cancel()
         connectionObservation?.cancel()
         attentionObservation?.cancel()

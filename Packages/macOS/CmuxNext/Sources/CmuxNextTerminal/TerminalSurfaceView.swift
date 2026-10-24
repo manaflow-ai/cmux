@@ -39,6 +39,28 @@ public final class TerminalSurfaceView: NSView {
     /// Whether a grid report waits for the pane's layout spring to land (``TerminalGridPolicy/held``).
     var isHeldGridPending: Bool { geometry.held }
 
+    /// Reports the grid the pane's layout spring will land at, now (``TerminalGridPolicy/finalSized(_:)``),
+    /// unless the owner already has it.
+    func reportFinalGrid(_ grid: TerminalGridSize) {
+        defer { updateReflowPreview() }
+        guard let surface, let report = geometry.finalSized(grid) else { return }
+        Self.gridReports &+= 1
+        let size = ghostty_surface_size(surface)
+        let metrics = TerminalGridMetrics(cellWidth: Int(size.cell_width_px), cellHeight: Int(size.cell_height_px),
+                                          paddingWidth: 0, paddingHeight: 0)
+        let cells = metrics.cellPixels(of: report)
+        session?.surfaceDidReport(grid: report, pixelWidth: cells.width, pixelHeight: cells.height, final: true)
+    }
+
+    /// The pane's layout spring landed: the final grid no longer stands in for the view's, and the surface
+    /// takes its host's area again (a landing at another size reports that grid). The reflow preview is
+    /// left as it is until the view's next size.
+    func endPaneMotion() {
+        geometry.motionLanded()
+        (superview as? TerminalHostView)?.releaseSurfaceHold()
+        if isHeldGridPending { updateSurfaceSize() }
+    }
+
     /// Whether this view reports its grid to the PTY owner. Followers only
     /// render the announced grid (shell.md 2.3).
     var ownsGeometry: Bool {
@@ -181,6 +203,7 @@ public final class TerminalSurfaceView: NSView {
 
     public override func viewDidHide() {
         super.viewDidHide()
+        isShown = false
         observeWindow(false)
         updateOcclusion()
     }
@@ -194,14 +217,27 @@ public final class TerminalSurfaceView: NSView {
     /// state (each a no-op when unchanged). Parked counts as hidden (``ParkingContainer``).
     private func syncWindowState() {
         let shown = window != nil && !isHiddenOrHasHiddenAncestor && !isParkedOrHasParkedAncestor
+        isShown = shown
         observeWindow(shown)
         if shown {
             updateContentScale()
-            updateSurfaceSize()
+            // A view that joins a pane on a layout spring sends the grid the spring rests at, once; its first
+            // report (held while it was not shown) would be a size no frame rests at.
+            let joined = isInPaneMotion && joinPaneMotion()
+            updateSurfaceSize(forceReport: pendingForcedReport && !joined)
+            pendingForcedReport = false
         }
         updateOcclusion()
         updateFocus()
     }
+
+    /// Shown in a window, not hidden or parked (``syncWindowState()``). A layout change of a terminal
+    /// that is not shown records its size only (PL-script A3: a hidden workspace's layout sized every
+    /// warm terminal's surface and resized its PTY); showing it applies the last size once.
+    private(set) var isShown = false
+    /// A forced grid report asked for while the view was not shown (`TerminalSession.init`, a new owner):
+    /// it goes when the view is shown.
+    private var pendingForcedReport = false
 
     private func observeWindow(_ observe: Bool) {
         guard observe == windowObservers.isEmpty else { return }
@@ -249,7 +285,8 @@ public final class TerminalSurfaceView: NSView {
         updateSurfaceSize()
     }
 
-    /// Every frame of a drag resizes the surface at once: the drawable takes
+    /// Every frame of a drag resizes a shown surface at once (a hidden one waits to be shown,
+    /// ``syncWindowState()``): the drawable takes
     /// the new size and draws one frame with the text reflowed to it (the
     /// reflow preview, ``updateReflowPreview()``), and the grid report goes to
     /// the owner through `ResizeCoordinator` (next frame, one in flight). The
@@ -257,7 +294,7 @@ public final class TerminalSurfaceView: NSView {
     public override func setFrameSize(_ newSize: NSSize) {
         let resized = newSize != frame.size
         super.setFrameSize(newSize)
-        if resized { updateSurfaceSize() }
+        if resized, isShown { updateSurfaceSize() }
         copyMode.syncCursor()
     }
 
@@ -315,7 +352,8 @@ public final class TerminalSurfaceView: NSView {
     /// `reporting`: this call reports a new grid to the owner.
     func updateReflowPreview(reporting: Bool = false) {
         guard let surface else { return }
-        let enabled = geometry.ownsGeometry && (session?.io.appliesViewGrid(reporting: reporting) ?? false)
+        let enabled = geometry.ownsGeometry && geometry.previewsViewGrid
+            && (session?.io.appliesViewGrid(reporting: reporting) ?? false)
         guard enabled != reflowPreview else { return }
         reflowPreview = enabled
         ghostty_surface_set_reflow_preview(surface, enabled)
@@ -333,6 +371,12 @@ public final class TerminalSurfaceView: NSView {
     /// announcement.
     func updateSurfaceSize(forceReport: Bool = false) {
         guard let surface else { return }
+        // Not shown (made, hidden or parked): no size and no report now; the view sizes and reports once it
+        // is shown (`syncWindowState`), a forced report included.
+        guard isShown else {
+            pendingForcedReport = pendingForcedReport || forceReport
+            return
+        }
         let pixels = convertToBacking(bounds.size)
         guard pixels.width >= 1, pixels.height >= 1 else { return }
         defer { copyMode.syncCursor() }
