@@ -8947,6 +8947,12 @@
         "required": true
       }
     },
+    "request:get-host-size-policy": {
+      "/surface": {
+        "ty": "uint64",
+        "nullable": true
+      }
+    },
     "request:get-size-state": {
       "/surface": {
         "ty": "uint64",
@@ -10967,6 +10973,10 @@
         "ty": "string",
         "nullable": true
       },
+      "/remote": {
+        "ty": "boolean",
+        "nullable": true
+      },
       "/user_id": {
         "ty": "string",
         "nullable": true
@@ -11081,6 +11091,29 @@
       "/surface": {
         "ty": "uint64",
         "required": true
+      }
+    },
+    "request:set-host-size-policy": {
+      "/policy": {
+        "ty": "object",
+        "required": true
+      },
+      "/policy/mode": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "latest",
+          "mac",
+          "priority",
+          "smallest"
+        ]
+      },
+      "/policy/order": {
+        "ty": "array",
+        "nullable": true
+      },
+      "/policy/order/*": {
+        "ty": "string"
       }
     },
     "request:set-personal-terminal": {
@@ -16061,6 +16094,36 @@
         "required": true
       }
     },
+    "response:get-host-size-policy": {
+      "/data/mac_participants": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/mac_participants/*": {
+        "ty": "string"
+      },
+      "/data/policy": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/policy/mode": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "latest",
+          "mac",
+          "priority",
+          "smallest"
+        ]
+      },
+      "/data/policy/order": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/policy/order/*": {
+        "ty": "string"
+      }
+    },
     "response:get-size-state": {
       "/data/self_participant": {
         "ty": "string",
@@ -19579,6 +19642,29 @@
       "/data": {
         "ty": "json",
         "required": true
+      }
+    },
+    "response:set-host-size-policy": {
+      "/data/policy": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/policy/mode": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "latest",
+          "mac",
+          "priority",
+          "smallest"
+        ]
+      },
+      "/data/policy/order": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/policy/order/*": {
+        "ty": "string"
       }
     },
     "response:set-personal-terminal": {
