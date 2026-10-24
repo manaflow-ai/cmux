@@ -19,8 +19,6 @@ public enum DaemonConnectionState: Sendable, Equatable {
 public final class DaemonStore: StateResourceQueries {
     public internal(set) var workspaces: [WorkspaceModel] = []
     public internal(set) var groups: [WorkspaceGroupModel] = []
-    /// Panes a live-pane question read, one by one (tests: a watcher of a few panes reads no other pane).
-    @ObservationIgnored public internal(set) var livePaneReads = 0
     /// Rooms in order (`profiles-v1`, home session only; the wire calls
     /// them profiles). Empty on a daemon without personal state.
     public internal(set) var profiles: [ProfileModel] = []

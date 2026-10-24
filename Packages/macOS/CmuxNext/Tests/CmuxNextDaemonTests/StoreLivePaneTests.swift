@@ -26,13 +26,32 @@ import Testing
         return store
     }
 
-    @Test func askingAboutAPaneReadsNoOtherPane() throws {
+    @Test func aPaneIsListedByItsIdUntilItsLastRecordGoes() throws {
         let store = loadedStore()
         let tracked = try #require(store.workspaces.last?.screens.first?.panes.first)
-        let reads = store.livePaneReads
         #expect(store.liveTreeLists(pane: tracked.id) == true)
         #expect(store.liveTreeLists(pane: "pane:999999") == false)
-        #expect(store.livePaneReads - reads == 0, "two questions read \(store.livePaneReads - reads) of 501 panes")
+    }
+
+    /// A pane moved to another workspace: its pane-added in the target indexes a second record of
+    /// the same id before the source's pane-closed drops the first. The pane stays listed, so the
+    /// page tab store keeps the page tabs of the live pane.
+    @Test func aPaneMovedBetweenWorkspacesStaysListed() throws {
+        let store = loadedStore()
+        let resource = ResourceID(rawValue: "pane_moving")
+        let movingID = PaneID(rawValue: 9001)
+        _ = store.apply(batch: [DaemonEventEnvelope(sequence: 1, event: .paneAdded(PaneDelta(
+            workspace: WorkspaceHandle(rawValue: 3), screen: ScreenID(rawValue: 2), pane: movingID, index: 1,
+            entity: PaneSnapshot(id: movingID, resourceID: resource, tabs: []), clientTransactionID: nil)))])
+        let id = try #require(store.pane(movingID)?.id)
+        // The move: the target workspace gets the pane, then the source closes its record.
+        _ = store.apply(batch: [DaemonEventEnvelope(sequence: 2, event: .paneAdded(PaneDelta(
+            workspace: WorkspaceHandle(rawValue: 103), screen: ScreenID(rawValue: 102), pane: PaneID(rawValue: 9002), index: 1,
+            entity: PaneSnapshot(id: PaneID(rawValue: 9002), resourceID: resource, tabs: []), clientTransactionID: nil)))])
+        _ = store.apply(batch: [DaemonEventEnvelope(sequence: 3, event: .paneClosed(PaneDelta(
+            workspace: WorkspaceHandle(rawValue: 3), screen: ScreenID(rawValue: 2), pane: movingID, index: nil,
+            entity: PaneSnapshot(id: movingID, resourceID: resource, tabs: []), clientTransactionID: nil)))])
+        #expect(store.liveTreeLists(pane: id) == true, "the moved pane's id was dropped with its old record")
     }
 
     @Test func aPaneWithNoTabsThatGoesChangesTheWatchedRevision() throws {

@@ -23,6 +23,6 @@ extension DaemonStore {
     /// store has no live tree (disconnected or not loaded), when no pane may be called gone.
     public func liveTreeLists(pane id: String) -> Bool? {
         guard liveTabListRevision != nil else { return nil }
-        return index.panesByID[id] != nil
+        return index.listsPane(id: id)
     }
 }
