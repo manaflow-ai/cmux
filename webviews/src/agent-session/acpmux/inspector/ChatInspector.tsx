@@ -62,6 +62,7 @@ import type { Artifact } from "../conversation/artifactPreview";
 import type { TurnFile } from "../diff";
 import type { StartedSession } from "../started/startedSessions";
 import { ChangesSection, headerStatus, visibleChanges, type InspectorPullRequestStatus } from "./ChangesSection";
+import { useChangesStatuses, withHeader } from "./changesStatus";
 import { ContextSection } from "./ContextSection";
 import { EnvironmentSection } from "./EnvironmentSection";
 import { InspectorSection } from "./InspectorSection";
@@ -507,7 +508,11 @@ function InspectorPresence({
     () => (drawn && asks ? waitingSubagents(asks, views) : new Set<string>()),
     [drawn, asks, views],
   );
-  const statuses = useMemo(() => headerStatus(pullRequest), [pullRequest]);
+  // Every pull request's title, state, lines and checks from the App's cache, the folder's live
+  // read over it (changesStatus.ts).
+  const prUrls = useMemo(() => (made?.pullRequests ?? []).map((pr) => pr.url), [made]);
+  const cached = useChangesStatuses(prUrls, drawn, rows).statuses;
+  const statuses = useMemo(() => withHeader(cached, headerStatus(pullRequest)), [cached, pullRequest]);
   // An output's diff opens beside the chat. When that split leaves too little room for a readable
   // chat beside the Inspector, it steps aside until the toggle opens it again.
   const roomy = paneWidth <= 0 || paneWidth - pushedWidth(paneWidth, width) - FLOAT_MARGIN >= PUSH_MIN_CHAT;

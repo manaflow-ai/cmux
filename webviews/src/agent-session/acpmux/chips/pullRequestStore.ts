@@ -37,6 +37,8 @@ export type LinkedPullRequest = HeaderPullRequest & {
   readonly labels?: readonly string[];
   readonly baseRef?: string;
   readonly headRef?: string;
+  /** Its comments, review comments included; null or absent when the host's read did not say. */
+  readonly comments?: number | null;
 };
 
 /** What the host has for one link: the pull request, and when gh last answered about it. */
@@ -71,6 +73,14 @@ function same(previous: PullRequestAnswer | undefined, next: PullRequestAnswer):
   return previous.fetchedAt != null || previous.pullRequest === next.pullRequest;
 }
 
+/** Asks the host for `url`'s answer (a call to the App, never to GitHub); one ask at a time per link. */
+export function askPullRequest(url: string): void {
+  ask(url);
+}
+
+/** What the store has for `url` now; undefined before the host answers. */
+export const pullRequestAnswer = (url: string): PullRequestAnswer | undefined => answers.get(url);
+
 function ask(url: string) {
   if (asking.has(url)) return;
   asking.add(url);
@@ -104,6 +114,12 @@ function ask(url: string) {
 function subscribe(listener: () => void) {
   listeners.add(listener);
   return () => listeners.delete(listener);
+}
+
+/** Follows every answer the store takes (the Inspector's Changes reads many links at once). */
+export function subscribePullRequests(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => void listeners.delete(listener);
 }
 
 /**

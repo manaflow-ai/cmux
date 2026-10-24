@@ -123,11 +123,15 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
     public var headRef: String
     /// Its author's GitHub login; empty when gh does not say.
     public var author: String
+    /// Its comments, review comments included (GraphQL `totalCommentsCount`); nil when the read
+    /// did not say, as a `gh pr view` does not (the Inspector's Changes shows it beside a bubble).
+    public var comments: Int?
 
     public init(url: String, number: Int, title: String = "", state: String, review: String = "", mergeable: String = "",
                 checks: Checks, checkList: [Check] = [], createdAt: String = "", updatedAt: String = "", mergedAt: String = "",
                 additions: Int = 0, deletions: Int = 0, changedFiles: Int = 0, files: [ChangedFile] = [],
-                labels: [String] = [], baseRef: String = "", headRef: String = "", author: String = "") {
+                labels: [String] = [], baseRef: String = "", headRef: String = "", author: String = "",
+                comments: Int? = nil) {
         self.url = url
         self.number = number
         self.title = title
@@ -147,6 +151,7 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
         self.baseRef = baseRef
         self.headRef = headRef
         self.author = author
+        self.comments = comments
     }
 
     /// Nil unless `ghView` is gh's answer with an https url and a number.
@@ -172,7 +177,8 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
                   changedFiles: object["changedFiles"] as? Int ?? 0, files: Self.files(object["files"]),
                   labels: Self.labels(object["labels"]),
                   baseRef: Self.branch(object["baseRefName"]), headRef: Self.branch(object["headRefName"]),
-                  author: ((object["author"] as? [String: Any])?["login"] as? String).map { String($0.prefix(100)) } ?? "")
+                  author: ((object["author"] as? [String: Any])?["login"] as? String).map { String($0.prefix(100)) } ?? "",
+                  comments: (object["totalCommentsCount"] as? Int).map { max(0, $0) })
     }
 
     /// gh's `files`, each with its own counts, at most ``maximumFiles``.
@@ -319,6 +325,7 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
          "review": .string(review), "mergeable": .string(mergeable),
          "createdAt": .string(createdAt), "updatedAt": .string(updatedAt), "mergedAt": .string(mergedAt),
          "author": .string(author),
+         "comments": comments.map { JSONValue($0) } ?? .null,
          "additions": JSONValue(additions), "deletions": JSONValue(deletions),
          "changedFiles": JSONValue(changedFiles),
          "baseRef": .string(baseRef), "headRef": .string(headRef),

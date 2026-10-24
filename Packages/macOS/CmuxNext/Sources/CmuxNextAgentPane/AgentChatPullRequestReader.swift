@@ -126,7 +126,7 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
             ... on StatusContext { context state targetUrl } } }
             """
         let fields = """
-            url number title state isDraft reviewDecision mergeable createdAt updatedAt mergedAt additions deletions \
+            url number title state isDraft reviewDecision mergeable createdAt updatedAt mergedAt additions deletions totalCommentsCount \
             changedFiles baseRefName headRefName author { login } labels(first: \(AgentPanePullRequest.maximumLabels)) \
             { nodes { name } } files(first: 100) { nodes { path additions deletions } } \
             commits(last: 1) { nodes { commit { statusCheckRollup { \(contexts) } } } } \
