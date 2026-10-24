@@ -36,6 +36,7 @@ import argparse
 import importlib.util
 import json
 import os
+import pwd  # the account home: a cmux-ci step sets HOME to its own dir, the app does not use it
 import shutil
 import statistics
 import sys
@@ -88,7 +89,7 @@ def one_run(tag, opts):
     scratch = tempfile.mkdtemp(prefix=f"bench-palette-fling-{tag}-")
     with open(os.path.join(scratch, "cmux.json"), "w") as config:
         json.dump({}, config)
-    shutil.rmtree(os.path.expanduser(f"~/Library/Application Support/cmux/tags/{tag}/tui"), ignore_errors=True)
+    shutil.rmtree(os.path.join(pwd.getpwuid(os.getuid()).pw_dir, f"Library/Application Support/cmux/tags/{tag}/tui"), ignore_errors=True)
     extra_env = {"CMUX_NEXT_TEST_WINDOW_FRAME": STRESS_WINDOW_FRAME} if opts.stress else {}
     run = bench.Run(tag, opts.threshold_ms, scratch, extra_env=extra_env)
     run.launch()
