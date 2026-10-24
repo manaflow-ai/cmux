@@ -14,6 +14,12 @@ import UniformTypeIdentifiers
 final class UIInspectorController {
     private weak var services: AppServices?
     private var monitor: Any?
+    /// Records the gesture that opened a native or app-owned webview menu. The
+    /// menu action then starts the picker at that exact screen point.
+    private var contextMonitor: Any?
+    private var lastContextPoint: NSPoint?
+    private weak var lastContextWindow: NSWindow?
+    private var inspectNotification: NSObjectProtocol?
     private var activeWindow: NSWindow?
     private var highlighted: NSView?
     private var highlight: OverlayHandle?
@@ -25,7 +31,25 @@ final class UIInspectorController {
 
     init(services: AppServices) {
         self.services = services
+        inspectNotification = NotificationCenter.default.addObserver(
+            forName: .cmuxNextInspectUIElement, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.inspectFromContextMenu() }
+        }
+        if AgentPaneTunables.pointerInspector.value { installContextMonitor() }
         observeToggle()
+    }
+
+    // AppKit monitor removal is main-thread-only. The controller can be
+    // released from an action task, so keep deinit nonisolated and perform the
+    // cleanup only when the runtime is already on the main thread.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return }
+        MainActor.assumeIsolated {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            if let contextMonitor { NSEvent.removeMonitor(contextMonitor) }
+            if let inspectNotification { NotificationCenter.default.removeObserver(inspectNotification) }
+        }
     }
 
     var isPicking: Bool { monitor != nil }
@@ -36,14 +60,48 @@ final class UIInspectorController {
         start()
     }
 
+    /// Starts the picker and immediately highlights the element that opened the
+    /// most recent app-owned context menu. This is the native equivalent of
+    /// browser DevTools' Inspect Element command.
+    func inspectFromContextMenu() {
+        guard AgentPaneTunables.pointerInspector.value else { return }
+        start()
+        guard let point = lastContextPoint,
+              let window = lastContextWindow,
+              window.isVisible else { return }
+        highlight(at: point, in: window)
+    }
+
     private func observeToggle() {
         withObservationTracking { _ = AgentPaneTunables.pointerInspector.value } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                if !AgentPaneTunables.pointerInspector.value { self.stop() }
+                if AgentPaneTunables.pointerInspector.value {
+                    self.installContextMonitor()
+                } else {
+                    self.stop()
+                    self.removeContextMonitor()
+                }
                 self.observeToggle()
             }
         }
+    }
+
+    private func installContextMonitor() {
+        guard contextMonitor == nil else { return }
+        contextMonitor = NSEvent.addLocalMonitorForEvents(matching: [.rightMouseDown]) { [weak self] event in
+            guard let self, let window = self.shellWindow(for: event.window), let point = self.screenPoint(of: event) else { return event }
+            self.lastContextPoint = point
+            self.lastContextWindow = window
+            return event
+        }
+    }
+
+    private func removeContextMonitor() {
+        if let contextMonitor { NSEvent.removeMonitor(contextMonitor) }
+        contextMonitor = nil
+        lastContextPoint = nil
+        lastContextWindow = nil
     }
 
     private func start() {
@@ -71,19 +129,10 @@ final class UIInspectorController {
         guard services != nil, let window = shellWindow(for: event.window), let point = screenPoint(of: event) else { return event }
         activeWindow = window
         if let page = page(at: point, in: window) {
-            if activePage !== page {
-                deactivatePage()
-                activePage = page
-                page.uiPointerReport = { [weak self, weak page] value in self?.pageReport(value, from: page) }
-                page.setUiPointerInspector(true)
-            }
+            activate(page)
             if event.type == .leftMouseDown || event.type == .rightMouseDown {
-                let local = page.convert(page.window?.convertPoint(fromScreen: point) ?? .zero, from: nil)
-                let scale = max(page.uiPointerPageZoom, 0.01)
-                let x = local.x / scale
-                let y = (page.bounds.height - local.y) / scale
                 pendingAction = event.type == .rightMouseDown ? .copy : .send
-                page.evaluateUiPointer("globalThis.__cmuxUiPointer?.pick(\(x), \(y));")
+                page.evaluateUiPointer(pointerScript("pick", point: point, page: page))
                 return nil
             }
             return event
@@ -98,6 +147,36 @@ final class UIInspectorController {
             return nil
         }
         return event
+    }
+
+    private func activate(_ page: AgentPaneView) {
+        guard activePage !== page else { return }
+        deactivatePage()
+        activePage = page
+        page.uiPointerReport = { [weak self, weak page] value in self?.pageReport(value, from: page) }
+        page.setUiPointerInspector(true)
+    }
+
+    private func pointerScript(_ operation: String, point: NSPoint, page: AgentPaneView) -> String {
+        let local = page.convert(page.window?.convertPoint(fromScreen: point) ?? .zero, from: nil)
+        let scale = max(page.uiPointerPageZoom, 0.01)
+        let x = local.x / scale
+        let y = (page.bounds.height - local.y) / scale
+        return "globalThis.__cmuxUiPointer?.\(operation)(\(x), \(y));"
+    }
+
+    private func highlight(at point: NSPoint, in window: NSWindow) {
+        activeWindow = window
+        if let page = page(at: point, in: window) {
+            activate(page)
+            page.evaluateUiPointer(pointerScript("highlight", point: point, page: page))
+            return
+        }
+        deactivatePage()
+        guard let content = window.contentView else { return }
+        let local = content.convert(window.convertPoint(fromScreen: point), from: nil)
+        guard let view = content.hitTest(local), !isInspectorView(view) else { return }
+        showHighlight(for: view, in: window)
     }
 
     private func shellWindow(for eventWindow: NSWindow?) -> NSWindow? {

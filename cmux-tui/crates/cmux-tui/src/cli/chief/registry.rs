@@ -288,8 +288,14 @@ pub(in crate::cli) fn agent_operation_refusal(operation: &str) -> Option<Value> 
 
 /// The app actions that write a Chief through the app's own connection:
 /// their ids and their CLI names (`cmux action run` takes either).
-const APP_ACTIONS: [&str; 4] =
-    ["home.archiveChief", "home.stopChief", "home.stopAllAgents", "home archive-chief"];
+const APP_ACTIONS: [&str; 6] = [
+    "home.archiveChief",
+    "home.deleteChief",
+    "home.stopChief",
+    "home.stopAllAgents",
+    "home archive-chief",
+    "home delete-chief",
+];
 
 /// [`agent_control_refusal`] for an app action (`cmux action run ID`,
 /// `cmux home new-chief`) that still controls a live Chief. New Chief is

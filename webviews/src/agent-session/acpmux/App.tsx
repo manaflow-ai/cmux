@@ -854,21 +854,21 @@ const MessageRow = memo(
           {envelope || row.from === "chief" ? (
             <>
               <ChiefPromptBubble text={envelope ? envelope.task : (row.text ?? "")} />
-              <PromptActions row={row} text={envelope ? envelope.task : (row.text ?? "")} />
-              {/* A Chief's bubble can clip its text, so its Send now keeps a line under it. */}
-              <PendingSteer row={row} send={editQueued} />
+              <PromptActions
+                row={row}
+                text={envelope ? envelope.task : (row.text ?? "")}
+                pending={row.steer === "waiting" ? <PendingSteer row={row} send={editQueued} /> : undefined}
+              />
             </>
           ) : (
-            // A waiting steer's Send now sits at the bubble's left, on its row (Claude's queued
-            // prompts; Leo, 2026-10-21): it never takes a line of its own. A prompt of images
-            // alone draws no bubble, so its Send now keeps the line under the images.
+            // A waiting steer's Send now leads the action row under the queued prompt (Leo,
+            // 2026-10-24). A prompt of images alone gets the same row under the images.
             <>
               <UserBubble
                 row={row}
                 text={row.text ?? ""}
-                pending={row.text?.trim() ? <PendingSteer row={row} send={editQueued} beside /> : undefined}
+                pending={row.steer === "waiting" ? <PendingSteer row={row} send={editQueued} /> : undefined}
               />
-              {!row.text?.trim() && <PendingSteer row={row} send={editQueued} />}
             </>
           )}
           <DeliveryFailure row={row} />
@@ -5220,7 +5220,13 @@ function AcpmuxPane() {
   const newTabGeneration = useNewTabAdoption(adoptNewTab);
   useNewTabPlaces(setNewTab);
   useNewTabWeather(setNewTab);
-  const earlyNewTab = useEarlyNewTabContext(callNative, setNewTab);
+  // Whether the page knows it is a New Tab page or a chat: the host's context came with the
+  // document (WebKit), or its `newTab.context` answer did, either way. A Chromium page gets none
+  // with the document, and its window shows over the pane before the host's alpha can hide it:
+  // until then the page draws no chat screen (Lucas 2026-10-24: Cmd-T spam flashed it in New Tabs).
+  const [contextKnown, setContextKnown] = useState(() => injectedNewTabContext() !== undefined);
+  const markContextKnown = useCallback(() => setContextKnown(true), []);
+  const earlyNewTab = useEarlyNewTabContext(callNative, setNewTab, markContextKnown);
   // Agent chats live in the window's one sidebar (Projects and Recents); the pane opens what it picks.
   const selectSession = useCallback((sessionId: string) => {
     void callNative("chat.select", { sessionId });
@@ -5771,6 +5777,8 @@ function AcpmuxPane() {
     clientSnapshot.connection === "failed";
   const chatDrawn = !awaitsChat || clientSnapshot.chatRead === true || openFailed;
   const showsWhatItIs = (handshaken && chatDrawn) || hostError !== undefined || newTab !== undefined;
+  // No chat screen before the page knows it is no New Tab page (`contextKnown`).
+  const knowsWhatItIs = contextKnown || newTab !== undefined || handshaken || hostError !== undefined;
   useEffect(() => {
     if (!handshaken || chatDrawn) return;
     // A slow attach: the client draws what it has after the open's hold (direct.ts OPEN_HOLD_MS).
@@ -8446,7 +8454,12 @@ function AcpmuxPane() {
       </SubagentClockContext.Provider>
     </SubagentStopContext.Provider>
   );
-  const pane = (
+  const pane = !knowsWhatItIs ? (
+    // Clear until it knows: the pane's background shows, never a chat screen a New Tab replaces.
+    <ShortcutsContext.Provider value={shortcuts}>
+      <section ref={setShell} className="acpmux-shell" aria-busy="true" />
+    </ShortcutsContext.Provider>
+  ) : (
     <ShortcutsContext.Provider value={shortcuts}>
       <section
         ref={setShell}

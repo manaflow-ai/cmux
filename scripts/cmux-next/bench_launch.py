@@ -2,11 +2,10 @@
 """One launch path for every GUI bench and live script: start a tagged `cmux DEV <tag>.app`, wait for its
 control socket to answer, and say exactly why when it does not.
 
-Why one helper: each bench copied its own launch, and the copies drifted. So far five scripts launch through it
-(split-spring-terminal.py's default suite, tab-switch-stages.py, palette-open-stages.py,
-instant-new-surfaces-bench.py, omnibar-click-bench.py); pane-perf-terminal, app-perf, anim-perf-terminal,
-typing-frame-bench, every-action-sweep, sidebar-churn-typing, perf-gate, bench-startup and the perf-budgets
-sub-benches still launch on their own (/tmp socket, no failure reason): moving them is open. A tagged build keeps its socket in
+Why one helper: each bench copied its own launch, and the copies drifted. The benches that import BenchApp or
+``launch_app`` launch through it (`git grep -l bench_launch scripts/cmux-next`); bench-startup and home-perf take
+its socket paths, session check and launch limits, and pane-perf-terminal, typing-frame-bench, sidebar-churn-typing,
+bench_idle, perf-gate and the perf-budgets sub-benches still launch on their own: moving them is open. A tagged build keeps its socket in
 the account's state folder (`~/.local/state/cmux/cmux-debug-<tag>.sock`, with a `/tmp/cmux-debug-<tag>.sock`
 link; `/tmp` only when the path is too long for `sun_path`), and `~` there is the account's home from the
 password database, not `$HOME` (a fleet step's HOME is a scratch folder). A launch also needs the bench
@@ -47,8 +46,18 @@ Check a host by hand or from a fleet step (exit 0 when the socket answered and a
 
     python3 scripts/cmux-next/bench_launch.py check --app "/path/cmux DEV <tag>.app" [--out DIR] [--timeout 180]
     python3 scripts/cmux-next/bench_launch.py session    # only the GUI session check, no app
+
+Resource limits: an app opened from Finder or the Dock gets launchd's limits (`launchctl limit`; on the fleet
+minis the soft open-file limit is 256), but an app a script starts inherits the script's, and fleet job shells
+raise theirs (the cmux-ci worker to 65536 for every job, the hosts' ~/.zshenv to 65536 for nx-remote jobs). A
+bench at 65536 hid a Chromium crash that happens at 256 (cmux-lawrence-2, 2026-10-23). So `launch()` starts the
+app with launchd's soft limits (``finder_limits``; the hard limits stay); BENCH_LAUNCH_LIMITS=inherit keeps the
+caller's. A script or step that starts an app on its own can run under the same limits:
+
+    python3 scripts/cmux-next/bench_launch.py finder-exec -- python3 scripts/cmux-next/my-bench.py ...
+    python3 scripts/cmux-next/bench_launch.py limits     # launchd's soft limits and this shell's, one JSON line
 """
-import argparse, glob, json, os, platform, pwd, re, signal, socket, subprocess, sys, tempfile, time
+import argparse, atexit, contextlib, glob, json, os, platform, pwd, re, resource, signal, socket, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -70,6 +79,90 @@ BASE_ENV = {
 # Never passed to the app: NX_REMOTE makes it act as an nx-remote job; the rest name another cmux.
 DROPPED_ENV = ("NX_REMOTE", "CMUX_SOCKET_PATH", "CMUX_SOCKET", "CMUX_TAG", "CMUX_BUNDLE_ID", "CMUX_WORKSPACE_ID",
                "CMUX_SURFACE_ID", "CMUX_PANEL_ID", "CMUX_TAB_ID")
+
+
+# `launchctl limit` rows -> setrlimit resources. launchctl prints bytes, seconds and counts, as setrlimit takes them.
+LAUNCHD_LIMITS = {"cpu": resource.RLIMIT_CPU, "filesize": resource.RLIMIT_FSIZE, "data": resource.RLIMIT_DATA,
+                  "stack": resource.RLIMIT_STACK, "core": resource.RLIMIT_CORE, "rss": resource.RLIMIT_RSS,
+                  "memlock": resource.RLIMIT_MEMLOCK, "maxproc": resource.RLIMIT_NPROC,
+                  "maxfiles": resource.RLIMIT_NOFILE}
+
+
+def launchd_soft_limits(text=None):
+    """{name: soft limit} that launchd gives the apps it starts (a Finder or Dock launch), from `launchctl limit`
+    (or `text`, its output); resource.RLIM_INFINITY for unlimited. {} when launchctl does not answer."""
+    if text is None:
+        try:
+            text = subprocess.run(["/bin/launchctl", "limit"], capture_output=True, text=True, timeout=10).stdout
+        except (OSError, subprocess.TimeoutExpired):
+            return {}
+    limits = {}
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) == 3 and parts[0] in LAUNCHD_LIMITS:
+            soft = parts[1]
+            if soft == "unlimited":
+                limits[parts[0]] = resource.RLIM_INFINITY
+            elif soft.isdigit():
+                limits[parts[0]] = int(soft)
+    return limits
+
+
+def shown(value):
+    return "unlimited" if value == resource.RLIM_INFINITY else value
+
+
+@contextlib.contextmanager
+def finder_limits(text=None):
+    """Runs the block with this process's soft limits set to launchd's (``launchd_soft_limits``), so a process
+    started inside it gets what a Finder launch gets; restores them after. Hard limits stay (a soft limit above
+    this process's hard limit is capped at it). The limits are the whole process's while the block runs: start
+    only the app inside it, not from other threads.
+
+    Yields {name: [before, now]} for each changed limit, or None when nothing was applied: BENCH_LAUNCH_LIMITS=inherit,
+    or `launchctl limit` did not answer (``limits_line`` says which). Raises ``LaunchError`` ("caller-fds") when this
+    process already holds as many open files as launchd's maxfiles: the spawn itself would fail with EMFILE."""
+    if os.environ.get("BENCH_LAUNCH_LIMITS") == "inherit":
+        yield None
+        return
+    launchd = launchd_soft_limits(text)
+    if not launchd:
+        yield None
+        return
+    changed, saved = {}, []
+    try:
+        for name, soft in launchd.items():
+            res = LAUNCHD_LIMITS[name]
+            before, hard = resource.getrlimit(res)
+            want = soft if hard == resource.RLIM_INFINITY or soft != resource.RLIM_INFINITY and soft <= hard else hard
+            if want == before:
+                continue
+            if res == resource.RLIMIT_NOFILE and want != resource.RLIM_INFINITY:
+                held = len(os.listdir("/dev/fd"))
+                if held + 8 >= want:
+                    raise LaunchError("caller-fds", {"detail": f"this process holds {held} open files, about launchd's "
+                                                               f"maxfiles {want}: close files before the launch",
+                                                     "log_tail": ""})
+            try:
+                resource.setrlimit(res, (want, hard))
+            except (OSError, ValueError):
+                continue  # the kernel refused (for example maxfiles above kern.maxfilesperproc): keep the limit
+            saved.append((res, before, hard))
+            changed[name] = [shown(before), shown(want)]
+        yield changed
+    finally:
+        for res, before, hard in reversed(saved):
+            resource.setrlimit(res, (before, hard))
+
+
+def limits_line(changed):
+    """One line for a log: the limits a process started inside ``finder_limits`` got (`changed`, what it yielded)."""
+    if changed is None:
+        return ("the caller's (BENCH_LAUNCH_LIMITS=inherit)" if os.environ.get("BENCH_LAUNCH_LIMITS") == "inherit"
+                else "the caller's (launchctl limit did not answer: NOT a Finder launch's)")
+    if not changed:
+        return "launchd's (the caller's were the same)"
+    return "launchd's: " + ", ".join(f"{k} {v[1]} (caller {v[0]})" for k, v in changed.items())
 
 
 class LaunchError(SystemExit):
@@ -256,7 +349,156 @@ def require_gui_session(who="bench", argv=None):
 
 def host_facts():
     macos = subprocess.run(["sw_vers", "-productVersion"], capture_output=True, text=True).stdout.strip()
-    return {"host": platform.node(), "macos": macos}
+    return {"host": platform.node(), "macos": macos, "low_power_mode": low_power_mode()}
+
+
+# Low Power Mode (2026-10-23): a Mac in Low Power Mode runs slower clocks and caps frame rates, so a bench there
+# measures wrong numbers. `launch()` refuses ("low-power-mode") unless the bench passes low_power_mode_ok=True (a
+# bench of the Low Power Mode behavior itself). Such a bench switches it with ``LowPowerModeSwitch``: only in an
+# exclusive fleet step (a system setting of a shared Mac, `sudo -n pmset`), and it switches it back at exit, SIGTERM
+# and SIGHUP. The switch writes a record (the value before it) under the account's state folder; while the record
+# says a switch is not proved undone and Low Power Mode differs from its value before, every launch is refused
+# ("low-power-mode-not-restored"). BENCH_LAUNCH_PMSET and BENCH_LAUNCH_LPM_MARKER replace pmset and the record's
+# path, and BENCH_LAUNCH_TEST_NO_SUDO runs pmset without sudo (tests only).
+
+def pmset_path():
+    return os.environ.get("BENCH_LAUNCH_PMSET") or "/usr/bin/pmset"
+
+
+def low_power_mode():
+    """True or False from `pmset -g` (its `lowpowermode` key), None when the key is absent or pmset fails."""
+    try:
+        out = subprocess.run([pmset_path(), "-g"], capture_output=True, text=True, timeout=10).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[0] == "lowpowermode" and parts[1] in ("0", "1"):
+            return parts[1] == "1"
+    return None
+
+
+def lpm_marker_path():
+    return os.environ.get("BENCH_LAUNCH_LPM_MARKER") or os.path.join(account_home(), ".local/state/cmux",
+                                                                     "bench-low-power-mode-switch.json")
+
+
+def pid_alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def lpm_switch_problem():
+    """None when no Low Power Mode switch is left unproved, else the detail. A record of a switch still running
+    (its process alive) is fine; an unproved one clears once Low Power Mode is back at its value before."""
+    path = lpm_marker_path()
+    try:
+        with open(path) as f:
+            record = json.load(f)
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError) as error:
+        return f"unreadable Low Power Mode switch record {path}: {error}"
+    if record.get("active") and isinstance(record.get("pid"), int) and pid_alive(record["pid"]):
+        return None
+    now = low_power_mode()
+    if now is not None and now == record.get("before"):
+        os.unlink(path)  # back at the value before the switch: proved
+        return None
+    return (f"a bench switched Low Power Mode at {record.get('at')} (pid {record.get('pid')}) and nobody proved it "
+            f"switched back: it was {record.get('before')}, it is {now} now. Set it back (sudo pmset -a lowpowermode "
+            f"{int(bool(record.get('before')))}); the next launch then clears {path}")
+
+
+class LowPowerModeSwitch:
+    """Switches Low Power Mode to `enabled` for the `with` block, then back, also at SIGTERM and SIGHUP (the step
+    timeout, a lost terminal) and at interpreter exit. Raises ``LaunchError``: "low-power-mode-switch" outside an
+    exclusive step or when pmset fails, "low-power-mode-not-restored" when the switch back does not take."""
+
+    def __init__(self, enabled):
+        self.enabled = bool(enabled)
+        self.before = None
+        self.switched = False
+        self.handlers = {}
+
+    def _pmset(self, value):
+        cmd = [pmset_path(), "-a", "lowpowermode", "1" if value else "0"]
+        if not os.environ.get("BENCH_LAUNCH_TEST_NO_SUDO"):
+            cmd = ["/usr/bin/sudo", "-n"] + cmd
+        try:
+            done = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            return str(error)
+        return None if done.returncode == 0 else (done.stderr.strip() or f"exit {done.returncode}")
+
+    def _record(self, active):
+        path = lpm_marker_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path + ".tmp", "w") as f:
+            json.dump({"before": self.before, "wanted": self.enabled, "pid": os.getpid(), "active": active,
+                       "at": time.strftime("%Y-%m-%dT%H:%M:%S%z")}, f)
+        os.replace(path + ".tmp", path)
+
+    def __enter__(self):
+        problem = lpm_switch_problem()
+        if problem:
+            raise LaunchError("low-power-mode-not-restored", {"detail": problem, "log_tail": ""})
+        if os.environ.get("CMUX_CI_STEP_CLASS") != "exclusive":
+            raise LaunchError("low-power-mode-switch", {"detail": "Low Power Mode is a system setting of a shared Mac: "
+                                                                  "a bench switches it only in an exclusive step "
+                                                                  "(cmux-ci run --class exclusive)", "log_tail": ""})
+        self.before = low_power_mode()
+        if self.before is None:
+            raise LaunchError("low-power-mode-switch", {"detail": "pmset -g shows no lowpowermode key", "log_tail": ""})
+        if self.before == self.enabled:
+            return self
+        self._record(True)
+        for sig in (signal.SIGTERM, signal.SIGHUP):
+            self.handlers[sig] = signal.signal(sig, self._on_signal)
+        atexit.register(self.restore)
+        self.switched = True
+        error = self._pmset(self.enabled)
+        if error or low_power_mode() != self.enabled:
+            self.restore()
+            raise LaunchError("low-power-mode-switch", {"detail": f"pmset could not switch Low Power Mode to "
+                                                                  f"{self.enabled}: {error or 'no change'}", "log_tail": ""})
+        note(f"bench-launch: Low Power Mode switched to {self.enabled} (was {self.before})")
+        return self
+
+    def restore(self):
+        """Switches back once and proves it; True when Low Power Mode is at its value before the switch."""
+        if not self.switched:
+            return True
+        self.switched = False
+        for sig, handler in self.handlers.items():
+            signal.signal(sig, handler)
+        atexit.unregister(self.restore)
+        self._pmset(self.before)
+        if low_power_mode() == self.before:
+            try:
+                os.unlink(lpm_marker_path())
+            except FileNotFoundError:
+                pass
+            note(f"bench-launch: Low Power Mode switched back to {self.before}")
+            return True
+        self._record(False)
+        note(f"bench-launch: Low Power Mode NOT switched back to {self.before}: {lpm_switch_problem()}")
+        return False
+
+    def _on_signal(self, signum, frame):
+        self.restore()
+        signal.signal(signum, signal.SIG_DFL)
+        os.kill(os.getpid(), signum)  # die of the signal, as without the handler
+
+    def __exit__(self, *exc):
+        if not self.restore():
+            raise LaunchError("low-power-mode-not-restored", {"detail": lpm_switch_problem() or "", "log_tail": ""})
+        return False
 
 
 def report_matches(path, pid=None, binary=None):
@@ -321,7 +563,8 @@ class BenchApp:
     """
 
     def __init__(self, app, out=None, env=None, config=None, window=(40, 40, 1440, 900), screen="0",
-                 log_name=None, teardown=True):
+                 log_name=None, teardown=True, low_power_mode_ok=False):
+        self.low_power_mode_ok = low_power_mode_ok
         self.app = os.path.realpath(app).rstrip("/")
         self.tag = tag_of(self.app)
         self.out = os.path.abspath(out or tempfile.mkdtemp(prefix=f"bench-launch-{self.tag}-"))
@@ -335,6 +578,7 @@ class BenchApp:
         self.socket = socket_candidates(self.tag)[0]
         self.launched_at = None
         self.ready_seconds = None
+        self.limits = None
         self.teardown = None
         if teardown:
             sys.path.insert(0, HERE)
@@ -400,6 +644,14 @@ class BenchApp:
             # thread ~40 s; say so now instead of after the timeout. BENCH_LAUNCH_ANY_SESSION=1 tries anyway.
             self._fail("no-gui-session", {"tag": self.tag, **host_facts(), "gui_session": session,
                                           "detail": no_session_detail(session), "log_tail": ""})
+        problem = lpm_switch_problem()
+        if problem:
+            self._fail("low-power-mode-not-restored", {"tag": self.tag, **host_facts(), "detail": problem, "log_tail": ""})
+        if low_power_mode() and not self.low_power_mode_ok:
+            self._fail("low-power-mode", {"tag": self.tag, **host_facts(), "log_tail": "",
+                                          "detail": "this Mac is in Low Power Mode: its numbers are not comparable. Turn "
+                                                    "it off, or pass low_power_mode_ok=True for a bench of Low Power "
+                                                    "Mode itself"})
         running = self.running_pids()
         if running:
             self._fail("tag-in-use", {"tag": self.tag, **host_facts(), "pids": running, "log_tail": "",
@@ -415,10 +667,16 @@ class BenchApp:
         if self.teardown:
             self.teardown.install()
         log = open(self.log_path, "a")
-        self.launched_at = time.time()
-        self.process = subprocess.Popen([self.binary], env=self.environment(), stdout=log, stderr=log,
-                                        stdin=subprocess.DEVNULL)
-        note(f"bench-launch: {self.tag} pid {self.process.pid}")
+        env = self.environment()
+        try:
+            with finder_limits() as changed:
+                self.launched_at = time.time()
+                self.process = subprocess.Popen([self.binary], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
+        except LaunchError as error:
+            log.close()
+            self._fail(error.reason, {"tag": self.tag, **host_facts(), **error.report})
+        self.limits = limits_line(changed)
+        note(f"bench-launch: {self.tag} pid {self.process.pid}, limits {self.limits}")
         if on_start:
             on_start(self.process)
         start = time.monotonic()
@@ -552,18 +810,38 @@ def main(argv=None):
     check.add_argument("--out")
     check.add_argument("--timeout", type=float, default=180)
     check.add_argument("--json", help="also write the result here")
+    check.add_argument("--low-power-mode-ok", action="store_true", help="launch even in Low Power Mode")
     sub.add_parser("session", help="only report whether this account has a GUI session")
+    sub.add_parser("limits", help="launchd's soft limits (a Finder launch's) and this process's, one JSON line")
+    finder = sub.add_parser("finder-exec", help="run COMMAND with launchd's soft limits, as a Finder launch gets")
+    finder.add_argument("cmd", nargs=argparse.REMAINDER, metavar="-- COMMAND")
     opts = parser.parse_args(argv)
+    if opts.command == "limits":
+        launchd = launchd_soft_limits()
+        print("BENCH-LAUNCH " + json.dumps({"launchd_soft": {k: shown(v) for k, v in launchd.items()},
+                                            "this_soft": {k: shown(resource.getrlimit(LAUNCHD_LIMITS[k])[0])
+                                                          for k in launchd}}), flush=True)
+        return 0 if launchd else 1
+    if opts.command == "finder-exec":
+        cmd = opts.cmd[1:] if opts.cmd[:1] == ["--"] else opts.cmd
+        if not cmd:
+            parser.error("finder-exec needs a command after --")
+        with finder_limits() as changed:
+            print(f"bench-launch: finder-exec: {cmd[0]} runs with {limits_line(changed)}", file=sys.stderr, flush=True)
+            try:
+                os.execvp(cmd[0], cmd)  # the limits set here are the command's (exec keeps them)
+            except OSError as error:
+                parser.error(f"finder-exec: cannot run {cmd[0]}: {error}")
     if opts.command == "session":
         result = {**host_facts(), "gui_session": gui_session()}
         print("BENCH-LAUNCH " + json.dumps(result), flush=True)
         return 0 if result["gui_session"]["ok"] else 1
-    app = BenchApp(opts.app, out=opts.out)
+    app = BenchApp(opts.app, out=opts.out, low_power_mode_ok=opts.low_power_mode_ok)
     result = {"tag": app.tag, **host_facts(), "gui_session": gui_session()}
     try:
         app.launch(timeout=opts.timeout)
         windows = app.rpc("debug.windows")
-        result.update(ok=True, socket=app.socket, ready_seconds=app.ready_seconds,
+        result.update(ok=True, socket=app.socket, ready_seconds=app.ready_seconds, limits=app.limits,
                       windows=len((windows or {}).get("windows") or []))
     except LaunchError as error:
         result.update(ok=False, reason=error.reason, **{k: v for k, v in error.report.items() if k not in result})

@@ -63,13 +63,11 @@ opts, _unknown = parser.parse_known_args()
 TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
-BINARY = next((p for p in sorted(glob.glob(os.path.join(APP, "Contents/MacOS/*"))) if not p.endswith(".dylib")), None)
-SCRATCH = tempfile.mkdtemp(prefix=f"pane-perf-{TAG}-")
-open(os.path.join(SCRATCH, "ghostty"), "w").close()
-CONFIG = os.path.join(SCRATCH, "cmux.json")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from bench_launch import BenchApp, LaunchError  # noqa: E402  the shared GUI launch (session check, failure report)
 # 30 panes in 6 columns leave ~230 pt each: the 200 pt default minimum refused the timed split there
 # ("not enough room to split this pane"), so the 30-pane split row measured nothing.
-open(CONFIG, "w").write(json.dumps({"layout": {"minimumPaneWidth": 80, "minimumPaneHeight": 32}}) + "\n")
+CONFIG = {"layout": {"minimumPaneWidth": 80, "minimumPaneHeight": 32}}
 WINDOW = (80, 80, 1600, 1000)
 PAGE = None  # a local page for a Chromium pane (`serve_page`)
 
@@ -93,6 +91,7 @@ def serve_page():
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return f"http://127.0.0.1:{server.server_address[1]}/"
 ROWS, LAUNCHED = [], []
+BENCH = None  # the BenchApp of this run
 PROBE = {}  # --browser: the probe page's tab id
 app = None
 PROBE_PAGE = """<!doctype html><meta charset="utf-8"><title>Pane probe</title>
@@ -544,63 +543,28 @@ def main_thread_buckets(text):
 
 
 def cleanup():
-    if os.environ.get("PANE_PERF_KEEP") or not LAUNCHED:
+    if os.environ.get("PANE_PERF_KEEP") or not LAUNCHED or BENCH is None:
         return
     rpc("action.run", {"action": "quitEndSessions"}, timeout=10)
-    if app:
-        try:
-            app.wait(timeout=20)
-        except subprocess.TimeoutExpired:
-            os.kill(app.pid, signal.SIGKILL)
-    subprocess.run([CLI, "server", "stop", "--session", f"cmux-app-{TAG}", "--end-terminals"],
-                   env={k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}, capture_output=True, timeout=30)
-    if os.path.exists(SOCKET):
-        os.remove(SOCKET)
+    BENCH.stop()  # debug.quit, then only this tag's processes and daemons (tag_teardown.py)
 
 
 def main():
-    global app, SOCKET
-    if os.path.exists(SOCKET):
-        os.remove(SOCKET)
-    env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
-           "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_CONFIG_FILE": CONFIG,
-           "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty"),
-           "CMUX_NEXT_TEST_WINDOW_FRAME": ",".join(str(v) for v in WINDOW)}
+    global app, SOCKET, BENCH
     os.makedirs(opts.out, exist_ok=True)
-    log = open(os.path.join(opts.out, f"app-{TAG}.log"), "a")
-    app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-    LAUNCHED.append(app.pid)
+    # The shared launch (bench_launch.py): its bench environment, a session check that fails at once with
+    # no-gui-session, the state-folder socket, and a BENCH-LAUNCH report (crash, sample, log tail) on failure.
+    BENCH = BenchApp(APP, out=opts.out, config=CONFIG, window=WINDOW, screen=None, log_name=f"app-{TAG}.log")
+    try:
+        BENCH.launch(timeout=120, on_start=lambda process: LAUNCHED.append(process.pid))
+    except LaunchError as error:
+        print(str(error), flush=True)
+        row("the tagged app came up", "its socket answers with a window", error.reason, False)
+        return
+    app, SOCKET = BENCH.process, BENCH.socket
     macos = subprocess.run(["sw_vers", "-productVersion"], capture_output=True, text=True).stdout.strip()
     host = subprocess.run(["hostname"], capture_output=True, text=True).stdout.strip()
     print(f"launched pid {app.pid} macOS {macos} host {host}", flush=True)
-    state_socket = os.path.expanduser(f"~/.local/state/cmux/cmux-debug-{TAG}.sock")
-
-    def up():
-        global SOCKET
-        for path in (f"/tmp/cmux-debug-{TAG}.sock", state_socket):
-            if os.path.exists(path):
-                SOCKET = path
-                if (rpc("debug.windows") or {}).get("windows"):
-                    return True
-        return False
-    if not wait(up, 120):
-        print(f"the tagged app did not come up: socket {SOCKET} exists={os.path.exists(SOCKET)} state socket "
-              f"{state_socket} exists={os.path.exists(state_socket)} debug.windows={rpc('debug.windows')} "
-              f"alive={app.poll() is None}", flush=True)
-        if app.poll() is None:
-            # Why: the main thread's stack while it does not answer.
-            stuck = os.path.join(opts.out, "sample-launch.txt")
-            subprocess.run(["/usr/bin/sample", str(app.pid), "3", "-file", stuck], capture_output=True, timeout=60)
-            try:
-                text = open(stuck, errors="replace").read()
-                graph = text.split("Call graph:", 1)[-1].splitlines()
-                print("== main thread while the socket is missing", flush=True)
-                print("\n".join(l[:200] for l in graph[:70]), flush=True)
-            except OSError:
-                pass
-        log.flush()
-        print(open(os.path.join(opts.out, f"app-{TAG}.log"), errors="replace").read()[-6000:], flush=True)
-        sys.exit(1)
     time.sleep(5)  # test harness: launch work settles
     report = {"tag": TAG, "macos": macos, "host": host, "stream": opts.stream, "scrollback": opts.scrollback, "runs": []}
     sequence = steps()

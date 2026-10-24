@@ -9,6 +9,9 @@ use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use cmux_config::{Change, ConfigStore, ManagedReader, Op, Outcome, Refusal, State, Watcher};
 
+use super::terminal_sizing::host_policy::{
+    HostSizePolicy, host_policy_from_state, touches_host_policy,
+};
 use super::{Mux, MuxEvent};
 
 /// The daemon serves `settings.*` and emits `settings-changed`.
@@ -86,7 +89,12 @@ impl Mux {
     pub(crate) fn settings_apply(self: &Arc<Self>, op: Op) -> Result<Outcome, Refusal> {
         let mut store = self.settings_store().lock().unwrap_or_else(|poison| poison.into_inner());
         let applied = store.apply(op);
+        let host_policy = host_policy_after(&store, &applied.changes);
         emit_changes(self, applied.changes);
+        drop(store);
+        if let Some((policy, revision)) = host_policy {
+            self.adopt_host_size_policy(policy, revision);
+        }
         applied.result
     }
 
@@ -95,6 +103,15 @@ impl Mux {
         let store = self.settings_store().lock().unwrap_or_else(|poison| poison.into_inner());
         read(store.state())
     }
+}
+
+/// The host sizing policy the store now holds, when `changes` touched it.
+/// With the store revision it was read at (adopted in revision order).
+fn host_policy_after(store: &ConfigStore, changes: &[Change]) -> Option<(HostSizePolicy, u64)> {
+    changes
+        .iter()
+        .any(|change| touches_host_policy(&change.keys))
+        .then(|| (host_policy_from_state(store.state()), store.state().revision()))
 }
 
 fn emit_changes(mux: &Mux, changes: impl IntoIterator<Item = Change>) {
@@ -112,6 +129,14 @@ fn open_owner(mux: &Arc<Mux>, paths: SettingsPaths) -> SettingsOwner {
         paths.reader,
     )));
     let watcher = watch.then(|| start_watcher(Arc::downgrade(mux), &store)).flatten();
+    // The host sizing policy follows the file from its first read.
+    let host_policy = store
+        .lock()
+        .ok()
+        .map(|store| (host_policy_from_state(store.state()), store.state().revision()));
+    if let Some((policy, revision)) = host_policy {
+        mux.adopt_host_size_policy(policy, revision);
+    }
     SettingsOwner { store, _watcher: watcher }
 }
 
@@ -122,8 +147,13 @@ fn start_watcher(mux: Weak<Mux>, store: &Arc<Mutex<ConfigStore>>) -> Option<Watc
     Watcher::start(files, move || {
         let Some(mux) = mux.upgrade() else { return };
         let mut store = store.lock().unwrap_or_else(|poison| poison.into_inner());
-        let change = store.reload();
+        let change: Vec<Change> = store.reload().into_iter().collect();
+        let host_policy = host_policy_after(&store, &change);
         emit_changes(&mux, change);
+        drop(store);
+        if let Some((policy, revision)) = host_policy {
+            mux.adopt_host_size_policy(policy, revision);
+        }
     })
     .ok()
 }

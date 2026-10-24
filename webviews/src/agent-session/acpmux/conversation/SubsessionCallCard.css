@@ -20,10 +20,10 @@
   color: var(--acpmux-warning);
 }
 .cv-subsession__state[data-state="failed"] {
-  color: var(--agent-danger);
+  color: var(--agent-status-failure);
 }
 .cv-subsession[data-state="failed"] > .cv-tool__icon {
-  color: var(--agent-danger);
+  color: var(--agent-status-failure);
 }
 .cv-subsession[data-state="input"] > .cv-tool__icon {
   color: var(--acpmux-warning);

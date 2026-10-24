@@ -29,8 +29,8 @@ final class DebugSettingsPageProvider: PageProvider {
     private let hangs: HangEpisodeRecorder?
     private var listeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
     private var watching = false
-    /// Observes ``HangEpisodeRecorder/didChange`` while a page listens.
-    private var hangObserver: (any NSObjectProtocol)?
+    /// Follows ``HangEpisodeRecorder/changes()`` while a page listens.
+    private var hangWatch: Task<Void, Never>?
 
     init(model: DebugSettingsModel, hangs: HangEpisodeRecorder?) {
         self.model = model
@@ -85,22 +85,22 @@ final class DebugSettingsPageProvider: PageProvider {
         let id = UUID()
         listeners[id] = onEvent
         if !watching { watch() }
-        if hangObserver == nil, let hangs {
-            hangObserver = NotificationCenter.default.addObserver(forName: HangEpisodeRecorder.didChange, object: hangs, queue: nil) { [weak self] _ in
-                // task-owner: one change event per written hang file; nothing to cancel.
-                Task { @MainActor in self?.emit() }
+        if hangWatch == nil, let changes = hangs?.changes() { // subscribed now: no later change is missed
+            // task-owner: one change event per written hang file; the last listener leaving cancels it
+            hangWatch = Task { @MainActor [weak self] in
+                for await _ in changes { if let self { emit() } else { return } } // gone: the stream ends
             }
         }
         return PageSubscription { [weak self] in self?.unsubscribe(id) }
     }
 
-    /// The last listener leaving stops the hang-file observer (the Observation watch ends at
+    /// The last listener leaving stops following the hang files (the Observation watch ends at
     /// its next change, ``watch()``).
     private func unsubscribe(_ id: UUID) {
         listeners.removeValue(forKey: id)
-        guard listeners.isEmpty, let observer = hangObserver else { return }
-        NotificationCenter.default.removeObserver(observer)
-        hangObserver = nil
+        guard listeners.isEmpty, let hangWatch else { return }
+        hangWatch.cancel()
+        self.hangWatch = nil
     }
 
     /// Observation, re-armed after each change while a page listens; changes in one main-actor

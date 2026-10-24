@@ -175,7 +175,7 @@ button.cv-subagent > :last-child {
 }
 .cv-subagent__stop[data-state="failed"],
 .cv-subagent__stop[data-state="failed"]:hover:not(:disabled) {
-  color: var(--agent-danger);
+  color: var(--agent-status-failure);
 }
 /* The child view's first line (model.ts: 44px): a 28px "Subagent of" chip centred on a rule,
    8px above and below. A click goes back to the parent's view. */
@@ -393,7 +393,7 @@ button.cv-subagent > :last-child {
   font-size: var(--text-detail);
 }
 .acpmux-agents-list__row[data-status="failed"] .acpmux-agents-list__state {
-  color: var(--agent-danger);
+  color: var(--agent-status-failure);
 }
 .acpmux-agents-list__time {
   flex: none;
@@ -530,7 +530,7 @@ button.cv-subagent > :last-child {
   color: var(--agent-muted, var(--cmux-text-secondary));
 }
 .acpmux-agent-card__state[data-status="failed"] {
-  color: var(--agent-danger);
+  color: var(--agent-status-failure);
 }
 .acpmux-agent-card__task {
   display: -webkit-box;
@@ -545,7 +545,7 @@ button.cv-subagent > :last-child {
   cursor: default;
 }
 .cv-subagent-done[data-state="failed"] {
-  color: var(--agent-danger);
+  color: var(--agent-status-failure);
 }
 /* The line and, on hover or focus, its Restart (SubagentDoneLine.tsx), the hover row's compact
    button (conversation/MessageActions.tsx): hidden, it keeps its room, so pointing moves nothing. */

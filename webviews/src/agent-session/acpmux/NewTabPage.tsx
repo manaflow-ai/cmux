@@ -46,6 +46,7 @@ import {
   useSendWhenAttached,
 } from "./composer/attachmentIntake";
 import { DropOverlay } from "./composer/DropOverlay";
+import { useHarnessesListed } from "./catalog";
 
 /// The three things a new tab can become (#16620). Order is the switch's order and Tab's cycle.
 export const TAB_KINDS = ["terminal", "browser", "agent"] as const;
@@ -360,9 +361,10 @@ export function NewTabPage({
   // Agent's harness and model before a pick, as the New Tab screen reads them (newTabStart): the
   // chips pick on this snapshot, and Return starts the chat on the same harness and model.
   const remembered = useLastPick(projectCwd);
+  const harnessesListed = useHarnessesListed();
   const { harness, snapshot: chipSnapshot } = useMemo(
-    () => newTabStart(snapshot, snapshot.catalog, lastAgent, projectCwd, remembered),
-    [snapshot, lastAgent, projectCwd, remembered],
+    () => newTabStart(snapshot, snapshot.catalog, lastAgent, projectCwd, remembered, harnessesListed),
+    [snapshot, lastAgent, projectCwd, remembered, harnessesListed],
   );
   const chipModel = useNewTabChipModel(chipSnapshot);
   const [text, setText] = useState(location ?? "");

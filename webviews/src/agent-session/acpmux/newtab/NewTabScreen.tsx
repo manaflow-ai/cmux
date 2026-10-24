@@ -83,6 +83,7 @@ import { useMinuteClock } from "../clock";
 import { usePasteAnywhere } from "../composer/pasteAnywhere";
 import { SlashMenu } from "../SlashMenu";
 import { applyCommand, matchCommands, slashQuery, type SlashCommand } from "../slashCommands";
+import { useHarnessesListed } from "../catalog";
 import { NewTabExtras } from "./NewTabExtras";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
@@ -410,9 +411,10 @@ export function NewTabScreen(props: Props) {
   };
   // The agent Enter asks and the chip's model (newTabStart): the chip's pick, else the last pick.
   const remembered = useLastPick(chatFolder);
+  const harnessesListed = useHarnessesListed();
   const { harness, snapshot: chipSnapshot } = useMemo(
-    () => newTabStart(snapshot, agents, lastAgent, chatFolder, remembered),
-    [snapshot, agents, lastAgent, chatFolder, remembered],
+    () => newTabStart(snapshot, agents, lastAgent, chatFolder, remembered, harnessesListed),
+    [snapshot, agents, lastAgent, chatFolder, remembered, harnessesListed],
   );
   const chipModel = useNewTabChipModel(chipSnapshot);
   // The Ask row names the agent Return asks and the model on its chip.
