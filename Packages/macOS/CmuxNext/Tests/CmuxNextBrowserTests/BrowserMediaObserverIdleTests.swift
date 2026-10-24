@@ -22,7 +22,7 @@ import Testing
     var window = this, top = this, frames = { length: 0 }, navigator = {}, location = { href: 'https://example.com/' };
     var media = [];
     var document = {
-      title: 'A page', pictureInPictureElement: null, addEventListener: function () {},
+      title: 'A page', pictureInPictureElement: null, visibilityState: 'visible', addEventListener: function () {},
       querySelectorAll: function (s) { return /video|audio/.test(s) ? media : []; },
     };
     function video(playing) {
@@ -91,23 +91,52 @@ import Testing
     }
 
     /// A page that removes its paused element: the element's pause and emptied events fire on a
-    /// detached node, which the window's capture listeners never see. Before, the 1 s look sent
-    /// null; with no idle timer the stale paused card stayed for the life of the page. While a
-    /// paused report is live a DOM-removal watch looks again; no watch otherwise.
-    @Test func aPausedElementThePageRemovesReportsNull() throws {
+    /// detached node, which the window's capture listeners never see. The observer keeps no DOM
+    /// watch for it (a subtree MutationObserver on a busy page, a paused video left for hours,
+    /// ran on every mutation batch, hidden or shown): the stale paused card goes at the next
+    /// natural event, here the page showing again.
+    @Test func aPausedElementThePageRemovesReportsNullAtTheNextShowWithNoDOMWatch() throws {
         let context = try Self.context()
         context.evaluateScript("var v = video(true); media = [v]; fire('play', v);")
-        #expect(context.evaluateScript("observers.length").toInt32() == 0, "a playing report is followed by its timer")
         context.evaluateScript("v.paused = true; fire('pause', v);")
         #expect(context.evaluateScript("lastReport().playing === false").toBool())
         #expect(Self.timers(context) == 0)
-        #expect(context.evaluateScript("observers.length").toInt32() == 1)
-        context.evaluateScript("mutate();")
-        #expect(Self.posts(context) == 2, "a DOM change that kept the element sends nothing")
-        context.evaluateScript("media = []; v.isConnected = false; mutate();")
+        #expect(context.evaluateScript("observers.length").toInt32() == 0, "a paused report keeps a DOM watch")
+        context.evaluateScript("media = []; v.isConnected = false; document.visibilityState = 'hidden'; fire('visibilitychange', document);")
+        #expect(Self.posts(context) == 2, "a hidden page sends nothing")
+        context.evaluateScript("document.visibilityState = 'visible'; fire('visibilitychange', document);")
         #expect(Self.posts(context) == 3)
         #expect(context.evaluateScript("lastReport() === null").toBool())
-        #expect(context.evaluateScript("observers.length").toInt32() == 0, "nothing reported, nothing watched")
+        #expect(context.evaluateScript("observers.length").toInt32() == 0)
+    }
+
+    /// A frame whose binding never comes (an iframe made after the last binding add) stops
+    /// retrying after a bounded number of looks; the next media event tries again. Before, its
+    /// 1 s retry ticker ran for the life of the page.
+    @Test func aReportWhoseBindingNeverComesStopsRetrying() throws {
+        let context = try Self.context()
+        context.evaluateScript("ready = false; var v = video(false); media = [v]; fire('pause', v);")
+        #expect(Self.timers(context) == 1)
+        for _ in 0..<30 { context.evaluateScript("tickSecond()") }
+        #expect(Self.timers(context) == 0, "the retry ticker runs for the life of the page")
+        #expect(Self.posts(context) == 0)
+        context.evaluateScript("ready = true; fire('volumechange', v);")
+        #expect(Self.posts(context) == 1, "the next media event sends the held report")
+    }
+
+    /// The pagehide null that the binding was not ready for is retried like every other report.
+    /// Before, only `report()` started the retry ticker, so that null never reached the tab.
+    @Test func aPagehideNullTheBindingWasNotReadyForIsRetried() throws {
+        let context = try Self.context()
+        context.evaluateScript("var v = video(false); media = [v]; fire('pause', v);")
+        #expect(Self.posts(context) == 1)
+        context.evaluateScript("ready = false; fire('pagehide', {});")
+        #expect(Self.posts(context) == 1)
+        #expect(Self.timers(context) == 1, "a pending null has no retry")
+        context.evaluateScript("ready = true; media = []; tickSecond();")
+        #expect(Self.posts(context) == 2)
+        #expect(context.evaluateScript("lastReport() === null").toBool())
+        #expect(Self.timers(context) == 0)
     }
 
     /// Every message names its document, so the tab keeps one report per frame; a document that
