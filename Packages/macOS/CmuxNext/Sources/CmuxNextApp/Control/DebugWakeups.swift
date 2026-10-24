@@ -14,6 +14,9 @@ import Darwin
 /// - `processes`: cumulative CPU time and wakeups per process (diff two
 ///   calls for rates; `scripts/cmux-next/bench-idle.py` does), sampled off
 ///   the main actor.
+/// - `main_run_loop` (with `run_loop: true`): the main run loop's description (`CFCopyDescription`):
+///   every mode's timers with their interval and callout, sources and observers. An idle bench reads
+///   the repeating timers from it to name what wakes the main thread outside the ledger.
 enum DebugWakeups {
     static func report(_ params: [String: JSONValue]) async -> JSONValue {
         var object = await MainActor.run { mainActorPart(params) }
@@ -34,7 +37,7 @@ enum DebugWakeups {
                 "active_clients": .array(scheduler.activeClients.map { .string($0) }),
             ]
         }
-        return [
+        var report: [String: JSONValue] = [
             "uptime_s": .number(Double(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)) / 1e9),
             "total_per_second": .number(ledger.reduce(0) { $0 + $1.perSecond }),
             "ledger": .array(ledger.map { entry in
@@ -48,6 +51,10 @@ enum DebugWakeups {
             "frame_schedulers": .array(schedulers),
             "active_frame_clients": .array(FrameScheduler.all.flatMap(\.activeClients).map { .string($0) }),
         ]
+        if params["run_loop"]?.boolValue == true {
+            report["main_run_loop"] = .string(CFCopyDescription(CFRunLoopGetMain()) as String)
+        }
+        return report
     }
 }
 
