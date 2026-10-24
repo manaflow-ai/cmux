@@ -76,6 +76,7 @@ struct WindowMainObserverTests {
         #expect(center.registrations == oneStrip)
         center.post(name: NSWindow.didBecomeMainNotification, object: window)
         for index in 0...2 { #expect(seen[index] == [window.isMainWindow, true]) }
+        withExtendedLifetime((first, others)) {}
     }
 
     /// A strip's occlusion follow (`WindowVisibilityObserver`) shares its window's observation with
