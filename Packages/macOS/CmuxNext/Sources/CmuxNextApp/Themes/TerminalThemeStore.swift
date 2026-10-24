@@ -72,7 +72,7 @@ final class TerminalThemeStore {
         guard let url else { return }
         let logger = logger
         // What the windows show at launch: a person sees it.
-        let loaded = (try? await work.run(.userVisible, mayBlock: .files) { Self.read(url, logger: logger) }) ?? ([:], false)
+        let loaded = (try? await work.run(.userVisible, mayBlock: .files) { Self.read(url, logger: logger) }) ?? (themes: [:], complete: false)
         // A theme set before the file loaded wins.
         themes = loaded.themes.merging(themes) { _, current in current }
         keepsFile = !loaded.complete
