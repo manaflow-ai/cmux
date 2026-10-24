@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Execute nightly runner selectors for trusted pushes, overflow, and unsigned resume."""
+"""Execute nightly runner selectors for pooled native work and Linux control work."""
 import json
 import os
 import re
@@ -52,10 +52,10 @@ def select(field='runs-on', **changes):
         'github.repository_owner': 'manaflow-ai', 'github.repository': 'manaflow-ai/cmux', 'github.event_name': 'push',
         'github.ref': 'refs/heads/nightly-next', 'github.run_attempt': 1,
         'vars.CI_PR_POOL_OWNED': '1',
+        'vars.CI_SIDE_LANE_RUNNER': 'glaeda-side-std-xcode-26.6',
         'vars.CI_SEED_TRUSTED_POOL': 'glaeda-trusted-std-xcode-26.6',
-        'vars.CI_NIGHTLY_TRUSTED_RUNNER': 'glaeda-runner-main-glaeda',
-        'vars.CI_NIGHTLY_NEXT_TRUSTED_POOL': 'glaeda-trusted-std-xcode-26.6',
-        'vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER': 'glaeda-runner-next-glaeda',
+        'vars.MACOS_RUNNER_26': 'blacksmith-12vcpu-macos-26',
+        'vars.LINUX_RUNNER': 'blacksmith-4vcpu-ubuntu-2404',
     }
     context.update(changes)
     source = DOC['jobs']['build-nightly-app'][field].removeprefix('${{').removesuffix('}}')
@@ -63,20 +63,22 @@ def select(field='runs-on', **changes):
 
 
 class NightlyTrustedRouting(unittest.TestCase):
-    def test_next_push_selects_its_dedicated_trusted_worker(self):
-        self.assertEqual(select(), ['glaeda-trusted-std-xcode-26.6', 'glaeda-runner-next-glaeda', 'glaeda-trusted-next-nightly'])
+    def test_next_push_selects_the_owned_pool(self):
+        self.assertEqual(select(), 'glaeda-side-std-xcode-26.6')
 
     def test_main_keeps_its_worker_and_writer_environment(self):
         changes = {'github.ref': 'refs/heads/main'}
-        self.assertEqual(select(**changes), ['glaeda-trusted-std-xcode-26.6', 'glaeda-runner-main-glaeda'])
+        self.assertEqual(select(**changes), 'glaeda-trusted-std-xcode-26.6')
         self.assertEqual(select('environment', **changes), 'ci-cache-writer')
         self.assertEqual(select('environment'), '')
 
-    def test_next_never_borrows_main_or_pr_pool_on_missing_configuration(self):
-        for variable in ('vars.CI_NIGHTLY_NEXT_TRUSTED_POOL', 'vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER'):
-            self.assertEqual(select(**{variable: ''}), 'macos-26')
+    def test_missing_owned_pool_uses_blacksmith_mac_fallback(self):
+        self.assertEqual(select(**{'vars.CI_SIDE_LANE_RUNNER': ''}), 'blacksmith-12vcpu-macos-26')
 
-    def test_dispatch_fast_retries_rc_and_disabled_owned_take_hosted(self):
+    def test_retries_use_blacksmith_after_owned_build_attempt(self):
+        self.assertEqual(select(**{'github.run_attempt': 2}), 'blacksmith-12vcpu-macos-26')
+
+    def test_dispatch_fast_retries_rc_and_disabled_owned_use_blacksmith_pool(self):
         cases = [
             {'github.event_name': 'workflow_dispatch'}, {'github.run_attempt': 2},
             {'needs.decide.outputs.fast_build': 'true'}, {'vars.CI_PR_POOL_OWNED': '0'},
@@ -84,7 +86,7 @@ class NightlyTrustedRouting(unittest.TestCase):
         ]
         for changes in cases:
             with self.subTest(changes=changes):
-                self.assertEqual(select(**changes), 'macos-26')
+                self.assertEqual(select(**changes), 'blacksmith-12vcpu-macos-26')
         self.assertEqual(select(**{'github.repository_owner': 'someone'}), 'macos-26')
 
     def test_trusted_next_uses_its_own_state_without_shared_cache_secrets(self):
@@ -136,8 +138,7 @@ class NightlyTrustedRouting(unittest.TestCase):
                 'github.repository': 'manaflow-ai/cmux', 'github.event_name': 'push',
                 'github.ref': 'refs/heads/nightly-next', 'github.run_attempt': 1, 'github.run_id': '1',
                 'needs.decide.outputs.fast_build': 'false', 'vars.CI_PR_POOL_OWNED': '1',
-                'vars.CI_NIGHTLY_NEXT_TRUSTED_POOL': 'glaeda-trusted-std-xcode-26.6',
-                'vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER': 'glaeda-runner-next-glaeda',
+                'vars.CI_SIDE_LANE_RUNNER': 'glaeda-side-std-xcode-26.6',
             }
             context.update(changes)
             return re.sub(r'\$\{\{(.*?)\}\}',
@@ -146,18 +147,14 @@ class NightlyTrustedRouting(unittest.TestCase):
         self.assertEqual(group(), 'nightly-next-build-app-warm')
         self.assertEqual(group(**{'github.run_id': '2'}), group())
         # The shared slot exists exactly when runs-on picks the warm runner.
-        self.assertIn('glaeda-trusted-next-nightly', select())
-        hosted = [
-            {'github.run_attempt': 2}, {'github.event_name': 'workflow_dispatch'},
-            {'needs.decide.outputs.fast_build': 'true'}, {'vars.CI_PR_POOL_OWNED': '0'},
-            {'vars.CI_NIGHTLY_NEXT_TRUSTED_POOL': ''}, {'vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER': ''},
-            {'github.ref': 'refs/heads/main'}, {'github.repository': 'manaflow-ai/another'},
-        ]
-        for changes in hosted:
-            with self.subTest(changes=changes):
-                self.assertNotIn('glaeda-trusted-next-nightly', select(**changes))
-                self.assertEqual(group(**changes), 'nightly-build-app-1')
-                self.assertNotEqual(group(**changes), group(**{**changes, 'github.run_id': '2'}))
+        self.assertIn('glaeda-side-std-xcode-26.6', select())
+        self.assertEqual(select(**{'github.run_attempt': 2}), 'blacksmith-12vcpu-macos-26')
+        self.assertEqual(select(**{'vars.CI_SIDE_LANE_RUNNER': ''}), 'blacksmith-12vcpu-macos-26')
+        self.assertEqual(group(**{'vars.CI_SIDE_LANE_RUNNER': '', 'github.run_id': '1'}), 'nightly-build-app-1')
+        self.assertEqual(group(**{'github.run_attempt': 2}), 'nightly-build-app-1')
+        self.assertEqual(group(**{'github.event_name': 'workflow_dispatch'}), 'nightly-build-app-1')
+        self.assertEqual(group(**{'github.ref': 'refs/heads/main'}), 'nightly-build-app-1')
+        self.assertNotEqual(group(**{'github.event_name': 'workflow_dispatch'}), group(**{'github.event_name': 'workflow_dispatch', 'github.run_id': '2'}))
         self.assertFalse(job['concurrency']['cancel-in-progress'])
 
     def test_a_superseded_next_run_never_enters_the_build_slot(self):
@@ -217,7 +214,7 @@ class NightlyTrustedRouting(unittest.TestCase):
     @unittest.skipUnless('nightly_next_unsigned_run' in DOC[True]['workflow_dispatch']['inputs'],
                          'unsigned resume is owned by PR 21161, not landed on this base yet')
     def test_unsigned_resume_is_linux_before_every_native_route(self):
-        self.assertEqual(select(**{'inputs.nightly_next_unsigned_run': '123'}), 'ubuntu-24.04')
+        self.assertEqual(select(**{'inputs.nightly_next_unsigned_run': '123'}), 'blacksmith-4vcpu-ubuntu-2404')
 
 
 if __name__ == '__main__':
