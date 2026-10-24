@@ -16,8 +16,8 @@ import Foundation
 /// (a child's lifecycle says nothing about whether the PARENT is working).
 ///
 /// Honest limits: without per-child ids from the CLI, a dedicated stop event
-/// can close the oldest open child, while a parent `stop`/`Stop` closes every
-/// open child (a stopped parent has no running foreground children).
+/// can close the oldest open child. Claude's parent stop ends only the current
+/// turn; its background children remain open until their own stop event.
 extension AgentChatSessionRegistry {
     nonisolated static func applyChildRunEvent(
         _ record: inout AgentChatSessionRecord,
