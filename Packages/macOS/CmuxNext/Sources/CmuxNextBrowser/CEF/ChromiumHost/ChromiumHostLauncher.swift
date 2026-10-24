@@ -79,6 +79,12 @@ nonisolated struct ChromiumHostLauncher: ChromiumHostLaunching {
         case spawn(Int32)
     }
 
+    /// Delivers the exit events of this launcher's hosts (no thread per host). Serial, one per launcher: an
+    /// event handler only collects an exit the kernel has posted (`waitid` waits at most until the status is
+    /// collectable, which follows the event at once), so hosts never wait on each other for long.
+    /// userInitiated: the exit restarts the page a person is looking at.
+    private let exitQueue = DispatchQueue(label: "com.cmuxterm.chromium-host.exit", qos: .userInitiated)
+
     init() {}
 
     func launch(executable: URL, arguments: [String]) throws -> ChromiumHostProcessHandle {
@@ -134,9 +140,7 @@ nonisolated struct ChromiumHostLauncher: ChromiumHostLaunching {
         return await withCheckedContinuation { continuation in
             // DispatchSource process source: the carve-out for a child's exit (no Foundation async
             // API for a posix_spawn'ed pid); it never reaps, so the zombie stays until reap(_:).
-            // userInitiated: the exit restarts the page a person is looking at (the event handler's waitid
-            // returns at once once the exit is posted, so it holds this QoS only briefly).
-            let queue = DispatchQueue(label: "com.cmuxterm.chromium-host.exit.\(pid)", qos: .userInitiated)
+            let queue = exitQueue
             let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: queue)
             // One-shot resume guard (the lock carve-out): the exit event and the check after arming race.
             let done = Mutex(false)
