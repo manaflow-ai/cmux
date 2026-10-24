@@ -198,6 +198,6 @@ public actor HomeCache {
 /// The result of one ``HomeCache/writeAndWait(_:sequence:writer:timeout:)`` write.
 // Written once by the write task before it signals the semaphore and read only after the wait
 // succeeds: the semaphore orders the two accesses.
-private final class WriteResult: @unchecked Sendable {
+private final class WriteResult: @unchecked Sendable { // crash-allow: written once before the semaphore signals, read only after the wait succeeds
     var value = false
 }
