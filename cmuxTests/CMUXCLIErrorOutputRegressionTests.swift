@@ -556,6 +556,101 @@ import Testing
         XCTAssertEqual(methods, ["system.identify", "surface.resume.get"])
     }
 
+    @Test func testRestoreKeepsMissingCodexBindingWhenSavedCwdIsGone() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux restore codex missing cwd \(UUID().uuidString)", isDirectory: true)
+        // Never created: the checkpoint's saved directory is gone.
+        let workingDirectory = root.appendingPathComponent("saved cwd", isDirectory: true)
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        let attemptedURL = root.appendingPathComponent("codex-attempted", isDirectory: false)
+        let executable = root.appendingPathComponent("codex", isDirectory: false)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        try createEmptyCodexStateDatabase(at: codexHome.appendingPathComponent("state_5.sqlite"))
+        try """
+        #!/bin/sh
+        touch \(shellSingleQuote(attemptedURL.path))
+        exit 42
+        """.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let checkpointID = "01a03bc1-7649-7ec3-bdf7-03acf979e087"
+        let surfaceID = UUID().uuidString.lowercased()
+        let workspaceID = UUID().uuidString.lowercased()
+        let response = try restoreResponse(
+            result: [
+                "restore_record": [
+                    "mode": "resumeAgent",
+                    "kind": "codex",
+                    "checkpoint_id": checkpointID,
+                    "source": "session-snapshot",
+                    "working_directory": workingDirectory.path,
+                    "environment": ["CODEX_HOME": codexHome.path],
+                    "prepared_arguments": ["codex", "resume", checkpointID],
+                ],
+                "resume_binding": [
+                    "name": "Codex",
+                    "kind": "codex",
+                    "command": "codex resume \(checkpointID)",
+                    "cwd": workingDirectory.path,
+                    "checkpoint_id": checkpointID,
+                    "source": "agent-hook",
+                    "resume_evidence_provenance": "tui",
+                    "auto_resume": true,
+                    "updated_at": 123.5,
+                ],
+            ],
+            workspaceID: workspaceID,
+            surfaceID: surfaceID
+        )
+        let clearResponse = try jsonResponse(result: [
+            "cleared": true,
+            "resume_binding": NSNull(),
+        ])
+        let socketPath = "/tmp/cmux-restore-codex-cwd-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            responses: [response, clearResponse]
+        )
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["HOME"] = root.path
+        environment["CODEX_HOME"] = codexHome.path
+        environment["PATH"] = "\(root.path):/usr/bin:/bin"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["restore", "--surface", surfaceID, "codex", checkpointID],
+            environment: environment,
+            timeout: 5
+        )
+
+        // The user can recreate or remount the directory and retry, so the
+        // binding stays: restore stops before the stale-binding clear.
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 1, result.diagnostics)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: attemptedURL.path), result.diagnostics)
+        XCTAssertTrue(
+            result.stderr.contains(
+                "restore: the saved working directory '\(workingDirectory.path)' no longer exists. "
+                    + "Recreate or remount it, then run 'cmux restore --surface'."
+            ),
+            result.diagnostics
+        )
+        let methods = try responder.receivedRequests.map { request -> String? in
+            let data = try XCTUnwrap(request.data(using: .utf8))
+            return (try JSONSerialization.jsonObject(with: data) as? [String: Any])?["method"] as? String
+        }
+        XCTAssertEqual(methods, ["surface.resume.get"], result.diagnostics)
+    }
+
     @Test func testRestoreDoesNotExecuteMissingCodexCheckpointAndGuardsStaleBindingClear() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -988,12 +1083,28 @@ import Testing
         XCTAssertFalse(result.combinedOutput.contains("unexpected agent launch"), result.diagnostics)
     }
 
-    @Test func testRestoreRetargetsPreparedCwdWhenPersistedDirectoryIsMissing() throws {
+    @Test func testRestoreRejectsMissingPersistedCwdBeforeLaunch() throws {
+        try assertRestoreRefusesUnusableSavedCwd { root in
+            root.appendingPathComponent("deleted", isDirectory: true)
+        }
+    }
+
+    // ENOTDIR: something now sits at the saved path, but it is not a directory.
+    @Test func testRestoreRejectsPersistedCwdThatIsNoLongerADirectory() throws {
+        try assertRestoreRefusesUnusableSavedCwd { root in
+            let file = root.appendingPathComponent("not a directory", isDirectory: false)
+            try Data("x".utf8).write(to: file)
+            return file
+        }
+    }
+
+    private func assertRestoreRefusesUnusableSavedCwd(
+        makeSavedDirectory: (URL) throws -> URL
+    ) throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux missing cwd \(UUID().uuidString)", isDirectory: true)
         let executable = root.appendingPathComponent("fake cwd agent", isDirectory: false)
-        let missingDirectory = root.appendingPathComponent("deleted", isDirectory: true)
         let capturedDirectory = root.appendingPathComponent("captured", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try """
@@ -1008,6 +1119,7 @@ import Testing
             ofItemAtPath: executable.path
         )
         defer { try? FileManager.default.removeItem(at: root) }
+        let savedDirectory = try makeSavedDirectory(root)
 
         let checkpointID = "cwd-\(UUID().uuidString)"
         let preparedArguments = [
@@ -1022,7 +1134,7 @@ import Testing
                 "mode": "resumeAgent",
                 "kind": "cwd-agent",
                 "checkpoint_id": checkpointID,
-                "working_directory": missingDirectory.path,
+                "working_directory": savedDirectory.path,
                 "environment": [:],
                 "launch_command": [
                     "arguments": [executable.path],
@@ -1052,26 +1164,21 @@ import Testing
             timeout: 5
         )
 
+        // The saved directory is gone. Restoring from the caller's directory
+        // instead would resume the agent against a different checkout, and a
+        // provider that keys sessions by directory would report the session
+        // missing, so restore refuses before launching anything.
         XCTAssertFalse(result.timedOut, result.diagnostics)
-        XCTAssertEqual(result.status, 0, result.diagnostics)
-        let outputLines = result.stdout.components(separatedBy: .newlines)
-        let observedPWD = try XCTUnwrap(outputLines.first(where: { $0.hasPrefix("pwd=") }))
-            .dropFirst("pwd=".count)
-        let observedArguments = outputLines.compactMap { line -> String? in
-            guard line.hasPrefix("arg=") else { return nil }
-            return String(line.dropFirst("arg=".count))
-        }
-        let cwdFlagIndex = try XCTUnwrap(observedArguments.firstIndex(of: "--cwd"))
-        let sessionFlagIndex = try XCTUnwrap(observedArguments.firstIndex(of: "--session"))
-        let observedCwdArgument = try XCTUnwrap(observedArguments.dropFirst(cwdFlagIndex + 1).first)
-        let observedSessionID = try XCTUnwrap(observedArguments.dropFirst(sessionFlagIndex + 1).first)
-        let canonicalRoot = try XCTUnwrap(canonicalExistingPath(root.path))
-
-        XCTAssertEqual(cwdFlagIndex, 0, result.diagnostics)
-        XCTAssertEqual(sessionFlagIndex, 2, result.diagnostics)
-        XCTAssertEqual(try XCTUnwrap(canonicalExistingPath(String(observedPWD))), canonicalRoot, result.diagnostics)
-        XCTAssertEqual(try XCTUnwrap(canonicalExistingPath(observedCwdArgument)), canonicalRoot, result.diagnostics)
-        XCTAssertEqual(observedSessionID, checkpointID, result.diagnostics)
+        XCTAssertEqual(result.status, 1, result.diagnostics)
+        XCTAssertTrue(
+            result.stderr.contains(
+                "restore: the saved working directory '\(savedDirectory.path)' no longer exists. "
+                    + "Recreate or remount it, then run 'cmux restore --surface'."
+            ),
+            result.diagnostics
+        )
+        XCTAssertFalse(result.stdout.contains("pwd="), result.diagnostics)
+        XCTAssertFalse(result.stdout.contains("arg="), result.diagnostics)
     }
 
     @Test func testRestoreRunsCommandOnlyLegacyRecordThroughCompatibilityShell() throws {
