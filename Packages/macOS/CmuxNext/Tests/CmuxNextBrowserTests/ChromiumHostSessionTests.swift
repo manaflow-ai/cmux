@@ -358,6 +358,43 @@ import Testing
         #expect(session.phase == .starting)
     }
 
+    // Before the fix the quitting host's last address (its committed page, sent after the reopen)
+    // replaced the URL the reopen asked for, and the new host loaded the old page (seen on aws-m4pro,
+    // macOS 27, as a flaky openWhileTheHostQuitsStartsANewHostAfterItEnds).
+    @Test(.timeLimit(.minutes(1))) func anAddressFromAHostThatQuitsDoesNotReplaceTheReopenedURL() async throws {
+        let launcher = FakeLauncher()
+        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher, now: { ContinuousClock.now })
+        session.open("https://a.example/")
+        let first = try await nextLaunch(launcher)
+        answer(first, context: 5, address: "https://a.example/")
+        try await until("a shown") { session.phase == .running && session.url == "https://a.example/" }
+        session.close()
+        session.open("https://b.example/")
+        // The quitting host still reports its committed page.
+        first.wire.send(ChromiumHostFrame(.address, payload: Array("https://a.example/".utf8)))
+        // A round trip after it: frames are handled in order, so the address was handled when the pong is.
+        let ping = Task { await session.ping(count: 1) }
+        var frames = first.wire.frames.makeAsyncIterator()
+        var sawQuit = false
+        var request: ChromiumHostFrame?
+        while request == nil, let frame = await frames.next() {
+            if frame.kind == .quit { sawQuit = true }
+            if frame.kind == .ping { request = frame }
+        }
+        let sent = try #require(request)
+        #expect(sawQuit)
+        var pong = ChromiumHostFrame(.pong, t0: sent.t0)
+        pong.seq = sent.seq
+        first.wire.send(pong)
+        #expect(await ping.value.count == 1)
+        #expect(session.url == "https://b.example/")
+        launcher.end(first, ChromiumHostExit(signal: nil, status: 0))
+        let second = try await nextLaunch(launcher)
+        let opened = try await firstFrame(of: second)
+        #expect(opened.kind == .navigate)
+        #expect(opened.text == "https://b.example/")
+    }
+
     @Test func aURLLongerThanAFrameIsRefusedWithoutAHost() async throws {
         let launcher = FakeLauncher()
         let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher, now: { ContinuousClock.now })
