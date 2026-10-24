@@ -325,11 +325,25 @@ test("nested, JSON-RPC, and Codex envelopes give their images to the strip", () 
 test("nested images share the duplicate and all-or-nothing cap", () => {
   const inner = JSON.stringify([{ type: "text", text: "Nested shots" }, shot(0), shot(1), shot(2), shot(3)]);
   const four = JSON.stringify([{ type: "text", text: inner }, shot(3)]);
-  expect(shown(four)).toEqual({ row: "Nested shots", strip: [url(3), url(0), url(1), url(2)] });
+  expect(shown(four)).toEqual({ row: "Nested shots", strip: [url(0), url(1), url(2), url(3)] });
   const five = JSON.stringify([{ type: "text", text: inner }, shot(4)]);
   expect(envelopeImages(five)).toEqual([]);
   expect(toolImages(call(five))).toEqual([]);
   expect(toolResult(five, cleanText, true).text).toContain(`${PNG}4`);
+});
+
+test("nested image strip order follows the envelope block order", () => {
+  const inner = JSON.stringify([{ type: "text", text: "Inner" }, shot(1)]);
+  const outerFirst = JSON.stringify([
+    { type: "image", data: `${PNG}0`, mimeType: "image/png" },
+    { type: "text", text: inner },
+  ]);
+  const textFirst = JSON.stringify([
+    { type: "text", text: inner },
+    { type: "image", data: `${PNG}0`, mimeType: "image/png" },
+  ]);
+  expect(envelopeImages(outerFirst)).toEqual([url(0), url(1)]);
+  expect(envelopeImages(textFirst)).toEqual([url(1), url(0)]);
 });
 
 test("a JSON-RPC error leaves an image in its result data", () => {
