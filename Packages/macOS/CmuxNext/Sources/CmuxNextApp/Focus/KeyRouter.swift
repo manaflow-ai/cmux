@@ -40,16 +40,16 @@ final class KeyRouter: BrowserKeyRouting {
     /// A key that is not a Command or Control chord goes on to `window`'s
     /// focused view: the user types into that pane (notification dismissal).
     var onTyping: ((NSWindow?) -> Void)?
-    /// The key-down `debug.key` dispatches (``dispatchingSynthetic(_:_:)``),
-    /// which `NSApp.currentEvent` does not report.
-    var syntheticKeyEvent: NSEvent?
+    /// The input event being dispatched now (``InputDispatchContext``), `sendEvent`'s and this router's own.
+    let inputDispatch: InputDispatchContext
     /// Notes what happens to the key `debug.key` dispatches (nil otherwise).
     var trace: ((String) -> Void)?
     /// The leader's which-key overlay, shown while Cmd-J waits.
     var whichKey: WhichKeyController?
     private var resignObserver: (any NSObjectProtocol)?
-    init(registry: ActionRegistry) {
+    init(registry: ActionRegistry, inputDispatch: InputDispatchContext = InputDispatchContext()) {
         self.registry = registry
+        self.inputDispatch = inputDispatch
         // Leaving the app ends a waiting chord (the overlay hides with it).
         resignObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didResignActiveNotification, object: nil, queue: .main

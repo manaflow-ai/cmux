@@ -310,18 +310,16 @@ final class HomeHostView: NSView {
     required init?(coder: NSCoder) { nil }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // The last reference can go on any thread: the Sendable handles end here, the main-actor parts stop on the
+    // main actor (a guard that returned off main skipped all of it: the watches and the transcript ran on).
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            availability?.cancel()
-            engineWatch?.cancel()
-            avatarsWatch?.cancel()
-            hostWatch?.cancel()
-            agentsWatch?.cancel()
-            shortcutsWatch?.cancel()
-            headerPanelsWatch?.cancel()
+        for task in [availability, engineWatch, avatarsWatch, hostWatch, agentsWatch, shortcutsWatch, headerPanelsWatch, firstPage] {
+            task?.cancel()
+        }
+        let settings = settings, transcript = transcript
+        // task-owner: the main-actor half of this view's release; one call each, then it ends
+        Task { @MainActor in
             settings.close()
-            firstPage?.cancel()
             transcript.stop()
         }
     }

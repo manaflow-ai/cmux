@@ -73,9 +73,15 @@ final class HomeNewMessageView: NSView {
     nonisolated override var isFlipped: Bool { true }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // The last reference can go on any thread: the composer and its store stop on the main actor (a guard that
+    // returned off main skipped it, and the store's connection ran on).
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated { stop() }
+        let composer = composer, composerStore = composerStore
+        // task-owner: the main-actor half of this view's release; one call each, then it ends
+        Task { @MainActor in
+            composer?.stop()
+            composerStore?.stop()
+        }
     }
 
     /// Nothing chosen, nothing typed in To:, and an empty message box:

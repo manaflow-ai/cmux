@@ -104,19 +104,17 @@ import CmuxNextFocusUI
         }
     }
 
-    /// The menu bar, the app's terminal hooks and the registry's key-down reading swapped in for
-    /// `body` (no suspension inside), then restored.
+    /// The menu bar and the app's terminal hooks swapped in for `body` (no suspension inside), then
+    /// restored. The registry's key-down reading is the app's own: `press` dispatches through the
+    /// router's dispatch context, as `sendEvent` does.
     private static func withMenu(_ menu: NSMenu, _ harness: Harness, _ body: () throws -> Void) rethrows {
-        let registry = harness.services.registry
-        let previousMenu = NSApp.mainMenu, previousDispatching = registry.isDispatchingKeyDown
+        let previousMenu = NSApp.mainMenu
         let previousClaim = TerminalKeyEquivalent.menuMayClaim, previousAppAction = GhosttyRuntime.shared.appActionHandler
         let previousOwns = TerminalKeyEquivalent.userKeybindOwns
         NSApp.mainMenu = menu
-        registry.isDispatchingKeyDown = { true }
         TerminalHooks(services: harness.services).install()
         defer {
             NSApp.mainMenu = previousMenu
-            registry.isDispatchingKeyDown = previousDispatching
             TerminalKeyEquivalent.menuMayClaim = previousClaim
             TerminalKeyEquivalent.userKeybindOwns = previousOwns
             GhosttyRuntime.shared.appActionHandler = previousAppAction

@@ -108,10 +108,6 @@ enum DebugKey {
             return .object(["decision": .string(String(describing: decision)), "action": action,
                             "focus": .string(String(describing: controller.focus.state.resolved))])
         }
-        let registry = services.registry
-        let previous = registry.isDispatchingKeyDown
-        registry.isDispatchingKeyDown = { true }
-        defer { registry.isDispatchingKeyDown = previous }
         // The target window is the key window for this dispatch, so rules
         // that read the key window (WindowKeyTable) see it.
         let previousKey = services.keyWindowSource

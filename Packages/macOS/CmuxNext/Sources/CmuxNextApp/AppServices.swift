@@ -279,7 +279,9 @@ final class AppServices {
     private(set) lazy var designMode = BrowserDesignModeController(services: self)
     private(set) lazy var uiInspector = UIInspectorController(services: self)
     /// The one keyboard router (plans/cmux-next/focus.md section 5).
-    private(set) lazy var keyRouter: KeyRouter = KeyRouter(registry: registry)  // first read in init (no IUO)
+    /// The input event being dispatched now (``InputDispatchContext``): `sendEvent` and the router's own dispatches.
+    let inputDispatch = InputDispatchContext()
+    private(set) lazy var keyRouter: KeyRouter = KeyRouter(registry: registry, inputDispatch: inputDispatch)  // first read in init (no IUO)
     private(set) lazy var chromiumWarmup: ChromiumWarmup = ChromiumWarmup(engine: cache.cef)  // first read in init (no IUO)
     /// The Settings window (Settings…, Cmd-,).
     private(set) lazy var settingsWindow = SettingsWindowService(services: self)
@@ -477,8 +479,10 @@ final class AppServices {
         cache.makeExtensionMenuHandler = { [weak self] key in self.map { ExtensionMenuRouter(services: $0, tabKey: key) } }
         cache.onDevToolsChange = { [weak self] key, state, focused in self?.devToolsDidChange(key, state: state, focused: focused) }
         registry.menuKeyEquivalentGate = { [weak self] id in self?.keyRouter.allowsMenuKeyEquivalent(id) ?? true }
-        registry.dispatchingInputEvent = { (NSApp as? CmuxApplication)?.dispatchingEvent }
-        registry.isDispatchingKeyDown = { (NSApp as? CmuxApplication)?.dispatchingEvent?.type == .keyDown }
+        let inputDispatch = inputDispatch
+        (NSApp as? CmuxApplication)?.inputDispatch = inputDispatch
+        registry.dispatchingInputEvent = { inputDispatch.event }
+        registry.isDispatchingKeyDown = { inputDispatch.isKeyDown }
         (NSApp as? CmuxApplication)?.assistiveClientsChanged = { [weak self] active in self?.cache.cef.setAssistiveClientActive(active) }
         (NSApp as? CmuxApplication)?.keyDownInterceptor = { [weak self] event, window in
             guard let self else { return false }
