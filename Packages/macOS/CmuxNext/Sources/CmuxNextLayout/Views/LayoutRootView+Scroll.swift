@@ -1,13 +1,26 @@
 public import AppKit
+import CmuxNextDesign
 
-/// Pointer and trackpad routing. Mouse-downs focus the pane under the
-/// pointer, and so does the start of a scroll that passes through to a pane
-/// (`LayoutRootView+ScrollFocus`); horizontal scroll gestures over a columns screen are claimed by
-/// the layout (first dominant axis decides), except where the pane's own
-/// content scrolls sideways (`LayoutRootView+ScrollClaim`); over a scroll area that can move,
-/// the area takes them first (scroll-areas-DESIGN.md I2). Vertical ones pass through,
-/// except over a column whose rows overflow: there they scroll the rows
-/// over the gaps between rows, or anywhere with Command held (rows.md V5).
+/// Pointer and trackpad routing. Mouse-downs focus the pane under the pointer. Scrolls follow
+/// `layout.scrollModifier` (``LayoutModel/scrollModifier``):
+///
+/// - `command` (default): a plain scroll, wheel or trackpad, either axis, goes to the pane under
+///   the pointer; the layout takes it only over chrome with no pane under it (the gaps between
+///   panes and rows, the strip scrollbar). Command + scroll moves the layout anywhere on the
+///   screen, a Chromium page's own window included: sideways pans the columns strip (or the
+///   innermost scroll area that can move, scroll-areas-DESIGN.md I2), up and down scrolls the rows
+///   of the column under the pointer (rows.md V5). Where the layout cannot move that way, the
+///   pane gets the scroll.
+/// - `none`: the rule before `command`. Horizontal gestures over a columns screen are claimed by
+///   the layout (first dominant axis decides), except where the pane's own content scrolls
+///   sideways (`LayoutRootView+ScrollClaim`); vertical ones pass through, except over a column
+///   whose rows overflow: there they scroll the rows over the gaps between rows, or anywhere
+///   with Command held.
+///
+/// Either way the first event of a trackpad gesture decides its owner for the whole gesture,
+/// momentum included: pressing or releasing Command midway changes nothing. A mouse wheel
+/// decides per notch. A scroll that passes through to a pane focuses it only with
+/// focus-follows-mouse on (`LayoutRootView+ScrollFocus`).
 extension LayoutRootView {
     enum ScrollLock {
         case idle
@@ -19,11 +32,15 @@ extension LayoutRootView {
         case passthrough
         /// A canvas pan (LayoutRootView+Canvas), through its momentum.
         case canvas(ScreenContentView)
-        /// A gesture that began over a canvas pane: horizontal pans, vertical scrolls the pane.
+        /// A gesture that began over a canvas pane (`none`): horizontal pans, vertical scrolls the pane.
         case canvasUndecided(ScreenContentView)
     }
 
     func handleMonitored(_ event: NSEvent) -> NSEvent? {
+        if event.type == .scrollWheel {
+            guard let location = scrollLocationInWindow(of: event) else { return event }
+            return handleScroll(event, locationInWindow: location) ? nil : event
+        }
         guard event.window === window, window != nil else { return event }
         switch event.type {
         case .leftMouseDown, .rightMouseDown, .otherMouseDown:
@@ -36,12 +53,63 @@ extension LayoutRootView {
                 model.focus(pane, source: .pointer)
             }
             return event
-        case .scrollWheel:
-            return handleScroll(event, locationInWindow: event.locationInWindow) ? nil : event
         case .magnify:
             return handleCanvasMagnify(event) ? nil : event
         default:
             return event
+        }
+    }
+
+    /// Where a monitored scroll event points, in this view's window: its own point when it is
+    /// this window's. Under `command`, a Chromium page's own window (a child of this window over
+    /// its pane) counts too, so Command + scroll over a page moves the layout and a layout gesture
+    /// keeps its events when the strip slides a page under the still pointer. Nil: not ours.
+    private func scrollLocationInWindow(of event: NSEvent) -> NSPoint? {
+        guard let window, let eventWindow = event.window else { return nil }
+        if eventWindow === window { return event.locationInWindow }
+        guard eventWindow.parent === window, model.scrollModifier == .command,
+              WindowOverlayHost.isPageWindow(eventWindow) else { return nil }
+        return window.convertPoint(fromScreen: eventWindow.convertPoint(toScreen: event.locationInWindow))
+    }
+
+    /// What the layout could scroll for a gesture or a wheel notch that starts at a point: the
+    /// strip (`columns`), a column's rows, the scroll areas there. `columnsTakeEitherAxis`: a
+    /// vertical mouse wheel notch moves the strip when no rows take it (over the strip scrollbar,
+    /// or with Command held: a mouse with one wheel still pans the columns).
+    struct ScrollTargets {
+        var columns: ScreenContentView?
+        var rows: (ScreenContentView, ColumnID)?
+        var area: (ScreenContentView, NSPoint)?
+        var columnsTakeEitherAxis = false
+
+        static let empty = ScrollTargets()
+        var isEmpty: Bool { columns == nil && rows == nil && area == nil }
+    }
+
+    /// The targets of a scroll starting at `locationInWindow`, by `layout.scrollModifier`.
+    private func scrollTargets(_ event: NSEvent, at locationInWindow: NSPoint) -> ScrollTargets {
+        switch model.scrollModifier {
+        case .noModifier:
+            return ScrollTargets(columns: activeColumnsView(at: locationInWindow), rows: rowScrollTarget(event, at: locationInWindow),
+                                 area: areaScrollCandidate(at: locationInWindow))
+        case .command:
+            guard bounds.contains(convert(locationInWindow, from: nil)), let active = model.activeScreenID,
+                  let view = screenViews[active] else { return .empty }
+            let local = view.convert(locationInWindow, from: nil)
+            let area = view.areaScrolls.isEmpty ? nil : (view, local)
+            if event.modifierFlags.contains(.command) {
+                // Anywhere on the screen, over any pane: the layout's scroll.
+                return ScrollTargets(columns: view.acceptsHorizontalScroll ? view : nil,
+                                     rows: view.rowScrollColumn(at: local, modifierHeld: true).map { (view, $0) }, area: area,
+                                     columnsTakeEitherAxis: true)
+            }
+            if let scrollbar = view.scrollbar, !scrollbar.isHidden, scrollbar.hitTest(local) != nil {
+                return ScrollTargets(columns: view.acceptsHorizontalScroll ? view : nil, columnsTakeEitherAxis: true)
+            }
+            // A plain scroll over a pane is the pane's, whatever its content.
+            guard view.pane(at: local) == nil else { return .empty }
+            return ScrollTargets(columns: view.acceptsHorizontalScroll(at: local) ? view : nil,
+                                 rows: view.rowScrollColumn(at: local, modifierHeld: false).map { (view, $0) }, area: area)
         }
     }
 
@@ -91,13 +159,16 @@ extension LayoutRootView {
 
         let phase = event.phase
         if phase.isEmpty {
-            // Discrete mouse wheel. Shift+wheel arrives as deltaX.
-            if abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX), let (view, column) = rowScrollTarget(event, at: locationInWindow) {
+            // Discrete mouse wheel, decided per notch. Shift+wheel arrives as deltaX.
+            let targets = scrollTargets(event, at: locationInWindow)
+            let vertical = abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX)
+            let horizontal = abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY)
+            if vertical, let (view, column) = targets.rows {
                 view.discreteRowScroll(column, direction: event.scrollingDeltaY < 0 ? 1 : -1)
                 driver.start()
                 return nil
             }
-            if abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY), let (view, point) = areaScrollCandidate(at: locationInWindow) {
+            if horizontal, let (view, point) = targets.area {
                 let direction = event.scrollingDeltaX < 0 ? 1 : -1
                 if let area = view.scrollArea(at: point, direction: direction) {
                     view.discreteAreaScroll(area, direction: direction)
@@ -105,21 +176,20 @@ extension LayoutRootView {
                     return nil
                 }
             }
-            guard abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY), let view = activeColumnsView(at: locationInWindow) else {
-                focusPaneForPassThroughScroll(at: locationInWindow)
-                return event
+            if let view = targets.columns, horizontal || (vertical && targets.columnsTakeEitherAxis) {
+                let delta = horizontal ? event.scrollingDeltaX : event.scrollingDeltaY
+                view.discreteScroll(direction: delta < 0 ? 1 : -1)
+                driver.start()
+                return nil
             }
-            view.discreteScroll(direction: event.scrollingDeltaX < 0 ? 1 : -1)
-            driver.start()
-            return nil
+            focusPaneForPassThroughScroll(at: locationInWindow)
+            return event
         }
 
         if phase.contains(.mayBegin) || phase.contains(.began) {
             consumeMomentum = false
-            let columns = activeColumnsView(at: locationInWindow)
-            let rows = rowScrollTarget(event, at: locationInWindow)
-            let area = areaScrollCandidate(at: locationInWindow)
-            scrollLock = columns == nil && rows == nil && area == nil ? .passthrough : .undecided(columns, rows: rows, area: area)
+            let targets = scrollTargets(event, at: locationInWindow)
+            scrollLock = targets.isEmpty ? .passthrough : .undecided(targets.columns, rows: targets.rows, area: targets.area)
         }
 
         switch scrollLock {
