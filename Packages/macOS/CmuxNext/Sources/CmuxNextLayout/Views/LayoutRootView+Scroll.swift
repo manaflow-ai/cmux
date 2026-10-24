@@ -59,11 +59,7 @@ extension LayoutRootView: ScrollGestureOwning {
     }
 
     func handleMonitored(_ event: NSEvent) -> NSEvent? {
-        if event.type == .scrollWheel {
-            guard let origin = Self.scrollOrigin(of: event.window, at: event.locationInWindow, in: window,
-                                                 modifier: model.scrollModifier) else { return event }
-            return handleScrollEvent(event, at: origin.locationInWindow, fromPageWindow: origin.isPageWindow)
-        }
+        if event.type == .scrollWheel { return handleMonitoredScroll(event, from: event.window, at: event.locationInWindow) }
         guard event.window === window, window != nil else { return event }
         switch event.type {
         case .leftMouseDown, .rightMouseDown, .otherMouseDown:
@@ -81,6 +77,16 @@ extension LayoutRootView: ScrollGestureOwning {
         default:
             return event
         }
+    }
+
+    /// The monitor's scroll routing: `event` as `eventWindow`, the window AppKit sent it to, has it
+    /// at `location` (that window's coordinates). Apart from ``handleMonitored(_:)`` so tests can
+    /// send an event from a page or catcher window, which a synthesized event cannot carry.
+    /// Returns the event when it goes on, nil when the layout consumed it.
+    func handleMonitoredScroll(_ event: NSEvent, from eventWindow: NSWindow?, at location: NSPoint) -> NSEvent? {
+        guard let origin = Self.scrollOrigin(of: eventWindow, at: location, in: window,
+                                             modifier: model.scrollModifier) else { return event }
+        return handleScrollEvent(event, at: origin.locationInWindow, fromPageWindow: origin.isPageWindow)
     }
 
     /// Where a monitored scroll event came from, as the layout of one window routes it.
