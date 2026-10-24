@@ -75,6 +75,11 @@
       "what": "every action run's always-on budget record: two clock reads and one ring-slot write (ActionBudgetMonitor.record)",
       "bench": "CMUX_ACTION_BUDGET_BENCH=1 swift test -c release --filter ActionBudgetMonitorBench (ns per run and per batch), on macOS 26 and 27",
       "owner": "Performance Lead (PL-instant)"
+    },
+    "launch-first-window": {
+      "what": "launch to the first window frame: the launch files read off the main thread from `main` and only taken (LaunchRead) or handed over without a wait (SavedFrameDirectory) by the window build (#17587)",
+      "bench": "scripts/cmux-next/bench-startup.py --mode warm --profile realistic --launch-guard, then --profile stress --launch-guard",
+      "owner": "Performance Lead"
     }
   }
 }
