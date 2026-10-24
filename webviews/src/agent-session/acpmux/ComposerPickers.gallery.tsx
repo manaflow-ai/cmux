@@ -73,6 +73,18 @@ const initialSnapshot: AcpmuxSnapshot = {
           { value: "on", name: "On" },
         ],
       },
+      // Codex still reports this option for its /plan command and mode paths; the footer leaves it
+      // out of the generic Options chip.
+      {
+        id: "collaboration_mode",
+        name: "Collaboration mode",
+        category: "collaboration_mode",
+        currentValue: "default",
+        options: [
+          { value: "default", name: "Default" },
+          { value: "plan", name: "Plan", description: "Write a plan before editing." },
+        ],
+      },
     ],
   },
 };
@@ -305,7 +317,7 @@ export default componentEntry<Props>({
   variants: {
     closed: { props: {} },
     "pill-rail": {
-      note: "The 400 px composer rail keeps the one model button (model and effort) and the access control quiet before any menu opens.",
+      note: "The 400 px Codex rail keeps model, effort and access quiet; its reported collaboration mode has no footer control.",
       props: {},
     },
     "model-menu": {

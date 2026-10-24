@@ -368,6 +368,9 @@ public struct NativeMarkdownLayout: @unchecked Sendable {
 /// Inline markdown to UIKit attributes (markdown.css: strong 600, code mono
 /// .88em on fill-selected, links underlined in the label color).
 extension NativeMarkdownLayout {
+    /// The URL under a run of native markdown (not `.link`: UILabel would recolor it blue).
+    public static let linkKey = NSAttributedString.Key("cmuxMobile.link")
+
     /// `codeBackground`: markdown.css's fill behind code spans (web bodies); SwiftUI's Text draws none.
     public static func inlineText(_ source: String, font: UIFont, color: UIColor, styles: NativeTextStyles,
                                   paragraph: NSParagraphStyle, lineHeight: CGFloat? = nil, codeBackground: Bool = true) -> NSAttributedString {
@@ -393,7 +396,13 @@ extension NativeMarkdownLayout {
                 }
                 if intent.contains(.strikethrough) { attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
             }
-            if run.link != nil { attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue }
+            // A link, or a file the agent names in code (`src/app.swift:12`, as InlineMarkdownCache does).
+            var link = run.link
+            if link == nil, run.inlinePresentationIntent?.contains(.code) == true { link = MarkdownFilePath(text)?.url }
+            if let link {
+                attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
+                attributes[NativeMarkdownLayout.linkKey] = link
+            }
             attributes[.font] = runFont
             let isCode = run.inlinePresentationIntent?.contains(.code) == true
             if isCode, codeBackground, output.length > 0 {
@@ -473,6 +482,25 @@ public final class NativeMarkdownView: UIView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// The link at `point` (in this view), if a label's text has one there.
+    public func link(at point: CGPoint) -> URL? {
+        for label in labels where !label.isHidden && label.frame.contains(point) {
+            guard let text = label.attributedText, text.length > 0 else { continue }
+            let storage = NSTextStorage(attributedString: text)
+            let manager = NSLayoutManager()
+            let container = NSTextContainer(size: label.bounds.size)
+            container.lineFragmentPadding = 0
+            manager.addTextContainer(container)
+            storage.addLayoutManager(manager)
+            let local = CGPoint(x: point.x - label.frame.minX, y: point.y - label.frame.minY)
+            var fraction: CGFloat = 0
+            let index = manager.characterIndex(for: local, in: container, fractionOfDistanceBetweenInsertionPoints: &fraction)
+            guard index < text.length else { continue }
+            return text.attribute(NativeMarkdownLayout.linkKey, at: index, effectiveRange: nil) as? URL
+        }
+        return nil
+    }
 
     public func apply(_ layout: NativeMarkdownLayout) {
         var label = 0, code = 0, table = 0, bar = 0

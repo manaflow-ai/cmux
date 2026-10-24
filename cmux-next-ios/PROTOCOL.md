@@ -119,7 +119,7 @@ echoes the token),
 | `DELETE /v1/devices/:deviceId` | → `{deleted:true, deviceId}` (0.7.0). Owner only (`403 not_owner`, `404 not_found`). Deletes the row and its push token; the owner's hub drops the Mac from presence (broadcasting `presence` with `removed:true`), closes the device's signaling socket with code 4002 `removed`, and ends its signaling sessions. A removed device that registers again is a new registration: removal tidies stale devices, it does not ban an id. Used by the phone (Settings → Connection → Macs / Phones) and by the Mac app ("Unpair this Mac") |
 | `PUT /v1/devices/:deviceId/push` | `{token, environment, topic, kinds?}` → `{push:{environment,topic,kinds,updatedAt}}` (0.7.0). Phone only, owner only. `token` is the APNs device token in hex (64 to 200 hex digits), `environment` `sandbox` or `production` (the app's `aps-environment`), `topic` its bundle id, which must be one of the Worker's `APNS_TOPICS`. `kinds` is which events to push (default all): `question`, `permission`, `completed`, `failed`, `chief` |
 | `DELETE /v1/devices/:deviceId/push` | → `{deleted:true}` (0.7.0): stop pushing to this phone (sign-out, notifications turned off) |
-| `POST /v1/devices/:deviceId/notify` | `{eventId, kind, agent?, place?, workspaceId?, tabId?, sessionId?}` → `{configured, sent, failed, dropped, coalesced?}` (0.7.0). `:deviceId` is a Mac the caller owns. Pushes one event to every phone of the same owner that registered a token and wants that `kind`. Content minimization: the Mac sends only a kind, a short agent name (≤ 40 characters) and a short place such as the workspace title (≤ 60); the Worker writes the text itself ("Claude has a question", "Claude needs permission", "Claude finished", "Claude stopped with an error", "Chief replied") with the place as the body, and never forwards agent output, prompts, tool arguments or paths. The payload's `mobile` object carries `{mac, kind, eventId, workspaceId, tabId, sessionId}` so a tap opens that tab. APNs `thread-id` is the `sessionId`, so a phone groups a session's notifications. The collapse id is `eventId` (≤ 64) for a question or permission; for a finished turn, an error or a Chief reply it is one id per session (`turn-<sessionId>`, hashed when longer than 64), so a newer one replaces the older. The Worker passes at most one turn-ending event per Mac, session and finished-or-error in 15 s, once some phone wants the kind (the user hub's `turnPushAllowed`); the rest answer `{sent: 0, coalesced: true}`. The Mac reports only what a person can act on (`cmux-mobile-host` `notify.rs`): never a Chief's compactor (`cmux.chief.role` `compactor`, or an `optchat-compact-` name, preset or folder); a Chief turn session (`cmux.chief`) as `chief`, once per Chief; no finished turn of a sub-session or a Chief's child (their asks still push); and per session at most one finished turn and one error in 30 s, the newest held one sent when the window ends. `configured:false` when the Worker has no APNs key. Tokens APNs reports as gone are deleted (`dropped`). Rate limited per Mac (`429 rate_limited`) |
+| `POST /v1/devices/:deviceId/notify` | `{eventId, kind, agent?, place?, workspaceId?, tabId?, sessionId?}` → `{configured, sent, failed, dropped, coalesced?}` (0.7.0). `:deviceId` is a Mac the caller owns. Pushes one event to every phone of the same owner that registered a token and wants that `kind`. Content minimization: the Mac sends only a kind, a short agent name (≤ 40 characters) and a short place such as the workspace title (≤ 60); the Worker writes the text itself ("Claude has a question", "Claude needs permission", "Claude finished", "Claude stopped with an error", "Chief replied") with the place as the body, and never forwards agent output, prompts, tool arguments or paths. The payload's `mobile` object carries `{mac, kind, eventId, workspaceId, tabId, sessionId}` so a tap opens that tab. APNs `thread-id` is the `sessionId`, so a phone groups a session's notifications (0.13.0: `<mac>:<sessionId>` and the other fields of "Push notifications" below, which also add the answer's `wants`). The collapse id is `eventId` (≤ 64) for a question or permission; for a finished turn, an error or a Chief reply it is one id per session (`turn-<sessionId>`, hashed when longer than 64), so a newer one replaces the older. The Worker passes at most one turn-ending event per Mac, session and finished-or-error in 15 s, once some phone wants the kind (the user hub's `turnPushAllowed`); the rest answer `{sent: 0, coalesced: true}`. The Mac reports only what a person can act on (`cmux-mobile-host` `notify.rs`): never a Chief's compactor (`cmux.chief.role` `compactor`, or an `optchat-compact-` name, preset or folder); a Chief turn session (`cmux.chief`) as `chief`, once per Chief; no finished turn of a sub-session or a Chief's child (their asks still push); and per session at most one finished turn and one error in 30 s, the newest held one sent when the window ends. `configured:false` when the Worker has no APNs key. Tokens APNs reports as gone are deleted (`dropped`). Rate limited per Mac (`429 rate_limited`) |
 | `DELETE /v1/me` | → `{deleted:{devices:n}}` (0.7.0): purges everything the Worker stores for the caller (devices with their push tokens, team prefs) and evicts the caller's sockets: the caller's hub closes every socket with 4002 `removed` and forgets its devices and sessions. The app calls it first when the user deletes their account, then deletes the Stack account through cmux's account deletion (`DELETE <cmux API>/api/account`, as the main cmux app) |
 | `POST /v1/me/bootstrap` | `{teamId, devices:[{deviceId,kind,name}]}` (at most 4) → `{devices:[{device}\|{error}], macs:{macs}\|{error}, myMacs:{macs}\|{error}, ice:{iceServers,ttl,turn}\|{error}}`: the phone's launch in one round trip (added in 0.8.0). Each part is the response of its own route (`POST /v1/devices` with `teamId`, `GET /v1/teams/:teamId/macs`, `GET /v1/me/macs`, `GET /v1/ice`), run at once; a part's error does not fail the others. A 404 means an older service: make the separate calls |
 | `GET /v1/health` | → `{ok:true, version, stackProjects:[projectId], colo}` (accepted Stack projects, primary first; `colo` is the Cloudflare colo that received the request, added in 0.6.0) |
@@ -605,6 +605,22 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
     isn't in a folder this Mac shares with your iPhone."). The phone shows the
     reason over the page, in its own words for a known `code`, and the address
     bar goes back to the page.
+  - **The host checks every `file:` load itself** (2026-10-22): hostd sends
+    `rb.file_policy {roots, files}` right after its hello, and again when it
+    changes. `roots` are the shared folders; `files` are the pages the Mac showed
+    this tab (each page alone, never its folder). The host's request
+    handler (`OnBeforeBrowse` for navigations and frames,
+    `OnBeforeResourceLoad` for images, iframes, fetch and every other
+    subresource) refuses a `file:` URL whose path, resolved at load time, is
+    not one of `files` or inside one of `roots`. A host with no policy (the
+    Mac app's own remote tabs) loads every file. Known limits: the policy is
+    refreshed when hostd next checks an address (2 s cache), a link the host
+    refuses shows no notice on the phone, and a page restored from the
+    back-forward cache is not checked again by the host (hostd's take-back
+    still applies); a policy is replaced, never
+    removed, and a phone cannot send one (hostd's viewer allowlist). A new
+    host of a `file:` page starts at `about:blank` and hostd navigates it
+    after the policy.
   - hostd checks the host's `rb.page` too: a page the host went to by itself
     (a link, a redirect, script) that the rules refuse is not forwarded; hostd
     sends the host `rb.history back` (or `rb.navigate` to the last shown page
@@ -625,10 +641,15 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   Paste sends the phone's clipboard text as `ime_commit`. While the keyboard shows, the phone sends
   `rb.screen` with the page's visible height, so the page lays out above the
   keyboard. Hiding the keyboard sends nothing (the page keeps its focus). The host
-  does not report the focused field yet (`rb.text_input`), so the phone cannot
-  raise the keyboard by itself when the page focuses a field. Keys of a
-  hardware keyboard attached to the phone reach the page only as text (and
-  Return, Tab, Backspace); arrows, Escape and shortcuts go through the key bar. Under
+  reports the focused field, `rb.text_input {input_type, composition_rects,
+  caret}` (CSS pixels; `input_type` `none` when nothing takes text): the phone
+  raises the keyboard when a field gains focus and lowers it when the page
+  blurs a field it raised it for; Chromium keeps the focused field in view as
+  the viewport shrinks. A hardware keyboard's arrows, Escape, Home/End,
+  forward Delete and Command/Control shortcuts go to the page directly as
+  `key` events (with the Mac's edit commands: Option-arrows by word,
+  Command-arrows by line or document, Command-Z/Shift-Command-Z); Command-V
+  pastes the phone's clipboard. Under
   `CMUX_MOBILE_CONTROL=stdio` the app starts the hosts: hostd writes
   `{"type":"need_browser","request","tab","url"}` and the app answers
   `{"type":"browser","request","addr":"127.0.0.1:PORT","secret"}` or
@@ -814,3 +835,220 @@ The phone's link line names the path: "WireGuard direct", "WireGuard relay
 (TURN)", "WireGuard relay (TURN over TLS)" (and the same for WebRTC's
 TURN). There is no WebSocket relay any more. cmux-mobile-host reports the path as
 `direct`, `turn`, `turn-tls` or `none` (`phone_up`, `phone_path`).
+
+## Terminal size claims
+
+When the phone shows a Mac terminal, the shared PTY is sized for the phone too
+(cmux-tui shared sizing, docs/shared-terminal-sizing.md), and the Mac's pane
+shows the phone's grid. The phone's size counts only while the person is
+looking at that terminal; on every other path the claim ends and the Mac's
+pane gets its own size back (2026-10-21).
+
+Mechanisms, phone first, then the Mac:
+
+- **Release / claim (phone).** A terminal page claims its size while it is on
+  screen, settled and taking input (TabsKit `isInteractive`: not zoomed out to
+  the grid, not mid-swipe, no page menu open), the app is in the foreground
+  and none of its own sheets covers it (Files and Links, the photo picker, the
+  file importer). Losing that sends `release-surface-size {surface}` on the
+  attach channel after a 1 s debounce (`TerminalSizeClaimDebounce`), so a
+  quick switch away and back sends nothing and never resizes the Mac twice.
+  The app entering the background (or the lock screen) releases at once,
+  with no debounce, before iOS suspends it. Coming back claims at once:
+  `resize-surface` with the last measured grid. While released, layout passes
+  are remembered and not sent, and a reattach attaches without a size.
+- **Stop (phone).** A session that stops (its tab cooled out of the warm set
+  of 4, closed, another account) sends `release-surface-size` and waits for the
+  answer (at most 2 s) before it closes its channel. The daemon would read a
+  bare close as a dropped link and hold the grid.
+- **Size lease (phone and daemon, `size-lease-v1`).** The phone lists
+  `size-lease-v1` in `set-client-info` `capabilities`; when `identify` lists
+  it, the phone sends its claimed size again every 15 s while it claims (a
+  same-size `resize-surface` renews the lease and never resizes the PTY). A
+  size not refreshed for 45 s is released by the daemon; a connection that
+  ended without releasing ends the departed-view hold its own departure set
+  at that moment (a later departure's hold runs on). A suspended or dead phone can never pin the Mac's grid past it.
+- **Departed-view hold (daemon).** A phone's connection that ends without a
+  release (the link dropped) keeps the grid from growing for 30 s, so a link
+  blip that reattaches finds the grid it left (termqa V2-5); capped by the
+  lease as above, and ended at once by a phone back with a size.
+- **Release on purpose (cmux-mobile-host).** The Mac releases a phone's sizes
+  itself, sending `release-surface-size` for every terminal the channel
+  attached to or sized and waiting up to 500 ms for the answers before it
+  closes the daemon socket, when: the phone closed the `daemon` channel (a
+  `close` frame); the owner removed the phone (link closed `removed`); hostd
+  exits (stdin ends or SIGTERM: iPhone connections turned off, the app
+  quitting). A link that timed out or failed keeps the hold.
+- **Link keepalive.** A dead link closes 15-35 s after its last frame
+  ("Link"); the daemon socket closes with it.
+
+The Mac app's Swift phone splice (`DaemonLaneSplice`, the irx connection
+server) has no release of its own: a phone on that path relies on its own
+release and the daemon's size lease.
+
+| Path | Mechanism | Mac pane restored within |
+| --- | --- | --- |
+| Back to the workspace list | page disappears → release after debounce | 1 s + one round trip |
+| Another tab of the workspace | page not interactive → release | 1 s + RTT |
+| Tab grid opened | page not interactive (zoomed out) → release | 1 s + RTT |
+| Another workspace, another Mac | page disappears → release | 1 s + RTT |
+| Quick switch away and back (< 1 s) | debounce: nothing sent | no change (no thrash) |
+| Page menu open longer than 1 s | page not interactive → release; claimed again on close | 1 s + RTT |
+| Files and Links, photo picker or file importer over the page | covered → release | 1 s + RTT |
+| A sheet the page does not own (Connected Devices) | still claims (the terminal shows behind it) | n/a |
+| App to the background, screen locked | `didEnterBackground` → release at once, inside a short background task | one round trip |
+| Force quit, killed by iOS while foreground | no release; lease ends (or keepalive + hold, capped by the lease) | 45 s |
+| Killed by iOS in the background | already released on entering it | one round trip |
+| Link drop: network loss, roaming | keepalive closes the socket; hold capped by the lease | 45 s (a reattach inside it keeps the phone's grid) |
+| Transport switch | link redialled; hold; reattach finds the grid | no change if it reattaches within 30 s; else 45 s |
+| Mac host (hostd) restarts: SIGTERM | hostd releases before exit | 0.7 s |
+| hostd crashes or is killed (SIGKILL) | socket closes; hold capped by the lease | 45 s |
+| The Mac's cmux-tui daemon restarts | new daemon, no phone participant until it reattaches | at once |
+| iPhone connections turned off on the Mac | hostd SIGTERM → release | 0.7 s |
+| The owner removes the phone on the Mac | link closed `removed` → hostd releases | 0.5 s |
+| Phone signs out, "Remove This iPhone from My Macs" | links close (sessions stop and release when the link still carries them); else hold capped by the lease | 45 s worst case |
+| Tab cooled out of the warm set, tab closed | session stop → release, then close; else hostd releases on the close frame | one round trip |
+| Grid card of a tab not started | `read-screen` only, never attaches | never claims |
+| Grid card of a started tab | its page is not interactive → release | 1 s + RTT |
+| Several phones | each claims and releases its own; the grid is the Mac's again once every claim ended | the slowest phone's bound |
+| A phone and another remote client (a second Mac, the TUI) | the phone's release makes the grid follow the remaining views; a non-handheld view never holds | as the phone's path |
+| Older phone without `size-lease-v1` | no lease: hostd releases on its close frame, the keepalive + 30 s hold on a drop | 65 s on a drop |
+
+Measured on the rig: cmux-next-ios/verify/size-release-20261021.md.
+
+## Push notifications (API 0.13.0)
+
+Rich, interactive notifications (`verify/rich-push.md`). Every field below is
+optional and additive: a host before 0.13.0 sends none of them and gets the
+0.11 banner; an older phone ignores what it does not read.
+
+### Mac → Worker: `POST /v1/devices/:macId/notify`
+
+Adds to the 0.7.0 body (the Worker cleans every string: control and format
+characters become spaces, then it cuts to the limit in code points):
+
+| Field | Limit | Meaning |
+| --- | --- | --- |
+| `kind` | | adds `terminal` (an OSC 9, OSC 777 or OSC 99 desktop notification from a program in a cmux terminal) |
+| `workspace` | 60 | the workspace's title (`place` stays the folder name) |
+| `workspaceId`, `tabId` | 128 | the daemon's ids; `tabId` is `s<surface>` for a terminal |
+| `permissionId` | 128 | the acpmux permission id of a question or permission |
+| `conversationId` | 128 | a Chief's home id (`kind` `chief`) |
+| `notificationId` | 64 | the daemon ledger id of a terminal notification |
+| `title` | 200 | the question, the permission's command or tool title, a terminal notification's title |
+| `body` | 400 | a terminal notification's body, an error's summary, a Chief reply's first lines |
+| `options` | 6 × (`id` 64, `label` 60, `kind`) | a permission's acpmux options (`kind` `allow_once`, `allow_always`, `reject_once`, `reject_always`) |
+| `questions` | 4 × (`question` 200, `header` 30, `multiSelect`, `allowsOther`, `options` 6 × (`label` 60, `description` 120)) | an AskUserQuestion-style ask |
+| `tail` | 6 × 160 | the last lines of the chat (never a terminal's screen: it stays on the Mac until payloads are sealed) |
+| `state` | | `waiting`, `finished`, `failed`, `notified` |
+| `replyable` | | a terminal notification whose poster takes a typed reply (`notify --reply`, daemon `notification-reply-v1`) |
+
+The answer adds `wants`: the kinds any phone of the owner that has not muted
+this Mac still wants, so the host skips kinds nobody wants. It sends a
+skipped kind again 15 s after the answer, so a phone that turns a kind on
+gets it within about that.
+
+Only `eventId` and `kind` are required. Any other field that is malformed
+(an id outside its pattern, a value of the wrong type, an unknown `state`, an
+option without a valid `id`) is dropped, not the push. A text cut to its
+limit ends with "…". Combining marks past two on one character are dropped.
+Terminal notifications have their own rate bucket (60 a minute), apart from
+the Mac's asks and turns; the host also sends at most one per terminal tab in
+10 s and ten a minute.
+
+Content moved from minimized to granular in 0.13.0 by the person's decision
+(rich notifications). A permission's `title` is the tool's own title, which
+for a shell command is the whole command line, and `tail` and `body` are what
+the agent printed: they can name paths and command arguments. The host
+redacts credentials in every text field first (tokens such as `sk-`, `ghp_`,
+`xoxb-`, `AKIA`, JWTs, `Bearer` and `Basic` values, `password=`-style
+assignments, PEM blocks and long high-entropy runs become `[redacted]`). The
+person's prompts and a terminal's screen are never sent. Until payload
+encryption (PR B, `sealed`) every field is visible to the Worker and to
+APNs.
+
+### Worker → APNs
+
+```json
+{"aps": {"alert": {"title": "Claude asks", "subtitle": "cmux-next · Mac mini", "body": "Which branch?"},
+         "sound": "default", "mutable-content": 1, "thread-id": "<mac>:<sessionId>",
+         "category": "CMUX_MOBILE_QUESTION", "interruption-level": "time-sensitive",
+         "target-content-id": "<mac>:<sessionId>"},
+ "cmuxMobile": {"v": 2, "mac": "…", "macName": "Mac mini", "kind": "question", "eventId": "p-…",
+                "agent": "Claude", "place": "cmux-next", "workspace": "cmux-next", "workspaceId": "…",
+                "tabId": "…", "sessionId": "…", "permissionId": "…", "title": "Which branch?",
+                "questions": [{"question": "Which branch?", "multiSelect": false, "allowsOther": true,
+                               "options": [{"label": "main"}, {"label": "dev"}]}],
+                "tail": ["…"], "state": "waiting", "previews": true}}
+```
+
+- `thread-id`: `<mac>:<sessionId>`, else `<mac>:<tabId>` (terminal), else
+  `<mac>:chief:<conversationId>`, else `<mac>`. Collapse ids are unchanged
+  (#23803); a terminal notification collapses per Mac and `notificationId`
+  (`term-<fnv64(mac)>-<notificationId>`, hashed when longer than 64).
+- `category`: `CMUX_MOBILE_QUESTION` (one question, one choice, at most 4
+  options), `CMUX_MOBILE_QUESTION_FORM` (any other ask: multi-select, more
+  options, several questions, or none listed), `CMUX_MOBILE_PERMISSION`,
+  `CMUX_MOBILE_COMPLETED`, `CMUX_MOBILE_FAILED`, `CMUX_MOBILE_CHIEF`,
+  `CMUX_MOBILE_TERMINAL`.
+- The payload stays under 4096 bytes: the Worker drops option descriptions,
+  then `tail` lines from the oldest, then shortens `title`, then drops
+  `questions` (the category becomes `CMUX_MOBILE_QUESTION_FORM`), then
+  shortens `body`. If it still does not fit (every field full of 4-byte
+  characters), only the ids, `kind`, `state` and texts cut to 20 characters
+  stay.
+- Banner text: question "<Agent> asks" / the question; permission "<Agent>
+  needs permission" / the title; completed "<Agent> finished" / the last
+  `tail` line; failed "<Agent> stopped with an error" / `body` or the last
+  line; chief "Chief" / `body`; terminal "Terminal · <workspace>" /
+  "<title>: <body>" (a program never chooses the banner's title). Subtitle
+  "<workspace or place> · <Mac>".
+- `previews: false` (the phone turned Show previews off): the 0.11 banner
+  text ("Claude has a question", body the Mac's name) and no subtitle; the
+  `cmuxMobile` fields stay, so the buttons still work after unlock.
+
+### Phone → Worker: `PUT /v1/devices/:deviceId/push`
+
+Adds `mutedMacs` (at most 64 Mac device ids: no push from them) and
+`previews` (boolean, default true). `kinds` adds `terminal`. The answer echoes
+both. The app's levels: Only when I'm needed = `question`, `permission`;
+Needed and finished = those and `completed`, `chief`; Everything = all six
+plus `failed` and `terminal`.
+
+### Terminal agents' questions
+
+A terminal-hosted agent's question (Claude Code AskUserQuestion, Codex
+`request_user_input`) reaches the phone from its hook: the daemon's
+`notification` event and that `list-notifications` row carry `question`
+`{harness, tool_use_id?, questions: [{id?, question, header?, multiSelect,
+isOther?, options: [{label, description?}]}]}` while the agent waits on it
+(memory only; cmux-tui `agent_hook_question.rs`, `session.journal.append`
+`live_question`). The Mac host pushes it as kind `question` with `questions`,
+`tabId` (`s<surface>`), `notificationId` and no `permissionId`. The phone
+answers it on that Mac by typing into the terminal (`send`) while
+`read-screen` shows the question; see SECURITY.md "Answering a terminal
+agent's question from the phone".
+
+### Phone actions
+
+| Identifier | Kind | Options | Delivery |
+| --- | --- | --- | --- |
+| `cmux.option.<i>` | question (one choice) | foreground, authenticationRequired | the app opens, Face ID, signed answer |
+| `cmux.answer` ("Answer…") | question | foreground | the app opens on the question |
+| `cmux.allow.once` | permission | foreground, authenticationRequired | the app opens, Face ID, signed allow. No Always allow: as in the Feed (`phoneOptions`), acpmux refuses a lasting grant from a paired phone |
+| `cmux.deny` | permission | destructive, authenticationRequired | background, unsigned reject |
+| `cmux.reply` (text input) | completed, failed, chief | authenticationRequired | background: a prompt to the session, or a Chief message |
+| `cmux.terminal.reply` (text input) | terminal (PR B) | authenticationRequired | background: input to the terminal |
+| `cmux.retry` | the "Couldn't reach <Mac>" notification | foreground | the app opens and sends again |
+
+The content extension replaces the buttons with the payload's own options
+(`extensionContext.notificationActions`). Its option rows, Submit and its
+composer write the request to the App Group outbox and open the app, which
+sends it over that Mac's link and opens the chat.
+
+A terminal agent's question push is named by what it asks: `q-` and the 64-bit
+FNV-1a, in hex, of its prompts and option labels (`prompt \u{1} label \u{2}
+label ...`, questions joined by `\u{0}`). It is pushed once per tab in 30 s,
+though Claude Code fires two hooks for it in either order (PermissionRequest
+carries no `tool_use_id`). The phone answers a notification only while that
+very question is pending on its tab; any other push is answered from the Feed card.

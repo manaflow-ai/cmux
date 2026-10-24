@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBrowser
 import Foundation
 import Observation
+import CmuxNextHistory
 
 /// The `cmux://vault` page in a browser tab: the vault list as a native view,
 /// no engine (like `HistoryPageTab`). Navigating it to a web address asks the

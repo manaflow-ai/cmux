@@ -25,8 +25,9 @@ With --browser the top-left pane of each layout shows a Chromium page instead of
 requestAnimationFrame loop counting into window.__frames, a spinner, a tall grid of cards; the first split terminal
 takes --stream), and each action pair starts with that pane focused. Per action it adds the change of `debug.cef`'s
 pump counters (pump_runs, pump_ms, pump_long, pump_now_req, pump_delayed_req), its tracker counters (trk_clip_reads,
-trk_occl_reads, trk_clip_builds, trk_clip_hits, trk_clip_ms, trk_posts; None on builds without them) and of the page's own animation
-frames (page_frames). A layout whose page never runs fails one row and is skipped.
+trk_occl_reads, trk_clip_builds, trk_clip_hits, trk_clip_ms, trk_posts, trk_skips; None on builds without them), of the page's own animation
+frames (page_frames), of `debug.layers` divider catcher panel updates and child window reorders (catcher_updates, reorders), and
+the fork geometry posts per moving frame (posts_per_frame). A layout whose page never runs fails one row and is skipped.
 
 Usage: pane-perf-terminal.py --tag <tag> --app PATH [--layouts 1x2,4x2,6x5] [--browser]
        [--actions split,close,column,zoom,drag,sidepanel,scroll,idle] [--rounds 3] [--scrollback 5000] [--stream]
@@ -37,7 +38,10 @@ import argparse, glob, json, os, pathlib, signal, subprocess, sys, tempfile, tim
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
 parser.add_argument("--app", required=True)
-parser.add_argument("--layouts", default="1x2,4x2,6x5")
+parser.add_argument("--layouts", default="1x2,4x2,6x5",
+                    help="COLSxROWS terminal grids, and `stress`: the STRESS session (perf-stress-session.py)")
+parser.add_argument("--stress-selected", default="terminal", choices=["terminal", "chromium"],
+                    help="layout `stress`: what each pane of the measured workspace shows")
 parser.add_argument("--actions", default="split,close,column,zoom,drag")
 parser.add_argument("--rounds", type=int, default=3)
 parser.add_argument("--scrollback", type=int, default=5000)
@@ -48,6 +52,9 @@ parser.add_argument("--sample", default="", help="LAYOUT:ACTION[,...]: `sample` 
 parser.add_argument("--sample-repeats", type=int, default=8)
 parser.add_argument("--content", default="terminal", choices=["terminal", "chromium"],
                     help="what the workspace's first pane shows: a terminal, or a Chromium page (splits start from it)")
+parser.add_argument("--pages", type=int, default=0,
+                    help="with --browser: this many more panes of each layout (the first ones split) show a Chromium page "
+                         "(a static page beside the probe: every page the window holds is re-placed on a motion frame)")
 parser.add_argument("--json")
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--gate", action="store_true", help="fail on the budget rows")
@@ -60,7 +67,9 @@ BINARY = next((p for p in sorted(glob.glob(os.path.join(APP, "Contents/MacOS/*")
 SCRATCH = tempfile.mkdtemp(prefix=f"pane-perf-{TAG}-")
 open(os.path.join(SCRATCH, "ghostty"), "w").close()
 CONFIG = os.path.join(SCRATCH, "cmux.json")
-open(CONFIG, "w").write("{}\n")
+# 30 panes in 6 columns leave ~230 pt each: the 200 pt default minimum refused the timed split there
+# ("not enough room to split this pane"), so the 30-pane split row measured nothing.
+open(CONFIG, "w").write(json.dumps({"layout": {"minimumPaneWidth": 80, "minimumPaneHeight": 32}}) + "\n")
 WINDOW = (80, 80, 1600, 1000)
 PAGE = None  # a local page for a Chromium pane (`serve_page`)
 
@@ -120,9 +129,13 @@ CEF_DELTAS = [("pump_runs", "pump", "work_runs"), ("pump_ms", "pump", "work_ms")
               ("trk_clip_reads", "tracker", "clip_reads"), ("trk_occl_reads", "tracker", "occlusion_reads"),
               ("trk_clip_builds", "tracker", "clip_builds"), ("trk_clip_hits", "tracker", "clip_hits"),
               ("trk_clip_ms", "tracker", "clip_ms"),
-              ("trk_posts", "tracker", "geometry_posts")]
-BROWSER_KEYS = [key for key, _, _ in CEF_DELTAS] + ["page_frames"]
-BROWSER_HEADS = ["pump", "pumpms", "long", "nowreq", "dlyreq", "clipr", "occlr", "clipb", "cliph", "clipms", "posts", "rAF"]
+              ("trk_posts", "tracker", "geometry_posts"), ("trk_skips", "tracker", "geometry_skips")]
+# --browser: per action, the change of `debug.layers` counters of the first window (divider catcher panel moves, child
+# window reorders); None on builds without them.
+LAYER_DELTAS = [("catcher_updates", "divider_catcher_updates"), ("reorders", "reorders")]
+BROWSER_KEYS = [key for key, _, _ in CEF_DELTAS] + ["page_frames"] + [key for key, _ in LAYER_DELTAS] + ["posts_per_frame"]
+BROWSER_HEADS = ["pump", "pumpms", "long", "nowreq", "dlyreq", "clipr", "occlr", "clipb", "cliph", "clipms", "posts", "skips",
+                 "rAF", "catch", "reord", "post/f"]
 STILL = ("drag", "sidepanel", "sidepanel-close", "scroll", "idle")  # actions that move no layout spring
 
 
@@ -223,8 +236,15 @@ def layout(columns, rows):
     top-left one shows the probe page instead (the first split terminal takes --stream). Returns an error or None."""
     action("workspace.newAtBottom", settle=1.5)
     pending = [opts.stream]  # the first terminal fed streams
+    pages = [opts.pages if opts.browser else 0]
 
     def fed():
+        if pages[0] > 0:  # --pages: this pane shows a Chromium page instead of a terminal
+            pages[0] -= 1
+            global PAGE
+            PAGE = PAGE or serve_page()
+            action("openBrowser.chromium", {"url": PAGE}, settle=1.5, timeout=120)
+            return
         feed(pending.pop() if pending else False)
     if opts.browser:
         problem = open_page()
@@ -253,6 +273,24 @@ def layout(columns, rows):
         action("focusLeft", settle=0.15)
     focus_page()
     time.sleep(1.5 if opts.scrollback else 0.5)  # test harness: seq fills the scrollback
+    return None
+
+
+STRESS = {}  # layout `stress`: the session's summary (perf-stress-session.py)
+
+
+def stress_layout():
+    """The STRESS session (perf-stress-session.py), ending on its measured workspace's top-left pane."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("perf_stress_session", os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                                                                   "perf-stress-session.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    try:
+        STRESS.update(module.Stress(rpc, selected=opts.stress_selected).build())
+    except module.StressShapeError as error:
+        return str(error)  # a wrong shape is a failed row, never measured as STRESS
+    print("STRESS-SESSION " + json.dumps(STRESS), flush=True)
     return None
 
 
@@ -313,8 +351,14 @@ def counter(report, group, key):
     return ((report if isinstance(report, dict) else {}).get(group) or {}).get(key)
 
 
+def first_window(report):
+    windows = (report or {}).get("windows") if isinstance(report, dict) else None
+    return windows[0] if windows else {}
+
+
 def measure(label, name):
     cef_before = rpc("debug.cef") if opts.browser else None  # outside the timed window, like the reads after it
+    layers_before = first_window(rpc("debug.layers")) if opts.browser else None
     page_before = page_eval("window.__frames") if opts.browser else None
     rpc("debug.hangs", {"clear": True})
     rpc("debug.motion", {"action": "start"})
@@ -345,10 +389,17 @@ def measure(label, name):
         for key, group, field in CEF_DELTAS:
             result[key] = change(counter(cef_before, group, field), counter(cef_after, group, field))
         result["page_frames"] = change(page_before, page_eval("window.__frames"))
+        layers_after = first_window(rpc("debug.layers"))
+        for key, field in LAYER_DELTAS:
+            result[key] = change(layers_before.get(field), layers_after.get(field))
+        # Geometry posts per display frame the springs moved (a still action: per frame of the action).
+        span = moving if name not in STILL else (frames.get("frames") or 0)
+        result["posts_per_frame"] = round(result["trk_posts"] / span, 2) if isinstance(result["trk_posts"], (int, float)) and span else None
         extra = (f"  pump {result['pump_runs']} runs {result['pump_ms']} ms long {result['pump_long']} "
                  f"req {result['pump_now_req']}/{result['pump_delayed_req']}  clip {result['trk_clip_reads']} reads "
                  f"{result['trk_clip_builds']} builds {result['trk_clip_hits']} hits {result['trk_clip_ms']} ms  occl {result['trk_occl_reads']}  "
-                 f"posts {result['trk_posts']}  page rAF {result['page_frames']}")
+                 f"posts {result['trk_posts']} ({result['posts_per_frame']}/frame) skips {result['trk_skips']}  "
+                 f"catchers {result['catcher_updates']} reorders {result['reorders']}  page rAF {result['page_frames']}")
     print(f"  {label:<22} moved {moving:>3}  frame p50 {result['frames_p50_ms']} p95 {result['frames_p95_ms']} "
           f"p99 {result['frames_p99_ms']} max {result['frames_max_ms']} ms  missed {result['missed']} "
           f"(refresh {result['refresh_ms']})  tick p95 {result['layout_p95_ms']} max {result['layout_max_ms']} ms  "
@@ -554,13 +605,17 @@ def main():
     report = {"tag": TAG, "macos": macos, "host": host, "stream": opts.stream, "scrollback": opts.scrollback, "runs": []}
     sequence = steps()
     for name in opts.layouts.split(","):
-        columns, rows = (int(v) for v in name.split("x"))
-        problem = layout(columns, rows)
+        if name == "stress":
+            problem = stress_layout()
+            panes = STRESS.get("measured_panes") or 0
+        else:
+            columns, rows = (int(v) for v in name.split("x"))
+            problem = layout(columns, rows)
+            panes = columns * rows
         if problem:
             print(f"  {name}: {problem}", flush=True)
-            row(f"{name}: the Chromium page runs (--browser)", "window.__frames counting", problem, False)
+            row(f"{name}: the layout was built" if name == "stress" else f"{name}: the Chromium page runs (--browser)", "the STRESS shape" if name == "stress" else "window.__frames counting", problem, False)
             continue
-        panes = columns * rows
         rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"{name}-before.png")})
         for index in range(opts.rounds):
             for step in sequence:

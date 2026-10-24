@@ -62,8 +62,6 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case editNewTab(AgentPaneNewTabEdit)
     /// The New Tab page player's control (`nowPlaying.command {command, seconds}`).
     case nowPlaying(AgentPaneNowPlaying.Command)
-    /// An import card's button on the New Tab page (`importCards.act {id, action}`).
-    case importCard(AgentPaneImportCards.Act)
     /// The new tab page got its first user input (`newTab.touched`); a
     /// touched page is never recycled into the prewarm pool.
     case touched
@@ -123,6 +121,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// header/quickActions.ts) closes the split this tab's button opened
     /// when it is still there, else opens one.
     case paneAction(String, cwd: String? = nil, toggle: Bool = false)
+    /// The header's Changes or an edited-files card naming a chat turn (`pane.action {id:
+    /// "openDiffViewer", cwd, mode, turn}`): the diff beside the chat, with that turn as its Last
+    /// turn (``AgentPaneDiffTurn``).
+    case diffTurn(AgentPaneDiffTurn, cwd: String?, toggle: Bool)
     /// The header's Preview (`pane.action {id: "preview", url, mode}`): toggles or opens a browser tab
     /// beside the chat on `url`, the local page its last turn started or mentioned. A loopback
     /// address only; a click that closes the open preview may name none.

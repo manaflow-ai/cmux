@@ -13,6 +13,7 @@ use super::CREATION_RECEIPTS_CAPABILITY;
 use super::CREATION_SELECTOR_FALLBACKS_CAPABILITY;
 use super::ClientIdentityWire;
 use super::GUARDED_BROWSER_POINTER_CAPABILITY;
+use super::HOST_GRID_VIEW_CAPABILITY;
 use super::LOOPBACK_FORWARD_CAPABILITY;
 use super::MessageWriter;
 use super::OPEN_DEVICE_KINDS_CAPABILITY;
@@ -322,6 +323,8 @@ pub(crate) struct ClientRegistry {
     /// Connection-scoped browser hosts (`browser-runtime-v1`).
     #[cfg(unix)]
     pub(super) browser_runtimes: super::browser_runtime::BrowserRuntimes,
+    /// Size leases of connections with `size-lease-v1` (size_lease.rs).
+    pub(super) size_leases: Arc<super::size_lease::SizeLeases>,
     /// Connection-scoped agent session attachments (`agent-session-attach-v1`).
     #[cfg(unix)]
     pub(super) agent_sessions: agent_session_attach::AgentSessions,
@@ -386,6 +389,7 @@ impl ClientRegistry {
             loopback: loopback_forward::LoopbackForwarder::default(),
             #[cfg(unix)]
             browser_runtimes: Default::default(),
+            size_leases: Default::default(),
             #[cfg(unix)]
             agent_sessions: Default::default(),
             snapshot_viewers: Default::default(),
@@ -646,6 +650,8 @@ impl ClientRegistry {
                     || capability == VIEW_ATTACHMENT_DETACH_CAPABILITY
                     || capability == SHARED_SIZING_CAPABILITY
                     || capability == SIZING_VIEW_DETACH_CAPABILITY
+                    || capability == super::SIZE_LEASE_CAPABILITY
+                    || capability == HOST_GRID_VIEW_CAPABILITY
                     || capability == OPEN_DEVICE_KINDS_CAPABILITY
                     || capability == TERMINAL_COLOR_OVERRIDES_CAPABILITY
                     || capability == TERMINAL_PENDING_SEQUENCE_CAPABILITY
@@ -880,7 +886,7 @@ impl ClientRegistry {
         })
     }
 
-    pub(super) fn supports_capability(&self, client: u64, capability: &str) -> bool {
+    pub(crate) fn supports_capability(&self, client: u64, capability: &str) -> bool {
         self.state
             .lock()
             .recover_poison()

@@ -84,25 +84,6 @@
   box-shadow: 0 0 0 1px var(--cv-card-ring);
   color: var(--cv-text);
 }
-.cv-subagent-avatar__dot {
-  position: absolute;
-  right: -1px;
-  bottom: -1px;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  box-shadow: 0 0 0 2px var(--cv-card-fill);
-  background: var(--cv-text-muted);
-}
-.cv-subagent-avatar[data-state="running"] .cv-subagent-avatar__dot {
-  background: var(--agent-accent);
-}
-.cv-subagent-avatar[data-state="completed"] .cv-subagent-avatar__dot {
-  background: var(--agent-success, var(--cv-text-muted));
-}
-.cv-subagent-avatar[data-state="failed"] .cv-subagent-avatar__dot {
-  background: var(--agent-danger);
-}
 /* A listed subagent: one 48px line inside the list's border. */
 .cv-subagent {
   box-sizing: border-box;
@@ -467,7 +448,7 @@ button.cv-subagent > :last-child {
   padding-top: 2px;
   border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-composer-edge, transparent);
 }
-/* The one folded line of what ended ("3 subagents done"), dim beside what runs. */
+/* The overflow control for ended cards, dim beside what runs. */
 .acpmux-running-tray__finished {
   color: var(--agent-muted);
 }

@@ -825,7 +825,10 @@ jobs:
           CMUX_TUI_TREE_PUBLISHER_SHA: ${{ github.event_name != 'pull_request' && inputs.dev_daily != true && github.sha || '' }}
           CMUX_TUI_TREE_DISPATCH: ""
           CMUX_TUI_TREE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          CMUX_TUI_TREE_BASE_FALLBACK: ${{ steps.route.outputs.own_tui == 'false' && '1' || '' }}
+          # DEV is a cutting-edge app channel: if this head's daemon tree is
+          # still publishing, build the exact app head against the newest
+          # published compatible tree instead of waiting on nightly's tree.
+          CMUX_TUI_TREE_BASE_FALLBACK: ${{ (inputs.dev_daily == true || steps.route.outputs.own_tui == 'false') && '1' || '' }}
           # A same-repository PR with its own merge tree waits (read-only, the
           # script's 90s default) for the artifacts run main's
           # cmux-next-pr-merge-tree.yml starts on cmux-tui-pin-<sha12>. That
@@ -1405,6 +1408,7 @@ jobs:
             bash scripts/cmux-next/tests/pin-cmux-tui-run-check.test.sh
             bash scripts/cmux-next/tests/pin-cmux-tui-probe.test.sh
             bash scripts/cmux-next/tests/fake-clock.test.sh
+            bash scripts/cmux-next/tests/preview.test.sh
             python3 tests/test_intent_familiar_warning.py
             python3 tests/test_ci_launch_budget_gate.py
             python3 tests/test_strings_output_encoding.py
@@ -1575,8 +1579,9 @@ jobs:
           python3 -I scripts/cmux-next/check-app-store-rules.py --source .
 
       # The perf gate's source guard without an app (I5: a theme change captures no window and
-      # forces no commit). The perf gate runs only where the scheme compiles, which a direct
-      # push skips; two hits landed that way (36c5b4217488, 715f623c97e1).
+      # forces no commit): a source scan of seconds, so it stays here while the perf gate itself runs
+      # only in the perf cron (cmux-next-perf-budgets.yml); two hits once landed by direct push
+      # (36c5b4217488, 715f623c97e1).
       - name: Perf source guard (no window capture or CATransaction.flush)
         id: perf-source-guard
         continue-on-error: true
@@ -1742,9 +1747,18 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           BEFORE: ${{ github.event.before }}
         run: |
+          # Sidebar look owner sweep (plans/cmux-next/sidebar-owner.md): every commit since the check landed,
+          # not only this push's, so a commit from an old hook copy or a cancelled run is still named.
+          sidebar_from=a1af264c7a7235c5863ade4f3448e2669265d6d0
+          sweep=0
+          git fetch --no-tags --quiet --deepen=2000 origin "$GITHUB_SHA" || true
+          if git merge-base --is-ancestor "$sidebar_from" HEAD 2>/dev/null; then
+            python3 -I scripts/cmux-next/prepush-gate.py --only sidebar --commits "$sidebar_from..HEAD" \
+              | tee -a "$GITHUB_STEP_SUMMARY" || sweep=$?
+          fi
           if [[ "$EVENT_NAME" != push ]]; then
             python3 -I scripts/cmux-next/prepush-gate.py --base HEAD^1 --head HEAD
-            exit
+            exit "$sweep"
           fi
           range="HEAD^1..HEAD"
           if [[ -n "$BEFORE" && "$BEFORE" != 0000000000000000000000000000000000000000 ]]; then
@@ -1752,6 +1766,7 @@ jobs:
             if git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then range="$BEFORE..HEAD"; fi
           fi
           python3 -I scripts/cmux-next/prepush-gate.py --commits "$range" | tee -a "$GITHUB_STEP_SUMMARY"
+          exit "$sweep"
 
       # `outcome`, not `conclusion`: continue-on-error makes every conclusion success.
       # STYLE_CHECKS are the structural, style, size and drift guards: while
@@ -3141,6 +3156,7 @@ jobs:
         env:
           # Published before this job starts (probe or same-tree mode): a download.
           CMUX_TUI_TREE_WAIT_SECONDS: "120"
+          CMUX_TUI_TREE_KEY: ${{ inputs.same_tree_sha == '' && needs.path_route.outputs.tree_fetch_key || '' }}
           # Push and dispatch runs fail fast when the artifacts runs for this
           # commit were cancelled or superseded (pin-cmux-tui.sh --help).
           CMUX_TUI_TREE_PUBLISHER_SHA: ${{ inputs.same_tree_sha == '' && github.event_name != 'pull_request' && github.sha || '' }}
@@ -3669,9 +3685,23 @@ jobs:
 
       - name: Release compile
         if: ${{ steps.reuse.outputs.hit != 'true' }}
+        env:
+          CMUX_BUILD_METRICS_DIR: ${{ runner.temp }}/cmux-next-build-metrics/release
+          CMUX_BUILD_METRICS_OUTPUT: ${{ runner.temp }}/cmux-next-build-metrics/release/metrics.json
+          CMUX_BUILD_METRICS_SUMMARY: ${{ runner.temp }}/cmux-next-build-metrics/release/summary.md
         run: |
           derived_data="$(scripts/cmux-next/release-derived-data-path.sh release-compile Release)"
           scripts/cmux-next/check-release-compile.sh "$derived_data"
+
+      - name: Upload Release compile timing
+        if: ${{ always() && steps.reuse.outputs.hit != 'true' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-release-compile-timing-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cmux-next-build-metrics/release
+          if-no-files-found: ignore
+          retention-days: 3
 
       # On a mini, the CEF glue (CEF's C++ wrapper, the CEFShim dylib and the
       # helper binary) is also compiled against the pinned Chromium engine
@@ -3865,10 +3895,12 @@ jobs:
     # what changed; Blacksmith builds it cold. A change inside the CmuxNext
     # package skips it: the Release compile builds CmuxNextApp and all it links.
     timeout-minutes: 60
-    # The perf gate step's outcome, for the perf-gate job (that job is the red check, so a perf
-    # breach never fails the app-producing job the dogfood and daily publishers read).
+    # The crash gate step's outcome, for the crash-ends-app job (that job is the red check, so a
+    # crash freeze never fails the app-producing job the dogfood and daily publishers read).
+    # No perf step runs here (Lawrence 2026-10-23: nothing perf-related blocks or slows a push or a
+    # pull request): the launch-time budget and the perf counter gate run in the perf cron,
+    # .github/workflows/cmux-next-perf-budgets.yml, on the bench host.
     outputs:
-      perf_gate: ${{ steps.perf-gate.outcome }}
       crash_gate: ${{ steps.crash-gate.outcome }}
     env:
       # This job's label (its runs-on): a glaeda-* label means a mini.
@@ -4003,6 +4035,10 @@ jobs:
 
       - name: Compile the cmux scheme
         if: inputs.dev_daily != true
+        env:
+          CMUX_BUILD_METRICS_DIR: ${{ runner.temp }}/cmux-next-build-metrics/scheme
+          CMUX_BUILD_METRICS_OUTPUT: ${{ runner.temp }}/cmux-next-build-metrics/scheme/metrics.json
+          CMUX_BUILD_METRICS_SUMMARY: ${{ runner.temp }}/cmux-next-build-metrics/scheme/summary.md
         run: |
           set -euo pipefail
           if [[ "$CMUX_NEXT_RUNNER" == glaeda-* ]]; then
@@ -4022,6 +4058,16 @@ jobs:
           # three personality routines (decision 2026-10-05).
           scripts/cmux-next/check-app-personalities.sh "$(find "$derived_data/Build/Products/Debug" -maxdepth 1 -name 'cmux DEV*.app' -print -quit)"
 
+      - name: Upload Debug scheme timing
+        if: ${{ always() && inputs.dev_daily != true }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-scheme-compile-timing-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cmux-next-build-metrics/scheme
+          if-no-files-found: ignore
+          retention-days: 3
+
       # A current feat-cmux-next push also produces the Release app consumed by
       # cmux-next-dev-daily.yml. Keep this separate from the Debug dogfood
       # product: the daily channel has its own stable identity and must never
@@ -4036,6 +4082,9 @@ jobs:
           CMUX_NEXT_CODE_SIGN_ENTITLEMENTS: cmux.next-dev.entitlements
           CMUX_NEXT_AUTH_CALLBACK_SCHEME: cmux-next-dev
           CMUX_NEXT_TUI_MODE: tree
+          CMUX_BUILD_METRICS_DIR: ${{ runner.temp }}/cmux-next-build-metrics/dev-daily
+          CMUX_BUILD_METRICS_OUTPUT: ${{ runner.temp }}/cmux-next-build-metrics/dev-daily/metrics.json
+          CMUX_BUILD_METRICS_SUMMARY: ${{ runner.temp }}/cmux-next-build-metrics/dev-daily/summary.md
           DEV_DAILY_SHA: ${{ inputs.dev_daily_sha || github.sha }}
         run: |
           set -euo pipefail
@@ -4048,6 +4097,16 @@ jobs:
           /usr/bin/ditto -c -k --keepParent "$app" "$archive"
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
 
+      - name: Upload DEV daily compile timing
+        if: ${{ always() && steps.compile-cmux-next-dev-release.outcome != 'skipped' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-dev-daily-compile-timing-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cmux-next-build-metrics/dev-daily
+          if-no-files-found: ignore
+          retention-days: 3
+
       - name: Upload the cmux NEXT DEV Release app
         if: steps.compile-cmux-next-dev-release.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -4058,76 +4117,10 @@ jobs:
           retention-days: 2
           compression-level: 0
 
-      # A busy host makes first-frame timing a host-load measurement.
-      # Keep the compile required, record the load, and leave the launch probe
-      # for a fresh run instead of failing the PR on host contention.
-      - name: Gate launch-time budget on host load
-        id: launch-load
-        if: inputs.dev_daily != true
-        run: python3 scripts/ci/launch_budget_gate.py
-
-      # Launch-time budget (#17587): warm launches of this build, on a copy
-      # named for a tag of its own (its own socket, daemon and state), from an
-      # empty profile. Budgets are about 4x a capture Mac's medians, so this
-      # catches a launch that blocks (a daemon wait on the main path, a sync
-      # read), not run-to-run noise.
-      - name: Launch-time budget
-        if: inputs.dev_daily != true && steps.launch-load.outputs.skip != 'true'
-        timeout-minutes: 5
-        run: |
-          set -euo pipefail
-          built="$(find "$CMUX_NEXT_DERIVED_DATA/Build/Products/Debug" -maxdepth 1 -type d -name 'cmux DEV*.app' -print -quit)"
-          tag="ci-launch-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          app="$RUNNER_TEMP/launch-budget/cmux DEV ${tag}.app"
-          mkdir -p "$RUNNER_TEMP/launch-budget"
-          /bin/cp -R "$built" "$app"
-          trap 'pkill -f "$RUNNER_TEMP/launch-budget/" || true; rm -rf "$HOME/Library/Application Support/cmux/tags/$tag" "$HOME/.acpmux/builds/com.cmuxterm.app.debug--$tag" "$HOME/.cmux/mux/tags/$tag" "$RUNNER_TEMP/launch-budget"' EXIT
-          python3 scripts/cmux-next/bench-startup.py --app "$app" --profile empty --mode warm --runs 3 --timeout 6 \
-            --budget did_finish_launching_end=800 --budget first_window_frame_committed=1000 --budget sidebar_rows_shown=1000
-
-      # Perf counter gate (I8, cx-8w027.7): one launch of this build, every
-      # scenario (workspace switch at 20 workspaces, theme switch, divider drag,
-      # tab switch at 16 panes x 3 tabs, split+close, status ticks) against a
-      # work budget per action from the app's debug counters. Counters do not
-      # depend on the host, so they block on any host load; timing is a warning.
-      # A console that draws no frames skips the drag lag and theme blend checks
-      # with a warning; lanes run those on the GUI host with --frames required.
-      # The step does not fail this job: the perf-gate job below reads its outcome.
-      # It runs after a red launch-time budget (timing, host-dependent) too, so
-      # that red cannot hide a counter regression; CMUX_NEXT_DERIVED_DATA is set
-      # only once the scheme compile built the app.
-      - name: Perf counter gate
-        id: perf-gate
-        if: ${{ !cancelled() && inputs.dev_daily != true && env.CMUX_NEXT_DERIVED_DATA != '' }}
-        # The perf-gate job reports the result.
-        continue-on-error: true
-        timeout-minutes: 15
-        run: |
-          set -euo pipefail
-          built="$(find "$CMUX_NEXT_DERIVED_DATA/Build/Products/Debug" -maxdepth 1 -type d -name 'cmux DEV*.app' -print -quit)"
-          tag="ci-perf-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          app="$RUNNER_TEMP/perf-gate/cmux DEV ${tag}.app"
-          mkdir -p "$RUNNER_TEMP/perf-gate/out"
-          /bin/cp -R "$built" "$app"
-          # perf-gate.py quits the app and ends the tag's daemons by exact PID;
-          # tag_teardown.py again is the backstop when the step is stopped.
-          trap 'python3 scripts/cmux-next/tag_teardown.py "$app" || true; rm -rf "$HOME/Library/Application Support/cmux/tags/$tag" "$HOME/.acpmux/builds/com.cmuxterm.app.debug--$tag" "$HOME/.cmux/mux/tags/$tag" "$app"' EXIT
-          python3 scripts/cmux-next/perf-gate.py --app "$app" --out "$RUNNER_TEMP/perf-gate/out" --frames auto
-
-      - name: Upload the perf gate report
-        if: ${{ always() && steps.perf-gate.outcome != 'skipped' }}
-        continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: cmux-next-perf-gate-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/perf-gate/out
-          if-no-files-found: ignore
-          retention-days: 3
-
       # A crash ends the app, never freezes it (2026-10-20 NIGHTLY freezes): with
       # Sentry on, an uncaught exception must end the process within 8 s and a
-      # crash path that blocks must end within the crash deadline. Like the perf
-      # gate, the step does not fail this job; the crash-ends-app job reports it.
+      # crash path that blocks must end within the crash deadline. The step
+      # does not fail this job; the crash-ends-app job reports it.
       - name: Crash ends the app
         id: crash-gate
         if: ${{ !cancelled() && inputs.dev_daily != true && env.CMUX_NEXT_DERIVED_DATA != '' }}
@@ -4160,7 +4153,7 @@ jobs:
       # before it writes the immutable R2 object or comments on the PR.
       - name: Package the trusted cmux-next dogfood artifact
         id: dogfood-artifact
-        # Keep packaging independent of later launch-budget failures. The
+        # Keep packaging independent of any earlier step's failure. The
         # app-producing compile is the admission boundary; unrelated checks
         # and tests are separate jobs and must not suppress this artifact.
         if: ${{ always() && ((github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') && contains(github.event.pull_request.labels.*.name, 'dev-build'))) }}
@@ -4190,36 +4183,6 @@ jobs:
           if-no-files-found: error
           retention-days: 2
           compression-level: 0
-
-  # The perf counter gate (I8, cx-8w027.7) runs in cmux-scheme-compile on the
-  # app that job built (one compile, one launch). This job is its check: red
-  # when a counter budget broke. The gate step runs whenever the app was built,
-  # even after a red launch-time budget, so it is skipped only when the scheme
-  # compile itself failed; that is the compile job's own red, so this job
-  # passes then.
-  perf-gate:
-    needs: [cmux-scheme-compile]
-    if: ${{ !cancelled() && inputs.dev_daily != true && needs.cmux-scheme-compile.result != 'skipped' }}
-    name: cmux-next perf gate
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
-    timeout-minutes: 3
-    permissions: {}
-    steps:
-      - name: Read the perf gate result
-        env:
-          OUTCOME: ${{ needs.cmux-scheme-compile.outputs.perf_gate }}
-          COMPILE: ${{ needs.cmux-scheme-compile.result }}
-          REPORT: cmux-next-perf-gate-${{ github.run_id }}-${{ github.run_attempt }}
-        run: |
-          case "$OUTCOME" in
-            success) echo "perf gate: every counter budget held (report artifact $REPORT)" ;;
-            failure) echo "::error::perf gate: a counter budget broke; the failures are in the cmux-scheme-compile log, step Perf counter gate, and the artifact $REPORT"; exit 1 ;;
-            *)
-              if [[ "$COMPILE" == success ]]; then
-                echo "::error::perf gate: the scheme compile succeeded but the gate step did not run (outcome '${OUTCOME:-none}')"; exit 1
-              fi
-              echo "perf gate: not run, the scheme compile ended $COMPILE before it" ;;
-          esac
 
   # The crash gate runs in cmux-scheme-compile on the app that job built. This
   # job is its check: red when a crash froze the app instead of ending it.
@@ -4354,7 +4317,7 @@ jobs:
       own_checks_green: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
 
   push-attribution:
-    needs: [checks, generated-files, swift-canary, swift-test, daemon-test, release-compile, cmux-scheme-compile, perf-gate]
+    needs: [checks, generated-files, swift-canary, swift-test, daemon-test, release-compile, cmux-scheme-compile]
     # Also a same-tree mode run for a feat-cmux-next push: the tree jobs of a
     # push whose tree was published after its run probed it run there.
     if: ${{ failure() && inputs.dev_daily != true && (github.event_name == 'push' || inputs.same_tree_origin == 'push') && github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux' }}

@@ -39,7 +39,57 @@
 //! that runs it; a later daemon of that build installs it again.
 
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+/// The standalone terminal holder beside the daemon's executable
+/// (crate `cmux-holder`, std and libc only), and its copy's file name.
+pub const HOLDER_NAME: &str = "cmux-holder";
+/// Names the holder executable instead (tests: an older holder build).
+pub const HOLDER_ENV: &str = "CMUX_TUI_HOLDER_EXE";
+
+/// The executable for a new terminal holder: the standalone `cmux-holder`
+/// beside the daemon's (canonical) executable, never looked up on `PATH`,
+/// or the file [`HOLDER_ENV`] names. On macOS it runs from a verified
+/// content-addressed copy under the host-exe root, as terminal hosts do, so
+/// an update or a rebuild of the bundle never overwrites the file a running
+/// holder came from; the copy's directory is named by the holder's own
+/// hash, so a build whose holder did not change reuses it. The candidate
+/// must answer `--version` with a line `accepts` takes (the wire range the
+/// daemon speaks). `None` when there is no such file or it answers
+/// otherwise: the daemon then runs the holder built into its host
+/// executable (`__holder`). A file [`HOLDER_ENV`] names is used as it is.
+pub fn holder_executable(accepts: &dyn Fn(&str) -> bool) -> Option<PathBuf> {
+    let source = match std::env::var_os(HOLDER_ENV).filter(|value| !value.is_empty()) {
+        // An explicit file runs as named, with no copy and no `--version`:
+        // a test's stand-in for a holder an older cmux build started.
+        Some(path) => return Some(PathBuf::from(path)),
+        None => sibling_holder()?,
+    };
+    imp::holder_copy(&source, accepts)
+}
+
+/// `cmux-holder` beside the daemon's canonical executable, a regular file.
+fn sibling_holder() -> Option<PathBuf> {
+    let own = std::fs::canonicalize(std::env::current_exe().ok()?).ok()?;
+    let sibling = own.parent()?.join(HOLDER_NAME);
+    std::fs::symlink_metadata(&sibling)
+        .is_ok_and(|meta| meta.file_type().is_file())
+        .then_some(sibling)
+}
+
+/// Run `path --version`; true when it succeeds with an answer `accepts`
+/// takes. The first exec of a new file also pays its code-signature check
+/// here, before a terminal waits on the holder.
+fn holder_answers(path: &Path, accepts: &dyn Fn(&str) -> bool) -> bool {
+    std::process::Command::new(path)
+        .arg("--version")
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .is_ok_and(|output| {
+            output.status.success() && accepts(String::from_utf8_lossy(&output.stdout).trim_end())
+        })
+}
 
 /// The executable for a new terminal host: the verified copy on macOS, else
 /// (or when the copy cannot be used) the daemon's own executable.
@@ -82,7 +132,7 @@ pub fn spawn_host(
 ) -> io::Result<std::process::Child> {
     use std::os::unix::process::CommandExt;
     let binary = terminal_host_executable()?;
-    let spawn = |binary: &std::path::Path| {
+    let spawn = |binary: &Path| {
         let mut command = std::process::Command::new(binary);
         command.arg0("cmux-tui");
         configure(&mut command);
@@ -101,10 +151,16 @@ pub fn spawn_host(
 #[cfg(not(target_os = "macos"))]
 mod imp {
     use std::io;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     pub(super) fn terminal_host_executable() -> io::Result<PathBuf> {
         crate::platform::self_exe_for_spawn()
+    }
+
+    /// Elsewhere the holder runs as it is: a running binary cannot be
+    /// written on Linux.
+    pub(super) fn holder_copy(source: &Path, accepts: &dyn Fn(&str) -> bool) -> Option<PathBuf> {
+        super::holder_answers(source, accepts).then(|| source.to_path_buf())
     }
 
     pub(super) fn hold_in_use_lock() {}
@@ -113,7 +169,7 @@ mod imp {
 
     pub(super) fn prepare_in_background() {}
 
-    pub(super) fn copy_failed(_path: &std::path::Path) {}
+    pub(super) fn copy_failed(_path: &Path) {}
 }
 
 #[cfg(target_os = "macos")]

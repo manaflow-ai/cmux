@@ -52,6 +52,16 @@ public final class UpdaterService {
     /// injected clock (no `asyncAfter`).
     @ObservationIgnored var expiringCard: UpdateCard?
     @ObservationIgnored let cardTimer: DemandTimer
+    /// When the install phase began (``installStatus``), nil outside it.
+    @ObservationIgnored var installStartedAt: Date?
+    /// Bumped by ``installTimer`` so the installing card's seconds move.
+    var installTick = 0
+    /// The person closed the card of an install that never relaunched.
+    var installCardDismissed = false
+    /// The install already gave up (``UpdateInstallStatus/Stage/stalled``) once.
+    @ObservationIgnored var installGaveUp = false
+    /// The installing card's one-second tick, only while an install runs.
+    @ObservationIgnored let installTimer: DemandTimer
     @ObservationIgnored let stagedRefresh: StagedUpdateRefresh
     /// Opens the changelog page (set by the App; the What's New page's link).
     @ObservationIgnored public var openChangelog: (() -> Bool)?
@@ -130,6 +140,11 @@ public final class UpdaterService {
     public var preferences = UpdatePreferences.defaults
     /// Sparkle's staged install and its cancel (replaced by tests).
     @ObservationIgnored var installStaged: () -> Void = {}
+    /// The install click replaced a stale staged build (``StagedUpdateRefresh/beforeInstall(updater:install:)``):
+    /// the click carries over to the newer build's check and download (``carryInstallClick(_:)``).
+    @ObservationIgnored var installAfterSwap = false
+    /// Replaces the install click's disk preflight (``installPreflightFailure()``) in tests.
+    @ObservationIgnored var preflightOverride: (() -> UpdateInstallPreflight.Failure?)?
     /// The cancel returns whether an installer was held and is now cancelled.
     @ObservationIgnored var cancelStaged: () -> Bool = { false }
     @ObservationIgnored var acceptAvailable: () -> Void = {}
@@ -188,6 +203,7 @@ public final class UpdaterService {
                 clock: any Clock<Duration> = ContinuousClock()) {
         self.now = now
         cardTimer = DemandTimer(owner: "UpdaterService.card", clock: clock)
+        installTimer = DemandTimer(owner: "UpdaterService.install", clock: clock)
         snoozeTimer = DemandTimer(owner: "UpdaterService.snooze", clock: clock)
         stagedRefresh = StagedUpdateRefresh(clock: clock)
         self.identity = identity

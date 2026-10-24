@@ -1,6 +1,6 @@
-import React, { useCallback, useImperativeHandle, useRef, useState, type RefObject } from "react";
+import React, { useCallback, useImperativeHandle, useMemo, useRef, useState, type RefObject } from "react";
 import type { ComposerAttachment } from "./attachments";
-import { AttachmentStrip, type PendingAttachment } from "./composer/attachmentIntake";
+import { AttachmentStrip, backspacedAttachment, type PendingAttachment } from "./composer/attachmentIntake";
 import { isPasteAsPlainTextKey, usePastedChips } from "./composer/pastedChips";
 import { ComposerFoot } from "./ComposerFoot";
 import { useComposerSettings } from "./composerSettings";
@@ -130,7 +130,36 @@ export function ComposerBox({
   const plainPaste = useRef(pastedChips.plainPaste);
   plainPaste.current = pastedChips.plainPaste;
   useImperativeHandle(handle, () => ({ plainPaste: () => plainPaste.current() }), []);
-  const { onBeforeInput, onKeyDown } = field;
+  const latestField = useRef(field);
+  latestField.current = field;
+  const latestPastedChips = useRef(pastedChips);
+  latestPastedChips.current = pastedChips;
+  const latestAttachments = useRef(attachments);
+  latestAttachments.current = attachments;
+  const stableFieldBeforeInput = useMemo(
+    () => (data: string, state: Parameters<NonNullable<MarkdownFieldProps["onBeforeInput"]>>[1]) => {
+      if (state.paste && !state.composing && latestPastedChips.current.take(data)) return true;
+      if (latestPastedChips.current.expanding.current) return false;
+      return latestField.current.onBeforeInput?.(data, state) ?? false;
+    },
+    [],
+  );
+  const stableFieldKeyDown = useMemo(
+    () => (event: KeyboardEvent) => {
+      const composing = event.isComposing || event.keyCode === 229;
+      if (!composing && isPasteAsPlainTextKey(event)) latestPastedChips.current.plainPaste();
+      const backspaced = composing
+        ? undefined
+        : backspacedAttachment(event, prompt.current?.atStart() ?? false, latestAttachments.current);
+      if (backspaced) {
+        event.preventDefault();
+        setAttachments((current) => current.filter((item) => item.id !== backspaced.id));
+        return;
+      }
+      latestField.current.onKeyDown?.(event);
+    },
+    [setAttachments],
+  );
   // A press on the card around the text (the field's padding, the gap around the button row, the
   // card's edge) focuses the prompt where its caret was, as in Codex and Claude Code, whose whole
   // input card is the text area. The text keeps its own press (caret, selection), and the card's
@@ -173,19 +202,9 @@ export function ComposerBox({
           <MarkdownField
             ref={setPrompt}
             {...field}
-            onBeforeInput={(data, state) => {
-              // A huge paste is a chip, the prompt as it was (pastedText.ts); a chip's own text going
-              // back in is the person's to edit, never the host's (shell mode).
-              if (state.paste && !state.composing && pastedChips.take(data)) return true;
-              if (pastedChips.expanding.current) return false;
-              return onBeforeInput?.(data, state) ?? false;
-            }}
+            onBeforeInput={stableFieldBeforeInput}
             // ui-allow: the prompt field's own editing keys (⌘⇧V's paste stays text), before the host's.
-            onKeyDown={(event) => {
-              // Every key belongs to the input method while it composes.
-              if (!event.isComposing && event.keyCode !== 229 && isPasteAsPlainTextKey(event)) pastedChips.plainPaste();
-              onKeyDown?.(event);
-            }}
+            onKeyDown={stableFieldKeyDown}
           />
           {fieldOverlay}
         </ContextMenu>

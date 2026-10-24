@@ -24,6 +24,47 @@ const startedChat = () =>
 /// A new chat before its first send: the folder and computer strip heads the composer.
 const newChat = () => noChat(manySessions(4), { summary: { sessionId: "", cwd: CWD, harness: "codex" } });
 
+const goalChat = (status: "active" | "paused") => {
+  const snapshot = chat(startedChat().rows, { harness: "codex", model: "gpt-6-astra" });
+  return {
+    ...snapshot,
+    summary: {
+      ...snapshot.summary!,
+      harness: "codex",
+      goal: {
+        objective: "Finish the timeout fix and verify the retry behavior",
+        status,
+        tokenBudget: 50000,
+        tokensUsed: 12400,
+      },
+    },
+  };
+};
+
+const speedNewTab = () => {
+  const snapshot = newChat();
+  snapshot.summary = { ...snapshot.summary!, model: "gpt-6.1-sol" };
+  snapshot.catalog = snapshot.catalog.map((entry) =>
+    entry.id === "codex"
+      ? {
+          ...entry,
+          models: [
+            {
+              id: "gpt-6.1-sol",
+              name: "GPT-6.1 Sol",
+              fast: true,
+              serviceTiers: [
+                { id: "priority", name: "Fast" },
+                { id: "ultrafast", name: "Ultrafast" },
+              ],
+            },
+          ],
+        }
+      : entry,
+  );
+  return snapshot;
+};
+
 const newTab = (fields: Record<string, unknown> = {}) => ({
   newTab: { layout: "b", kind: "agent", cwd: CWD, home: "/Users/you", lastAgent: "claude", ...fields },
   newSession: true,
@@ -47,6 +88,55 @@ async function look(ctx: PlayContext, which: ComposerLook, altCSS?: string) {
       ? ctx.document.querySelector('[data-composer-look="codex"]')
       : !ctx.document.querySelector('[data-composer-look="codex"]'),
   );
+}
+
+type ComposerGlassLevel = keyof typeof COMPOSER_GLASS_LEVELS;
+const COMPOSER_GLASS_LEVELS = {
+  quiet: { opacity: 78, blur: "blur(16px) saturate(1.18)" },
+  balanced: { opacity: 70, blur: "blur(24px) saturate(1.25)" },
+  clear: { opacity: 64, blur: "blur(28px) saturate(1.15)" },
+} as const;
+
+/// A gallery-only wallpaper makes the material choice visible without shipping an art asset. The
+/// same busy backdrop is used for each level, and the stage's light/dark theme changes its tones.
+async function glassLevel(ctx: PlayContext, which: ComposerLook, level: ComposerGlassLevel) {
+  await look(ctx, which);
+  ctx.document.getElementById("composer-glass-gallery")?.remove();
+  const root = ctx.document.documentElement;
+  root.removeAttribute("data-cmux-see-through");
+  const style = ctx.document.createElement("style");
+  style.id = "composer-glass-gallery";
+  const { opacity, blur } = COMPOSER_GLASS_LEVELS[level];
+  style.textContent = `
+    html, body { background: transparent !important; }
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: var(--layer-base, 0);
+      pointer-events: none;
+      background:
+        radial-gradient(circle at 18% 22%, light-dark(rgb(255 146 90 / 0.78), rgb(220 68 90 / 0.62)) 0 14%, transparent 42%),
+        radial-gradient(circle at 82% 72%, light-dark(rgb(65 142 255 / 0.62), rgb(54 178 218 / 0.64)) 0 16%, transparent 44%),
+        linear-gradient(135deg, light-dark(#e7edf3, #1b2432) 0%, light-dark(#f8eee5, #34203f) 52%, light-dark(#dce8f5, #102f40) 100%);
+    }
+    body::after {
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: var(--layer-base, 0);
+      pointer-events: none;
+      opacity: 0.34;
+      background: repeating-linear-gradient(118deg, transparent 0 22px, light-dark(rgb(255 255 255 / 0.72), rgb(255 255 255 / 0.22)) 23px 24px, transparent 25px 48px);
+    }
+    .acpmux-shell { position: relative; z-index: var(--layer-raised, 1); background: transparent !important; }
+    :root:not([data-reduce-transparency]) .acpmux-composer > :is(.acpmux-composer-box, .acpmux-composer-strip) {
+      --glass-tint: color-mix(in srgb, var(--acpmux-composer-solid) ${opacity}%, transparent);
+      --glass-backdrop: ${blur};
+    }
+  `;
+  ctx.document.head.append(style);
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-composer-box"));
 }
 
 /// Alternate B: the strip stays plain text over the box, as Claude's look draws it; only the row moves.
@@ -73,6 +163,23 @@ export default agentPaneEntry({
     "agent-session/acpmux/newtab/StyleSwitch.tsx#DotSwitch",
   ],
   variants: {
+    "goal-active": {
+      note: "A persisted Codex goal between turns; Pause and Clear use the same /goal command path.",
+      snapshot: goalChat("active"),
+      play: (ctx) => look(ctx, "claude"),
+    },
+    "goal-paused": {
+      note: "A paused goal remains visible when the conversation reopens.",
+      snapshot: goalChat("paused"),
+      play: (ctx) => look(ctx, "codex"),
+    },
+    "newtab-codex-speed": {
+      note: "Fast and Ultrafast are available before the first prompt, from the model's advertised tiers.",
+      height: 520,
+      ready: newTab(),
+      snapshot: speedNewTab(),
+      play: (ctx) => look(ctx, "codex"),
+    },
     "claude-chat": {
       note: "The first dot, Claude's look (the default): the composer as it was, the mode, model and effort in the quiet row under the box.",
       snapshot: startedChat(),
@@ -99,6 +206,26 @@ export default agentPaneEntry({
         await ctx.hover({ selector: ".acpmux-composer-under" });
       },
     },
+    "composer-glass-quiet-claude": {
+      note: "Glass level A: the previous 78% tint and a 16px blur, shown over a busy backdrop for comparison.",
+      snapshot: startedChat(),
+      play: (ctx) => glassLevel(ctx, "claude", "quiet"),
+    },
+    "composer-glass-balanced-claude": {
+      note: "Glass level B (recommended): a 70% tint and 24px blur keep the background present while preserving AA text contrast.",
+      snapshot: startedChat(),
+      play: (ctx) => glassLevel(ctx, "claude", "balanced"),
+    },
+    "composer-glass-clear-claude": {
+      note: "Glass level C: a clearer 64% tint and 28px blur; included for comparison, but the bright-underlay contrast is too close for the default.",
+      snapshot: startedChat(),
+      play: (ctx) => glassLevel(ctx, "claude", "clear"),
+    },
+    "composer-glass-balanced-codex": {
+      note: "The recommended 70% tint and 24px blur in Codex's one-row look, over the same busy backdrop.",
+      snapshot: startedChat(),
+      play: (ctx) => glassLevel(ctx, "codex", "balanced"),
+    },
     "codex-new-chat": {
       note: "Codex's look on a new chat (the pick): the folder and computer strip a tray tucked under the box's top edge, as Codex's.",
       ready: { newSession: true, cwd: CWD },
@@ -118,14 +245,14 @@ export default agentPaneEntry({
       play: (ctx) => look(ctx, "codex", ALT_TEXT_ROW),
     },
     "newtab-claude": {
-      note: "New Tab, the first dot (Claude's look, the default): the Minimal page as it was, with the two dots under it.",
+      note: "New Tab, the first dot (Claude Minimal, the default): the Minimal page as it was, with the three dots under it.",
       height: 520,
       ready: newTab(),
       snapshot: noChat(manySessions(6)),
       play: (ctx) => look(ctx, "claude"),
     },
     "newtab-codex": {
-      note: "New Tab, the second dot: the same page with Codex's composer, the second dot marked.",
+      note: "New Tab, the third dot (Codex Minimal): the same page with Codex's composer, the third dot marked.",
       height: 520,
       ready: newTab(),
       snapshot: noChat(manySessions(6)),

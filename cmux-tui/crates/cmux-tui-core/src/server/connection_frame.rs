@@ -204,6 +204,9 @@ pub(super) fn handle_request_with_cancellation(
     let details = details.filter(|_| !mux.is_remote_client(client));
     let response_ok = response.ok;
     let sent = responses::send_response_with_details(writer, response, reason, retryable, details);
+    // The reply is out; the request's registry commits (already in the WAL)
+    // go to disk now, in one flush that none of them waited for.
+    mux.request_registry_flush();
     // Flush the successful acknowledgement before making the owning loop
     // leave, so process teardown cannot race the response writer.
     if shutdown_daemon && response_ok {

@@ -14,6 +14,8 @@ final class FakeTerminalDaemon: @unchecked Sendable {
     var failNextAttaches = 0
     /// `identify` advertises attach-initial-size.
     var initialSize = false
+    /// `identify` advertises size-lease-v1.
+    var sizeLease = false
     /// The surface the terminal is on now (a daemon restart renumbers it).
     var liveSurface = 7
     /// `resolve-terminal` answers: terminal id to its surface (nil: the
@@ -47,8 +49,8 @@ final class FakeTerminalDaemon: @unchecked Sendable {
             Self.line(["id": id, "ok": true, "data": data])
         }
         switch cmd {
-        case "identify" where initialSize:
-            return [reply(["capabilities": ["attach-initial-size"]])]
+        case "identify" where initialSize || sizeLease:
+            return [reply(["capabilities": (initialSize ? ["attach-initial-size"] : []) + (sizeLease ? ["size-lease-v1"] : [])])]
         case "resolve-terminal":
             guard let terminals = lock.withLock({ self.terminals }) else {
                 return [Self.line(["id": id, "ok": false, "error": "unknown command resolve-terminal"])]
@@ -524,6 +526,37 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         // A new phone grid asks again.
         session.resize(columns: 53, rows: 40)
         try await waitUntil { daemon.recorded.filter { $0["cmd"] as? String == "resize-surface" }.count == resizesBefore + 1 }
+    }
+
+    /// A Mac that keeps a grid wider than the phone's (it was active last) is
+    /// never claimed as the phone's own size: the phone renders into its own
+    /// grid, so a reattach at the Mac's 113 columns told the daemon the phone
+    /// shows 113 and kept the PTY there: a Claude Code session overprinted and
+    /// cut every row on the phone (2026-10-23). The reattach asks for the
+    /// phone's own grid again.
+    @Test func aReattachNeverClaimsAWiderMacGrid() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.initialSize = true
+        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let channels = ChannelLog()
+        let session = DaemonTerminalSession(surface: 7) {
+            let channel = try await link.openChannel(service: "daemon", args: [:])
+            channels.append(channel)
+            return DaemonClient(channel: channel)
+        }
+        session.start { _ in }
+        session.resize(columns: 53, rows: 42)
+        try await waitUntil { session.isAttached }
+        // The Mac keeps its own 113x84.
+        session.handle(FakeTerminalDaemon.line(["event": "resized", "surface": 7, "cols": 113, "rows": 84,
+                                                "replay": Data("x".utf8).base64EncodedString()]))
+        await channels.last?.close(code: "link_closed", reason: "background")
+        try await waitUntil { !session.isAttached }
+        session.reconnect()
+        try await waitUntil { session.isAttached }
+        let second = try #require(daemon.recorded.last { $0["cmd"] as? String == "attach-surface" })
+        #expect(second["cols"] as? Int == 53)
+        #expect(second["rows"] as? Int == 42)
     }
 
     /// The terminal channel says it is a phone before it attaches, so the

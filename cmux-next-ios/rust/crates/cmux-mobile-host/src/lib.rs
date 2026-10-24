@@ -22,6 +22,12 @@ pub mod host;
 pub mod media_session;
 pub mod netwatch;
 pub mod notify;
+pub mod notify_content;
+pub mod notify_redact;
+#[cfg(test)]
+mod notify_secfix_tests;
+pub mod notify_terminal;
 pub mod pairing;
 pub mod policy;
 pub mod services;
+pub mod size_release;

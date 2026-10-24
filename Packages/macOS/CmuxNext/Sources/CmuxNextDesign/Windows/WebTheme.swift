@@ -1,4 +1,5 @@
 public import Foundation
+public import CmuxNextDesignTokens
 
 /// The one web theme (plans/cmux-next/windows.md, "One background token"):
 /// the CSS custom properties every cmux web page reads, from the same
@@ -131,7 +132,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             "--cmux-lit-glyph": Self.css(tokens.litGlyph),
             // The modal scrim (`Scrim`), the same as native dialogs'.
             "--cmux-scrim": Self.css(tokens.scrim),
-        ].merging((app ?? ThemeStore.shared.appTheme ?? tokens.app).cssVariables) { own, _ in own }
+        ].merging((app ?? ThemeScope.app.store.appTheme ?? tokens.app).cssVariables) { own, _ in own }
         colorScheme = tokens.isDark ? "dark" : "light"
         let colors = ColorTransition.current
         transition = ["duration": colors.cssDuration, "easing": colors.cssEasing, "space": colors.space.rawValue]

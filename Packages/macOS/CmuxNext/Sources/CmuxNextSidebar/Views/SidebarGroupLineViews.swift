@@ -133,8 +133,12 @@ final class SidebarGroupLineViews {
     }
 }
 
-/// One members' line: a rounded bar in its group's header color.
+/// One members' line: Chrome's (Leo 2026-10-19), a flat-ended 2 pt bar in its header bar's exact color.
+/// Square ends need no mask or drawn image, so the line keeps its shape in every frame of the rows' spring.
 final class GroupLineView: NSView {
+    /// The parent layer's bounds spring can keep presenting the old rail height after its model height reaches zero.
+    /// Keep the mask taller than any sidebar line so the parent, not the mask, clips the shrinking rail.
+    private static let maskCoverageHeight: CGFloat = 4096
     var color: GroupTint = .palette(.grey) {
         didSet { if color != oldValue { needsDisplay = true } }
     }
@@ -146,7 +150,10 @@ final class GroupLineView: NSView {
     init() {
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerCurve = .continuous
+        layer?.cornerRadius = 0 // flat body and left edge; the top-right edge has Chrome's cut.
+        let mask = CAShapeLayer()
+        mask.fillColor = NSColor.black.cgColor
+        layer?.mask = mask
     }
 
     @available(*, unavailable)
@@ -163,20 +170,32 @@ final class GroupLineView: NSView {
 
     override func layout() {
         super.layout()
-        layer?.cornerRadius = bounds.width / 2
+        updateMask()
     }
 
     override func updateLayer() {
-        let themed = observedThemed()
+        let look = observedLook()
         performWithTheme {
-            let line = color.lineColor(themed: themed)
+            // Under the solid band, the band's rest color (Leo 2026-10-19: bar and line are one color);
+            // the quieter looks keep the dot's color.
+            let line = look.style == .band ? color.lineFill(themed: look.themed) : color.lineColor(themed: look.themed)
             layer?.backgroundColor = line.withAlphaComponent(line.alphaComponent * strength).cgColor
         }
+        updateMask()
     }
 
-    /// Reads `sidebar.groupColors` and repaints once when it changes; one observation at a time.
-    private func observedThemed() -> Bool {
-        let read = { SidebarGroupPalette.tunable.value == .theme }
+    private func updateMask() {
+        guard let mask = layer?.mask as? CAShapeLayer else { return }
+        let height = max(bounds.height, mask.frame.height, Self.maskCoverageHeight)
+        mask.frame = CGRect(x: 0, y: 0, width: bounds.width, height: height)
+        mask.path = SidebarGroupLineShape.topTaper(width: bounds.width, height: height,
+                                                   radius: SidebarStyle.groupBarWidth)
+    }
+
+    /// Reads `sidebar.groupHeader` and `sidebar.groupColors` and repaints once when either changes; one
+    /// observation at a time.
+    private func observedLook() -> (style: SidebarGroupHeaderStyle, themed: Bool) {
+        let read = { (SidebarGroupHeaderStyle.tunable.value, SidebarGroupPalette.tunable.value == .theme) }
         guard !observesPalette else { return read() }
         observesPalette = true
         return withObservationTracking(read) { [weak self] in

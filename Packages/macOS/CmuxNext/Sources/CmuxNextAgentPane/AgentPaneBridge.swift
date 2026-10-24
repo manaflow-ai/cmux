@@ -23,6 +23,10 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
             logger.error("agent pane message rejected as untrusted name=\(message.name, privacy: .public) url=\(message.frameInfo.request.url?.absoluteString ?? "", privacy: .public)")
             return replyHandler(AgentPaneReply.failure(code: "untrusted_frame", message: "Untrusted frame"), nil)
         }
+        // A right-click menu of the page shows as a standard macOS menu; the reply waits for it to close.
+        if let body = message.body as? [String: Any], body["method"] as? String == AgentPaneView.contextMenuMethod, let view {
+            return view.contextMenu(params: body["params"] as? [String: Any] ?? [:]) { replyHandler($0, nil) }
+        }
         // A page menu with no room in the pane draws past the window's edge (AgentPaneView+Popup).
         if let body = message.body as? [String: Any], let method = body["method"] as? String, method.hasPrefix("popup."),
            let view {
@@ -95,7 +99,6 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
             AgentPaneDeviceChat.push(view.deviceChats, to: view)
             AgentPaneClosedItem.push(view.recentlyClosed, to: view)
             AgentPaneNowPlaying.shared.push(to: view)
-            AgentPaneImportCards.shared.push(to: view)
         }
         return view.model
     }

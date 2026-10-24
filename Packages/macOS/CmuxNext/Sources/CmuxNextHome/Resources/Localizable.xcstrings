@@ -12471,6 +12471,270 @@
         }
       }
     },
+    "home.chief.backend.muse": {
+      "comment": "New Chief backend popup item and Chief Settings harness item: Meta's Muse Code (a product name, not translated).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muse Code"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muse Code"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muse Code"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muse Code"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muse Code"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muse Code"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muse Code"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muse Code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muse Code"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muse Code"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muse Code"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muse Code"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muse Code"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muse Code"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muse Code"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muse Code"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muse Code"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muse Code"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muse Code"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muse Code"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muse Code"
+          }
+        }
+      }
+    },
+    "home.chief.backend.museHint": {
+      "comment": "One line under the New Chief backend popup when Muse Code is chosen: the Chief runs on this Mac through the muse-acp adapter.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Runs on this Mac with your Muse sign-in (`muse login`) through the muse-acp adapter."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعمل على جهاز Mac هذا باستخدام تسجيل دخولك إلى Muse (`muse login`) عبر محوّل muse-acp."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Radi na ovom Macu s vašom Muse prijavom (`muse login`) preko muse-acp adaptera."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kører på denne Mac med dit Muse-login (`muse login`) via muse-acp-adapteren."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Läuft auf diesem Mac mit deiner Muse-Anmeldung (`muse login`) über den muse-acp-Adapter."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Funciona en este Mac con tu sesión de Muse (`muse login`) a través del adaptador muse-acp."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fonctionne sur ce Mac avec votre connexion Muse (`muse login`) via l’adaptateur muse-acp."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Funziona su questo Mac con il tuo accesso a Muse (`muse login`) tramite l’adattatore muse-acp."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "この Mac 上で、muse-acp アダプター経由であなたの Muse のサインイン（`muse login`）を使って動作します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដំណើរការលើ Mac នេះ ដោយប្រើការចូល Muse របស់អ្នក (`muse login`) តាមរយៈ adapter muse-acp។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 Mac에서 muse-acp 어댑터를 통해 Muse 로그인(`muse login`)으로 실행됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kjører på denne Macen med Muse-påloggingen din (`muse login`) via muse-acp-adapteren."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Działa na tym Macu z Twoim logowaniem do Muse (`muse login`) przez adapter muse-acp."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Funciona neste Mac com seu login do Muse (`muse login`) pelo adaptador muse-acp."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Работает на этом Mac с вашим входом в Muse (`muse login`) через адаптер muse-acp."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ทำงานบน Mac เครื่องนี้ด้วยการลงชื่อเข้าใช้ Muse ของคุณ (`muse login`) ผ่านอะแดปเตอร์ muse-acp"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu Mac’te muse-acp bağdaştırıcısı üzerinden Muse oturumunuzla (`muse login`) çalışır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Працює на цьому Mac з вашим входом у Muse (`muse login`) через адаптер muse-acp."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chạy trên máy Mac này bằng phiên đăng nhập Muse của bạn (`muse login`) qua bộ chuyển đổi muse-acp."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "通过 muse-acp 适配器，使用你的 Muse 登录（`muse login`）在这台 Mac 上运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "透過 muse-acp 轉接器，使用你的 Muse 登入（`muse login`）在這台 Mac 上執行。"
+          }
+        }
+      }
+    },
     "home.invite.waitingFor": {
       "extractionState": "manual",
       "localizations": {

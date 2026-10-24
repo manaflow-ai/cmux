@@ -72,6 +72,18 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
         return view
     }()
     private var made: Set<String> = []
+    private lazy var sendingLabel: UILabel = {
+        let label = UILabel()
+        label.accessibilityIdentifier = "feed.reply.sending"
+        row.addSubview(label)
+        made.insert("sending")
+        return label
+    }()
+    private lazy var sendingSpinner: UIActivityIndicatorView = {
+        let view = UIActivityIndicatorView(style: .medium)
+        row.addSubview(view)
+        return view
+    }()
     private let body = UIView()
     private let inlineText = UILabel()
     private lazy var markdown: NativeMarkdownView = {
@@ -215,7 +227,7 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
         body.clipsToBounds = true
         inlineText.numberOfLines = 0
         body.addSubview(inlineText)
-        body.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(openTapped)))
+        body.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(openTapped(_:))))
         row.addSubview(body)
         showMore.contentHorizontalAlignment = .leading
         showMore.addAction(UIAction { [weak self] _ in self.map { $0.delegate?.rowToggleExpanded($0.id) } }, for: .touchUpInside)
@@ -533,9 +545,14 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
                 capsule(index).accessibilityHint = button.title.string.contains("Allow") ? "Approve with Face ID" : nil
             }
             used = buttons.count
-        case .question(let card):
+        case .question(let card, let openTerminal):
             question.isHidden = false
             question.apply(card)
+            if let openTerminal {
+                capsule(0).apply(openTerminal)
+                capsule(0).accessibilityIdentifier = "feed.terminal.open"
+                used = 1
+            }
         case .answered(let caption, let captionFrame, let items):
             answeredCaption.isHidden = false
             answeredCaption.attributedText = caption
@@ -571,6 +588,7 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
         }
         var next = bubbleBase
         repliesCaption.isHidden = layout.replies == nil
+        repliesCaption.accessibilityIdentifier = "feed.reply.sent"
         if let replies = layout.replies {
             repliesCaption.attributedText = replies.caption
             repliesCaption.frame = replies.captionFrame
@@ -580,6 +598,18 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
             }
         }
         for view in bubbles[next...] { view.isHidden = true }
+        if let sending = layout.replySending {
+            sendingLabel.isHidden = false
+            sendingLabel.attributedText = sending.text
+            sendingLabel.frame = sending.frame
+            sendingSpinner.isHidden = false
+            sendingSpinner.frame = sending.spinner
+            sendingSpinner.startAnimating()
+        } else if made.contains("sending") {
+            sendingLabel.isHidden = true
+            sendingSpinner.isHidden = true
+            sendingSpinner.stopAnimating()
+        }
         failureLabel.isHidden = layout.replyFailure == nil
         if let failure = layout.replyFailure {
             failureLabel.attributedText = failure.text
@@ -635,7 +665,10 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
             if button.attributedTitle(for: .normal) !== text { button.setAttributedTitle(text, for: .normal) }
             widths.append(max(44, ceil(text.size().width) + 4))
         }
-        for button in footerButtons { button.isHidden = true }
+        // One terminal reply at a time: a second would interleave with the first.
+        footerButtons[0].isEnabled = layout.footerReplyEnabled
+        footerButtons[0].alpha = layout.footerReplyEnabled ? 1 : 0.4
+                for button in footerButtons { button.isHidden = true }
         // HStack with a Spacer between each button: the first at the leading edge, the last at the trailing one.
         let frame = layout.footer
         let gaps = CGFloat(max(entries.count - 1, 1))
@@ -651,8 +684,14 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
 
     // MARK: Taps
 
-    @objc private func openTapped() {
+    @objc private func openTapped(_ tap: UITapGestureRecognizer) {
         guard offset == 0 else { return }
+        // A link in the body: a web link opens in Safari; a file link opens the event, whose chat previews it.
+        if made.contains("markdown"), !markdown.isHidden, let url = markdown.link(at: tap.location(in: markdown)),
+           let scheme = url.scheme?.lowercased(), ["http", "https", "mailto", "tel", "sms", "facetime"].contains(scheme) {
+            UIApplication.shared.open(url)
+            return
+        }
         delegate?.rowOpen(id)
     }
 

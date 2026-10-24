@@ -60,6 +60,12 @@ export type AppState = {
   viewedScopeKey: string;
   /** The viewer's width in px, measured in the page; 0 until measured. */
   viewerWidth: number;
+  /**
+   * Whether the shown session's patch leaves white space changes out (`SessionOpened.ignoreWhitespace`);
+   * null until a session answers. While true its hunks are not the files' real hunks: the patch is not
+   * copied as a `git apply` command, and no write of one hunk may run.
+   */
+  whitespaceHidden: boolean | null;
 };
 
 export type AppAction =
@@ -74,6 +80,7 @@ export type AppAction =
   | { type: "replace-viewed"; scopeKey: string; entries: ViewedFileEntry[] }
   | { type: "set-file-filter"; filter: Partial<DiffFileFilter> }
   | { type: "set-generated-paths"; paths: string[] }
+  | { type: "set-whitespace-hidden"; hidden: boolean }
   | { type: "refresh"; status: DiffViewerStatus }
   | { type: "reset-diff"; status: DiffViewerStatus }
   | { type: "remove-comment"; id: string }
@@ -144,6 +151,7 @@ export function initialAppState(config: DiffViewerConfig, initialStatus: DiffVie
     viewedLocalEdits: new Map(),
     viewedScopeKey: "",
     viewerWidth: 0,
+    whitespaceHidden: null,
   };
 }
 
@@ -164,6 +172,11 @@ export function defaultDiffViewerOptions(payload: DiffViewerPayload): Omit<DiffV
     diffIndicators: "bars",
     expandUnchanged: false,
     groupByKind: false,
+    // Off: the diff shows every change, as git does, unless the reader hides white space.
+    hideWhitespace: false,
+    hideImports: false,
+    loadFullFiles: false,
+    richPreview: false,
     lineNumbers: true,
     showBackgrounds: true,
     wordDiffs: payload.transport?.kind === "page",
@@ -291,8 +304,12 @@ export function reducer(state: AppState, action: AppAction): AppState {
       return { ...state, fileFilter: { ...state.fileFilter, ...action.filter } };
     case "set-generated-paths":
       return { ...state, generatedPaths: action.paths };
+    case "set-whitespace-hidden":
+      return { ...state, whitespaceHidden: action.hidden };
     case "apply-persisted-options": {
-      const { layout, collapsedFiles, ...prefs } = action.prefs;
+      // `hideWhitespace` changes the diff, so only the toolbar (set-option, then a refresh) changes it
+      // after boot; first paint takes it from the payload's seeded prefs, as the session opens.
+      const { layout, collapsedFiles, hideWhitespace: _hideWhitespace, ...prefs } = action.prefs;
       const withCollapsed = { ...state, collapsedFiles: collapsedFiles ?? state.collapsedFiles };
       return {
         ...withCollapsed,
@@ -323,6 +340,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
         status: action.status,
         streamComplete: false,
         treeSource: null,
+        whitespaceHidden: null,
       };
     case "append-items": {
       const generatedPaths = new Set(state.generatedPaths);
@@ -359,6 +377,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
         status: action.status,
         streamComplete: false,
         treeSource: null,
+        whitespaceHidden: null,
       };
     case "remove-comment": {
       const comments = state.comments.filter((comment) => comment.id !== action.id);

@@ -28,6 +28,9 @@ public final class FeedRouting {
         case failed(String)
     }
     var sendPrompt: ((FeedItem, String) -> ReplyOutcome)?
+    /// Reply to a terminal agent's event: typed into that terminal's agent on
+    /// its Mac (nil: sent; else why not). Set by the shell.
+    public var replyToTerminal: ((FeedItem, String) async -> String?)?
     /// Opens a terminal agent's tab on the Workspaces tab (set by the shell).
     public var openTerminal: ((FeedItem) -> Void)?
     /// Clear All Notifications on the linked Mac (nil: no Mac can clear now).

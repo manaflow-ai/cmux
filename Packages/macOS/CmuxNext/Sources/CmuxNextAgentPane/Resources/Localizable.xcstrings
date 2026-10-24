@@ -27657,264 +27657,264 @@
         }
       }
     },
-    "agentPane.error.daemonHeldByOtherBuild": {
+    "agentPane.error.daemonHeldByOtherBuildFix": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "acpmux is running, but %1$@ owns it (%2$@) and this build may not use it. Quit %1$@, or use that build."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "acpmux は実行中ですが、%1$@ が所有しているため (%2$@)、このビルドでは使えません。%1$@ を終了するか、そのビルドを使ってください。"
-          }
-        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux قيد التشغيل، لكن %1$@ يملكه (%2$@) ولا يمكن لهذا الإصدار استخدامه. أغلق %1$@، أو استخدم ذلك الإصدار."
+            "value": "ينتمي acpmux على %2$@ إلى %1$@، ولا يمكن لهذا الإصدار استخدامه. أغلق %1$@. إذا ظل acpmux يعمل، فشغّل هذا في الطرفية: %3$@ (تستمر الوكلاء المستضافة في العمل لـ acpmux التالي)، ثم افتح دردشة وكيل جديدة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux radi, ali ga posjeduje %1$@ (%2$@) i ovaj build ga ne smije koristiti. Zatvorite %1$@ ili koristite taj build."
+            "value": "acpmux na %2$@ pripada %1$@ i ova verzija ga ne smije koristiti. Zatvori %1$@. Ako acpmux i dalje radi, pokreni ovo u terminalu: %3$@ (hostovani agenti nastavljaju raditi za sljedeći acpmux), pa otvori novi agent chat."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux kører, men %1$@ ejer den (%2$@), og denne build må ikke bruge den. Afslut %1$@, eller brug den build."
+            "value": "acpmux på %2$@ tilhører %1$@, og denne build må ikke bruge den. Afslut %1$@. Hvis acpmux stadig kører, så kør dette i en terminal: %3$@ (hostede agenter bliver ved med at køre til den næste acpmux), og åbn derefter en ny agentchat."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux läuft, gehört aber %1$@ (%2$@) und dieser Build darf es nicht verwenden. Beende %1$@ oder verwende diesen Build."
+            "value": "acpmux unter %2$@ gehört zu %1$@, und dieser Build darf es nicht nutzen. Beende %1$@. Läuft acpmux danach noch, führe dies im Terminal aus: %3$@ (gehostete Agenten laufen für das nächste acpmux weiter), und öffne dann einen neuen Agent-Chat."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux at %2$@ belongs to %1$@, and this build may not use it. Quit %1$@. If acpmux still runs, run this in a terminal: %3$@ (hosted agents keep running for the next acpmux), then open a new agent chat."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux se está ejecutando, pero pertenece a %1$@ (%2$@) y esta compilación no puede usarlo. Cierra %1$@ o usa esa compilación."
+            "value": "acpmux en %2$@ pertenece a %1$@ y esta compilación no puede usarlo. Cierra %1$@. Si acpmux sigue en marcha, ejecuta esto en una terminal: %3$@ (los agentes alojados siguen funcionando para el próximo acpmux) y luego abre un nuevo chat de agente."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux est en cours d’exécution, mais %1$@ en est propriétaire (%2$@) et cette build ne peut pas l’utiliser. Quittez %1$@ ou utilisez cette build."
+            "value": "acpmux sur %2$@ appartient à %1$@, et ce build ne peut pas l’utiliser. Quittez %1$@. Si acpmux tourne encore, lancez ceci dans un terminal : %3$@ (les agents hébergés continuent de tourner pour le prochain acpmux), puis ouvrez une nouvelle discussion d’agent."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux è in esecuzione, ma appartiene a %1$@ (%2$@) e questa build non può usarlo. Chiudi %1$@ o usa quella build."
+            "value": "acpmux su %2$@ appartiene a %1$@ e questa build non può usarlo. Esci da %1$@. Se acpmux è ancora attivo, esegui questo in un terminale: %3$@ (gli agenti ospitati continuano a funzionare per il prossimo acpmux), poi apri una nuova chat con un agente."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%2$@ の acpmux は %1$@ のもので、このビルドでは使えません。%1$@ を終了してください。acpmux がまだ動いている場合は、ターミナルで %3$@ を実行してから (ホストされたエージェントは次の acpmux のために動き続けます)、新しいエージェントチャットを開いてください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux កំពុងដំណើរការ ប៉ុន្តែ %1$@ ជាម្ចាស់ (%2$@) ហើយ build នេះមិនអាចប្រើវាបានទេ។ បិទ %1$@ ឬប្រើ build នោះ។"
+            "value": "acpmux នៅ %2$@ ជារបស់ %1$@ ហើយ build នេះមិនអាចប្រើវាបានទេ។ បិទ %1$@។ ប្រសិនបើ acpmux នៅតែដំណើរការ សូមរត់ពាក្យបញ្ជានេះក្នុង terminal៖ %3$@ (agent ដែលបានបង្ហោះនៅតែដំណើរការសម្រាប់ acpmux បន្ទាប់) រួចបើកការជជែក agent ថ្មី។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux가 실행 중이지만 %1$@이(가) 소유하고 있어(%2$@) 이 빌드에서는 사용할 수 없습니다. %1$@을(를) 종료하거나 해당 빌드를 사용하세요."
+            "value": "%2$@의 acpmux는 %1$@의 것이므로 이 빌드에서 사용할 수 없습니다. %1$@을(를) 종료하세요. acpmux가 계속 실행 중이면 터미널에서 %3$@을(를) 실행한 다음(호스팅된 에이전트는 다음 acpmux를 위해 계속 실행됩니다) 새 에이전트 채팅을 여세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux kjører, men %1$@ eier den (%2$@), og denne builden kan ikke bruke den. Avslutt %1$@, eller bruk den builden."
+            "value": "acpmux på %2$@ tilhører %1$@, og denne builden kan ikke bruke den. Avslutt %1$@. Hvis acpmux fortsatt kjører, kjør dette i en terminal: %3$@ (vertsbaserte agenter fortsetter å kjøre for neste acpmux), og åpne deretter en ny agentchat."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux działa, ale należy do %1$@ (%2$@) i ta kompilacja nie może go używać. Zamknij %1$@ albo użyj tamtej kompilacji."
+            "value": "acpmux pod %2$@ należy do %1$@ i ta kompilacja nie może go używać. Zamknij %1$@. Jeśli acpmux nadal działa, uruchom w terminalu: %3$@ (hostowani agenci działają dalej dla następnego acpmux), a potem otwórz nowy czat z agentem."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O acpmux está em execução, mas pertence a %1$@ (%2$@) e esta build não pode usá-lo. Encerre %1$@ ou use essa build."
+            "value": "O acpmux em %2$@ pertence a %1$@, e esta build não pode usá-lo. Feche %1$@. Se o acpmux continuar rodando, execute isto em um terminal: %3$@ (os agentes hospedados continuam rodando para o próximo acpmux) e depois abra um novo chat de agente."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux запущен, но принадлежит %1$@ (%2$@), и эта сборка не может его использовать. Закройте %1$@ или используйте ту сборку."
+            "value": "acpmux на %2$@ принадлежит %1$@, и эта сборка не может его использовать. Закройте %1$@. Если acpmux всё ещё работает, выполните в терминале: %3$@ (размещённые агенты продолжают работать для следующего acpmux), затем откройте новый чат с агентом."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux กำลังทำงาน แต่ %1$@ เป็นเจ้าของ (%2$@) และบิลด์นี้ใช้ไม่ได้ ปิด %1$@ หรือใช้บิลด์นั้นแทน"
+            "value": "acpmux ที่ %2$@ เป็นของ %1$@ และบิลด์นี้ใช้ไม่ได้ ปิด %1$@ หาก acpmux ยังทำงานอยู่ ให้รันคำสั่งนี้ในเทอร์มินัล: %3$@ (เอเจนต์ที่โฮสต์ไว้ยังทำงานต่อสำหรับ acpmux ตัวถัดไป) แล้วเปิดแชตเอเจนต์ใหม่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux çalışıyor, ancak %1$@ ona sahip (%2$@) ve bu derleme onu kullanamaz. %1$@ uygulamasından çıkın veya o derlemeyi kullanın."
+            "value": "%2$@ konumundaki acpmux %1$@ uygulamasına ait ve bu derleme onu kullanamaz. %1$@ uygulamasından çıkın. acpmux hâlâ çalışıyorsa terminalde şunu çalıştırın: %3$@ (barındırılan ajanlar sonraki acpmux için çalışmaya devam eder), ardından yeni bir ajan sohbeti açın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux запущено, але він належить %1$@ (%2$@), і ця збірка не може його використовувати. Закрийте %1$@ або скористайтеся тією збіркою."
+            "value": "acpmux на %2$@ належить %1$@, і ця збірка не може його використовувати. Закрийте %1$@. Якщо acpmux досі працює, виконайте в терміналі: %3$@ (розміщені агенти працюють далі для наступного acpmux), а потім відкрийте новий чат з агентом."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux đang chạy, nhưng %1$@ sở hữu nó (%2$@) và bản build này không thể dùng. Hãy thoát %1$@ hoặc dùng bản build đó."
+            "value": "acpmux tại %2$@ thuộc về %1$@, và bản build này không được dùng nó. Hãy thoát %1$@. Nếu acpmux vẫn chạy, hãy chạy lệnh này trong terminal: %3$@ (các agent được lưu trữ vẫn chạy cho acpmux kế tiếp), rồi mở một cuộc trò chuyện agent mới."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux 正在运行，但归 %1$@ 所有（%2$@），此版本无法使用。请退出 %1$@，或使用该版本。"
+            "value": "%2$@ 上的 acpmux 属于 %1$@，此版本不能使用它。请退出 %1$@。如果 acpmux 仍在运行，请在终端中运行：%3$@（托管的智能体会继续运行，等待下一个 acpmux），然后打开新的智能体聊天。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux 正在執行，但歸 %1$@ 所有（%2$@），此版本無法使用。請結束 %1$@，或使用該版本。"
+            "value": "%2$@ 上的 acpmux 屬於 %1$@，此版本不能使用它。請結束 %1$@。如果 acpmux 仍在執行，請在終端機中執行：%3$@（託管的代理程式會繼續執行，等待下一個 acpmux），然後開啟新的代理程式聊天。"
           }
         }
       }
     },
-    "agentPane.error.daemonRefused": {
+    "agentPane.error.daemonRefusedFix": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "acpmux is running at %1$@, but this build may not use it: %2$@."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "acpmux は %1$@ で実行中ですが、このビルドでは使えません: %2$@。"
-          }
-        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux قيد التشغيل على %1$@، لكن لا يمكن لهذا الإصدار استخدامه: %2$@."
+            "value": "رفض acpmux على %1$@ هذا الإصدار: %2$@. شغّل هذا في الطرفية: %3$@ (تستمر الوكلاء المستضافة في العمل لـ acpmux التالي)، ثم افتح دردشة وكيل جديدة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux radi na %1$@, ali ga ovaj build ne smije koristiti: %2$@."
+            "value": "acpmux na %1$@ je odbio ovu verziju: %2$@. Pokreni ovo u terminalu: %3$@ (hostovani agenti nastavljaju raditi za sljedeći acpmux), pa otvori novi agent chat."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux kører på %1$@, men denne build må ikke bruge den: %2$@."
+            "value": "acpmux på %1$@ afviste denne build: %2$@. Kør dette i en terminal: %3$@ (hostede agenter bliver ved med at køre til den næste acpmux), og åbn derefter en ny agentchat."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux läuft unter %1$@, aber dieser Build darf es nicht verwenden: %2$@."
+            "value": "acpmux unter %1$@ hat diesen Build abgelehnt: %2$@. Führe dies im Terminal aus: %3$@ (gehostete Agenten laufen für das nächste acpmux weiter), und öffne dann einen neuen Agent-Chat."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux at %1$@ refused this build: %2$@. Run this in a terminal: %3$@ (hosted agents keep running for the next acpmux), then open a new agent chat."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux se está ejecutando en %1$@, pero esta compilación no puede usarlo: %2$@."
+            "value": "acpmux en %1$@ rechazó esta compilación: %2$@. Ejecuta esto en una terminal: %3$@ (los agentes alojados siguen funcionando para el próximo acpmux) y luego abre un nuevo chat de agente."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux est en cours d’exécution sur %1$@, mais cette build ne peut pas l’utiliser : %2$@."
+            "value": "acpmux sur %1$@ a refusé ce build : %2$@. Lancez ceci dans un terminal : %3$@ (les agents hébergés continuent de tourner pour le prochain acpmux), puis ouvrez une nouvelle discussion d’agent."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux è in esecuzione su %1$@, ma questa build non può usarlo: %2$@."
+            "value": "acpmux su %1$@ ha rifiutato questa build: %2$@. Esegui questo in un terminale: %3$@ (gli agenti ospitati continuano a funzionare per il prossimo acpmux), poi apri una nuova chat con un agente."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ の acpmux はこのビルドを拒否しました: %2$@。ターミナルで %3$@ を実行してから (ホストされたエージェントは次の acpmux のために動き続けます)、新しいエージェントチャットを開いてください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux កំពុងដំណើរការនៅ %1$@ ប៉ុន្តែ build នេះមិនអាចប្រើវាបានទេ៖ %2$@។"
+            "value": "acpmux នៅ %1$@ បានបដិសេធ build នេះ៖ %2$@។ រត់ពាក្យបញ្ជានេះក្នុង terminal៖ %3$@ (agent ដែលបានបង្ហោះនៅតែដំណើរការសម្រាប់ acpmux បន្ទាប់) រួចបើកការជជែក agent ថ្មី។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux가 %1$@에서 실행 중이지만 이 빌드에서는 사용할 수 없습니다: %2$@."
+            "value": "%1$@의 acpmux가 이 빌드를 거부했습니다: %2$@. 터미널에서 %3$@을(를) 실행한 다음(호스팅된 에이전트는 다음 acpmux를 위해 계속 실행됩니다) 새 에이전트 채팅을 여세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux kjører på %1$@, men denne builden kan ikke bruke den: %2$@."
+            "value": "acpmux på %1$@ avviste denne builden: %2$@. Kjør dette i en terminal: %3$@ (vertsbaserte agenter fortsetter å kjøre for neste acpmux), og åpne deretter en ny agentchat."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux działa pod adresem %1$@, ale ta kompilacja nie może go używać: %2$@."
+            "value": "acpmux pod %1$@ odrzucił tę kompilację: %2$@. Uruchom w terminalu: %3$@ (hostowani agenci działają dalej dla następnego acpmux), a potem otwórz nowy czat z agentem."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O acpmux está em execução em %1$@, mas esta build não pode usá-lo: %2$@."
+            "value": "O acpmux em %1$@ recusou esta build: %2$@. Execute isto em um terminal: %3$@ (os agentes hospedados continuam rodando para o próximo acpmux) e depois abra um novo chat de agente."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux запущен по адресу %1$@, но эта сборка не может его использовать: %2$@."
+            "value": "acpmux на %1$@ отклонил эту сборку: %2$@. Выполните в терминале: %3$@ (размещённые агенты продолжают работать для следующего acpmux), затем откройте новый чат с агентом."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux กำลังทำงานที่ %1$@ แต่บิลด์นี้ใช้ไม่ได้: %2$@"
+            "value": "acpmux ที่ %1$@ ปฏิเสธบิลด์นี้: %2$@ รันคำสั่งนี้ในเทอร์มินัล: %3$@ (เอเจนต์ที่โฮสต์ไว้ยังทำงานต่อสำหรับ acpmux ตัวถัดไป) แล้วเปิดแชตเอเจนต์ใหม่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux %1$@ konumunda çalışıyor, ancak bu derleme onu kullanamaz: %2$@."
+            "value": "%1$@ konumundaki acpmux bu derlemeyi reddetti: %2$@. Terminalde şunu çalıştırın: %3$@ (barındırılan ajanlar sonraki acpmux için çalışmaya devam eder), ardından yeni bir ajan sohbeti açın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux запущено за адресою %1$@, але ця збірка не може його використовувати: %2$@."
+            "value": "acpmux на %1$@ відхилив цю збірку: %2$@. Виконайте в терміналі: %3$@ (розміщені агенти працюють далі для наступного acpmux), а потім відкрийте новий чат з агентом."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux đang chạy tại %1$@, nhưng bản build này không thể dùng: %2$@."
+            "value": "acpmux tại %1$@ đã từ chối bản build này: %2$@. Hãy chạy lệnh này trong terminal: %3$@ (các agent được lưu trữ vẫn chạy cho acpmux kế tiếp), rồi mở một cuộc trò chuyện agent mới."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux 正在 %1$@ 运行，但此版本无法使用：%2$@。"
+            "value": "%1$@ 上的 acpmux 拒绝了此版本：%2$@。请在终端中运行：%3$@（托管的智能体会继续运行，等待下一个 acpmux），然后打开新的智能体聊天。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux 正在 %1$@ 執行，但此版本無法使用：%2$@。"
+            "value": "%1$@ 上的 acpmux 拒絕了此版本：%2$@。請在終端機中執行：%3$@（託管的代理程式會繼續執行，等待下一個 acpmux），然後開啟新的代理程式聊天。"
           }
         }
       }
@@ -28439,6 +28439,923 @@
           "stringUnit": {
             "state": "translated",
             "value": "acpmux 正在以新版本重新啟動。恢復後此聊天會自動連線。"
+          }
+        }
+      }
+    },
+    "agentPane.error.gitDiscardInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The app refused the revert request."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "رفض التطبيق طلب التراجع."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aplikacija je odbila zahtjev za vraćanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Appen afviste anmodningen om at fortryde ændringer."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die App hat die Anfrage zum Zurücksetzen abgelehnt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La app rechazó la solicitud de revertir."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’app a refusé la demande d’annulation des modifications."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’app ha rifiutato la richiesta di ripristino."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "アプリが元に戻す要求を拒否しました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីបានបដិសេធសំណើត្រឡប់វិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "앱이 되돌리기 요청을 거부했습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Appen avviste forespørselen om å tilbakestille."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aplikacja odrzuciła żądanie cofnięcia zmian."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O app recusou o pedido de reverter."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Приложение отклонило запрос на откат."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แอปปฏิเสธคำขอย้อนกลับ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uygulama geri alma isteğini reddetti."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Застосунок відхилив запит на відкат."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ứng dụng đã từ chối yêu cầu hoàn tác."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "应用拒绝了还原请求。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "App 拒絕了還原要求。"
+          }
+        }
+      }
+    },
+    "agentPane.error.gitDiscardStagedHunk": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This file has staged changes. Revert the change in Unstaged, or revert the whole file."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يحتوي هذا الملف على تغييرات مرحلية. تراجع عن التغيير في غير المرحلية، أو تراجع عن الملف كله."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ova datoteka ima pripremljene izmjene. Vrati izmjenu u Nepripremljeno ili vrati cijelu datoteku."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne fil har ændringer i indekset. Fortryd ændringen i Ikke-indekseret, eller fortryd hele filen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diese Datei hat vorgemerkte Änderungen. Setze die Änderung unter „Nicht vorgemerkt“ zurück oder setze die ganze Datei zurück."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este archivo tiene cambios preparados. Revierte el cambio en Sin preparar o revierte el archivo entero."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ce fichier a des modifications indexées. Annulez la modification dans Non indexé, ou annulez tout le fichier."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo file ha modifiche nell’area di stage. Ripristina la modifica in Non in stage o ripristina l’intero file."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このファイルにはステージ済みの変更があります。未ステージで変更を元に戻すか、ファイル全体を元に戻してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឯកសារនេះមានការផ្លាស់ប្តូរដែលបានដាក់ជាដំណាក់កាល។ ត្រឡប់ការផ្លាស់ប្តូរនៅក្នុង មិនទាន់ដាក់ ឬត្រឡប់ឯកសារទាំងមូល។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 파일에 스테이징된 변경 사항이 있습니다. 스테이징 안 됨에서 변경을 되돌리거나 파일 전체를 되돌리세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne filen har endringer i indeksen. Tilbakestill endringen i Ikke indeksert, eller tilbakestill hele filen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten plik ma zmiany w poczekalni. Cofnij zmianę w widoku Poza poczekalnią albo cofnij cały plik."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este arquivo tem alterações preparadas. Reverta a alteração em Não preparadas ou reverta o arquivo inteiro."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "В этом файле есть проиндексированные изменения. Откатите изменение во вкладке «Не проиндексировано» или откатите весь файл."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไฟล์นี้มีการเปลี่ยนแปลงที่ staged แล้ว ย้อนกลับการเปลี่ยนแปลงใน Unstaged หรือย้อนกลับทั้งไฟล์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu dosyada hazırlanmış değişiklikler var. Değişikliği Hazırlanmamış görünümünde geri alın veya dosyanın tamamını geri alın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "У цьому файлі є проіндексовані зміни. Відкотіть зміну в «Не проіндексовано» або відкотіть увесь файл."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tệp này có thay đổi đã được stage. Hãy hoàn tác thay đổi trong Chưa stage, hoặc hoàn tác toàn bộ tệp."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此文件有已暂存的更改。请在“未暂存”中还原此更改，或还原整个文件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此檔案有已暫存的變更。請在「未暫存」中還原此變更，或還原整個檔案。"
+          }
+        }
+      }
+    },
+    "agentPane.error.gitDiscardOutside": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That file is outside the repository."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هذا الملف خارج المستودع."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta datoteka je izvan repozitorija."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den fil ligger uden for repository’et."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diese Datei liegt außerhalb des Repositorys."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ese archivo está fuera del repositorio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ce fichier est en dehors du dépôt."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quel file è fuori dal repository."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "そのファイルはリポジトリの外にあります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឯកសារនោះនៅខាងក្រៅឃ្លាំង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "해당 파일은 저장소 밖에 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den filen ligger utenfor repositoriet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten plik jest poza repozytorium."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esse arquivo está fora do repositório."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этот файл находится вне репозитория."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไฟล์นั้นอยู่นอกที่เก็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu dosya deponun dışında."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей файл поза репозиторієм."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tệp đó nằm ngoài kho lưu trữ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "该文件位于仓库之外。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "該檔案位於儲存庫之外。"
+          }
+        }
+      }
+    },
+    "agentPane.error.gitDiscardSubmodule": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Submodules aren't reverted here. Revert them in their own folder."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يتم التراجع عن الوحدات الفرعية هنا. تراجع عنها في مجلدها الخاص."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Podmoduli se ovdje ne vraćaju. Vrati ih u njihovoj mapi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Undermoduler fortrydes ikke her. Fortryd dem i deres egen mappe."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Submodule werden hier nicht zurückgesetzt. Setze sie in ihrem eigenen Ordner zurück."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Los submódulos no se revierten aquí. Reviértelos en su propia carpeta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les sous-modules ne sont pas annulés ici. Annulez-les dans leur propre dossier."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I sottomoduli non vengono ripristinati qui. Ripristinali nella loro cartella."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サブモジュールはここでは元に戻しません。サブモジュール自身のフォルダで元に戻してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ូឌុលរងមិនត្រូវបានត្រឡប់វិញនៅទីនេះទេ។ ត្រឡប់វាវិញនៅក្នុងថតរបស់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "하위 모듈은 여기서 되돌리지 않습니다. 하위 모듈의 폴더에서 되돌리세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Undermoduler tilbakestilles ikke her. Tilbakestill dem i sin egen mappe."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Podmoduły nie są tu cofane. Cofnij je w ich własnym folderze."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Submódulos não são revertidos aqui. Reverta-os na pasta deles."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Подмодули здесь не откатываются. Откатите их в их собственной папке."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่ย้อนกลับ submodule ที่นี่ ย้อนกลับในโฟลเดอร์ของ submodule เอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alt modüller burada geri alınmaz. Onları kendi klasörlerinde geri alın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Підмодулі тут не відкочуються. Відкотіть їх у їхній власній теці."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Submodule không được hoàn tác ở đây. Hãy hoàn tác trong thư mục của chúng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此处不还原子模块。请在子模块自己的文件夹中还原。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此處不還原子模組。請在子模組自己的資料夾中還原。"
+          }
+        }
+      }
+    },
+    "agentPane.error.gitDiscardWholeFile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This change adds or removes the whole file. Revert the file instead."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يضيف هذا التغيير الملف كله أو يزيله. تراجع عن الملف بدلًا من ذلك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ova izmjena dodaje ili uklanja cijelu datoteku. Umjesto toga vrati datoteku."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne ændring tilføjer eller fjerner hele filen. Fortryd filen i stedet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diese Änderung fügt die ganze Datei hinzu oder entfernt sie. Setze stattdessen die Datei zurück."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este cambio agrega o quita el archivo entero. Revierte el archivo en su lugar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette modification ajoute ou supprime tout le fichier. Annulez plutôt le fichier."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa modifica aggiunge o rimuove l’intero file. Ripristina invece il file."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "この変更はファイル全体を追加または削除します。代わりにファイルを元に戻してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការផ្លាស់ប្តូរនេះបន្ថែម ឬដកឯកសារទាំងមូល។ ត្រឡប់ឯកសារវិញជំនួសវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 변경은 파일 전체를 추가하거나 제거합니다. 대신 파일을 되돌리세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne endringen legger til eller fjerner hele filen. Tilbakestill filen i stedet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta zmiana dodaje lub usuwa cały plik. Zamiast tego cofnij plik."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta alteração adiciona ou remove o arquivo inteiro. Reverta o arquivo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Это изменение добавляет или удаляет весь файл. Откатите файл целиком."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การเปลี่ยนแปลงนี้เพิ่มหรือลบทั้งไฟล์ ให้ย้อนกลับไฟล์แทน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu değişiklik dosyanın tamamını ekler veya kaldırır. Bunun yerine dosyayı geri alın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ця зміна додає або вилучає весь файл. Натомість відкотіть файл."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thay đổi này thêm hoặc xóa toàn bộ tệp. Hãy hoàn tác cả tệp."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此更改会添加或移除整个文件。请改为还原该文件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此變更會加入或移除整個檔案。請改為還原該檔案。"
+          }
+        }
+      }
+    },
+    "agentPane.error.gitDiscardUndoChanged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The file changed after the revert, so Undo can't put the change back."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تغيّر الملف بعد التراجع، لذا لا يمكن إعادة التغيير."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Datoteka se promijenila nakon vraćanja, pa Poništi ne može vratiti izmjenu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Filen ændrede sig efter fortrydelsen, så Fortryd kan ikke sætte ændringen tilbage."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Datei hat sich nach dem Zurücksetzen geändert, daher kann Widerrufen die Änderung nicht wiederherstellen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El archivo cambió después de revertir, así que Deshacer no puede volver a aplicar el cambio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le fichier a changé après l’annulation : impossible de rétablir la modification."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il file è cambiato dopo il ripristino, quindi Annulla non può rimettere la modifica."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "元に戻した後にファイルが変更されたため、取り消しで変更を戻せません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឯកសារបានផ្លាស់ប្តូរបន្ទាប់ពីការត្រឡប់វិញ ដូច្នេះមិនអាចដាក់ការផ្លាស់ប្តូរវិញបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "되돌린 뒤 파일이 바뀌어 실행 취소로 변경 사항을 되살릴 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Filen endret seg etter tilbakestillingen, så Angre kan ikke sette endringen tilbake."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Plik zmienił się po cofnięciu, więc nie można przywrócić zmiany."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O arquivo mudou depois de reverter, então Desfazer não pode restaurar a alteração."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Файл изменился после отката, поэтому отменить откат нельзя."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไฟล์เปลี่ยนไปหลังการย้อนกลับ จึงเลิกทำเพื่อนำการเปลี่ยนแปลงกลับมาไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dosya geri almadan sonra değişti, bu yüzden değişiklik geri getirilemez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Файл змінився після відкату, тож скасувати відкат не можна."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tệp đã thay đổi sau khi hoàn tác, nên không thể khôi phục thay đổi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "还原后文件已更改，因此无法撤销以恢复该更改。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "還原後檔案已變更，因此無法撤銷以恢復該變更。"
+          }
+        }
+      }
+    },
+    "agentPane.error.gitDiscardNotReverted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not reverted: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يتم التراجع: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nije vraćeno: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikke fortrudt: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nicht zurückgesetzt: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sin revertir: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non annulé : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non ripristinato: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "元に戻せなかったもの: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនបានត្រឡប់វិញ៖ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "되돌리지 못함: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikke tilbakestilt: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie cofnięto: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não revertido: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не откачено: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่ได้ย้อนกลับ: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Geri alınmadı: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не відкочено: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chưa hoàn tác: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未还原：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未還原：%@"
           }
         }
       }

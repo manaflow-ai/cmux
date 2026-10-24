@@ -201,7 +201,9 @@ mod cmd_profiles;
 mod cmd_screens;
 mod cmd_server;
 mod cmd_sizing;
+mod size_lease;
 use cmd_sizing::{optional_surface_size, paired_surface_size};
+pub use size_lease::SIZE_LEASE_CAPABILITY;
 mod cmd_subscribe;
 mod cmd_tabs;
 mod cmd_terminal_io;
@@ -352,6 +354,13 @@ pub const SHARED_SIZING_CAPABILITY: &str = "shared-sizing-v1";
 /// the connection and its relay sub-views; `reattach-view` restores it. The
 /// daemon advertises it in `identify`.
 pub const SIZING_VIEW_DETACH_CAPABILITY: &str = "sizing-view-detach-v1";
+/// A phone or tablet view that lists this in `set-client-info` shows a
+/// terminal grid larger than its own correctly (letterbox or pan). Without it
+/// the daemon never applies a PTY grid larger than that view's reported size
+/// while the view is attached with one (`mux/terminal_sizing/handheld_ceiling.rs`):
+/// such a phone renders the PTY's output into its own grid, so a wider PTY
+/// overprints and cuts its rows. The daemon advertises it in `identify`.
+pub const HOST_GRID_VIEW_CAPABILITY: &str = "host-grid-view-v1";
 /// A client that lists this in `set-client-info` decodes every
 /// `device_kind` of a size state and reads a kind it does not know as
 /// `unknown`. It receives `linux` and `windows` (and later kinds) as they
@@ -451,6 +460,11 @@ pub const NOTIFICATION_MARK_UNREAD_CAPABILITY: &str = "notification-mark-unread-
 /// resource's `extra.marked_unread`. It needs no notification; clients clear
 /// it when the person views the tab.
 pub const TAB_MARK_UNREAD_CAPABILITY: &str = "tab-mark-unread-v1";
+/// An agent's "needs you here" mark on a tab: `attention` (a reason, or null
+/// to clear) on `tab.update` and the tab resource's `extra.attention`
+/// (`{reason, at_ms}`). Viewing the tab keeps it; the agent's clear, a browser
+/// tab's navigation to another page, or the tab's close clears it.
+pub const TAB_ATTENTION_CAPABILITY: &str = "tab-attention-v1";
 /// A workspace's description: `description` on `workspace.update` (null
 /// clears it) and the workspace snapshot's `extra.description` while set.
 pub const WORKSPACE_DESCRIPTION_CAPABILITY: &str = "workspace-description-v1";

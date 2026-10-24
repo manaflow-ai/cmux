@@ -43,7 +43,7 @@ public final class ChiefPetController {
     /// Whether cmux is the active app: the card shows over cmux only.
     private let appIsActive: @MainActor () -> Bool
     /// The app-activation observers' tokens, kept for the controller's life.
-    private var activationObservers: [any NSObjectProtocol] = []
+    private var activationObservers: [MainActorObservation] = []
     private var watch: Task<Void, Never>?
     /// `home.chiefPetEnabled` as last followed: off, arrivals are dropped.
     public private(set) var isOn = false
@@ -68,8 +68,8 @@ public final class ChiefPetController {
         toast = DemandTimer(owner: "chiefPet.toast", clock: clock)
         // Switching to another app takes the card down at once; coming back shows it if its time is not up.
         activationObservers = [NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification].map {
-            notifications.addObserver(forName: $0, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.render(animated: false) } // main-proof: observer on queue: .main
+            MainActorObservation($0, center: notifications) { [weak self] in
+                self?.render(animated: false)
             }
         }
     }

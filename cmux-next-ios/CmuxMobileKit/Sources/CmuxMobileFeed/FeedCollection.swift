@@ -826,6 +826,16 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
         guard let item = items[id] else { return }
         let text = (states[id]?.replyDraft ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
+        if item.opensTerminal {
+            // Typed into the terminal's agent on its Mac; the state (sending, sent, refused) lives on the item.
+            mutateState(id) { $0.replyFailure = nil; $0.replying = false; $0.replyDraft = "" }
+            let route = FeedRouting.shared.replyToTerminal
+            store.replyToTerminal(id, text: text) { item, text in
+                guard let route else { return "Open the terminal to reply." }
+                return await route(item, text)
+            }
+            return
+        }
         let sent = FeedRouting.shared.sendPrompt?(item, text) ?? .failed("Open this chat to reply.")
         switch sent {
         case .sent(let chat):

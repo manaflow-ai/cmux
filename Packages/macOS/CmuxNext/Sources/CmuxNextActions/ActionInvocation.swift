@@ -91,6 +91,12 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
     /// handler asks about running programs itself, after the row has left (`WorkspaceCloseFlow`).
     /// In-app only: the control socket never sets it.
     public var asksIfRunning = false
+    /// The timestamp (`NSEvent.timestamp`, seconds of system uptime) of the key press or click
+    /// that started this run, when the run went through a gate first (a confirmation sheet, the
+    /// palette asking for an argument) and so may run in a later turn, outside that event's
+    /// dispatch. The registry stamps it when the gate starts; the run's `action.*` signposts
+    /// report its age when no input event is being dispatched at the run. Nil for every other run.
+    public var inputTimestamp: Double?
 
     public init(target: ActionTargetRef? = nil, arguments: [String: ActionValue] = [:], origin: ActionOrigin = .user,
                 focusRequested: Bool = false) {

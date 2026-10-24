@@ -729,7 +729,7 @@ impl Hub {
     ) {
         // A record from a daemon without question normalization gets it here,
         // so its answers are checked like a new ask's.
-        super::questions::normalize(&mut request);
+        super::questions::normalize(&mut request, Self::preview_format(session));
         let (tx, rx) = oneshot::channel();
         let decision_nonce = super::person::new_nonce();
         session.permissions.lock().unwrap().pending.insert(
@@ -895,6 +895,7 @@ impl Hub {
             Some((&session.id, &meta.name)),
         )
         .map_err(internal)?;
+        self.record_preview_format(session, crate::agent::pinned_preview_format(&cmd));
         let std_cmd = cmd.as_std();
         let hosts = crate::agent_host::hosts_dir();
         let spec = crate::agent_host::SpawnSpec {

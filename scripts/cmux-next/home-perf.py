@@ -18,6 +18,9 @@ Usage: home-perf.py --tag <tag> --out results.json [--messages 300]
 import argparse, json, os, re, socket, statistics, subprocess, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import home_classic  # noqa: E402
+# The shared launch helper's socket paths and session check (bench_launch.py); this bench keeps its own launch
+# (its scratch working folder, its own session).
+from bench_launch import require_gui_session, socket_candidates  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -27,6 +30,12 @@ opts = parser.parse_args()
 home = os.environ["HOME"]
 app = f"{home}/Library/Developer/Xcode/DerivedData/cmux-{opts.tag}/Build/Products/Debug/cmux DEV {opts.tag}.app"
 sock = f"/tmp/cmux-debug-{opts.tag}.sock"
+require_gui_session("home-perf")
+
+
+def live_sock():
+    """The app's socket: the state folder first, then the /tmp link (bench_launch.socket_candidates)."""
+    return next((path for path in socket_candidates(opts.tag) if os.path.exists(path)), sock)
 work = os.path.dirname(os.path.abspath(opts.out))
 os.makedirs(work, exist_ok=True)
 results = {"tag": opts.tag, "host": socket.gethostname(), "started": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
@@ -34,7 +43,7 @@ results = {"tag": opts.tag, "host": socket.gethostname(), "started": time.strfti
 
 def rpc(method, params=None, timeout=35):
     try:
-        c = socket.socket(socket.AF_UNIX); c.settimeout(timeout); c.connect(sock)
+        c = socket.socket(socket.AF_UNIX); c.settimeout(timeout); c.connect(live_sock())
         c.sendall((json.dumps({"id": 1, "method": method, "params": params or {}}) + "\n").encode())
         buf = b""
         while not buf.endswith(b"\n"):

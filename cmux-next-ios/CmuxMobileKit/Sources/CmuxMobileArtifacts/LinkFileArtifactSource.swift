@@ -130,28 +130,65 @@ public struct LinkFileArtifactSource: ArtifactSource {
 
     /// Decodes bytes into the preview the kind wants.
     public static func content(for artifact: TerminalArtifact, data: Data) throws -> ArtifactContent {
+        if data.isEmpty {
+            let shown = artifact.reference.hasPrefix(LocalFileArtifactSource.scheme) ? artifact.name : artifact.reference
+            return .binary(description: "\(ArtifactContent.emptyFileLine)\n\(shown)")
+        }
         switch artifact.kind {
         case .image:
             return .image(data)
         case .pdf:
             return .pdf(data)
         case .video:
-            let url = FileManager.default.temporaryDirectory
-                .appendingPathComponent("cmux-mobile-artifact-\(abs(artifact.reference.hashValue))")
-                .appendingPathExtension(artifact.fileExtension.isEmpty ? "mp4" : artifact.fileExtension)
-            try data.write(to: url, options: .atomic)
-            return .file(url)
-        case .binary:
-            return .binary(description: "\(ByteCountFormatter.string(fromByteCount: Int64(data.count), countStyle: .file))\n\(artifact.reference)")
+            return .file(try ArtifactLocalCopy.write(data, for: artifact, defaultExtension: "mp4"))
+        case .audio, .document, .binary:
+            // Quick Look shows what it can (audio, Office and iWork, archives' listings);
+            // the preview offers Share for the rest.
+            return .quickLook(try ArtifactLocalCopy.write(data, for: artifact))
         default:
-            if data.isEmpty {
-                return .binary(description: "\(ArtifactContent.emptyFileLine)\n\(artifact.reference)")
-            }
             guard let text = String(data: data, encoding: .utf8) else {
-                return .binary(description: "Binary file, \(ByteCountFormatter.string(fromByteCount: Int64(data.count), countStyle: .file))\n\(artifact.reference)")
+                // Named like text but not text (or a type the phone has no viewer for).
+                return .quickLook(try ArtifactLocalCopy.write(data, for: artifact))
             }
             return .text(text)
         }
+    }
+}
+
+/// A local copy of a preview's bytes under its own file name (Quick Look and
+/// the share sheet go by the extension), one folder per reference.
+public struct ArtifactLocalCopy: Sendable {
+    public let url: URL
+
+    /// The folder all copies live in (the system clears temporary files).
+    static var root: URL { FileManager.default.temporaryDirectory.appendingPathComponent("cmux-mobile-preview", isDirectory: true) }
+
+    public static func write(_ data: Data, for artifact: TerminalArtifact, defaultExtension: String? = nil) throws -> URL {
+        try ArtifactLocalCopy(data: data, name: artifact.name, key: artifact.reference, defaultExtension: defaultExtension).url
+    }
+
+    /// - Parameters:
+    ///   - name: the file name the copy carries (a path separator in it is dropped).
+    ///   - key: what makes two copies distinct (a reference or an attachment id).
+    public init(data: Data, name: String, key: String, defaultExtension: String? = nil) throws {
+        var safe = name.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
+        if safe.isEmpty || safe == "." || safe == ".." { safe = "file" }
+        if (safe as NSString).pathExtension.isEmpty, let defaultExtension { safe += "." + defaultExtension }
+        let folder = Self.root.appendingPathComponent(Self.digest(key + "\u{0}" + safe), isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let url = folder.appendingPathComponent(safe)
+        try data.write(to: url, options: .atomic)
+        self.url = url
+    }
+
+    /// A stable folder name for a key (FNV-1a, hex): the same file reuses its copy.
+    static func digest(_ key: String) -> String {
+        var hash: UInt64 = 0xcbf29ce484222325
+        for byte in key.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 0x100000001b3
+        }
+        return String(hash, radix: 16)
     }
 }
 

@@ -446,6 +446,81 @@ class LocalizationDebtRatchetTests(unittest.TestCase):
         self.assertEqual(status, 1)
         self.assertIn("may only go down", output)
 
+    def test_a_moved_catalog_keeps_its_debt_and_the_bases_baseline(self):
+        # B1 (ba5e6df99f9) moved catalogs between packages: the ratchet read each as new debt
+        # at the new path and as a baseline raised above the base's.
+        self.write({"open": self.copied("Open"), "close": self.review("Close")})
+        self.check("--write-baseline")
+        base = self.root / "base-baseline.json"
+        base.write_text(self.baseline.read_text(encoding="utf-8"), encoding="utf-8")
+        moved = self.root / "Packages/macOS/CmuxNext/Sources/Other/Localizable.xcstrings"
+        moved.parent.mkdir(parents=True)
+        self.catalog.rename(moved)
+        self.assertEqual(self.check("--write-baseline")[0], 0)
+        self.assertEqual(json.loads(self.baseline.read_text(encoding="utf-8"))["catalogs"],
+                         {"Packages/macOS/CmuxNext/Sources/Other/Localizable.xcstrings":
+                          {"identical": 1, "needs_review": 1}})
+        status, output = self.check("--base-baseline", str(base))
+        self.assertEqual(status, 0, output)
+        self.assertIn("keeps the base's baseline", output)
+        # A moved catalog still may not grow, and a key whose file stays is not a move.
+        moved.write_text(json.dumps(catalog({"open": self.copied("Open"), "save": self.copied("Save")})),
+                         encoding="utf-8")
+        self.assertEqual(self.check("--base-baseline", str(base))[0], 1)
+
+    def test_a_baseline_key_whose_file_is_still_there_is_not_a_move(self):
+        self.write({"open": self.copied("Open")})
+        self.check("--write-baseline")
+        base = self.root / "base-baseline.json"
+        base.write_text(self.baseline.read_text(encoding="utf-8"), encoding="utf-8")
+        copy = self.root / "Packages/macOS/CmuxNext/Sources/Other/Localizable.xcstrings"
+        copy.parent.mkdir(parents=True)
+        copy.write_text(self.catalog.read_text(encoding="utf-8"), encoding="utf-8")
+        # A hand edit that moves the key to the copy while the old file stays in the tree.
+        self.baseline.write_text(MODULE.debt_json({str(copy.relative_to(self.root)): {"identical": 1}}),
+                                 encoding="utf-8")
+        status, output = self.check("--base-baseline", str(base))
+        self.assertEqual(status, 1)
+        self.assertNotIn("keeps the base's baseline", output)
+
+    def moved_base(self, strings):
+        """A base tree holding the catalog with STRINGS, its baseline, and the same baseline here."""
+        self.write(strings)
+        self.check("--write-baseline")
+        arguments = self.write_base(strings)
+        return arguments
+
+    def test_an_unrelated_same_named_catalog_does_not_inherit_a_deleted_catalogs_debt(self):
+        # Most catalogs are Localizable.xcstrings: deleting one package's catalog and adding an
+        # unrelated one with new untranslated strings must not move the old allowance to it.
+        arguments = self.moved_base({"open": self.copied("Open"), "close": self.copied("Close")})
+        self.catalog.unlink()
+        other = self.root / "Packages/macOS/CmuxNext/Sources/Other/Localizable.xcstrings"
+        other.parent.mkdir(parents=True)
+        other.write_text(json.dumps(catalog({"rename": self.copied("Rename"), "share": self.copied("Share")})),
+                         encoding="utf-8")
+        # The hand-moved baseline the loophole needs: the old counts under the new path.
+        self.baseline.write_text(MODULE.debt_json({str(other.relative_to(self.root)): {"identical": 2}}),
+                                 encoding="utf-8")
+        status, output = self.check(*arguments)
+        self.assertEqual(status, 1, output)
+        self.assertNotIn("keeps the base's baseline", output)
+        self.assertIn("may only go down", output)
+
+    def test_a_moved_catalog_proven_by_the_base_tree_keeps_its_baseline(self):
+        arguments = self.moved_base({"open": self.copied("Open"), "close": self.copied("Close")})
+        moved = self.root / "Packages/macOS/CmuxNext/Sources/Other/Localizable.xcstrings"
+        moved.parent.mkdir(parents=True)
+        self.catalog.rename(moved)
+        # Edited on the way (one string translated): still the same catalog.
+        moved.write_text(json.dumps(catalog({"open": self.copied("Open"),
+                                             "close": string("Close", fr=("Fermer", "translated"))})),
+                         encoding="utf-8")
+        self.assertEqual(self.check("--write-baseline")[0], 0)
+        status, output = self.check(*arguments)
+        self.assertEqual(status, 0, output)
+        self.assertIn("keeps the base's baseline", output)
+
     def write_base(self, strings):
         """The base tree's catalog and, as the base's baseline, a copy of the current baseline."""
         base = self.root / "base"

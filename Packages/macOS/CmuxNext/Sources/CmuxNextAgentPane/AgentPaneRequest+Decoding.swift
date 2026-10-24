@@ -182,8 +182,6 @@ extension AgentPaneRequest {
             self = AgentPaneNewTabEdit(widgetParams: params).map(AgentPaneRequest.editNewTab) ?? .unsupported(method)
         case "nowPlaying.command":
             if let command = AgentPaneNowPlaying.Command(params) { self = .nowPlaying(command) } else { self = .unsupported(method) }
-        case "importCards.act":
-            if let act = AgentPaneImportCards.Act(params) { self = .importCard(act) } else { self = .unsupported(method) }
         case "newTab.remember":
             // One input (R86): the agent pick, and the model picked on it in `folder`.
             if let agent = params?["agent"] as? String, !agent.isEmpty, agent.count <= 128 {
@@ -254,7 +252,12 @@ extension AgentPaneRequest {
                 self = Self.preview(params, method: method)
             } else if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128 {
                 let cwd = (params?["cwd"] as? String).flatMap(Self.headerFolder)
-                self = .paneAction(id, cwd: cwd, toggle: params?["mode"] as? String == "toggle")
+                let toggle = params?["mode"] as? String == "toggle"
+                if id == AgentPaneModel.diffAction, let turn = AgentPaneDiffTurn(params: params?["turn"]) {
+                    self = .diffTurn(turn, cwd: cwd, toggle: toggle)
+                } else {
+                    self = .paneAction(id, cwd: cwd, toggle: toggle)
+                }
             } else {
                 self = .unsupported(method)
             }

@@ -17,7 +17,9 @@ extension MainMenu {
     ]
 
     static func helpPlacements(_ registry: ActionRegistry) -> [NSMenuItem] {
-        groupedItems(helpGroups, in: .help, registry) + [.separator()] + otherItems(besides: helpGroups, in: .help, registry)
+        // Keep Support focused; Feature Flags, Cloud Diagnostics and Share remain
+        // palette-searchable instead of occupying peer rows in Help.
+        MainMenu.compactMainMenuItems(for: .help, registry: registry)
     }
 
     /// The rows of `groups` placed in `menu`, a separator between groups.

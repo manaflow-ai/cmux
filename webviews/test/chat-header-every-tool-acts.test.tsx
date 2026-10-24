@@ -199,7 +199,7 @@ test("with the Inspector on, every header item acts on a click; the Environment 
   // The Inspector's toggle leads the top-right tools, as Claude Code desktop's panel toggle does.
   expect(labels).toEqual([
     "Environment",
-    "Inspector",
+    "Session Info",
     "Needs you",
     "Changes",
     "Preview",

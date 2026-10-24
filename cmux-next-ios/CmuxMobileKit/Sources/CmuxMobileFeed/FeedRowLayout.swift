@@ -29,11 +29,14 @@ struct FeedRowLayout: @unchecked Sendable {
     var answer: Answer
     var error: ErrorPart?
     var replies: Replies?
+    /// A terminal agent's reply on its way ("Typing into the terminal…"), with a spinner, trailing.
+    var replySending: (text: NSAttributedString, frame: CGRect, spinner: CGRect)?
     var replyFailure: (text: NSAttributedString, frame: CGRect)?
     var composer: CGRect?
     let footer: CGRect
-    /// Reply is in the footer (a terminal agent's event takes no prompt).
+    /// Reply is in the footer (`FeedItem.takesReply`), and whether it is disabled (a terminal reply on its way).
     let footerHasReply: Bool
+    let footerReplyEnabled: Bool
 
     struct Quote {
         var frame: CGRect
@@ -138,7 +141,8 @@ struct FeedRowLayout: @unchecked Sendable {
         case pending(NSAttributedString, CGRect, spinner: CGRect)
         case terminal(CapsuleButton)
         case permission(card: CommandCard?, buttons: [CapsuleButton])
-        case question(QuestionCard)
+        /// A question card; for a terminal agent's question, "Open in Terminal" under it.
+        case question(QuestionCard, openTerminal: CapsuleButton?)
         case answered(caption: NSAttributedString, captionFrame: CGRect, items: [(header: NSAttributedString, headerFrame: CGRect, bubble: Bubble)])
     }
 
@@ -240,6 +244,7 @@ private struct FeedRowBuilder {
         let answer = answerLayout()
         let error = errorLayout()
         let replies = repliesLayout()
+        let sending = item.opensTerminal ? item.pending.map { sendingLayout($0) } : nil
         let failure = state.replyFailure.map { failureLayout($0) }
         let composer = state.replying ? composerFrame() : nil
         // The footer: a 44 pt row drawn 6 pt into its neighbors (32 pt of rhythm).
@@ -254,7 +259,8 @@ private struct FeedRowBuilder {
             column: CGRect(x: columnX, y: 12, width: columnWidth, height: columnHeight),
             avatar: CGRect(x: 16, y: 12, width: 40, height: 40),
             header: header, menuButton: menu, quote: quote, chip: chip, body: body, answer: answer, error: error,
-            replies: replies, replyFailure: failure, composer: composer, footer: footer, footerHasReply: !item.opensTerminal
+            replies: replies, replySending: sending, replyFailure: failure, composer: composer, footer: footer,
+            footerHasReply: item.takesReply, footerReplyEnabled: !(item.opensTerminal && item.pending != nil)
         )
     }
 
@@ -391,7 +397,14 @@ private struct FeedRowBuilder {
         case .question(let question):
             if case .answered(let answer) = question.state { return answeredLayout(question, answer) }
             if question.state == .cancelled { return secondaryLine("xmark.circle", "Question cancelled") }
-            return .question(questionLayout(question))
+            let card = questionLayout(question)
+            // A terminal agent's question: answered here, or in its terminal.
+            guard item.opensTerminal, question.isPending, item.resolution == nil else { return .question(card, openTerminal: nil) }
+            let font = styles.font(.headline)
+            let title = symbolText("terminal", "Open in Terminal", font: font, color: capsuleColor(.secondary))
+            let width = min(columnWidth, nativeTextSize(title, width: columnWidth).width + 24)
+            let top = place(44)
+            return .question(card, openTerminal: capsule("terminal", title, kind: .secondary, x: columnX, y: top, width: width))
         case .needsInput:
             if let resolution = item.resolution { return secondaryLine("checkmark.circle", resolution) }
             let font = styles.font(.headline)
@@ -609,7 +622,8 @@ private struct FeedRowBuilder {
 
     mutating func repliesLayout() -> FeedRowLayout.Replies? {
         guard !item.replies.isEmpty else { return nil }
-        let caption = attributed("You replied", styles.font(.caption1), .tertiaryLabel, alignment: .right)
+        // A terminal agent's reply went into its terminal on the Mac.
+        let caption = attributed(item.opensTerminal ? "Sent to the terminal" : "You replied", styles.font(.caption1), .tertiaryLabel, alignment: .right)
         let captionSize = nativeTextSize(caption, width: columnWidth)
         var cy = captionSize.height
         var bubbles: [FeedRowLayout.Bubble] = []
@@ -624,6 +638,15 @@ private struct FeedRowBuilder {
             caption: caption, captionFrame: CGRect(x: columnX + columnWidth - captionSize.width, y: top, width: captionSize.width, height: captionSize.height),
             bubbles: bubbles.map { FeedRowLayout.Bubble(text: $0.text, frame: $0.frame.offsetBy(dx: 0, dy: top), textFrame: $0.textFrame.offsetBy(dx: 0, dy: top)) }
         )
+    }
+
+    mutating func sendingLayout(_ pending: String) -> (NSAttributedString, CGRect, CGRect) {
+        let text = attributed(pending, styles.font(.footnote), .secondaryLabel)
+        let size = nativeTextSize(text, width: columnWidth - 28)
+        let height = max(size.height, 20)
+        let top = place(height)
+        let textFrame = CGRect(x: columnX + columnWidth - size.width, y: top + (height - size.height) / 2, width: size.width, height: size.height)
+        return (text, textFrame, CGRect(x: textFrame.minX - 28, y: top + (height - 20) / 2, width: 20, height: 20))
     }
 
     mutating func failureLayout(_ failure: String) -> (NSAttributedString, CGRect) {
