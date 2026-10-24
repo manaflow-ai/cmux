@@ -2340,14 +2340,14 @@ button.cv-received__name:focus-visible {
   user-select: text;
   -webkit-user-select: text;
 }
-/* A long message, closed: its first six lines (IncomingMessageCard.tsx RECEIVED_LINES), the last
+/* A long message, closed: its first eight lines (IncomingMessageCard.tsx RECEIVED_LINES), the last
    fading out under a mask (the card's glass shows through, never a cover); a click opens it.
    model.ts estimates the same height: change them together. */
 .cv-received__body[data-cut] {
   cursor: pointer;
 }
 .cv-received__body[data-cut] > .cv-received__text {
-  max-height: calc(var(--cv-line-height) * 6);
+  max-height: calc(var(--cv-line-height) * 8);
   overflow: hidden;
   -webkit-mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--cv-line-height)), transparent);
   mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--cv-line-height)), transparent);

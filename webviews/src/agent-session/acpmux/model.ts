@@ -740,7 +740,9 @@ function activityStepHeight(item: AcpmuxActivity): number {
 }
 /// How many lines of another agent's message its card shows before it is cut
 /// (conversation/IncomingMessageCard.tsx, `.cv-received__body[data-cut]`).
-export const RECEIVED_LINES = 6;
+// Agent and lane reports keep enough context to show a compact table or a few links before the
+// card folds. The open control still reveals the complete Markdown body.
+export const RECEIVED_LINES = 8;
 /// The prepared texts of those messages, for their estimates; cleared past 256, as a row's are.
 const receivedPrepared = new Map<string, PreparedText | null>();
 const TURN_GAP = 24;

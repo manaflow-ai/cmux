@@ -80,6 +80,18 @@ const shot = (hue: number, width = 1440, height = 900) =>
 // Another agent's message waiting behind the turn (Leo, 2026-10-21: it drew as the person's prompt).
 const QUEUED_MESSAGE =
   "**Rebase onto #23738** before you push: it moves the queue rows.\n\n- `ComposerQueue.tsx` changes\n- the gallery cases too";
+const QUEUED_LANE_REPORT = [
+  "**cx3-s71-jank · lane report**",
+  "",
+  "| case | PR | result |",
+  "|---|---:|---|",
+  "| queue | [#24772](https://github.com/manaflow-ai/cmux/pull/24772) | green |",
+  "| transcript | [compare](https://cmux.com/compare/agent-message-style) | review |",
+  "",
+  "See [https://github.com/manaflow-ai/cmux/actions](https://github.com/manaflow-ai/cmux/actions) for the run.",
+  "Commit 4c656ea8f42e3d1b9a7c0e6f5d4c3b2a19081716 is the current head.",
+  "The queued report keeps the table readable and shows its sender above the bubble.",
+].join("\n");
 // A prompt queued with two screenshots (Leo, 2026-10-21: "do queued messages have pics?").
 const pictured = {
   id: "q1",
@@ -963,7 +975,7 @@ export default agentPaneEntry({
       }),
     },
     "queued-from-agent": {
-      note: "Another agent's message waiting behind the turn: its received line (the sender's mark, its name as a chip that opens its chat, the message as a card under it, cut to six lines when longer), its actions (Steer, the trash can, ⋯) at the line's end; the person's prompt below is unchanged.",
+      note: "Another agent's message waiting behind the turn: its received line (the sender's mark, its name as a chip that opens its chat, the message as a card under it, cut to eight lines when longer), its actions (Steer, the trash can, ⋯) at the line's end; the person's prompt below is unchanged.",
       snapshot: chat(working, {
         isWorking: true,
         queue: [
@@ -1000,6 +1012,24 @@ export default agentPaneEntry({
           );
         });
       },
+    },
+    "queued-from-agent-lane-report": {
+      note: "Leo's lane report reference queued behind a running turn: sender header, rendered Markdown table and links, with the long body folded to eight lines.",
+      snapshot: chat(working, {
+        isWorking: true,
+        queue: [
+          {
+            id: "q-lane-report",
+            prompt: QUEUED_LANE_REPORT,
+            message: {
+              name: "cx3-s71-jank",
+              sessionId: "lane-jank",
+              text: QUEUED_LANE_REPORT,
+              raw: QUEUED_LANE_REPORT,
+            },
+          },
+        ],
+      }),
     },
     // Leo, 2026-10-21 ("this is what ChatGPT has"): each queued row shows Steer, the trash can and ⋯.
     "queued-actions": {

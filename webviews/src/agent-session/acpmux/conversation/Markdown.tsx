@@ -462,7 +462,8 @@ function quietCommitReferences(text: string, issues: GithubReference[], reposito
     if (commit.href) return commit;
     const before = issues.filter((issue) => issue.end <= commit.start).at(-1);
     const repo = before ? /^https:\/\/github\.com\/([^/]+\/[^/]+)\//.exec(before.href)?.[1] : repository;
-    return repo ? { ...commit, href: `https://github.com/${repo}/commit/${commit.sha}` } : commit;
+    const text = commit.sha.length > 10 ? commit.sha.slice(0, 8) : commit.text;
+    return repo ? { ...commit, text, href: `https://github.com/${repo}/commit/${commit.sha}` } : { ...commit, text };
   });
 }
 
