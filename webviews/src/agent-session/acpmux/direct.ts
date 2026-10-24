@@ -6502,6 +6502,14 @@ export class AcpmuxDirectClient {
     if (typeof result?.sessionId !== "string" || !result.sessionId) throw new Error("");
     return result.sessionId;
   }
+  /// A one-shot answer, never a prompt to the main chat. Capture and check the source before the
+  /// request: a composer from a previous selection must not ask about the newly opened chat.
+  async askBtw(question: string, sessionId = this.actingSessionId): Promise<string> {
+    if (!sessionId || sessionId !== this.actingSessionId) throw new Error(translate("error.notOpen"));
+    const result = await this.request(SIDE_SESSION_METHOD, { sessionId, question, inline: true }, 120_000);
+    if (typeof result?.text !== "string" || !result.text.trim()) throw new Error(translate("needsYou.askFailed"));
+    return result.text;
+  }
   async setModel(modelId: string): Promise<void> {
     if (this.actingSessionId) await this.request("session/set_model", { sessionId: this.actingSessionId, modelId });
   }

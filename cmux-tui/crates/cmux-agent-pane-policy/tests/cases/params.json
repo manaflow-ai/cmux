@@ -1171,7 +1171,8 @@
    "params": {
     "sessionId": 1,
     "question": 1,
-    "model": 1
+    "model": 1,
+    "inline": true
    }
   },
   "mode_fields": null,

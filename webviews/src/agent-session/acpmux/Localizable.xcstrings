@@ -141694,6 +141694,107 @@
         }
       }
     },
+    "sideQuestion.label": {"comment":"Agent pane: the heading of an inline /btw aside, separate from the main task","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Side question"}},"ar":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "سؤال جانبي"
+          }
+        },"bs":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sporedno pitanje"
+          }
+        },"da":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidespørgsmål"
+          }
+        },"de":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nebenfrage"
+          }
+        },"es":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pregunta aparte"
+          }
+        },"fr":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Question annexe"
+          }
+        },"it":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Domanda a margine"
+          }
+        },"ja":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "補足の質問"
+          }
+        },"km":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "សំណួរបន្ថែម"
+          }
+        },"ko":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "추가 질문"
+          }
+        },"nb":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidespørsmål"
+          }
+        },"pl":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pytanie poboczne"
+          }
+        },"pt-BR":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pergunta à parte"
+          }
+        },"ru":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Попутный вопрос"
+          }
+        },"th":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำถามแทรก"
+          }
+        },"tr":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yan soru"
+          }
+        },"uk":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Додаткове запитання"
+          }
+        },"vi":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Câu hỏi phụ"
+          }
+        },"zh-Hans":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "旁支问题"
+          }
+        },"zh-Hant":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "旁支問題"
+          }
+        }}},
     "sideQuestion.dismiss": {
       "comment": "Agent pane: button that closes the note above the composer saying a side session (/btw) did not start",
       "extractionState": "manual",

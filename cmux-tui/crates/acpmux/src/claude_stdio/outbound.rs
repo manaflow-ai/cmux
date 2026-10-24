@@ -301,6 +301,38 @@ impl Translator {
                             json!({"type": "control_request", "request_id": format!("mcp-{}", id), "request": {"subtype": "mcp_reconnect", "serverName": server}}),
                         ])
                     }
+                    SIDE_QUESTION => {
+                        let Some(question) = p
+                            .get("question")
+                            .and_then(Value::as_str)
+                            .filter(|q| !q.trim().is_empty())
+                        else {
+                            return Outbound::Reply(Message::err(
+                                id.clone(),
+                                RpcError::invalid_params("question is required"),
+                            ));
+                        };
+                        let history = match p.get("history") {
+                            None | Some(Value::Null) => Value::Null,
+                            Some(Value::Array(history)) => Value::Array(history.clone()),
+                            Some(_) => {
+                                return Outbound::Reply(Message::err(
+                                    id.clone(),
+                                    RpcError::invalid_params("history must be an array"),
+                                ));
+                            }
+                        };
+                        self.pending.lock().await.insert(id.to_string(), Pending::SideQuestion);
+                        let mut request = json!({"subtype": "side_question", "question": question});
+                        if !history.is_null() {
+                            request["history"] = history;
+                        }
+                        Outbound::Lines(vec![json!({
+                            "type": "control_request",
+                            "request_id": format!("side-{}", id),
+                            "request": request,
+                        })])
+                    }
                     method::MUX_SUBAGENT_STOP => self.subagent_stop(id, &p).await,
                     method::MUX_STEER_WITHDRAW => self.withdraw_steer(id, &p).await,
                     // Send now on a steer Claude Code has not read: its step stops, so it

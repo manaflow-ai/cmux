@@ -27,6 +27,73 @@ async fn prompt_becomes_user_line_and_result_answers_it() {
     }
 }
 
+/// Claude Code's stream-json bridge accepts a client `side_question` control
+/// request while its main turn is running. It answers with the callback's
+/// payload, without an ACP prompt or transcript event.
+#[tokio::test]
+async fn native_side_question_uses_claude_control_protocol() {
+    let t = Translator::new("acp-1".into(), "default", "sonnet", "default");
+    let req = Message::request(
+        19,
+        SIDE_QUESTION,
+        json!({
+            "question": "what does this function do?",
+            "history": [{"question": "earlier", "response": "already answered"}]
+        }),
+    );
+    let Outbound::Lines(lines) = t.outbound(&req).await else { panic!() };
+    assert_eq!(
+        lines,
+        vec![json!({
+            "type": "control_request",
+            "request_id": "side-19",
+            "request": {
+                "subtype": "side_question",
+                "question": "what does this function do?",
+                "history": [{"question": "earlier", "response": "already answered"}]
+            }
+        })]
+    );
+
+    let msgs = t
+        .inbound(&json!({
+            "type": "control_response",
+            "response": {
+                "subtype": "success",
+                "request_id": "side-19",
+                "response": {"response": "It reads the file.", "synthetic": false}
+            }
+        }))
+        .await;
+    assert!(matches!(
+        &msgs[..],
+        [Message::Response { id, result: Some(result), error: None }]
+            if *id == 19 && result["response"] == "It reads the file." && result["synthetic"] == false
+    ));
+}
+
+#[tokio::test]
+async fn native_side_question_rejects_missing_answer_callback() {
+    let t = Translator::new("acp-1".into(), "default", "sonnet", "default");
+    let req = Message::request(20, SIDE_QUESTION, json!({"question": "probe"}));
+    let Outbound::Lines(_) = t.outbound(&req).await else { panic!() };
+    let msgs = t
+        .inbound(&json!({
+            "type": "control_response",
+            "response": {
+                "subtype": "error",
+                "request_id": "side-20",
+                "error": "side_question is not supported in this context"
+            }
+        }))
+        .await;
+    assert!(matches!(
+        &msgs[..],
+        [Message::Response { id, result: None, error: Some(error) }]
+            if *id == 20 && error.message.contains("side_question is not supported")
+    ));
+}
+
 /// A steer Claude Code reads after the reply it is writing (cx-f51kv): the
 /// reply's text and the steer's answer are two API messages, and each chunk
 /// names its message, so the pane ends the reply where its message ends.

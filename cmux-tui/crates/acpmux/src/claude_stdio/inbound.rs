@@ -174,9 +174,7 @@ impl Translator {
                             // One model call's own usage, marked so a client can add a turn's
                             // calls up (the pane's running line). The result's resend below is
                             // the context ring's and is not marked. A subagent's calls are
-                            // marked too: they are the turn's spend. The four counts split the
-                            // call so the line can say its output apart from what it read (fresh
-                            // input, cache reads and cache writes).
+                            // marked too: they are the turn's spend.
                             out.push(upd(json!({
                                 "sessionUpdate": "usage_update",
                                 "used": used,
@@ -301,20 +299,12 @@ impl Translator {
                 }
                 drop(prompt);
                 let mut steers = self.steers.lock().await;
-                // A line of several sessions' messages answers each (`steer_batch.rs`).
-                let read: Vec<String> = steers
-                    .iter()
-                    .filter(|(u, _)| !uuid.is_empty() && u == uuid)
-                    .map(|(_, k)| k.clone())
-                    .collect();
-                if !read.is_empty() {
-                    steers.retain(|(u, _)| u != uuid);
+                if let Some(at) = steers.iter().position(|(u, _)| !uuid.is_empty() && u == uuid)
+                    && let Some((_, k)) = steers.remove(at)
+                {
                     drop(steers);
-                    self.forget_batch(uuid).await;
-                    for k in read {
-                        let id: Id = serde_json::from_str(&k).unwrap_or(Value::String(k));
-                        out.push(Message::ok(id, json!({"stopReason": "steered"})));
-                    }
+                    let id: Id = serde_json::from_str(&k).unwrap_or(Value::String(k));
+                    out.push(Message::ok(id, json!({"stopReason": "steered"})));
                     // A turn the client stopped: Claude Code runs a line it
                     // read after the stop as one more turn, so that turn is
                     // stopped too, and the prompt ends cancelled.
@@ -485,12 +475,7 @@ impl Translator {
             // Claude Code no longer needs the answer to one of its requests.
             "control_cancel_request" => {
                 let rid = line.get("request_id").and_then(Value::as_str).unwrap_or("");
-                if let Some(id) = self.cancel_control_request(rid).await {
-                    out.push(Message::notification(
-                        method::CANCEL_REQUEST,
-                        json!({"requestId": id}),
-                    ));
-                }
+                self.forget_elicitation(rid).await;
             }
             "control_response" => {
                 let resp = line.get("response").cloned().unwrap_or(Value::Null);
@@ -578,9 +563,23 @@ impl Translator {
                             why.unwrap_or("Claude Code did not move its work to the background");
                         Message::err(id, RpcError::internal(why))
                     });
-                } else if let Some(uuid) = rid.strip_prefix("rebatch-") {
-                    // A line dropped to be written again with more messages (`steer_batch.rs`).
-                    out.extend(self.rebatched(uuid, ok, &inner).await);
+                } else if let Some(acp) = rid.strip_prefix("side-") {
+                    // Claude Code's native `/btw` callback answers once with
+                    // its result payload (`{response, synthetic}` today).
+                    let id: Id = serde_json::from_str(acp).unwrap_or(Value::String(acp.to_owned()));
+                    self.pending.lock().await.remove(&id.to_string());
+                    out.push(if ok {
+                        Message::ok(id, inner)
+                    } else {
+                        Message::err(
+                            id,
+                            RpcError::internal(
+                                resp.get("error")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("Claude Code side question failed"),
+                            ),
+                        )
+                    });
                 } else if let Some(rest) = rid.strip_prefix("unsteer-") {
                     // A steer taken back, or read first (`steer_withdraw.rs`).
                     out.extend(self.steer_withdrawn(rest, ok, &inner).await);
@@ -669,11 +668,9 @@ impl Translator {
                 if unread && self.prompt_echo.lock().await.is_none() {
                     return out;
                 }
-                // Out of the turn first: a steer that takes the steer locks after `fail_steers`
-                // finds it ended and is not left waiting (`steer_batch.rs` `write_steer`).
-                self.in_turn.store(false, Ordering::SeqCst);
                 out.extend(self.fail_steers().await);
                 *self.prompt_echo.lock().await = None;
+                self.in_turn.store(false, Ordering::SeqCst);
                 // A Ctrl-B still unanswered leaves no mark past its turn.
                 self.end_background_asks(false, |_, _| true).await;
                 // What the context holds now, as Claude Code's /context breaks it down; its

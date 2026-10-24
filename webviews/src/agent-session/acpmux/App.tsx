@@ -454,6 +454,8 @@ import { failedRuns, failedSendText, type FailedRun } from "./sendFailure";
 import { ReplayScreen } from "./replay/ReplayScreen";
 import { sessionReplay } from "./replay/replay.experiment";
 import { useSideSessions } from "./aside/sideSessions";
+import { BtwNotes, type BtwRow as InlineBtwRow } from "./aside/btwNotes";
+import { BtwAside } from "./aside/BtwAside";
 import { ReceivedResult, SuggestedTasks, type OfferActions } from "./offer/SuggestedTasks";
 import { OFFER_RESULT, setSuggestedTasks } from "./offer/offersShown";
 import { offerWorktree } from "./offer/offerWorktree";
@@ -1423,6 +1425,10 @@ const WaitingMessagesRow = memo(
 );
 
 const defaultRegistry: NativeRegistry = {
+  btw: ({ row }) => {
+    const aside = row as InlineBtwRow;
+    return <BtwAside note={aside.btw} onDismiss={aside.dismissBtw} />;
+  },
   user: MessageRow,
   assistant: MessageRow,
   activity: ToolActivityRow,
@@ -5135,6 +5141,8 @@ function AcpmuxPane() {
   const lastTurns = useRef<{ turns: TurnView; subagents: SubagentRows } | undefined>(undefined);
   /// Debug Settings `agent.sessionStatus`: a running turn's activity line under its todo list.
   const sessionStatus = useSessionStatus();
+  const [btwNotes] = useState(() => new BtwNotes());
+  const btwSnapshot = useSyncExternalStore(btwNotes.subscribe, btwNotes.snapshot, btwNotes.snapshot);
   const turnRowsShown = useMemo(() => {
     if (childRows) return withoutAskedCalls(withoutQuietThoughts(childRows), panelAsks);
     const startedRows = withStartedSessions(sourceRows, started, startedCache.current);
@@ -5188,10 +5196,10 @@ function AcpmuxPane() {
     lastQueuedRows.current = queuedMessageRows(snapshot.queue, lastQueuedRows.current);
     return (lastQueuedTail.current = groupWaitingTurn(lastQueuedRows.current, lastQueuedTail.current));
   }, [childRows, snapshot.queue]);
-  const transcriptRows = useMemo(
-    () => (queuedRows.length ? [...turnRowsShown, ...queuedRows] : turnRowsShown),
-    [turnRowsShown, queuedRows],
-  );
+  const transcriptRows = useMemo(() => {
+    const rows = queuedRows.length ? [...turnRowsShown, ...queuedRows] : turnRowsShown;
+    return childRows ? rows : btwNotes.rows(rows, snapshot.sessionId, btwSnapshot);
+  }, [childRows, turnRowsShown, queuedRows, btwNotes, btwSnapshot, snapshot.sessionId]);
   // Failed prompts in a row with one cause share one card (sendFailure.ts); a trust failure's card
   // offers Trust folder while the folder is not trusted, and its Retry waits while the folder's
   // question is open, which acpmux would refuse again.
@@ -6776,8 +6784,8 @@ function AcpmuxPane() {
     if (snapshot.summary) enabledCmuxActions.add("status");
     if (forkable && forkSeq !== undefined) enabledCmuxActions.add("fork");
     if (continueAvailable) enabledCmuxActions.add("continue");
-    // A side session asks nothing aside: its composer answers in it.
-    if (opensSideSessions && snapshot.sessionId && !isSideSession) enabledCmuxActions.add("btw");
+    // Reserve /btw even with the kill switch off: it must never become a steer or queued prompt.
+    if (snapshot.sessionId && !isSideSession) enabledCmuxActions.add("btw");
     const withCommands = { ...snapshot, commands: mergedCommands(snapshot.commands, enabledCmuxActions) };
     // Prompts still waiting for a new chat to take them follow acpmux's queue.
     if (startingRows.length)
@@ -6786,7 +6794,7 @@ function AcpmuxPane() {
         ...startingRows.map((row) => ({ id: row.id, prompt: row.text, sending: true })),
       ];
     return withDraftFolder(withCommands, projectDraft);
-  }, [snapshot, projectDraft, continueAvailable, forkable, forkSeq, opensSideSessions, isSideSession, startingRows]);
+  }, [snapshot, projectDraft, continueAvailable, forkable, forkSeq, isSideSession, startingRows]);
   useEffect(() => {
     if (snapshot.sessionId) setProjectDraft(undefined);
   }, [snapshot.sessionId]);
@@ -7806,6 +7814,8 @@ function AcpmuxPane() {
           },
           // `/btw <question>`: acpmux starts the side session; the composer then opens it.
           "chat.btw": ({ question }) => client.btw(String(question ?? "")),
+          "chat.btw.inline": ({ question, sessionId }) =>
+            client.askBtw(String(question ?? ""), String(sessionId ?? "")),
           "chat.side": async ({ throughSeq }) => {
             // The chat it is beside, read before the fork (the reader may open another chat meanwhile).
             const chat = client.selectedSession;
@@ -9354,16 +9364,17 @@ function AcpmuxPane() {
               if (command.action === "btw") {
                 const question = args?.trim();
                 const sessionId = snapshot.sessionId;
-                if (!opensSideSessions || !question || !sessionId) return false;
-                setBtwFailure(undefined);
-                // Not a prompt: the chat's turn keeps running and nothing joins its queue. The
-                // composer keeps the question until the side session has started.
-                const fail = (error: unknown) => setBtwFailure({ sessionId, reason: errorMessage(error) });
-                const started = callNative<string>("chat.btw", { question });
-                // Started is sent: the question clears even when the app can't open the side session,
-                // so sending it again can't start a second one.
-                started.then((side) => postNative("chat.sideChat", { sessionId: side }).catch(fail), fail);
-                return started;
+                if (!opensSideSessions || isSideSession || !question || !sessionId) return false;
+                btwNotes.ask(
+                  sessionId,
+                  question,
+                  [...turnRowsShown]
+                    .reverse()
+                    .find((row) => ![WORKING, THINKING, ACTIVITY_LINE, DATE].includes(row.kind)),
+                  (question, sessionId) => callNative<string>("chat.btw.inline", { question, sessionId }),
+                );
+                // The pending aside keeps the whole question; typing and the main turn continue.
+                return true;
               }
               if (command.action === "fork") {
                 if (!forkable || forkSeq === undefined || args?.trim()) return false;

@@ -1,29 +1,19 @@
-// `/btw` side sessions in the real agent pane. The page is the pane's dev entry
-// (vite.config.acpmux-pane.mjs) with its browser host, talking JSON-RPC over a WebSocket to a
-// stand-in acpmux daemon whose chat has a turn running, plus one side session of that chat.
-//
-// - With the side-sessions gate on, `/btw <question>` mid-turn asks acpmux `_acpmux/btw` for a side
-//   session, then asks the app to open it beside the chat (`chat.sideChat`). It is not a prompt:
-//   nothing is queued or cancelled, the composer clears, and the chat's turn keeps streaming.
-// - When acpmux refuses, the question stays in the composer and the reason shows above it.
-// - With the gate off, `/btw` is not a cmux command (today's behavior): no side session starts.
-// - A side session's composer says "Reply in this session…".
-// - The palette's Side Question (`sideQuestion`) focuses the composer with `/btw ` in it.
-//
-// Real WebKit from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
+// `/btw` in the real agent pane, backed by a protocol mock. A running main
+// turn must continue while a dismissible answer stays anchored in its transcript.
+// Disabled or refused requests must never become a steer, prompt, or queue item.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
-import { webkit, type Browser, type Page } from "playwright";
+import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
   setDefaultTimeout(120_000);
   try {
-    await (await webkit.launch({ headless: true })).close();
+    await (await chromium.launch({ headless: true })).close();
   } catch {
-    console.warn("agent-pane-btw-side-session: skipping (run `bunx playwright install webkit`)");
-    describe.skip("btw side session", () => test("webkit", () => {}));
+    console.warn("agent-pane-btw-side-session: skipping (run `bunx playwright install chromium`)");
+    describe.skip("btw side session", () => test("chromium", () => {}));
     return;
   }
   const { createServer } = await import("vite");
@@ -127,7 +117,11 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
         btws.push(params);
         return params.question === "refused"
           ? { error: { code: -32602, message: "This chat's agent can't start a side session." } }
-          : { result: { sessionId: SIDE, model: "haiku", readOnly: "mode" } };
+          : {
+              result: params.inline
+                ? { text: "The retry timer raced the mocked clock." }
+                : { sessionId: SIDE, model: "haiku", readOnly: "mode" },
+            };
       default:
         return { result: null };
     }
@@ -174,12 +168,13 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
     });
     vite = await createServer({
       configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-      server: { port: 0, host: "127.0.0.1", strictPort: false },
+      configLoader: "native",
+      server: { port: 0, host: "127.0.0.1", strictPort: false, watch: null },
       logLevel: "error",
     });
     await vite.listen();
     await warmViteServer(vite, "/");
-    browser = await webkit.launch({ headless: true });
+    browser = await chromium.launch({ headless: true });
     // A cold dev server's first load can stall in CI: load it once here so the tests time only /btw.
     for (let attempt = 1; ; attempt++) {
       const warm = await browser.newPage();
@@ -270,91 +265,56 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
   }
 
   describe("btw side session", () => {
-    test("the shipped default offers /btw while the turn is running", async () => {
+    test("/btw mid-turn answers in a dismissible transcript aside without a steer, queue, or split", async () => {
       const page = await openChat(MAIN);
       await type(page, `/btw ${QUESTION}`);
-      await page.waitForFunction(() => (window as unknown as { sideChats: unknown[] }).sideChats.length > 0);
-      expect(btws).toEqual([{ sessionId: MAIN, question: QUESTION }]);
-      expect(prompts).toEqual([]);
-      await page.close();
-    });
-
-    test("/btw mid-turn starts a side session, opens it beside the chat, and the turn keeps streaming", async () => {
-      const page = await openChat(MAIN, true);
-      await type(page, `/btw ${QUESTION}`);
-      await page.waitForFunction(() => (window as unknown as { sideChats: unknown[] }).sideChats.length > 0);
-      expect(btws).toEqual([{ sessionId: MAIN, question: QUESTION }]);
-      expect(await sideChats(page)).toEqual([{ sessionId: SIDE }]);
-      await page.waitForFunction(
-        () => document.querySelector(".acpmux-composer-prompt .ProseMirror")?.textContent?.trim() === "",
-      );
-      // Not a prompt: nothing queued behind the turn, nothing stopped, the turn still runs.
+      const aside = page.locator(".acpmux-btw-note");
+      await aside.getByText("The retry timer raced the mocked clock.").waitFor({ timeout: 15_000 });
+      expect(btws).toEqual([{ sessionId: MAIN, question: QUESTION, inline: true }]);
+      expect(await sideChats(page)).toEqual([]);
+      expect(await composerText(page)).toBe("");
       expect(prompts).toEqual([]);
       expect(cancels).toEqual([]);
       expect(await page.locator(".acpmux-queued").count()).toBe(0);
       stream("Still working on the retry helper.");
       await page.getByText("Still working on the retry helper.").waitFor();
       expect(await page.getByRole("button", { name: "Stop" }).isVisible()).toBe(true);
+      await aside.getByRole("button", { name: "Dismiss" }).click();
+      await aside.waitFor({ state: "detached" });
+      stream("The main turn is still running.");
+      await page.getByText("The main turn is still running.", { exact: false }).waitFor();
+      expect(await aside.count()).toBe(0);
+      expect(cancels).toEqual([]);
       await page.close();
     });
 
-    test("a refused /btw keeps the question and says why above the composer", async () => {
+    test("a refused /btw keeps the question in its aside and never sends a main prompt", async () => {
       const page = await openChat(MAIN, true);
       await type(page, "/btw refused");
       await page.getByRole("alert").filter({ hasText: "This chat's agent can't start a side session." }).waitFor();
-      expect(btws).toEqual([{ sessionId: MAIN, question: "refused" }]);
+      expect(btws).toEqual([{ sessionId: MAIN, question: "refused", inline: true }]);
       expect(await sideChats(page)).toEqual([]);
-      expect(await composerText(page)).toBe("/btw refused");
+      expect(await page.locator(".acpmux-btw-note").innerText()).toContain("refused");
       expect(prompts).toEqual([]);
       await page.close();
     });
 
-    test("with Side sessions off, /btw starts no side session", async () => {
+    test("a side-session composer does not offer recursive /btw", async () => {
+      const page = await openChat(SIDE, true);
+      await page.keyboard.type("/");
+      await page.locator(".acpmux-slash-menu").waitFor();
+      expect(await page.locator(".acpmux-slash-menu").innerText()).not.toContain("Side question");
+      expect(btws).toEqual([]);
+      await page.close();
+    });
+
+    test("explicitly disabling /btw retains the question without steering the main turn", async () => {
       const page = await openChat(MAIN, false);
       await type(page, `/btw ${QUESTION}`);
-      // Sent as a plain prompt; a /btw call would have come before it.
-      await until(() => prompts.length > 0, "the prompt");
-      expect(btws).toEqual([]);
-      expect(await sideChats(page)).toEqual([]);
-      await page.close();
-    });
-
-    test("once acpmux started the side session, the question is sent even when the app can't open it", async () => {
-      const page = await openChat(MAIN, true);
-      await page.evaluate(() => Object.assign(window, { refuseSideChat: true }));
-      await type(page, `/btw ${QUESTION}`);
-      await page.getByRole("alert").filter({ hasText: "The side pane didn't open." }).waitFor();
-      await page.waitForFunction(
-        () => document.querySelector(".acpmux-composer-prompt .ProseMirror")?.textContent?.trim() === "",
-      );
-      // Enter again sends nothing: a retry can't start a second side session.
-      await page.keyboard.press("Enter");
       await settled();
-      expect(btws).toEqual([{ sessionId: MAIN, question: QUESTION }]);
-      expect(prompts).toEqual([]);
-      await page.close();
-    });
-
-    test("a side session's composer says Reply in this session… and offers no /btw", async () => {
-      const page = await openChat(SIDE, true);
-      // The `side` tag comes with the session list, which can land after the composer shows.
-      await page
-        .waitForFunction(
-          () =>
-            document.querySelector(".acpmux-composer-prompt .acpmux-md-placeholder")?.textContent ===
-            "Reply in this session…",
-          undefined,
-          { timeout: 10_000 },
-        )
-        .catch(() => undefined);
-      expect(await page.locator(".acpmux-composer-prompt .acpmux-md-placeholder").innerText()).toBe(
-        "Reply in this session…",
-      );
-      await type(page, "/btw another question");
-      // Sent as a plain prompt; a /btw call would have come before it.
-      await until(() => prompts.length > 0, "the prompt");
       expect(btws).toEqual([]);
-      expect(await sideChats(page)).toEqual([]);
+      expect(prompts).toEqual([]);
+      expect(await composerText(page)).toBe(`/btw ${QUESTION}`);
       await page.close();
     });
 
@@ -371,8 +331,8 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
       expect(await page.evaluate(() => Boolean(document.activeElement?.closest(".acpmux-composer-prompt")))).toBe(true);
       await page.keyboard.type(QUESTION);
       await page.keyboard.press("Enter");
-      await page.waitForFunction(() => (window as unknown as { sideChats: unknown[] }).sideChats.length > 0);
-      expect(btws).toEqual([{ sessionId: MAIN, question: QUESTION }]);
+      await page.locator(".acpmux-btw-note").getByText("The retry timer raced the mocked clock.").waitFor();
+      expect(btws).toEqual([{ sessionId: MAIN, question: QUESTION, inline: true }]);
       await page.close();
     });
 
@@ -396,8 +356,8 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
         ).cmuxAcpmuxBridge.applyHeaderState({ sideSessions: true, version: 2 }),
       );
       await type(page, `/btw ${QUESTION}`);
-      await page.waitForFunction(() => (window as unknown as { sideChats: unknown[] }).sideChats.length > 0);
-      expect(btws).toEqual([{ sessionId: MAIN, question: QUESTION }]);
+      await page.locator(".acpmux-btw-note").getByText("The retry timer raced the mocked clock.").waitFor();
+      expect(btws).toEqual([{ sessionId: MAIN, question: QUESTION, inline: true }]);
       await page.close();
     });
   });

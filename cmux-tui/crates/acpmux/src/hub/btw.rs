@@ -60,6 +60,9 @@ const CLAUDE_READ_ONLY: &str = "plan";
 const CODEX_READ_ONLY: &str = "read-only";
 /// The context wrapper's closing tag, escaped wherever the chat's text holds it.
 const CONTEXT_CLOSE: &str = "</cmux-btw-context>";
+/// The inline fallback has to finish and clean up before the app's request
+/// deadline. Claude's native side-question bridge has its own deadline too.
+const INLINE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(110);
 /// The ACP tool kinds a side session refuses (`rules.rs` matches the kind):
 /// everything but read, search, fetch and think.
 const REFUSED_KINDS: &[&str] = &["edit", "delete", "move", "execute", "switch_mode", "other"];
@@ -67,19 +70,17 @@ const REFUSED_KINDS: &[&str] = &["edit", "delete", "move", "execute", "switch_mo
 const SMALL_MODEL_WORDS: &[&str] = &["nano", "mini", "flash", "lite", "small", "fast"];
 
 impl Hub {
-    /// Open a side session about `session` and send it `question`. Returns
-    /// `{sessionId, model, readOnly}`: the side session, the model it was
-    /// put on (null: the harness's default) and how it is kept read-only
-    /// (`mode`: a mode that reads only; `policy`: a mode that asks before
-    /// every change, refused by the rules). An agent with neither is refused
-    /// before anything opens; a mode that cannot be set and confirmed
-    /// discards the side session and errors.
+    /// Open a side session about `session` and send it `question`. Legacy calls
+    /// return `{sessionId, model, readOnly}`. Inline calls return `{text}` and
+    /// either use Claude Code's native transcript-free control request or a
+    /// read-only one-shot side session that is discarded after its answer.
     pub async fn btw(
         self: &Arc<Self>,
         session: &Arc<Session>,
         question: &str,
         model: Option<&str>,
         client: &str,
+        inline: bool,
         opts: PromptOptions,
     ) -> Result<Value, RpcError> {
         let question = question.trim();
@@ -88,11 +89,26 @@ impl Hub {
         }
         let explicit = model.map(str::trim).filter(|m| !m.is_empty()).map(str::to_owned);
         let meta = session.meta();
+        // Claude Code owns a transcript-free side-question callback on its
+        // running stream-json process. It never creates a session or sends an
+        // ACP prompt, so the main turn and its queue stay untouched.
+        if inline {
+            let (is_claude, _) = self.harness_env(&meta).await;
+            if is_claude {
+                return self.btw_inline_claude(session, question).await;
+            }
+        }
         // Refused before anything is created when no mode would hold it.
         let (mode, read_only) = self.read_only_mode(&meta).await?;
-        let mut model = match explicit.clone() {
-            Some(m) => Some(m),
-            None => self.btw_default_model(&meta).await,
+        // Inline emulation uses the chat's current model and folder exactly;
+        // the legacy side-session path keeps its cheap default behavior.
+        let mut model = if inline {
+            crate::hub::model_options::current_model(&meta)
+        } else {
+            match explicit.clone() {
+                Some(m) => Some(m),
+                None => self.btw_default_model(&meta).await,
+            }
         };
         let name = self.unique_name(&format!("{}-btw", meta.name));
         let (side, context) = match self.btw_fork_point(session, &meta).await? {
@@ -107,7 +123,7 @@ impl Hub {
                     preset: meta.preset.clone(),
                     name: Some(name),
                     cwd: Some(meta.cwd.clone()),
-                    policy: Some(side_policy(self.btw_chat_policy(session).await)),
+                    policy: Some(side_policy(self.btw_chat_policy(session).await, inline)),
                     model: model.clone(),
                     effort: None,
                     adopt: None,
@@ -127,7 +143,7 @@ impl Hub {
                 };
                 let side = match self.new_session(req.clone()).await {
                     // A default model the harness refuses: its own default instead.
-                    Err(e) if explicit.is_none() && model.is_some() => {
+                    Err(e) if !inline && explicit.is_none() && model.is_some() => {
                         tracing::warn!(session = %session.id, "side session model: {}", e.message);
                         model = None;
                         self.new_session(NewRequest { model: None, ..req }).await?
@@ -138,12 +154,12 @@ impl Hub {
             }
         };
         let forked = context.is_none();
-        let settled = self.btw_settle(session, &side, question, &mode, read_only).await;
+        let settled = self.btw_settle(session, &side, question, &mode, read_only, inline).await;
         // A fork runs its chat's model until it is set (a new session took it at its start).
         let settled = match (settled, model.clone().filter(|_| forked)) {
             (Ok(mode), Some(m)) => match self.set_model(&side, &m).await {
                 Ok(_) => Ok(mode),
-                Err(e) if explicit.is_some() => Err(e),
+                Err(e) if inline || explicit.is_some() => Err(e),
                 Err(e) => {
                     tracing::warn!(session = %side.id, "side session model: {}", e.message);
                     model = None;
@@ -159,6 +175,7 @@ impl Hub {
                 return Err(e);
             }
         };
+        let before = side.seq.load(Ordering::SeqCst);
         let mut blocks = vec![json!({"type": "text", "text": question})];
         if let Some(text) = context.filter(|t| !t.is_empty()) {
             blocks.push(
@@ -179,7 +196,29 @@ impl Hub {
             }
             r
         });
-        if accepted.await.is_err() {
+        if inline {
+            match tokio::time::timeout(INLINE_TIMEOUT, accepted).await {
+                Ok(Ok(())) => {}
+                Ok(Err(_)) => {
+                    // Refused before it was recorded: no side session is left behind.
+                    let e = match run.await {
+                        Ok(Err(e)) => e,
+                        Ok(Ok(_)) => {
+                            RpcError::internal("the side session's question was not recorded")
+                        }
+                        Err(e) => RpcError::internal(e.to_string()),
+                    };
+                    self.btw_discard(&side).await;
+                    return Err(e);
+                }
+                Err(_) => {
+                    run.abort();
+                    let _ = run.await;
+                    self.btw_discard(&side).await;
+                    return Err(RpcError::internal("the inline side question timed out"));
+                }
+            }
+        } else if accepted.await.is_err() {
             // Refused before it was recorded: no side session is left behind.
             let e = match run.await {
                 Ok(Err(e)) => e,
@@ -189,7 +228,86 @@ impl Hub {
             self.btw_discard(&side).await;
             return Err(e);
         }
+        if inline {
+            let mut run = run;
+            let answer = match tokio::time::timeout(INLINE_TIMEOUT, &mut run).await {
+                Ok(Ok(Ok(reply))) => {
+                    let text = self.btw_answer_text(&side, before).ok_or_else(|| {
+                        RpcError::internal("the inline side question returned no text")
+                    });
+                    text.map(|text| (text, reply))
+                }
+                Ok(Ok(Err(e))) => Err(e),
+                Ok(Err(e)) => Err(RpcError::internal(e.to_string())),
+                Err(_) => {
+                    run.abort();
+                    let _ = run.await;
+                    Err(RpcError::internal("the inline side question timed out"))
+                }
+            };
+            // An inline emulation is one-shot: its side session never remains
+            // in the session list, whether the answer succeeded or failed.
+            if let Err(e) = self.kill(&side, true).await {
+                tracing::warn!(session = %side.id, "inline side question cleanup: {e}");
+            }
+            return answer.map(|(text, _)| json!({"text": text}));
+        }
         Ok(json!({"sessionId": side.id, "model": model, "readOnly": read_only}))
+    }
+
+    /// Ask Claude Code's native `/btw` callback on the already-running
+    /// process. The callback itself is transcript-free and refuses tool use;
+    /// absence of a live process or a textual answer fails closed.
+    async fn btw_inline_claude(
+        &self,
+        session: &Arc<Session>,
+        question: &str,
+    ) -> Result<Value, RpcError> {
+        let child = session.child.lock().await.clone().ok_or_else(|| {
+            RpcError::invalid_params("inline side questions require a running Claude process")
+        })?;
+        if !child.is_alive().await {
+            return Err(RpcError::invalid_params(
+                "inline side questions require a running Claude process",
+            ));
+        }
+        let response = tokio::time::timeout(
+            INLINE_TIMEOUT,
+            child.request(crate::claude_stdio::SIDE_QUESTION, json!({"question": question})),
+        )
+        .await
+        .map_err(|_| RpcError::internal("the inline side question timed out"))??;
+        let text = Self::side_question_text(&response)
+            .filter(|text| !text.trim().is_empty())
+            .ok_or_else(|| RpcError::internal("the inline side question returned no text"))?;
+        Ok(json!({"text": text}))
+    }
+
+    /// The answer chunks written by a one-shot fallback side session. The
+    /// side's own session log is used, never the main chat's transcript.
+    fn btw_answer_text(&self, side: &Session, before: u64) -> Option<String> {
+        let text: String = self
+            .store
+            .events(&side.id, before, 500_000)
+            .unwrap_or_default()
+            .iter()
+            .filter(|e| e.kind == "agent_message_chunk")
+            .filter(|e| !e.msg.get("params").is_some_and(crate::subagents::is_subagents))
+            .filter_map(|e| e.msg.pointer("/params/update/content/text").and_then(Value::as_str))
+            .collect();
+        (!text.trim().is_empty()).then_some(text)
+    }
+
+    /// Claude Code's callback currently returns `{response, synthetic}`. Keep the
+    /// extraction tolerant of the SDK's documented response object and of a
+    /// future plain string/text payload, but never manufacture an answer.
+    fn side_question_text(value: &Value) -> Option<String> {
+        let value = value.get("response").unwrap_or(value);
+        value
+            .as_str()
+            .or_else(|| value.get("text").and_then(Value::as_str))
+            .or_else(|| value.get("response").and_then(Value::as_str))
+            .map(str::to_owned)
     }
 
     /// The model a side session starts on when the request names none:
@@ -283,6 +401,7 @@ impl Hub {
         question: &str,
         mode: &str,
         read_only: &'static str,
+        inline: bool,
     ) -> Result<&'static str, RpcError> {
         let mut tag = serde_json::Map::new();
         tag.insert(SIDE_TAG.into(), Value::String(chat.id.clone()));
@@ -293,7 +412,7 @@ impl Hub {
                 Some(short_text(first.trim(), 80));
         }
         self.save_meta(side);
-        self.set_policy(side, side_policy(self.btw_chat_policy(chat).await)).await;
+        self.set_policy(side, side_policy(self.btw_chat_policy(chat).await, inline)).await;
         self.set_rules(side, Some(json!({"autoDeny": REFUSED_KINDS})));
         // A fork copies its chat's mode, full access included: always set, then confirm.
         let unset = |why: String| {
@@ -381,7 +500,17 @@ impl Hub {
 }
 
 /// A side session's policy: approve-reads, never wider than its chat's.
-fn side_policy(chat: PermissionPolicy) -> PermissionPolicy {
+fn side_policy(chat: PermissionPolicy, inline: bool) -> PermissionPolicy {
+    if inline {
+        // Inline fallbacks have no pane to answer a permission card. Read-only
+        // questions must therefore allow reads automatically, while DenyAll
+        // remains a deliberate refusal from the parent chat.
+        return if chat == PermissionPolicy::DenyAll {
+            chat
+        } else {
+            PermissionPolicy::ApproveReads
+        };
+    }
     match chat {
         PermissionPolicy::Ask | PermissionPolicy::DenyAll => chat,
         _ => PermissionPolicy::ApproveReads,

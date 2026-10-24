@@ -989,6 +989,8 @@ export function Composer({
       (command): command is CmuxCommand => command.source === "cmux" && commandArgs(prompt, command) !== undefined,
     );
     if (owned) {
+      // Side questions carry text only; staged files stay here for the main turn.
+      if (owned.action === "btw" && attachments.length > 0) return false;
       if (owned.name === "import") {
         if (!onImportFile) return false;
         importInput.current?.click();
