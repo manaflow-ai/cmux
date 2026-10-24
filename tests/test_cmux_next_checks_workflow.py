@@ -2137,6 +2137,16 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
                 context["needs.release-compile-fast.result"] = result
                 context["needs.release-compile-fast.outputs.verdict"] = verdict
                 self.assertEqual(self.runs(context), runs)
+        # The refused side pool is not asked again: the fallback takes the last-resort
+        # Blacksmith route even with a placement mini, and an "unavailable" verdict keeps the mini.
+        context["needs.macos-placement.outputs.runner"] = "glaeda-side-std-xcode-26.6"
+        for result, verdict, label in (("failure", "", "blacksmith-12vcpu-macos-26"),
+                                       ("success", "unavailable", "glaeda-side-std-xcode-26.6")):
+            with self.subTest(result=result, verdict=verdict, route=label):
+                context["needs.release-compile-fast.result"] = result
+                context["needs.release-compile-fast.outputs.verdict"] = verdict
+                self.assertEqual(evaluate(self.job()["runs-on"], context), label)
+                self.assertEqual(evaluate(self.job()["env"]["CMUX_NEXT_RUNNER"], context), label)
 
 
 class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):
