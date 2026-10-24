@@ -376,8 +376,7 @@ fn a_frame_whose_descriptors_the_holder_cannot_take_ends_the_link_with_an_error_
         loop {
             match client.next_event(deadline) {
                 Ok(Event::Error { chan: 0, code, message, .. }) => {
-                    assert_eq!(code, error_code::NO_DESCRIPTORS, "round {round}: {message}");
-                    break;
+                    panic!("errno-probe: code {code} round {round}: {message}");
                 }
                 Ok(Event::Data { .. }) => {}
                 Ok(other) => panic!("round {round}: unexpected {other:?}"),
