@@ -34,7 +34,7 @@ import Testing
         defer { server.stop() }
         let login = server.url("/login")
         var stored: FrontendBrowserHistory?
-        let page = WebKitEngine().makeWebKitTab()
+        let page = WebKitEngine(stores: .inMemory()).makeWebKitTab()
         defer { page.close() }
         let (service, tab) = Self.service(record: login, stored: { nil }, store: { stored = $0 })
         page.load(login)
@@ -94,7 +94,7 @@ import Testing
         }
 
         // Before the quit: a, then two link clicks, then a scroll; quit saves the history.
-        let first = WebKitEngine().makeWebKitTab()
+        let first = WebKitEngine(stores: .inMemory()).makeWebKitTab()
         window.contentView = first.contentView
         let (before, beforeTab) = service(record: a, stored: { stored }, store: { stored = $0 })
         first.load(a)
@@ -122,7 +122,7 @@ import Testing
                 return saved
             }
         }
-        let page = WebKitEngine().makeWebKitTab(id: BrowserTabID(rawValue: afterTab.id))
+        let page = WebKitEngine(stores: .inMemory()).makeWebKitTab(id: BrowserTabID(rawValue: afterTab.id))
         window.contentView = page.contentView
         defer { page.close() }
         after.historyStarts.hold(page, url: c, tabID: afterTab.id)
@@ -163,7 +163,7 @@ import Testing
     /// A browser tab service for one app process: its daemon stores one tab's history in memory.
     private static func service(record url: URL, stored: @escaping () -> FrontendBrowserHistory?,
                                 store: @escaping (FrontendBrowserHistory) -> Void) -> (BrowserTabService, TabModel) {
-        let service = BrowserTabService(daemon: DaemonService(), cef: CEFEngine(layout: nil))
+        let service = BrowserTabService(daemon: DaemonService(), cef: CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks()))
         let tab = TabModel(TabSnapshot(surface: SurfaceID(rawValue: 7), kind: .browser, url: url.absoluteString,
                                        browserRenderer: "frontend", browserEngine: "webkit"))
         service.tabModel = { $0 == tab.id ? tab : nil }

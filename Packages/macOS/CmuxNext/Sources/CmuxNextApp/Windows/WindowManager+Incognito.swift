@@ -63,7 +63,7 @@ extension WindowManager {
     /// The incognito session's browser profile, begun on first use.
     func incognitoProfile() -> BrowserProfileID {
         if let profile = incognitoSession { return profile }
-        let profile = OffTheRecordProfiles.shared.begin()
+        let profile = services.browserStores.offTheRecord.begin()
         incognitoSession = profile
         return profile
     }
@@ -123,7 +123,7 @@ extension WindowManager {
         guard !open, !pending else { return }
         incognitoSession = nil
         incognitoHistoryReset?()
-        OffTheRecordProfiles.shared.end(profile)
+        services.browserStores.offTheRecord.end(profile)
     }
 
     /// Quit: incognito windows are never restored, so their workspaces

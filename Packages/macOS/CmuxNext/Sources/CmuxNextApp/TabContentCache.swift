@@ -53,7 +53,8 @@ final class TabContentCache {
     /// Pages revealed since their last hide: the next hide captures their
     /// thumbnail (`TabContentCache+Lifecycle`).
     var shownPages: Set<String> = []
-    let webKit = WebKitEngine()
+    /// Over the Chromium engine's stores, so both engines share them (``BrowserSharedStores``).
+    let webKit: WebKitEngine
     let cef: CEFEngine
     /// Pages visited in the default browser profile, shared by its omnibars for suggestions and
     /// inline autocomplete (in memory, durable via `HistoryService`). Others: `history(for:)`.
@@ -124,9 +125,10 @@ final class TabContentCache {
     /// closed; the App routes it through the window's focus coordinator.
     var onDevToolsChange: ((String, BrowserDevToolsState, Bool) -> Void)?
 
-    init(daemon: DaemonService, cef: CEFEngine = CEFEngine()) {
+    init(daemon: DaemonService, cef: CEFEngine = CEFEngine(stores: .inMemory(), signInCallbacks: CEFSignInCallbacks())) {
         self.daemon = daemon
         self.cef = cef
+        webKit = WebKitEngine(stores: cef.stores)
         browserTabs = BrowserTabService(daemon: daemon, cef: cef)
         wireNotices()
     }
@@ -350,7 +352,7 @@ final class TabContentCache {
         page.delegate = pageRequests
         if page.engineKind == .cef { page.keyRouter = keyRouter }
         (page as? CEFTab)?.devToolsObserver = self
-        let incognito = OffTheRecordProfiles.shared.isOffTheRecord(page.profileID) ? incognitoMemory : nil
+        let incognito = cef.stores.offTheRecord.isOffTheRecord(page.profileID) ? incognitoMemory : nil
         let entry = BrowserEntry(tab: page, suggestionEngine: suggestionEngine(forPage: page),
                                  history: incognito?.history ?? history(for: page.profileID))
         entry.chrome.addressBar.tabKey = key
