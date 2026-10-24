@@ -4,7 +4,7 @@
 Run it on a fleet Mac with Xcode (never on Lawrence's laptop). It compiles a tiny emitter, records it with
 `xctrace record --launch` twice (Time Profiler with os_signpost; System Trace), exports the TOC and the three
 tables trace.py reads (time-profile, os-signpost, syscall), strips personal data and writes them to
-OUT/xctrace-<major>/ with a fixture.json that says what the emitter did. Copy that folder into
+OUT/xcode-<major>/ with a fixture.json that says what the emitter did. Copy that folder into
 scripts/cmux-next/tests/trace-fixtures/ to check it in.
 
 The emitter is the shape trace.py must parse: 20 rounds of a `action.perform` interval (subsystem
@@ -66,9 +66,12 @@ def main():
         raise SystemExit(__doc__)
     out = os.path.abspath(sys.argv[1])
     version = run(["xcrun", "xctrace", "version"]).strip()
-    major = re.search(r"version (\d+)", version).group(1)
+    # The folder is named by Xcode's major: xctrace's own version number is not Xcode's (Xcode 26.5 ships
+    # "xctrace version 16.0 (17F113)", Xcode 26.0 "26.0 (17C529)").
+    xcode = run(["xcrun", "xcodebuild", "-version"]).splitlines()[0].strip()
+    major = re.search(r"Xcode (\d+)", xcode).group(1)
     macos = run(["sw_vers", "-productVersion"]).strip()
-    target = os.path.join(out, f"xctrace-{major}")
+    target = os.path.join(out, f"xcode-{major}")
     os.makedirs(target, exist_ok=True)
     work = tempfile.mkdtemp(prefix="trace-fixtures-")
     source = os.path.join(work, "emitter.swift")
@@ -107,7 +110,7 @@ def main():
         with open(os.path.join(target, f"{name}.xml"), "w") as f:
             f.write(text)
     with open(os.path.join(target, "fixture.json"), "w") as f:
-        json.dump({"xctrace": version, "macos": macos, "emitter": {
+        json.dump({"xcode": xcode, "xctrace": version, "macos": macos, "emitter": {
             "subsystem": "com.cmuxterm.app.next", "category": "action", "signpost": "action.perform",
             "message": "id=fixture.spin origin=user input_age_ms=1.00", "rounds": 20, "spin_ms": 20,
             "spin_function": "fixtureSpin", "usleep_ms": 5}}, f, indent=1)
