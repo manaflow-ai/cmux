@@ -1,12 +1,20 @@
 import AppKit
 import CmuxNextUiLayerPreview
+import Foundation
 import Dispatch
 import Observation
 import SwiftUI
 
 @main
 struct UiLayerHostApp: App {
+    private let controlServer: UiLayerControlServer?
     @State private var projection = ProjectionModel(arguments: CommandLine.arguments)
+
+    init() {
+        let path = ProcessInfo.processInfo.environment["CMUX_SOCKET_PATH"]
+        controlServer = UiLayerControlServer(socketPath: path)
+        controlServer?.start()
+    }
 
     var body: some Scene {
         WindowGroup("cmux UI layer") {
