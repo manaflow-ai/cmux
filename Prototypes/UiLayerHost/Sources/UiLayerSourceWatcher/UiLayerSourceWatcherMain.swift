@@ -24,15 +24,20 @@ struct UiLayerSourceWatcherMain {
 
 private struct WatchOptions {
     let package: URL
+    let watchRoots: [URL]
     let hostArguments: [String]
 
     init(arguments: [String]) throws {
         var packagePath: String?
+        var watchRoots: [URL] = []
         var hostArguments: [String] = []
         var index = 1
         while index < arguments.count {
             if arguments[index] == "--package", index + 1 < arguments.count {
                 packagePath = arguments[index + 1]
+                index += 2
+            } else if arguments[index] == "--watch-root", index + 1 < arguments.count {
+                watchRoots.append(URL(fileURLWithPath: arguments[index + 1]).standardizedFileURL)
                 index += 2
             } else {
                 hostArguments.append(arguments[index])
@@ -41,6 +46,7 @@ private struct WatchOptions {
         }
         guard let packagePath, !packagePath.isEmpty else { throw WatchError.missingPackage }
         package = URL(fileURLWithPath: packagePath).standardizedFileURL
+        self.watchRoots = [package] + watchRoots
         self.hostArguments = hostArguments
     }
 }
@@ -114,18 +120,19 @@ private final class SourceSupervisor {
     private func rebuildWatchers() {
         watchers.forEach { $0.cancel() }
         watchers.removeAll(keepingCapacity: true)
-        let sources = options.package.appendingPathComponent("Sources", isDirectory: true)
         watch(options.package.appendingPathComponent("Package.swift"))
-        watch(sources)
-        guard let enumerator = FileManager.default.enumerator(
-            at: sources,
-            includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        ) else { return }
-        for case let url as URL in enumerator {
-            let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey])
-            if values?.isDirectory == true || (values?.isRegularFile == true && url.pathExtension == "swift") {
-                watch(url)
+        for root in options.watchRoots {
+            watch(root)
+            guard let enumerator = FileManager.default.enumerator(
+                at: root,
+                includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey],
+                options: [.skipsHiddenFiles]
+            ) else { continue }
+            for case let url as URL in enumerator {
+                let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey])
+                if values?.isDirectory == true || (values?.isRegularFile == true && url.pathExtension == "swift") {
+                    watch(url)
+                }
             }
         }
     }
