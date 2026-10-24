@@ -5,7 +5,8 @@ import CmuxNextWakeups
 /// (`cmux __store-schemas`, cmux-tui `store_schemas.rs`): the newest schema
 /// of each store that build reads, or the newest each store holds on disk.
 /// Rollback compares the two (``RollbackDecision``). Each call runs a
-/// process and awaits it without holding a thread (AsyncProcess).
+/// process off the caller's actor and awaits it without holding a thread
+/// (AsyncProcess).
 nonisolated public struct StoreSchemaProbe: Sendable {
     /// The bundle whose CLI answers.
     public let bundle: URL
@@ -40,8 +41,10 @@ nonisolated public struct StoreSchemaProbe: Sendable {
 
     /// Runs `cli __store-schemas arguments` with `environment` over this
     /// process's; nil on a launch failure, a non-zero exit, a timeout or
-    /// output that is not one JSON object of integers.
-    func run(arguments: [String], environment: [String: String]) async -> [String: Int]? {
+    /// output that is not one JSON object of integers. `@concurrent`: the
+    /// caller (rollback inputs) is main-actor, and the environment copy, the
+    /// spawn and the parse stay off the main thread.
+    @concurrent func run(arguments: [String], environment: [String: String]) async -> [String: Int]? {
         let request = ProcessRequest(cli, ["__store-schemas"] + arguments,
                                      environment: ProcessInfo.processInfo.environment.merging(environment) { $1 },
                                      timeout: timeout)
