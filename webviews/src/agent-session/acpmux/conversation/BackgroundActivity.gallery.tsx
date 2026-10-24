@@ -6,7 +6,6 @@
 // data-only and never starts a process or sends a session request.
 import { useEffect, useRef, useState } from "react";
 import { componentEntry, type ComponentVariant } from "../../../gallery/format";
-import type { Play } from "../../../gallery/play";
 
 type Surface = "pinned-live-tail" | "after-latest-message";
 type Mode = "light" | "dark";
@@ -95,12 +94,14 @@ function CommandTail({ item, initialOpen = false }: { item: Command; initialOpen
   const [revision, setRevision] = useState(0);
   const [lines, setLines] = useState(() => COMMAND_OUTPUTS[item.id] ?? []);
   const [terminalOpened, setTerminalOpened] = useState(false);
+  const [stopped, setStopped] = useState(false);
   const tailRef = useRef<HTMLPreElement>(null);
   useEffect(() => {
     if (open && tailRef.current) tailRef.current.scrollTop = tailRef.current.scrollHeight;
   }, [open, revision]);
   const followTail = () => {
-    setLines((current) => (current.length >= 12 ? current : [...current, `[tail ${revision + 1}] ${item.detail}`]));
+    if (stopped) return;
+    setLines((current) => (current.length >= 10 ? current : [...current, `[tail ${revision + 1}] ${item.detail}`]));
     setRevision((value) => value + 1);
   };
   return (
@@ -116,7 +117,7 @@ function CommandTail({ item, initialOpen = false }: { item: Command; initialOpen
           <code>{item.command}</code>
           <small>{item.detail}</small>
         </span>
-        <span className="bg-gallery__command-state">{commandLabel(item)}</span>
+        <span className="bg-gallery__command-state">{stopped ? "Stopped" : commandLabel(item)}</span>
       </summary>
       <pre ref={tailRef} className="bg-gallery__tail-body" aria-label={`${item.command} live output`}>
         {lines.join("\n")}
@@ -176,23 +177,6 @@ function ActivityHeader({ placement }: { placement: string }) {
   );
 }
 
-function DoneList() {
-  return (
-    <div className="bg-gallery__done-list">
-      {DONE_AGENTS.map((name) => (
-        <div className="bg-gallery__done-agent" key={name}>
-          <span className="bg-gallery__done-agent-mark" aria-hidden="true">
-            ✓
-          </span>
-          <span>{name}</span>
-          <small>done</small>
-        </div>
-      ))}
-      <span className="bg-gallery__done-more">+97 more completed agents</span>
-    </div>
-  );
-}
-
 function PinnedSurface() {
   return (
     <div className="bg-gallery__surface bg-gallery__surface--pinned" data-surface="pinned-live-tail">
@@ -230,28 +214,14 @@ function BackgroundActivityGallery({ surface, mode }: Props) {
   );
 }
 
-const expandPinned: Play = async (ctx) => {
-  await ctx.waitFor(() => ctx.document.querySelector('[data-live-tail="expanded"]'));
-  await ctx.click({ role: "button", name: "Collapse output" });
-  await ctx.click({ role: "button", name: "Expand live output" });
-  await ctx.waitFor(() => ctx.document.querySelector('[data-live-tail="expanded"]'));
-};
-
-const expandPill: Play = async (ctx) => {
-  await ctx.click({ role: "button", name: /Background activity/ });
-  await ctx.waitFor(() => ctx.document.querySelector("[data-expanded-from-pill]"));
-};
-
-const paired = (surface: Surface, note: string, play?: Play): Record<string, ComponentVariant<Props>> => ({
+const paired = (surface: Surface, note: string): Record<string, ComponentVariant<Props>> => ({
   [`${surface}-light`]: {
     note: `${note} Light theme uses the host's readable status colors and raised surfaces.`,
     props: { surface, mode: "light" },
-    ...(play ? { play } : {}),
   },
   [`${surface}-dark`]: {
     note: `${note} Dark theme keeps the same hierarchy with quiet separators and a bright live tail.`,
     props: { surface, mode: "dark" },
-    ...(play ? { play } : {}),
   },
 });
 
@@ -270,8 +240,7 @@ export default componentEntry<Props>({
   variants: {
     ...paired(
       "pinned-live-tail",
-      "A pinned panel keeps two running commands, one failed command and 101 completed subagents visible; its in-place live tail follows ten monospace lines and offers Open in terminal.",
-      expandPinned,
+      "A pinned panel keeps two running commands, one failed command and 101 completed subagents visible; each command row expands its own ten-line live tail and offers Follow tail, Stop and Open in terminal.",
     ),
     ...paired(
       "after-latest-message",
