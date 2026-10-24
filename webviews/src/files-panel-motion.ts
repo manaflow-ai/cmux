@@ -7,15 +7,17 @@ import { MOTION_MS } from "./motion/scale.generated";
  * The panel is a fixed-width layer pinned to the right edge of #content. A
  * toggle never lays out the diff in its own frame (plans/cmux-next/zero-latency.md,
  * rule g): the panel starts a composited Web Animations slide at once, and the
- * diff column changes width once per slide (`data-files-hidden` flips then).
- * Otherwise only `transform` changes during the slide.
+ * diff column changes width once per slide, two frames after the click
+ * (`data-files-hidden` flips then), so the auto layout and the toolbar change
+ * with it near the click and nothing jumps when the slide ends. Otherwise only
+ * `transform` changes during the slide.
  *
  * Nothing blank shows at any frame:
- * - opening, the diff keeps its full width under the panel until the end;
- * - closing, the diff takes its full width two frames in, under the panel that
- *   still covers that strip, so the slide uncovers real rows; for those two
- *   frames the curtain (a layer pinned where the panel's left edge rests,
- *   scaled on the compositor with the slide) covers what the panel uncovers.
+ * - closing, the diff takes its full width under the panel that still covers
+ *   that strip, so the slide uncovers real rows;
+ * - opening, the diff takes its narrow width and the curtain (a layer pinned
+ *   where the panel's left edge rests, scaled on the compositor with the slide)
+ *   fills the strip it gave up until the panel arrives over it.
  *
  * Toggling again mid-way starts from the panel's current on-screen position,
  * so the motion reverses with no jump, and the diff stays at the width it has.
@@ -242,31 +244,45 @@ export function createFilesPanelMotion(host: FilesPanelMotionHost): FilesPanelMo
       const timing = { duration: durationMs, easing: "linear", fill: "forwards" } as const;
       const slide = panel.animate(keyframes, timing);
       running = [slide];
-      // A diff laid out beside the panel: the curtain covers what the panel uncovers. A diff at
-      // full width is already under the panel everywhere.
-      const curtain = host.body.dataset.filesHidden === "false" ? host.curtain?.() : null;
-      const curtainSlide = curtain ? curtain.animate(curtainKeyframes(spring, from, target, width), timing) : null;
-      if (curtainSlide) running.push(curtainSlide);
       const start = host.timelineTime?.() ?? null;
-      if (start != null) for (const animation of running) animation.startTime = start;
-      if (!next && curtainSlide) {
-        // Closing: the diff takes its full width two frames in, while the panel still covers the
-        // strip it grows into, so the slide uncovers real rows rather than the curtain's blank
-        // fill. The click's own frame and the slide's first frame stay free of the reflow.
+      if (start != null) slide.startTime = start;
+      // A diff laid out beside the panel: the curtain covers what the panel uncovers, in lockstep
+      // with the slide (same keyframes and start time). A diff at full width is already under the
+      // panel everywhere and needs none.
+      const curtain = host.curtain?.() ?? null;
+      const startCurtain = () => {
+        if (!curtain) return null;
+        const animation = curtain.animate(curtainKeyframes(spring, from, target, width), timing);
+        const lockstep = slide.startTime ?? start;
+        if (lockstep != null) animation.startTime = lockstep;
+        running.push(animation);
+        return animation;
+      };
+      const curtainSlide = host.body.dataset.filesHidden === "false" ? startCurtain() : null;
+      if (host.body.dataset.filesHidden !== resting) {
+        // The one reflow, two frames in (the click's own frame and the slide's first frame stay
+        // free of it): the diff takes its new width, and with it its auto layout and the toolbar's
+        // columns, all at once, near the click rather than as a jump when the slide ends.
+        // Closing, the panel still covers the strip the diff grows into, so the slide uncovers real
+        // rows; the curtain's fill is no longer needed. Opening, the curtain now fills the strip
+        // the diff gave up until the panel arrives over it.
         host.requestFrame(() =>
           host.requestFrame(() => {
             if (token !== generation) return;
             host.body.dataset.filesHidden = resting;
-            curtainSlide.cancel();
-            running = running.filter((animation) => animation !== curtainSlide);
+            if (next) {
+              startCurtain();
+            } else if (curtainSlide) {
+              curtainSlide.cancel();
+              running = running.filter((animation) => animation !== curtainSlide);
+            }
           }),
         );
       }
       slide.finished.then(
         () => {
           if (token !== generation) return;
-          // An open's one reflow: the diff takes its new width in the frame the slide ends (a
-          // close already took it two frames in).
+          // Normally already in place (two frames in); set again for a slide that ended sooner.
           host.body.dataset.filesHidden = resting;
           delete panel.dataset.filesMotion;
           delete panel.dataset.filesMotionTarget;
