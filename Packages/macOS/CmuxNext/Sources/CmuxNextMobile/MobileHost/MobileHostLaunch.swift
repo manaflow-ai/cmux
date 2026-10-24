@@ -67,10 +67,17 @@ public struct MobileHostLaunch: Sendable, Equatable {
         return "personal-\(userID)"
     }
 
-    /// The child's whole environment. `inherited` supplies only `HOME`, `PATH` and `TMPDIR`.
+    /// The child's whole environment. `inherited` supplies only `HOME`, `PATH`
+    /// and `TMPDIR`, and `CMUX_MOBILE_MACHINE_ID` when set: a test rig's own
+    /// machine id, so several hidden rig apps on one Mac are listed apart on
+    /// the phone (cmux-mobile-host checks its form and otherwise uses this
+    /// computer's id).
     public func environment(inherited: [String: String]) -> [String: String] {
         var environment: [String: String] = [:]
         for key in ["HOME", "PATH", "TMPDIR"] { environment[key] = inherited[key] }
+        if let machineID = inherited["CMUX_MOBILE_MACHINE_ID"], !machineID.isEmpty {
+            environment["CMUX_MOBILE_MACHINE_ID"] = machineID
+        }
         let socket = URL(fileURLWithPath: daemonSocket)
         var session = socket.lastPathComponent
         if session.hasSuffix(".sock") { session.removeLast(5) }
