@@ -321,7 +321,6 @@ import CmuxNextCompat
     public func close(connection id: Int) {
         guard id == current, let socket else { return }
         socket.close(code: 1000, reason: "", error: nil)
-        self.socket = nil
         localAppToken = nil
         promptRelay?.ended(byDaemon: false)
     }

@@ -782,6 +782,11 @@ Object.assign(variants, {
     focus: "home.chiefPetMascot",
     note: "Chief Pet, pet off: the chosen character (Orb) is checked; Show Pet floats it.",
   }),
+  // Settings > Chief > Look's foot: the chat's Bubble Style, the row a search for it lands on.
+  "chief-look-bubbles": variant("chief", {
+    focus: "home.chiefBubbleStyle",
+    note: "Look: the pet, the characters, then Bubble Style at the card's foot (no Chief Chat card of its own).",
+  }),
   "agents-add-custom": variant("agents", {
     focus: "agents.add",
     steps: [wait("[data-agents-custom]")],
