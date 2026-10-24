@@ -35,6 +35,7 @@ def load(name: str, path: Path):
 
 health = load("cmux_next_codebase_health", SOURCE / "scripts/cmux-next/codebase-health.py")
 guardrails = load("cmux_next_guardrails_for_health", SOURCE / "scripts/cmux-next/guardrails.py")
+arch_counts = load("cmux_next_arch_counts_for_health_test", SOURCE / "scripts/cmux-next/arch_counts.py")
 
 BENCHES = """{"paths": {
   "key-dispatch": {"bench": "scripts/cmux-next/bench-typing.py", "owner": "PL-typing"},
@@ -79,6 +80,28 @@ final class KeyWatcher {
     }
 }
 """
+
+
+# The shape of SFSpeechDictationTranscriber.swift:162: the call's `named:` is on the next line.
+MULTILINE = """import Foundation
+final class MoveWatcher {
+    func watch() async {
+        let changes = NotificationCenter.default.notifications(
+            named: .paneMoved
+        )
+        for await _ in changes { }
+    }
+}
+"""
+
+
+def two_markers(first: str, second: str) -> str:
+    """Two marked functions in one file; an empty id leaves that function unmarked."""
+    def mark(path_id: str) -> str:
+        return f" // perf-hot: 2ms {path_id}" if path_id else ""
+    return (f"import Foundation\nfinal class Router {{\n    var count = 0\n"
+            f"    func hot(_ key: Int) {{{mark(first)}\n        count += key\n    }}\n"
+            f"    func warm(_ key: Int) {{{mark(second)}\n        count -= key\n    }}\n}}\n")
 
 
 class CodebaseHealthPerfHotTests(unittest.TestCase):
@@ -155,6 +178,39 @@ class CodebaseHealthPerfHotTests(unittest.TestCase):
         self.assertIn("| `paneMoved` | 1 | 1 | 0 |", report)  # observed from every sender: no `object:`
         observed = report.split("<details><summary>Observed names</summary>", 1)[1].split("</details>", 1)[0]
         self.assertRegex(observed, r"1 sites\s+0 per-instance\s+didBecomeKeyNotification")
+
+    def test_an_uncommitted_marker_removal_still_gives_a_report(self):
+        # The report reads the working tree: removing (or retagging) one of a file's two markers before a commit
+        # is an edit, not a hook warning the report cannot read.
+        self.write(ROUTER, two_markers("key-dispatch", "home-key"))
+        self.commit("two markers in one file")
+        for second in ("", "new-tab"):
+            with self.subTest(second=second or "removed"):
+                self.write(ROUTER, two_markers("key-dispatch", second))
+                rows = self.section6()
+                self.assertIn("CmuxNextKit/Router.swift:4", rows["key-dispatch"])
+                self.assertNotIn("Router.swift", rows["home-key"])
+                if second:
+                    self.assertIn("CmuxNextKit/Router.swift:7", rows["new-tab"])
+
+    def test_observers_are_the_arch_ratchets_observer_sites(self):
+        # One counter: section 1 and section 2 read arch_counts' observer sites, so a call whose `named:` is on
+        # the next line counts, and the number equals arch-ratchet.json's observer_sites at the same tree.
+        self.write("Packages/macOS/CmuxNext/Sources/CmuxNextKit/MoveWatcher.swift", MULTILINE)
+        self.commit("a multi-line observer")
+        shared = sum(1 for path in self.git("ls-files", "Packages/macOS/CmuxNext/Sources").split()
+                     for site in arch_counts.analyze(path, (self.repo / path).read_text()).sites
+                     if site.row == "observer_sites")
+        self.assertEqual(shared, 3)
+        report = health.report(self.repo)
+        row = next(line for line in report.splitlines() if line.startswith("| NotificationCenter observers"))
+        cells = [c.strip() for c in row.strip("|").split("|")]
+        self.assertEqual((cells[1], cells[2]), (str(shared), "2"), row)
+        self.assertIn(f"{shared} observer registrations", report)
+        # Both `paneMoved` observers pass no `object:`, so both observe every sender.
+        self.assertIn("| `paneMoved` | 2 | 2 | 0 |", report)
+        observed = report.split("<details><summary>Observed names</summary>", 1)[1].split("</details>", 1)[0]
+        self.assertRegex(observed, r"2 sites\s+0 per-instance\s+paneMoved")
 
     def test_the_header_cites_the_feat_cmux_next_merge_base_not_a_local_commit(self):
         self.git("update-ref", "refs/remotes/origin/feat-cmux-next", self.base)
