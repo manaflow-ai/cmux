@@ -357,7 +357,7 @@ final class CEFPaneHost {
     }
 
     private func recreateWindow(for waiting: [CEFTab]) {
-        let open = waiting.filter { !$0.isClosed && tabs.contains(where: { tab in tab === $0 }) }
+        let open = waiting.filter { tab in !tab.isClosed && tabs.contains(where: { $0 === tab }) }
         // The first creates the window; the rest join it when it comes up (`windowCreated`). A
         // window that came up since (a tab shown meanwhile) takes them now, as `createDeferred` does.
         for tab in open.filter({ $0 === visibleTab }) + open.filter({ $0 !== visibleTab }) {
