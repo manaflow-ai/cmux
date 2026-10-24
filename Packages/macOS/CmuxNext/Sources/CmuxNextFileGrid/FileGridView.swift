@@ -20,7 +20,7 @@ public import AppKit
 public final class FileGridView: NSView {
     private let cache: ThumbnailCache
     private let scrollView = NSScrollView()
-    private let collectionView = FileGridCollectionView()
+    let collectionView = FileGridCollectionView()
     private let layoutValues = NSCollectionViewFlowLayout()
     private let emptyLabel = NSTextField(wrappingLabelWithString: "")
     private var dataSource: NSCollectionViewDiffableDataSource<Int, String>?
