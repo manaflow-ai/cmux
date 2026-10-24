@@ -13,8 +13,9 @@ the same ids as plans/cmux-next/action-surfaces.json) that can run unattended, t
            key did not run it in this focus (`key_routed: false` in the row)
 
 Before each action the focused pane shows the tab kind the action needs (terminal, Chromium page, address bar,
-agent chat); after it, Escape twice, then the layout goes back: new windows, workspaces, panes and tabs close,
-removed tabs come back, toggles run again, changed settings are written back, focus returns.
+agent chat); after it, Escape twice, then the layout goes back: new windows, workspaces, panes, docked columns and
+tabs close, new workspace groups are ungrouped, removed tabs come back, each pane shows the tab it showed, toggles run
+again, changed settings are written back, focus returns. A docked column or group that stays fails a STRESS session.
 
 Per action (one row of the JSON table):
   turn_ms          the handler's main-thread time: the always-on action.perform signpost (CmuxNextSignposts,
@@ -30,8 +31,10 @@ Per action (one row of the JSON table):
                    over 1.5 refresh periods), longest interval, longest main-thread frame
   hangs            main-thread stalls over 8 ms (`debug.hangs`)
   error            a refusal or error reply, a key that ran nothing, a missing handler run
-  check            a cheap correctness check: a split made a pane, a new tab made a tab, a close removed one,
-                   a focus move moved focus (`ok`, `wrong`, `n/a`)
+  check            a cheap correctness check by entrypoint: a split made a pane, a new tab made a tab, a close
+                   removed one, Cmd-I docked a chat (its CLI path made a chat tab), a focus move moved focus (each
+                   directional move from a pane with a neighbor that way) (`ok`, `wrong`, `refused` for a typed
+                   refusal, `n/a`)
 Each action runs --repeat times (default 3); the row keeps p50/p95/max over the repeats.
 
 Non-catalog interactions (rows with kind `interaction`): typing in a terminal (the typing probe's key to
@@ -121,6 +124,9 @@ WINDOW = (40, 40, 1600, 1000)
 
 TARGET_COMMIT_MS = 10.0
 TARGET_TURN_MS = 4.0
+# How long a restore waits for the store to apply its own closes (an action's reply comes after the daemon's, the
+# topology after the store's event), as the rebuild's workspace close waits: a bound on a wait for a real change.
+STORE_APPLY_S = 5.0
 # The exit status of a run (or a --merge) in which a session failed: the report still lands, with every failure in
 # failed_sessions and in every-action.md, but the run is not a pass (bench-launch-smoke, split-spring.sh's step).
 FAILED_SESSION_EXIT = 3
@@ -342,18 +348,47 @@ def panes_of(workspace):
     return [p for s in (workspace or {}).get("screens") or [] for p in s.get("panes") or [] if not p.get("dock")]
 
 
+def docks_of(workspace):
+    """The docked panes of `workspace`: a column docked to an edge (`dock`: left, right, top, bottom), as Cmd-I's chat
+    dock (DockedAgentChat) and column.dock* make. Not in panes_of(): they are not the measured grid, but they are part
+    of the layout every later row runs on, so shape() and layout() hold them and a restore closes new ones."""
+    return [p for s in (workspace or {}).get("screens") or [] for p in s.get("panes") or [] if p.get("dock")]
+
+
+def chat_dock(pane):
+    """True for an agent chat dock: a docked pane holding a chat (the topology names a column's edge, not its role)."""
+    return bool(pane.get("dock")) and any(t.get("kind") == "conversation" for t in pane.get("tabs") or [])
+
+
 def shape(topo):
-    """Comparable shape: windows, workspaces, and per workspace its panes and their tabs."""
-    workspaces = {w["id"]: {p["id"]: [t["id"] for t in p.get("tabs") or []] for p in panes_of(w)}
-                  for w in topo.get("workspaces") or [] if w.get("id")}
+    """Comparable shape: windows, workspaces, per workspace its panes and their tabs, its docked panes (`docks`, the
+    chat docks among them in `chat_docks`), its workspace group (`groups`), and the window's groups (`group_ids`)."""
+    listed = [w for w in topo.get("workspaces") or [] if w.get("id")]
+    workspaces = {w["id"]: {p["id"]: [t["id"] for t in p.get("tabs") or []] for p in panes_of(w)} for w in listed}
+    docks = {w["id"]: {p["id"]: [t["id"] for t in p.get("tabs") or []] for p in docks_of(w)} for w in listed}
+    chat_docks = {w["id"]: [p["id"] for p in docks_of(w) if chat_dock(p)] for w in listed}
     windows = [w.get("id") for w in topo.get("windows") or []]
-    return {"windows": windows, "workspaces": workspaces, "focus": topo.get("focus") or {}}
+    return {"windows": windows, "workspaces": workspaces, "focus": topo.get("focus") or {}, "docks": docks,
+            "chat_docks": chat_docks, "groups": {w["id"]: w.get("group") for w in listed},
+            "group_ids": sorted(g["id"] for g in topo.get("workspace_groups") or [] if g.get("id"))}
 
 
 def counts(s):
     panes = sum(len(p) for p in s["workspaces"].values())
     tabs = sum(len(t) for w in s["workspaces"].values() for t in w.values())
-    return {"windows": len(s["windows"]), "workspaces": len(s["workspaces"]), "panes": panes, "tabs": tabs}
+    return {"windows": len(s["windows"]), "workspaces": len(s["workspaces"]), "panes": panes, "tabs": tabs,
+            "docks": sum(len(d) for d in s["docks"].values()), "chat_docks": sum(len(d) for d in s["chat_docks"].values())}
+
+
+def extras(base, now):
+    """What `now` (a shape) holds beyond `base` that the measured grid's counts do not show: docked panes and workspace
+    groups. [] when there is none. A row measured with one of them left has another layout than the session's."""
+    found = [f"dock {pane} in {workspace}" for workspace, docks in now["docks"].items() if workspace in base["docks"]
+             for pane in docks if pane not in base["docks"][workspace]]
+    found += [f"group {group}" for group in now["group_ids"] if group not in base["group_ids"]]
+    found += [f"workspace {workspace} in group {group}, not {base['groups'][workspace]}" for workspace, group in now["groups"].items()
+              if workspace in base["groups"] and group != base["groups"][workspace]]
+    return found
 
 
 def tab_kinds(topo):
@@ -362,11 +397,17 @@ def tab_kinds(topo):
 
 def layout(topo):
     """What a restore must bring back exactly when ids change (a reopened pane or tab has new ids): the windows, and
-    per workspace each screen's panes in order, each as its column and the multiset of its tab kinds."""
+    per workspace each screen's panes in order, each as its column and the multiset of its tab kinds; its docked
+    panes (edge and tab kinds) and its workspace group; and the window's groups."""
+    listed = [w for w in topo.get("workspaces") or [] if w.get("id")]
     return {"windows": sorted(w.get("id") or "" for w in topo.get("windows") or []),
             "workspaces": {w["id"]: [[[p.get("column"), sorted(t.get("kind") or "?" for t in p.get("tabs") or [])]
                                       for p in s.get("panes") or [] if not p.get("dock")] for s in w.get("screens") or []]
-                           for w in topo.get("workspaces") or [] if w.get("id")}}
+                           for w in listed},
+            "docks": {w["id"]: sorted([p.get("dock"), sorted(t.get("kind") or "?" for t in p.get("tabs") or [])]
+                                      for p in docks_of(w)) for w in listed},
+            "groups": {w["id"]: w.get("group") for w in listed},
+            "group_ids": sorted(g["id"] for g in topo.get("workspace_groups") or [] if g.get("id"))}
 
 
 def pane_position(topo, workspace, pane):
@@ -442,7 +483,7 @@ EXPECT = {
                      "splitBrowserRight", "splitBrowserDown"], "pane+"),
     **dict.fromkeys(["newSurface", "newTab.default", "newTab.ofKind", "newTab.toRight", "newTab.afterCurrent",
                      "newTab.atStart", "newTab.atEnd", "newTab.page", "newTab.horizontal", "newTab.submit", "openBrowser",
-                     "openBrowser.webkit", "openBrowser.chromium", "duplicateTab", "palette.newAgentChat"], "tab+"),
+                     "openBrowser.webkit", "openBrowser.chromium", "duplicateTab"], "tab+"),
     **dict.fromkeys(["newTab", "workspace.newAbove", "workspace.newBelow", "workspace.newAtTop", "workspace.newAtBottom",
                      "workspace.newLikeThis", "workspace.newInNewGroup", "workspace.duplicate",
                      "workspace.duplicateTerminalsOnly"], "workspace+"),
@@ -450,6 +491,15 @@ EXPECT = {
     "closeTab": "tab-", "closePane": "pane-", "closeWorkspace": "workspace-",
     **dict.fromkeys(["focusLeft", "focusRight", "focusUp", "focusDown", "focusPreviousPane", "focusNextPane"], "focus"),
 }
+# Actions whose result depends on the entrypoint. New Agent Chat: a person's Cmd-I (debug.key: origin user, no target)
+# docks the workspace's one chat on the left (DockedAgentChat.open), so the grid's tab count does not change; the CLI
+# path (action.run) opens a chat tab in the pane.
+EXPECT_BY_ENTRY = {"palette.newAgentChat": {"key": "chat_dock+", "action": "tab+"}}
+# The directional focus moves: each row starts from a pane that has a neighbor that way (start_pane). From a pane
+# with none, PaneHandlers.bindFocus refuses quietly and the row would time a refusal, not a focus move.
+DIRECTIONS = {"focusLeft": "left", "focusRight": "right", "focusUp": "up", "focusDown": "down"}
+# A pane frame's edge sits on its neighbor's within this many points (frames are rounded to points).
+EDGE_PT = 1.0
 TOGGLES = r"(?i)(toggle|Toggle|zoom(?!In|Out|Reset)|^show|^hide|Sidebar$|fullScreen|pin|mute)"
 KEY_NAMES = {"left", "right", "up", "down", "home", "end", "pageup", "pagedown", "tab", "return", "escape", "delete", "space"}
 
@@ -492,8 +542,25 @@ def key_of(action):
     return key, [names[m] for m in mods]
 
 
-def expectation(ident):
-    return EXPECT.get(ident)
+def expectation(ident, entry="action"):
+    """What `ident` makes when it runs through `entry` (`key` or `action`), or None when the sweep does not check it."""
+    return (EXPECT_BY_ENTRY.get(ident) or {}).get(entry) or EXPECT.get(ident)
+
+
+def checked(ident):
+    """True when some entrypoint of `ident` has an expectation (a checked create, close or focus: never a toggle)."""
+    return ident in EXPECT or ident in EXPECT_BY_ENTRY
+
+
+def neighbor(cell, other, direction):
+    """True when `other` (a pane's [x, y, w, h], window points from the top left) lies beside `cell` toward
+    `direction`: past its edge that way, overlapping it across."""
+    x, y, w, h = cell
+    ox, oy, ow, oh = other
+    across_x = min(x + w, ox + ow) - max(x, ox) > 0
+    across_y = min(y + h, oy + oh) - max(y, oy) > 0
+    return {"left": across_y and ox + ow <= x + EDGE_PT, "right": across_y and ox >= x + w - EDGE_PT,
+            "up": across_x and oy + oh <= y + EDGE_PT, "down": across_x and oy >= y + h - EDGE_PT}[direction]
 
 
 def argument_values(action, base):
@@ -576,6 +643,11 @@ class Sweep:
         # The Chromium validity of each launch of this session (check_validity), in order; a row records the index
         # of the launch it was measured on, and a row on an invalid launch says so (relaunch_session).
         self.launches = []
+        # What a restore saw that is not a lost object (a pane showing another tab than at the build, Chromium falling
+        # back): restore() hands these to the row's drift.
+        self.notes = []
+        # A lost tab's id -> the id of the tab replace_tab made in its place (reselect finds a replaced shown tab).
+        self.replaced = {}
 
     # Session building.
 
@@ -610,9 +682,10 @@ class Sweep:
         self.snapshot_base(workspace)
 
     def snapshot_base(self, workspace, selection=None):
-        """The base the restores bring back. `selection` (place -> kind of the shown tab) is read from the topology
-        unless given: a fresh build is the shown mix, while after a reopen or a tab restore the caller passes the
-        base's own record (a replaced tab is selected when it opens, so the topology no longer is the mix)."""
+        """The base the restores bring back. `selection` (place -> the shown tab: its id, ``tab_key`` and kind) is read
+        from the topology unless given: a fresh build is the shown mix, while after a reopen or a tab restore the
+        caller passes the base's own record (a replaced tab is selected when it opens, so the topology no longer is
+        the mix)."""
         topo = topology()
         focus = topo.get("focus") or {}
         pane = focus.get("pane")
@@ -636,7 +709,7 @@ class Sweep:
                 [t["id"] for t in tabs if t.get("kind") == "page"]
         selected = selected_of(pane_info)
         if selection is None:
-            selection = {f"{place[0]}:{place[1]}": kind_key(tab, asked)
+            selection = {f"{place[0]}:{place[1]}": {"tab": tab["id"], "key": tab_key(tab), "kind": kind_key(tab, asked)}
                          for p in panes_of(ws) for place in [pane_position(topo, workspace, p["id"])]
                          for tab in [next((t for t in p.get("tabs") or [] if t["id"] == selected_of(p)), None)]
                          if place and tab}
@@ -662,11 +735,7 @@ class Sweep:
         if kind is None:
             return True
         tabs = self.base["kinds"]
-        # The Chromium page by the kind the builder asked for it: the topology says `browser` for WebKit too, and a
-        # restore can put the WebKit tab first.
-        asked = self.base.get("asked") or {}
-        chromium = [t for t in tabs["browser"] if asked.get(t) == "chromium"] or \
-            [t for t in tabs["browser"] if t not in asked]
+        chromium = self.chromium_tabs()
         pick = {"terminal": tabs["terminal"][:1], "chromium": chromium[:1], "omnibar": chromium[:1],
                 "chat": tabs["chat"][:1]}.get(kind) or []
         if not pick:
@@ -676,6 +745,22 @@ class Sweep:
             rpc("action.run", {"action": "focusLocation", "focus": True})
         time.sleep(0.15)  # test script: the selection's first frame before the measured input
         return True
+
+    def chromium_tabs(self):
+        """The base pane's Chromium pages, by the kind the builder asked for each: the topology says `browser` for
+        WebKit too, and a restore can put the WebKit tab first. show('chromium') shows the first."""
+        asked = self.base.get("asked") or {}
+        browser = self.base["kinds"]["browser"]
+        return [t for t in browser if asked.get(t) == "chromium"] or [t for t in browser if t not in asked]
+
+    def start_pane(self, direction):
+        """A pane of the shown workspace with a neighbor toward `direction` (debug.pane_chrome cells): the base pane
+        when it has one, else the first that does; None when no pane has one (the session's grid has no such move)."""
+        cells = [(p.get("pane"), p.get("cell")) for p in self.pane_chrome().get("panes") or [] if p.get("pane") and p.get("cell")]
+        def has(cell):
+            return any(other is not cell and neighbor(cell, other, direction) for _, other in cells)
+        ordered = sorted(cells, key=lambda pc: pc[0] != self.base.get("pane"))
+        return next((pane for pane, cell in ordered if has(cell)), None)
 
     def home(self):
         """Focus back on the base workspace, pane and tab."""
@@ -723,6 +808,7 @@ class Sweep:
                     drift.append("closed history unread after the input: no reopen")
                 closed = [i for i in now or [] if i not in mark]
         drift += self.close_new(self.base["shape"])
+        self.check_extras()
         lost = self.lost(self.base["shape"], shape(topology()))
         if lost:
             drift.append(f"lost {lost}")
@@ -730,11 +816,47 @@ class Sweep:
             settings = self.base.get("settings")
             self.rebuild(lost, closed)
             self.base["settings"] = settings
+            # A reopened, replaced or rebuilt page may have come back as WebKit (light sessions too: STRESS's shape
+            # check also fails the session on it).
+            fallback = self.recheck_chromium(f"the restore after {action_id or 'an interaction'}")
+            if fallback:
+                drift.append(fallback)
         changed = self.restore_settings()
         if changed:
             drift.append(f"settings {','.join(changed)[:80]}")
         self.home()
+        drift += self.notes
+        self.notes = []
         return drift
+
+    def check_extras(self):
+        """After close_new: no docked pane or workspace group the base does not have is left (they change the layout
+        every later row runs on, and the grid's counts do not show them). The store applies the closes after their
+        replies, so this waits for them, bounded. In STRESS one that stays fails the session (SessionShapeError);
+        in light it is the row's drift."""
+        if wait(lambda: not extras(self.base["shape"], shape(topology())), STORE_APPLY_S, step=0.05):
+            return
+        left = extras(self.base["shape"], shape(topology()))
+        if not left:
+            return
+        if self.session == "stress":
+            raise SessionShapeError(f"STRESS session has another layout after a restore: {'; '.join(left)[:400]}")
+        self.notes.append(f"left {'; '.join(left)[:120]}")
+
+    def recheck_chromium(self, where):
+        """The WebKit fallback count of debug.cef against this launch's: a rise marks the launch not valid (rows
+        measured on it say so, ``stamp``) and returns the drift note; None when there is no rise."""
+        if not self.launches:
+            return None
+        count = fallback_count(rpc("debug.cef"))
+        launch = self.launches[-1]
+        was = launch.get("fallbacks") or 0
+        if count is None or count <= was:
+            return None
+        launch["fallbacks"] = count
+        launch["chromium_ok"] = False
+        launch.setdefault("cef_flags", []).append(f"fallback +{count - was} after {where}")
+        return f"chromium fallback +{count - was}"
 
     def close_new(self, before):
         """Closes every window, workspace, pane and tab that `before` (a shape) does not have; returns what it closed."""
@@ -761,10 +883,41 @@ class Sweep:
                     if tab not in old[pane]:
                         act("closeTab", f"tab:{tab}", origin="script")
                         drift.append("tab+")
+        # Docked columns (Cmd-I's chat dock, column.dock*): a new one closes, as a new pane does.
+        for workspace, docks in after["docks"].items():
+            old = before["docks"].get(workspace)
+            if old is None:
+                continue
+            for pane, tabs in docks.items():
+                if pane not in old:
+                    act("closePane", f"pane:{pane}", origin="script")
+                    drift.append("dock+")
+                    continue
+                for tab in tabs:
+                    if tab not in old[pane]:
+                        act("closeTab", f"tab:{tab}", origin="script")
+                        drift.append("tab+")
+        # Workspace groups: a new group is ungrouped (its workspaces stay, ungrouped), and a workspace that changed
+        # group goes back to its own (or out of any).
+        made = [group for group in after["group_ids"] if group not in before["group_ids"]]
+        for group in made:
+            act("workspaceGroup.ungroup", f"workspace-group:{group}", origin="script")
+            drift.append("group+")
+        for workspace, group in after["groups"].items():
+            if workspace not in before["groups"]:
+                continue
+            now, was = (None if group in made else group), before["groups"][workspace]
+            if now == was:
+                continue
+            if was is None:
+                act("removeWorkspaceFromGroup", f"workspace:{workspace}", origin="script")
+            else:
+                act("moveWorkspaceToGroup", f"workspace:{workspace}", args={"group": f"workspace-group:{was}"}, origin="script")
+            drift.append("group moved")
         return drift
 
     def lost(self, before, after):
-        missing = {"workspaces": 0, "panes": 0, "tabs": 0, "windows": 0}
+        missing = {"workspaces": 0, "panes": 0, "tabs": 0, "windows": 0, "docks": 0}
         missing["windows"] = sum(1 for w in before["windows"] if w not in after["windows"])
         for workspace, panes in before["workspaces"].items():
             now = after["workspaces"].get(workspace)
@@ -776,6 +929,8 @@ class Sweep:
                     missing["panes"] += 1
                     continue
                 missing["tabs"] += sum(1 for t in tabs if t not in now[pane])
+            docks = after["docks"].get(workspace) or {}
+            missing["docks"] += sum(1 for pane in before["docks"].get(workspace) or {} if pane not in docks)
         return {k: v for k, v in missing.items() if v}
 
     def restored(self):
@@ -850,27 +1005,41 @@ class Sweep:
                 made[new_pane] = moved
 
     def reselect(self):
-        """Each base-workspace pane shows the kind of tab it showed at the build again (``snapshot_base``'s
-        `selection`): a replaced tab is selected when it opens, so after a restore a pane could show a page where
-        STRESS shows its terminal. Selects the pane's last tab of that kind; the caller focuses the base pane after."""
+        """Each base-workspace pane shows the tab it showed at the build again (``snapshot_base``'s `selection`): a
+        replaced tab is selected when it opens, so after a restore a pane could show a page where STRESS shows its
+        terminal, or the busy terminal where it showed the idle one. The tab is found by its ``tab_key`` (a reopen
+        gives new ids), else as the tab replace_tab made in its place; only when neither is there, by kind (the
+        pane's last tab of that kind), and the row's drift says the pane shows another tab. The selection then names
+        the shown tabs; the caller focuses the base pane after."""
         topo, base_ws = topology(), self.base["workspace"]
         asked = {tab: kind for entries in (getattr(self.builder, "made", None) or {}).values()
                  for kind, tab, *_ in entries if tab}
+        selection = {}
         for place, want in (self.base.get("selection") or {}).items():
             pane = pane_at(topo, base_ws, [int(part) for part in place.split(":")])
             tabs = tabs_at(topo, base_ws, pane)
-            shown = next((t for t in tabs if t["id"] == selected_of({"tabs": tabs})), None)
-            if shown is not None and kind_key(shown, asked) == want:
+            pick = next((t for t in tabs if want.get("key") and tab_key(t) == want["key"]), None) or \
+                next((t for t in tabs if t["id"] in (want.get("tab"), self.replaced.get(want.get("tab")))), None)
+            if pick is None:
+                pick = next((t for t in reversed(tabs) if kind_key(t, asked) == want.get("kind")), None)
+                self.notes.append(f"pane {place} shows another {want.get('kind')} tab" if pick else
+                                  f"pane {place} has no {want.get('kind')} tab")
+            if pick is None:
+                selection[place] = want
                 continue
-            pick = next((t["id"] for t in reversed(tabs) if kind_key(t, asked) == want), None)
-            if pick:
-                rpc("action.run", {"action": "tab.focus", "target": f"tab:{pick}", "focus": True})
+            selection[place] = {"tab": pick["id"], "key": tab_key(pick), "kind": want.get("kind")}
+            if pick["id"] != selected_of({"tabs": tabs}):
+                rpc("action.run", {"action": "tab.focus", "target": f"tab:{pick['id']}", "focus": True})
+        self.base["selection"] = selection
 
     def check_stress_shape(self):
         """In STRESS, the session is STRESS again after a restore rebuilt part of it, or SessionShapeError fails the
         session (run() and interaction() pass it up; main() records it in failed_sessions, exit FAILED_SESSION_EXIT)."""
         if self.session != "stress":
             return
+        left = extras(self.base["shape"], shape(topology()))
+        if left:
+            raise SessionShapeError(f"STRESS session has another layout after a restore: {'; '.join(left)[:400]}")
         summary = self.builder.summary()
         try:
             self.stress_module.Stress.check(summary)
@@ -929,6 +1098,8 @@ class Sweep:
         entry = made.pop()  # add_tab appended the new tab's entry: (kind, id, ...), the id None when unknown
         if index is not None:
             made[index] = entry
+        if entry[1]:
+            self.replaced[tab] = entry[1]
         busy = getattr(self.builder, "busy", None)
         if busy and tab in busy:
             at = busy.index(tab)
@@ -1044,8 +1215,7 @@ class Sweep:
         row["entry"] = "key" if plan["key"] else "action"
         row["context"] = plan["context"]
         samples, errors, checks, drifts = [], [], [], []
-        expect = expectation(ident)
-        toggled = bool(re.search(TOGGLES, ident)) and not expect
+        toggled = bool(re.search(TOGGLES, ident)) and not checked(ident)
         for attempt in range(opts.repeat):
             self.mark_closed()
             if not self.show(plan["context"]):
@@ -1055,6 +1225,9 @@ class Sweep:
             info = (described or {}).get("action") if isinstance(described, dict) else None
             if info and info.get("available") is False and not plan["args"]:
                 row["skipped"] = f"unavailable here: {info.get('context_reason') or info.get('unavailable_reason') or 'context'}"
+                return row
+            start = self.focus_start(ident, row)
+            if start is False:
                 return row
             before = shape(topology())
             entry = row["entry"]
@@ -1068,7 +1241,7 @@ class Sweep:
                     key_runs = sample["runs"]
                     drift = self.restore(ident, False) if key_runs else []
                     self.mark_closed()
-                    if not self.show(plan["context"]):
+                    if not self.show(plan["context"]) or self.focus_start(ident, row) is False:
                         break
                     before = shape(topology())
                     retry = self.measure(lambda t: act(ident, focus=True), ident)
@@ -1087,9 +1260,11 @@ class Sweep:
                 err = "no handler run recorded"
             if err:
                 errors.append(err)
+            if start:
+                sample["from_pane"] = start
             after_topo = topology()
-            check, result_ms = self.check(expect, before, shape(after_topo), sample)
-            if err and check == "wrong" and (err.startswith("refused:") or refusal(err)):
+            check, result_ms = self.check(expectation(ident, entry), before, shape(after_topo), sample)
+            if err and check == "wrong" and refusal(err):
                 check = "refused"  # a typed refusal (launch denied, not available here) made nothing: not a wrong result
             sample["check"] = check
             if result_ms is not None:
@@ -1121,7 +1296,23 @@ class Sweep:
         row["errors"] = sorted(set(errors))
         row["check"] = next((c for c in ("wrong", "ok", "refused") if c in checks), "n/a")
         row["drift"] = sorted(set(drifts))[:6]
+        starts = sorted({s["from_pane"] for s in samples if s.get("from_pane")})
+        if starts:
+            row["from_pane"] = starts
         return row
+
+    def focus_start(self, ident, row):
+        """For a directional focus move, focuses a pane with a neighbor that way (``start_pane``) and returns it; False
+        (with the row skipped) when the session's grid has none; None for every other action."""
+        direction = DIRECTIONS.get(ident)
+        if not direction:
+            return None
+        start = self.start_pane(direction)
+        if not start:
+            row["skipped"] = f"no pane with a neighbor to the {direction} in this session's grid"
+            return False
+        self.builder.focus_pane(start)
+        return start
 
     def check(self, expect, before, after, sample):
         """`ok`, `wrong` or `n/a`, and when a create or close finished after the first commit, input to the
@@ -1132,7 +1323,7 @@ class Sweep:
         if expect == "focus":
             return ("ok" if before["focus"] != after["focus"] else "wrong"), None
         what, sign = expect[:-1], expect[-1]
-        key = {"pane": "panes", "tab": "tabs", "workspace": "workspaces", "window": "windows"}[what]
+        key = {"pane": "panes", "tab": "tabs", "workspace": "workspaces", "window": "windows", "chat_dock": "chat_docks"}[what]
         grew = c1[key] - c0[key]
         ok = grew > 0 if sign == "+" else grew < 0
         if not ok:
@@ -1158,7 +1349,10 @@ class Sweep:
         self.interactions.append(row)
         note(f"every-action: {self.session} interaction {name}: {json.dumps({k: v for k, v in row.items() if k in ('commit_ms', 'key_to_frame_ms', 'frames', 'error', 'turn_ms')})[:300]}")
         try:
-            self.restore("", False)
+            drift = self.restore("", False)
+            if drift:
+                row["drift"] = sorted(set(drift))[:6]
+                self.stamp(row)  # the restore may have found this launch's Chromium falling back
         except SessionShapeError:
             raise  # the rebuilt session is not STRESS: the session fails
         except Exception as error:  # the row keeps it; the next row runs on a fresh build, as after an action's
@@ -1470,6 +1664,7 @@ class Sweep:
         note(f"every-action: {self.session}: {why}; relaunching and building the session again")
         self.app.relaunch()
         self.closed_mark, self.mark_problem = None, None
+        self.notes, self.replaced = [], {}  # the old launch's notes and replaced tabs name its ids
         self.build()
         validity = self.check_validity()
         validity["relaunch"] = why
@@ -1504,10 +1699,19 @@ class Sweep:
             bad.append("~/.config/cmux/web-dev.json")
         shown = None
         if self.show("chromium"):
-            shown = len((rpc("debug.cef") or {}).get("devtools") or [])
-            if not shown:
+            # The picked tab itself, among the shown CEF tabs (debug.cef devtools: one entry per shown CEF tab of every
+            # pane): another pane's CEF tab says nothing of the base pane's. Matched by id or by its page's url (each
+            # session page has its own).
+            picked = self.chromium_tabs()[0]
+            url = next((t.get("url") for p in panes_of(next((w for w in topology().get("workspaces") or []
+                                                              if w.get("id") == self.base["workspace"]), {}))
+                        for t in p.get("tabs") or [] if t.get("id") == picked), None)
+            devtools = (rpc("debug.cef") or {}).get("devtools") or []
+            shown = len(devtools)
+            if not any(e.get("tab") == picked or (url and e.get("url") == url) for e in devtools if isinstance(e, dict)):
                 bad.append("the base pane's Chromium tab is not a CEF tab")
         validity = {"chromium_ok": not bad, "cef_flags": bad, "web_dev_json": web_dev, "shown_cef_tabs": shown,
+                    "fallbacks": fallback_count(cef) or 0,
                     "cef": {k: cef.get(k) for k in ("state", "default_engine", "unavailable", "fallback", "ready_after_launch_s",
                                                     "initialize_ms", "footprint_mb")}}
         note(f"every-action: {self.session} validity {json.dumps(validity)[:400]}")
@@ -1674,9 +1878,22 @@ def misses(row):
 
 
 def refusal(error):
-    """A refusal the sweep's own context or missing arguments caused (the action says what it needs), not an app error."""
-    head = error.split(":")[0]
-    return head in ("unavailable", "disabled", "not_found", "invalid_argument", "invalid_params") or "unavailable" in head
+    """A typed refusal: the app's refusal code says the action is unavailable or disabled here, or the key router
+    named the action it refused (`refused: <id>`, refused_action). The one predicate for a row's check (`refused`,
+    not `wrong`) and for misses() (not an error). Not not_found or invalid_*: the sweep aims at targets it took from
+    its own base, so the app losing that tab or pane, or refusing the sweep's arguments, is a wrong result or a
+    harness error to report, never hidden as a refusal."""
+    head = error.split(":")[0].strip()
+    return head in ("disabled", "refused") or "unavailable" in head
+
+
+def fallback_count(cef):
+    """The WebKit fallbacks so far in a `debug.cef` reply (its `fallback` count, 0 when there is none), or None when
+    the reply is an error."""
+    if not isinstance(cef, dict) or error_of(cef):
+        return None
+    fallback = cef.get("fallback")
+    return int(fallback.get("count") or 0) if isinstance(fallback, dict) else 0
 
 
 def score(row):
@@ -1934,4 +2151,7 @@ if __name__ == "__main__":
     if MERGE:
         merge(*MERGE)
     else:
+        # A cmux-ci timeout or cancel (SIGTERM, SIGHUP) raises SystemExit, so main()'s finally quits the app and ends
+        # the tag's daemons (App.stop) instead of leaving them holding PTYs on the host.
+        TagTeardown(opts.app).install()
         main()
