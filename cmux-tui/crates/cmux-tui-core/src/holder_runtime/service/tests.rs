@@ -211,3 +211,70 @@ fn a_startup_entry_whose_holder_died_is_handed_to_the_next_holder_and_reattaches
     type_into(&terminal, "after-crash\n");
     read_until(&terminal.sink, "after-crash");
 }
+
+/// Whether `pid` runs (or is a zombie of a dead holder's).
+fn alive(pid: i32) -> bool {
+    // SAFETY: signal 0 only probes a pid this test's holder started.
+    unsafe { libc::kill(pid, 0) == 0 }
+}
+
+/// Holder-core fix review: a terminal this daemon left on the holder for
+/// its shutdown (DETACH) stays the next daemon's while the others still
+/// stream. A link drop to the same holder keeps it and resumes the others;
+/// a holder crash hands it to the next holder unattached (its custody
+/// master and ring, an ADOPT without ATTACH) and adopts the others. Red
+/// with `leaving` (the first DETACH stopped every reconnect: the others
+/// stopped streaming, and a crash lost them) and with the ownership rule
+/// alone (the next link CLOSEd the left shell, which nothing claimed).
+#[test]
+fn a_terminal_left_for_the_next_daemon_is_kept_across_a_reconnect_and_a_holder_crash() {
+    let world = World::new();
+    let left = world.service.spawn(&shell(1), b"").unwrap();
+    let kept = world.service.spawn(&shell(2), b"").unwrap();
+    read_until(&left.sink, "ready-1");
+    read_until(&kept.sink, "ready-2");
+    left.detach();
+
+    // The link drops; the same holder runs on.
+    world.proxy.cut();
+    let mut frames =
+        world.proxy.frames_until("the other terminal's ATTACH on the next link", |seen| {
+            seen.conn > 1 && seen.sent(Kind::Attach, kept.chan)
+        });
+    let next = frames.last().unwrap().conn;
+    // Published only after its pass: a WRITE on it follows every frame
+    // of the pass.
+    world.service.link().unwrap().write(kept.chan, b"after-drop\n").unwrap();
+    frames.extend(world.proxy.frames_until("the WRITE after the pass", |seen| {
+        seen.conn == next && seen.sent(Kind::Write, kept.chan)
+    }));
+    assert!(
+        !frames.iter().any(|seen| seen.sent(Kind::Close, left.chan)),
+        "the next link ended the shell left for the next daemon: {frames:?}"
+    );
+    read_until(&kept.sink, "after-drop");
+
+    // The holder crashes: the next holder takes both.
+    world.holders.crash();
+    let mut frames =
+        world.proxy.frames_until("the other terminal's ATTACH on the next holder", |seen| {
+            seen.conn > next && seen.sent(Kind::Attach, kept.chan)
+        });
+    let newest = frames.last().unwrap().conn;
+    world.service.link().unwrap().write(kept.chan, b"after-crash\n").unwrap();
+    frames.extend(world.proxy.frames_until("the WRITE after the pass", |seen| {
+        seen.conn == newest && seen.sent(Kind::Write, kept.chan)
+    }));
+    assert!(
+        frames.iter().any(|seen| seen.conn == newest && seen.sent(Kind::Adopt, left.chan)),
+        "the shell left for the next daemon was not handed to the next holder: {frames:?}"
+    );
+    assert!(
+        !frames
+            .iter()
+            .any(|seen| seen.sent(Kind::Close, left.chan) || seen.sent(Kind::Attach, left.chan)),
+        "the left shell was ended or streamed again: {frames:?}"
+    );
+    read_until(&kept.sink, "after-crash");
+    assert!(alive(left.pid), "the shell left for the next daemon died");
+}
