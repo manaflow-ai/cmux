@@ -318,7 +318,8 @@ public final class HoverCardCoordinator {
             let panel = panel ?? HoverCardPanel()
             self.panel = panel
             panel.present(body: body.view, anchor: anchor, placement: body.placement, parent: parent,
-                          themeAnchor: body.themeAnchor, sliding: sliding, applyTheme: body.applyTheme)
+                          themeAnchor: body.themeAnchor, sliding: sliding, interactive: body.interactive,
+                          applyTheme: body.applyTheme)
             // A hover card whose row's escape slot already holds the pointer (it rested in the
             // sidebar's margin beside the row) goes at once: the slot never shows its row's card.
             if case .shown(let shown) = machine.phase, shown.id == target.id, escapeTarget(at: currentPointer()) == target.id {
@@ -364,6 +365,21 @@ public final class HoverCardCoordinator {
     /// disappears"): the card ignores the mouse, so the window under it would scroll. The card
     /// scrolls its own scroll view (a long timeline) instead, stays, and the event goes no further.
     func handleMonitoredEvent(_ event: NSEvent) -> NSEvent? {
+        if let panel, panel.isInteractive, panel.isShowingCard {
+            if event.type == .keyDown,
+               let body = panel.body as? any HoverCardInteractiveBody,
+               body.handleHoverCardKeyDown(event) {
+                return nil
+            }
+            let point = event.window.map { $0.convertPoint(toScreen: event.locationInWindow) } ?? currentPointer()
+            if panel.cardFrame.contains(point) {
+                if [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(event.type) {
+                    // Let the interactive card's row receive the click. Its
+                    // action dismisses after it focuses the selected tab.
+                    return event
+                }
+            }
+        }
         if event.type == .scrollWheel, let panel, machine.shownTarget != nil, panel.isShowingCard {
             // A real event names the window under the pointer; a synthesized one may name none.
             let point = event.window.map { $0.convertPoint(toScreen: event.locationInWindow) } ?? currentPointer()
@@ -511,6 +527,15 @@ public final class HoverCardCoordinator {
             "card_text": panel.map { $0.isShowingCard ? $0.bodyLines.joined(separator: "\n") : "" } ?? "",
         ]
     }
+
+    #if DEBUG
+    /// The currently interactive card, for synthetic native input proofs.
+    /// Coordinates are relative to the card, excluding the window's shadow band.
+    public var debugInteractiveCard: (window: NSWindow, frame: CGRect)? {
+        guard let panel, panel.isInteractive, panel.isShowingCard else { return nil }
+        return (panel, panel.cardFrame)
+    }
+    #endif
 }
 
 struct WeakSource {

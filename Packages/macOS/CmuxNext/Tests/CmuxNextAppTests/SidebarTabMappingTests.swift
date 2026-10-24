@@ -2,6 +2,7 @@ import CmuxNextBridge
 @testable import CmuxNextDaemon
 import CmuxNextSidebar
 import Testing
+import Foundation
 
 /// The workspace hover card needs each tab's own folder and live status, rather than the
 /// workspace's front-tab summary.
@@ -9,9 +10,10 @@ import Testing
 struct SidebarTabMappingTests {
     @Test func mapsEachTabFolderAndStatus() throws {
         let store = DaemonStore()
+        let home = NSHomeDirectory()
         let tabs = [
-            TabSnapshot(surface: 1, title: "shell", cwd: "/Users/leo/Projects/api"),
-            TabSnapshot(surface: 2, title: "agent", cwd: "/Users/leo"),
+            TabSnapshot(surface: 1, title: "shell", cwd: home + "/Projects/api"),
+            TabSnapshot(surface: 2, title: "agent", cwd: home),
         ]
         let workspace = WorkspaceSnapshot(id: 1, key: nil, name: "api",
                                           screens: [ScreenSnapshot(id: 1, layout: .leaf(1), panes: [
