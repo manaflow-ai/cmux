@@ -29,6 +29,17 @@ nonisolated enum RoomStrings {
     static var defaultsArgumentRequired: String {
         text("rooms.refusal.defaultsRequired", "a cwd or env argument is required; pass both empty to clear the defaults")
     }
+    static var defaultsMustBeText: String {
+        text("rooms.refusal.defaultsMustBeText", "cwd and env take text; pass one empty (--cwd= or --env=) to clear it")
+    }
+    static var cwdMustBeAbsolute: String { text("rooms.refusal.cwdMustBeAbsolute", "cwd must be an absolute directory or start with ~") }
+    static func clearDefaultsTitle(_ name: String) -> String {
+        String(format: text("rooms.clearDefaultsTitle", "Clear the terminal defaults of “%@”?"), name)
+    }
+    static var clearDefaultsBody: String {
+        text("rooms.clearDefaultsBody", "New terminals in this space stop starting in its directory and stop getting its environment variables.")
+    }
+    static var clearDefaults: String { text("rooms.clearDefaults", "Clear") }
 
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
         String(localized: key, defaultValue: value, table: "Rooms", bundle: .module)
@@ -65,6 +76,15 @@ enum RoomConfirmation {
         let body = [RoomStrings.deleteClosesBody(closing.count), ConfirmationStrings.stillRunning(programs.joined(separator: ", "))]
         return DestructiveConfirmation.Prompt(title: RoomStrings.deleteTitle(room.name), body: body.joined(separator: "\n"),
                                               button: RoomStrings.delete, suppresses: CmuxConfigSnapshot.warnBeforeClosingTabPath)
+    }
+
+    /// Clear Space Terminal Defaults…: asked while the space has defaults; one with none
+    /// has nothing at stake and runs at once.
+    @MainActor
+    static func clearDefaultsPrompt(_ invocation: ActionInvocation, _ context: AppActionContext) -> DestructiveConfirmation.Prompt? {
+        guard let room = try? context.room(invocation), let defaults = room.defaults, !defaults.isEmpty else { return nil }
+        return DestructiveConfirmation.Prompt(title: RoomStrings.clearDefaultsTitle(room.name), body: RoomStrings.clearDefaultsBody,
+                                              button: RoomStrings.clearDefaults)
     }
 
     static let toastID = "space-deleted"

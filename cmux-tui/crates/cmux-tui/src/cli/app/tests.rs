@@ -41,6 +41,29 @@ fn screenshot_out_is_made_absolute_except_stdout() {
     assert_eq!(out("/tmp/shot.png"), "/tmp/shot.png");
 }
 
+/// `cmux space set-defaults --cwd DIR` (and every other action's `--cwd`) names
+/// a folder of the caller's working directory, so the app gets it absolute:
+/// the app runs elsewhere, and a space's default directory must be absolute.
+/// `~/…` is left for the app to expand, an empty `--cwd=` still clears, and a
+/// bare `--cwd` (true) stays a bool for the app to refuse.
+#[test]
+fn an_action_cwd_is_made_absolute_except_home_and_empty() {
+    let sent = |words: &[&str]| {
+        let (method, params) =
+            call(run_action("space set-defaults", &args(words), ActionName::Cli).unwrap());
+        assert_eq!(method, "action.run");
+        params["args"]["cwd"].clone()
+    };
+    let cwd = std::env::current_dir().unwrap();
+    assert_eq!(sent(&["--cwd", "."]), json!(cwd.to_string_lossy()));
+    assert_eq!(sent(&["--cwd", "sub"]), json!(cwd.join("sub").to_string_lossy()));
+    assert_eq!(sent(&["--cwd=./sub/x"]), json!(cwd.join("sub/x").to_string_lossy()));
+    assert_eq!(sent(&["--cwd", "~/x"]), json!("~/x"));
+    assert_eq!(sent(&["--cwd", "/srv/app"]), json!("/srv/app"));
+    assert_eq!(sent(&["--cwd="]), json!(""));
+    assert_eq!(sent(&["--cwd"]), json!(true));
+}
+
 #[test]
 fn non_app_scopes_are_left_to_the_resource_grammar() {
     assert_eq!(parse(&args(&["workspace", "list"])).unwrap(), None);

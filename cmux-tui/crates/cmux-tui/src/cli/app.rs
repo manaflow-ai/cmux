@@ -333,7 +333,7 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
     Ok(Some(command))
 }
 
-/// An action's `path` or `out` argument as the app must read it: a relative
+/// An action's `path`, `out` or `cwd` argument as the app must read it: a relative
 /// path names a folder or file of the caller's working directory, and the app
 /// runs elsewhere, so it is made absolute here (`.` parts dropped). An
 /// absolute path, `~/…`, `-` (stdout: `cmux window screenshot --out -`), or a
@@ -485,7 +485,11 @@ pub(super) fn run_action(
             }
             _ => {
                 let key = argument_name(&name);
-                let value = if key == "path" || key == "out" { caller_path(value) } else { value };
+                let value = if matches!(key.as_str(), "path" | "out" | "cwd") {
+                    caller_path(value)
+                } else {
+                    value
+                };
                 arguments.insert(key, value);
             }
         }
