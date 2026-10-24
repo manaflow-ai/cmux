@@ -20,7 +20,7 @@ import ImageIO
 /// once; a frame the reader has not decoded yet goes to its pane later, on the main actor, as soon
 /// as it is decoded (the pane draws without it until then, and a pane whose live content painted
 /// first ignores it). It is bounded: one decoded frame per listed file and at most one waiting
-/// pane per frame (each frame is handed out once); ``release()`` drops what no pane took.
+/// pane per frame (each frame is handed out once); ``release()`` drops what no pane asked for.
 ///
 /// ```swift
 /// let frames = SavedFrameDirectory(url: state.appending(path: "terminal-launch-frames"), maximumBytes: 16 << 20)
@@ -87,8 +87,9 @@ public final class SavedFrameDirectory: Sendable {
         return nil
     }
 
-    /// Drops the frames no pane took and the panes still waiting: later takes find nothing, so a
-    /// pane shown later waits for its live content; the reader starts no other decode.
+    /// Drops what no pane asked for: the decoded frames no pane took and the frames no pane waits
+    /// for. A frame a pane asked for before it was decoded still reaches that pane. Later takes
+    /// find nothing, so a pane shown later waits for its live content.
     public func release() {
         let idle = state.withLock { state -> [CheckedContinuation<Void, Never>] in
             state.release()

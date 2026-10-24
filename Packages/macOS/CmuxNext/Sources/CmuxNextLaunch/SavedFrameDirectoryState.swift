@@ -56,11 +56,13 @@ struct SavedFrameDirectoryState: Sendable {
     var isIdle: Bool { entries != nil && queue.isEmpty && !decodingNow }
 
     /// Records the listing: each key pending, in the order ``ordered(_:)`` gives. A waiter whose
-    /// key has no file is dropped: its pane draws without a last frame.
+    /// key has no file is dropped: its pane draws without a last frame. After a ``release()`` only
+    /// the keys a pane already asked for are kept.
     mutating func listed(_ found: [String: Entry]) {
         guard entries == nil else { return }
-        entries = released ? [:] : found
-        waiters = waiters.filter { found[$0.key] != nil && !released }
+        waiters = waiters.filter { found[$0.key] != nil }
+        let asking = waiters
+        entries = released ? found.filter { key, _ in asking[key] != nil } : found
         queue = ordered(Array((entries ?? [:]).keys).sorted())
     }
 
@@ -96,9 +98,9 @@ struct SavedFrameDirectoryState: Sendable {
         }
     }
 
-    /// The next key for the reader, marked as being decoded; nil when none is left.
+    /// The next key for the reader, marked as being decoded; nil when none is left (after a
+    /// ``release()`` only the keys a pane waits for are left).
     mutating func claimNext() -> (key: String, entry: Entry)? {
-        guard !released else { return nil }
         while !queue.isEmpty {
             let key = queue.removeFirst()
             guard var entry = entries?[key], case .pending = entry.phase else { continue }
@@ -111,7 +113,7 @@ struct SavedFrameDirectoryState: Sendable {
     }
 
     /// The reader decoded `key` into `frame`: the waiting pane's delivery, if one waits for it.
-    /// After a ``release()`` the entry is gone, so nothing is kept or delivered.
+    /// After a ``release()`` a key no pane waits for is gone, so nothing is kept for it.
     mutating func decoded(_ key: String, _ frame: SavedFrame?) -> (Waiter, SavedFrame)? {
         decodingNow = false
         guard var entry = entries?[key], case .decoding = entry.phase else { return nil }
@@ -125,12 +127,18 @@ struct SavedFrameDirectoryState: Sendable {
         return frame.map { (waiter, $0) }
     }
 
-    /// Drops every frame and waiter: later takes find nothing, the reader starts no other decode.
+    /// Drops what no pane asked for: the decoded frames no pane took, and the listed keys no pane
+    /// waits for. A key a pane asked for while it was not decoded yet (it has a waiter) stays, and
+    /// the reader still decodes and delivers it: that pane's waiter ends only with the delivery or
+    /// a failed decode (the pane ignores a frame once its live content drew). Later takes find
+    /// nothing.
     mutating func release() {
         released = true
-        entries = entries.map { _ in [:] }
-        waiters = [:]
-        queue = []
+        let asking = waiters
+        entries = entries.map { listed in listed.filter { key, _ in asking[key] != nil } }
+        queue = queue.filter { asking[$0] != nil }
+        asked = asked.filter { asking[$0] != nil }
+        wanted = []
     }
 
     /// Takes the continuations waiting for the reader to be idle, when it is.
