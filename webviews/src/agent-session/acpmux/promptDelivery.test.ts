@@ -8,6 +8,8 @@ import { afterAll, beforeAll, expect, jest, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { JSDOM } from "jsdom";
+import { INLINE_ATTACHMENT_MARK, type ComposerAttachment } from "./attachments";
+import type { AcpmuxRow } from "./model";
 
 /// The `_meta.acpmux` keys the cmux host's pane policy lets through on `session/prompt`.
 const policyPath = path.resolve(import.meta.dir, "../../../../cmux-tui/crates/cmux-agent-pane-policy/policy.json");
@@ -51,6 +53,51 @@ type Hooks = {
   answer: (method: string, params: any) => Promise<unknown>;
   deliver: (message: unknown) => void;
 };
+
+test("ordered prompt blocks and a delayed echo retain image-caption order", async () => {
+  const { AcpmuxDirectClient } = await import("./direct");
+  const { MockAcpmuxSocket, mockHost } = await import("./mock");
+  let sent: any;
+  let emit: ((target: string, step: any) => void) | undefined;
+  class DelayedEchoHost extends MockAcpmuxSocket {
+    constructor() {
+      super(() => Promise.resolve());
+      const hooks = this as unknown as Hooks & { emit: (target: string, step: any) => void };
+      emit = hooks.emit.bind(this);
+      const answer = hooks.answer.bind(this);
+      hooks.answer = async (method, params) => {
+        if (method !== "session/prompt") return answer(method, params);
+        sent = params;
+        return { stopReason: "end_turn" };
+      };
+    }
+  }
+  let rows: AcpmuxRow[] = [];
+  const client = await AcpmuxDirectClient.connect(
+    mockHost,
+    (snapshot) => (rows = snapshot.rows),
+    undefined,
+    () => new DelayedEchoHost() as unknown as WebSocket,
+  );
+  const image = (id: string): ComposerAttachment => ({ id, kind: "image", name: `${id}.png`, mimeType: "image/png", size: 3, data: "AQID" });
+  try {
+    await client.send(`${INLINE_ATTACHMENT_MARK}caption one${INLINE_ATTACHMENT_MARK}caption two`, [image("one"), image("two")]);
+    expect(sent.prompt.map((block: { type: string }) => block.type)).toEqual(["image", "text", "image", "text"]);
+    emit!(sent.sessionId, {
+      mux: "user_message",
+      msg: {
+        promptId: sent._meta.acpmux.promptId,
+        text: "caption one\ncaption two",
+        images: [{ id: "durable-one", mimeType: "image/png" }, { id: "durable-two", mimeType: "image/png" }],
+      },
+    });
+    await settle(() => rows.some((row) => row.inlineParts?.[0]?.kind === "image" && row.id.startsWith("user-")));
+    const parts = rows.find((row) => row.id.startsWith("user-") && row.inlineParts)?.inlineParts;
+    expect(parts?.map((part) => part.kind === "text" ? part.text : part.id)).toEqual(["durable-one", "caption one", "durable-two", "caption two"]);
+  } finally {
+    client.close?.();
+  }
+});
 
 test("a prompt goes from sending to delivered to read", async () => {
   const { AcpmuxDirectClient } = await import("./direct");
