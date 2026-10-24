@@ -195,6 +195,14 @@ class GateTests(unittest.TestCase):
                                  {MANIFEST: manifest})
         self.assertGate(checkout.gate('crash-class-gate.sh', '--pr'), False, f'{NEXT}/Owner.swift')
 
+    def test_crash_class_pr_making_a_type_generic_owns_the_classes_of_its_extensions(self):
+        # Only Ledger.swift changes; the class in the untouched Ledger+Cursor.swift becomes generic by context.
+        cursor = 'extension Ledger {\n    final class Cursor {\n        var index = 0\n    }\n}\n'
+        checkout = self.checkout({f'{NEXT}/Ledger.swift': 'struct Ledger {\n    var count = 0\n}\n',
+                                  f'{NEXT}/Ledger+Cursor.swift': cursor},
+                                 {f'{NEXT}/Ledger.swift': 'struct Ledger<Entry> {\n    var count = 0\n}\n'})
+        self.assertGate(checkout.gate('crash-class-gate.sh', '--pr'), False, f'{NEXT}/Ledger+Cursor.swift')
+
     def test_crash_class_pr_changing_only_the_shared_detector_owns_every_violation(self):
         # check-concurrency.sh's crash-class rules read scripts/cmux-next/swift_scope.py: a PR that changes
         # only it changes the lint, so a violation in a file it does not touch is its own.
