@@ -85,6 +85,14 @@ SOURCES = "Packages/macOS/CmuxNext/Sources"
 MANIFEST = "Packages/macOS/CmuxNext/Package.swift"
 LAYERS_JSON = "plans/cmux-next/architecture-layers.json"
 RATCHET_JSON = "plans/cmux-next/arch-ratchet.json"
+# This file in the repo (the row definitions). A literal, not __file__: the installed hook runs a copy.
+METHOD_FILE = "scripts/cmux-next/arch_counts.py"
+# What a count reads besides the Swift sources (is_source): full_count reads both at the counted
+# commit; delta_count reads both at each end when its range changes one.
+COUNT_INPUTS = (MANIFEST, LAYERS_JSON)
+# Every path whose change can change a recorded count: COUNT_INPUTS and the row definitions. With the
+# Swift sources, is_counted is the one test for it (arch-ratchet.py's measured_in_range uses it).
+COUNTED_PATHS = COUNT_INPUTS + (METHOD_FILE,)
 APP_PACKAGE = "CmuxNextApp"
 SHA = re.compile(r"[0-9a-f]{40}")
 
@@ -1168,6 +1176,11 @@ def is_source(path: str) -> bool:
     return path.startswith(SOURCES + "/") and path.endswith(".swift")
 
 
+def is_counted(path: str) -> bool:
+    """True when a change to PATH can change a count: a Swift source or one of COUNTED_PATHS."""
+    return is_source(path) or path in COUNTED_PATHS
+
+
 # ---------------------------------------------------------------------------------------------------
 # Counts
 
@@ -1214,7 +1227,7 @@ def full_count(repo: Path, rev: str = "HEAD") -> tuple[str, Counts, Layers]:
     git = Git(repo)
     sha = git.rev(rev)
     paths = git.swift_files(sha)
-    texts = git.read([(sha, p) for p in paths] + [(sha, MANIFEST), (sha, LAYERS_JSON)])
+    texts = git.read([(sha, p) for p in paths + list(COUNT_INPUTS)])
     facts = [analyze(p, texts[(sha, p)] or "") for p in paths]
     index: dict[str, list[Decl]] = collections.defaultdict(list)
     for f in facts:
@@ -1456,10 +1469,10 @@ def _delta(git: Git, base: str, head: str, worktree: Path | None, dirty_proc: su
     files = git.changed(base, head)
     changed = sorted({p for _, p in files if is_source(p)})
     before, after = Counts.empty(), Counts.empty()
-    layer_files = [p for p in (MANIFEST, LAYERS_JSON) if any(p == q for _, q in files)]
+    layer_files = [p for p in COUNT_INPUTS if any(p == q for _, q in files)]
     items = [(r, p) for r in (base, head) for p in changed]
     if layer_files:
-        items += [(r, p) for r in (base, head) for p in (MANIFEST, LAYERS_JSON)]
+        items += [(r, p) for r in (base, head) for p in COUNT_INPUTS]
     texts = git.read(items)
     if layer_files:
         count_layers(before, layers(texts[(base, MANIFEST)], texts[(base, LAYERS_JSON)]))

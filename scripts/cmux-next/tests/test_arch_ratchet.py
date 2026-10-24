@@ -388,15 +388,41 @@ class RatchetTests(Repo):
         self.assertEqual(refusals, [])
         self.assertIn(f"arch-ratchet: {ratchet.UPDATE_HINT} (stateful_singletons)", notes)
 
-    def test_a_drop_with_the_first_json_the_push_adds_prints_no_hint(self):
+    def test_a_drop_with_the_first_json_measured_after_it_prints_no_hint(self):
         base = self.add_singleton()  # the base has no arch-ratchet.json
         self.remove(f"{SRC}/CmuxNextDomain/Store+Shared.swift")
-        self.record_singletons(0)
-        self.commit("removes it and adds the first record")
+        measured = self.commit("removes it")
+        self.record_singletons(0, sha=measured)  # what --update writes at that commit
+        self.commit("adds the first record")
         refusals, notes = self.check(base=base)
         self.assertEqual(refusals, [])
         self.assertTrue(any(n.startswith("arch-ratchet: stateful_singletons -1 ") for n in notes), notes)
         self.assertFalse(any(ratchet.UPDATE_HINT in n for n in notes), notes)
+
+    def test_a_drop_after_the_first_json_the_push_adds_prints_the_hint(self):
+        base = self.add_singleton()  # the base has no arch-ratchet.json
+        self.write("README", "in the push\n")
+        measured = self.commit("a commit of the push, before the drop")
+        self.record_singletons(1, sha=measured)  # what --update writes at that commit: true there
+        self.commit("adds the first record")
+        self.remove(f"{SRC}/CmuxNextDomain/Store+Shared.swift")
+        self.commit("removes it after the record")  # the pushed json still says 1; the truth is 0
+        refusals, notes = self.check(base=base)
+        self.assertEqual(refusals, [])
+        self.assertIn(f"arch-ratchet: {ratchet.UPDATE_HINT} (stateful_singletons)", notes)
+
+    def test_a_change_to_the_count_method_after_the_measured_sha_keeps_the_hint(self):
+        self.record_singletons(0)  # low: a skip landed the singleton without an --update
+        base = self.add_singleton()
+        self.remove(f"{SRC}/CmuxNextDomain/Store+Shared.swift")
+        measured = self.commit("removes it")
+        self.record_singletons(0, sha=measured)
+        self.commit("--update at its parent")
+        self.write(counts.METHOD_FILE, "# a changed row definition\n")
+        self.commit("changes the count method after the record")
+        refusals, notes = self.check(base=base)
+        self.assertEqual(refusals, [])
+        self.assertIn(f"arch-ratchet: {ratchet.UPDATE_HINT} (stateful_singletons)", notes)
 
     def test_an_update_measured_in_the_push_over_a_low_base_record_prints_no_hint(self):
         self.record_singletons(0)  # low: a skip landed the singleton without an --update

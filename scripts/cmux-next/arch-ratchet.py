@@ -19,7 +19,7 @@ landed never refuses a push.
 
 When a count drops, it passes, and prints `lower plans/cmux-next/arch-ratchet.json:
 scripts/cmux-next/arch-ratchet.py --update` with the rows the pushed json leaves stale, judged over the
-range the drop came from (none when the push carries the `--update` or brings the first record; see
+range the drop came from (none when the push carries an `--update` measured after the drop; see
 stale_rows for the one case it can still name wrongly). Escape for one push (say it in your report):
 ARCH_RATCHET_SKIP_REASON="<row>[,<row>]: <why>". A dated entry the push adds to the json's `exceptions`
 ({"date": "YYYY-MM-DD", "row": "<row>", "allow": <n>, "why": "..."}) lets that push raise the row by n.
@@ -256,15 +256,16 @@ def stale_rows(changes: Changes, dropped: dict[str, int]) -> list[str]:
     No full count (the pre-push budget is ~1 s), so this reads the json at both ends:
     - a push that leaves the json alone keeps every drop stale; so does a pushed json that is missing,
       unparsable or of another method_version (`--update` rewrites it);
-    - a base with no valid record (or without that row) means the push brings the first full record
-      (only `--update` writes one): that row is current;
-    - otherwise a row is current when the pushed total is at most the base total plus the drop.
-    That last test assumes the base record was accurate. When a skip left it low (recorded 10, true
-    11), a push that drops 1 and runs `--update` writes 10, above 10 - 1, and would look stale. So a
-    row it calls stale is cleared when the pushed record's measured_sha is a commit of this range and
-    no counted file (Swift sources, Package.swift, architecture-layers.json, arch_counts.py) changes
-    after it: that record is then a full count of HEAD. Known false positive left: a record measured
-    in the range with counted changes after it, or measured outside the range, over an inaccurate
+    - a row is current when the base record has it and the pushed total is at most the base total
+      plus the drop.
+    Every other row is unproved: the pushed record lacks it, or the base record does (the push brings
+    the row's first record, which `--update` measured at some commit, maybe before the drop). Unproved
+    rows are cleared together when the pushed record's measured_sha is a commit of this range and no
+    counted file (arch_counts.is_counted) changes after it: that record is then a full count of HEAD.
+    The comparison assumes the base record was accurate. When a skip left it low (recorded 10, true
+    11), a push that drops 1 and runs `--update` writes 10, above 10 - 1, and is unproved too; the
+    measured_sha test clears it. Known false positive left: a record measured in the range with
+    counted changes after it, or measured outside the range, over an inaccurate base record or with no
     base record. Rerunning `--update` and committing only the json clears it (its measured_sha is then
     the json commit's parent, in the range, with nothing counted after it).
     """
@@ -282,19 +283,14 @@ def stale_rows(changes: Changes, dropped: dict[str, int]) -> list[str]:
     old, new = totals(base_record), totals(head_record)
     if new is None:
         return list(dropped)
-    stale = []
+    unproved = []
     for row, total in dropped.items():
         was, now = (old or {}).get(row), new.get(row)
-        if not isinstance(now, int):
-            stale.append(row)
-        elif isinstance(was, int) and now > was + total:
-            stale.append(row)
-    if stale and measured_in_range(changes, head_record):
+        if not (isinstance(was, int) and isinstance(now, int) and now <= was + total):
+            unproved.append(row)
+    if unproved and measured_in_range(changes, head_record):
         return []
-    return stale
-
-
-METHOD_FILE = "scripts/cmux-next/arch_counts.py"
+    return unproved
 
 
 def measured_in_range(changes: Changes, record: dict) -> bool:
@@ -307,8 +303,7 @@ def measured_in_range(changes: Changes, record: dict) -> bool:
     if sha not in git.run("rev-list", f"{changes.base}..{changes.head}", check=False).split():
         return False
     later = git.run("diff", "--name-only", "--no-renames", "-z", sha, changes.head, "--", check=False)
-    counted = (counts.MANIFEST, counts.LAYERS_JSON, METHOD_FILE)
-    return not any(counts.is_source(p) or p in counted for p in later.split("\0") if p)
+    return not any(counts.is_counted(p) for p in later.split("\0") if p)
 
 
 def keyed_refusal(item, rule_id: str) -> tuple[str, str, tuple]:
