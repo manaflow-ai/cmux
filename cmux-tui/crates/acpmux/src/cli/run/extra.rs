@@ -446,6 +446,16 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     }
                     return Ok(());
                 }
+                PeerCmd::Place { build } => {
+                    let work = if build { "build" } else { "agent" };
+                    let v = client.request("_acpmux/place", json!({"work": work})).await?;
+                    if json_out {
+                        print_json(&v);
+                    } else {
+                        crate::cli::place::lines(&v).iter().for_each(|l| println!("{l}"));
+                    }
+                    return Ok(());
+                }
                 PeerCmd::Rm { name } => {
                     client.request("_acpmux/peer_remove", json!({"name": name})).await?
                 }
