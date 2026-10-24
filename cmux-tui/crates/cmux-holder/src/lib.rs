@@ -210,6 +210,8 @@ pub fn serve(args: &[String]) -> io::Result<()> {
         return stdout.flush();
     }
     hold_copy_in_use();
+    // Key-press flow marks start here, before the first terminal (`CMUX_TRACE_FLOWS`).
+    cmux_flow_trace::init();
     let mut args = args.iter().cloned();
     let mut socket = None;
     let mut idle_exit = None;
