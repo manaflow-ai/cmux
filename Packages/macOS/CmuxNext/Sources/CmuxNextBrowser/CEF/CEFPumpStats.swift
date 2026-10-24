@@ -24,6 +24,9 @@ public nonisolated struct CEFPumpStats: Equatable, Sendable {
     /// The gap of the pending follow-up wake in seconds, 0 when none is
     /// pending (the pump then sleeps until CEF asks).
     public var fallbackInterval: Double = 0
+    /// Delayed requests from Chromium threads dropped with no main wake, because the armed fire
+    /// came first (``CEFPumpCrossThreadGate``).
+    public var droppedCrossThreadRequests = 0
 
     public init() {}
 }
