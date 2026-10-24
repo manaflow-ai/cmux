@@ -48,6 +48,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import BenchApp  # noqa: E402
 from daemon_teardown import end_terminals  # noqa: E402
 
+# bench_launch.py defaults that the idle launch leaves unset (see main): each changes what the app runs at idle.
+IDLE_UNSET_ENV = ("SHELL", "CMUX_DEV_BACKEND_MODE", "CMUX_NEXT_AGENT_PANE_MOCK", "ACPMUX_AGENT_LAUNCH",
+                  "CMUX_NEXT_CHIEF_ISOLATED", "CMUX_NEXT_CHIEF_HOME", "CMUX_NEXT_GHOSTTY_CONFIG")
+
 STATIC_PAGE_HTML = "<!doctype html><title>idle</title><h1>static page</h1><p>no script, no animation</p>"
 
 # ---------------------------------------------------------------------------
@@ -299,8 +303,11 @@ def main():
         # Saved tabs (a restored Chromium tab starts CEF) would change every scenario.
         shutil.rmtree(os.path.expanduser(f"~/Library/Application Support/cmux/tags/{tag}/tui"), ignore_errors=True)
     scratch = tempfile.mkdtemp(prefix=f"bench-idle-{tag}-")
-    # The bench's own variables on top of bench_launch.py's defaults (--env adds or overrides them).
-    env = {}
+    # The app runs as it did before bench_launch.py started it (and as the recorded idle rows were measured): the
+    # account's shell, Ghostty config and Chief home, the real backend mode and agent host. bench_launch.py's test
+    # defaults change what runs at idle (a mock agent pane, a local backend, a scratch Ghostty config), so they are
+    # removed (None); --env adds or overrides any variable, these included.
+    env: dict = {name: None for name in IDLE_UNSET_ENV}
     for item in args.env:
         name, _, value = item.partition("=")
         env[name] = value
@@ -325,7 +332,9 @@ def main():
                      log_name=f"app-{tag}-{args.label}.log")
     bench.launch(timeout=120, ready="system.ping")
     app = bench.process
-    report = {"tag": tag, "sha": args.sha, "label": args.label, "app": bundle, "scenarios": {}, **report_env}
+    report = {"tag": tag, "sha": args.sha, "label": args.label, "app": bundle, "scenarios": {}, **report_env,
+              # The variable names the app really got (values of the bench's own paths vary per run).
+              "launch_env": sorted(bench.launched_env)}
     failures = []
     try:
         control = wait_for_socket(bench.socket)
