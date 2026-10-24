@@ -69,7 +69,9 @@ public final class TabStripView: NSView {
     let scrollingLayer = CALayer()
     private(set) lazy var edgeFade = TabEdgeFade(strip: self)
     let newTabButton = NewTabButtonView()
-    let hoverCard = TabHoverCardController()
+    /// The icon images every tab cell, group chip and the hover card draw from, passed to each once.
+    let iconCaches: TabIconCaches
+    let hoverCard: TabHoverCardController
     let groupEditor = TabGroupEditorController()
     var trackingArea: NSTrackingArea?
 
@@ -188,8 +190,18 @@ public final class TabStripView: NSView {
     static let placeholderID = TabID("__cmux.tabs.drop-placeholder__")
     // MARK: - Init
 
-    public init(model: TabStripModel, background: Background = .none) {
+    /// Makes the strip for `model`.
+    ///
+    /// - Parameters:
+    ///   - model: The tabs, groups and selection the strip draws; intents go out through it.
+    ///   - background: What the strip draws behind its tabs.
+    ///   - iconCaches: The tab icon images its cells, group chips and hover card draw from. The app
+    ///     passes its one instance (`AppServices.tabIconCaches`) to every strip, so each icon is drawn
+    ///     once per process, not once per strip.
+    public init(model: TabStripModel, background: Background = .none, iconCaches: TabIconCaches) {
         self.model = model
+        self.iconCaches = iconCaches
+        hoverCard = TabHoverCardController(iconCaches: iconCaches)
         super.init(frame: CGRect(x: 0, y: 0, width: 600, height: Self.preferredHeight))
         wantsLayer = true
         layerContentsRedrawPolicy = .never

@@ -1,9 +1,11 @@
 import AppKit
 
-/// Tinted SF Symbol images, cached per name, tint, and scale.
+/// Tinted SF Symbol images, cached per name, tint, and scale. One per
+/// ``TabIconCaches``, which its owner injects.
 final class TabSymbolCache {
-    static let shared = TabSymbolCache()
     private var cache: [String: CGImage] = [:]
+    /// Images held now.
+    var count: Int { cache.count }
 
     func image(named name: String, tint: NSColor, pointSize: CGFloat, size: CGFloat, scale: CGFloat) -> CGImage? {
         let resolved = tint.usingColorSpace(.sRGB) ?? tint

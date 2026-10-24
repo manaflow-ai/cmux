@@ -34,7 +34,7 @@ final class ScreenBarController {
 
     init(content: WorkspaceContentController) {
         self.content = content
-        view = TabStripView(model: model)
+        view = TabStripView(model: model, iconCaches: content.services.tabIconCaches)
         preview = ScreenPreviewSource(content: content)
         view.dragsWindowFromEmptySpace = false
         view.renamesOnDoubleClick = true

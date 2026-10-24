@@ -175,7 +175,7 @@ extension TabStripView {
 
     /// Creates the layers for a new tab and returns its id.
     func makeCell(_ item: TabItem, animated: Bool) -> TabID {
-        let cell = TabCell(item: item)
+        let cell = TabCell(item: item, iconCaches: iconCaches)
         cell.style = model.style
         cell.metrics = metrics
         cell.titleFont = Typography.body
