@@ -40,7 +40,7 @@ nonisolated struct TerminalWrappedLink: Equatable, Sendable {
         var pieces = [(row: row, word: hit)]
         var chain = grid[index].text(hit)
         // Whether `text` is part of Ghostty's link, so these rows are one link whatever their edges.
-        let inHint = { (text: String) in hint.map { $0.count > text.count / 2 && $0.contains(text) } ?? false }
+        let inHint = { (text: String) in hint?.contains(text) ?? false }
         // Back while the earlier row's last word was broken at the edge and this word starts its row.
         var current = index
         while current > grid.startIndex, pieces[0].word == grid[current].firstWord,

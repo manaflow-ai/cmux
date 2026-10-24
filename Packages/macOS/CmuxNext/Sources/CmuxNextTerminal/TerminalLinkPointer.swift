@@ -23,6 +23,8 @@ import GhosttyNextKit
     private weak var view: TerminalSurfaceView?
     /// A Cmd-press on a wrapped link: Ghostty never sees it, the release opens it.
     private var wrappedPress: TerminalWrappedLink?
+    /// The view hid during such a press: its release, if it still comes, goes nowhere.
+    private var swallowsRelease = false
     /// The wrapped link under the pointer, underlined.
     private(set) var wrapped: TerminalWrappedLink?
     private var wrappedCell: (column: Int, row: Int)?
@@ -105,11 +107,13 @@ import GhosttyNextKit
     /// ended, even one whose release went elsewhere.
     func movedWithoutButton() {
         isPressing = false
+        swallowsRelease = false
     }
 
     func exited() {
         modifierMonitor.remove()
         isPressing = false
+        if wrappedPress != nil { swallowsRelease = true }
         wrappedPress = nil
         clearWrapped()
         #if DEBUG
@@ -127,7 +131,8 @@ import GhosttyNextKit
         refresh(event.modifierFlags, at: point)
         let hovered = view.session?.model.hoveredLink
         // Ghostty opens a link it found whole itself; this owns only one it saw a piece of.
-        if let wrapped = wrappedLink(at: point), wrapped.text != hovered, hovered.map({ wrapped.text.contains($0) }) ?? true {
+        // The hover's own hint, so the click opens what the underline shows.
+        if let wrapped = wrappedLink(at: point, hint: hovered), wrapped.text != hovered, hovered.map({ wrapped.text.contains($0) }) ?? true {
             wrappedPress = wrapped
             return true
         }
@@ -137,6 +142,10 @@ import GhosttyNextKit
     /// A left release. True: this owned the press.
     func mouseUp(_ event: NSEvent) -> Bool {
         defer { isPressing = false }
+        if swallowsRelease {
+            swallowsRelease = false
+            return true
+        }
         guard let pressed = wrappedPress else { return false }
         wrappedPress = nil
         guard let view else { return true }
