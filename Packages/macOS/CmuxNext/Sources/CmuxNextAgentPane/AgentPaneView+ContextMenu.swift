@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextPages
+public import Foundation
 import WebKit
 
 public extension Notification.Name {
