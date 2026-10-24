@@ -8,19 +8,29 @@ import CmuxNextCompat
 /// more for every click of a burst. Now the first menu for a key asks (as before) and later
 /// menus show the kept answer at once, while one background refresh per key brings it up to
 /// date for the next menu (an app installed since appears one menu later).
-nonisolated final class LinkMenuAppCache: Sendable {
-    static let shared = LinkMenuAppCache()
-
-    private struct Entry {
+///
+/// Owned by the ``LinkRouter`` every menu is built with (``LinkRouter/menuApps``): the app's one
+/// router keeps one cache for every menu of every surface, and a test's router keeps its own.
+final class LinkMenuAppCache {
+    nonisolated private struct Entry: Sendable {
         var apps: [URL]
         var refreshing = false
     }
 
-    private let entries = Mutex<[String: Entry]>([:])
+    nonisolated private enum Lookup: Sendable {
+        case kept([URL], refresh: Bool)
+        case missing
+    }
+
+    /// Read on main and written by the background refresh, hence a lock and not main isolation.
+    nonisolated private let entries = Mutex<[String: Entry]>([:])
+    /// App icons by path, 16 pt. An app's icon is read once per cache.
+    private var icons: [String: NSImage] = [:]
+
+    init() {}
 
     /// The apps for `key`: the kept answer (and a refresh in the background), else `compute()` now.
     func apps(for key: String, compute: @escaping @Sendable () -> [URL]) -> [URL] {
-        enum Lookup { case kept([URL], refresh: Bool), missing }
         let lookup = entries.withLock { entries -> Lookup in
             guard var entry = entries[key] else { return .missing }
             let refresh = !entry.refreshing
@@ -45,10 +55,8 @@ nonisolated final class LinkMenuAppCache: Sendable {
         }
     }
 
-    /// App icons by path, 16 pt. An app's icon is read once per process.
-    @MainActor private static var icons: [String: NSImage] = [:]
-
-    @MainActor static func icon(for app: URL) -> NSImage {
+    /// The 16 pt icon of `app`, read once per cache.
+    func icon(for app: URL) -> NSImage {
         if let icon = icons[app.path] { return icon }
         let icon = NSWorkspace.shared.icon(forFile: app.path)
         icon.size = NSSize(width: 16, height: 16)

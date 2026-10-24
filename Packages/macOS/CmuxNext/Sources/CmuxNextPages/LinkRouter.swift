@@ -15,6 +15,9 @@ public final class LinkRouter {
     public var routing: () -> LinkRouting = { .fallback }
     /// `files.textEditor`, read when a path menu opens.
     public var textEditor: () -> String = { "" }
+    /// The LaunchServices answers every ``LinkMenu`` built with this router keeps: the app's one
+    /// router holds one cache for every menu of every surface, so a warm answer outlives the menu.
+    let menuApps = LinkMenuAppCache()
     /// A link this app opens itself whatever the setting (a Chief subagent's link); true when it did.
     public var appLink: (URL) -> Bool = { _ in false }
     /// Opens a web link in a cmux browser tab of the current window, in the background (not
