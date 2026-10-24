@@ -64,7 +64,18 @@ jobs:
           # trust metadata written by a prior command or source snapshot.
           if [[ -d .git ]]; then
             rm -rf .git/hooks .git/logs .git/refs
-            rm -f .git/config .git/index .git/packed-refs
+            rm -f .git/index .git/packed-refs
+            cat > .git/config <<'EOF'
+          [core]
+            repositoryformatversion = 0
+            filemode = true
+            bare = false
+            logallrefupdates = true
+            hooksPath = /dev/null
+          [remote "origin"]
+            url = https://github.com/manaflow-ai/cmux.git
+            fetch = +refs/heads/*:refs/remotes/origin/*
+          EOF
           fi
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
