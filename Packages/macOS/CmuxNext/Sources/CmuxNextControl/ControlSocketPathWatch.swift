@@ -123,6 +123,17 @@ final class ControlSocketPathWatch: Sendable {
     /// The last holder pid whose exit ``holderEnded(_:)`` handled (0: none). A socket that still
     /// names it after that exit is held by some other process the pid does not identify.
     private let endedListener = Atomic<pid_t>(0)
+    // Lock carve-out: read and written only on `queue` (watch and changed); a two-field value
+    // swapped under the lock, never held across a call out.
+    /// The live socket file at the path whose pid identifies no holder: while the same file is
+    /// there, a directory event does not probe (connect to) it again.
+    private let unfollowable = Mutex<FileIdentity?>(nil)
+
+    /// A file's device and inode.
+    struct FileIdentity: Equatable {
+        var device: dev_t
+        var inode: ino_t
+    }
 
     /// On `queue`: watches the entry at the path, or its directory when the entry cannot be
     /// opened (a socket file, nothing there), or for a yielding watch the listener of a live
@@ -133,6 +144,8 @@ final class ControlSocketPathWatch: Sendable {
         let entry = open(path, O_EVTONLY | O_SYMLINK)
         let followsEntry = entry >= 0
         if entryOnly, !followsEntry { return }
+        // Set again below only when the path still holds a socket whose pid names no holder.
+        unfollowable.withLock { $0 = nil }
         let descriptor: Int32
         if followsEntry {
             descriptor = entry
@@ -140,11 +153,12 @@ final class ControlSocketPathWatch: Sendable {
             let parent = (path as NSString).deletingLastPathComponent
             let shared = Self.isShared(parent.isEmpty ? "." : parent)
             if shared, yieldsToHeldPath, Self.exists(path),
-               case .accepted(let listener?) = ControlSocketServer.probe(path),
-               watchHolder(listener, parent: parent) {
+               case .accepted(let listener?) = ControlSocketServer.probe(path) {
                 // Another app's live socket holds the path: nothing can be made there until its
                 // listener ends, and watching /tmp would wake on every write by any process.
-                return
+                if watchHolder(listener, parent: parent) { return }
+                // Its pid names no holder: the directory watch below, without a probe per event.
+                unfollowable.withLock { $0 = Self.identity(path) }
             }
             descriptor = open(parent.isEmpty ? "." : parent, O_EVTONLY)
             guard descriptor >= 0 else {
@@ -229,10 +243,19 @@ final class ControlSocketPathWatch: Sendable {
         let restored = checkPath()
         if followingEntry || restored {
             watch()
-        } else if !stopped.load(ordering: .sequentiallyConsistent), Self.exists(path) {
+        } else if !stopped.load(ordering: .sequentiallyConsistent), let identity = Self.identity(path) {
+            // The same live socket whose pid names no holder: the directory watch stays, no probe.
+            if yieldsToHeldPath, unfollowable.withLock({ $0 }) == identity { return }
             // An entry it cannot follow is there now: a yielding watch moves to its listener.
             watch(entryOnly: !yieldsToHeldPath)
         }
+    }
+
+    /// The device and inode of what is at `path` (not following a link), nil for nothing.
+    private static func identity(_ path: String) -> FileIdentity? {
+        var info = stat()
+        guard lstat(path, &info) == 0 else { return nil }
+        return FileIdentity(device: info.st_dev, inode: info.st_ino)
     }
 
     /// Something (a file, a socket, a link) is at `path`.
