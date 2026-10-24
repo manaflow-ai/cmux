@@ -11,7 +11,7 @@ use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::Child;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use cmux_holder::client::{HolderClient, launch};
 use cmux_holder::holder::error_code;
@@ -175,6 +175,66 @@ fn a_spawn_never_stalls_the_holder_loop() {
         assert_eq!(input.u16().unwrap(), error_code::SPAWN_FAILED);
         let message = String::from_utf8_lossy(input.rest()).into_owned();
         assert!(message.contains(named), "spawn {chan}: {message}");
+    }
+    kill(holder);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Holder-core deep review: a CLOSE with no grace written in the same
+/// write as its SPAWN (and the ATTACH that follows a spawn) ends the child,
+/// although the holder handles it before the child ran its program. A
+/// SPAWN returns once it forked, so the child may not have called `setsid`
+/// yet: it leads no group, the PTY has no foreground group, and it still
+/// ignores the hang-up as the holder does. Before, the CLOSE signaled the
+/// groups only: the SIGKILL missed a child that had not reached `setsid`,
+/// and the grace was spent, so the program ran on under a closing terminal
+/// that never ended. Each round is one write; any round whose child the
+/// SIGKILL missed never gets its EXIT.
+#[test]
+fn a_close_right_behind_a_spawn_ends_the_child_before_it_runs_its_program() {
+    const ROUNDS: u32 = 32;
+    let dir = temp_dir();
+    let socket = dir.join("h.sock");
+    let holder = launch(holder_binary(), &socket, &TOKEN).unwrap();
+    let mut link = RawLink::connect(&socket);
+    link.stream.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
+    for chan in 1..=ROUNDS {
+        let request = cmux_holder::SpawnRequest {
+            id: [chan as u8; 16],
+            cols: 80,
+            rows: 24,
+            cwd: b"/tmp".to_vec(),
+            argv: vec![b"/bin/sleep".to_vec(), b"600".to_vec()],
+            env: vec![b"PATH=/usr/bin:/bin".to_vec()],
+            ..cmux_holder::SpawnRequest::default()
+        };
+        let mut bytes = wire::encode(Kind::Spawn, chan, &request.encode());
+        bytes.extend_from_slice(&wire::encode(Kind::Attach, chan, &0u64.to_le_bytes()));
+        bytes.extend_from_slice(&wire::encode(Kind::Close, chan, &0u32.to_le_bytes()));
+        link.send(&bytes);
+        let status = loop {
+            let frame = link
+                .frame()
+                .unwrap_or_else(|error| panic!("round {chan}: no EXIT, the child runs on: {error}"))
+                .expect("the holder closed the link");
+            if frame.chan != chan {
+                continue;
+            }
+            match Kind::from_u16(frame.kind) {
+                Some(Kind::Exit) => {
+                    let mut input = In(&frame.payload);
+                    break (input.u8().unwrap(), input.i32().unwrap());
+                }
+                Some(Kind::Error) => {
+                    let message = String::from_utf8_lossy(&frame.payload).into_owned();
+                    panic!("round {chan}: an error instead of the EXIT: {message:?}")
+                }
+                _ => {}
+            }
+        };
+        // Signaled (1) by the CLOSE's SIGKILL, and reaped: the holder sends
+        // a started child's EXIT only once it read its status.
+        assert_eq!(status, (1, libc::SIGKILL), "round {chan}: ended otherwise");
     }
     kill(holder);
     let _ = std::fs::remove_dir_all(&dir);
