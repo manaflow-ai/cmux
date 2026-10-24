@@ -2034,5 +2034,34 @@ class MeasureVersionGateTests(OneRunRule):
         self.assertEqual(cron.measure_version_of("626c77accc2f511146571fbb9314b1af95d2d7c9", "#!/bin/bash\n"), 2)
 
 
+
+class HostGoneSignalTests(unittest.TestCase):
+    """The controller sends host_gone when a request named a worker it does not have (hq perf_cron.go goneLocked):
+    the cron retires that host at once, its open regressions close at the next Mac measurement elsewhere."""
+    report_tick = DisplayTests.report_tick
+
+    def test_a_host_gone_result_retires_the_host_and_drops_the_pin(self):
+        with tempfile.TemporaryDirectory() as d:
+            state = self.report_tick(d, {"motion": {}}, {}, host="cmux21",
+                                     result={"state": "yielded", "worker": "cmux21", "host_gone": True, "tail": ["cmux21 is not a worker"]})
+        self.assertIn("gone_at", state["hosts"]["cmux21"])
+        self.assertNotIn("host", state["current"], "the pin to the gone host is dropped")
+        self.assertIn("motion", state["current"]["parts_todo"], "the part is asked for again, no yield counted")
+        self.assertNotIn("motion", state["current"]["parts"])
+        self.assertTrue(cron.host_gone(state, "cmux21", at(1)))
+        self.assertIsNone(cron.tip_pin_host({**state, "regressions": [{"name": "cmd_d.e2e@cmux21"}]}, at(1)))
+
+    def test_a_host_that_runs_a_part_after_gone_is_back(self):
+        state = cron.empty_state(T0)
+        cron.mark_host(state, "cmux21", gone_at=cron.iso(at(1)))
+        self.assertTrue(cron.host_gone(state, "cmux21", at(2)))
+        cron.mark_host(state, "cmux21", last_part_at=cron.iso(at(3)))
+        self.assertFalse(cron.host_gone(state, "cmux21", at(4)))
+
+    def test_fetch_result_keeps_the_flag(self):
+        value = {"sha": "a" * 40, "part": "motion", "state": "yielded", "worker": "cmux21", "host_gone": True}
+        self.assertTrue(cron.result_files(value)["host_gone"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -738,7 +738,11 @@ def host_last_seen(state, host):
 
 
 def host_gone(state, host, t):
-    """host ran no part for HOST_GONE_HOURS (pure; the caller checks that Mac parts ran elsewhere meanwhile)."""
+    """host left the fleet (pure): the controller said it has no such worker (gone_at, a host_gone result), or it ran
+    no part for HOST_GONE_HOURS (the caller checks that Mac parts ran elsewhere meanwhile)."""
+    info = host_info(state, host)
+    if info.get("gone_at") and not (info.get("last_part_at") and info["last_part_at"] > info["gone_at"]):
+        return True
     seen = host_last_seen(state, host)
     return seen is not None and hours_between(seen, t) > HOST_GONE_HOURS
 
@@ -2563,6 +2567,15 @@ def report(o):
         if not isinstance(result, dict) or result.get("state") not in ("done", "failed", "yielded"):
             continue
         changed = True
+        gone = result.get("worker") if result.get("host_gone") else None
+        if isinstance(gone, str) and HOST_RE.match(gone) and not is_linux_part(part):
+            # The controller has no such worker (hq perf_cron.go goneLocked): retire the host now, not after
+            # HOST_GONE_HOURS; the measurement's pin goes, and the part is asked for again on any idle host (no yield).
+            mark_host(state, gone, gone_at=iso(t))
+            if cur.get("host") == gone:
+                cur.pop("host")
+                cur.setdefault("gave_up", []).append({"host": gone, "at": iso(t), "why": str(result.get("tail") or "gone")[:200]})
+            continue
         if not is_linux_part(part):
             state.pop("bench_missing", None)
         refused = part_host_refusal(cur, part, result)
@@ -2756,7 +2769,7 @@ def result_files(value):
     tail = [line for line in (value.get("error"),) if line]
     return {"state": value["state"], "step_id": value.get("step_id"), "seconds": value.get("seconds"),
             "exit": value.get("exit_code"), "yielded_to": value.get("preempted_by"), "worker": value.get("worker"),
-            "timed_out": bool(value.get("timed_out")), "tail": tail,
+            "timed_out": bool(value.get("timed_out")), "tail": tail, "host_gone": bool(value.get("host_gone")),
             "build_failed": value.get("part") == "build" and value["state"] == "failed" and not value.get("timed_out")}
 
 
