@@ -34,16 +34,21 @@ import { memo, useId, useState } from "react";
 import { formatDuration } from "../conversation/turns";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
-import { type BackgroundCommand, commandLabel } from "../inspector/processes";
+import { arrivalKey, type BackgroundCommand, commandLabel } from "../inspector/processes";
 import { StopButton as ProcessStopButton } from "../inspector/TasksSection";
 import { STATUS_LABEL, type SubagentStatus, subagentStatus, subagentStatusLabel } from "../summary/SubagentStatusList";
 import { AgentLine } from "./AgentLine";
+import { BackgroundTaskTail } from "./BackgroundTaskTail";
 import { elapsed, StopButton, useNow } from "./SubagentGroup";
 import { itemStart, type TrayItem } from "./runningTray";
 import type { StartedSession } from "../started/startedSessions";
+import type { SubagentTrayPlacement } from "./subagentTrayPlacement";
 
 /// Lines the tray shows under its header without a click.
 export const TRAY_OPEN_MAX = 3;
+
+const itemKey = (item: TrayItem): string =>
+  item.kind === "command" ? `command:${arrivalKey(item.command)}` : `${item.kind}:${item.id}`;
 
 /// Memoized: App.tsx keeps its props the same while text streams.
 export const SubagentTray = memo(function SubagentTray({
@@ -53,9 +58,12 @@ export const SubagentTray = memo(function SubagentTray({
   waiting,
   onOpen,
   onOpenCommand,
+  canOpenTerminal = false,
+  canReadTail = false,
   onOpenSession,
   stop,
   stopProcess,
+  placement = "tray",
 }: {
   /// What runs or waits on the person (runningTray.ts `trayItems`): the lines the header counts.
   items: readonly TrayItem[];
@@ -69,12 +77,18 @@ export const SubagentTray = memo(function SubagentTray({
   onOpen: (id: string) => void;
   /// Opens a command's terminal, or what shows it where none opens (App.tsx).
   onOpenCommand?: (command: BackgroundCommand) => void;
+  /// The local process registry can replay this chat's output in a terminal.
+  canOpenTerminal?: boolean;
+  /// A connected local process source is available for the expanded tail.
+  canReadTail?: boolean;
   /// Opens a chat the agent started (App.tsx `openOfferChat`).
   onOpenSession?: (sessionId: string) => void;
   /// Stops a running subagent, where the harness can.
   stop?: (id: string) => Promise<unknown>;
   /// Stops a registry process (`_acpmux/process/kill`).
   stopProcess?: (processId: string) => Promise<unknown>;
+  /// The default is the existing bottom tray; the alternate is fixture/Labs-driven.
+  placement?: SubagentTrayPlacement;
 }) {
   const t = useT();
   const listId = useId();
@@ -82,6 +96,7 @@ export const SubagentTray = memo(function SubagentTray({
   // The person's choice holds; until then a short list shows and a long one folds.
   const [opened, setOpened] = useState<boolean>();
   const [showFinished, setShowFinished] = useState(false);
+  const [openCommands, setOpenCommands] = useState<ReadonlySet<string>>(() => new Set());
   if (items.length === 0 && finished.length === 0) return null;
   const headed = items.length > 1;
   const open = !headed || (opened ?? items.length <= TRAY_OPEN_MAX);
@@ -99,9 +114,9 @@ export const SubagentTray = memo(function SubagentTray({
   // Keep live and ended cards in one keyed child list. When a task completes, its card moves
   // between groups without remounting, so keyboard focus and the open affordance stay put.
   const cards = [
-    ...items.map((item) => <li key={`${item.kind}:${item.id}`}>{line(item)}</li>),
+    ...items.map((item) => <li key={itemKey(item)}>{line(item)}</li>),
     ...finished.slice(0, showFinished ? finished.length : TRAY_OPEN_MAX).map((item) => (
-      <li key={`${item.kind}:${item.id}`} data-finished="">
+      <li key={itemKey(item)} data-finished="">
         {line(item)}
       </li>
     )),
@@ -124,7 +139,12 @@ export const SubagentTray = memo(function SubagentTray({
       : []),
   ];
   return (
-    <section className="acpmux-running-tray" aria-label={t("summary.subagents")} data-open={open || undefined}>
+    <section
+      className="acpmux-running-tray"
+      aria-label={t("summary.subagents")}
+      data-open={open || undefined}
+      data-placement={placement}
+    >
       {headed && (
         <button
           type="button"
@@ -154,47 +174,80 @@ export const SubagentTray = memo(function SubagentTray({
   );
 
   function line(item: TrayItem) {
-    return item.kind === "agent" ? (
-      <AgentLine
-        name={item.agent.name}
-        detail={item.agent.action ?? item.agent.kind}
-        status={subagentStatus(item.agent, waiting)}
-        state={t(subagentStatusLabel(item.agent, waiting))}
-        time={formatDuration(elapsed(item.agent, now))}
-        depth={item.depth}
-        title={item.agent.task}
-        label={t("subagents.open", { name: item.agent.name })}
-        kind={t("tray.kind.subagent")}
-        chevron
-        onOpen={() => onOpen(item.agent.id)}
-        after={stop && item.agent.state === "running" && <StopButton agent={item.agent} stop={stop} />}
-      />
-    ) : item.kind === "command" ? (
-      <AgentLine
-        name={commandLabel(item.command)}
-        title={item.command.command}
-        kind={t("tray.kind.command")}
-        chevron
-        icon="terminal"
-        status="running"
-        state={t("subagents.state.running")}
-        time={
-          item.command.startedAt === undefined ? undefined : formatDuration(Math.max(0, now - item.command.startedAt))
-        }
-        onOpen={onOpenCommand && (() => onOpenCommand(item.command))}
-        after={
-          stopProcess &&
-          item.command.processId && (
-            <ProcessStopButton
-              id={item.command.processId}
-              name={item.command.command}
-              label={t("tray.stopCommand")}
-              stop={stopProcess}
-            />
-          )
-        }
-      />
-    ) : (
+    if (item.kind === "agent")
+      return (
+        <AgentLine
+          name={item.agent.name}
+          detail={item.agent.action ?? item.agent.kind}
+          status={subagentStatus(item.agent, waiting)}
+          state={t(subagentStatusLabel(item.agent, waiting))}
+          time={formatDuration(elapsed(item.agent, now))}
+          depth={item.depth}
+          title={item.agent.task}
+          label={t("subagents.open", { name: item.agent.name })}
+          kind={t("tray.kind.subagent")}
+          chevron
+          onOpen={() => onOpen(item.agent.id)}
+          after={stop && item.agent.state === "running" && <StopButton agent={item.agent} stop={stop} />}
+        />
+      );
+    if (item.kind === "command") {
+      const key = itemKey(item);
+      return (
+        <>
+          <AgentLine
+            name={commandLabel(item.command)}
+            title={item.command.command}
+            kind={t("tray.kind.command")}
+            chevron
+            icon="terminal"
+            working
+            status="running"
+            state={t("subagents.state.running")}
+            expanded={canOpenTerminal ? openCommands.has(key) : undefined}
+            time={
+              item.command.startedAt === undefined
+                ? undefined
+                : formatDuration(Math.max(0, now - item.command.startedAt))
+            }
+            onOpen={
+              onOpenCommand
+                ? () => {
+                    setOpenCommands((current) => {
+                      const next = new Set(current);
+                      if (next.has(key)) next.delete(key);
+                      else next.add(key);
+                      return next;
+                    });
+                    onOpenCommand(item.command);
+                  }
+                : undefined
+            }
+            after={
+              stopProcess &&
+              item.command.processId && (
+                <ProcessStopButton
+                  id={item.command.processId}
+                  name={item.command.command}
+                  label={t("tray.stopCommand")}
+                  stop={stopProcess}
+                />
+              )
+            }
+          />
+          <BackgroundTaskTail
+            command={item.command}
+            open={openCommands.has(key) && canReadTail}
+            onOpenTerminal={
+              canOpenTerminal && onOpenCommand && item.command.toolCallId
+                ? () => onOpenCommand(item.command)
+                : undefined
+            }
+          />
+        </>
+      );
+    }
+    return (
       <AgentLine
         name={item.session.title}
         detail={item.session.doing}

@@ -2,6 +2,7 @@
 /* The chat header's height (.acpmux-header); the Inspector over the chat starts under it (inspector/inspector.css). */
 .acpmux-shell{--acpmux-header-height:44px}
 .acpmux-stage{position:relative;flex:1;display:flex;flex-direction:column;min-height:0}.acpmux-reviewing>.acpmux-header,.acpmux-reviewing>.acpmux-scroll{visibility:hidden}
+.acpmux-transcript-after-latest{flex:none;min-width:0}
 
 .acpmux-diff-add{color:var(--acpmux-add)}.acpmux-diff-del{color:var(--acpmux-del)}.acpmux-diff-main{flex:1;display:flex;min-height:0}.acpmux-diff-body{flex:1;min-width:0;overflow-y:auto;overflow-x:hidden}.acpmux-diff-file{border-bottom:1px solid var(--agent-border)}.acpmux-fh-spacer{flex:1}
 .acpmux-diff-empty-edit{padding:8px 16px;color:var(--agent-muted);font-size:12px}.acpmux-main{position:relative;flex:1;min-width:0;display:flex;flex-direction:column}.acpmux-header>div{display:flex;align-items:center;min-width:0}.acpmux-session-mark{flex:none;display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;color:var(--agent-muted)}.acpmux-session-mark-input{color:var(--acpmux-needs-you-mark)}.acpmux-session-mark-unread::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--agent-accent)}.acpmux-session-mark-running{color:var(--agent-accent)}

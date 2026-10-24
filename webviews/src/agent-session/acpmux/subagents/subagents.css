@@ -529,6 +529,49 @@ button.cv-subagent > :last-child {
 .acpmux-agent-card__task {
   color: var(--agent-muted, var(--cmux-text-secondary));
 }
+
+/* An expanded background command keeps its bounded tail in the row; only this disclosed row
+   polls process/tail, and the terminal action remains in the same compact surface. */
+.acpmux-running-tray__tail {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin: 0 8px 8px 24px;
+  min-width: 0;
+}
+.acpmux-running-tray__tail pre {
+  flex: 1 1 240px;
+  max-height: calc(var(--text-detail--line-height) * 10);
+  min-width: 0;
+  margin: 0;
+  overflow: auto;
+  color: var(--agent-muted);
+  font-family: var(--cv-mono, ui-monospace, monospace);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.acpmux-running-tray__tail button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  border: 0;
+  padding: 4px 8px;
+  color: var(--agent-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.acpmux-running-tray__tail button:hover,
+.acpmux-running-tray__tail button:focus-visible {
+  color: var(--agent-text);
+}
+.acpmux-running-tray[data-placement="after-latest-message"] {
+  flex: none;
+  margin: 0 var(--cv-inset) 8px;
+}
 .acpmux-agent-card__state[data-status="failed"] {
   color: var(--agent-status-failure);
 }
