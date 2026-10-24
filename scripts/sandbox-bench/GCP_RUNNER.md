@@ -1,23 +1,28 @@
 # Disposable nested-virt GCP runner
 
-`gcp_nested_runner.py` provisions one `n4d-standard-16` instance in
-`manaflow-437420` and runs the sandbox capability probe on it. It is a dry run
-unless `--apply` is passed. The default run prints the exact `gcloud` commands
-without making a cloud API call (it still requires `gcloud` to be installed).
+`gcp_nested_runner.py` provisions one `n4d-standard-16` instance in the
+project supplied by `--project` (or `CMUX_GCP_PROJECT`) and runs the sandbox
+capability probe on it. It is a dry run unless `--apply` is passed. The default
+run prints the exact `gcloud` commands without making a cloud API call (it
+still requires `gcloud` to be installed).
 
 ```sh
-# Review the plan; no instance is created.
-python3 scripts/sandbox-bench/gcp_nested_runner.py --json
+# Review the plan; no instance is created. Values can also come from
+# CMUX_GCP_PROJECT, CMUX_RESOURCE_OWNER, and CMUX_RESOURCE_PURPOSE.
+python3 scripts/sandbox-bench/gcp_nested_runner.py --json \
+  --project example-project --owner example-owner --purpose example-purpose
 
 # Explicitly create, probe, and delete one instance.
-python3 scripts/sandbox-bench/gcp_nested_runner.py --apply --json
+python3 scripts/sandbox-bench/gcp_nested_runner.py --apply --json \
+  --project example-project --owner example-owner --purpose example-purpose
 ```
 
-The instance name is random and the create request carries these labels:
+The instance name is random and the create request carries the caller's owner
+and purpose labels plus a TTL label:
 
 ```text
-owner=claude-sr2
-purpose=rd-biz-sandboxes
+owner=<caller supplied>
+purpose=<caller supplied>
 ttl-hours=4
 ```
 
@@ -41,9 +46,8 @@ The runner does not create firewall rules, networks, routes, IAM bindings,
 service accounts, disks, or snapshots. It uses an ephemeral external IP on the
 existing `default` network, so SSH requires the existing network policy to
 permit it. If a create command fails after the API accepted it, cleanup is
-allowed only when a follow-up describe confirms both `owner=claude-sr2` and
-`purpose=rd-biz-sandboxes` on the generated name. An unrelated instance is
-never deleted.
+allowed only when a follow-up describe confirms the caller's owner and purpose
+labels on the generated name. An unrelated instance is never deleted.
 
 ## Permissions and limits
 

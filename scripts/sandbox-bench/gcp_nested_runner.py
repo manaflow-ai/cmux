@@ -23,9 +23,9 @@ from pathlib import Path
 from typing import Any, Sequence
 
 
-PROJECT = "manaflow-437420"
-OWNER = "claude-sr2"
-PURPOSE = "rd-biz-sandboxes"
+DEFAULT_PROJECT = "<project>"
+DEFAULT_OWNER = "<owner>"
+DEFAULT_PURPOSE = "<purpose>"
 DEFAULT_ZONE = "us-west1-a"
 DEFAULT_MACHINE = "n4d-standard-16"
 DEFAULT_IMAGE_FAMILY = "ubuntu-2404-lts-amd64"
@@ -135,9 +135,9 @@ touch /var/lib/rd-sandbox/startup-ready
 """
 
 
-def labels(ttl_hours: float) -> str:
+def labels(owner: str, purpose: str, ttl_hours: float) -> str:
     ttl_label = str(int(ttl_hours)) if ttl_hours.is_integer() else str(ttl_hours).replace(".", "-")
-    return f"owner={OWNER},purpose={PURPOSE},ttl-hours={ttl_label}"
+    return f"owner={owner},purpose={purpose},ttl-hours={ttl_label}"
 
 
 def create_argv(args: argparse.Namespace, name: str, startup_file: Path) -> list[str]:
@@ -148,7 +148,7 @@ def create_argv(args: argparse.Namespace, name: str, startup_file: Path) -> list
         f"--image-family={args.image_family}",
         f"--image-project={args.image_project}",
         f"--boot-disk-size={args.boot_disk_size}",
-        f"--labels={labels(args.ttl_hours)}",
+        f"--labels={labels(args.owner, args.purpose, args.ttl_hours)}",
         f"--metadata-from-file=startup-script={startup_file}",
         "--enable-nested-virtualization",
         # This requests an ephemeral address but creates no firewall rule.
@@ -170,11 +170,11 @@ def _describe(args: argparse.Namespace, name: str) -> dict[str, Any] | None:
         raise RunnerError(f"gcloud describe returned invalid JSON: {exc}") from exc
 
 
-def _ours(instance: dict[str, Any] | None) -> bool:
+def _ours(instance: dict[str, Any] | None, owner: str, purpose: str) -> bool:
     if not instance:
         return False
     got = instance.get("labels", {})
-    return got.get("owner") == OWNER and got.get("purpose") == PURPOSE
+    return got.get("owner") == owner and got.get("purpose") == purpose
 
 
 def _ssh_argv(args: argparse.Namespace, name: str, command: str) -> list[str]:
@@ -205,7 +205,7 @@ def _plan(args: argparse.Namespace, name: str, startup_file: Path) -> dict[str, 
     ]
     return {
         "project": args.project, "zone": args.zone, "instance": name,
-        "machine_type": args.machine_type, "labels": labels(args.ttl_hours),
+        "machine_type": args.machine_type, "labels": labels(args.owner, args.purpose, args.ttl_hours),
         "ttl_hours": args.ttl_hours, "idle_stop_minutes": args.idle_stop_minutes,
         "dry_run": not args.apply,
         "commands": {
@@ -219,6 +219,8 @@ def _plan(args: argparse.Namespace, name: str, startup_file: Path) -> dict[str, 
 
 def run(args: argparse.Namespace) -> dict[str, Any]:
     _require_gcloud()
+    if args.apply and any(value.startswith("<") for value in (args.project, args.owner, args.purpose)):
+        raise RunnerError("--apply requires explicit --project, --owner, and --purpose values")
     name = _instance_name(args.name_prefix)
     with tempfile.TemporaryDirectory(prefix="rd-sandbox-startup-") as temp:
         startup_file = Path(temp) / "startup.sh"
@@ -237,7 +239,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             if create.returncode != 0:
                 # A transport error can occur after the API accepted create.
                 # Recover only an exact generated name carrying our labels.
-                if _ours(_describe(args, name)):
+                if _ours(_describe(args, name), args.owner, args.purpose):
                     created = True
                 raise RunnerError(f"instance create failed ({create.returncode}): {create.stderr.strip()[-500:]}")
             created = True
@@ -284,11 +286,13 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--apply", action="store_true", help="perform GCP mutations (default is dry-run)")
-    p.add_argument("--project", default=PROJECT)
+    p.add_argument("--project", default=os.environ.get("CMUX_GCP_PROJECT", DEFAULT_PROJECT))
     p.add_argument("--zone", default=DEFAULT_ZONE)
     p.add_argument("--machine-type", default=DEFAULT_MACHINE)
     p.add_argument("--image-family", default=DEFAULT_IMAGE_FAMILY)
     p.add_argument("--image-project", default=DEFAULT_IMAGE_PROJECT)
+    p.add_argument("--owner", default=os.environ.get("CMUX_RESOURCE_OWNER", DEFAULT_OWNER))
+    p.add_argument("--purpose", default=os.environ.get("CMUX_RESOURCE_PURPOSE", DEFAULT_PURPOSE))
     p.add_argument("--boot-disk-size", default="50GB")
     p.add_argument("--name-prefix", default="rd-biz-sbx")
     p.add_argument("--ttl-hours", type=lambda value: _valid_duration(float(value), "ttl-hours"), default=DEFAULT_TTL_HOURS)
