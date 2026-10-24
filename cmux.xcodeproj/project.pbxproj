@@ -506,6 +506,10 @@
 				"$(SRCROOT)/Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/Shim",
 				"$(CMUX_CEF_PATH)",
 				"$(CMUX_CEF_MANIFEST)",
+				"$(CMUX_NEXT_SKIP_CEF)",
+				"$(CMUX_NEXT_REQUIRE_CEF)",
+				"$(CMUX_NEXT_SKIP_UBLOCK)",
+				"$(CMUX_NEXT_REQUIRE_UBLOCK)",
 			);
 			name = "Embed CEF";
 			outputFileListPaths = (
@@ -697,6 +701,7 @@
 				"$(SRCROOT)/Resources/markdown-viewer/viewer-navigation.js",
 				"$(SRCROOT)/config/vite-plus/check.ts",
 				"$(SRCROOT)/web/data/model-catalog/snapshot.json",
+				"$(CMUX_WEB_BUNDLES_OPTIONAL)",
 				"$(SRCROOT)/Packages/macOS/CmuxNext/Sources",
 			);
 			name = "Verify web bundles";
