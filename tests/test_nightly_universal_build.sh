@@ -93,10 +93,10 @@ fi
 if ! awk '
   /^  decide:/ { in_decide=1; next }
   in_decide && /^  [a-zA-Z0-9_-]+:/ { in_decide=0 }
-  in_decide && /^    runs-on: ubuntu-24\.04$/ { saw_runner_override=1 }
+  in_decide && /blacksmith-2vcpu-ubuntu-2404/ { saw_runner_override=1 }
   END { exit !saw_runner_override }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: the short nightly decide gate must run on GitHub-hosted ubuntu-24.04, never Blacksmith"
+  echo "FAIL: the short nightly decide gate must use the trusted fast-check fallback"
   exit 1
 fi
 

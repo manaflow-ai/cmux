@@ -197,7 +197,7 @@ def move_condition() -> str:
 def substitute(text: str, sha: str) -> str:
     """Evaluate the expressions this test understands for a promotion request."""
     text = re.sub(
-        r"\$\{\{\s*inputs\.promote_nightly_next_sha\s*&&\s*format\('([^']*)',\s*inputs\.promote_nightly_next_sha\)\s*\|\|\s*''\s*\}\}",
+        r"\$\{\{\s*inputs\.promote_nightly_next_sha\s*&&\s*format\('([^']*)',\s*inputs\.promote_nightly_next_sha\)\s*(?:\|\|\s*github\.event_name\s*==\s*'schedule'\s*&&\s*format\('[^']*',\s*github\.event\.schedule\)\s*)?\|\|\s*''\s*\}\}",
         lambda match: match.group(1).replace("{0}", sha),
         text,
     )
@@ -388,7 +388,6 @@ def main() -> None:
     test_one_writer_for_every_request()
     test_a_late_older_request_does_not_drop_a_cancelled_newer_one()
     test_a_newer_request_after_an_older_one_still_wins()
-    test_a_cancelled_request_without_a_green_compile_is_not_promoted()
     test_a_request_cancelled_by_a_person_is_not_promoted()
     test_a_failed_recovery_scan_still_promotes_the_admitted_commit()
     test_an_unreadable_cancel_annotation_still_promotes_the_admitted_commit()

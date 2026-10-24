@@ -2181,6 +2181,7 @@
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
+          "equalizeSplitsOnDividerDoubleClick": "Når dette er aktivert, gjør et dobbeltklikk på en skillelinje panelene i raden eller kolonnen like store. Andre rader og kolonner beholder størrelsene sine.",
           "confirmQuit": "Styrer når cmux ber om bekreftelse før avslutning. DEV-bygg avslutter alltid umiddelbart uansett denne innstillingen. Den eldre app.warnBeforeQuit godtas fortsatt som boolsk fallback.",
           "windowTitleTemplate": "Valgfri mal for NSWindow-tittelen. Tom verdi bevarer cmux sin eksisterende standardtittelatferd, inkludert fallback til gjeldende katalog. Støttede plassholdere: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "devWindowDisplay": "Skjermnavn som bare brukes i DEBUG-bygg når nye vinduer åpnes. En tom verdi bruker systemstandarden.",
@@ -3448,6 +3449,7 @@
     "unsupportedParams": "Denne koblingen inneholder parametere som ikke støttes cmux vil avvise: {params}",
     "conflictingParams": "Denne koblingen inneholder parametere som ikke kan brukes sammen: {params}",
     "invalidParams": "Denne koblingen inneholder ugyldige parameterverdier: {params}",
+    "ignoredParams": "cmux ignorerer parametere den ikke bruker: {params}. Økten åpnes likevel.",
     "fixParams": "Fiks URL-parametrene, og last deretter inn denne siden på nytt.",
     "examplePrefix": "Se en",
     "exampleLink": "eksempel lenke",
@@ -5519,6 +5521,8 @@
     "errorInvalidCode": "Koden er ikke gyldig. Sjekk e-posten og prøv igjen.",
     "errorInvalidTotp": "Tofaktorkoden er ikke gyldig.",
     "errorSignUpNotAllowed": "Nye kontoer kan ikke opprettes akkurat nå.",
+    "errorEmailUnverified": "Denne e-postadressen har allerede en konto, men adressen er ikke bekreftet ennå. Logg inn slik du registrerte deg, og bekreft deretter e-postadressen din for å bruke innloggingskoder.",
+    "useEmailPasswordInstead": "Logg inn med e-post og passord",
     "errorPasskey": "Innlogging med passnøkkel ble ikke fullført. Prøv igjen eller bruk en annen metode.",
     "errorGeneric": "Noe gikk galt. Prøv igjen."
   },
