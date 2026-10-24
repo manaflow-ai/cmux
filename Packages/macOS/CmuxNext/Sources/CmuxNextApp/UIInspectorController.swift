@@ -19,7 +19,6 @@ final class UIInspectorController {
     private var contextMonitor: Any?
     private var lastContextPoint: NSPoint?
     private weak var lastContextWindow: NSWindow?
-    private var inspectNotification: NSObjectProtocol?
     private var activeWindow: NSWindow?
     private var highlighted: NSView?
     private var highlight: OverlayHandle?
@@ -31,11 +30,6 @@ final class UIInspectorController {
 
     init(services: AppServices) {
         self.services = services
-        inspectNotification = NotificationCenter.default.addObserver(
-            forName: .cmuxNextInspectUIElement, object: nil, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.inspectFromContextMenu() }
-        }
         if AgentPaneTunables.pointerInspector.value { installContextMonitor() }
         observeToggle()
     }
@@ -48,7 +42,6 @@ final class UIInspectorController {
         MainActor.assumeIsolated { // main-proof: the guard above returns unless Thread.isMainThread.
             if let monitor { NSEvent.removeMonitor(monitor) }
             if let contextMonitor { NSEvent.removeMonitor(contextMonitor) }
-            if let inspectNotification { NotificationCenter.default.removeObserver(inspectNotification) }
         }
     }
 
@@ -64,12 +57,19 @@ final class UIInspectorController {
     /// most recent app-owned context menu. This is the native equivalent of
     /// browser DevTools' Inspect Element command.
     func inspectFromContextMenu() {
+        inspect(at: lastContextPoint, in: lastContextWindow)
+    }
+
+    /// Starts the picker and highlights the element at `point` (screen coordinates) in `window`
+    /// (a child window's parent shell window). An agent page's Inspect Element passes where its
+    /// menu opened, so it does not depend on the context monitor having seen the right-click
+    /// (the first use makes this controller after that click). A nil `window` (a closed window,
+    /// or no right-click seen yet) only starts the picker: it never falls back to another window.
+    func inspect(at point: NSPoint?, in window: NSWindow?) {
         guard AgentPaneTunables.pointerInspector.value else { return }
         start()
-        guard let point = lastContextPoint,
-              let window = lastContextWindow,
-              window.isVisible else { return }
-        highlight(at: point, in: window)
+        guard let point, let window, let shell = shellWindow(for: window), shell.isVisible else { return }
+        highlight(at: point, in: shell)
     }
 
     private func observeToggle() {

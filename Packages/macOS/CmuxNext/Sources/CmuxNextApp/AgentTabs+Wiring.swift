@@ -120,6 +120,8 @@ extension AgentTabStore {
             await MainActor.run { _ = services?.home.brain.ensure(asked: false) }
         }
         (tabs.chiefHost, tabs.chiefPaneHost) = (chief.host, chief.paneHost)
+        // A page's Inspect Element, as the native menus' `agentPane.togglePointerInspector` with a target.
+        tabs.inspectUIElement = { [weak services] point, window in services?.uiInspector.inspect(at: point, in: window) }
         tabs.localSessionHost = chief.localRouter(tabs.host)
         // This Mac's stable install id (the Cloud device id): only this host attaches to its acpmux.
         tabs.blankChatHandler = { [weak services] key in

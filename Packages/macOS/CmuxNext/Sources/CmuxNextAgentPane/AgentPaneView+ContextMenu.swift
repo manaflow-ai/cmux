@@ -2,13 +2,8 @@ import AppKit
 import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextPages
-public import Foundation
+import Foundation
 import WebKit
-
-public extension Notification.Name {
-    /// Posted by an app-owned webview context menu while the Labs pointer inspector is enabled.
-    static let cmuxNextInspectUIElement = Notification.Name("cmux.next.inspect-ui-element")
-}
 
 /// The agent pane's web view on the old host: WebKit's context menu goes through the pane
 /// (``AgentPaneView/editContextMenu(_:)``). On the page host the shared view's
@@ -201,6 +196,10 @@ extension AgentPaneView {
     /// The pane's menu for `target` and `selection` in `menu`, which holds WebKit's items (none for More).
     private func fillContextMenu(_ menu: NSMenu, target: AgentPaneMessageTarget?, selection: String?) {
         let chatMenu = target == nil && selection == nil ? model.chatMenuItems?() ?? [] : []
+        // Where the menu opened: Inspect Element starts there. A Chromium page's menu can be built
+        // after the pointer moved on, so it uses the click the page reported; WebKit builds its
+        // menu at the right-click and More at its click, where the pointer still is.
+        let menuPoint = page?.chromiumMenuScreenPoint ?? NSEvent.mouseLocation
         AgentPaneContextMenu.rebuild(menu, target: target, selection: selection, devTools: DevTools.isEnabled, chatMenu: chatMenu,
                                      scope: themeScope.fullStrength, actions: .init(
             copy: { [weak self] text in self?.copyText(text) },
@@ -213,8 +212,8 @@ extension AgentPaneView {
             search: { [weak self] text in self?.model.onSearchWeb?(text) },
             page: { [weak self] name, params in self?.runMessageAction(name, params) },
             pasteTarget: webView,
-            inspectElement: AgentPaneTunables.pointerInspector.value ? {
-                NotificationCenter.default.post(name: .cmuxNextInspectUIElement, object: self)
+            inspectElement: AgentPaneTunables.pointerInspector.value ? { [weak self] in
+                self?.model.onInspectUIElement?(menuPoint, self?.window)
             } : nil))
     }
 

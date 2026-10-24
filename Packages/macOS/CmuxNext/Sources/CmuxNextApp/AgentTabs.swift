@@ -110,6 +110,10 @@ final class AgentTabStore {
     /// Chats outside any pane (onboarding's first task), weakly held, so
     /// they get customization changes too.
     let standaloneViews = NSHashTable<AgentPaneView>.weakObjects()
+    /// Inspect Element in a page's context menu (the Labs pointer inspector), with the menu's
+    /// screen point and the page's window: AppServices starts its ``UIInspectorController`` at
+    /// the element the menu opened on.
+    var inspectUIElement: @MainActor (_ screenPoint: NSPoint, _ window: NSWindow?) -> Void = { _, _ in }
     /// Takes back a closed, untouched new tab page as the pool's spare
     /// (NewTabSparePool.recycle); false when the pool already has one.
     var recycle: ((AgentPaneView) -> Bool)?
@@ -505,6 +509,7 @@ final class AgentTabStore {
         pageChats.seed(view)
         model.onComposerSetting = { [weak pageSettings] path, show in try await pageSettings?.setComposer(path, show) }
         model.onDisplaySetting = { [weak pageSettings] path, value in try await pageSettings?.setDisplay(path, value) }
+        model.onInspectUIElement = { [weak self] point, window in self?.inspectUIElement(point, window) }
         customization.start()
         return view
     }

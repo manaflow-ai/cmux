@@ -153,6 +153,10 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// a report the page sends on `contextmenu` (the agent chat) waits for it here, since Chromium's
     /// menu request and the page's message arrive in either order. Nil builds the menu at once.
     public var chromiumMenuWait: (@MainActor () async -> Void)?
+    /// Where the Chromium right-click was, in screen coordinates, while ``contextMenuEditor`` builds
+    /// its menu (nil at any other time, and for a WebKit page): the menu may be built after a
+    /// ``chromiumMenuWait``, when the pointer has moved on.
+    public internal(set) var chromiumMenuScreenPoint: NSPoint?
     /// The crash clock (tests set it).
     var now: () -> Date = { Date() }
     var crashReloads = PageCrashReloads()
