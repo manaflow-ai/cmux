@@ -32,14 +32,20 @@ final class PageWKWebView: WKWebView {
     })()
     """
 
-    override init(frame: CGRect, configuration: WKWebViewConfiguration) {
+    override convenience init(frame: CGRect, configuration: WKWebViewConfiguration) {
+        self.init(frame: frame, configuration: configuration, menuActions: .default)
+    }
+
+    /// - Parameter menuActions: The center `NSMenu.willSendActionNotification` is observed on
+    ///   (AppKit posts it on `.default`; tests pass their own so parallel suites do not cross).
+    init(frame: CGRect, configuration: WKWebViewConfiguration, menuActions: NotificationCenter) {
         super.init(frame: frame, configuration: configuration)
         allowsMagnification = false
         // A choice in this view's context menu is the person's input (``menuWillSendAction(_:)``).
         // MainActorObservation observes on queue .main: AppKit's post on main runs the handler
         // inline, before the action is sent; a selector into this main-actor view trapped on a
         // post off main. The token removes the observer when the view is released, on any thread.
-        menuActionObserver = MainActorObservation(NSMenu.willSendActionNotification, read: {
+        menuActionObserver = MainActorObservation(NSMenu.willSendActionNotification, center: menuActions, read: {
             ($0.object as? NSMenu).map(ObjectIdentifier.init)
         }) { [weak self] sender in
             self?.menuWillSendAction(from: sender)

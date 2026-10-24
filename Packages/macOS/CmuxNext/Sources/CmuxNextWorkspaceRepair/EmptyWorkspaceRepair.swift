@@ -90,11 +90,11 @@ public final class EmptyWorkspaceRepair {
     /// it without one (the daemon restarted without its terminals): that one
     /// is repaired. Tests replace it.
     @ObservationIgnored public var isLive: @MainActor () -> Bool
-    @ObservationIgnored private(set) var observation: Task<Void, Never>?
+    @ObservationIgnored private var observation: Task<Void, Never>?
     /// The store observed; weak, the store owns its life.
     @ObservationIgnored private weak var store: DaemonStore?
     /// One pane observation per workspace in the store (`watch`).
-    @ObservationIgnored private(set) var watchers: [ObjectIdentifier: Task<Void, Never>] = [:]
+    @ObservationIgnored private var watchers: [ObjectIdentifier: Task<Void, Never>] = [:]
     /// The live tree epoch whose workspaces were all examined.
     @ObservationIgnored private var checkedTreeEpoch: Int??
     /// Whether each watched workspace had a pane when last examined.
@@ -104,6 +104,9 @@ public final class EmptyWorkspaceRepair {
     /// Workspaces examined for a missing pane since launch: a store change
     /// that touches none of them must examine none (sidebar churn).
     @ObservationIgnored private(set) var visited = 0
+    /// Test seam (read only): the store observation and every workspace watcher running now, so a
+    /// test can hold them and see that releasing the repair cancels each one.
+    var observationTasksForTests: [Task<Void, Never>] { [observation].compactMap { $0 } + Array(watchers.values) }
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.empty-workspace")
 
     /// The daemon-facing closures come from the App (`init(daemon:)`), which

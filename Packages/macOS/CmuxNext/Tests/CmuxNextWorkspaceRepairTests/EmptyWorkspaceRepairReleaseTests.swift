@@ -8,7 +8,7 @@ import Testing
 /// Thread.isMainThread else { return }`), so a repair released off main left its loops waiting.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1)))
 struct EmptyWorkspaceRepairReleaseTests {
-    // crash-allow: the other thread writes `repair` once while the main thread waits on the semaphore, so no two threads touch it at once.
+    // crash-allow: the other thread writes `repair` once while the test awaits that thread's resume, so no two threads touch it at once.
     nonisolated final class Handoff: @unchecked Sendable {
         var repair: EmptyWorkspaceRepair?
     }
@@ -20,27 +20,25 @@ struct EmptyWorkspaceRepairReleaseTests {
         let handoff = Handoff()
         handoff.repair = EmptyWorkspaceRepair(store: store, create: { _ in nil }, close: { _ in }, cause: { _ in .tabClosed },
                                               canCreate: { true }, epoch: { 1 }, isLive: { true })
-        await EmptyWorkspaceRepairCostTests.settle { handoff.repair?.watchers.count == 3 }
-        let observation = try #require(handoff.repair?.observation)
-        let watchers = Array(try #require(handoff.repair?.watchers.values))
-        #expect(watchers.count == 3)
+        await EmptyWorkspaceRepairCostTests.settle { handoff.repair?.observationTasksForTests.count == 4 }
+        let tasks = try #require(handoff.repair?.observationTasksForTests)
+        #expect(tasks.count == 4, "expected the store observation and one watcher per workspace")
         if offMain {
-            Self.releaseOnAnotherThread(handoff)
+            await Self.releaseOnAnotherThread(handoff)
         } else {
             handoff.repair = nil
         }
-        #expect(observation.isCancelled, "releasing the repair left its store observation running")
-        #expect(watchers.allSatisfy(\.isCancelled), "releasing the repair left a workspace watcher running")
+        #expect(tasks.allSatisfy(\.isCancelled), "releasing the repair left an observation running")
     }
 
-    /// Drops the handoff's repair, its last reference, on a new thread and returns once it is gone.
-    /// The main thread waits meanwhile, so a deinit that needs the main thread cannot clean up first.
-    nonisolated static func releaseOnAnotherThread(_ handoff: Handoff) {
-        let released = DispatchSemaphore(value: 0)
-        Thread.detachNewThread {
-            handoff.repair = nil
-            released.signal()
+    /// Drops the handoff's repair, its last reference, on a new thread and resumes once it is gone.
+    /// The test awaits instead of blocking, so the main actor stays free while the other thread runs the deinit.
+    nonisolated static func releaseOnAnotherThread(_ handoff: Handoff) async {
+        await withCheckedContinuation { (released: CheckedContinuation<Void, Never>) in
+            Thread.detachNewThread {
+                handoff.repair = nil
+                released.resume()
+            }
         }
-        released.wait()
     }
 }

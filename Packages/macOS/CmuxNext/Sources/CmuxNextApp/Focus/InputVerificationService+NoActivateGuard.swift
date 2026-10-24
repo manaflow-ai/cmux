@@ -1,4 +1,5 @@
 @preconcurrency import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import os
 
@@ -43,11 +44,13 @@ extension InputVerificationService {
                                                                         restoredTo: giveBack.restoredTo))
         })
         keyboardGuard = guardian
-        let center = NotificationCenter.default
-        keyboardGuardObservers.append(NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak guardian] note in
-            guard let guardian else { return }
-            guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+        // One MainActorObservation per signal: each observes on queue .main and holds the main-delivery
+        // proof, so this wiring needs no assumeIsolated of its own.
+        keyboardGuardObservers.append(MainActorObservation(
+            NSWorkspace.didActivateApplicationNotification, center: NSWorkspace.shared.notificationCenter,
+            read: { $0.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication }
+        ) { [weak guardian] app in
+            guard let guardian, let app else { return }
             let sequence = guardian.beginOtherAppActivation()
             NoActivateApplicationResolver.resolve(app) { [weak self, weak guardian] app, pid in
                 guard let self, let guardian, let current = self.keyboardGuard, current === guardian else { return }
@@ -56,14 +59,14 @@ extension InputVerificationService {
                 guardian.appDidBecomeActive()
             }
         })
-        keyboardGuardObservers.append(center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
-            MainActor.assumeIsolated { guardian.appDidBecomeActive() } // main-proof: observer on queue: .main
+        keyboardGuardObservers.append(MainActorObservation(NSApplication.didBecomeActiveNotification) {
+            guardian.appDidBecomeActive()
         })
-        keyboardGuardObservers.append(center.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { _ in
-            MainActor.assumeIsolated { guardian.appDidResignActive() } // main-proof: observer on queue: .main
+        keyboardGuardObservers.append(MainActorObservation(NSApplication.didResignActiveNotification) {
+            guardian.appDidResignActive()
         })
-        keyboardGuardObservers.append(center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { _ in
-            MainActor.assumeIsolated { guardian.windowDidBecomeKey() } // main-proof: observer on queue: .main
+        keyboardGuardObservers.append(MainActorObservation(NSWindow.didBecomeKeyNotification) {
+            guardian.windowDidBecomeKey()
         })
         let application = NSApp as? CmuxApplication
         let journalObserver = application?.inputObserver

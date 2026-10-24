@@ -15,7 +15,7 @@ final class InputVerificationService {
     private var geometryObservers: [MainActorObservation] = []
     /// No-activate mode only: gives back a keyboard the user did not give.
     var keyboardGuard: NoActivateKeyboardGuard?
-    var keyboardGuardObservers: [any NSObjectProtocol] = []
+    var keyboardGuardObservers: [MainActorObservation] = []
     private weak var services: AppServices?
 
     /// Configures the journal, installs the event tap and the monitor's

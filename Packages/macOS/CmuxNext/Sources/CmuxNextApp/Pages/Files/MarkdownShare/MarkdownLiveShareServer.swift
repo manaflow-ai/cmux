@@ -122,13 +122,13 @@ final class MarkdownLiveShareServer {
     private func accept(_ connection: NWConnection) {
         let id = ObjectIdentifier(connection)
         connections[id] = connection
-        network.start(connection) { [weak self] state in
+        let started = network.start(connection) { [weak self] state in
             switch state {
             case .failed, .cancelled: self?.forget(id)
             default: break
             }
         }
-        receive(connection, head: Data())
+        receive(started, head: Data())
     }
 
     private func forget(_ id: ObjectIdentifier) {
@@ -136,18 +136,17 @@ final class MarkdownLiveShareServer {
         for token in shares.keys { shares[token]?.streams[id] = nil }
     }
 
-    private func receive(_ connection: NWConnection, head: Data) {
-        // Every connection starts on queue .main (accept), so Network calls this on main.
-        network.receive(connection, maximumLength: Self.headLimit) { [weak self] data, complete, error in
+    private func receive(_ started: MainQueueConnection, head: Data) {
+        network.receive(started, maximumLength: Self.headLimit) { [weak self] data, complete, error in
             guard let self else { return }
             var head = head
             if let data { head.append(data) }
             if let end = head.range(of: Data("\r\n\r\n".utf8)) {
-                self.respond(to: head[..<end.lowerBound], on: connection)
+                self.respond(to: head[..<end.lowerBound], on: started.connection)
             } else if error != nil || complete || head.count > Self.headLimit {
-                connection.cancel()
+                started.connection.cancel()
             } else {
-                self.receive(connection, head: head)
+                self.receive(started, head: head)
             }
         }
     }
@@ -249,16 +248,29 @@ private struct MainQueueNetworkEvents {
     }
 
     /// Installs the connection's state handler, then starts it on the main queue.
-    func start(_ connection: NWConnection, state: @escaping @MainActor (NWConnection.State) -> Void) {
+    ///
+    /// - Returns: The proof that `connection` runs on the main queue, the only value ``receive(_:maximumLength:_:)`` takes.
+    func start(_ connection: NWConnection, state: @escaping @MainActor (NWConnection.State) -> Void) -> MainQueueConnection {
         // main-proof: the connection starts on the main queue below.
         connection.stateUpdateHandler = { value in MainActor.assumeIsolated { state(value) } }
         connection.start(queue: .main)
+        return MainQueueConnection(connection)
     }
 
-    /// Reads up to `maximumLength` bytes from a connection started above; `handler` gets the bytes,
-    /// whether the peer finished, and the error.
-    func receive(_ connection: NWConnection, maximumLength: Int, _ handler: @escaping @MainActor (Data?, Bool, NWError?) -> Void) {
-        // main-proof: Network calls this on the connection's queue, the main queue (start above).
-        connection.receive(minimumIncompleteLength: 1, maximumLength: maximumLength) { data, _, done, error in MainActor.assumeIsolated { handler(data, done, error) } }
+    /// Reads up to `maximumLength` bytes from a connection this adapter started; `handler` gets the
+    /// bytes, whether the peer finished, and the error.
+    func receive(_ started: MainQueueConnection, maximumLength: Int, _ handler: @escaping @MainActor (Data?, Bool, NWError?) -> Void) {
+        started.connection.receive(minimumIncompleteLength: 1, maximumLength: maximumLength) { data, _, done, error in
+            // main-proof: only start(_:state:) makes a MainQueueConnection, after connection.start(queue: .main),
+            // so Network calls this on the main queue.
+            MainActor.assumeIsolated { handler(data, done, error) }
+        }
     }
+}
+
+/// A connection ``MainQueueNetworkEvents`` started on the main queue; only its `start(_:state:)` makes one.
+private struct MainQueueConnection {
+    let connection: NWConnection
+
+    fileprivate init(_ connection: NWConnection) { self.connection = connection }
 }

@@ -6,6 +6,7 @@ import Testing
 /// AppKit posts `NSMenu.willSendActionNotification` on main before it sends the item's action, and the
 /// view's observer (a `MainActorObservation`) notes the activation inline, so the page call the item leads
 /// to (a host-built Copy) sees a recent gesture. A choice in any other menu is not this view's gesture.
+/// Each test posts on its own center (`menuActions`), so parallel suites and other live views never see it.
 @MainActor
 struct PageMenuChoiceGestureTests {
     private static func rightClick() throws -> NSEvent {
@@ -14,16 +15,18 @@ struct PageMenuChoiceGestureTests {
     }
 
     @Test func aChoiceInTheViewsOwnMenuIsAGesture() throws {
-        let web = PageWKWebView(frame: NSRect(x: 0, y: 0, width: 200, height: 200), configuration: .init())
+        let center = NotificationCenter()
+        let web = PageWKWebView(frame: NSRect(x: 0, y: 0, width: 200, height: 200), configuration: .init(), menuActions: center)
         let menu = NSMenu()
         web.willOpenMenu(menu, with: try Self.rightClick())
         #expect(!web.hasRecentUserGesture())
-        NotificationCenter.default.post(name: NSMenu.willSendActionNotification, object: menu)
+        center.post(name: NSMenu.willSendActionNotification, object: menu)
         #expect(web.hasRecentUserGesture())
     }
 
     @Test func aChoiceInASubmenuOfTheViewsMenuIsAGesture() throws {
-        let web = PageWKWebView(frame: NSRect(x: 0, y: 0, width: 200, height: 200), configuration: .init())
+        let center = NotificationCenter()
+        let web = PageWKWebView(frame: NSRect(x: 0, y: 0, width: 200, height: 200), configuration: .init(), menuActions: center)
         let menu = NSMenu()
         let submenu = NSMenu()
         let item = NSMenuItem(title: "More", action: nil, keyEquivalent: "")
@@ -31,14 +34,15 @@ struct PageMenuChoiceGestureTests {
         item.submenu = submenu
         menu.addItem(item)
         web.willOpenMenu(menu, with: try Self.rightClick())
-        NotificationCenter.default.post(name: NSMenu.willSendActionNotification, object: submenu)
+        center.post(name: NSMenu.willSendActionNotification, object: submenu)
         #expect(web.hasRecentUserGesture())
     }
 
     @Test func aChoiceInAnotherMenuIsNoGesture() throws {
-        let web = PageWKWebView(frame: NSRect(x: 0, y: 0, width: 200, height: 200), configuration: .init())
+        let center = NotificationCenter()
+        let web = PageWKWebView(frame: NSRect(x: 0, y: 0, width: 200, height: 200), configuration: .init(), menuActions: center)
         web.willOpenMenu(NSMenu(), with: try Self.rightClick())
-        NotificationCenter.default.post(name: NSMenu.willSendActionNotification, object: NSMenu())
+        center.post(name: NSMenu.willSendActionNotification, object: NSMenu())
         #expect(!web.hasRecentUserGesture())
     }
 }
