@@ -815,18 +815,12 @@ def app_size(changes: list[FileChange], moved: collections.Counter) -> list[Adde
     and here) and of the App outside the root are NetHit.warn hits: warnings, not refusals. Lines moved between
     feature files (a git mv, a split) and out of the root into another App file are not growth (and the latter is
     no root shrink); code moved into the root (a Host file too) counts against the root's budget and gives the
-    rest no shrink credit. CHANGES holds every Sources file:
-    package files' lost lines only make a new App file or type a move (placement); code moved into the App from
-    a package is App growth all the same. MOVED is not used.
+    rest no shrink credit. Code moved into the App from a package is new App code (the rule moves code out of
+    the App, never in): it makes no new file or type a move and is App growth. MOVED is not used.
     """
     app = [app_file(c) for c in changes if c.path.startswith(APP) and c.path.endswith(".swift")]
     if not app:
         return []
-    packages = [c for c in changes if not c.path.startswith(APP)]
-    # What packages really lose: a type moved from a package into an App file is placed there, not written there
-    # (its lines are App growth all the same: the `total` warning).
-    package_pool = (collections.Counter(r.text.strip() for c in packages for r in c.removed)
-                    - collections.Counter(a.text.strip() for c in packages for a in c.added))
     hits: list[Added] = []
 
     root_files = [f for f in app if f.root]
@@ -877,9 +871,8 @@ def app_size(changes: list[FileChange], moved: collections.Counter) -> list[Adde
         if file.path in twins:
             continue
         # The moved share is of non-import source lines on both sides: imports count neither as moved nor as code.
-        # A package's lost lines make a new file a move (placement); they are App growth all the same.
-        pools = [root_pool] if file.root else [other_pool, root_pool, package_pool]
-        moved_lines = len(credit_moves(file.added, pools, bridge=is_import).moved)
+        moved_lines = len(credit_moves(file.added, [root_pool] if file.root else [other_pool, root_pool],
+                                       bridge=is_import).moved)
         code = sum(1 for a in file.added if not is_import(a.text.strip()))
         if moved_lines and moved_lines >= MOVE_SHARE * code:
             continue
@@ -913,7 +906,7 @@ def app_size(changes: list[FileChange], moved: collections.Counter) -> list[Adde
         """Where the type of OWN lines in FILE may come from: lines each side really loses (removed minus what
         its existing files add back, the type's own lines left out so they do not cancel themselves)."""
         lost = {root: gone - (kept - text(own)) for root, (gone, kept) in sides.items()}
-        return [lost[True]] if file.root else [lost[False], lost[True], package_pool.copy()]
+        return [lost[True]] if file.root else [lost[False], lost[True]]
 
     for file in app:
         if not file.is_new:
@@ -1093,7 +1086,7 @@ RULES = (
          "against its budget; blank and comment lines never count",
          None,
          app_size,
-         scope=(SOURCES,),  # the App's files; package files only as the source of a type moved into the App
+         scope=(APP,),
          net=True),
 )
 
