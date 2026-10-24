@@ -1,7 +1,6 @@
-// Checks cmux_host::Encode/Decode (CEFShim/src/chromium_host_wire.h) against
-// the golden frame that ChromiumHostFrameTests.swift checks too, so the
-// Swift and C++ sides of the Chromium host wire cannot drift
-// (scripts/cmux-next/test-chromium-host-wire-cpp.sh).
+// Checks cmux_host::Encode/Decode (ChromiumHost/src/chromium_host_wire.h)
+// against the golden frame that ChromiumHostFrameTests.swift checks too
+// (scripts/cmux-next/tests/chromium-host-wire.test.sh).
 #include <cstdio>
 #include <cstring>
 #include <string>
