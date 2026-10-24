@@ -60,6 +60,9 @@ same results (`v1-*`, `v2-*`, `v3-*` on the rig).
    lasting grant from a phone (`remote.lasting_grant_refused`, as the Feed
    already says). The notification button and the long look's row are gone;
    Allow once and Deny stay. `PushAlwaysAllowTests` (red, then green).
+   A prompt with no single-use Allow now matches the Feed (`phoneOptions`):
+   it offers the agent's Always allow and Deny, and acpmux's refusal says to
+   allow it on the Mac, instead of a lone Deny.
 
 4. **A terminal agent's question pushed without its options** and **5. its tap opened an
    empty chat**: see `push-matrix-terminal-questions.md` ("Failures found and fixed").

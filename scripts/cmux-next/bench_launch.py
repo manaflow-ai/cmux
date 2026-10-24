@@ -2,11 +2,10 @@
 """One launch path for every GUI bench and live script: start a tagged `cmux DEV <tag>.app`, wait for its
 control socket to answer, and say exactly why when it does not.
 
-Why one helper: each bench copied its own launch, and the copies drifted. So far five scripts launch through it
-(split-spring-terminal.py's default suite, tab-switch-stages.py, palette-open-stages.py,
-instant-new-surfaces-bench.py, omnibar-click-bench.py); pane-perf-terminal, app-perf, anim-perf-terminal,
-typing-frame-bench, every-action-sweep, sidebar-churn-typing, perf-gate, bench-startup and the perf-budgets
-sub-benches still launch on their own (/tmp socket, no failure reason): moving them is open. A tagged build keeps its socket in
+Why one helper: each bench copied its own launch, and the copies drifted. The benches that import BenchApp or
+``launch_app`` launch through it (`git grep -l bench_launch scripts/cmux-next`); bench-startup and home-perf take
+its socket paths, session check and launch limits, and pane-perf-terminal, typing-frame-bench, sidebar-churn-typing,
+bench_idle, perf-gate and the perf-budgets sub-benches still launch on their own: moving them is open. A tagged build keeps its socket in
 the account's state folder (`~/.local/state/cmux/cmux-debug-<tag>.sock`, with a `/tmp/cmux-debug-<tag>.sock`
 link; `/tmp` only when the path is too long for `sun_path`), and `~` there is the account's home from the
 password database, not `$HOME` (a fleet step's HOME is a scratch folder). A launch also needs the bench
@@ -47,8 +46,18 @@ Check a host by hand or from a fleet step (exit 0 when the socket answered and a
 
     python3 scripts/cmux-next/bench_launch.py check --app "/path/cmux DEV <tag>.app" [--out DIR] [--timeout 180]
     python3 scripts/cmux-next/bench_launch.py session    # only the GUI session check, no app
+
+Resource limits: an app opened from Finder or the Dock gets launchd's limits (`launchctl limit`; on the fleet
+minis the soft open-file limit is 256), but an app a script starts inherits the script's, and fleet job shells
+raise theirs (the cmux-ci worker to 65536 for every job, the hosts' ~/.zshenv to 65536 for nx-remote jobs). A
+bench at 65536 hid a Chromium crash that happens at 256 (cmux-lawrence-2, 2026-10-23). So `launch()` starts the
+app with launchd's soft limits (``finder_limits``; the hard limits stay); BENCH_LAUNCH_LIMITS=inherit keeps the
+caller's. A script or step that starts an app on its own can run under the same limits:
+
+    python3 scripts/cmux-next/bench_launch.py finder-exec -- python3 scripts/cmux-next/my-bench.py ...
+    python3 scripts/cmux-next/bench_launch.py limits     # launchd's soft limits and this shell's, one JSON line
 """
-import argparse, glob, json, os, platform, pwd, re, signal, socket, subprocess, sys, tempfile, time
+import argparse, contextlib, glob, json, os, platform, pwd, re, resource, signal, socket, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -70,6 +79,90 @@ BASE_ENV = {
 # Never passed to the app: NX_REMOTE makes it act as an nx-remote job; the rest name another cmux.
 DROPPED_ENV = ("NX_REMOTE", "CMUX_SOCKET_PATH", "CMUX_SOCKET", "CMUX_TAG", "CMUX_BUNDLE_ID", "CMUX_WORKSPACE_ID",
                "CMUX_SURFACE_ID", "CMUX_PANEL_ID", "CMUX_TAB_ID")
+
+
+# `launchctl limit` rows -> setrlimit resources. launchctl prints bytes, seconds and counts, as setrlimit takes them.
+LAUNCHD_LIMITS = {"cpu": resource.RLIMIT_CPU, "filesize": resource.RLIMIT_FSIZE, "data": resource.RLIMIT_DATA,
+                  "stack": resource.RLIMIT_STACK, "core": resource.RLIMIT_CORE, "rss": resource.RLIMIT_RSS,
+                  "memlock": resource.RLIMIT_MEMLOCK, "maxproc": resource.RLIMIT_NPROC,
+                  "maxfiles": resource.RLIMIT_NOFILE}
+
+
+def launchd_soft_limits(text=None):
+    """{name: soft limit} that launchd gives the apps it starts (a Finder or Dock launch), from `launchctl limit`
+    (or `text`, its output); resource.RLIM_INFINITY for unlimited. {} when launchctl does not answer."""
+    if text is None:
+        try:
+            text = subprocess.run(["/bin/launchctl", "limit"], capture_output=True, text=True, timeout=10).stdout
+        except (OSError, subprocess.TimeoutExpired):
+            return {}
+    limits = {}
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) == 3 and parts[0] in LAUNCHD_LIMITS:
+            soft = parts[1]
+            if soft == "unlimited":
+                limits[parts[0]] = resource.RLIM_INFINITY
+            elif soft.isdigit():
+                limits[parts[0]] = int(soft)
+    return limits
+
+
+def shown(value):
+    return "unlimited" if value == resource.RLIM_INFINITY else value
+
+
+@contextlib.contextmanager
+def finder_limits(text=None):
+    """Runs the block with this process's soft limits set to launchd's (``launchd_soft_limits``), so a process
+    started inside it gets what a Finder launch gets; restores them after. Hard limits stay (a soft limit above
+    this process's hard limit is capped at it). The limits are the whole process's while the block runs: start
+    only the app inside it, not from other threads.
+
+    Yields {name: [before, now]} for each changed limit, or None when nothing was applied: BENCH_LAUNCH_LIMITS=inherit,
+    or `launchctl limit` did not answer (``limits_line`` says which). Raises ``LaunchError`` ("caller-fds") when this
+    process already holds as many open files as launchd's maxfiles: the spawn itself would fail with EMFILE."""
+    if os.environ.get("BENCH_LAUNCH_LIMITS") == "inherit":
+        yield None
+        return
+    launchd = launchd_soft_limits(text)
+    if not launchd:
+        yield None
+        return
+    changed, saved = {}, []
+    try:
+        for name, soft in launchd.items():
+            res = LAUNCHD_LIMITS[name]
+            before, hard = resource.getrlimit(res)
+            want = soft if hard == resource.RLIM_INFINITY or soft != resource.RLIM_INFINITY and soft <= hard else hard
+            if want == before:
+                continue
+            if res == resource.RLIMIT_NOFILE and want != resource.RLIM_INFINITY:
+                held = len(os.listdir("/dev/fd"))
+                if held + 8 >= want:
+                    raise LaunchError("caller-fds", {"detail": f"this process holds {held} open files, about launchd's "
+                                                               f"maxfiles {want}: close files before the launch",
+                                                     "log_tail": ""})
+            try:
+                resource.setrlimit(res, (want, hard))
+            except (OSError, ValueError):
+                continue  # the kernel refused (for example maxfiles above kern.maxfilesperproc): keep the limit
+            saved.append((res, before, hard))
+            changed[name] = [shown(before), shown(want)]
+        yield changed
+    finally:
+        for res, before, hard in reversed(saved):
+            resource.setrlimit(res, (before, hard))
+
+
+def limits_line(changed):
+    """One line for a log: the limits a process started inside ``finder_limits`` got (`changed`, what it yielded)."""
+    if changed is None:
+        return ("the caller's (BENCH_LAUNCH_LIMITS=inherit)" if os.environ.get("BENCH_LAUNCH_LIMITS") == "inherit"
+                else "the caller's (launchctl limit did not answer: NOT a Finder launch's)")
+    if not changed:
+        return "launchd's (the caller's were the same)"
+    return "launchd's: " + ", ".join(f"{k} {v[1]} (caller {v[0]})" for k, v in changed.items())
 
 
 class LaunchError(SystemExit):
@@ -335,6 +428,7 @@ class BenchApp:
         self.socket = socket_candidates(self.tag)[0]
         self.launched_at = None
         self.ready_seconds = None
+        self.limits = None
         self.teardown = None
         if teardown:
             sys.path.insert(0, HERE)
@@ -415,10 +509,16 @@ class BenchApp:
         if self.teardown:
             self.teardown.install()
         log = open(self.log_path, "a")
-        self.launched_at = time.time()
-        self.process = subprocess.Popen([self.binary], env=self.environment(), stdout=log, stderr=log,
-                                        stdin=subprocess.DEVNULL)
-        note(f"bench-launch: {self.tag} pid {self.process.pid}")
+        env = self.environment()
+        try:
+            with finder_limits() as changed:
+                self.launched_at = time.time()
+                self.process = subprocess.Popen([self.binary], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
+        except LaunchError as error:
+            log.close()
+            self._fail(error.reason, {"tag": self.tag, **host_facts(), **error.report})
+        self.limits = limits_line(changed)
+        note(f"bench-launch: {self.tag} pid {self.process.pid}, limits {self.limits}")
         if on_start:
             on_start(self.process)
         start = time.monotonic()
@@ -553,7 +653,26 @@ def main(argv=None):
     check.add_argument("--timeout", type=float, default=180)
     check.add_argument("--json", help="also write the result here")
     sub.add_parser("session", help="only report whether this account has a GUI session")
+    sub.add_parser("limits", help="launchd's soft limits (a Finder launch's) and this process's, one JSON line")
+    finder = sub.add_parser("finder-exec", help="run COMMAND with launchd's soft limits, as a Finder launch gets")
+    finder.add_argument("cmd", nargs=argparse.REMAINDER, metavar="-- COMMAND")
     opts = parser.parse_args(argv)
+    if opts.command == "limits":
+        launchd = launchd_soft_limits()
+        print("BENCH-LAUNCH " + json.dumps({"launchd_soft": {k: shown(v) for k, v in launchd.items()},
+                                            "this_soft": {k: shown(resource.getrlimit(LAUNCHD_LIMITS[k])[0])
+                                                          for k in launchd}}), flush=True)
+        return 0 if launchd else 1
+    if opts.command == "finder-exec":
+        cmd = opts.cmd[1:] if opts.cmd[:1] == ["--"] else opts.cmd
+        if not cmd:
+            parser.error("finder-exec needs a command after --")
+        with finder_limits() as changed:
+            print(f"bench-launch: finder-exec: {cmd[0]} runs with {limits_line(changed)}", file=sys.stderr, flush=True)
+            try:
+                os.execvp(cmd[0], cmd)  # the limits set here are the command's (exec keeps them)
+            except OSError as error:
+                parser.error(f"finder-exec: cannot run {cmd[0]}: {error}")
     if opts.command == "session":
         result = {**host_facts(), "gui_session": gui_session()}
         print("BENCH-LAUNCH " + json.dumps(result), flush=True)
@@ -563,7 +682,7 @@ def main(argv=None):
     try:
         app.launch(timeout=opts.timeout)
         windows = app.rpc("debug.windows")
-        result.update(ok=True, socket=app.socket, ready_seconds=app.ready_seconds,
+        result.update(ok=True, socket=app.socket, ready_seconds=app.ready_seconds, limits=app.limits,
                       windows=len((windows or {}).get("windows") or []))
     except LaunchError as error:
         result.update(ok=False, reason=error.reason, **{k: v for k, v in error.report.items() if k not in result})

@@ -7,6 +7,7 @@ import { useEffect, useSyncExternalStore } from "react";
 export type StartMode = { modeId: string; name?: string };
 
 /// Asks the connected acpmux; undefined when it sets no mode, cannot know, or predates the method.
+/// Rejects when it could not ask (the socket closed, the request failed): no answer to keep.
 export type AskStartMode = (harness: string, cwd?: string) => Promise<StartMode | undefined>;
 
 /// acpmux's last answers, per harness and folder, kept per viewer: a pending chat draws the last
@@ -171,7 +172,14 @@ export function setStartModeSource(next: AskStartMode | undefined): void {
 export async function askStartMode(harness: string, cwd?: string): Promise<StartMode | undefined> {
   const source = ask;
   if (!source) return exactStartMode(harness, cwd);
-  const mode = await source(harness, cwd).catch(() => undefined);
+  let mode: StartMode | undefined;
+  try {
+    mode = await source(harness, cwd);
+  } catch {
+    // Not asked (the socket closed under it, the request failed): acpmux said nothing, so the
+    // kept answer stays. Kept as "sets none", the chip lost its mode until the next answer.
+    return exactStartMode(harness, cwd);
+  }
   rememberStartMode(harness, cwd, mode);
   return mode;
 }

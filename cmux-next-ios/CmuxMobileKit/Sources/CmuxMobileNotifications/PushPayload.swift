@@ -102,6 +102,14 @@ public struct PushPayload: Codable, Sendable, Equatable {
     public var title: String?
     public var body: String?
     public var options: [PushOption]
+    /// What a phone may answer, the same rule as the Feed (`ACPPermissionRequest.phoneOptions`):
+    /// with a single-use Allow, Allow once and the one-time reject only; acpmux refuses a lasting
+    /// grant from a phone (`remote.lasting_grant_refused`). Without one, the options as sent, so
+    /// acpmux's refusal says why rather than the prompt showing a lone Deny.
+    public var phoneOptions: [PushOption] {
+        guard options.contains(where: { $0.kind == .allowOnce }) else { return options }
+        return options.filter { $0.kind == .allowOnce || $0.kind == .rejectOnce }
+    }
     public var questions: [PushQuestion]
     public var tail: [String]
     public var state: State?

@@ -5,7 +5,7 @@ import Foundation
 /// A slot is every place the block could be inserted, in visual order, inside
 /// the block's current section. Moving down past an expanded group enters it
 /// as the first child; moving up from a group's first child leaves it.
-/// Collapsed groups are stepped over. The block never leaves its section, so
+/// Subgroups are entered the same way. Collapsed groups are stepped over. The block never leaves its section, so
 /// keyboard reorder never pins, unpins, or crosses machines by surprise.
 public nonisolated enum KeyboardReorder {
     public enum Direction: Sendable {
@@ -30,14 +30,26 @@ public nonisolated enum KeyboardReorder {
     }
 
     /// Every insertion slot in a section, in visual order.
+    ///
+    /// Nested groups list flat after their parent and draw inside it, after its members: a
+    /// subgroup has no top-level slot before it (that gap is inside its parent), and a group
+    /// under a collapsed one shows no slots, so a move never lands in a row nobody can see.
     static func slots(in section: SidebarSection) -> [DropPosition] {
         var result: [DropPosition] = []
+        var hidden = Set<GroupID>() // collapsed groups and every group under one
         for (index, node) in section.nodes.enumerated() {
-            result.append(DropPosition(section: section.id, index: index))
-            if case let .group(group) = node, !group.isCollapsed {
-                for child in 0...group.members.count { // a group's index counts its member rows (items too)
-                    result.append(DropPosition(section: section.id, group: group.id, index: child))
-                }
+            guard case let .group(group) = node else {
+                result.append(DropPosition(section: section.id, index: index))
+                continue
+            }
+            if let parent = group.parent {
+                if hidden.contains(parent) { hidden.insert(group.id); continue }
+            } else {
+                result.append(DropPosition(section: section.id, index: index))
+            }
+            if group.isCollapsed { hidden.insert(group.id); continue }
+            for child in 0...group.members.count { // a group's index counts its member rows (items too)
+                result.append(DropPosition(section: section.id, group: group.id, index: child))
             }
         }
         result.append(DropPosition(section: section.id, index: section.nodes.count))

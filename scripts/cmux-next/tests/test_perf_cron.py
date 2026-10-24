@@ -621,6 +621,9 @@ class FleetTests(unittest.TestCase):
         self.assertFalse(cron.mac_job_waiting({"status": "queued", "labels": ["macos-26"]}), "a GitHub-hosted Mac is not the fleet")
         self.assertFalse(cron.mac_job_waiting({"status": "queued", "labels": ["macos-15-xlarge"]}))
         self.assertTrue(cron.mac_job_waiting({"status": "queued", "labels": ["self-hosted", "macOS"]}))
+        for rented in (["depot-macos-15"], ["namespace-profile-macos-arm64"], ["warp-macos-15-arm64-6x"]):
+            self.assertFalse(cron.mac_job_waiting({"status": "queued", "labels": rented}), f"{rented} is not a fleet Mac")
+        self.assertFalse(cron.mac_job_waiting({"status": "queued", "labels": ["self-hosted", "linux"]}))
         self.assertFalse(cron.mac_job_waiting({"status": "waiting", "labels": ["glaeda-mini"]}), "an approval gate is not load")
         self.assertFalse(cron.mac_job_waiting({"status": "in_progress", "labels": ["glaeda-mini"]}))
 

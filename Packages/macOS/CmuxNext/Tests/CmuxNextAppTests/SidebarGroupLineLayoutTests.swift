@@ -61,24 +61,25 @@ import Testing
         #expect(inset + SidebarStyle.groupBarWidth == SidebarStyle.rowCornerRadius, "the line's right edge is off the corner arc's end")
     }
 
-    @Test func theTopCutOnlyTapersTheRailLeavingTheHeader() {
-        let path = SidebarGroupLineShape.topTaper(width: 2, height: 20, radius: 2)
-        #expect(path.contains(CGPoint(x: 0.1, y: 0.1)), "the rail's left edge stays square")
-        #expect(!path.contains(CGPoint(x: 1.9, y: 0.1)), "the top-right corner tapers out")
-        #expect(path.contains(CGPoint(x: 1.9, y: 4)), "the rail reaches full width below the taper")
-        #expect(path.contains(CGPoint(x: 1.9, y: 19.9)), "the rail's bottom remains square")
+    @Test func theRailRoundsOnlyItsRightCorners() {
+        let path = SidebarGroupLineShape.line(width: 2, height: 20)
+        #expect(path.contains(CGPoint(x: 0.1, y: 0.1)), "the left edge stays straight at the top")
+        #expect(path.contains(CGPoint(x: 0.1, y: 19.9)), "the left edge stays straight at the bottom")
+        #expect(!path.contains(CGPoint(x: 1.9, y: 0.1)), "the top-right corner rounds inward")
+        #expect(path.contains(CGPoint(x: 1.9, y: 3)), "the top reaches full width after one radius")
+        #expect(!path.contains(CGPoint(x: 1.9, y: 19.9)), "the bottom-right corner rounds inward")
+        #expect(path.contains(CGPoint(x: 1.9, y: 17)), "the bottom reaches full width before one radius")
     }
 
     @Test @MainActor func theCutMaskRetainsCoverageWhenARailShrinks() {
         let line = GroupLineView()
         line.frame = NSRect(x: 0, y: 0, width: 2, height: 5000)
         line.layoutSubtreeIfNeeded()
-        let mask = line.layer?.mask
-        let initial = mask?.frame.height ?? 0
+        let initial = line.railShape.frame.height
         line.frame.size.height = 500
         line.layoutSubtreeIfNeeded()
-        #expect(initial >= 5000 && (mask?.frame.height ?? 0) >= initial,
-                "the cut mask covers the old presentation height during a shrink")
+        #expect(initial >= 5000 && line.railShape.frame.height >= initial,
+                "the cut shape covers the old presentation height during a shrink")
     }
 
     /// The line keeps the rail's x (its members' less `groupRailReach`) in every layout; the header's bar starts there
@@ -97,9 +98,10 @@ import Testing
             let head = header.frame
             #expect(line.width == 2, "\(layout): the line is \(line.width) pt")
             view.layoutSubtreeIfNeeded()
-            let mask = try #require(view.layer?.mask as? CAShapeLayer)
-            #expect(view.layer?.cornerRadius == 0 && mask.path != nil, "\(layout): the line has the Chrome corner cut")
-            #expect(mask.frame.height >= 4096, "\(layout): the mask covers a rail during its bounds spring")
+            #expect(view.layer?.cornerRadius == 0 && view.layer?.masksToBounds == true && view.railShape.path != nil,
+                    "\(layout): the line has the clipped Chrome corner cut")
+            #expect(view.railShape.frame.width == 2 && view.railShape.frame.height >= 4096,
+                    "\(layout): the cut shape covers a rail during its bounds spring")
 
             #expect(line.minX == loose.frame.minX - SidebarStyle.groupRailReach, "\(layout): the line left the rail, at \(line.minX)")
             #expect(header.pill.frame.minX == 0 && header.pill.frame.width == head.width, "\(layout): the bar spans \(header.pill.frame)")
@@ -127,7 +129,7 @@ import Testing
             header.updateLayer()
             view.updateLayer()
             let barColor = try GroupPaletteDefaultTests.rgb(header.pill.backgroundColor)
-            let drawn = try GroupPaletteDefaultTests.rgb(view.layer?.backgroundColor)
+            let drawn = try GroupPaletteDefaultTests.rgb(view.railShape.fillColor)
             #expect(GroupPaletteDefaultTests.same(barColor, drawn), "\(layout): line \(drawn), bar \(barColor)")
         }
     }

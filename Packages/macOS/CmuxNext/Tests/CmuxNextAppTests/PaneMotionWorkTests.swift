@@ -17,7 +17,7 @@ struct PaneMotionWorkTests {
         harness.model.apply(screens: PaneMotionBench.split(6, 5, axis: action == "split" ? .horizontal : .vertical))
         // The change's own frame (the reconcile, which re-places everything once) is not a motion frame.
         _ = await harness.frame()
-        var frames = 0, worstOverlay = 0, worstClips = 0, still = 0
+        var frames = 0, worstOverlay = 0, worstClips = 0, still = 0, stale = 0
         var moving = true
         while moving, frames < 240 {
             // A pane counts as changed in a frame when its host's frame or alpha changed in it...
@@ -35,6 +35,11 @@ struct PaneMotionWorkTests {
                 return before[id].map { $0 != (host.frame, host.alphaValue) } ?? true || coversBefore[id] != coversAfter[id]
             }.count
             still = max(still, hosts.count - moved)
+            // The lower bound: whatever the sync skipped, every displayed pane's ring sits on its host.
+            for host in hosts where host.chrome.superview != nil && !host.isHidden {
+                let ring = harness.root.convert(host.bounds, from: host)
+                if host.chrome.frame != ring || host.stripClipInput?.frame != host.frame { stale += 1 }
+            }
             worstOverlay = max(worstOverlay, harness.root.overlayHostsPlaced - overlay - moved)
             worstClips = max(worstClips, screen.stripClipsComputed - clips - moved)
         }
@@ -42,6 +47,7 @@ struct PaneMotionWorkTests {
         #expect(still > 0, "every pane moved on every frame: nothing to tell apart")
         #expect(worstOverlay <= 0, "a frame placed \(worstOverlay) rings of panes that did not move")
         #expect(worstClips <= 0, "a frame computed \(worstClips) strip clips of panes that did not move")
+        #expect(stale == 0, "\(stale) pane frames ended with a ring or clip off their host's frame")
     }
 
     /// New Column at 30 panes: the strip camera moves every pane sideways at its size. A pane that

@@ -147,6 +147,8 @@ class Stress:
         self.pages = Pages()
         self.refusals = []
         self.chat_fallbacks = 0
+        # Each tab this builder made, by pane: (asked kind, tab id); the shape check reads them back.
+        self.made = {}
 
     # Socket helpers.
 
@@ -182,35 +184,51 @@ class Stress:
         before = {w["id"] for w in self.workspaces()}
         self.action("workspace.newAtBottom")
         made = wait(lambda: next((w["id"] for w in self.workspaces() if w["id"] not in before), None), 30)
-        if made:
-            wait(lambda: self.focused_workspace() == made, 10)
+        # Focus may not follow on a loaded host; nothing below relies on it: every tab and split is aimed
+        # at its pane by id, and the measured workspace is shown with goToWorkspace.
         return made
 
+    def show(self, workspace):
+        """Shows `workspace` in the window (goToWorkspace); raises StressShapeError when it does not show."""
+        if self.focused_workspace() == workspace:
+            return
+        self.action("goToWorkspace", {"workspace": workspace})
+        if not wait(lambda: self.focused_workspace() == workspace, 10, step=0.05):
+            raise StressShapeError(f"workspace {workspace} never showed")
+
     def focus_pane(self, pane_id):
+        """Focuses `pane_id`; raises StressShapeError when focus does not get there (a tab made next
+        would land in another pane, and the total would hide it)."""
         self.action("pane.focus", target=f"pane:{pane_id}")
-        wait(lambda: (self.topology().get("focus") or {}).get("pane") == pane_id, 5, step=0.05)
+        if not wait(lambda: (self.topology().get("focus") or {}).get("pane") == pane_id, 10, step=0.05):
+            raise StressShapeError(f"focus never reached pane {pane_id}")
 
     def tabs(self, workspace_id, pane_id):
         pane = next((p for p in self.panes(self.workspace(workspace_id)) if p.get("id") == pane_id), None)
         return (pane or {}).get("tabs") or []
 
     def add_tab(self, workspace_id, pane_id, kind):
-        """One tab of `kind` (terminal, chromium, webkit, chat) in the focused pane; waits for it."""
-        count = len(self.tabs(workspace_id, pane_id))
+        """One tab of `kind` (terminal, chromium, webkit, chat) in `pane_id`, aimed at it by id (never at
+        whatever has focus); waits for it."""
+        before = {t.get("id") for t in self.tabs(workspace_id, pane_id)}
+        count = len(before)
+        target = f"pane:{pane_id}"
         if kind == "terminal":
-            self.action("newSurface")
+            self.action("newSurface", target=target)
         elif kind == "chromium":
-            self.action("openBrowser.chromium", {"url": self.pages.url()})
+            self.action("openBrowser.chromium", {"url": self.pages.url()}, target=target)
         elif kind == "webkit":
-            self.action("openBrowser.webkit", {"url": self.pages.url()})
+            self.action("openBrowser.webkit", {"url": self.pages.url()}, target=target)
         else:
-            reply = self.action("palette.newAgentChat", timeout=CHAT_WAIT_S + 2)
+            reply = self.action("palette.newAgentChat", target=target, timeout=CHAT_WAIT_S + 2)
             if isinstance(reply, dict) and reply.get("error") or not wait(
                     lambda: len(self.tabs(workspace_id, pane_id)) > count, CHAT_WAIT_S, step=0.1):
                 # No agent chat (launch denied, a build without it): the New Tab page stands in.
                 self.chat_fallbacks += 1
-                self.action("newTab.page")
+                self.action("newTab.page", target=target)
         wait(lambda: len(self.tabs(workspace_id, pane_id)) > count, 20, step=0.1)
+        new = [t.get("id") for t in self.tabs(workspace_id, pane_id) if t.get("id") not in before]
+        self.made.setdefault(pane_id, []).append((kind, new[0] if len(new) == 1 else None))
 
     def send(self, tab_id, text):
         self.action("terminal.sendText", {"text": text}, target=f"tab:{tab_id}", focus=False)
@@ -227,6 +245,8 @@ class Stress:
                 continue
             made.append(workspace)
             if index < chromium:
+                # Shown first: an action resolves a pane target among the panes its window shows.
+                self.show(workspace)
                 pane = (self.panes(self.workspace(workspace)) or [{}])[0].get("id")
                 for _ in range(CHROMIUM_PER_WORKSPACE):
                     self.add_tab(workspace, pane, "chromium")
@@ -279,6 +299,15 @@ class Stress:
         reply = self.rpc("debug.window_frame", {"frame": WINDOW})
         if isinstance(reply, dict) and reply.get("error"):
             self.refusals.append(f"debug.window_frame: {str(reply['error'])[:160]}")
+        # The window must really be WINDOW's size: a display smaller than it (a 1024 x 768 fleet screen, a
+        # window the screen clamped to 675 pt) cannot hold 4 x 3 panes, and the app then places splits
+        # elsewhere. Fail before building anything; on the fleet run under split-spring.sh --vdisplay=120
+        # (a 1920 x 1080 virtual main display), or launch here with --vdisplay.
+        frame = reply.get("frame") if isinstance(reply, dict) else None
+        if not frame or frame[2] < WINDOW[2] - 1 or frame[3] < WINDOW[3] - 1:
+            raise StressShapeError(f"the window is {frame and frame[2:]} pt, not {WINDOW[2:]}: the display "
+                                   f"({reply.get('screen') if isinstance(reply, dict) else '?'}) is too small for STRESS; "
+                                   "run with a 1920 x 1080 display (split-spring.sh --vdisplay=120, or --vdisplay here)")
         return reply
 
     def build_measured(self):
@@ -323,7 +352,12 @@ class Stress:
 
     def build(self, check=True):
         start = time.monotonic()
-        self.build_background()
+        # 60 in all: the ones the app already has, the background, and the measured one.
+        self.size_window()  # a display too small for the grid fails here, before 59 workspaces are built
+        existing = len(self.workspaces())
+        if existing > WORKSPACES - 1:
+            raise StressShapeError(f"the app already has {existing} workspaces; STRESS has {WORKSPACES} in all")
+        self.build_background(count=WORKSPACES - 1 - existing)
         self.build_measured()
         time.sleep(self.settle)  # test script: first page loads and the busy output start before a measure
         summary = self.summary()
@@ -334,17 +368,26 @@ class Stress:
 
     @staticmethod
     def check(summary):
-        """Raises StressShapeError when the session is not STRESS (another layout is never measured as it)."""
+        """Raises StressShapeError when the session is not STRESS (another layout is never measured as it):
+        exactly 60 workspaces, 4 columns side by side, 14 panes, each pane exactly 2 terminals, 2 Chromium
+        pages, 1 WebKit page and 1 chat (or a counted New Tab page fallback), real Chromium (no refusal,
+        debug.cef not unavailable), 10 background workspaces with 2 Chromium pages each, 10 busy terminals."""
         want_panes = COLUMNS * ROWS + len(NESTED_COLUMNS)
         tabs = sum((summary.get("measured_tabs") or {}).values())
-        problems = []
-        if (summary.get("workspaces") or 0) < WORKSPACES:
+        problems = list(summary.get("pane_problems") or [])
+        if summary.get("busy_terminals") != BUSY_TERMINALS:
+            problems.append(f"{summary.get('busy_terminals')} busy terminals, not {BUSY_TERMINALS}")
+        if summary.get("background_chromium") != [CHROMIUM_PER_WORKSPACE] * CHROMIUM_WORKSPACES:
+            problems.append(f"background Chromium pages per workspace {summary.get('background_chromium')}")
+        if summary.get("chromium_unavailable"):
+            problems.append(f"Chromium is not available: {summary.get('chromium_unavailable')}")
+        if (summary.get("workspaces") or 0) != WORKSPACES:
             problems.append(f"{summary.get('workspaces')} workspaces, not {WORKSPACES}")
         if summary.get("measured_panes") != want_panes:
             problems.append(f"{summary.get('measured_panes')} panes, not {want_panes}")
         if summary.get("shown_columns") != COLUMNS:
             problems.append(f"{summary.get('shown_columns')} columns side by side, not {COLUMNS}")
-        if tabs < want_panes * 6:
+        if tabs != want_panes * 6:
             problems.append(f"{tabs} tabs in the measured workspace, not {want_panes * 6}")
         if problems:
             raise StressShapeError("STRESS session has the wrong shape: " + "; ".join(problems)
@@ -355,7 +398,11 @@ class Stress:
         divider areas (`debug.layers` divider_areas_in_window, taller than wide); a nested split adds
         only horizontal dividers. Also the window frame."""
         layers = self.rpc("debug.layers")
-        window = ((layers or {}).get("windows") or [{}])[0] if isinstance(layers, dict) else {}
+        windows = ((layers or {}).get("windows") or []) if isinstance(layers, dict) else []
+        # The window that shows the measured workspace (topology windows carry the debug.layers id as `key`).
+        measured = getattr(self, "measured", None)
+        key = next((w.get("key") for w in self.topology().get("windows") or [] if w.get("workspace") == measured), None)
+        window = next((w for w in windows if w.get("id") == key), windows[0] if windows else {})
         xs = {round(x + w / 2) for x, y, w, h in window.get("divider_areas_in_window") or [] if h > w}
         return (len(xs) + 1 if window else None), window.get("frame")
 
@@ -370,16 +417,61 @@ class Stress:
                     kind = f"page:{tab.get('page')}"
                 kinds[kind] = kinds.get(kind, 0) + 1
         columns = sorted({p.get("column") for p in self.panes(measured) if p.get("column") is not None})
+        # Each measured pane's mix, from the tabs this builder made and what the topology says they are.
+        want = {"terminal": 2, "chromium": 2, "webkit": 1, "chat": 1}
+        pane_problems = []
+        for pane in self.panes(measured):
+            tabs = {t.get("id"): t.get("kind") for t in pane.get("tabs") or []}
+            asked = [("terminal", None)] + self.made.get(pane.get("id"), [])
+            got = {k: sum(1 for kind, _ in asked if kind == k) for k in want}
+            wrong = [f"{kind} tab {tab} is {tabs.get(tab)}" for kind, tab in asked[1:]
+                     if tab is None or tabs.get(tab) is None or (kind == "terminal") != (tabs.get(tab) == "terminal")]
+            if got != want or len(tabs) != 6 or wrong:
+                pane_problems.append(f"pane {pane.get('id')}: {len(tabs)} tabs, made {got}{'; ' + ', '.join(wrong[:3]) if wrong else ''}")
+        background = [sum(1 for p in self.panes(self.workspace(w)) for t in p.get("tabs") or [] if t.get("kind") not in (None, "terminal"))
+                      for w in getattr(self, "background", [])[:CHROMIUM_WORKSPACES]]
+        cef = self.rpc("debug.cef")
+        unavailable = [r for r in self.refusals if r.startswith("openBrowser.chromium")]
+        if isinstance(cef, dict) and (cef.get("error") or cef.get("unavailable")):
+            unavailable.append(str(cef.get("error") or cef.get("unavailable"))[:160])
         shown, frame = self.shown_columns()
         return {"workspaces": len(workspaces), "measured": getattr(self, "measured", None), "shown_columns": shown, "window": frame,
                 "measured_panes": len(self.panes(measured)), "measured_columns": len(columns) or None,
                 "measured_tabs": kinds, "busy_terminals": len(getattr(self, "busy", [])), "busy_where": self.busy_where,
-                "selected": self.selected, "chromium_workspaces": min(CHROMIUM_WORKSPACES, len(getattr(self, "background", []))),
-                "chat_fallbacks": self.chat_fallbacks, "refusals": self.refusals[:10]}
+                "selected": self.selected,
+                "chromium_workspaces": sum(1 for pages in background if pages >= CHROMIUM_PER_WORKSPACE),
+                "chat_fallbacks": self.chat_fallbacks, "refusals": self.refusals[:10], "pane_problems": pane_problems[:6],
+                "background_chromium": background, "chromium_unavailable": unavailable[:3]}
 
 
 class StressShapeError(RuntimeError):
     """The session built is not the STRESS shape."""
+
+
+def start_vdisplay(hz, out):
+    """A 1920 x 1080 virtual main display at `hz` (vdisplay.m, compiled here); returns its process once it is
+    ready, or raises StressShapeError with the helper's line."""
+    import subprocess
+    root = os.path.dirname(os.path.dirname(HERE))
+    folder = os.path.join(out, "vdisplay", "VDisplay.app", "Contents", "MacOS")
+    os.makedirs(folder, exist_ok=True)
+    binary = os.path.join(folder, "VDisplay")
+    build = subprocess.run(["xcrun", "clang", "-fobjc-arc", "-O2", "-Wno-deprecated-declarations", "-framework", "AppKit",
+                            "-framework", "CoreVideo", os.path.join(root, "scripts/ci/frame-pacing/vdisplay.m"), "-o", binary],
+                           capture_output=True, text=True)
+    if build.returncode:
+        raise StressShapeError(f"the virtual display helper did not compile: {build.stderr[:300]}")
+    import shutil
+    shutil.copy(os.path.join(root, "scripts/ci/frame-pacing/VDisplay-Info.plist"),
+                os.path.join(out, "vdisplay", "VDisplay.app", "Contents", "Info.plist"))
+    log = open(os.path.join(out, "vdisplay", "out"), "w")
+    process = subprocess.Popen([binary, str(hz), "7200", "main"], stdout=log, stderr=subprocess.STDOUT)
+    line = wait(lambda: next((l for l in open(log.name) if l.startswith(("ready", "error"))), None), 30, step=0.5)
+    if not line or not line.startswith("ready"):
+        process.terminate()
+        raise StressShapeError(f"the virtual display did not come up: {line}")
+    print(f"stress: virtual display {line.strip()}", flush=True)
+    return process
 
 
 def load_activation_app():
@@ -400,9 +492,13 @@ def main():
     parser.add_argument("--selected", choices=["terminal", "chromium"], default="terminal")
     parser.add_argument("--busy-where", choices=["measured", "elsewhere"], default="measured")
     parser.add_argument("--keep", action="store_true", help="leave the launched app running")
+    parser.add_argument("--vdisplay", type=float, default=0,
+                        help="with --app: first make a 1920 x 1080 virtual main display at this refresh (Hz), as "
+                             "split-spring.sh --vdisplay does (scripts/ci/frame-pacing/vdisplay.m)")
     opts = parser.parse_args()
     os.makedirs(opts.out, exist_ok=True)
     app = None
+    display = start_vdisplay(opts.vdisplay, opts.out) if opts.app and opts.vdisplay else None
     if opts.app:
         app = load_activation_app()(os.path.abspath(opts.app), opts.out, 50)
         app.launch()
@@ -421,6 +517,8 @@ def main():
     finally:
         if app and not opts.keep:
             app.stop()
+        if display and not opts.keep:
+            display.terminate()  # the helper this script started, by its process
 
 
 if __name__ == "__main__":

@@ -28,7 +28,7 @@ import {
   sourceSelectionWithActiveRepo,
   validDiffSource,
 } from "./session";
-import { splitFits, type AppAction, type AppState, type DiffViewerLayout } from "./state";
+import { nextDiffViewerLayout, type AppAction, type AppState, type DiffViewerLayout } from "./state";
 
 export function Toolbar({
   activeSessionSource,
@@ -124,7 +124,7 @@ export function DiffPill({
         onSetOption("collapsed", !state.options.collapsed);
         return;
       case "layout":
-        onSetLayout(state.options.layout === "split" ? "unified" : "split");
+        onSetLayout(nextDiffViewerLayout(state.options.layout));
         return;
       case "files":
         dispatch({ type: "set-files-visible", visible: !state.filesVisible });
@@ -161,7 +161,7 @@ export function DiffPill({
   };
   return (
     <FloatingToolbar
-      buttons={toolbarPillButtons({ ...state, splitFits: splitFits(state.viewerWidth) })}
+      buttons={toolbarPillButtons(state)}
       label={label}
       menuItems={overflowMenuItems(state.options, capabilities, state.whitespaceHidden)}
       menuOpen={state.optionsOpen}
@@ -172,6 +172,7 @@ export function DiffPill({
         <ViewOptionsMenuRows
           externalURL={externalURL}
           label={label}
+          onSetLayout={onSetLayout}
           onSetOption={onSetOption}
           onToggleHideViewed={() =>
             dispatch({ type: "set-file-filter", filter: { hideViewed: !state.fileFilter.hideViewed } })
@@ -187,12 +188,14 @@ export function DiffPill({
 function ViewOptionsMenuRows({
   externalURL,
   label,
+  onSetLayout,
   onSetOption,
   onToggleHideViewed,
   state,
 }: {
   externalURL: string | null;
   label: DiffViewerLabelResolver;
+  onSetLayout: (layout: DiffViewerLayout) => void;
   onSetOption: (key: keyof DiffViewerOptions, value: any) => void;
   onToggleHideViewed: () => void;
   state: AppState;
@@ -232,6 +235,31 @@ function ViewOptionsMenuRows({
         label={label("showLineNumbers")}
         onClick={() => onSetOption("lineNumbers", !state.options.lineNumbers)}
       />
+      <div className="menu-item menu-segment">
+        <Icon name="auto" />
+        <span className="menu-label">{label("layout")}</span>
+        <span className="menu-segment-controls">
+          {(
+            [
+              { value: "unified", icon: "unified", label: label("layoutUnified") },
+              { value: "split", icon: "split", label: label("layoutSplit") },
+              { value: "auto", icon: "auto", label: label("layoutAuto") },
+            ] as const
+          ).map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              className="segment-button"
+              title={option.label}
+              aria-label={option.label}
+              aria-pressed={state.options.layout === option.value}
+              onClick={() => onSetLayout(option.value)}
+            >
+              <Icon name={option.icon} />
+            </button>
+          ))}
+        </span>
+      </div>
       <div className="menu-item menu-segment">
         <Icon name="bars" />
         <span className="menu-label">{label("indicatorStyle")}</span>

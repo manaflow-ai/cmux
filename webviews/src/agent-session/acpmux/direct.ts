@@ -4915,6 +4915,7 @@ export class AcpmuxDirectClient {
   }
   /// The permission mode acpmux would start a new chat on `harness` in `cwd` in (cx-wx93i),
   /// as acpmux decides it; undefined when it would set none, does not know, or predates the method.
+  /// Rejects when it could not be asked (no socket, the request failed): that is no answer.
   async startMode(harness: string, cwd?: string): Promise<StartMode | undefined> {
     try {
       const answer = (await this.request("_acpmux/start_mode", cwd ? { harness, cwd } : { harness })) as {
@@ -4935,8 +4936,13 @@ export class AcpmuxDirectClient {
         modeId: answer.modeId,
         ...(typeof answer.name === "string" && answer.name ? { name: answer.name } : {}),
       };
-    } catch {
-      return undefined;
+    } catch (error) {
+      // acpmux refused (an unknown harness, a method it predates): it sets none there. A request
+      // that never reached it, or whose socket closed, answered nothing (startMode.ts keeps what it had).
+      // The pane's host refusing to relay it (`data.origin: "native"`, such as a new workspace's home
+      // folder outside the roots it relays) is one of those: acpmux never saw the ask.
+      if (error instanceof AcpmuxRpcError && !refusedByHost(error)) return undefined;
+      throw error;
     }
   }
   /// Resumes `adopt` in this pane now (a chat whose folder was missing, after Choose Folder): the
@@ -5731,4 +5737,10 @@ export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
 /// hidden, or in an occluded window.
 function pageShown(): boolean {
   return typeof document === "undefined" || document.visibilityState !== "hidden";
+}
+
+/// Whether the pane's host refused to relay a request (`data.origin: "native"`): acpmux never saw it.
+function refusedByHost(error: AcpmuxRpcError): boolean {
+  const data = error.data && typeof error.data === "object" ? (error.data as Record<string, unknown>) : undefined;
+  return data?.origin === "native";
 }

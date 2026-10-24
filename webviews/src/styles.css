@@ -659,13 +659,17 @@ body {
   stroke-linejoin: round;
 }
 #layout-toggle svg [data-diff-deletion],
-#layout-toggle svg [data-diff-addition] {
+#layout-toggle svg [data-diff-addition],
+.segment-button svg [data-diff-deletion],
+.segment-button svg [data-diff-addition] {
   stroke: none;
 }
-#layout-toggle svg [data-diff-deletion] {
+#layout-toggle svg [data-diff-deletion],
+.segment-button svg [data-diff-deletion] {
   fill: color-mix(in srgb, var(--cmux-diff-deletion-fg) 55%, var(--cmux-diff-solid-bg));
 }
-#layout-toggle svg [data-diff-addition] {
+#layout-toggle svg [data-diff-addition],
+.segment-button svg [data-diff-addition] {
   fill: color-mix(in srgb, var(--cmux-diff-addition-fg) 55%, var(--cmux-diff-solid-bg));
 }
 .toolbar-icon svg [data-precision-dot],
@@ -2071,7 +2075,7 @@ svg[data-icon-fill] {
   background: color-mix(in srgb, var(--cmux-diff-fg) 5%, var(--cmux-diff-solid-bg));
   color: var(--cmux-diff-fg);
 }
-/* Unavailable here (split in a narrow viewer): its tooltip says why, and hover does not light it. */
+/* An unavailable pill button: its tooltip says why, and hover does not light it. */
 .diff-pill-button[aria-disabled="true"],
 .diff-pill-button[aria-disabled="true"]:hover {
   background: transparent;

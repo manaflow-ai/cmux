@@ -54,9 +54,10 @@ import Testing
                 "the line starts at \(lineStart), inside the header bar that ends at \(barEdge)")
         line.layoutSubtreeIfNeeded()
         // Chrome's square left edge and body keep their flat geometry; the top-right edge is the cut/taper.
-        let mask = try #require(line.layer?.mask as? CAShapeLayer)
-        #expect(line.layer?.cornerRadius == 0 && mask.path != nil, "the line has the Chrome corner cut")
-        #expect(mask.frame.height >= 4096, "the mask preserves coverage while the parent rail shrinks")
+        #expect(line.layer?.cornerRadius == 0 && line.layer?.masksToBounds == true && line.railShape.path != nil,
+                "the line has the clipped Chrome corner cut")
+        #expect(line.railShape.frame.width == 2 && line.railShape.frame.height >= 4096,
+                "the cut shape preserves coverage while the parent rail shrinks")
     }
 
     @Test func aHeaderInkIsWhiteOrNearBlackWhicheverReadsBetter() throws {
