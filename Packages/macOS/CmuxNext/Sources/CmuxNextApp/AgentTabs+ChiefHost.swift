@@ -41,13 +41,20 @@ struct ChiefHomeAcpmux {
     ///     (`ChiefBrainKeeper.ensure`), after a heal stopped the stale one.
     ///   - ownHost: the pane host of the Chief home's own acpmux (its environment) for a Chief
     ///     on the app's acpmux: the daemon its subagents ran on before the move.
-    init(home: ChiefHome, local: any AgentPaneHostProviding, ensureHost: @escaping @Sendable () async -> Void,
+    ///   - launchOpenFileLimit: the soft open-file limit that daemon starts with when this app
+    ///     starts it again (``AcpmuxEnvironment/launchOpenFileLimit``).
+    init(home: ChiefHome, local: any AgentPaneHostProviding, launchOpenFileLimit: rlim_t? = nil,
+         ensureHost: @escaping @Sendable () async -> Void,
          ownHost: @escaping @Sendable (AcpmuxEnvironment?) -> any AgentPaneHostProviding = { AcpmuxHost(environment: $0) }) {
         let host = Self.host(muxHome: home.muxHome)
         self.host = host
         // optchat-chief `brain::parent_tag`: optchat-chief:<home id>.
         let tag = "optchat-chief:" + host.dropFirst("chief:".count)
-        let environment = Self.environment(home: home)
+        let environment = Self.environment(home: home).map {
+            var resolved = $0
+            resolved.launchOpenFileLimit = launchOpenFileLimit
+            return resolved
+        }
         // One daemon: the Chief's new sessions are this Mac's, so their tabs attach like any chat
         // and the app's own handoff heals that daemon. A subagent started before the move
         // (#22900) still runs, or is kept, in the Chief home's own acpmux: its tab attaches there,
