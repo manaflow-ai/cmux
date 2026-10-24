@@ -23,7 +23,6 @@ use std::sync::{Arc, Condvar, Mutex};
 /// One queued save: the newest snapshot of a session's record.
 struct Queued {
     meta: SessionMeta,
-    version: u64,
     purged: Arc<AtomicBool>,
 }
 
@@ -100,7 +99,7 @@ impl MetaWriter {
             return;
         }
         *newest = version;
-        state.queued.insert(meta.id.clone(), Queued { meta, version, purged });
+        state.queued.insert(meta.id.clone(), Queued { meta, purged });
         self.shared.work.notify_one();
     }
 

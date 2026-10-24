@@ -597,34 +597,35 @@ pub fn open(config: &StoreConfig, root: &Path) -> Result<Box<dyn Store>> {
 
 // ---------------------------------------------------------------- memory
 
+/// Each session's record and log in memory. A log is kept from its first append, whether or not
+/// the session's record was saved yet: the record writer saves it on its own thread
+/// (`hub/meta_writer.rs`), so its first records can come first, as they may in a file store.
+/// Only a session with a saved record is listed or loaded.
 #[derive(Default)]
 pub struct MemoryStore {
-    inner: Mutex<HashMap<String, (SessionMeta, Vec<EventRecord>)>>,
+    inner: Mutex<HashMap<String, (Option<SessionMeta>, Vec<EventRecord>)>>,
 }
 
 impl Store for MemoryStore {
     fn list(&self) -> Result<Vec<SessionMeta>> {
-        Ok(self.inner.lock_or_recover().values().map(|(m, _)| m.clone()).collect())
+        Ok(self.inner.lock_or_recover().values().filter_map(|(m, _)| m.clone()).collect())
     }
     fn load(&self, id: &str) -> Result<Option<SessionMeta>> {
-        Ok(self.inner.lock_or_recover().get(id).map(|(m, _)| m.clone()))
+        Ok(self.inner.lock_or_recover().get(id).and_then(|(m, _)| m.clone()))
     }
     fn save(&self, meta: &SessionMeta) -> Result<()> {
         let mut g = self.inner.lock_or_recover();
-        g.entry(meta.id.clone())
-            .and_modify(|(m, _)| *m = meta.clone())
-            .or_insert_with(|| (meta.clone(), Vec::new()));
+        g.entry(meta.id.clone()).or_default().0 = Some(meta.clone());
         Ok(())
     }
     fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
         let mut g = self.inner.lock_or_recover();
-        if let Some((_, events)) = g.get_mut(id) {
-            events.push(record.clone());
-            // Bound memory: keep the newest 20k events.
-            if events.len() > 20_000 {
-                let drop = events.len() - 20_000;
-                events.drain(..drop);
-            }
+        let events = &mut g.entry(id.to_owned()).or_default().1;
+        events.push(record.clone());
+        // Bound memory: keep the newest 20k events.
+        if events.len() > 20_000 {
+            let drop = events.len() - 20_000;
+            events.drain(..drop);
         }
         Ok(())
     }
