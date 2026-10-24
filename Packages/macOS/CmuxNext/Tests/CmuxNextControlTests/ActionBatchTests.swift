@@ -8,13 +8,17 @@ import Testing
 private final class IndexRecordingExecutor: ControlActionExecutor {
     let ran = Mutex<[Int]>([])
     let refusing: Int?
+    /// The runs whose work fails, by index. The work is a main-actor task, so it fails only after
+    /// every op of the batch's transaction ran (as a daemon command's reply comes after it).
+    let failingWork: Set<Int>
     /// How long each run holds the main actor (a slow handler).
     let holding: Duration
     /// Runs on the main actor at the start of each run, with its index (a test's side effect).
     let beforeRun = Mutex<(@MainActor @Sendable (Int) -> Void)?>(nil)
 
-    init(refusing: Int? = nil, holding: Duration = .zero) {
+    init(refusing: Int? = nil, failingWork: Set<Int> = [], holding: Duration = .zero) {
         self.refusing = refusing
+        self.failingWork = failingWork
         self.holding = holding
     }
 
@@ -24,6 +28,13 @@ private final class IndexRecordingExecutor: ControlActionExecutor {
         spin(for: holding)
         ran.withLock { $0.append(index) }
         return index == refusing ? .refused("no room") : .ran
+    }
+
+    @MainActor func performActionTracked(_ request: ControlActionRequest) -> ControlActionRun {
+        let outcome = performAction(request)
+        guard case .int(let index)? = request.arguments["index"], failingWork.contains(index) else { return ControlActionRun(outcome: outcome) }
+        let work: ActionWork = Task { @MainActor in ActionWorkFailure(refusal: .unavailable, reason: "tab \(index) is gone") }
+        return ControlActionRun(outcome: outcome, work: [work])
     }
 
     var indices: [Int] { ran.withLock { $0 } }
@@ -107,6 +118,38 @@ private final class IndexRecordingExecutor: ControlActionExecutor {
         #expect(error.data?["applied"] == 1)
         #expect(error.data?["not_run"] == nil, "the op before it ran")
         #expect(executor.indices == [1, 2])
+    }
+
+    /// An op's daemon work fails after the ops after it ran (it does not stop them): the answer
+    /// names the first op whose work failed with its own action, every op whose work failed, and
+    /// how many ops ran, so the client knows which op to look at and that none is safe to resend.
+    @Test func anOpWhoseWorkFailsLaterIsNamedWithEveryFailedOpAndHowManyRan() async {
+        let executor = IndexRecordingExecutor(failingWork: [2, 3])
+        guard case .failure(let error) = await batch(router(executor), ["ops": ops([1, 2, 3])]) else {
+            Issue.record("expected op 1's work failure")
+            return
+        }
+        #expect(error.code == "unavailable", "\(error)")
+        #expect(error.data?["reason"] == "tab 2 is gone")
+        #expect(error.data?["action"] == "selectWorkspaceByNumber")
+        #expect(error.data?["op"] == 1, "\(error)")
+        #expect(error.data?["failed"] == .array([1, 2]), "a later op's failure is dropped: \(error)")
+        #expect(error.data?["applied"] == 3, "every op ran: \(error)")
+        #expect(error.data?["not_run"] == false)
+        #expect(executor.indices == [1, 2, 3])
+    }
+
+    /// An op whose work failed comes before a later op's refusal: the earliest failure answers.
+    @Test func anEarlierOpsFailedWorkAnswersBeforeALaterRefusal() async {
+        let executor = IndexRecordingExecutor(refusing: 3, failingWork: [1])
+        guard case .failure(let error) = await batch(router(executor), ["ops": ops([1, 2, 3])]) else {
+            Issue.record("expected op 0's work failure")
+            return
+        }
+        #expect(error.data?["reason"] == "tab 1 is gone", "\(error)")
+        #expect(error.data?["op"] == 0, "\(error)")
+        #expect(error.data?["applied"] == 2, "op 2 refused, so two ops applied: \(error)")
+        #expect(executor.indices == [1, 2, 3])
     }
 
     /// A batch split into transactions (`atomic: false`) whose later transaction never runs (its
