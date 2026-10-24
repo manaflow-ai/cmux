@@ -67,6 +67,20 @@ const COMMIT_PENDING: u8 = 0;
 const COMMIT_ADMITTED: u8 = 1;
 const COMMIT_CANCELED: u8 = 2;
 
+/// Debug seam (`CMUX_TUI_DEBUG_JOURNAL_WRITER_STALL_MS=N`, off by default):
+/// the journal writer waits N ms before each batch, as a writer busy with
+/// other work, so a test can prove no request waits for it (PL-daemon).
+fn writer_stall() -> Option<Duration> {
+    static STALL: std::sync::OnceLock<Option<Duration>> = std::sync::OnceLock::new();
+    *STALL.get_or_init(|| {
+        std::env::var("CMUX_TUI_DEBUG_JOURNAL_WRITER_STALL_MS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .filter(|ms| *ms > 0)
+            .map(Duration::from_millis)
+    })
+}
+
 #[cfg(not(test))]
 fn journal_durable_wait() -> Duration {
     static WAIT: std::sync::OnceLock<Duration> = std::sync::OnceLock::new();
@@ -1202,6 +1216,11 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                     if batch.is_empty() {
                         break;
                     }
+                }
+                if let Some(stall) = writer_stall() {
+                    // Debug seam: a writer busy elsewhere, before it takes
+                    // any lock (no request may wait for it, PL-daemon).
+                    std::thread::sleep(stall);
                 }
                 let events = batch.iter().map(|queued| &queued.event).collect::<Vec<_>>();
                 let committed = mux.commit_session_journal_events(
