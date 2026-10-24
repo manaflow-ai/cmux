@@ -231,6 +231,30 @@ import Testing
         #expect(Darwin.poll(&readable, 1, 200) == 0, "a refused attach sends no cancel")
     }
 
+    /// The ring descriptor is open without FD_CLOEXEC between `recvmsg` and
+    /// the reader's `fcntl` (Darwin has no MSG_CMSG_CLOEXEC). A child the app
+    /// spawns in that window must not inherit it: Foundation's `Process`
+    /// spawns with POSIX_SPAWN_CLOEXEC_DEFAULT, and so do the app's posix_spawn
+    /// sites. Runs on each macOS major the fleet has.
+    @Test func aChildSpawnedWithProcessDoesNotInheritADescriptorWithoutCloseOnExec() throws {
+        let path = NSTemporaryDirectory() + "cloexec-\(UUID().uuidString)"
+        FileManager.default.createFile(atPath: path, contents: Data("x".utf8))
+        defer { unlink(path) }
+        let fd = open(path, O_RDONLY)
+        try #require(fd >= 0)
+        defer { close(fd) }
+        #expect(fcntl(fd, F_GETFD) & FD_CLOEXEC == 0, "the fixture fd lacks close-on-exec, as a just-received descriptor")
+        let child = Process()
+        child.executableURL = URL(fileURLWithPath: "/bin/sh")
+        child.arguments = ["-c", "[ -e /dev/fd/\(fd) ] && echo inherited || echo closed"]
+        let output = Pipe()
+        child.standardOutput = output
+        try child.run()
+        child.waitUntilExit()
+        let seen = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        #expect(seen == "closed\n", "macOS \(ProcessInfo.processInfo.operatingSystemVersionString): \(seen)")
+    }
+
     @Test func aStreamEndWithReasonOverflowClosesTheViewAsAnOverflow() async throws {
         let fixture = try Fixture()
         defer { fixture.transport.close(); close(fixture.daemon) }
