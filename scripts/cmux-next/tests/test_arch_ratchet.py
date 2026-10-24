@@ -864,6 +864,18 @@ class SignalTests(Repo):
         self.assertEqual(delta.by_package("observer_sites"), {"CmuxNextOther": 3})
         self.assert_matches_full(base, "HEAD")
 
+    def test_a_new_blocking_allowance_is_refused(self):
+        text = ("enum Blocking {\n    static func allowBlocking(_ why: String) {}\n}\n"
+                "final class Reader {\n    func read() {\n        let s = \"// blocking-allow: in a string\"\n"
+                "        // blocking-allow: the file is a byte\n        _ = s\n"
+                "        Blocking.allowBlocking(\"sync read\")\n    }\n}\n")
+        sites = counts.analyze(f"{SRC}/CmuxNextDomain/Blocking.swift", text).sites
+        self.assertEqual([s.line for s in sites if s.row == "blocking_allow_escapes"], [7, 9])
+        self.write(f"{SRC}/CmuxNextDomain/Blocking.swift", text)
+        self.commit("a comment and a call allow blocking; a declaration and a string do not")
+        refusals, _ = self.check()
+        self.assertEqual(self.rows(refusals), ["blocking_allow_escapes"])
+
     def test_assume_isolated_in_a_deinit_is_refused_even_with_main_proof(self):
         self.write(f"{SRC}/CmuxNextDomain/Holder.swift",
                    "final class Holder {\n    deinit {\n        // main-proof: released on main\n"
