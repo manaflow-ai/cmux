@@ -16,10 +16,10 @@ final class UIInspectorController {
     private var monitor: Any?
     /// Records the gesture that opened a native or app-owned webview menu. The
     /// menu action then starts the picker at that exact screen point.
-    private var contextMonitor: Any?
+    private nonisolated(unsafe) var contextMonitor: Any?
     private var lastContextPoint: NSPoint?
     private weak var lastContextWindow: NSWindow?
-    private var inspectNotification: NSObjectProtocol?
+    private nonisolated(unsafe) var inspectNotification: NSObjectProtocol?
     private var activeWindow: NSWindow?
     private var highlighted: NSView?
     private var highlight: OverlayHandle?
