@@ -13,8 +13,10 @@ extension DaemonStore {
         let memo = snapshotMemo
         guard !isProvisional, !memo.untracked, memo.epoch == connectionEpoch, !memo.applied.isEmpty,
               memo.generation == tree.generation, memo.registryID == tree.registryID else { return nil }
-        let changed = diff.flatMap { $0.revision == memo.revision ? $0.changed : nil }
-            ?? SnapshotDiff.compute(tree, against: memo.applied, revision: memo.revision).changed
+        let changed = diff.flatMap { $0.revision == memo.revision ? $0.changed : nil } ?? {
+            snapshotWorkspacesWalkedOnMain &+= tree.workspaces.count
+            return SnapshotDiff.compute(tree, against: memo.applied, revision: memo.revision).changed
+        }()
         // An event applied while the diff ran is in `dirty` too: its workspace takes the snapshot's
         // state, which is at least as new (events at or below the snapshot's barrier are superseded;
         // newer ones wait in the held inbox and apply after it).
@@ -81,6 +83,7 @@ extension DaemonStore {
 
     /// Records `tree` as the last applied live snapshot (the next one diffs against it).
     func recordSnapshotMemo(_ tree: DaemonTree) {
+        snapshotWorkspacesWalkedOnMain &+= tree.workspaces.count
         var applied: [String: WorkspaceSnapshot] = snapshotMemo.applied
         if snapshotMemo.epoch != connectionEpoch || snapshotMemo.untracked || applied.isEmpty {
             applied = Dictionary(tree.workspaces.map { (WorkspaceModel.identity($0), $0) }, uniquingKeysWith: { _, new in new })
