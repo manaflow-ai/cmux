@@ -28,10 +28,15 @@ use std::sync::mpsc::{SyncSender, TrySendError};
 /// Records the queue holds before a hop is dropped (and counted).
 pub const QUEUE_LIMIT: usize = 8192;
 
+/// Bytes of a terminal id a record keeps inline (a 128-bit id in hex).
+const TERMINAL_BYTES: usize = 32;
+
 struct Record {
     name: &'static str,
     flow: u64,
-    terminal: String,
+    /// The terminal's hex id, inline so a hop allocates nothing.
+    terminal: [u8; TERMINAL_BYTES],
+    terminal_len: u8,
     tid: u64,
     t_ns: u64,
 }
@@ -79,7 +84,12 @@ fn write_records(file: std::fs::File, messages: std::sync::mpsc::Receiver<Messag
                         "{{\"hop\":\"{}\",\"flow\":{},\"terminal\":\"{}\",\"pid\":{},\"tid\":{},\"t_ns\":{}}}",
                         json_safe(record.name),
                         record.flow,
-                        json_safe(&record.terminal),
+                        json_safe(
+                            std::str::from_utf8(
+                                &record.terminal[..usize::from(record.terminal_len)]
+                            )
+                            .unwrap_or("")
+                        ),
                         std::process::id(),
                         record.tid,
                         record.t_ns
@@ -115,10 +125,34 @@ pub fn enabled() -> bool {
 }
 
 /// Records hop `name` of flow `flow` (0: a hop no message carries the id to)
-/// on `terminal` (its hex id). `terminal` runs only when marks are on.
-pub fn hop(name: &'static str, flow: u64, terminal: impl FnOnce() -> String) {
+/// on terminal `terminal` (its hex id, at most 32 bytes kept). Off, it costs
+/// one load; on, it allocates nothing (the id is copied into the record).
+pub fn hop(name: &'static str, flow: u64, terminal: &str) {
     let Some(sink) = sink() else { return };
-    let record = Record { name, flow, terminal: terminal(), tid: thread_id(), t_ns: now_ns() };
+    let mut inline = [0u8; TERMINAL_BYTES];
+    let len = terminal.len().min(TERMINAL_BYTES);
+    inline[..len].copy_from_slice(&terminal.as_bytes()[..len]);
+    send(sink, name, flow, inline, len);
+}
+
+/// [`hop`] for a terminal named by its raw 16-byte id: the hex is written
+/// into the record, so the caller formats nothing when marks are off.
+pub fn hop_id(name: &'static str, flow: u64, id: &[u8]) {
+    let Some(sink) = sink() else { return };
+    let mut inline = [0u8; TERMINAL_BYTES];
+    let mut len = 0;
+    for byte in id.iter().take(TERMINAL_BYTES / 2) {
+        for nibble in [byte >> 4, byte & 0x0f] {
+            inline[len] = b"0123456789abcdef"[usize::from(nibble)];
+            len += 1;
+        }
+    }
+    send(sink, name, flow, inline, len);
+}
+
+fn send(sink: &Sink, name: &'static str, flow: u64, terminal: [u8; TERMINAL_BYTES], len: usize) {
+    let record =
+        Record { name, flow, terminal, terminal_len: len as u8, tid: thread_id(), t_ns: now_ns() };
     if let Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) =
         sink.queue.try_send(Message::Record(record))
     {

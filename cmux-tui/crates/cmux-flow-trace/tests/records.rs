@@ -8,8 +8,8 @@ fn hops_reach_the_file_as_json_lines() {
     // SAFETY: set before any thread of this test binary reads the environment (the sink reads it once).
     unsafe { std::env::set_var("CMUX_TRACE_FLOWS", &dir) };
     assert!(cmux_flow_trace::enabled());
-    cmux_flow_trace::hop("daemon.send", 42, || "00ff".to_string());
-    cmux_flow_trace::hop("host.pty.write", 0, || "00ff".to_string());
+    cmux_flow_trace::hop("daemon.send", 42, "00ff");
+    cmux_flow_trace::hop_id("host.pty.write", 0, &[0x00, 0xff]);
     assert!(cmux_flow_trace::flush());
     let text =
         std::fs::read_to_string(dir.join(format!("flows-{}.jsonl", std::process::id()))).unwrap();
