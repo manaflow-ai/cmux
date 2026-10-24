@@ -88,8 +88,10 @@ pub(super) fn journal_frontend_event(
 ) -> anyhow::Result<Value> {
     let session_id = mux.session_public_id();
     let principal_id = public_client_id(&session_id, client)?.to_string();
+    // Best effort (PL-daemon): queued for the journal writer, not waited
+    // for, so `committed` is false; the writer commits it in its next batch.
     mux.journal_frontend_event(principal_id, event)?;
-    Ok(json!({"committed":true}))
+    Ok(json!({"committed":false}))
 }
 
 pub(super) fn sidebar_plugin(
