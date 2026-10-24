@@ -415,7 +415,7 @@ class TransportTests(unittest.TestCase):
         publisher._rate_limit_deadline = None
         self.addCleanup(setattr, publisher, "_rate_limit_deadline", None)
         waits = []
-        with patch.object(publisher.time, "sleep", side_effect=waits.append):
+        with patch.object(publisher, "_sleep", side_effect=waits.append):
             publisher.publish(self.client, 42, [[self.file()], [], []])
         return waits
 
@@ -450,7 +450,7 @@ class TransportTests(unittest.TestCase):
         publisher._rate_limit_deadline = publisher.time.monotonic() - 1
         self.addCleanup(setattr, publisher, "_rate_limit_deadline", None)
         self.responses = [(403, {"x-ratelimit-remaining": "0"}, {"message": "API rate limit exceeded"})]
-        with patch.object(publisher.time, "sleep"):
+        with patch.object(publisher, "_sleep"):
             with self.assertRaisesRegex(RuntimeError, "did not reset within"):
                 publisher.publish(self.client, 42, [[self.file()], [], []])
         self.assertEqual(len(self.uploads), 1)
@@ -458,7 +458,7 @@ class TransportTests(unittest.TestCase):
     def test_permission_403_fails_at_once_and_names_github_s_message(self):
         self.responses = [(403, {"x-ratelimit-remaining": "4999", "x-github-request-id": "ABC:1"},
                            {"message": "Resource not accessible by integration"})]
-        with patch.object(publisher.time, "sleep") as sleep:
+        with patch.object(publisher, "_sleep") as sleep:
             with self.assertRaises(publisher.RequestError) as raised:
                 publisher.publish(self.client, 42, [[self.file()], [], [self.file("appcast.xml")]])
         sleep.assert_not_called()

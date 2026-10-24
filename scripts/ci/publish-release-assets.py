@@ -33,6 +33,7 @@ from urllib.parse import quote, urlencode
 # the publish job has its own timeout (2026-10-24: the Actions installation
 # quota ran out and the nightly failed on "POST HTTP 403" with nothing retried).
 RATE_LIMIT_BUDGET_SECONDS = 600
+_sleep = time.sleep  # tests replace this, never the shared time module
 _rate_limit_lock = threading.Lock()
 _rate_limit_deadline: float | None = None
 
@@ -84,7 +85,7 @@ def parse_headers(text: str) -> dict[str, str]:
 
 def backoff(attempt: int, error: RequestError | None = None) -> None:
     if error is None or not error.rate_limited:
-        time.sleep(2 ** (attempt + 1))
+        _sleep(2 ** (attempt + 1))
         return
     global _rate_limit_deadline
     with _rate_limit_lock:
@@ -92,11 +93,11 @@ def backoff(attempt: int, error: RequestError | None = None) -> None:
         if _rate_limit_deadline is None:
             _rate_limit_deadline = now + RATE_LIMIT_BUDGET_SECONDS
         left = _rate_limit_deadline - now
-    if left <= 0:
+    if left < 1:
         raise RuntimeError(f"GitHub rate limit did not reset within {RATE_LIMIT_BUDGET_SECONDS} s: {error}") from error
-    wait = min(error.wait if error.wait is not None else 60.0, left)
+    wait = min(max(error.wait if error.wait is not None else 60.0, 1.0), left)
     print(f"GitHub rate limit ({error}); waiting {wait:.0f} s", file=sys.stderr, flush=True)
-    time.sleep(max(wait, 1.0))
+    _sleep(wait)
 
 
 @dataclass(frozen=True)
