@@ -14,35 +14,39 @@ final class MainActorWorkItem: Sendable {
     let connection: ControlConnectionID
     /// The control method (the watchdog and the `stall.main_task` signpost name the task by it).
     let method: String
+    /// ``method`` interned on the app's board off the main thread (nil without one), so running
+    /// the item as a scheduled task takes no lock.
+    let owner: MainTaskOwner?
     /// Its main-thread priority class: ``MainWorkClass/input`` for injected input, else automation.
     let workClass: MainWorkClass
     let deadline: ContinuousClock.Instant
     let enqueuedAt: ContinuousClock.Instant
     private let body: @MainActor @Sendable () -> Void
     private let fail: @Sendable (ControlError) -> Void
-    /// Called once, by whichever of run and expire claims the item (an input item's count on the board).
-    private let claimed: @Sendable () -> Void
+    /// The board that counts this item as a person's pending input (an injected key at the head
+    /// of its connection), until run or expire claims it.
+    private let pendingInput = Mutex<MainTaskBoard?>(nil)
     private let phase = Mutex(Phase.pending)
     private let timer = Mutex<Task<Void, Never>?>(nil)
 
     init(
         connection: ControlConnectionID,
         method: String = "",
+        owner: MainTaskOwner? = nil,
         workClass: MainWorkClass = .automation,
         deadline: ContinuousClock.Instant,
         enqueuedAt: ContinuousClock.Instant,
         body: @escaping @MainActor @Sendable () -> Void,
-        fail: @escaping @Sendable (ControlError) -> Void,
-        claimed: @escaping @Sendable () -> Void = {}
+        fail: @escaping @Sendable (ControlError) -> Void
     ) {
         self.connection = connection
         self.method = method
+        self.owner = owner
         self.workClass = workClass
         self.deadline = deadline
         self.enqueuedAt = enqueuedAt
         self.body = body
         self.fail = fail
-        self.claimed = claimed
     }
 
     var isPending: Bool { phase.withLock { $0 == .pending } }
@@ -57,11 +61,27 @@ final class MainActorWorkItem: Sendable {
             return true
         }
         guard claimed else { return false }
-        self.claimed()
+        releasePendingInput()
         timer.withLock { $0?.cancel() }
         body()
         phase.withLock { $0 = .finished }
         return true
+    }
+
+    /// Counts the item on `board` as a person's pending input until it runs or expires, so every
+    /// budgeted batch yields while it waits. Call before the item can be claimed (while queuing it).
+    func countAsPendingInput(on board: MainTaskBoard) {
+        board.inputQueued()
+        pendingInput.withLock { $0 = board }
+    }
+
+    private func releasePendingInput() {
+        let board = pendingInput.withLock { board -> MainTaskBoard? in
+            let counted = board
+            board = nil
+            return counted
+        }
+        board?.inputDone()
     }
 
     /// Keeps the deadline timer so running the item cancels it. Cancels it
@@ -84,7 +104,7 @@ final class MainActorWorkItem: Sendable {
             return true
         }
         if claimed {
-            self.claimed()
+            releasePendingInput()
             fail(error)
         }
         return claimed

@@ -57,7 +57,9 @@ final class AppServices {
     /// The local daemon. Cloud machines are in `machines`; code acting on a
     /// workspace, pane, or tab resolves its daemon through `machines`.
     /// The local daemon; a build with the sidebar document orders rows from it only (placement-shift-v1).
-    let daemon = DaemonService(echoesPlacementShift: SidebarMirror.isLinked)
+    /// Its event batches run on the app's ``MainWorkScheduler`` (`daemon.mainWork`), which every
+    /// remote machine's service shares.
+    let daemon: DaemonService
     /// Agent panes' git reads, one link per machine (AgentPaneGitReads.swift).
     private(set) lazy var agentGit = AgentPaneGitLinks(machines: machines)
     let machines: MachineRegistry
@@ -398,11 +400,14 @@ final class AppServices {
     ///   hold for; the app-wide one by default.
     /// - Parameter work: the app's one set of blocking-work lanes (task traits, PATTERNS P14); a default
     ///   instance unless a test passes its own.
+    /// - Parameter mainWork: The app's main-thread scheduler (`AppDelegate` passes the one its control
+    ///   socket uses); tests get one of their own, with no pending-input check.
     init(environment: AppEnvironment, launchReveal: LaunchReveal = .shared, agentPaneEnvironment: [String: String]? = nil,
-         work: BackgroundWork = BackgroundWork()) {
+         work: BackgroundWork = BackgroundWork(), mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget())) {
         self.work = work
         registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget))
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
+        daemon = DaemonService(echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork)
         self.launchReveal = launchReveal
         sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
         let contextMenus = BrowserContextMenuBuilder.shared

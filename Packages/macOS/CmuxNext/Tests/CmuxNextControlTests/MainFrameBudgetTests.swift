@@ -12,9 +12,9 @@ import Testing
         let budget = MainFrameBudget(uptimeNanos: clock.read)
         budget.beginFrame(timestamp: 1, refreshInterval: 1.0 / 60)
         #expect(budget.mayRun(.visible))
-        // One task longer than the whole 2.5 ms visible budget.
-        budget.run(.visible, owner: "store") { clock.advance(ms: 3) }
-        #expect(!budget.mayRun(.visible), "the budget is spent: the next task waits for the next frame")
+        // One task longer than the frame's whole 4 ms of scheduled work.
+        budget.run(.visible, owner: budget.board.owner("store")) { clock.advance(ms: 4.5) }
+        #expect(!budget.mayRun(.visible), "the frame's budget is spent: the next task waits for the next frame")
         // Classes have their own budgets: automation still runs this frame.
         #expect(budget.mayRun(.automation))
         // Frame-locked work and input are never held.
@@ -30,7 +30,7 @@ import Testing
         let clock = BudgetClock()
         let budget = MainFrameBudget(uptimeNanos: clock.read)
         budget.beginFrame(timestamp: 5, refreshInterval: 1.0 / 60)
-        budget.run(.visible, owner: "store") { clock.advance(ms: 3) }
+        budget.run(.visible, owner: budget.board.owner("store")) { clock.advance(ms: 4.5) }
         // Another window's display link ticks for the same vsync.
         budget.beginFrame(timestamp: 5, refreshInterval: 1.0 / 60)
         #expect(!budget.mayRun(.visible))
@@ -40,7 +40,7 @@ import Testing
         let clock = BudgetClock()
         let budget = MainFrameBudget(uptimeNanos: clock.read)
         budget.beginFrame(timestamp: 1, refreshInterval: 1.0 / 60)
-        budget.run(.automation, owner: "control") { clock.advance(ms: 2) }
+        budget.run(.automation, owner: budget.board.owner("control")) { clock.advance(ms: 4.5) }
         #expect(!budget.mayRun(.automation))
         clock.advance(ms: 17)
         #expect(budget.mayRun(.automation), "a request on an idle queue a frame later has a fresh budget")
@@ -51,10 +51,10 @@ import Testing
         let budget = MainFrameBudget(uptimeNanos: clock.read)
         budget.beginFrame(timestamp: 1, refreshInterval: 1.0 / 60)
         var allowed: [Bool] = []
-        budget.run(.visible, owner: "DaemonStore.drain") {
+        budget.run(.visible, owner: budget.board.owner("DaemonStore.drain")) {
             for _ in 0..<3 {
                 // One slice of a large batch takes longer than the whole frame.
-                budget.run(.visible, owner: "slice") { clock.advance(ms: 20) }
+                budget.run(.visible, owner: budget.board.owner("slice")) { clock.advance(ms: 20) }
                 allowed.append(budget.mayRun(.visible))
             }
         }
@@ -98,9 +98,9 @@ import Testing
         budget.beginFrame(timestamp: 1, refreshInterval: 1.0 / 60)
         var inner: MainTaskBoard.Task?
         var outerAfterInner: MainTaskBoard.Task?
-        budget.run(.visible, owner: "batch") {
+        budget.run(.visible, owner: budget.board.owner("batch")) {
             clock.advance(ms: 0.5)
-            budget.run(.automation, owner: "workspace.move") {
+            budget.run(.automation, owner: budget.board.owner("workspace.move")) {
                 inner = budget.board.running
                 clock.advance(ms: 2)
             }
@@ -117,19 +117,44 @@ import Testing
         #expect(budget.stats.overBudgetTasks == [0, 1, 0])
     }
 
-    @Test func mayRunInsideATaskCountsItsTimeSoFar() {
+    /// Idle-time scheduling (Chrome's idle tasks): with no input pending, a class past its own
+    /// share uses the frame time the others left, up to the frame's 4 ms of scheduled work. A CLI
+    /// storm on an idle main thread runs at the rate the control queue had before the split.
+    @Test func withNoInputPendingAClassUsesTheIdleRestOfTheFrame() {
         let clock = BudgetClock()
         let budget = MainFrameBudget(uptimeNanos: clock.read)
         budget.beginFrame(timestamp: 1, refreshInterval: 1.0 / 60)
+        let batch = budget.board.owner("Control.frames"), request = budget.board.owner("request")
         var allowed: [Bool] = []
-        budget.run(.automation, owner: "Control.frames") {
-            for _ in 0..<4 {
+        budget.run(.automation, owner: batch) {
+            for _ in 0..<12 {
                 allowed.append(budget.mayRun(.automation))
-                budget.run(.automation, owner: "request") { clock.advance(ms: 0.4) }
+                budget.run(.automation, owner: request) { clock.advance(ms: 0.4) }
             }
         }
-        // A 1 ms automation budget: three 0.4 ms requests fit before it is spent.
-        #expect(allowed == [true, true, true, false])
+        // 0.4 ms requests: three within the 1 ms share, seven more on idle time, none past 4 ms.
+        #expect(allowed == Array(repeating: true, count: 10) + [false, false])
+        #expect(budget.stats.idleTasks[1] == 7)
+    }
+
+    /// Under input the shares hold: a class that may run (it yielded last frame) keeps to its own.
+    @Test func whileInputIsPendingAClassKeepsToItsShare() {
+        let clock = BudgetClock()
+        let input = FakeInputPending()
+        let budget = MainFrameBudget(input: input, uptimeNanos: clock.read)
+        let request = budget.board.owner("request")
+        input.pending = true
+        budget.beginFrame(timestamp: 1, refreshInterval: 1.0 / 60)
+        #expect(!budget.mayRun(.automation), "frame 1: a pending key goes first")
+        clock.advance(ms: 17)
+        budget.beginFrame(timestamp: 2, refreshInterval: 1.0 / 60)
+        var allowed: [Bool] = []
+        for _ in 0..<4 {
+            allowed.append(budget.mayRun(.automation))
+            budget.run(.automation, owner: request) { clock.advance(ms: 0.4) }
+        }
+        #expect(allowed == [true, true, true, false], "frame 2: it yielded last frame, so it runs, but only its 1 ms")
+        #expect(budget.stats.idleTasks[1] == 0)
     }
 
     @Test func anOverBudgetTaskReachesTheBoardsSink() {
@@ -138,8 +163,8 @@ import Testing
         let reported = Box<[(String, UInt64)]>([])
         budget.board.setOverBudgetSink { task, nanos in reported.withLock { $0.append((task.owner, nanos)) } }
         budget.beginFrame(timestamp: 1, refreshInterval: 1.0 / 60)
-        budget.run(.visible, owner: "fast") { clock.advance(ms: 1) }
-        budget.run(.visible, owner: "slow") { clock.advance(ms: 9) }
+        budget.run(.visible, owner: budget.board.owner("fast")) { clock.advance(ms: 1) }
+        budget.run(.visible, owner: budget.board.owner("slow")) { clock.advance(ms: 9) }
         let rows = reported.withLock { $0 }
         #expect(rows.count == 1)
         #expect(rows.first?.0 == "slow")
@@ -152,17 +177,17 @@ import Testing
         let clock = BudgetClock()
         let input = FakeInputPending()
         let budget = MainFrameBudget(input: input, uptimeNanos: clock.read)
-        let scheduler = FrameScheduler.testing(budget: budget) { _ in FakeFrameLink() }
+        let scheduler = MainWorkScheduler.testing(budget: budget) { _ in FakeFrameLink() }
         var order: [String] = []
         let automation = FrameClient(owner: "automation", budgeted: .automation, on: scheduler) { _, budget in
-            budget.run(.automation, owner: "automation") { order.append("automation") }
+            budget.run(.automation, owner: budget.board.owner("automation")) { order.append("automation") }
             return true
         }
         let visible = FrameClient(owner: "visible", budgeted: .visible, on: scheduler) { _, budget in
-            budget.run(.visible, owner: "visible") { order.append("visible") }
+            budget.run(.visible, owner: budget.board.owner("visible")) { order.append("visible") }
             return true
         }
-        let frame = FrameClient(owner: "spring", on: scheduler) { _ in order.append("frame"); return true }
+        let frame = FrameClient(owner: "spring", on: scheduler.frames) { _ in order.append("frame"); return true }
         automation.activate()
         visible.activate()
         frame.activate()
@@ -185,18 +210,18 @@ import Testing
     @Test func aBatchQueueRunsItsWorkInOrderUnderTheBudgetAndKeepsTheRestForTheNextFrame() {
         let clock = BudgetClock()
         let budget = MainFrameBudget(uptimeNanos: clock.read)
-        let scheduler = FrameScheduler.testing(budget: budget) { _ in FakeFrameLink() }
-        let queue = FrameBatchQueue(owner: "store", kind: .budgeted(.visible), scheduler: scheduler)
+        let scheduler = MainWorkScheduler.testing(budget: budget) { _ in FakeFrameLink() }
+        let queue = FrameBatchQueue(owner: "store", budgeted: .visible, on: scheduler)
         var ran: [Int] = []
-        for index in 0..<3 { queue.enqueue { ran.append(index); clock.advance(ms: 1.5) } }
+        for index in 0..<4 { queue.enqueue { ran.append(index); clock.advance(ms: 1.5) } }
         scheduler.frameDidFire(timestamp: 1, refreshInterval: 1.0 / 60)
-        // 2.5 ms visible budget: 1.5 ms spent after the first, 3 ms after the second.
-        #expect(ran == [0, 1])
+        // 2.5 ms visible share, then idle time to 4 ms: 3 ms spent before the third, 4.5 ms after it.
+        #expect(ran == [0, 1, 2])
         #expect(queue.count == 1)
-        queue.enqueue { ran.append(3) }
+        queue.enqueue { ran.append(4) }
         clock.advance(ms: 17)
         scheduler.frameDidFire(timestamp: 2, refreshInterval: 1.0 / 60)
-        #expect(ran == [0, 1, 2, 3], "the held task runs first next frame, ahead of work queued after it")
+        #expect(ran == [0, 1, 2, 3, 4], "the held task runs first next frame, ahead of work queued after it")
         #expect(queue.count == 0)
         #expect(budget.board.running == nil)
     }
@@ -209,16 +234,16 @@ import Testing
         let clock = BudgetClock()
         let input = FakeInputPending()
         let budget = MainFrameBudget(input: input, uptimeNanos: clock.read)
-        let scheduler = FrameScheduler.testing(budget: budget) { _ in FakeFrameLink() }
-        let churn = FrameBatchQueue(owner: "DaemonStore.drain", kind: .budgeted(.visible), scheduler: scheduler)
-        let agents = FrameBatchQueue(owner: "Control.frames", kind: .budgeted(.automation), scheduler: scheduler)
-        let idle = FrameBatchQueue(owner: "background", kind: .budgeted(.background), scheduler: scheduler)
+        let scheduler = MainWorkScheduler.testing(budget: budget) { _ in FakeFrameLink() }
+        let churn = FrameBatchQueue(owner: "DaemonStore.drain", budgeted: .visible, on: scheduler)
+        let agents = FrameBatchQueue(owner: "Control.frames", budgeted: .automation, on: scheduler)
+        let idle = FrameBatchQueue(owner: "background", budgeted: .background, on: scheduler)
         for _ in 0..<50 {
             churn.enqueue { clock.advance(ms: 2) }
             agents.enqueue { clock.advance(ms: 2) }
             idle.enqueue { clock.advance(ms: 2) }
         }
-        let action = FrameBatchQueue(owner: "ContentPresentation", scheduler: scheduler)
+        let action = FrameBatchQueue(owner: "ContentPresentation", scheduler: scheduler.frames)
         var shown = 0
         for frame in 1...5 {
             input.pending = frame.isMultiple(of: 2)
@@ -231,9 +256,13 @@ import Testing
 
     // MARK: Control work queue
 
-    /// The lag Lawrence felt (perf-lead.md row 6): an injected key waited behind a CLI storm's
-    /// queued requests, round-robin with them and frame-paced. An input request runs on the next
-    /// main run loop turn, ahead of every queued request, with no display frame.
+    /// The injected stand-in for a key (`debug.key`, what the benches and agents send) waited
+    /// behind a CLI storm's queued requests of other connections, round-robin with them and
+    /// frame-paced. An input request at the head of its connection runs on the next main run loop
+    /// turn, ahead of other connections' queued requests, with no display frame. (A person's key
+    /// never went through this queue: its path is the event queue and ``SessionInputPending``,
+    /// guarded by SessionInputPendingTests and measured with real keys by sidebar-churn-typing.py
+    /// `--input real`.)
     @Test func anInjectedKeyRunsAheadOfQueuedRequestsWithoutAFrame() {
         let budget = MainFrameBudget()
         let frames = BudgetedFrameSource(budget: budget, soonOnRunLoop: true)
@@ -265,6 +294,122 @@ import Testing
             _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
         }
         #expect(queue.stats.pending == 0)
+    }
+
+    /// One saturating client never keeps the others of its class from ticking: the class's budget
+    /// goes to the client that ran least recently first.
+    @Test func clientsOfOneClassTakeTurnsWhenEachFillsTheBudget() {
+        let clock = BudgetClock()
+        let budget = MainFrameBudget(uptimeNanos: clock.read)
+        let scheduler = MainWorkScheduler.testing(budget: budget) { _ in FakeFrameLink() }
+        var ticks = ["a": 0, "b": 0]
+        let clients = ["a", "b"].map { name in
+            FrameClient(owner: name, budgeted: .visible, on: scheduler) { _, budget in
+                // Each tick is longer than the frame's whole scheduled budget.
+                budget.run(.visible, owner: budget.board.owner(name)) { clock.advance(ms: 5) }
+                ticks[name, default: 0] += 1
+                return true
+            }
+        }
+        for client in clients { client.activate() }
+        for frame in 1...4 {
+            clock.advance(ms: 17)
+            scheduler.frameDidFire(timestamp: Double(frame), refreshInterval: 1.0 / 60)
+        }
+        #expect(ticks == ["a": 2, "b": 2], "a saturating client starved the other: \(ticks)")
+        for client in clients { client.deactivate() }
+    }
+
+    /// The budget's window belongs to the one budgeted scheduler: a window's link ticking (another
+    /// display, another rate) neither rolls it nor spends it again.
+    @Test func aWindowLinkTickDoesNotOpenAnotherBudgetWindow() {
+        let clock = BudgetClock()
+        let budget = MainFrameBudget(uptimeNanos: clock.read)
+        let work = MainWorkScheduler.testing(budget: budget) { _ in FakeFrameLink() }
+        let window = FrameScheduler.testing { _ in FakeFrameLink() }
+        let spring = FrameClient(owner: "spring", on: window) { _ in true }
+        spring.activate()
+        work.frameDidFire(timestamp: 1, refreshInterval: 1.0 / 60)
+        budget.run(.visible, owner: budget.board.owner("store")) { clock.advance(ms: 4.5) }
+        window.frameDidFire(timestamp: 1.004, refreshInterval: 1.0 / 120)
+        #expect(budget.stats.frames == 1)
+        #expect(!budget.mayRun(.visible), "the window's tick gave the frame a second budget")
+        spring.deactivate()
+    }
+
+    /// FIFO within a connection: a client that pipelines a focus change and then a key, without
+    /// waiting for the first reply, gets them in that order (the key types into what it focused).
+    @Test func anInjectedKeyNeverPassesItsOwnConnectionsEarlierRequest() {
+        let budget = MainFrameBudget()
+        let frames = BudgetedFrameSource(budget: budget, soonOnRunLoop: true)
+        let queue = MainActorWorkQueue(frameSource: frames)
+        let deadline = ContinuousClock.now + .seconds(20)
+        let end = ContinuousClock.now + .seconds(10)
+        let order = Box<[String]>([])
+        let client = ControlConnectionID(rawValue: 5)
+        Task.detached {
+            _ = try await queue.run(connection: client, method: "surface.focus", deadline: deadline) { order.withLock { $0.append("focus") } }
+        }
+        while queue.stats.pending < 1, ContinuousClock.now < end { usleep(1_000) }
+        Task.detached {
+            _ = try await queue.run(connection: client, method: "debug.key", workClass: .input, deadline: deadline) { order.withLock { $0.append("key") } }
+        }
+        while queue.stats.pending < 2, ContinuousClock.now < end { usleep(1_000) }
+        while order.withLock({ $0.count }) < 2, ContinuousClock.now < end {
+            frames.fire()
+            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
+        }
+        #expect(order.withLock { $0 } == ["focus", "key"])
+    }
+
+    /// An input turn runs only the input queued before it: a client that keeps injecting keys
+    /// gives the main thread back to the run loop between turns.
+    @Test func inputQueuedDuringAnInputTurnWaitsForTheNextTurn() {
+        let budget = MainFrameBudget()
+        let frames = BudgetedFrameSource(budget: budget, soonOnRunLoop: false)
+        let queue = MainActorWorkQueue(frameSource: frames)
+        let deadline = ContinuousClock.now + .seconds(20)
+        let end = ContinuousClock.now + .seconds(10)
+        let ran = Box<[String]>([])
+        Task.detached {
+            _ = try await queue.run(connection: ControlConnectionID(rawValue: 1), method: "debug.key", workClass: .input, deadline: deadline) {
+                ran.withLock { $0.append("a") }
+                // Another client's key arrives while this one runs.
+                Task.detached {
+                    _ = try await queue.run(connection: ControlConnectionID(rawValue: 2), method: "debug.key", workClass: .input, deadline: deadline) {
+                        ran.withLock { $0.append("b") }
+                    }
+                }
+                while queue.stats.pending < 1, ContinuousClock.now < end { usleep(100) }
+            }
+        }
+        while queue.stats.pending < 1, ContinuousClock.now < end { usleep(1_000) }
+        frames.fire()
+        #expect(ran.withLock { $0 } == ["a"], "the key queued during the turn ran in it")
+        #expect(queue.stats.pending == 1)
+        while queue.stats.pending > 0, ContinuousClock.now < end { frames.fire() }
+        #expect(ran.withLock { $0 } == ["a", "b"])
+    }
+
+    /// Injected input counts in the per-connection limit: one client cannot queue keys past it.
+    @Test func injectedInputCountsInThePerConnectionLimit() async {
+        let budget = MainFrameBudget()
+        let frames = BudgetedFrameSource(budget: budget, soonOnRunLoop: false)
+        let queue = MainActorWorkQueue(limits: .init(maxPending: 100, maxPendingPerConnection: 2), frameSource: frames)
+        let deadline = ContinuousClock.now + .seconds(20)
+        let client = ControlConnectionID(rawValue: 9)
+        let waiting = (0..<2).map { _ in
+            Task.detached { try await queue.run(connection: client, method: "debug.key", workClass: .input, deadline: deadline) { 1 } }
+        }
+        while queue.stats.pending < 2 { await Task.yield() }
+        await #expect(throws: ControlError.busy(pending: 2, limit: 2)) {
+            try await queue.run(connection: client, method: "debug.key", workClass: .input, deadline: deadline) { 1 }
+        }
+        while queue.stats.pending > 0 {
+            frames.fire()
+            await Task.yield()
+        }
+        for task in waiting { _ = try? await task.value }
     }
 
     @Test func queuedRequestsYieldWhileAnInjectedKeyWaits() async throws {
@@ -345,6 +490,6 @@ private final class BudgetedFrameSource: ControlFrameSource {
         let timestamp = tick.withLock { $0 += 1; return $0 }
         budgetRef.beginFrame(timestamp: timestamp, refreshInterval: 1.0 / 60)
         // No check here: the queue's own drain must yield (the app's scheduler checks first too).
-        budgetRef.run(.automation, owner: "Control.frames") { frames.fire() }
+        budgetRef.run(.automation, owner: budgetRef.board.owner("Control.frames")) { frames.fire() }
     }
 }
