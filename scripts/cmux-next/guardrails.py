@@ -13,10 +13,18 @@ merge or rebase onto it) never count (check_push). Base debt never blocks a push
 (plans/cmux-next/codebase-health.md has the counts).
 
 Refusals (rules below, `--list` prints them): each names the rule, why, the right pattern and its escape.
-Skip once: CMUX_GUARDRAILS_SKIP_REASON="<rule>[,<rule>]: <why>" skips only the named rules; say it in your
-report.
+Skip once: CMUX_GUARDRAILS_SKIP_REASON="<rule>[,<rule>]: <why>" skips only the named line rules; say it in
+your report.
 A rule (or warning check) that raises is not applied to that push and prints a `guardrails` warning that names
 it; the other rules still run and refuse (fail open per check, so one broken rule never switches off the rest).
+
+Arch ratchet (one entry, one report): run_push() also runs scripts/cmux-next/arch-ratchet.py, next to this file,
+on a thread (start_ratchet() starts it early so it runs beside prepush-gate's scanners). It holds the counts of
+plans/cmux-next/arch-ratchet.json (arch_counts.py defines them): stateful singletons and file-scope globals,
+global mutable statics, MainActor.assumeIsolated outside seam adapters, app Notification.Name broadcasts,
+observer sites, layer edges. Those concerns have no line rule here, so there is one definition and one escape
+per concern: the dated exception in arch-ratchet.json (CMUX_GUARDRAILS_SKIP_REASON does not skip them, and no
+inline marker hides them).
 Warnings (never refuse):
   perf-hot  the push changes a function marked `// perf-hot: <budget> <path-id>` (a trailing comment on its
             declaration line, or in the comment block above it); names the bench from scripts/cmux-next/perf-hot-benches.json to run before
@@ -49,12 +57,14 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import time
 import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
+HERE = Path(__file__).resolve().parent
 SOURCES = "Packages/macOS/CmuxNext/Sources/"
 # The rules read Swift only: the string catalogs under Sources are MBs of JSON per localization push.
 SWIFT_SOURCES = f":(glob){SOURCES}**/*.swift"
@@ -323,54 +333,6 @@ def in_loop(version: Version, index: int) -> tuple[bool, list[int]]:
     prefix = code[:match.start()] if match else ""
     loops = [n for opener, n in enclosing_openers(version.lines, index, FUNC_STOP, prefix) if LOOP.search(opener)]
     return bool(loops), loops
-
-
-SINGLETON = re.compile(r"\bstatic\s+(let|var)\s+(shared|sharedInstance|instance)\b")
-# CLAUDE.md names these too; as stored statics of a class or actor, or mutable ones, they hold runtime state.
-# A struct or enum's `static let standard = Style()` is a value constant and passes.
-SINGLETON_NAMED = re.compile(r"\bstatic\s+(let|var)\s+(`default`|standard|current|live)\s*(:[^={]*)?=")
-SINGLETON_ANY = re.compile(SINGLETON.pattern + "|" + SINGLETON_NAMED.pattern)
-STATEFUL = re.compile(r"\bstatic\s+var\b|=\s*(Mutex|NSHashTable|NSMapTable|OSAllocatedUnfairLock)\b")
-TYPE_OPENER = re.compile(r"\b(class|actor|struct|enum|extension|protocol)\b")
-SINGLETON_ALLOW = re.compile(r"//\s*singleton-allow:\s*\S")
-
-
-def holds_state(version: Version, index: int) -> tuple[bool, list[int]]:
-    code = code_of(version.lines[index])
-    if SINGLETON.search(code) or STATEFUL.search(code):
-        return True, []
-    openers = enclosing_openers(version.lines, index, TYPE_OPENER)
-    if not openers:
-        return False, []
-    opener, number = openers[-1]
-    kind = TYPE_OPENER.search(opener)
-    return kind is not None and kind.group(1) in ("class", "actor"), [number]
-
-
-# Creating a name: `Notification.Name("x")`, `.Name(rawValue:)`, `x: Notification.Name = .init("x")`. A typed
-# alias or a parameter default (`name: Notification.Name = .pagesChanged`) creates none.
-BROADCAST = re.compile(r"\b(NS)?Notification\.Name(\.init)?\(|:\s*(NS)?Notification\.Name\s*=\s*\.init\s*\(")
-# Inside `extension Notification.Name`, `static let x = Self("x")` / `.init("x")` declare one too.
-BROADCAST_SHORT = re.compile(r"\bstatic\s+(let|var)\s+\w+\s*=\s*(Self|\.init)\s*\(")
-BROADCAST_ANY = re.compile(BROADCAST.pattern + "|" + BROADCAST_SHORT.pattern)
-NAME_EXTENSION = re.compile(r"\bextension\s+(Foundation\.)?(NS)?Notification\.Name\b")
-STATIC_DECL = re.compile(r"\bstatic\s+(let|var)\b")
-FILE_SCOPE_DECL = re.compile(r"^\s*(@\w+\s+)*((private|fileprivate|internal|public|package)\s+)?(let|var)\b")
-BROADCAST_ALLOW = re.compile(r"//\s*broadcast-allow:\s*\S")
-
-
-def declares_name(version: Version, index: int) -> tuple[bool, list[int]]:
-    """A declared name: a static or file-scope constant that creates one, or anything in a name extension.
-
-    A name created inline to observe an existing (system or distributed) notification declares nothing.
-    """
-    code = code_of(version.lines[index])
-    openers = enclosing_openers(version.lines, index, TYPE_OPENER)
-    if openers and NAME_EXTENSION.search(openers[-1][0]):
-        return True, [openers[-1][1]]
-    if BROADCAST.search(code) and (STATIC_DECL.search(code) or (not openers and FILE_SCOPE_DECL.search(code))):
-        return True, []
-    return False, []
 
 
 ROW_STRUCT = re.compile(r"\bstruct\s+(\w*(Row|Cell|Tile|Gap|Item)(View)?)\b[^{]*:\s*[^{]*\bView\b")
@@ -778,26 +740,11 @@ def implicit_deinit(version: Version, index: int) -> tuple[bool, list[int]]:
     return True, []
 
 
-singleton = matcher_rule(Matcher(SINGLETON_ANY, SINGLETON_ALLOW, holds_state))
 sleep_in_loop = matcher_rule(Matcher(SLEEP, POLL_ALLOW, in_loop))
-broadcast_name = matcher_rule(Matcher(BROADCAST_ANY, BROADCAST_ALLOW, declares_name))
 row_store = matcher_rule(Matcher(ROW_STORE, ROW_ALLOW, in_row))
 
 
 RULES = (
-    Rule("singleton", "New singleton (`static let shared`, or a class's stored `standard`/`default`/`current`/`live`)",
-         "a global hides runtime state: no injection, no test seam, every caller couples to one instance "
-         "(codebase-health.md counts the ones already there)",
-         "construct it once at the composition root (the App's startup) and pass it through `init`; "
-         "`static let` is fine for constants and identifiers",
-         "// singleton-allow: <why a process-wide instance is the only correct shape>",
-         singleton),
-    Rule("assume-isolated", "`MainActor.assumeIsolated` without a main-thread proof",
-         "it traps in Release when the caller is not on main, and nothing proves it is",
-         "make the caller `@MainActor` (and await it), or prove the thread on the line or above: "
-         "`// main-proof: <why this always runs on main>` (e.g. an observer registered with queue: .main)",
-         "// main-proof: <why>",
-         line_rule(r"\bMainActor\.assumeIsolated\b", "main-proof:")),
     Rule("unchecked-sendable", "`@unchecked Sendable` / `nonisolated(unsafe)` without a safety argument",
          "it switches off the data-race checker; without a written argument nobody can review it",
          "an actor, a Sendable value type, or CmuxNextCompat `Mutex` around the state; when it is truly safe, "
@@ -816,13 +763,6 @@ RULES = (
          "owned by the caller",
          "// main-async-allow: <the API that forces a GCD hop>",
          line_rule(r"\bDispatchQueue\.main\.async\b|\bOperationQueue\.main\.addOperation\b", "main-async-allow:")),
-    Rule("broadcast-name", "New `Notification.Name` (a broadcast signal)",
-         "every observer wakes on every post: O(all) work per change (browserChildWindowPagesNeedUpdate makes "
-         "every Chromium host re-post geometry on any layout change; perf-lead.md issue 2)",
-         "tell the one object that changed (a method on its owner, a closure the owner holds, or an "
-         "AsyncStream keyed by id)",
-         "// broadcast-allow: <why every observer must hear every post>",
-         broadcast_name),
     Rule("combine-state", "`ObservableObject` / `@Published` / Combine state",
          "one change invalidates every observer view; CLAUDE.md requires Observation",
          "`@MainActor @Observable` models; views take `@State`, `@Bindable`, a plain `let` or "
@@ -1211,6 +1151,89 @@ def format_report(refusals, warnings) -> tuple[str, bool]:
     return "\n".join(lines), True
 
 
+ARCH_RATCHET = "arch-ratchet.py"
+
+
+class Ratchet:
+    """The arch ratchet (arch-ratchet.py next to this file) for RANGES, running on a thread from the start.
+
+    Its cost is the Swift files it reads (git) and analyzes (Python, about 1 ms per file; arch_counts'
+    FactsCache keeps every analyzed content, so a warm push analyzes only new contents); the ratchet report
+    prints how many. A caller that starts it before other work pays what is left of it at finish(), but the
+    analysis shares the interpreter with that work, so it is not free beside CPU-bound scanners. It fails
+    open: a missing or broken script, an error or a run past WAIT_LIMIT is a warning and lets the push
+    through.
+    """
+
+    WAIT_LIMIT = 20.0
+
+    def __init__(self, repo: Path, ranges: list[tuple[str, str]], scripts_dir: Path | None = None) -> None:
+        self.out: list[str] = []
+        self.refused = False
+        self.error: str | None = None
+        self.thread: threading.Thread | None = None
+        self.waited = 0.0  # seconds finish() waited for the thread (prepush-gate --timings prints it)
+        script = (scripts_dir or HERE) / ARCH_RATCHET
+        try:
+            if not script.is_file():
+                self.error = f"{script} is missing; rerun scripts/install-git-hooks.sh"
+                return
+            spec = importlib.util.spec_from_file_location("cmux_next_arch_ratchet", script)
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[spec.name] = module  # dataclasses resolve their module through sys.modules
+            spec.loader.exec_module(module)
+        except (Exception, SystemExit) as error:
+            self.error = f"{ARCH_RATCHET} failed ({type(error).__name__}: {error})"
+            return
+
+        def run() -> None:
+            try:
+                self.refused = bool(module.run_push(repo, ranges, out=self.out))
+            except (Exception, SystemExit) as error:  # run_push fails open itself; this is the last guard
+                self.error = f"{ARCH_RATCHET} failed ({type(error).__name__}: {error})"
+
+        self.thread = threading.Thread(target=run, name="arch-ratchet", daemon=True)
+        self.thread.start()
+
+    def finish(self) -> tuple[str, bool]:
+        """(the ratchet's report, whether it refuses the push)."""
+        if self.thread is not None:
+            started = time.monotonic()
+            self.thread.join(self.WAIT_LIMIT)
+            self.waited = time.monotonic() - started
+            if self.thread.is_alive():
+                return (f"guardrails: WARNING: the arch ratchet ran past {self.WAIT_LIMIT:.0f}s; not applied to this "
+                        "push. Tell the Performance Lead with this line."), False
+        lines = list(self.out)
+        if self.error:
+            lines.append(f"guardrails: WARNING: {self.error}; the arch ratchet was not applied to this push. Tell the "
+                         "Performance Lead with this line.")
+        return "\n".join(lines), self.refused and self.error is None
+
+
+def start_ratchet(repo: Path, ranges: list[tuple[str, str]]) -> Ratchet:
+    """Start the arch ratchet for RANGES now (prepush-gate calls this before its scanners)."""
+    return Ratchet(repo, ranges)
+
+
+def run_push(repo: Path, ranges: list[tuple[str, str]], ratchet: Ratchet | None = None) -> bool:
+    """Print the guardrails report for the pushed RANGES: the line rules (check_push per range, so lines a
+    push only brings in from origin/feat-cmux-next never count) and the arch ratchet (started here unless the
+    caller started it). True when either refuses the push."""
+    ratchet = ratchet or Ratchet(repo, ranges)
+    refused = False
+    for base, head in ranges:
+        refusals, warnings = check_push(repo, base, head)
+        text, refuse = format_report(refusals, warnings)
+        if text:
+            print(text)
+        refused = refused or refuse
+    text, refuse = ratchet.finish()
+    if text:
+        print(text)
+    return refused or refuse
+
+
 def default_base(repo: Path, head: str) -> str:
     base = git(repo, "merge-base", head, UPSTREAM, check=False).strip()
     return base or f"{head}~1"
@@ -1226,13 +1249,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.list:
         for rule in RULES:
             print(f"{rule.id}: {rule.title}\n  why: {rule.why}\n  do:  {rule.fix}\n  escape: {rule.escape or '-'}")
+        print("arch ratchet rows (arch-ratchet.py --list-rules; escape: a dated exception in "
+              "plans/cmux-next/arch-ratchet.json)")
         return 0
     repo = Path(args.repo or git(Path.cwd(), "rev-parse", "--show-toplevel").strip())
     started = time.monotonic()
-    refusals, warnings = check(repo, args.base or default_base(repo, args.head), args.head)
-    text, refused = format_report(refusals, warnings)
-    if text:
-        print(text)
+    refused = run_push(repo, [(args.base or default_base(repo, args.head), args.head)])
     print(f"guardrails: {'refused' if refused else 'ok'} ({time.monotonic() - started:.2f}s)")
     return 1 if refused else 0
 

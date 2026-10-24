@@ -30,8 +30,10 @@ and refuses only what the push adds:
 An edge that is already in the base is never refused (arch-layers.py and the arch_counts layer rows report
 that debt). Test targets are ignored. Each refusal names the edge and both layers, then the fix: lift the
 shared type to a core target, or define a protocol seam in the consumer and conform in the App (DESIGN
-sections 2-4). Escape once: ARCH_RATCHET_SKIP_REASON="layer-gate: <why>" (the arch ratchet loader applies it
-by ID; `skip_reason()` reads it for callers that do not). Local pre-push only, never CI.
+sections 2-4). The one escape (a reviewed reason only): the push adds a dated exception for ID to
+plans/cmux-next/arch-ratchet.json's `exceptions` ({"date": "YYYY-MM-DD", "row": "layer-gate", "allow": <n>,
+"why": "..."}); the arch ratchet loader lets that push carry n of this rule's refusals. There is no
+environment-variable skip. Local pre-push only, never CI.
 
 The manifest reader, the map reader and the edge classes are arch_counts.py's (`parse_manifest`,
 `LayerMap`, `edge_class`), the same ones the layer rows count with, so the gate and the counts never
@@ -48,6 +50,7 @@ at both ends through `changes.read` (one `git cat-file --batch`).
 from __future__ import annotations
 
 import argparse
+import datetime
 import importlib.util
 import json
 import os
@@ -74,7 +77,6 @@ def _load_counts():
 counts = _load_counts()
 
 ID = "layer-gate"
-SKIP_ENV = "ARCH_RATCHET_SKIP_REASON"
 UPSTREAM = "origin/feat-cmux-next"
 ROOT = Path(__file__).resolve().parents[3]
 PACKAGE_SWIFT = counts.MANIFEST
@@ -309,7 +311,7 @@ def check_repo(repo: Path | str, base: str, head: str, changed: Iterable[str], r
 def check(base: str, head: str, changes: Any = None, repo: Path | str | None = None) -> tuple[list, list]:
     """arch-ratchet entry point: (refusals, notes) for the pushed range BASE..HEAD.
 
-    A refusal is `(ID, text, key)`, so ARCH_RATCHET_SKIP_REASON="layer-gate: <why>" names it and a merge push
+    A refusal is `(ID, text, key)`, so a dated arch-ratchet.json exception for ID covers it and a merge push
     matches it over both ranges by KEY. CHANGES is the loader's object (`repo`, `files` as [(status, path)],
     `read`); None reads the changed paths from git in REPO (default: the repository that holds this file).
     """
@@ -319,23 +321,24 @@ def check(base: str, head: str, changes: Any = None, repo: Path | str | None = N
     else:
         changed = changed_paths(getattr(changes, "files", changes))
     found = check_repo(root, base, head, changed, getattr(changes, "read", None))
-    return [(ID, f"{refusal}\n  Escape for this push only: {SKIP_ENV}=\"{ID}: <why>\" (say it in your report; "
-                 f"when the count rule refuses the same change, name its row too: \"{ID},{refusal.row}: <why>\").",
-             refusal.key)
-            for refusal in found], []
+    return [(ID, f"{refusal}\n  {escape(refusal.row)}", refusal.key) for refusal in found], []
+
+
+def escape(row: str | None = None) -> str:
+    """The one escape, printed with each refusal: a dated exception for ID that the push adds."""
+    today = datetime.date.today().isoformat()
+    text = (f"The only escape (a reviewed reason, never to pass the hook): add {{\"date\": \"{today}\", \"row\": "
+            f"\"{ID}\", \"allow\": 1, \"why\": \"<the reviewed reason>\"}} per refusal to the exceptions of "
+            f"{counts.RATCHET_JSON} in this push")
+    if row:
+        text += f"; when the count rule refuses the same change under [{row}], add an entry for {row} too"
+    return text + "."
 
 
 def git(repo: Path | str, *args: str) -> str:
     env = {k: v for k, v in os.environ.items() if k not in ("GIT_INDEX_FILE", "GIT_WORK_TREE")}
     return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, env=env, check=True,
                           text=True).stdout
-
-
-def skip_reason(env: dict[str, str] | None = None) -> str | None:
-    """The why of an ARCH_RATCHET_SKIP_REASON="<rule>[,<rule>]: <why>" that names this rule, else None."""
-    value = (os.environ if env is None else env).get(SKIP_ENV, "").strip()
-    named, colon, why = value.partition(":")
-    return why.strip() if colon and why.strip() and ID in {r.strip() for r in named.split(",")} else None
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -352,11 +355,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     for refusal in found:
         print(refusal)
-    why = skip_reason()
-    if why:
-        print(f"{ID}: skipped ({SKIP_ENV}): {why}")
-        return 0
-    print(f'{ID}: escape once with {SKIP_ENV}="{ID}: <why>" and say it in your report')
+    print(f"{ID}: {escape()}")
     return 1
 
 

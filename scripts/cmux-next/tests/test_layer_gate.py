@@ -133,7 +133,8 @@ class LayerGateTests(unittest.TestCase):
         self.assertEqual(notes, [])
         for rule, text, key in refusals:
             self.assertEqual(rule, "layer-gate")
-            self.assertIn('ARCH_RATCHET_SKIP_REASON="layer-gate: <why>"', text)
+            self.assertIn('"row": "layer-gate", "allow": 1', text)
+            self.assertNotIn("ARCH_RATCHET_SKIP_REASON", text)
             self.assertTrue(key, text)
         return [text for _, text, _ in refusals]
 
@@ -451,19 +452,18 @@ class LayerGateTests(unittest.TestCase):
         refusals, _ = gate.check(self.base, head, None, self.repo.root)
         self.assertEqual(len(refusals), 1, refusals)
 
-    def test_cli_refuses_and_skip_reason_names_the_rule(self):
+    def test_cli_refuses_and_no_environment_variable_skips_it(self):
         self.repo.commit({gate.PACKAGE_SWIFT: manifest(self.with_deps(CmuxNextService=['"CmuxNextUI"']))})
-        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_") and k != gate.SKIP_ENV}
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
         run = [sys.executable, str(SCRIPT), "--repo", str(self.repo.root), "--base", self.base]
         refused = subprocess.run(run, capture_output=True, text=True, env=env)
         self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
         self.assertIn("CmuxNextService (service) -> CmuxNextUI (ui)", refused.stdout)
+        self.assertIn('"row": "layer-gate"', refused.stdout)
+        # The old escape variable is gone: it no longer passes the push.
         skipped = subprocess.run(run, capture_output=True, text=True,
-                                 env={**env, gate.SKIP_ENV: "layer-gate: moving the type in the next push"})
-        self.assertEqual(skipped.returncode, 0, skipped.stdout + skipped.stderr)
-        self.assertIsNone(gate.skip_reason({gate.SKIP_ENV: "app-size: other rule"}))
-        self.assertIsNone(gate.skip_reason({gate.SKIP_ENV: "layer-gate:"}))
-        self.assertEqual(gate.skip_reason({gate.SKIP_ENV: "app-size, layer-gate: why"}), "why")
+                                 env={**env, "ARCH_RATCHET_SKIP_REASON": "layer-gate: moving the type in the next push"})
+        self.assertEqual(skipped.returncode, 1, skipped.stdout + skipped.stderr)
 
 
 def load_ratchet():
@@ -486,19 +486,13 @@ class ThroughTheRatchetTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def run_push(self, deps: dict[str, list[str]], skip: str | None = None) -> tuple[list[str], bool]:
-        head = self.repo.commit({gate.PACKAGE_SWIFT: manifest(deps)})
-        refusals, notes = self.ratchet.check_range(self.repo.root, self.base, head)
-        old = os.environ.pop(self.ratchet.SKIP_ENV, None)
-        try:
-            if skip:
-                os.environ[self.ratchet.SKIP_ENV] = skip
-            _, refused = self.ratchet.report(refusals, notes, set(self.ratchet.load_counts().ROW_IDS))
-        finally:
-            os.environ.pop(self.ratchet.SKIP_ENV, None)
-            if old is not None:
-                os.environ[self.ratchet.SKIP_ENV] = old
-        return [row for row, _ in refusals], refused
+    def run_push(self, deps: dict[str, list[str]], exceptions: list[dict] | None = None) -> tuple[list[str], bool]:
+        files = {gate.PACKAGE_SWIFT: manifest(deps)}
+        if exceptions:
+            files["plans/cmux-next/arch-ratchet.json"] = json.dumps({"exceptions": exceptions})
+        head = self.repo.commit(files)
+        refusals, _ = self.ratchet.check_range(self.repo.root, self.base, head)
+        return [row for row, _ in refusals], bool(refusals)
 
     def test_loader_finds_the_rule(self):
         rules, warnings = self.ratchet.load_rules()
@@ -528,14 +522,29 @@ class ThroughTheRatchetTests(unittest.TestCase):
         refusals, _ = self.ratchet.check_range(self.repo.root, self.base, head)
         self.assertEqual(refusals, [])
 
-    def test_escape_names_the_rule(self):
+    def test_escape_is_a_dated_exception_for_the_rule(self):
         deps = {name: list(entries) for name, entries in BASE_DEPS.items()}
         deps["CmuxNextService"] = ['"CmuxNextCore"', '"CmuxNextUI"']
-        rows, refused = self.run_push(deps, skip="layer_hard: moving the type next push")
-        self.assertIn("layer-gate", rows)
+        why = "moving the type next push"
+        count_only = [{"date": "2026-10-23", "row": "layer_hard", "allow": 1, "why": why}]
+        rows, refused = self.run_push(deps, count_only)
+        self.assertEqual(rows, ["layer-gate"])
         self.assertTrue(refused)
-        _, refused = self.run_push(deps, skip="layer-gate,layer_hard: moving the type next push")
+        both = count_only + [{"date": "2026-10-23", "row": "layer-gate", "allow": 1, "why": why}]
+        rows, refused = self.run_push(deps, both)
+        self.assertEqual(rows, [])
         self.assertFalse(refused)
+
+    def test_an_exception_covers_only_as_many_refusals_as_it_allows(self):
+        deps = {name: list(entries) for name, entries in BASE_DEPS.items()}
+        deps["CmuxNextService"] = ['"CmuxNextCore"', '"CmuxNextUI"']
+        deps["CmuxNextOtherService"] = BASE_DEPS["CmuxNextOtherService"] + ['"CmuxNextApp"']
+        why = "moving both types next push"
+        exceptions = [{"date": "2026-10-23", "row": "layer_hard", "allow": 2, "why": why},
+                      {"date": "2026-10-23", "row": "layer-gate", "allow": 1, "why": why}]
+        rows, refused = self.run_push(deps, exceptions)
+        self.assertEqual(rows, ["layer-gate", "layer-gate"])
+        self.assertTrue(refused)
 
     def test_a_merge_of_upstream_refuses_only_the_push_own_edge(self):
         # origin/feat-cmux-next landed CmuxNextDomain -> CmuxNextUI; the push merges it in and adds its own
