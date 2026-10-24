@@ -4,6 +4,6 @@ public enum HermesAgentSessionExistence: Equatable, Sendable {
     case exists
     /// Hermes's readable database does not contain this identifier.
     case missing
-    /// The database could not be snapshotted or queried safely.
+    /// The database could not be read safely.
     case unavailable
 }
