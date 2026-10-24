@@ -61,11 +61,6 @@ public final class ProcessLauncher: Sendable {
 
     /// The child runs at the launcher's priority (never userInteractive).
     private func prepare(_ process: Process) {
-        process.qualityOfService = switch priority {
-        case .userBlocking: .userInitiated
-        case .userVisible: .default
-        case .bestEffort: .utility
-        case .idle: .background
-        }
+        process.qualityOfService = priority.processQoS
     }
 }
