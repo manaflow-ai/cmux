@@ -18,14 +18,25 @@ pub fn auto_work(host: Option<&str>) -> Option<&'static str> {
 }
 
 /// The host `new --host auto` creates on: the one already running a session
-/// of that name (so a second run reuses it, wherever it went), else the
-/// daemon's pick. `None` is this machine. Prints the pick and why to stderr.
-pub async fn resolve(client: &Client, work: &str, name: Option<&str>) -> Result<Option<String>> {
+/// of that name, else the daemon's pick. `None` is this machine. A running
+/// session is used only with `--reuse`, as for `new -n`; without it this
+/// says where it runs instead of making a second one elsewhere. Prints the
+/// pick and why to stderr.
+pub async fn resolve(
+    client: &Client,
+    work: &str,
+    name: Option<&str>,
+    reuse: bool,
+) -> Result<Option<String>> {
     if let Some(name) = name
         && let Ok(v) = client.request(method::MUX_INFO, json!({"sessionId": name})).await
         && v.get("name").and_then(Value::as_str) == Some(name)
     {
-        return Ok(v.get("peer").and_then(Value::as_str).map(str::to_owned));
+        let host = v.get("peer").and_then(Value::as_str).map(str::to_owned);
+        if !reuse {
+            bail!("{}", running(name, host.as_deref()));
+        }
+        return Ok(host);
     }
     let v = client.request("_acpmux/place", json!({"work": work})).await?;
     let why = v.get("why").and_then(Value::as_str).unwrap_or_default();
@@ -34,6 +45,12 @@ pub async fn resolve(client: &Client, work: &str, name: Option<&str>) -> Result<
     };
     eprintln!("placed on {why}");
     Ok((v.get("local").and_then(Value::as_bool) != Some(true)).then(|| pick.to_owned()))
+}
+
+/// Why `new --host auto -n NAME` without `--reuse` stops: NAME already runs.
+fn running(name: &str, host: Option<&str>) -> String {
+    let at = host.map_or_else(|| "this machine".to_owned(), str::to_owned);
+    format!("session {name:?} already runs on {at}; add --reuse to use it, or pick another -n")
 }
 
 /// `host place`'s lines: the pick, then each host with its room or refusal.

@@ -2042,3 +2042,38 @@ async fn a_legacy_peer_that_asks_back_cannot_loop_models() {
     assert_eq!(again.get("peersOmitted"), None, "{again}");
     assert_eq!(a.models_fanouts.load(std::sync::atomic::Ordering::SeqCst), 0);
 }
+
+/// `new --host auto -n NAME` (`cli::place::resolve`): a session of that name
+/// already running, here or on a peer, is used only with --reuse, as for
+/// `new -n`; without it the launch says where it runs and makes no second one.
+#[tokio::test]
+async fn auto_placement_takes_a_running_name_only_with_reuse_here_or_on_a_peer() {
+    use acpmux::cli::place::resolve;
+    let named = |n: &str| json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": n}}});
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "auto-name").await;
+    client(b.clone()).await.call(method::SESSION_NEW, named("far")).await.unwrap();
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    client(a.clone()).await.call(method::SESSION_NEW, named("near")).await.unwrap();
+    // The CLI's own client, on A's unix socket (short: sun_path is ~104 bytes).
+    let dir = std::path::PathBuf::from(format!("/tmp/acpmux-auto-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let sock = dir.join("a.sock");
+    let l = acpmux::server::bind_unix(&sock).await.unwrap();
+    tokio::spawn(acpmux::server::serve_unix(a.clone(), l));
+    let cli = acpmux::client::Client::connect(&sock).await.unwrap();
+
+    let here = resolve(&cli, "agent", Some("near"), false).await.unwrap_err().to_string();
+    assert!(here.contains("already runs on this machine") && here.contains("--reuse"), "{here}");
+    assert_eq!(resolve(&cli, "agent", Some("near"), true).await.unwrap(), None);
+    let there = resolve(&cli, "agent", Some("far"), false).await.unwrap_err().to_string();
+    assert!(there.contains("already runs on b"), "{there}");
+    assert_eq!(resolve(&cli, "agent", Some("far"), true).await.unwrap().as_deref(), Some("b"));
+    // A new name goes to the pick.
+    assert!(resolve(&cli, "agent", Some("fresh"), false).await.is_ok());
+    let _ = std::fs::remove_dir_all(&dir);
+}

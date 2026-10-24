@@ -300,7 +300,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             let client = connect(true).await?;
             let host = match crate::cli::place::auto_work(args.host.as_deref()) {
                 Some(work) => {
-                    crate::cli::place::resolve(&client, work, launch.name.as_deref()).await?
+                    crate::cli::place::resolve(&client, work, launch.name.as_deref(), launch.reuse)
+                        .await?
                 }
                 None => args.host.clone(),
             };
