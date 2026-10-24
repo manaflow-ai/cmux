@@ -142,7 +142,7 @@ public final class CmuxMobileAuthModel {
         }
         #endif
         var serviceEnvironment = isDebug ? environment : [:]
-        #if DEBUG
+        #if DEBUG && targetEnvironment(simulator)
         // A launch the system makes (a notification action wakes the app) carries no launch
         // variables: a rig's service override stays until a launch names another one.
         let storedOverride = "cmuxMobile.dev.apiBase"

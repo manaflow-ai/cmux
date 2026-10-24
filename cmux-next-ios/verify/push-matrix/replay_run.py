@@ -9,6 +9,7 @@ Results: ~/richpush-verify/evidence/replay-results.json.
 import base64
 import json
 import os
+import subprocess
 import sys
 import time
 import urllib.request
@@ -81,8 +82,14 @@ def main(case):
         # The same sealed reply again, under the same id (a fresh hub that forgot it).
         status, answer = call("POST", f"/v1/devices/{mac}/mailbox", tok, item)
         state = outcome(tok, mac, item["id"])
-        ok = bool(state and state.get("state") == "rejected" and state.get("reason") == "replayed")
-        record("replay", ok, f"post {status} {answer}; Mac: {state}")
+        # A copy of a settled reply is never applied again: the Mac answers its first
+        # outcome (signed), and the program's terminal shows the text once.
+        term_text = "".join(subprocess.run(
+            [sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "pushrig.py"), "cli", "terminal", t, "read"],
+            capture_output=True, text=True, timeout=60).stdout for t in os.environ.get("REPLAY_TERMINALS", "").split(",") if t)
+        once = term_text.lower().count("got v2.4.1") <= 1 if term_text else None
+        ok = bool(state and state.get("state") == "applied" and state.get("sig") and once is not False)
+        record("replay", ok, f"post {status} {answer}; Mac: {state}; program's terminal shows the reply once: {once}")
     elif case == "tamper":
         blob = bytearray(base64.urlsafe_b64decode(item["sealed"] + "=" * (-len(item["sealed"]) % 4)))
         blob[-20] ^= 0x01

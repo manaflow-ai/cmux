@@ -455,17 +455,19 @@ check_extension() {  # <CmuxMobileApp.app> [signed]
   [[ "$(plutil -extract CFBundleShortVersionString raw "$info")" == "$marketing" ]] || die "the extension's version differs from the app's"
   [[ "$(plutil -extract CFBundleVersion raw "$info")" == "$build_number" ]] || die "the extension's build number differs from the app's"
   [[ "${2:-}" == signed ]] || { echo "ok: notification content extension ($ext_bundle_id)"; return 0; }
+  [[ "$(plutil -extract CmuxMobileKeychainGroup raw "$info")" == "$team.$bundle_id.push" ]] \
+    || die "the extension's CmuxMobileKeychainGroup is not $team.$bundle_id.push"
   codesign -d --entitlements - --xml "$appex" 2>/dev/null > "$private/ext-ent-check.plist"
   python3 -I -c '
 import plistlib,sys
-e=plistlib.load(open(sys.argv[1],"rb")); team,bid=sys.argv[2],sys.argv[3]
+e=plistlib.load(open(sys.argv[1],"rb")); team,bid,app=sys.argv[2],sys.argv[3],sys.argv[4]
 want={"application-identifier":f"{team}.{bid}","com.apple.developer.team-identifier":team,
-      "get-task-allow":False,"beta-reports-active":True}
+      "get-task-allow":False,"beta-reports-active":True,"keychain-access-groups":[f"{team}.{app}.push"]}
 bad=[f"{k}: {e.get(k)!r} != {v!r}" for k,v in want.items() if e.get(k)!=v]
-extra=sorted(set(e)-set(want)-{"keychain-access-groups"})
+extra=sorted(set(e)-set(want))
 if bad or extra:
     print("\n".join(["  - "+b for b in bad]+["  - unexpected "+x for x in extra]),file=sys.stderr); sys.exit(1)
-print("ok: extension entitlements "+", ".join(sorted(e)))' "$private/ext-ent-check.plist" "$team" "$ext_bundle_id" \
+print("ok: extension entitlements "+", ".join(sorted(e)))' "$private/ext-ent-check.plist" "$team" "$ext_bundle_id" "$bundle_id" \
     || die "$appex has the wrong entitlements"
 }
 

@@ -5,6 +5,8 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "cmux-mobile-api-local",
+  // Local only: a deploy of this top-level config never gets a public URL (its store is memory).
+  "workers_dev": false,
   "main": "src/index.ts",
   "account_id": "0c1675e0def6de1ab3a50a4e17dc5656",
   "compatibility_date": "2026-08-20",

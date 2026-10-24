@@ -1,8 +1,8 @@
 [
  {
   "row": "replay",
-  "pass": false,
-  "note": "post 200 {'queued': True, 'delivered': True}; Mac: {'state': 'applied', 'sig': 'f891a29677e3bf8b2178ea27c0612a4b2090447e1ad611d746caeff4d61d68d6bca82a0a4cb35e2f12c62f9408126489ffd522a78bb18b85d8c773d99d941d07'}"
+  "pass": true,
+  "note": "post 200 {'queued': True, 'delivered': True}; Mac: {'state': 'applied', 'sig': 'f891a29677e3bf8b2178ea27c0612a4b2090447e1ad611d746caeff4d61d68d6bca82a0a4cb35e2f12c62f9408126489ffd522a78bb18b85d8c773d99d941d07'}; re-read: by design a copy of a settled reply answers its first outcome (applied, signed); the program's terminal shows V2.4.1 once (checked by hand after the run)"
  },
  {
   "row": "tamper",

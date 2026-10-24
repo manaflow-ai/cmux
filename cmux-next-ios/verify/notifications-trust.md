@@ -33,7 +33,7 @@ Mac). PR B adds three things:
 | Mac box key (P-256 ECDH) | derived by hostd from the identity key (HKDF, `cmux-mobile-mac-box-v1`) | yes, no new storage | replies are sealed to it |
 | Phone identity (P-256, Secure Enclave, no prompt) | phone | no | signs replies and the push key statement |
 | Phone approval (Secure Enclave, Face ID) | phone | no | signs an Allow or an answer for acpmux, as in-app |
-| Phone push key (P-256 ECDH, Secure Enclave, after first unlock, shared with the service extension) | phone | yes | sealed pushes are opened with it |
+| Phone push key (P-256 ECDH, Secure Enclave, after first unlock, shared with the service and content extensions) | phone | yes | sealed pushes are opened with it |
 
 The phone sends its push key on every `auth`, with a statement signed by its
 identity key; hostd keeps it per paired phone. The Mac sends its box key with
@@ -113,7 +113,8 @@ pinned. The service alone can't make the phone believe a reply was applied.
   can open pushes on a locked phone. It and the trust record (each paired
   Mac's pinned identity key, its box key and the box key's signature) live in
   the keychain group `<team>.<app bundle id>.push`, shared with
-  `CmuxMobileNotificationService`. Before each reply the box key's signature
+  `CmuxMobileNotificationService` and `CmuxMobileNotificationContent` (which only
+  reads: it opens the box again before the long look shows rows or buttons). Before each reply the box key's signature
   is checked again against the identity key pinned for that Mac (`MacPins`,
   the app's own store), so a changed keychain entry can't redirect replies.
   Removing a Mac forgets its entry; "Remove This iPhone from My Macs" and
