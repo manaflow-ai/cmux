@@ -361,3 +361,60 @@ fn after_a_descriptor_fault_the_next_link_ends_what_the_holder_could_not_take_an
     read_until(&kept.sink, "after-fault");
     assert_eq!(lost.sink.wait_end(), SinkEnd::Lost, "the terminal the holder could not take");
 }
+
+/// Holder-core deep review (the order ec7cb640c6c argued, now a guard): a
+/// terminal that ends while a new link's ownership pass runs, between the
+/// pass's snapshot of the live terminals and the link's publish, still
+/// gets its CLOSE on that link. A pass after a holder crash reads each live
+/// terminal's screen for its adoption, so terminal 1's replay is where the
+/// test ends terminal 2, on another thread, as its wait thread would. Red
+/// when the end drops the CLOSE it could not send yet (before ec7cb640c6c:
+/// the ended shell and its ring stayed on the new holder), and when the end
+/// waits for the pass (ec7cb640c6c: it never ran during the pass).
+#[test]
+fn a_terminal_that_ends_during_a_reconnect_gets_its_close_on_the_new_link() {
+    let world = World::new();
+    let one = world.service.spawn(&shell(1), b"").unwrap();
+    let two = world.service.spawn(&shell(2), b"").unwrap();
+    read_until(&one.sink, "ready-1");
+    read_until(&two.sink, "ready-2");
+    let (ended_tx, ended_rx) = std::sync::mpsc::channel();
+    let armed = Arc::new(AtomicBool::new(false));
+    {
+        let (service, armed, chan) = (world.service.clone(), armed.clone(), two.chan);
+        let ended_tx = Mutex::new(ended_tx);
+        one.set_replay(Box::new(move |_max_bytes, at_point| {
+            if armed.swap(false, Ordering::AcqRel) {
+                let service = service.clone();
+                let (done_tx, done_rx) = std::sync::mpsc::channel();
+                std::thread::spawn(move || {
+                    service.end(chan);
+                    let _ = done_tx.send(());
+                });
+                let ended = done_rx.recv_timeout(Duration::from_secs(20)).is_ok();
+                let _ = ended_tx.lock().unwrap().send(ended);
+            }
+            at_point();
+            Vec::new()
+        }));
+    }
+    armed.store(true, Ordering::Release);
+    world.holders.crash();
+    let ended = ended_rx
+        .recv_timeout(Duration::from_secs(60))
+        .expect("the next holder's pass never read terminal 1's screen");
+    assert!(ended, "terminal 2's end waited for the pass that was adopting it");
+    let mut frames = world.proxy.frames_until("terminal 1's ATTACH on the next holder", |seen| {
+        seen.conn > 1 && seen.sent(Kind::Attach, one.chan)
+    });
+    let next = frames.last().unwrap().conn;
+    world.service.link().unwrap().write(one.chan, b"after-crash\n").unwrap();
+    frames.extend(world.proxy.frames_until("the WRITE after the pass", |seen| {
+        seen.conn == next && seen.sent(Kind::Write, one.chan)
+    }));
+    assert!(
+        frames.iter().any(|seen| seen.conn == next && seen.sent(Kind::Close, two.chan)),
+        "the terminal that ended during the pass got no CLOSE on the new link: {frames:?}"
+    );
+    read_until(&one.sink, "after-crash");
+}
