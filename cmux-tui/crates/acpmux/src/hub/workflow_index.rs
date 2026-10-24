@@ -9,7 +9,8 @@
 //! A running workflow is listed while it runs, and an ended one stays among the last
 //! `ENDED_KEPT`. A chat whose agent exits ends its running workflows as `disconnected` (their
 //! Claude process is gone; `end_session`), and no more than `RUNNING_MAX` are listed as running.
-//! Two running workflows of one name and the same args, in any chat, are duplicates: each lists
+//! Two running workflows of one name and the same known args, in any chat, are duplicates (a run
+//! whose args were not sent never is): each lists
 //! the other (`duplicateOf`).
 //!
 //! The index lock is held only to fold one update's events or to copy the rows: what a list
@@ -187,23 +188,25 @@ impl WorkflowIndex {
         // The index trims ended rows only now and then: list the newest `ENDED_KEPT`.
         let running = rows.iter().filter(|(_, row)| row.ended_at.is_none()).count();
         rows.truncate(running + ENDED_KEPT);
-        // Running workflows by name and args: each group of more than one is duplicates.
+        // Running workflows by name and args: each group of more than one is duplicates. A run whose
+        // args are not known (acpmux sends them only when they hold no secret) is never one: the same
+        // script run with different args is not a duplicate.
+        let key = |row: &Row| -> Option<(String, String)> {
+            let name = row.fields.get("name").and_then(Value::as_str)?;
+            let args = row.fields.get("args")?;
+            (row.ended_at.is_none()).then(|| (name.to_owned(), args.to_string()))
+        };
         let mut twins: HashMap<(String, String), Vec<String>> = HashMap::new();
-        for (id, row) in rows.iter().filter(|(_, row)| row.ended_at.is_none()) {
-            if let Some(name) = row.fields.get("name").and_then(Value::as_str) {
-                let args = row.fields.get("args").map(Value::to_string).unwrap_or_default();
-                twins.entry((name.to_owned(), args)).or_default().push(id.clone());
+        for (id, row) in &rows {
+            if let Some(key) = key(row) {
+                twins.entry(key).or_default().push(id.clone());
             }
         }
         let twins_of = |id: &str, row: &Row| -> Vec<String> {
-            let name = row.fields.get("name").and_then(Value::as_str).unwrap_or_default();
-            let args = row.fields.get("args").map(Value::to_string).unwrap_or_default();
-            match twins.get(&(name.to_owned(), args)) {
-                Some(group) if row.ended_at.is_none() => {
-                    group.iter().filter(|other| *other != id).cloned().collect()
-                }
-                _ => Vec::new(),
-            }
+            key(row)
+                .and_then(|key| twins.get(&key))
+                .map(|group| group.iter().filter(|other| *other != id).cloned().collect())
+                .unwrap_or_default()
         };
         rows.iter()
             .map(|(id, row)| {
@@ -333,6 +336,22 @@ mod tests {
             (of("a/w1"), of("b/w2"), of("b/w3")),
             (json!(["b/w2"]), json!(["a/w1"]), Value::Null)
         );
+        // A run whose args were not sent is never a duplicate, even of a same-named one.
+        index.observe(
+            "chat-3",
+            &[spawn("c/w4"), json!({"id": "c/w4", "name": "session-review"})],
+            5,
+        );
+        index.observe(
+            "chat-3",
+            &[spawn("c/w5"), json!({"id": "c/w5", "name": "session-review"})],
+            6,
+        );
+        let listed = index.list(false);
+        let of = |id: &str| {
+            listed.iter().find(|row| row["subagentSessionId"] == id).unwrap()["duplicateOf"].clone()
+        };
+        assert_eq!((of("c/w4"), of("c/w5")), (Value::Null, Value::Null));
         // Once one ends, the other is no longer a duplicate.
         index.observe("chat-2", &[json!({"id": "b/w2", "state": "completed"})], 4);
         assert_eq!(
