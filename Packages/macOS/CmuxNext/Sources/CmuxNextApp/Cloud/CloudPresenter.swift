@@ -63,21 +63,13 @@ enum CloudPresenter {
         present(spec, in: window) { answer in done(answer?.button == "confirm") }
     }
 
-    /// Whether a cmux Pro offer is on screen: a repeated create (Retry, the CLI, Chief) adds no second one.
-    private static var offeringPro = false
-
     /// Offers cmux Pro after a refusal Pro lifts, with the server's `message` (its
-    /// localized reason) as the body; `upgrade` runs only on the person's click on
-    /// Upgrade. False when nothing was shown: one is already open, or no window.
-    @discardableResult
-    static func offerPro(_ message: String?, in window: NSWindow?, upgrade: @escaping () -> Void) -> Bool {
-        guard window != nil, !offeringPro else { return false }
-        offeringPro = true
+    /// localized reason) as the body; `closed(true)` only for the person's click on
+    /// Upgrade. False when nothing was shown (no window); `closed` then never runs.
+    static func offerPro(_ message: String?, in window: NSWindow?, closed: @escaping (Bool) -> Void) -> Bool {
+        guard window != nil else { return false }
         confirm(CloudStrings.proRequiredTitle, message ?? CloudStrings.proRequiredBody, button: CloudStrings.proRequiredUpgrade,
-                identifier: "cmux.dialog.cloud.proRequired", in: window) { upgraded in
-            offeringPro = false
-            if upgraded { upgrade() }
-        }
+                identifier: "cmux.dialog.cloud.proRequired", in: window, done: closed)
         return true
     }
 

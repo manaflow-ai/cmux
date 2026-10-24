@@ -22,6 +22,8 @@ final class CloudService {
     @ObservationIgnored let api: CloudAPIClient
     @ObservationIgnored let paths: CloudPaths
     @ObservationIgnored private(set) var hub: CloudTunnelHub?
+    /// Whether a cmux Pro offer is on screen (CloudPresenter.offerPro).
+    @ObservationIgnored var proOfferOpen = false
     /// The tunnel's SOCKS socket, starting it when needed: how the browser reaches a machine's
     /// localhost over this Mac's own WireGuard tunnel (RemoteLocalhostService). Nil without the hub.
     var tunnelSocket: (@Sendable () async throws -> String)? {

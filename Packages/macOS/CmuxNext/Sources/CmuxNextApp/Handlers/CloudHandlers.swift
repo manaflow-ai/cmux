@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextRemoteLocalhostService
 
 /// Cloud and account actions over the kept Cloud library (`CmuxNextCloud`):
 /// Stack sign-in, `/api/vm`, and each machine's daemon tree. A machine is
@@ -166,6 +167,27 @@ enum CloudHandlers {
     /// The existing workspace and pane where a Cloud terminal should land.
     /// Keep the durable workspace key on the spawn request so terminals stay
     /// attached to the machine after daemon handle ids are recycled.
+    /// Open Desktop (`cloud open-desktop`): the machine's desktop, as cmux Classic shows it, in a
+    /// Chromium tab of a new workspace on this Mac at a URL that names the machine
+    /// (``RemoteLocalhostService/cloudDesktopURL(machine:)``). Remote localhost routes that page
+    /// by its URL through the peer-checked proxy and this Mac's own WireGuard tunnel to the
+    /// machine's noVNC (6901 on its loopback), with no TCP port opened on this Mac.
+    @MainActor static func openDesktop(_ session: CloudMachineSession, _ context: AppActionContext) throws {
+        let services = context.services, title = session.machine.title
+        guard session.machine.allows(.desktop), session.machine.address?.ipv4 != nil,
+              let url = RemoteLocalhostService.cloudDesktopURL(machine: session.machineID) else {
+            throw ActionFailure(message: CloudStrings.desktopUnavailable(title))
+        }
+        if let reason = services.cache.browserTabs.cefUnavailableReason() { throw ActionFailure(message: reason) }
+        let name = CloudStrings.desktopWorkspaceName(title), address = url.absoluteString
+        // On this Mac's daemon: a Cloud machine's own daemon may predate browser tabs.
+        WorkspaceHandlers.createAndShow(services: services, name: name, daemon: services.machines.local) { connection, terminal in
+            guard let pane = terminal.pane else { return }
+            _ = try await connection.newFrontendBrowserTab(url: address, engine: .cef, in: pane, title: name)
+            if let surface = terminal.surface { try await connection.closeTab(surface) }
+        }
+    }
+
     @MainActor static func terminalAnchor(on session: CloudMachineSession, _ context: AppActionContext) async throws -> (id: String, key: WorkspaceKey, pane: PaneModel) {
         let hadWorkspace = !session.daemon.store.workspaces.isEmpty
         let id = try await firstWorkspace(on: session, context)
