@@ -92,6 +92,65 @@ pub fn launch_with(
     Ok(child)
 }
 
+/// What a failed [`HolderClient::connect`] says about the holder, when it
+/// says whether one runs ([`Self::of`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ConnectFailure {
+    /// No holder serves the socket: there is no socket file, nothing
+    /// listens on it (a dead holder's file), or the connection ended before
+    /// the handshake did (a holder that was exiting as the daemon
+    /// connected). Starting a holder is the cure.
+    NoHolder,
+    /// A holder answered the HELLO with an ERROR of this code
+    /// ([`crate::holder::error_code`]): it runs, and does not take this
+    /// daemon. A second holder for its socket would exit at once.
+    Refused(u16),
+}
+
+impl ConnectFailure {
+    /// The failure a [`HolderClient::connect`] error stands for. `None` for
+    /// any other error (a holder that took the connection and did not
+    /// answer in time, an answer that is not the wire): a holder may run.
+    pub fn of(error: &io::Error) -> Option<Self> {
+        error.get_ref()?.downcast_ref::<ConnectError>().map(|error| error.failure)
+    }
+}
+
+/// The payload of a [`ConnectFailure`]'s `io::Error`.
+#[derive(Debug)]
+struct ConnectError {
+    failure: ConnectFailure,
+    message: String,
+}
+
+impl std::fmt::Display for ConnectError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for ConnectError {}
+
+/// An `io::Error` of `kind` that [`ConnectFailure::of`] reads back as
+/// `failure`.
+fn connect_error(failure: ConnectFailure, kind: io::ErrorKind, message: String) -> io::Error {
+    io::Error::new(kind, ConnectError { failure, message })
+}
+
+/// `error` of a connect, typed [`ConnectFailure::NoHolder`] when it shows
+/// that no holder serves the socket: the socket file is missing or nobody
+/// listens on it (`connect`), or the connection ended during the handshake
+/// (the HELLO's write, a read before the last LISTED).
+fn no_holder(error: io::Error) -> io::Error {
+    use io::ErrorKind::{BrokenPipe, ConnectionRefused, ConnectionReset, NotFound, UnexpectedEof};
+    match error.kind() {
+        kind @ (NotFound | ConnectionRefused | ConnectionReset | BrokenPipe | UnexpectedEof) => {
+            connect_error(ConnectFailure::NoHolder, kind, format!("no terminal holder: {error}"))
+        }
+        _ => error,
+    }
+}
+
 /// An authenticated link to a holder.
 pub struct HolderClient {
     stream: UnixStream,
@@ -102,9 +161,10 @@ pub struct HolderClient {
 }
 
 impl HolderClient {
-    /// Connect and authenticate; returns the terminals the holder runs.
+    /// Connect and authenticate; returns the terminals the holder runs. An
+    /// error that shows whether a holder runs carries a [`ConnectFailure`].
     pub fn connect(socket: &Path, token: &[u8; 32]) -> io::Result<(Self, Vec<Listed>)> {
-        let stream = UnixStream::connect(socket)?;
+        let stream = UnixStream::connect(socket).map_err(no_holder)?;
         wire::tune_socket(stream.as_raw_fd());
         let mut client = Self {
             stream,
@@ -112,10 +172,11 @@ impl HolderClient {
             pending: VecDeque::new(),
             version: wire::MIN_VERSION,
         };
-        client.send(Kind::Hello, 0, &Out::default().u16(wire::VERSION).bytes(token).0, None)?;
+        let hello = Out::default().u16(wire::VERSION).bytes(token).0;
+        client.send(Kind::Hello, 0, &hello, None).map_err(no_holder)?;
         let deadline = Instant::now() + Duration::from_secs(10);
         let count = loop {
-            let frame = client.frame(deadline)?;
+            let frame = client.frame(deadline).map_err(no_holder)?;
             match Kind::from_u16(frame.kind) {
                 Some(Kind::Welcome) => {
                     let mut input = In(&frame.payload);
@@ -128,7 +189,7 @@ impl HolderClient {
         };
         let mut listed = Vec::new();
         while listed.len() < count as usize {
-            let frame = client.frame(deadline)?;
+            let frame = client.frame(deadline).map_err(no_holder)?;
             if frame.kind == Kind::Listed as u16 {
                 listed.push(Listed::decode(frame.chan, frame.flags, &frame.payload, frame.fds)?);
             }
@@ -352,11 +413,14 @@ fn error_message(payload: &[u8]) -> String {
     String::from_utf8_lossy(payload.get(4..).unwrap_or_default()).into_owned()
 }
 
-/// The error a holder's refusal of the HELLO stands for.
+/// The error a holder's refusal of the HELLO stands for
+/// ([`ConnectFailure::Refused`]).
 fn refusal(payload: &[u8]) -> io::Error {
     let code = In(payload.get(2..).unwrap_or_default()).u16().unwrap_or_default();
-    if code == crate::holder::error_code::BAD_TOKEN {
-        return io::Error::other("holder refused the token");
-    }
-    io::Error::other(format!("holder refused the link (code {code}): {}", error_message(payload)))
+    let message = if code == crate::holder::error_code::BAD_TOKEN {
+        "holder refused the token".to_string()
+    } else {
+        format!("holder refused the link (code {code}): {}", error_message(payload))
+    };
+    connect_error(ConnectFailure::Refused(code), io::ErrorKind::Other, message)
 }

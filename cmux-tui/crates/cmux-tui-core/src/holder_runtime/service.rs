@@ -19,6 +19,7 @@ use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock, RwLockReadGuard, Weak};
 
+use cmux_holder::client::ConnectFailure;
 use cmux_holder::link::{HolderLink, LinkEnd, TerminalSink};
 use cmux_holder::{Listed, SpawnRequest};
 
@@ -162,9 +163,10 @@ impl HolderService {
         self.link.lock().recover_poison().link.clone().filter(|link| link.is_open())
     }
 
-    /// [`Self::link`] for `reach`: only [`Reach::Launch`] starts a holder
-    /// that does not run, and only [`Reach::Startup`] keeps what a first
-    /// link lists that nobody claims yet.
+    /// [`Self::link`] for `reach`: only [`Reach::Launch`] starts a holder,
+    /// and only when the connect showed that none serves the socket
+    /// ([`ConnectFailure::NoHolder`]); only [`Reach::Startup`] keeps what a
+    /// first link lists that nobody claims yet.
     fn link_or_launch(self: &Arc<Self>, reach: Reach) -> io::Result<Arc<HolderLink>> {
         if let Some(link) = self.open_link() {
             return Ok(link);
@@ -184,7 +186,14 @@ impl HolderService {
         let first = self.link.lock().recover_poison().link.is_none();
         let (link, listed) = match self.connect() {
             Ok(connected) => connected,
-            Err(_) if reach == Reach::Launch => {
+            // Only when no holder serves the socket. One that refused this
+            // daemon, or took the connection and did not answer, runs: a
+            // second holder would exit at once, and its shells would end
+            // here as lost while it still ran them.
+            Err(error)
+                if reach == Reach::Launch
+                    && ConnectFailure::of(&error) == Some(ConnectFailure::NoHolder) =>
+            {
                 (self.launcher)(&self.socket, &self.token)?;
                 self.connect()?
             }
