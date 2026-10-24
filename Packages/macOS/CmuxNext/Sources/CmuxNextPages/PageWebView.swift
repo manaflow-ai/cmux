@@ -251,7 +251,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public convenience init?(descriptor: PageDescriptor, root: URL, routes: [PageRoute], route: String? = nil,
                              documentAttributes: [String: String] = [:], options: PageEngineOptions = .standard,
                              surface: SurfaceKind? = nil, dynamicResources: (any PageDynamicResourceSource)? = nil,
-                             chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting) {
+                             chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting,
+                             errors: (any ErrorRecording)? = nil) {
+        // red-commit stub: `errors` is not used yet (the page reads PageWebView.errorJournal)
         guard Self.mayServe(descriptor, from: root) else { return nil }
         let host = Self.hostConfiguration(handler: PageSchemeHandler(page: descriptor, root: root,
                                                                        dynamicSource: dynamicResources),
