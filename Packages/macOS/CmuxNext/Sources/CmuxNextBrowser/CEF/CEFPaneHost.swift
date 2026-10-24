@@ -153,16 +153,24 @@ final class CEFPaneHost {
             // Still in its opener's window: activating it there would show
             // it in the opener's pane. It moves into this host's window.
             ensureOwnWindow(for: tab)
-        } else if let browser = tab.browserID {
-            lastActivated = browser
-            tabSwitchMark("activate")
-            _ = runtime.shim?.tabActivate(browser)
-            tabSwitchMark("activated")
-            hostView.layerHosting.pageShown(browser: browser)
-            hostView.postGeometryChange()
-            // A window-wide side panel stays open across tabs: no event.
-            tab.sidePanel.scheduleRefresh()
+        } else {
+            showBrowser(of: tab)
         }
+    }
+
+    /// Makes the shown tab's browser Chromium's active tab and puts the page window over this
+    /// host's view. Also for a tab whose browser joined a live window after the frame
+    /// (`createDeferred`): `tab_add` alone left that pane on its empty themed area.
+    private func showBrowser(of tab: CEFTab) {
+        guard let browser = tab.browserID else { return }
+        lastActivated = browser
+        tabSwitchMark("activate")
+        _ = runtime.shim?.tabActivate(browser)
+        tabSwitchMark("activated")
+        hostView.layerHosting.pageShown(browser: browser)
+        hostView.postGeometryChange()
+        // A window-wide side panel stays open across tabs: no event.
+        tab.sidePanel.scheduleRefresh()
     }
 
     /// True when Chromium activating `tab` is a choice made inside Chromium
@@ -197,7 +205,13 @@ final class CEFPaneHost {
     func createDeferred() {
         let waiting = deferredCreations.compactMap(\.tab)
         deferredCreations.removeAll()
-        for tab in waiting where !tab.isClosed && tabs.contains(where: { $0 === tab }) { ensureCreated(tab) }
+        for tab in waiting where !tab.isClosed && tabs.contains(where: { $0 === tab }) {
+            ensureCreated(tab)
+            // Joined a live window (`tab_add` returns the browser) while still shown: present's
+            // activation, page-shown and geometry steps, which it skipped for a tab with no browser.
+            // A window still being built activates its shown tab in `windowCreated`.
+            if visibleTab === tab, !tab.awaitsWindowMove { showBrowser(of: tab) }
+        }
     }
 
     func ensureCreated(_ tab: CEFTab) {
