@@ -211,6 +211,41 @@ test("a click on a row's keys records new ones, and Remove keeps the action list
   await record("cmd+j");
   expect(lastSet()).toMatchObject({ command: "palette.files", key: "cmd+j", replaces: { key: "cmd+shift+p" } });
 
+  // Every key up saves at once, the recorder stays open and its light confirms; a next stroke makes
+  // a chord and saves again; Escape then only closes.
+  const releaseKeys = async () => {
+    await act(async () => {
+      provider.release();
+      await Promise.resolve();
+    });
+    await act(async () => store.reload());
+  };
+  await click(row("Go to File")?.querySelector(".keys-key-button"));
+  await act(async () => {
+    provider.press("cmd+k");
+    await Promise.resolve();
+  });
+  expect(doc.querySelector(".keys-recorder-light")).toBeNull();
+  await releaseKeys();
+  expect(lastSet()).toMatchObject({ command: "palette.files", key: "cmd+k", replaces: { key: "cmd+j" } });
+  expect(provider.recording).toBe(true);
+  expect(doc.querySelector(".keys-recorder-light")).toBeTruthy();
+  expect(row("Go to File")?.classList.contains("recording")).toBe(true);
+  await act(async () => {
+    provider.press("cmd+s");
+    await Promise.resolve();
+  });
+  await releaseKeys();
+  expect(lastSet()).toMatchObject({ command: "palette.files", key: "cmd+k cmd+s", replaces: { key: "cmd+k" } });
+  const saved = writes();
+  await act(async () => {
+    provider.cancel();
+    await Promise.resolve();
+  });
+  expect(recorder()).toBeNull();
+  expect(writes()).toBe(saved);
+  expect(row("Go to File")?.querySelector(".keys-key-button")?.textContent).toBe("⌘K⌘S");
+
   // With no new keys, Close and a bare Return only close.
   const before = writes();
   await click(row("Go to File")?.querySelector(".keys-key-button"));

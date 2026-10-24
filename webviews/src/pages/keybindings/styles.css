@@ -633,3 +633,42 @@
     animation: keys-cap-in var(--cmux-motion-micro, 120ms) ease-out;
   }
 }
+
+/* The confirm light (a save on release): a green glow along the top edge of the glass, as if a
+   light sat under its rim, that rises and fades once per save. The popup holds it (relative) and
+   clips it to its rounded corners. Motion off: no light (the keys at full strength say it). */
+.ui-popup.keys-recorder {
+  position: relative;
+}
+
+.keys-recorder-light {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 32px;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(
+    120% 100% at 50% 0%,
+    color-mix(in srgb, var(--cmux-app-success, #34c759) 55%, transparent) 0%,
+    transparent 70%
+  );
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--cmux-app-success, #34c759) 80%, transparent);
+}
+
+@keyframes keys-recorder-light {
+  0% {
+    opacity: 0;
+  }
+  35% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* The motion scale's ceiling (desktop.css `--cmux-motion-large`); Reduce Motion keeps it (a fade). */
+:root:not([data-cmux-motion="off"]) .keys-recorder-light {
+  animation: keys-recorder-light var(--cmux-motion-large, 240ms) ease-out;
+}

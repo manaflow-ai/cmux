@@ -82,6 +82,8 @@ export interface RecordedEvent {
   /** Optional: the glyphs of the modifiers held now, before a key makes the next stroke ("⇧⌘");
    *  "" on a stroke and when none are held. */
   held?: string;
+  /** Optional: every key of the last stroke is up (the recording goes on; the page saves then). */
+  released?: boolean;
 }
 
 export const KeybindingOps = {

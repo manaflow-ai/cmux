@@ -2,7 +2,7 @@
 // `KeybindingsStore`; this file only renders it and turns plain keys and clicks into store
 // intents. Cmd/Ctrl chords never reach page handlers; recording goes through the app's dispatcher.
 import { useState, useSyncExternalStore, type KeyboardEvent } from "react";
-import { Popover } from "../../ui/Popover";
+import { Popover, type UiAnchor, type UiVirtualAnchor } from "../../ui/Popover";
 import type { Strings } from "../shared/i18n";
 import {
   canEditWhen,
@@ -85,6 +85,11 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
   const disconnected = snap.connection === "disconnected";
   const searchRecording = snap.recording?.target === "search";
   const selected = snap.rows.find((row) => identity(row) === snap.selection);
+  // The recording row's keys, read each time the recorder is placed.
+  const [recordingKeys] = useState<UiVirtualAnchor>(() => ({
+    getBoundingClientRect: () =>
+      (document.querySelector(".keys-row.recording .keys-key-button") ?? document.body).getBoundingClientRect(),
+  }));
 
   const tableKeys = (event: KeyboardEvent) => {
     if (!plain(event) || composing(event) || snap.editing) return;
@@ -189,6 +194,18 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
           </button>
         </output>
       )}
+      {snap.recording?.target === "row" && (
+        // One recorder for the page, over the recording row's keys: a save gives the row a new
+        // identity (a new row element), and the recorder stays open across it.
+        <Recorder
+          anchor={recordingKeys}
+          binding={snap.recording.binding}
+          bindings={snap.bindings}
+          recording={snap.recording}
+          strings={strings}
+          store={store}
+        />
+      )}
       {disconnected ? (
         <div className="keys-empty">{t("keybindings.page.disconnected")}</div>
       ) : snap.rows.length === 0 ? (
@@ -235,7 +252,6 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
                   <BindingRow
                     key={row}
                     binding={binding}
-                    bindings={snap.bindings}
                     strings={strings}
                     selected={row === snap.selection}
                     editing={row === snap.editing}
@@ -297,7 +313,7 @@ function Recorder({
   strings,
   store,
 }: {
-  anchor: HTMLElement;
+  anchor: UiAnchor;
   binding: Binding;
   bindings: readonly Binding[];
   recording: RowRecording;
@@ -326,6 +342,10 @@ function Recorder({
         if (!open) store.stopRecording();
       }}
     >
+      {recording.confirmed > 0 && (
+        // The confirm light: a green glow along the glass's top edge, once per save.
+        <span key={recording.confirmed} className="keys-recorder-light" aria-hidden="true" />
+      )}
       {!binding.unset && (
         <div className="keys-recorder-hint">{withKeys(t("keybindings.page.recorder.delete"), ["⌫"])}</div>
       )}
@@ -381,8 +401,6 @@ function Recorder({
 
 interface RowProps {
   binding: Binding;
-  /** The whole table, for the recorder's same-keys warning. */
-  bindings: readonly Binding[];
   strings: Strings;
   selected: boolean;
   editing: boolean;
@@ -392,20 +410,10 @@ interface RowProps {
   store: KeybindingsStore;
 }
 
-function BindingRow({
-  binding,
-  bindings,
-  strings,
-  selected,
-  editing,
-  recording: rowRecording,
-  resettable,
-  store,
-}: RowProps) {
+function BindingRow({ binding, strings, selected, editing, recording: rowRecording, resettable, store }: RowProps) {
   const { t } = strings;
   const recording = rowRecording !== undefined;
   const recordingDisplay = rowRecording?.display;
-  const [keysButton, setKeysButton] = useState<HTMLButtonElement | null>(null);
   const classes = ["keys-row", selected && "selected", binding.removed && "removed", recording && "recording"];
   return (
     <tr
@@ -424,7 +432,6 @@ function BindingRow({
         ) : (
           // The keys are the control: a click records new ones (Return on the row does too).
           <button
-            ref={setKeysButton}
             type="button"
             className="keys-key-button"
             aria-label={
@@ -450,16 +457,6 @@ function BindingRow({
               <Keycaps display={binding.display} />
             )}
           </button>
-        )}
-        {rowRecording && keysButton && (
-          <Recorder
-            anchor={keysButton}
-            binding={binding}
-            bindings={bindings}
-            recording={rowRecording}
-            strings={strings}
-            store={store}
-          />
         )}
         {binding.conflicts.length > 0 && !binding.removed && (
           <button

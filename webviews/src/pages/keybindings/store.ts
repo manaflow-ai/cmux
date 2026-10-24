@@ -31,7 +31,17 @@ export type Connection = "connecting" | "connected" | "disconnected";
 /** Where recorded strokes go: the search field, or a new key for one row. */
 export type Recording =
   | { target: "search" }
-  | { target: "row"; row: string; binding: Binding; key: string; display: string; held: string };
+  | {
+      target: "row";
+      row: string;
+      /** The row as it is now; after a save, the keys it was saved with. */
+      binding: Binding;
+      key: string;
+      display: string;
+      held: string;
+      /** Counts the saves of this recording (the recorder's confirm light plays on each). */
+      confirmed: number;
+    };
 
 export type Notice = { kind: "unsupported" } | { kind: "failed"; message: string };
 
@@ -164,11 +174,32 @@ export class KeybindingsStore {
         this.pendingSelect = undefined;
       }
       this.set({ bindings, resettable: resettableCommands(bindings), loading: false, connection: "connected" });
+      this.followRecording(bindings);
       this.refilter({ selection });
     } catch (error) {
       if (generation !== this.generation) return;
       this.set({ loading: false, ...failure(error) });
     }
+  }
+
+  /** A recording row whose keys a save changed has a new identity after the re-read: the recorder
+   *  stays on it. A row that is gone (another edit took it) ends the recording. */
+  private followRecording(bindings: readonly Binding[]): void {
+    const recording = this.snapshot.recording;
+    if (recording?.target !== "row") return;
+    const { command, key, when } = recording.binding;
+    const row =
+      bindings.find((binding) => identity(binding) === recording.row) ??
+      bindings.find(
+        (binding) =>
+          !binding.removed &&
+          binding.command === command &&
+          binding.when === when &&
+          (key ? keyMatches(binding.key, { key, exact: true }) : binding.unset === true),
+      );
+    if (!row) this.endRecording();
+    else if (identity(row) !== recording.row)
+      this.set({ recording: { ...recording, row: identity(row), binding: row } });
   }
 
   // Query.
@@ -236,7 +267,7 @@ export class KeybindingsStore {
     if (this.snapshot.recording) this.endRecording();
     const row = identity(binding);
     this.set({ editing: undefined, selection: row });
-    await this.beginRecording({ target: "row", row, binding, key: "", display: "", held: "" });
+    await this.beginRecording({ target: "row", row, binding, key: "", display: "", held: "", confirmed: 0 });
   }
 
   stopRecording(): void {
@@ -277,6 +308,10 @@ export class KeybindingsStore {
   private onRecorded(event: RecordedEvent): void {
     const recording = this.snapshot.recording;
     if (!recording) return;
+    if (event.released) {
+      if (recording.target === "row" && recording.key) void this.confirm(recording);
+      return;
+    }
     const finished = event.done || event.cancelled;
     if (recording.target === "search") {
       if (!event.cancelled && event.key && event.key !== this.snapshot.keyFilter?.key) {
@@ -305,6 +340,40 @@ export class KeybindingsStore {
     }
     this.endRecording();
     if (event.done && event.key) this.saveKeys(recording.binding, event.key);
+  }
+
+  /** Every key of a stroke is up: the keys so far are saved now, and the recording goes on (a
+   *  next stroke makes a chord of them and saves again). The recorder's light confirms each. */
+  private async confirm(recording: Extract<Recording, { target: "row" }>): Promise<void> {
+    const { binding, key, display } = recording;
+    const same = !binding.unset && keyMatches(key, { key: binding.key, exact: true });
+    // The recorder follows the new keys before the write: the provider's `changed` re-read can
+    // land before the write's reply, and must find the row by them.
+    const saved: Binding = { ...binding, key, display, unset: false };
+    this.set({ recording: { ...recording, binding: saved }, notice: undefined });
+    if (!same) {
+      const params = this.setParams(binding, key, binding.when);
+      try {
+        await this.client?.call(KeybindingOps.set, params);
+      } catch (error) {
+        const current = this.snapshot.recording;
+        if (current?.target === "row" && current.row === recording.row)
+          this.set({ recording: { ...current, binding } });
+        this.set(failure(error));
+        return;
+      }
+      this.pendingSelect = { command: params.command, key, when: params.when ?? null };
+    }
+    const current = this.snapshot.recording;
+    // Still this row on these keys (a re-read may have put the listed row in its place).
+    if (
+      current?.target === "row" &&
+      current.binding.command === binding.command &&
+      keyMatches(current.binding.key, { key, exact: true })
+    ) {
+      this.set({ recording: { ...current, confirmed: current.confirmed + 1 } });
+    }
+    if (!same) await this.reload();
   }
 
   /** Writes recorded keys as the row's new keys, unless they are the keys it has. */

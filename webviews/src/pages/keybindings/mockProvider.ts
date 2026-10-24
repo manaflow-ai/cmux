@@ -94,6 +94,8 @@ export class MockKeybindingsProvider implements PageClient {
   private readonly handlers = new Map<string, PageHandler>();
   private seq = 0;
   private strokesSoFar: string[] = [];
+  /** A stroke was recorded and its keys are not all up yet. */
+  private awaitingRelease = false;
   private detachDom?: () => void;
 
   constructor(
@@ -160,6 +162,7 @@ export class MockKeybindingsProvider implements PageClient {
   press(stroke: string): void {
     if (!this.recording) return;
     this.strokesSoFar.push(stroke.toLowerCase());
+    this.awaitingRelease = true;
     const done = this.strokesSoFar.length >= MAX_STROKES;
     this.emitRecorded(done, false);
   }
@@ -184,9 +187,16 @@ export class MockKeybindingsProvider implements PageClient {
     if (this.recording) this.emitRecorded(false, false, held);
   }
 
-  private emitRecorded(done: boolean, cancelled: boolean, held = ""): void {
+  /** The dispatcher saw every key of the last stroke go up. */
+  release(): void {
+    if (!this.recording || !this.awaitingRelease) return;
+    this.awaitingRelease = false;
+    this.emitRecorded(false, false, "", true);
+  }
+
+  private emitRecorded(done: boolean, cancelled: boolean, held = "", released = false): void {
     const key = this.strokesSoFar.join(" ");
-    const event: RecordedEvent = { key, display: displayFor(key), done, cancelled, held };
+    const event: RecordedEvent = { key, display: displayFor(key), done, cancelled, held, released };
     if (done || cancelled) this.stopRecording();
     for (const listener of this.recorded) listener(event, ++this.seq);
   }
@@ -208,7 +218,9 @@ export class MockKeybindingsProvider implements PageClient {
         }
       };
       const onKeyUp = (event: KeyboardEvent) => {
-        if (["Meta", "Control", "Shift", "Alt"].includes(event.key)) this.hold(heldFor(event));
+        const held = heldFor(event);
+        if (!held) this.release();
+        else if (["Meta", "Control", "Shift", "Alt"].includes(event.key)) this.hold(held);
       };
       window.addEventListener("keydown", onKey, true);
       window.addEventListener("keyup", onKeyUp, true);

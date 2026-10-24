@@ -17,9 +17,11 @@ final class KeybindingsPageProvider: PageProvider {
     /// The page's window: only its key-downs are recorded.
     var pageWindow: () -> NSWindow? = { nil }
     private var recorder: KeyRecorder?
-    /// While recording: the modifier changes of the page's window, so the page shows the modifiers
-    /// held before a key makes the stroke.
+    /// While recording: the modifier changes and key-ups of the page's window, so the page shows
+    /// the modifiers held before a key makes the stroke, and knows when every key of one is up.
     private var flagsMonitor: Any?
+    /// A stroke was recorded and some of its keys are still down.
+    private var awaitingRelease = false
     private var recordedListeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
     private var changedListeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
     private var fileListener: UUID?
@@ -125,7 +127,7 @@ final class KeybindingsPageProvider: PageProvider {
             return true
         }
         if flagsMonitor == nil {
-            flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+            flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged, .keyUp]) { [weak self] event in
                 self?.hold(event)
                 return event
             }
@@ -134,6 +136,7 @@ final class KeybindingsPageProvider: PageProvider {
 
     private func stopRecording() {
         recorder = nil
+        awaitingRelease = false
         services.keyRouter.keyRecorder = nil
         if let flagsMonitor { NSEvent.removeMonitor(flagsMonitor) }
         flagsMonitor = nil
@@ -145,23 +148,31 @@ final class KeybindingsPageProvider: PageProvider {
                                              isReturn: KeyRecorder.isReturn(event)) else { return }
         self.recorder = recorder
         if recorded.done || recorded.cancelled { stopRecording() }
+        awaitingRelease = !recorded.keys.isEmpty && !recorded.done && !recorded.cancelled
         send(recorded.keys, done: recorded.done, cancelled: recorded.cancelled, held: "")
     }
 
-    /// A modifier went down or up in the page's window: the strokes so far and the modifiers held now.
+    /// A modifier or key went up or down in the page's window: the strokes so far and the
+    /// modifiers held now; `released` once every key of the last stroke is up.
     private func hold(_ event: NSEvent) {
         guard let recorder, !recorder.isFinished, let page = pageWindow(),
               event.window === page || event.window?.parent === page else { return }
-        send(recorder.keys, done: false, cancelled: false, held: KeyRecorder.heldGlyphs(event.modifierFlags))
+        let held = KeyRecorder.heldGlyphs(event.modifierFlags)
+        if awaitingRelease, held.isEmpty {
+            awaitingRelease = false
+            return send(recorder.keys, done: false, cancelled: false, held: "", released: true)
+        }
+        if event.type == .flagsChanged { send(recorder.keys, done: false, cancelled: false, held: held) }
     }
 
-    /// One `recorded` event: the strokes so far (`key`, `display`), how the recording ended, and
-    /// `held`, the glyphs of the modifiers held before the next key ("" on a stroke).
-    private func send(_ keys: [Shortcut], done: Bool, cancelled: Bool, held: String) {
+    /// One `recorded` event: the strokes so far (`key`, `display`), how the recording ended,
+    /// `held`, the glyphs of the modifiers held before the next key ("" on a stroke), and
+    /// `released` when every key of the last stroke is up (the page saves the keys then).
+    private func send(_ keys: [Shortcut], done: Bool, cancelled: Bool, held: String, released: Bool = false) {
         let event: JSONValue = [
             "key": .string(KeybindingReports.text(keys)),
             "display": .string(keys.map(\.displayString).joined(separator: " ")),
-            "done": .bool(done), "cancelled": .bool(cancelled), "held": .string(held),
+            "done": .bool(done), "cancelled": .bool(cancelled), "held": .string(held), "released": .bool(released),
         ]
         for listener in recordedListeners.values { listener(event) }
     }
