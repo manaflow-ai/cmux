@@ -46,6 +46,21 @@ import Testing
         #expect(budget.mayRun(.automation), "a request on an idle queue a frame later has a fresh budget")
     }
 
+    @Test func aTaskLongerThanAFrameDoesNotResetItsOwnBudget() {
+        let clock = BudgetClock()
+        let budget = MainFrameBudget(uptimeNanos: clock.read)
+        budget.beginFrame(timestamp: 1, refreshInterval: 1.0 / 60)
+        var allowed: [Bool] = []
+        budget.run(.visible, owner: "DaemonStore.drain") {
+            for _ in 0..<3 {
+                // One slice of a large batch takes longer than the whole frame.
+                budget.run(.visible, owner: "slice") { clock.advance(ms: 20) }
+                allowed.append(budget.mayRun(.visible))
+            }
+        }
+        #expect(allowed == [false, false, false], "the rest of the batch waits for the next display frame")
+    }
+
     @Test func budgetedClassesYieldToPendingInputButNotTwoFramesInARow() {
         let clock = BudgetClock()
         let input = FakeInputPending()
