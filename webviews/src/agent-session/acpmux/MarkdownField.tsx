@@ -125,6 +125,42 @@ export type MarkdownFieldProps = {
   selectionKey?: string;
 };
 
+/// Streaming agent updates replace the composer's snapshot while the prompt is unchanged. The
+/// editor keeps its own ProseMirror view, so rebuilding that React subtree for every token only
+/// competes with the next key for the main thread. Event callbacks are held in `latest` below;
+/// callers may therefore update their refs without forcing the editor to reconcile.
+function sameMarkdownFieldAttributes(
+  left: MarkdownFieldProps["attributes"],
+  right: MarkdownFieldProps["attributes"],
+): boolean {
+  if (left === right) return true;
+  const leftKeys = Object.keys(left ?? {});
+  const rightKeys = Object.keys(right ?? {});
+  if (leftKeys.length !== rightKeys.length) return false;
+  return leftKeys.every((key) => left?.[key] === right?.[key]);
+}
+
+function sameMarkdownFieldProps(previous: MarkdownFieldProps, next: MarkdownFieldProps): boolean {
+  return (
+    previous.value === next.value &&
+    previous.multiline === next.multiline &&
+    previous.placeholder === next.placeholder &&
+    previous.placeholderKey === next.placeholderKey &&
+    previous.className === next.className &&
+    previous.selectionKey === next.selectionKey &&
+    previous.onChange === next.onChange &&
+    previous.onCaret === next.onCaret &&
+    previous.onKeyDown === next.onKeyDown &&
+    previous.onCompositionChange === next.onCompositionChange &&
+    previous.onBeforeInput === next.onBeforeInput &&
+    previous.onSubmit === next.onSubmit &&
+    previous.onReturnInput === next.onReturnInput &&
+    previous.onFirstInput === next.onFirstInput &&
+    previous.plugins === next.plugins &&
+    sameMarkdownFieldAttributes(previous.attributes, next.attributes)
+  );
+}
+
 /** Markdown without the serializer's trailing newline, and empty for an empty document.
  * Milkdown writes an empty paragraph as `<br />`; empty lines a prompt starts or ends with
  * are not part of it. */
@@ -304,7 +340,7 @@ function plainPosition(doc: ProseNode, offset: number): number {
 /// and no syntax reveal. Enter is the composer's (send or pick a command); Shift-Enter starts a
 /// new block, a new list item inside a list. The composer reads and writes markdown through
 /// `value` / `onChange`, so its slash menu, mention and draft logic stay as they were.
-export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownFieldProps>(function MarkdownField(
+const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldProps>(function MarkdownFieldImpl(
   {
     value,
     onChange,
@@ -931,3 +967,5 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
     </div>
   );
 });
+
+export const MarkdownField = React.memo(MarkdownFieldImpl, sameMarkdownFieldProps);

@@ -63,6 +63,12 @@ pub(super) fn envelope(id: &str, operation: &str, params: Value, key: Option<&st
     params.insert("machine".into(), json!("current"));
     params.insert("session".into(), json!("current"));
     let mut line = json!({"protocol": PROTOCOL, "type": "request", "id": id, "operation": operation, "params": params});
+    if super::super::federation::agent_marker(|key| std::env::var(key).ok()).is_some() {
+        // A request-origin claim may only narrow the daemon-derived origin;
+        // it gives history a durable agent/person distinction without
+        // granting an agent any additional rights.
+        line["origin"] = json!({"claim": "agent"});
+    }
     if let Some(key) = key {
         line["idempotency_key"] = json!(key);
     }

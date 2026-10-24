@@ -169,7 +169,7 @@ mod imp {
 
     pub(super) fn prepare_in_background() {}
 
-    pub(super) fn copy_failed(_path: &std::path::Path) {}
+    pub(super) fn copy_failed(_path: &Path) {}
 }
 
 #[cfg(target_os = "macos")]

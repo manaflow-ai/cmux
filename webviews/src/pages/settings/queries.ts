@@ -7,6 +7,7 @@ import { QueryClient } from "@tanstack/react-query";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
 import type {
   AccountsState,
+  DevicesState,
   Diagnostic,
   Domains,
   HarnessesState,
@@ -25,6 +26,7 @@ export const settingsKeys = {
   host: ["settings", "host"] as const,
   accounts: ["settings", "accounts"] as const,
   harnesses: ["settings", "harnesses"] as const,
+  devices: ["settings", "devices"] as const,
   themeColors: ["settings", "theme-colors"] as const,
   write: ["settings", "write"] as const,
 };
@@ -43,6 +45,7 @@ export type ScopeData = {
 export type HostData = HostLists;
 export type AccountsData = AccountsState;
 export type HarnessesData = HarnessesState;
+export type DevicesData = DevicesState;
 export type ThemeColorsData = ReadonlyMap<string, GhosttyTheme>;
 
 export function createSettingsQueryClient(): QueryClient {

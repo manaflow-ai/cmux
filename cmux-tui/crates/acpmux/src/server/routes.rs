@@ -1,7 +1,7 @@
 //! `_acpmux/route/list|show|add|edit|remove|restore|test`,
 //! `_acpmux/route/default.set` and `_acpmux/chat/route.set` (ROUTES R1-R3):
-//! the app's Settings, palette, chat menu and MCP tools, and `cmux route …`,
-//! manage routes through the daemon. The store is `crate::routes`.
+//! the app's chat menu and the Cloud hand's gateway manage routes through the
+//! daemon. The store is `crate::routes`.
 //!
 //! Who may call them: `add`, `edit`, `remove` and `restore` change where a
 //! harness sends prompts and which secret it sends, so only the unix socket

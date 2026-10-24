@@ -25,8 +25,9 @@ With --browser the top-left pane of each layout shows a Chromium page instead of
 requestAnimationFrame loop counting into window.__frames, a spinner, a tall grid of cards; the first split terminal
 takes --stream), and each action pair starts with that pane focused. Per action it adds the change of `debug.cef`'s
 pump counters (pump_runs, pump_ms, pump_long, pump_now_req, pump_delayed_req), its tracker counters (trk_clip_reads,
-trk_occl_reads, trk_clip_builds, trk_clip_hits, trk_clip_ms, trk_posts; None on builds without them) and of the page's own animation
-frames (page_frames). A layout whose page never runs fails one row and is skipped.
+trk_occl_reads, trk_clip_builds, trk_clip_hits, trk_clip_ms, trk_posts, trk_skips; None on builds without them), of the page's own animation
+frames (page_frames), of `debug.layers` divider catcher panel updates and child window reorders (catcher_updates, reorders), and
+the fork geometry posts per moving frame (posts_per_frame). A layout whose page never runs fails one row and is skipped.
 
 Usage: pane-perf-terminal.py --tag <tag> --app PATH [--layouts 1x2,4x2,6x5] [--browser]
        [--actions split,close,column,zoom,drag,sidepanel,scroll,idle] [--rounds 3] [--scrollback 5000] [--stream]
@@ -51,6 +52,9 @@ parser.add_argument("--sample", default="", help="LAYOUT:ACTION[,...]: `sample` 
 parser.add_argument("--sample-repeats", type=int, default=8)
 parser.add_argument("--content", default="terminal", choices=["terminal", "chromium"],
                     help="what the workspace's first pane shows: a terminal, or a Chromium page (splits start from it)")
+parser.add_argument("--pages", type=int, default=0,
+                    help="with --browser: this many more panes of each layout (the first ones split) show a Chromium page "
+                         "(a static page beside the probe: every page the window holds is re-placed on a motion frame)")
 parser.add_argument("--json")
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--gate", action="store_true", help="fail on the budget rows")
@@ -125,9 +129,13 @@ CEF_DELTAS = [("pump_runs", "pump", "work_runs"), ("pump_ms", "pump", "work_ms")
               ("trk_clip_reads", "tracker", "clip_reads"), ("trk_occl_reads", "tracker", "occlusion_reads"),
               ("trk_clip_builds", "tracker", "clip_builds"), ("trk_clip_hits", "tracker", "clip_hits"),
               ("trk_clip_ms", "tracker", "clip_ms"),
-              ("trk_posts", "tracker", "geometry_posts")]
-BROWSER_KEYS = [key for key, _, _ in CEF_DELTAS] + ["page_frames"]
-BROWSER_HEADS = ["pump", "pumpms", "long", "nowreq", "dlyreq", "clipr", "occlr", "clipb", "cliph", "clipms", "posts", "rAF"]
+              ("trk_posts", "tracker", "geometry_posts"), ("trk_skips", "tracker", "geometry_skips")]
+# --browser: per action, the change of `debug.layers` counters of the first window (divider catcher panel moves, child
+# window reorders); None on builds without them.
+LAYER_DELTAS = [("catcher_updates", "divider_catcher_updates"), ("reorders", "reorders")]
+BROWSER_KEYS = [key for key, _, _ in CEF_DELTAS] + ["page_frames"] + [key for key, _ in LAYER_DELTAS] + ["posts_per_frame"]
+BROWSER_HEADS = ["pump", "pumpms", "long", "nowreq", "dlyreq", "clipr", "occlr", "clipb", "cliph", "clipms", "posts", "skips",
+                 "rAF", "catch", "reord", "post/f"]
 STILL = ("drag", "sidepanel", "sidepanel-close", "scroll", "idle")  # actions that move no layout spring
 
 
@@ -228,8 +236,15 @@ def layout(columns, rows):
     top-left one shows the probe page instead (the first split terminal takes --stream). Returns an error or None."""
     action("workspace.newAtBottom", settle=1.5)
     pending = [opts.stream]  # the first terminal fed streams
+    pages = [opts.pages if opts.browser else 0]
 
     def fed():
+        if pages[0] > 0:  # --pages: this pane shows a Chromium page instead of a terminal
+            pages[0] -= 1
+            global PAGE
+            PAGE = PAGE or serve_page()
+            action("openBrowser.chromium", {"url": PAGE}, settle=1.5, timeout=120)
+            return
         feed(pending.pop() if pending else False)
     if opts.browser:
         problem = open_page()
@@ -336,8 +351,14 @@ def counter(report, group, key):
     return ((report if isinstance(report, dict) else {}).get(group) or {}).get(key)
 
 
+def first_window(report):
+    windows = (report or {}).get("windows") if isinstance(report, dict) else None
+    return windows[0] if windows else {}
+
+
 def measure(label, name):
     cef_before = rpc("debug.cef") if opts.browser else None  # outside the timed window, like the reads after it
+    layers_before = first_window(rpc("debug.layers")) if opts.browser else None
     page_before = page_eval("window.__frames") if opts.browser else None
     rpc("debug.hangs", {"clear": True})
     rpc("debug.motion", {"action": "start"})
@@ -368,10 +389,17 @@ def measure(label, name):
         for key, group, field in CEF_DELTAS:
             result[key] = change(counter(cef_before, group, field), counter(cef_after, group, field))
         result["page_frames"] = change(page_before, page_eval("window.__frames"))
+        layers_after = first_window(rpc("debug.layers"))
+        for key, field in LAYER_DELTAS:
+            result[key] = change(layers_before.get(field), layers_after.get(field))
+        # Geometry posts per display frame the springs moved (a still action: per frame of the action).
+        span = moving if name not in STILL else (frames.get("frames") or 0)
+        result["posts_per_frame"] = round(result["trk_posts"] / span, 2) if isinstance(result["trk_posts"], (int, float)) and span else None
         extra = (f"  pump {result['pump_runs']} runs {result['pump_ms']} ms long {result['pump_long']} "
                  f"req {result['pump_now_req']}/{result['pump_delayed_req']}  clip {result['trk_clip_reads']} reads "
                  f"{result['trk_clip_builds']} builds {result['trk_clip_hits']} hits {result['trk_clip_ms']} ms  occl {result['trk_occl_reads']}  "
-                 f"posts {result['trk_posts']}  page rAF {result['page_frames']}")
+                 f"posts {result['trk_posts']} ({result['posts_per_frame']}/frame) skips {result['trk_skips']}  "
+                 f"catchers {result['catcher_updates']} reorders {result['reorders']}  page rAF {result['page_frames']}")
     print(f"  {label:<22} moved {moving:>3}  frame p50 {result['frames_p50_ms']} p95 {result['frames_p95_ms']} "
           f"p99 {result['frames_p99_ms']} max {result['frames_max_ms']} ms  missed {result['missed']} "
           f"(refresh {result['refresh_ms']})  tick p95 {result['layout_p95_ms']} max {result['layout_max_ms']} ms  "

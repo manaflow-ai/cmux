@@ -411,10 +411,12 @@
   justify-content: center;
 }
 
+/* Full width like Discover and Installed, on the toolbar's edges, so moving between them never
+   moves the content's left edge. */
 .apps-detail-body {
-  max-width: 760px;
-  margin: 0 auto;
   padding: 20px 20px 32px;
+  padding-left: var(--page-edge);
+  padding-right: var(--page-edge);
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -462,7 +464,9 @@
   gap: 8px;
 }
 
+/* The page is full width; running text stops at a readable line length. */
 .apps-detail-description {
+  max-width: 72ch;
   margin: 0;
   line-height: 1.45;
 }
@@ -604,9 +608,8 @@ code {
   transform: translateX(12px);
 }
 
+/* Full width like Discover: no centered column, so switching tabs keeps the toolbar's edges. */
 .apps-installed {
-  max-width: 980px;
-  margin: 0 auto;
   padding: var(--page-edge);
   display: flex;
   flex-direction: column;
