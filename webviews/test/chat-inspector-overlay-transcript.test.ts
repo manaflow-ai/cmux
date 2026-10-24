@@ -84,7 +84,17 @@ await requireBrowserLane("chat-inspector-overlay-transcript.test.ts", async () =
           const toggle = page.locator("button.acpmux-chat-inspector-toggle");
           await toggle.waitFor({ timeout: 10_000 });
           await page.locator(".acpmux-scroll .acpmux-row .cv-user__bubble").first().waitFor({ timeout: 10_000 });
-          if ((await panel.count()) === 0) await toggle.click({ force: true });
+          if ((await panel.count()) > 0) {
+            await toggle.click({ force: true });
+            await panel.waitFor({ state: "detached", timeout: 5_000 });
+          }
+          await page.evaluate(async () => {
+            await Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => undefined)));
+            await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+          });
+          // Where the rows draw with it closed: closing it again puts them back exactly here.
+          const before = await rowEdges(page);
+          await toggle.click({ force: true });
           await page
             .locator(`aside.acpmux-chat-inspector[data-placement="${placement}"][data-presence="shown"]`)
             .waitFor({ timeout: 10_000 });
@@ -102,11 +112,16 @@ await requireBrowserLane("chat-inspector-overlay-transcript.test.ts", async () =
           const under = [...open.rows, ...open.bubbles].filter((right) => right > left - clear + 0.5);
           expect({ panelLeft: left, under }).toEqual({ panelLeft: left, under: [] });
 
-          // Closed, the rows return to the column's centered place, past where the panel began.
+          // Closed, the rows return to the column's centered place: where they drew before it opened, with
+          // nothing of the shift or the push kept.
           await toggle.click();
           await panel.waitFor({ state: "detached", timeout: 5_000 });
-          await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+          await page.evaluate(async () => {
+            await Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => undefined)));
+            await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+          });
           const closed = await rowEdges(page);
+          expect(closed.rows).toEqual(before.rows);
           expect(Math.max(...closed.rows)).toBeGreaterThan(left + (placement === "push" ? 100 : 0));
         } finally {
           await page.close();
