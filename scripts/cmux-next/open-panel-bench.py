@@ -21,7 +21,7 @@ missed), and left out of the session's percentiles; each OPEN-PANEL row says how
 Usage: open-panel-bench.py --app APP --out DIR [--json PATH] [--sessions light,stress] [--rounds 5]
 Fleet: scripts/measure/split-spring.sh --suite=open-panel [--sessions=...] [--rounds=N]
 """
-import argparse, importlib.util, json, os, statistics, sys
+import argparse, importlib.util, json, os, statistics, sys, threading, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -68,7 +68,13 @@ def measure(app, session, report, opts):
     for mode in opts.modes.split(","):
         runs = []
         for index in range(opts.rounds):
-            reply = app.rpc("debug.open_panel_bench", {"mode": mode}, timeout=40) or {}
+            # A call that does not answer in 45 s: the app's main thread as it hangs (the quit-time hang of
+            # 2026-10-23, the 4th new-panel open on mac26), before the call's own timeout ends it.
+            stuck = threading.Timer(45, lambda: report["hangs"].append(
+                {"session": session, "mode": mode, "round": index, "at": "open", "main_thread": app.sample_main_thread(3)}))
+            stuck.start()
+            reply = app.rpc("debug.open_panel_bench", {"mode": mode}, timeout=90) or {}
+            stuck.cancel()
             frames = reply.get("frames") or {}
             run = {k: reply.get(k) for k in ("mode", "made_ahead_before", "init_ms", "begin_ms", "sync_ms", "visible_ms", "error")}
             run.update(frame_max_ms=frames.get("max_ms"), missed=frames.get("missed"), refresh_ms=frames.get("refresh_ms"),
@@ -92,10 +98,27 @@ def measure(app, session, report, opts):
         print("OPEN-PANEL " + json.dumps(row), flush=True)
 
 
+def quit_probe(app, report):
+    """Quits the app as a person does (debug.quit) and times it; one that has not ended in 30 s is sampled."""
+    if not app.process or app.process.poll() is not None:
+        return
+    start = time.monotonic()
+    reply = app.rpc("debug.quit", {"fixture_quit": "end-sessions"}, timeout=10)
+    try:
+        app.process.wait(30)
+        report["quit"] = {"seconds": round(time.monotonic() - start, 2), "reply": reply}
+    except Exception:  # still running after 30 s: the quit hangs
+        report["quit"] = {"seconds": None, "reply": reply, "hung": True, "main_thread": app.sample_main_thread(3)}
+        report["hangs"].append({"at": "quit", "main_thread": report["quit"]["main_thread"]})
+    print("OPEN-PANEL-QUIT " + json.dumps({k: v for k, v in report["quit"].items() if k != "main_thread"}), flush=True)
+    for hang in report["hangs"]:
+        print(f"OPEN-PANEL-HANG at {hang.get('at')} {hang.get('mode', '')} #{hang.get('round', '')}:\n{hang.get('main_thread')}", flush=True)
+
+
 def main(argv=None):
     opts = parse(argv)
     os.makedirs(opts.out, exist_ok=True)
-    report = {"runs": [], "summary": [], "first_opens": []}
+    report = {"runs": [], "summary": [], "first_opens": [], "hangs": []}
     app = BenchApp(opts.app, out=opts.out, window=(40, 40, 1600, 1000))
     try:
         # No settle sleep (it hid launch work behind a fixed 3 s): the first open of each session is reported on its
@@ -107,6 +130,7 @@ def main(argv=None):
                 report["stress_session"] = built
             measure(app, session, report, opts)
     finally:
+        quit_probe(app, report)
         app.stop()
         if opts.json:
             with open(opts.json, "w") as f:
