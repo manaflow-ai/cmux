@@ -156,22 +156,59 @@ import UniformTypeIdentifiers
         await frames.readerIdle()
     }
 
-    @Test func releaseDropsTheFramesAndThePanesStillWaiting() async throws {
-        let url = try Self.saved(["tab_a", "tab_b"])
+    /// The release drops only what no pane asked for. A pane that asked while its frame was still
+    /// being decoded (STRESS on a cold disk: 12 panes present over about 12 frames while the one
+    /// reader still decodes the last ones) gets its frame after the release; a decoded frame no pane
+    /// took, and one no pane asked for, are gone. Before, the release dropped the asked frame too, so
+    /// that pane stayed blank until its live content drew.
+    @Test func releaseKeepsTheFramesPanesAskedForAndDropsTheRest() async throws {
+        let url = try Self.saved(["tab_a", "tab_b", "tab_c", "tab_d"])
         defer { try? FileManager.default.removeItem(at: url) }
-        let decoder = HeldDecoder(holding: ["tab_a"])
+        let decoder = HeldDecoder(holding: ["tab_b"])
         let frames = SavedFrameDirectory(url: url, name: "test_frames", decode: { decoder.decode($0, scale: $1) })
-        await Self.decodeStarts("tab_a", in: decoder)
-        let waiting = frames.take("tab_a") { _ in Issue.record("a released frame is not delivered") }
-        #expect(waiting.isNil)
+        // tab_a decodes first (no pane asked for it yet), then tab_b's decode is held.
+        await Self.decodeStarts("tab_b", in: decoder)
+        let (delivered, deliver) = AsyncStream<SavedFrame>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let waiting = frames.take("tab_b") { deliver.yield($0) }
+        #expect(waiting.isNil, "tab_b is still being decoded")
+        let (askedLater, deliverLater) = AsyncStream<SavedFrame>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let queued = frames.take("tab_d") { deliverLater.yield($0) }
+        #expect(queued.isNil, "tab_d is not decoded yet: its pane asked")
         frames.release()
-        decoder.release("tab_a")
+        decoder.release("tab_b")
+        var got: SavedFrame?
+        for await frame in delivered {
+            got = frame
+            break
+        }
+        #expect(got?.scale == 2, "the frame a pane asked for before the release reaches it after the release")
+        var later: SavedFrame?
+        for await frame in askedLater {
+            later = frame
+            break
+        }
+        #expect(later?.scale == 2, "an asked frame still queued is decoded and delivered after the release")
         await frames.readerIdle()
-        #expect(decoder.decoded == ["tab_a"], "the reader starts no decode after the release")
-        let released = frames.take("tab_b") { _ in Issue.record("released") }
-        #expect(released.isNil)
+        #expect(decoder.decoded == ["tab_a", "tab_b", "tab_d"], "no pane asked for tab_c: the reader never decodes it")
+        let unclaimed = frames.take("tab_a") { _ in Issue.record("a released frame is not delivered") }
+        #expect(unclaimed.isNil, "a decoded frame no pane took is dropped by the release")
+        let unasked = frames.take("tab_c") { _ in Issue.record("released") }
+        #expect(unasked.isNil, "a frame no pane asked for before the release is dropped")
         // A delivery would be a main-actor task enqueued before this one: let it run, then check none came.
         await Task.yield()
+    }
+
+    /// A pane that asked before the directory was listed keeps its ask across a release.
+    @Test func releaseBeforeTheListingKeepsTheAskedFrames() {
+        let url = FileManager.default.temporaryDirectory.appending(path: "saved-frames-unlisted", directoryHint: .isDirectory)
+        var held = SavedFrameDirectoryState()
+        #expect(held.claim("tab_a") { _ in }.isWaiting, "not listed yet: the pane waits")
+        held.release()
+        held.listed(["tab_a": .init(file: url.appending(path: "tab_a@2x.png"), scale: 2),
+                     "tab_b": .init(file: url.appending(path: "tab_b@2x.png"), scale: 2)])
+        #expect(held.queue == ["tab_a"], "only the asked key stays queued")
+        #expect(held.claimNext()?.key == "tab_a")
+        #expect(held.claimNext() == nil)
     }
 
     /// A listed frame whose decode failed is not read again: its taker gets nothing at once.
@@ -190,6 +227,13 @@ import UniformTypeIdentifiers
         await frames.readerIdle()
         let none = frames.take("tab_a") { _ in Issue.record("no directory") }
         #expect(none.isNil)
+    }
+}
+
+private extension SavedFrameDirectoryState.Claim {
+    var isWaiting: Bool {
+        if case .waiting = self { return true }
+        return false
     }
 }
 
