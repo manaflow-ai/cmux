@@ -6,8 +6,9 @@
 // and longest time, and the longest call's stack. scripts/measure/blocking-probe-report.py then groups the entries by their
 // first cmux frame, so each cmux call site is its own row however many wrappers sit above the system call.
 //
-// Self-test: at load the probe queues one directory read on the main queue and records it as kind "selftest";
-// the harness fails the run when the first dump lacks it (the probe did not load, or interposing did not work).
+// Self-test: at load the probe queues file system calls on the main queue, records them as kind "selftest" and
+// writes a dump at once; the harness fails the run when that dump lacks them (the probe did not load, or
+// interposing did not work).
 //
 // Output: $CMUX_BLOCKING_PROBE_OUT ("%p" becomes the pid), rewritten every DUMP_SECONDS by the probe's own
 // thread (so a run the sweep kills, or a crash, keeps what it saw until the last dump) and at a clean exit,
@@ -436,6 +437,7 @@ static void run_selftest(void *unused) {
         CFRelease(url);
     }
     selftest = 0;
+    dump(0);  // at once, so the harness sees the self-test without waiting for the periodic dump
 }
 
 __attribute__((constructor)) static void start(void) {
