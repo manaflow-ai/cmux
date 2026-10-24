@@ -172,8 +172,13 @@ impl AppIdentity {
     /// [`Self::daemon_session`] for the user home `home` (tests).
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub(crate) fn daemon_session_in(&self, home: &Path) -> Option<String> {
-        let _ = home;
-        self.build().app_session()
+        let build = self.build();
+        let session = build.app_session()?;
+        if build.legacy_session_marker(home).is_some_and(|marker| marker.is_file()) {
+            // `LegacyChannelSession.session`: the old shared daemon session.
+            return Some("cmux-app".to_owned());
+        }
+        Some(session)
     }
 }
 
