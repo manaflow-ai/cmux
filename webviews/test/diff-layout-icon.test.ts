@@ -1,22 +1,24 @@
-// The toolbar's layout button shows the layout on screen: two columns while split, two rows while
-// unified (and while split does not fit, which draws unified). Its tooltip names the other layout.
+// The toolbar's layout button shows the chosen layout: two rows while unified, two columns while
+// split, the frame cut on the diagonal while auto. Its tooltip names the next layout.
 import { expect, test } from "bun:test";
 import { toolbarPillButtons } from "../src/toolbar-model";
 
-const layoutButton = (layout: "split" | "unified", splitFits?: boolean) =>
+const layoutButton = (layout: "split" | "unified" | "auto") =>
   toolbarPillButtons({
     options: { collapsed: false, layout, wordWrap: false },
-    splitFits,
     filesVisible: true,
     optionsOpen: false,
     findOpen: false,
   }).find((button) => button.id === "layout")!;
 
-test("split shows columns and offers unified; unified shows rows and offers split", () => {
-  expect(layoutButton("split")).toMatchObject({ icon: "split", labelKey: "switchToUnifiedDiff" });
+test("each layout shows its own icon and offers the next layout", () => {
   expect(layoutButton("unified")).toMatchObject({ icon: "unified", labelKey: "switchToSplitDiff" });
+  expect(layoutButton("split")).toMatchObject({ icon: "split", labelKey: "switchToAutoLayout" });
+  expect(layoutButton("auto")).toMatchObject({ icon: "auto", labelKey: "switchToUnifiedDiff" });
 });
 
-test("a pane too narrow for split shows rows, as the diff it draws", () => {
-  expect(layoutButton("split", false)).toMatchObject({ icon: "unified", unavailable: true });
+test("the layout button is never unavailable: split stays split in a narrow pane", () => {
+  for (const layout of ["unified", "split", "auto"] as const) {
+    expect(layoutButton(layout).unavailable).toBeUndefined();
+  }
 });
