@@ -28,7 +28,6 @@ public final class PageHostPool {
     let activity: () -> UInt64
     let isTrackingMenu: () -> Bool
     /// The Chromium host a pooled page would show in now (``PageWebView/chromiumHosting``).
-    /// Red-commit stub: nothing reads it yet (the next commit does).
     let chromiumHosting: () -> (any PageChromiumHosting)?
     let timer: DemandTimer
     let parking = PageHostParking()
@@ -82,8 +81,13 @@ public final class PageHostPool {
                       focus: Bool = true) -> PageWebView? {
         guard PageServedHosts.pooledDescriptors.contains(descriptor) else { return nil }
         // Spares are WebKit views: a page that shows in Chromium is made fresh (PageWebView+Chromium).
-        let decision = PageWebView.engineDecision(for: descriptor, options: options)
-        guard decision.engine == .webKit else { return nil }
+        let decision = PageWebView.engineDecision(for: descriptor, options: options, hosting: chromiumHosting())
+        guard decision.engine == .webKit else {
+            // No pooled page shows in WebKit any more (the person chose Chromium): a parked spare
+            // only holds a web content process no claim can take.
+            if !servesWebKitPage { dropSpare() }
+            return nil
+        }
         isLikely = true
         if target == nil, let window { follow(window) }
         guard let host = spare, spareReady, host.isPooled else {
@@ -131,10 +135,22 @@ public final class PageHostPool {
         scheduleBuild()
     }
 
-    /// Marks one of the bundled page surfaces as likely to open soon.
+    /// Marks one of the bundled page surfaces as likely to open soon. Nothing when every pooled
+    /// page shows in Chromium (`browser.defaultEngine` is `chromium`, the default): a spare is a
+    /// WebKit view no claim could take, and it would hold a parked page and its web content process
+    /// for the whole session (perf-lead.md F3).
     public func noteLikely() {
+        guard servesWebKitPage else { return }
         isLikely = true
         scheduleBuild()
+    }
+
+    /// Whether any pooled page shows in WebKit now, so a spare may be claimed.
+    var servesWebKitPage: Bool {
+        let hosting = chromiumHosting()
+        return PageServedHosts.pooledDescriptors.contains {
+            PageWebView.engineDecision(for: $0, options: options, hosting: hosting).engine == .webKit
+        }
     }
 
     /// Drops the parked spare, for memory pressure or teardown.
