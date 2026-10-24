@@ -257,6 +257,8 @@ on:
       - tests/test_ci_generator_input_freshness.sh
       - tests/test_cmux_next_base_autofix_finishes.py
       - tests/test_cmux_next_pr_autofix_settings.py
+      - scripts/ci/base_red_checks.py
+      - scripts/ci/tests/test_base_red_checks.py
       - .github/workflows/cmux-next-base-autofix.yml
       - App/**
       - cmux.xcodeproj/**
