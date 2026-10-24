@@ -39,16 +39,24 @@ Scenarios (record --scenario):
   -- COMMAND     wrap mode: record while COMMAND runs (the every-action sweep or sidebar-churn-typing.py, which
                  launch their own app): time profile and signposts only (COMMAND's app gets no CDP port, no
                  daemon spans and no hang drain; pass --socket S for the hang drain). COMMAND runs in its own
-                 process group: on a timeout, an error or a signal the group gets SIGTERM, time for its own
-                 teardown, then SIGKILL, and the bundle's tag teardown ends what it left
+                 process group: on a timeout, an error or a signal COMMAND gets SIGTERM and time for its own
+                 teardown, then what is left of the group gets SIGTERM and SIGKILL, and the bundle's tag teardown
+                 ends what it left. Its label is `wrap-key-unknown` (COMMAND's app has its own environment)
+
+Process safety: the stop path ends the bundle's processes (the app's quit and tag teardown, the wrap teardown, a
+SIGKILL by exact PID after a stop that passed its bound), so a record run refuses to start (`bundle-in-use`, exit
+3) while any process of the bundle runs: every process it ends is then one this run started.
 
 The app under trace activates and its window is key where the host allows it (CMUX_NEXT_NO_ACTIVATE is removed,
 as pane-perf-terminal.py does); the window goes on the main screen at the STRESS size (`place_window`). Whether
-the window was key is recorded: a run whose window was not key is labelled `<scenario>-inactive`.
+the window was key is read at the window's start and again at its end: a run whose window was not key at either
+read is labelled `<scenario>-inactive`. An app that activates can take key status from another GUI job on a
+shared host: record on a reserved host (the perf-lead pool) when the numbers matter.
 
 Exit code: 0; 3 when a stage passed its bound or failed (the trace and SUMMARY.txt are still written, with an
 INCOMPLETE or ERROR line); wrap mode with a complete recording: the command's own nonzero exit code; 128 + N
-when signal N (SIGTERM, SIGHUP) ended the run (every recorder and the app are stopped first; no export).
+when signal N (SIGTERM, SIGHUP) ended the run, also during the export or the build (every recorder and the app
+are stopped first; the export and the build stop at once, and recording.trace is kept).
 
 Usage (a fleet GUI host, never Lawrence's Mac):
   nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA -- \\
@@ -59,7 +67,8 @@ Usage (a fleet GUI host, never Lawrence's Mac):
   trace.py export DIR          rebuild DIR/trace.json.gz and the summary from DIR's raw files
   trace.py summary DIR         print DIR's summary again
   trace.py --self-test         check the parsers (hand-written export shapes, not yet a real xctrace export),
-                               the merge, the clock alignment, the stage bounds, the stop path and the export
+                               the merge, the clock alignment, the stage bounds, the stop path, the export,
+                               the signals, the one SIGINT to xctrace and the uint32 track ids
 
 Docs: plans/cmux-next/trace.md (how to record, open in ui.perfetto.dev, read it). Not a CI gate.
 """
@@ -72,7 +81,12 @@ sys.path.insert(0, HERE)
 from bench_launch import LaunchError  # noqa: E402  (a failed launch is a SystemExit subclass: a stage error, not a signal)
 
 SUBSYSTEM = "com.cmuxterm.app.next"
-SYNTHETIC_TID = 1 << 40  # tracks that are not OS threads (signpost lanes, daemon spans, stalls, driver)
+# Tracks that are not OS threads (signpost lanes, daemon spans, stalls, syscalls, driver) get ids from here up
+# (SyntheticTracks). Perfetto's JSON importer reads pid and tid as uint32 and puts an event whose id does not fit
+# on the pid's own track, where slices of different tracks overlap without nesting and are dropped; under 2^31
+# also fits a reader that takes them as int32. macOS thread ids are system-wide counters (millions after weeks
+# of uptime), so this range is far above them; SyntheticTracks still skips any id the trace's threads use.
+SYNTHETIC_TID_BASE = 0x7000_0000
 DRIVER_PID = 0  # Perfetto shows pid 0 as its own process: the scenario driver's own events
 FLAME_DEPTH = 120  # root-most frames kept per sample (deeper Swift stacks are rare; the leaf is in args)
 LIGHT_BACKGROUND = 4  # light-storm: workspaces besides the shown one, for the storm to move, tag, group and pill
@@ -150,6 +164,11 @@ EXPORT_SCHEMAS = ("time-profile", "os-signpost", "syscall")
 # 15 s + 5 s + 0.5 s waits for the bundle's processes.
 APP_STOP_S = 10 + 30 + 15 + 2 * 30 + 30 + 15 + 5 + 1
 WRAP_GRACE_S = APP_STOP_S + STAGE_MARGIN_S  # a wrapped command's own teardown after SIGTERM (its BenchApp.stop)
+WRAP_ORPHAN_GRACE_S = 15  # what the command left in its group, after SIGTERM: TagTeardown's wait for a bundle's processes
+PS_S = 30  # one `ps` of the process table
+# WrappedCommand.stop at most: a `ps`, the command's grace, a `ps`, the orphans' grace, a `ps`, the reap after
+# SIGKILL (10 s) and the wait for the killed (5 s).
+WRAP_STOP_S = PS_S + WRAP_GRACE_S + PS_S + WRAP_ORPHAN_GRACE_S + PS_S + 10 + 5
 
 # Each stage of a recording has a bound. A stage that passes it ends loudly, its cleanup (`on_abort`) stops what
 # it started, and the trace and summary are still written from what was recorded (job 7 on 2026-10-23 sat silent
@@ -161,6 +180,7 @@ WRAP_GRACE_S = APP_STOP_S + STAGE_MARGIN_S  # a wrapped command's own teardown a
 #   their bound comes from a measurement (about 2.5 times it), and a cut ends the recording (fatal) with nothing
 #   left behind.
 STAGE_BOUNDS_S = {
+    "preflight": PS_S + STAGE_MARGIN_S,  # one `ps`: no process of the bundle may run yet
     # BenchApp.launch: 180 s for the socket, 10 s for a crash report, a 60 s main-thread sample of a silent app.
     "launch": 180 + 10 + 60 + STAGE_MARGIN_S,
     "stress-build": 1800,    # measured 691 s on cmux-lawrence-2 (macOS 27.0.1), 2026-10-23
@@ -176,8 +196,9 @@ STAGE_BOUNDS_S = {
     # after the call each has in flight). Also xctrace's own --time-limit past the window.
     "window-margin": 2 + 30 + 30 + STAGE_MARGIN_S,
     "driver-stop": 30 + 30 + STAGE_MARGIN_S,   # the typist's and the storm's joins
-    "wrap-stop": WRAP_GRACE_S + 10 + STAGE_MARGIN_S,  # SIGTERM, the command's grace, SIGKILL and its reap
+    "wrap-stop": WRAP_STOP_S + STAGE_MARGIN_S,  # WrappedCommand.stop; its cleanup is the group's SIGKILL
     "teardown-rpc": RPC_S + STAGE_MARGIN_S,  # debug.frames stop, debug.timings
+    "window-state": RPC_SHORT_S + STAGE_MARGIN_S,  # debug.window_list at the window's end
     # Tracing.end, then IO.read of at most a 128 MB buffer; every call bounded (not measured). A cut drops the
     # DevTools socket (no process of ours) and loses only the Chromium events.
     "chromium-stop": 600,
@@ -195,8 +216,13 @@ HEARTBEAT_S = 60  # a stage that runs longer prints that it is still running onc
 STAGE_ERRORS = (Exception, LaunchError)  # a stage's own failure; a signal's SystemExit and Ctrl-C end the run
 
 
-class StageTimeout(Exception):
-    """A recording stage passed its bound (raised in the main thread by the stage's interval timer)."""
+class StageTimeout(BaseException):
+    """A recording stage passed its bound (raised in the main thread by the stage's interval timer).
+
+    A BaseException, as KeyboardInterrupt is: the build stages spend their time inside perf-stress-session.py's
+    `wait()`, whose predicate runs under `except Exception` (the app may not answer yet). A timeout raised there
+    as an Exception was swallowed, the one-shot timer never fired again, and the stage ran for the sum of its
+    inner timeouts. Only Stages._Run.__exit__, Recording.record and the self-test catch it, by name."""
 
     def __init__(self, name, bound):
         super().__init__(f"stage {name} passed its bound of {bound:g} s")
@@ -358,7 +384,12 @@ def role_from_name(name):
         return "cef-renderer"
     if name.startswith("cmux DEV") and "Helper" in name:
         return "cef-utility"
-    if name.startswith("cmux DEV") or name.startswith("cmux NIGHTLY") or name == "cmux":
+    if name == "cmux":
+        # The bundled CLI (Contents/Resources/bin/cmux). A storm's CLI processes live for milliseconds and are in
+        # neither ps snapshot, so their name is all the trace has; an app whose executable is `cmux` gets its role from
+        # its path when a ps snapshot has it (role_of), else from its action signposts (find_app_pid).
+        return "cli"
+    if name.startswith("cmux DEV") or name.startswith("cmux NIGHTLY"):
         return "app"
     if name.startswith("cmux-tui"):
         return "daemon"
@@ -445,6 +476,7 @@ class XcTrace:
         self.attach = None  # a pid: only that process (when --all-processes is refused)
         self.proc, self.started = None, threading.Event()
         self.ended = threading.Event()
+        self.interrupted_us = None  # when the one SIGINT was sent (`interrupt`)
 
     def command(self):
         template = "System Trace" if self.system_trace else "Time Profiler"
@@ -482,8 +514,11 @@ class XcTrace:
         self.started_wall = time.time()
 
     def interrupt(self):
-        """Ends the recording now (SIGINT, as Ctrl-C); xctrace then processes and saves it (``stop`` waits)."""
-        if self.proc and self.proc.poll() is None:
+        """Ends the recording now (SIGINT, as Ctrl-C); xctrace then processes and saves it (``stop`` waits).
+
+        Sends SIGINT once only: the stop path calls this at the window's end and again from ``stop`` minutes
+        later, while xctrace still processes and saves, and a second Ctrl-C there can make it abort the save."""
+        if self.interrupted_us is None and self.proc and self.proc.poll() is None:
             self.proc.send_signal(signal.SIGINT)
             self.interrupted_us = uptime_us()
 
@@ -494,6 +529,8 @@ class XcTrace:
             self.proc.wait()
 
     def stop(self, timeout=XCTRACE_SAVE_S):
+        """Waits for the save (after the one SIGINT, sent here when the window's end did not); True when the
+        recording exists."""
         if self.proc is None:
             return False
         self.interrupt()
@@ -827,6 +864,17 @@ def window_state(rpc):
     return {"window_key": any(w.get("key") for w in windows if w.get("kind") == "main" and w.get("visible"))}
 
 
+def scenario_label(scenario, reads):
+    """The run's label from its `window_state` reads (the window's start and end): `<scenario>` when every read
+    says key, `<scenario>-inactive` when one says not key, else `<scenario>-key-unknown`."""
+    keys = [read.get("window_key") for read in reads]
+    if any(key is False for key in keys):
+        return scenario + "-inactive"
+    if keys and all(key is True for key in keys):
+        return scenario
+    return scenario + "-key-unknown"
+
+
 def read_probe(path):
     import csv
     try:
@@ -866,14 +914,17 @@ def wait_exits(pids, timeout):
 class WrappedCommand:
     """Wrap mode's COMMAND, in a session and process group of its own (its pid is the group id).
 
-    `stop()` ends the whole group: SIGTERM, up to `grace` seconds for every member to exit (a wrapper such as
-    every-action-sweep.py then runs its own teardown: BenchApp.stop and TagTeardown), then SIGKILL to the
-    group. The app a wrapper launches is in the group; daemons that start a session of their own are not (the
-    bundle's tag teardown after a stopped command ends those, `Recording.stop_app`).
+    `stop()` ends the whole group. SIGTERM goes to the command itself first, with up to `grace` seconds for its
+    own teardown (a wrapper such as every-action-sweep.py quits the app it launched through BenchApp.stop,
+    `debug.quit` with end-sessions, then TagTeardown): a SIGTERM to the whole group at once would reach that app
+    directly, before the wrapper's quit. Then whatever of the group is left gets SIGTERM, `orphan_grace` seconds
+    (TagTeardown's own wait for a bundle's processes after their shutdown) and SIGKILL. The app a wrapper
+    launches is in the group; daemons that start a session of their own are not (the bundle's tag teardown after
+    a stopped command ends those, `Recording.stop_app`).
     """
 
-    def __init__(self, argv, grace=WRAP_GRACE_S):
-        self.argv, self.grace = list(argv), grace
+    def __init__(self, argv, grace=WRAP_GRACE_S, orphan_grace=WRAP_ORPHAN_GRACE_S):
+        self.argv, self.grace, self.orphan_grace = list(argv), grace, orphan_grace
         self.proc, self.exit, self.signalled = None, None, False
 
     def start(self, hold=contextlib.nullcontext):
@@ -888,7 +939,7 @@ class WrappedCommand:
         """PIDs in the command's process group that still run, its leader included while it runs."""
         if self.proc is None:
             return []
-        out = subprocess.run(["ps", "-axo", "pid=,pgid=,stat="], capture_output=True, text=True, timeout=30).stdout
+        out = subprocess.run(["ps", "-axo", "pid=,pgid=,stat="], capture_output=True, text=True, timeout=PS_S).stdout
         found = []
         for line in out.splitlines():
             parts = line.split()
@@ -905,29 +956,48 @@ class WrappedCommand:
 
     def stop(self):
         """Ends the group and returns a record for meta, or None when the command and every process of its group
-        already ended (nothing to stop)."""
+        already ended (nothing to stop). Bounded: WRAP_STOP_S."""
         if self.proc is None:
             return None
-        others = [pid for pid in self.members() if pid != self.proc.pid]
+        leader = self.proc.pid
+        others = [pid for pid in self.members() if pid != leader]
         if self.proc.poll() is not None and not others:
             return None
         self.signalled = True
-        note(f"wrap: stopping the command's process group {self.proc.pid} (SIGTERM, {self.grace:g} s for its "
-             f"own teardown, then SIGKILL)")
-        deadline = time.monotonic() + self.grace
-        self._signal_group(signal.SIGTERM)
-        try:
-            self.proc.wait(timeout=self.grace)
-        except subprocess.TimeoutExpired:
-            pass
-        left = wait_exits(others, max(0.0, deadline - time.monotonic()))
-        killed = sorted(left | {pid for pid in self.members() if pid != self.proc.pid})
+        note(f"wrap: stopping the command {leader} (SIGTERM, {self.grace:g} s for its own teardown), then what is "
+             f"left of its process group (SIGTERM, {self.orphan_grace:g} s, then SIGKILL)")
+        if self.proc.poll() is None:
+            try:
+                os.kill(leader, signal.SIGTERM)  # the command this script started, by its exact PID
+            except ProcessLookupError:
+                pass
+            try:
+                self.proc.wait(timeout=self.grace)
+            except subprocess.TimeoutExpired:
+                pass
+        rest = [pid for pid in self.members() if pid != leader]
+        left = set()
+        if rest:
+            self._signal_group(signal.SIGTERM)
+            left = wait_exits(rest, self.orphan_grace)
+        killed = sorted(left | {pid for pid in self.members() if pid != leader})
         if self.proc.poll() is None or killed:
-            self._signal_group(signal.SIGKILL)
-            self.proc.wait(timeout=10)
+            self.kill()
             wait_exits(killed, 5)
         self.exit = self.proc.returncode
         return {"exit": self.exit, "signalled": True, "killed": killed[:20]}
+
+    def kill(self):
+        """SIGKILL to the whole group and a bounded reap of the command (the wrap-stop stage passed its bound)."""
+        if self.proc is None:
+            return
+        self.signalled = True
+        self._signal_group(signal.SIGKILL)
+        try:
+            self.proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            pass
+        self.exit = self.proc.returncode
 
 
 # ---------------------------------------------------------------- the app
@@ -1001,6 +1071,7 @@ class Recording:
         self.groups, self.workspaces, self.driver_events, self.processes = [], [], [], {}
         self.frames_started, self.probe_before = None, 0
         self.xctrace_factory = XcTrace  # the self-test passes a stand-in
+        self.xctrace_tool = ("xcrun", "xctrace")  # the export's tool (the self-test passes a stand-in)
         self.stopping = False
         self.terminated = None  # the exit code of a SIGTERM or SIGHUP that ended the run
 
@@ -1028,16 +1099,26 @@ class Recording:
                 write_json(os.path.join(self.out, "meta.json"), meta)
                 self.stop_app()
                 write_json(os.path.join(self.out, "meta.json"), meta)
-        if self.terminated is not None:
+        if self.terminated is None:
+            try:
+                # Every process of the run is stopped: a signal from here on ends the run at once (the export's
+                # xctrace child is killed by subprocess.run), instead of waiting through the export and build.
+                self.stopping = False
+                self.finish()
+            except SystemExit as error:  # SIGTERM or SIGHUP during the export or the build
+                self.terminated = error.code if isinstance(error.code, int) else 1
+                note(f"ended by a signal (exit {self.terminated}) during the export or the build; recording.trace is kept")
+        else:
             note(f"ended by a signal (exit {self.terminated}): recorders and app stopped; no export")
+        if self.terminated is not None:
+            self.stopping = True  # the summary is written whole
             self.write_summary(None)
-            return self.terminated
-        self.finish()
         return self.exit_code()
 
     def install_signals(self):
         """SIGTERM and SIGHUP end the run through its stop path (BenchApp.launch installs TagTeardown's handler,
-        so this runs again after the launch). While the stop runs, a signal is recorded and the stop finishes."""
+        so this runs again after the launch). While the stop runs, a signal is recorded and the stop finishes;
+        after it (the export and the build), a signal raises SystemExit at once."""
         def on_signal(signum, _frame):
             if self.stopping:
                 self.terminated = 128 + signum
@@ -1051,8 +1132,31 @@ class Recording:
         self.meta["warnings"].append(text)
         note(f"WARNING: {text}")
 
+    def refuse_running_bundle(self):
+        """Signal only processes this run started: the stop path ends the bundle's processes (BenchApp.stop's tag
+        teardown, the wrap teardown, `kill_bundle`), and it cannot tell a process this run started from one that
+        ran before it (another job's app of the same bundle, daemons an earlier run left, a person's app). So a
+        bundle with any running process (TagTeardown's own match, the set those teardowns end) is refused, in
+        both modes, as BenchApp.launch refuses a running app of its bundle."""
+        if not self.bundle:
+            return
+        from tag_teardown import TagTeardown
+        running = TagTeardown(self.bundle).processes()
+        self.processes["before"] = {pid: command[:400] for pid, command in running}
+        if running:
+            listed = "; ".join(f"{pid} {command[len(self.bundle):][:80]}" for pid, command in running[:6])
+            raise LaunchError("bundle-in-use", {"detail": f"{len(running)} process(es) of {self.bundle} already run "
+                                                          f"({listed}); trace.py would end them in its teardown. "
+                                                          f"Quit them or use a fresh tag", "log_tail": ""})
+
     def setup_and_window(self):
         opts, meta, stages = self.opts, self.meta, self.stages
+        with stages.run("preflight", fatal=True):
+            self.refuse_running_bundle()
+        if opts.command:
+            # The wrapped command launches its own app with its own environment (BenchApp's BASE_ENV sets
+            # CMUX_NEXT_NO_ACTIVATE unless the command removes it): trace.py cannot say whether its window was key.
+            meta["scenario_label"] = "wrap-key-unknown"
         if opts.app:
             self.app = TraceApp(opts.app, self.out, opts)
             with stages.run("launch", fatal=True):
@@ -1073,7 +1177,7 @@ class Recording:
                 meta["cef"] = cef_validity(self.rpc("debug.cef", timeout=RPC_S), stress_lib.WEB_DEV_CONFIG)
                 meta["window_state"] = window_state(self.rpc)
             key = (meta.get("window_state") or {}).get("window_key")
-            meta["scenario_label"] = opts.scenario + ("" if key else "-inactive" if key is False else "-key-unknown")
+            meta["scenario_label"] = scenario_label(opts.scenario, [meta.get("window_state") or {}])
             if opts.storm_hz > 0 and not self.workspaces:
                 self.warn("the CLI storm has no target workspace (only the shown one exists): storm_ops will be empty")
             if meta.get("cef") and not meta["cef"]["valid"]:
@@ -1194,6 +1298,12 @@ class Recording:
         self.stop_driver()
         time.sleep(1.0)  # the last action's frames and replies land inside the window
 
+    def kill_wrapped(self):
+        """The wrap-stop stage passed its bound or failed: SIGKILL the command's group (bounded) and say so."""
+        self.wrapped.kill()
+        self.meta["wrapped"] = {"exit": self.wrapped.exit, "signalled": True,
+                                "killed": "the whole group (SIGKILL: wrap-stop passed its bound or failed)"}
+
     def stop_driver(self):
         """Ends the storm and the typist and records what they did. Both stop flags are set before either join,
         so a bound that fires during one join never leaves the other running; it runs again from `stop()`."""
@@ -1226,7 +1336,7 @@ class Recording:
         the others running; a source whose stop passes its bound or raises is killed (`kill`)."""
         stages, meta = self.stages, self.meta
         if self.wrapped:
-            with stages.run("wrap-stop"):
+            with stages.run("wrap-stop", on_abort=self.kill_wrapped):
                 stopped = self.wrapped.stop()
                 if stopped:
                     meta["wrapped"] = stopped
@@ -1239,6 +1349,17 @@ class Recording:
             # to save and export.
             with stages.run("xctrace-end", bound=RPC_SHORT_S):
                 self.xc.interrupt()
+        if self.app and self.rpc and meta.get("window_start_us"):
+            # Key at the start says nothing about the window: another GUI job or a dialog can take key status
+            # during it. A second read at its end; the label holds when both reads say key.
+            with stages.run("window-state"):
+                meta["window_state_end"] = window_state(self.rpc)
+            label = scenario_label(self.opts.scenario, [meta.get("window_state") or {}, meta.get("window_state_end") or {}])
+            if label != meta.get("scenario_label"):
+                self.warn(f"the app's window was key {(meta.get('window_state') or {}).get('window_key')} at the "
+                          f"window's start and {(meta.get('window_state_end') or {}).get('window_key')} at its end: "
+                          f"rows are labelled {label}")
+                meta["scenario_label"] = label
         if self.rpc and self.frames_started is not None:
             with stages.run("teardown-rpc"):
                 meta["frames"] = self.rpc("debug.frames", {"action": "stop"}, timeout=RPC_S)
@@ -1309,10 +1430,19 @@ class Recording:
         """Exports the recording and builds the trace and the summary; SUMMARY.txt is always written."""
         stages = self.stages
         if self.recorder == "xctrace":
+            exported = False
             with stages.run("export"):
-                export_xctrace(self.out)
-            if not self.opts.keep_recording:
-                shutil.rmtree(os.path.join(self.out, "recording.trace"), ignore_errors=True)  # GBs; the tables stay
+                export_xctrace(self.out, xctrace=self.xctrace_tool)
+                exported = True  # not reached when the stage passed its bound or failed
+            missing = missing_tables(self.out)
+            recording = os.path.join(self.out, "recording.trace")
+            if exported and not missing:
+                if not self.opts.keep_recording:
+                    shutil.rmtree(recording, ignore_errors=True)  # GBs; every table it holds is exported
+            elif os.path.exists(recording):
+                # The only source of the missing tables: `trace.py export DIR` exports them again from it.
+                self.warn(f"the export is incomplete ({', '.join(missing) or 'the export stage did not finish'}): "
+                          f"recording.trace is kept for `trace.py export {self.out}`")
         write_json(os.path.join(self.out, "meta.json"), self.meta)
         summary = None
         with stages.run("build"):
@@ -1325,12 +1455,12 @@ class Recording:
         meta = self.meta
         if summary is None:
             summary = {k: meta.get(k) for k in ("host", "macos", "tag", "scenario", "scenario_label", "stress", "light",
-                                                 "window", "window_state", "cef", "launched_env")}
+                                                 "window", "window_state", "window_state_end", "cef", "launched_env")}
             summary["no_trace"] = "the build did not finish" if self.terminated is None else "ended by a signal"
         summary.update(stages=meta["stages"], timed_out=meta["timed_out"], errors=meta["errors"],
                        warnings=meta.get("warnings") or [], wrapped=meta.get("wrapped"),
                        command_exit=meta.get("command_exit"), terminated=self.terminated)
-        summary["exit_code"] = self.terminated if self.terminated is not None else self.exit_code()
+        summary["exit_code"] = self.exit_code()
         write_json(os.path.join(self.out, "summary.json"), summary)
         text = summary_text(summary)
         with open(os.path.join(self.out, "SUMMARY.txt"), "w") as f:
@@ -1339,8 +1469,10 @@ class Recording:
         return summary
 
     def exit_code(self):
-        """3 when a stage passed its bound or failed; else wrap mode's own nonzero exit (128 + N for a signal N);
-        else 0."""
+        """128 + N when signal N ended the run (also during the export or the build); else 3 when a stage passed
+        its bound or failed; else wrap mode's own nonzero exit (128 + N for a signal N); else 0."""
+        if self.terminated is not None:
+            return self.terminated
         if self.meta["timed_out"] or self.meta["errors"]:
             return 3
         code = self.meta.get("command_exit")
@@ -1396,6 +1528,19 @@ def export_xctrace(out, xctrace=("xcrun", "xctrace")):
             exported[schema] = path
             note(f"exported {schema}: {os.path.getsize(path) / 1e6:.0f} MB")
     return exported
+
+
+def missing_tables(out):
+    """The tables trace.py reads that the recording holds but `out` has no complete export of (["toc"] without
+    a readable table of contents). Empty when every one is exported."""
+    toc_path = os.path.join(out, "xctrace-toc.xml")
+    if not os.path.exists(toc_path):
+        return ["toc"]
+    toc = parse_toc(toc_path)
+    if not toc["schemas"]:
+        return ["toc"]
+    return [schema for schema in toc["schemas"] if schema in EXPORT_SCHEMAS
+            and not os.path.exists(os.path.join(out, f"xctrace-{schema}.xml"))]
 
 
 def parse_toc(path):
@@ -1457,19 +1602,32 @@ def parse_value(elem, vals):
 
 
 def xctrace_rows(path):
-    """The rows of one exported table, each {column tag: value}, with `ref` attributes resolved. Streams: a
-    table of a million samples never sits in memory as XML."""
-    ids, vals, node = {}, {}, None
+    """The rows of one exported table, each {column: value}, with `ref` attributes resolved. Streams: a table
+    of a million samples never sits in memory as XML.
+
+    A row's cells are its children in the order of the node's `<schema><col>` list (an empty cell is a
+    `<sentinel/>`), so each cell is keyed by its column's `<mnemonic>`. The element tag is the column's
+    engineering type, which two columns can share (several `string` columns, say): it is kept only as a second
+    key for a type no mnemonic already names, so a reader can still find a column by type."""
+    ids, vals, node, columns = {}, {}, None, []
     for event, elem in ET.iterparse(path, events=("start", "end")):
         if event == "start":
             if elem.tag == "node":
-                node = elem
+                node, columns = elem, []
                 ids.clear()  # each exported table numbers its ids from 1
+            continue
+        if elem.tag == "schema":
+            columns = [(col.findtext("mnemonic") or "").strip() for col in elem.findall("col")]
             continue
         if elem.tag == "row":
             row = {}
-            for child in elem:
-                row.setdefault(child.tag, vals.get(id(child)))
+            cells = list(elem)
+            for index, child in enumerate(cells):
+                if index < len(columns) and columns[index]:
+                    row[columns[index]] = None if child.tag == "sentinel" else vals.get(id(child))
+            for child in cells:
+                if child.tag != "sentinel":
+                    row.setdefault(child.tag, vals.get(id(child)))
             yield row
             vals.clear()
             if node is not None:
@@ -1496,9 +1654,9 @@ def time_profile_samples(path):
         thread = row.get("thread")
         if not isinstance(thread, dict):
             continue
-        t = scalar(row.get("sample-time"))
+        t = scalar(row.get("time") if row.get("time") is not None else row.get("sample-time"))
         weight = scalar(row.get("weight")) or 1_000_000
-        stack = row.get("backtrace") or row.get("tagged-backtrace") or row.get("kperf-bt") or ()
+        stack = row.get("stack") or row.get("backtrace") or row.get("tagged-backtrace") or row.get("kperf-bt") or ()
         if not isinstance(t, int):
             continue
         samples.append((t, weight if isinstance(weight, int) else 1_000_000, thread, stack if isinstance(stack, tuple) else ()))
@@ -1541,13 +1699,13 @@ def syscall_waits(path, min_ns=1_000_000):
     found = []
     for row in xctrace_rows(path):
         thread = row.get("thread")
-        start = scalar(row.get("start-time"))
+        start = scalar(row.get("start") if row.get("start") is not None else row.get("start-time"))
         duration = scalar(row.get("duration"))
         if not (isinstance(thread, dict) and isinstance(start, int) and isinstance(duration, int)) or duration < min_ns:
             continue
         call = row.get("syscall")
         call = (call[1] or call[0]) if isinstance(call, tuple) else str(call or "")
-        stack = row.get("backtrace") or ()
+        stack = row.get("stack") or row.get("backtrace") or row.get("tagged-backtrace") or ()
         found.append((start, duration, thread, str(call), stack if isinstance(stack, tuple) else ()))
     return found
 
@@ -1625,6 +1783,44 @@ class Lanes:
                 return index
         self.stacks.append([end])
         return len(self.stacks) - 1
+
+
+class SyntheticTracks:
+    """Thread ids for the tracks that are not OS threads: one per (pid, key), handed out in order from
+    SYNTHETIC_TID_BASE (so the same raw files give the same ids), under 2^31, and never an id that an OS or
+    Chromium thread in the trace uses (`taken`)."""
+
+    def __init__(self, taken):
+        self.taken, self.ids, self.next = set(taken), {}, SYNTHETIC_TID_BASE
+
+    def tid(self, pid, key):
+        if (pid, key) not in self.ids:
+            while self.next in self.taken:
+                self.next += 1
+            if self.next >= 1 << 31:
+                raise ValueError("no synthetic track id left under 2^31")
+            self.ids[(pid, key)] = self.next
+            self.next += 1
+        return self.ids[(pid, key)]
+
+
+def find_app_pid(meta, known, roles, intervals):
+    """(pid, how) of the app. The pid this run launched; in wrap mode (the command launched the app, after the
+    start snapshot and gone before the end one) the process that emitted the most `action` signposts (only the
+    app emits them); else the bundle's app executable in a ps snapshot; else a sampled process named as the app.
+    Never a CLI process: the bundled CLI is also named `cmux` (role_from_name)."""
+    if meta.get("app_pid"):
+        return meta["app_pid"], "launched"
+    emitters = collections.Counter(i["pid"] for i in intervals if i.get("category") == "action" and i.get("pid"))
+    for pid, _ in emitters.most_common():
+        # A name says little here (an app whose executable is `cmux` reads as the CLI); a ps snapshot's path does.
+        if (known.get(pid) or {}).get("role") in (None, "app"):
+            return pid, "action signposts"
+    pid = next((p for p, info in sorted(known.items()) if info.get("role") == "app"), None)
+    if pid is not None:
+        return pid, "ps snapshot"
+    pid = next((p for p, r in sorted(roles.items()) if r == "app"), None)
+    return pid, "process name" if pid is not None else "none"
 
 
 def read_signposts(path):
@@ -1762,7 +1958,7 @@ def chromium_events(out, threads_by_pid):
                     "os_thread": {f"{p}:{t}": o for (p, t), o in mapping.items()}}
 
 
-def daemon_span_events(out, daemon_pid):
+def daemon_span_events(out, daemon_pid, tracks):
     events = []
     lines = 0
     path = os.path.join(out, "daemon-spans-stamped.jsonl")
@@ -1785,7 +1981,7 @@ def daemon_span_events(out, daemon_pid):
             end, placed = float(row["at_us"]), "line arrival"
             start = end - total
         lane = lanes.place(start, end)
-        tid = SYNTHETIC_TID + 100 + lane
+        tid = tracks.tid(daemon_pid, ("daemon spans", lane))
         label = span.get("label") or "span"
         args = {"terminal": span.get("terminal"), "marks": span.get("marks"), "placed_by": placed,
                 "thread": span.get("tid")}
@@ -1835,8 +2031,12 @@ def build(out):
     offset_us, offset_how, clock_warning = xctrace_offset_us(xc_signposts, toc, signposts["intervals"], meta,
                                                              signpost_stats)
     samples = table("time-profile", time_profile_samples)
-    if samples is None:
-        samples = table("time-sample", time_profile_samples) or []
+    # The recording's tables that trace.py reads but this directory has no export of: a flame chart or a syscall
+    # track that is empty because its table is missing says so (trace.py exports no other sample table).
+    missing = missing_tables(out) if toc["schemas"] else []
+    if toc["schemas"] and "time-profile" not in toc["schemas"]:
+        missing.append(f"time-profile (not in the recording; its tables: {', '.join(toc['schemas'][:12])})")
+    samples = samples or []
     states = table("syscall", syscall_waits) or []
     # Processes and threads the trace names.
     names, threads_by_pid = {}, collections.defaultdict(dict)
@@ -1849,22 +2049,27 @@ def build(out):
         roles[pid] = (known.get(pid) or {}).get("role") or role_from_name(name)
     for pid, info in known.items():
         roles.setdefault(pid, info["role"])
-    app_pid = meta.get("app_pid") or next((p for p, r in roles.items() if r == "app"), None)
+    app_pid, app_pid_from = find_app_pid(meta, known, roles, signposts["intervals"])
+    if app_pid is not None:
+        roles[app_pid] = "app"
     daemon_pid = next((p for p, i in sorted(known.items()) if i["role"] == "daemon" and " server" in i["command"]), None) \
         or next((p for p, r in roles.items() if r == "daemon"), None) or 1
     flame_roles = set(ROLE_ORDER) - {"other"}
     keep = lambda thread: roles.get(thread.get("pid"), "other") in flame_roles
+    chrome, chrome_info = chromium_events(out, threads_by_pid)
+    os_tids = {thread.get("tid") for _, _, thread, _ in samples} | {thread.get("tid") for _, _, thread, _, _ in states} \
+        | {e.get("tid") for e in chrome}
+    os_tids = {t for t in os_tids if isinstance(t, int)}
+    tracks = SyntheticTracks(os_tids)
     events = flame_events(samples, offset_us, keep)
     # Signposts, on per-category lanes of their process.
     lanes = collections.defaultdict(Lanes)
     lane_names = {}
-    categories = {}  # category -> its block of 64 synthetic thread ids (stable across runs, unlike hash())
-    category_tid = lambda category: SYNTHETIC_TID + 1000 + 64 * categories.setdefault(category, len(categories))
     for interval in signposts["intervals"]:
         pid = interval["pid"] or app_pid
         category = interval["category"] or "signpost"
         lane = lanes[(pid, category)].place(interval["start_us"], interval["end_us"])
-        tid = category_tid(category) + min(lane, 62)
+        tid = tracks.tid(pid, ("signposts", category, lane))
         lane_names[(pid, tid)] = f"signposts {category}" + (f" {lane + 1}" if lane else "")
         detail = interval["fields"].get("id") or interval["fields"].get("kind") or ""
         events.append({"ph": "X", "pid": pid, "tid": tid, "ts": interval["start_us"], "dur": interval["end_us"] - interval["start_us"],
@@ -1872,7 +2077,7 @@ def build(out):
                        "args": {"begin": interval["message"], "end": interval["end_message"], "thread": interval["tid"]}})
     for event in signposts["events"]:
         pid = event["pid"] or app_pid
-        tid = category_tid(event["category"] or "signpost") + 63
+        tid = tracks.tid(pid, ("signposts", event["category"] or "signpost", "events"))
         lane_names.setdefault((pid, tid), f"signposts {event['category']}")
         events.append({"ph": "i", "s": "t", "pid": pid, "tid": tid, "ts": event["at_us"], "name": event["name"],
                        "cat": f"signpost.{event['category']}", "args": {"message": event["message"]}})
@@ -1886,7 +2091,7 @@ def build(out):
         if not start:
             continue
         lane = stall_lanes.place(start, start + duration)
-        tid = SYNTHETIC_TID + 200 + lane
+        tid = tracks.tid(app_pid, ("watchdog stalls", lane))
         lane_names[(app_pid, tid)] = "watchdog stalls"
         kind = record.get("kind") or "stall"
         events.append({"ph": "X", "pid": app_pid, "tid": tid, "ts": start, "dur": duration, "cat": "watchdog",
@@ -1897,7 +2102,6 @@ def build(out):
     # System Trace: system calls of 1 ms or more in the bundle's threads (off CPU: the stack says on what), on a
     # track beside their thread. The run loop's and the workqueue's idle waits are not waits for work.
     blocked = []
-    state_tracks = {}
     for start, duration, thread, call, stack in states:
         if not keep(thread):
             continue
@@ -1905,17 +2109,15 @@ def build(out):
         if reason == "idle":
             continue
         ts = start / 1000.0 + offset_us
-        key = (thread["pid"], thread["tid"])
-        state_tid = state_tracks.setdefault(key, SYNTHETIC_TID + 5000 + len(state_tracks))
+        state_tid = tracks.tid(thread["pid"], ("syscalls", thread["tid"]))
         lane_names[(thread["pid"], state_tid)] = f"{thread.get('name') or thread['tid']} syscalls"
         events.append({"ph": "X", "pid": thread["pid"], "tid": state_tid, "ts": ts, "dur": duration / 1000.0,
                        "cat": "syscall", "name": f"{call}: {reason}", "args": {"stack": list(stack)[:30]}})
         blocked.append({"pid": thread["pid"], "tid": thread["tid"], "thread": thread.get("name"), "start_us": ts,
                         "end_us": ts + duration / 1000.0, "call": call, "class": reason, "stack": list(stack)[:30]})
     # Daemon spans, Chromium, the driver.
-    span_events, span_info, span_rows = daemon_span_events(out, daemon_pid)
+    span_events, span_info, span_rows = daemon_span_events(out, daemon_pid, tracks)
     events += span_events
-    chrome, chrome_info = chromium_events(out, threads_by_pid)
     events += chrome
     driver = read_json(os.path.join(out, "driver.json"), []) or []
     driver_lanes = collections.defaultdict(Lanes)
@@ -1924,7 +2126,7 @@ def build(out):
         if start is None:
             continue
         lane = driver_lanes[item["kind"]].place(start, end)
-        tid = SYNTHETIC_TID + 300 + 20 * ["phase", "key", "cli"].index(item["kind"]) + lane
+        tid = tracks.tid(DRIVER_PID, ("driver", item["kind"], lane))
         lane_names[(DRIVER_PID, tid)] = f"driver {item['kind']}" + (f" {lane + 1}" if lane else "")
         events.append({"ph": "X", "pid": DRIVER_PID, "tid": tid, "ts": start, "dur": max(1.0, end - start),
                        "cat": "driver", "name": item["name"], "args": item.get("args") or {}})
@@ -1962,6 +2164,8 @@ def build(out):
     summary["sources"] = {
         "trace": trace_path, "trace_bytes": os.path.getsize(trace_path), "events": len(events),
         "samples": len(samples), "sampled_processes": len(names), "xctrace_clock": offset_how,
+        "app_pid": app_pid, "app_pid_from": app_pid_from, "missing_tables": missing,
+        "os_tids_over_uint32": sorted(t for t in os_tids if not 0 <= t < 1 << 32)[:8],
         "xctrace_clock_warning": clock_warning, "unreadable_tables": unreadable,
         "signpost_intervals": len(signposts["intervals"]), "signposts_lost": signposts["lost"],
         "system_trace_states": len(states), "hang_records": len(stall_records), "hangs_dropped": hangs.get("dropped"),
@@ -2157,6 +2361,7 @@ def summarize(meta, roles, app_pid, samples, offset_us, signposts, stalls, block
         "light": meta.get("light"), "storm_targets": meta.get("storm_targets"),
         "keys": meta.get("keys"), "chords": meta.get("chords"), "key_to_frame_ms": meta.get("key_to_frame_ms"),
         "frames": meta.get("frames"), "cef": meta.get("cef"), "window_state": meta.get("window_state"),
+        "window_state_end": meta.get("window_state_end"),
         "window": meta.get("window"), "launched_env": meta.get("launched_env"),
         "errors": meta.get("errors") or [], "warnings": meta.get("warnings") or [],
         "top_stalls": top, "stall_count": len([s for s in stalls if s["kind"] == "stall"]),
@@ -2189,7 +2394,8 @@ def summary_text(s):
              f"window {s.get('window_s')} s, load average at start {s.get('load_at_start')}"
              + (f", exit code {s['exit_code']}" if s.get("exit_code") is not None else "")]
     if s.get("terminated") is not None:
-        lines.append(f"  TERMINATED by a signal (exit {s['terminated']}): recorders and app stopped, nothing exported")
+        lines.append(f"  TERMINATED by a signal (exit {s['terminated']}): recorders and app stopped; the export and "
+                     f"the trace build did not run or were cut (recording.trace, if any, is kept)")
     if s.get("timed_out"):
         lines.append(f"  INCOMPLETE: stage(s) {', '.join(s['timed_out'])} passed their bound; the trace holds what was recorded")
     for error in s.get("errors") or []:
@@ -2218,12 +2424,23 @@ def summary_text(s):
             lines.append(f"  WARNING: {src['xctrace_clock_warning']}")
         for schema, error in (src.get("unreadable_tables") or {}).items():
             lines.append(f"  WARNING: xctrace table {schema} skipped: {error}")
+        if src.get("missing_tables"):
+            lines.append(f"  WARNING: xctrace tables not exported: {', '.join(src['missing_tables'])} (their tracks are "
+                         f"empty; `trace.py export DIR` again while recording.trace is there)")
+        if src.get("os_tids_over_uint32"):
+            lines.append(f"  WARNING: OS thread ids over 2^32 ({src['os_tids_over_uint32']}): Perfetto puts their "
+                         f"slices on the process track")
+        if src.get("app_pid_from") not in (None, "launched"):
+            lines.append(f"  app pid {src.get('app_pid')} (from {src.get('app_pid_from')})")
     env = s.get("launched_env")
     state = s.get("window_state") or {}
     window = s.get("window") or {}
     if env is not None or state or window:
         no_activate = "set" if isinstance(env, dict) and "CMUX_NEXT_NO_ACTIVATE" in env else "unset" if env is not None else "?"
-        lines.append(f"  window key {state.get('window_key')} (CMUX_NEXT_NO_ACTIVATE {no_activate}); placement "
+        end = s.get("window_state_end") or {}
+        lines.append(f"  window key {state.get('window_key')}" + (f" at the start, {end.get('window_key')} at the end"
+                                                                  if end else "")
+                     + f" (CMUX_NEXT_NO_ACTIVATE {no_activate}); placement "
                      f"{window.get('window_problem') or ('on its screen' if window else 'by the STRESS builder')}"
                      + (f", bottom Dock over {window['dock_overlap_pt']} pt" if window.get("dock_overlap_pt") else ""))
     if s.get("light"):
@@ -2296,6 +2513,29 @@ TP_XML = """<?xml version="1.0"?><trace-query-result><node xpath="x"><schema nam
 </node></trace-query-result>"""
 
 
+def build_fixture(out):
+    """Raw files of a small recording in `out` (hand-written shapes), then `build(out)`: its summary."""
+    open(os.path.join(out, "signposts.ndjson"), "w").write(signposts_lib.SAMPLE.replace('"processID":1', '"processID":42'))
+    write_json(os.path.join(out, "meta.json"), {"app_pid": 42, "window_start_us": 900000.0, "window_end_us": 9e6,
+                                                 "scenario": "self-test"})
+    write_json(os.path.join(out, "hangs.json"), {"records": [
+        {"sequence": 1, "kind": "stall", "start_uptime_ns": 1_000_000_000, "duration_ms": 40, "cpu_ms": 2,
+         "frames": ["libsystem_kernel.dylib __psynch_mutexwait + 8", "CmuxNextApp Foo.bar() + 10"]}]})
+    open(os.path.join(out, "daemon-spans-stamped.jsonl"), "w").write(json.dumps(
+        {"at_us": 5000.0, "line": json.dumps({"label": "new-tab", "total_us": 3000, "marks": [["a", 1000], ["b", 2500]]})}) + "\n")
+    write_json(os.path.join(out, "chromium-trace.json"), {"traceEvents": [
+        {"ph": "M", "pid": 42, "tid": 259, "name": "thread_name", "args": {"name": "CrBrowserMain"}},
+        {"ph": "c", "pid": 42, "tid": 259, "name": "clock_sync", "ts": 500.0, "args": {"sync_id": "s"}},
+        {"ph": "X", "pid": 42, "tid": 259, "name": "ThreadControllerImpl::RunTask", "ts": 1001000.0, "dur": 5000.0,
+         "args": {"src_func": "OnFrame"}}]})
+    write_json(os.path.join(out, "chromium-clock.json"), {"sync_id": "s", "before_us": 499.0, "after_us": 501.0})
+    write_json(os.path.join(out, "driver.json"), [{"kind": "key", "name": "key a", "start_us": 1000.0, "end_us": 1500.0}])
+    # Two main-thread samples inside the stall (at 1.001 s and 1.002 s on the trace clock).
+    open(os.path.join(out, "xctrace-time-profile.xml"), "w").write(
+        TP_XML.replace(">1000000</sample-time>", ">1001000000</sample-time>").replace(">2000000</sample-time>", ">1002000000</sample-time>"))
+    return build(out)
+
+
 def check_parsers_and_merge():
     """The hand-written export shapes (not a real xctrace export): refs, thread fmt, leaf-first frames, the
     flame slices, lanes, roles, wait classes, and a whole build from raw files."""
@@ -2325,25 +2565,7 @@ def check_parsers_and_merge():
         assert wait_class(["__psynch_mutexwait", "DaemonClient.send"]) == "lock"
         assert wait_class(["read", "DaemonClient.request"]) == "daemon"
         assert wait_class(["mach_msg2_trap", "CA::Transaction::commit()"]) == "windowserver"
-        open(os.path.join(out, "signposts.ndjson"), "w").write(signposts_lib.SAMPLE.replace('"processID":1', '"processID":42'))
-        write_json(os.path.join(out, "meta.json"), {"app_pid": 42, "window_start_us": 900000.0, "window_end_us": 9e6,
-                                                     "scenario": "self-test"})
-        write_json(os.path.join(out, "hangs.json"), {"records": [
-            {"sequence": 1, "kind": "stall", "start_uptime_ns": 1_000_000_000, "duration_ms": 40, "cpu_ms": 2,
-             "frames": ["libsystem_kernel.dylib __psynch_mutexwait + 8", "CmuxNextApp Foo.bar() + 10"]}]})
-        open(os.path.join(out, "daemon-spans-stamped.jsonl"), "w").write(json.dumps(
-            {"at_us": 5000.0, "line": json.dumps({"label": "new-tab", "total_us": 3000, "marks": [["a", 1000], ["b", 2500]]})}) + "\n")
-        write_json(os.path.join(out, "chromium-trace.json"), {"traceEvents": [
-            {"ph": "M", "pid": 42, "tid": 259, "name": "thread_name", "args": {"name": "CrBrowserMain"}},
-            {"ph": "c", "pid": 42, "tid": 259, "name": "clock_sync", "ts": 500.0, "args": {"sync_id": "s"}},
-            {"ph": "X", "pid": 42, "tid": 259, "name": "ThreadControllerImpl::RunTask", "ts": 1001000.0, "dur": 5000.0,
-             "args": {"src_func": "OnFrame"}}]})
-        write_json(os.path.join(out, "chromium-clock.json"), {"sync_id": "s", "before_us": 499.0, "after_us": 501.0})
-        write_json(os.path.join(out, "driver.json"), [{"kind": "key", "name": "key a", "start_us": 1000.0, "end_us": 1500.0}])
-        # Two main-thread samples inside the stall (at 1.001 s and 1.002 s on the trace clock).
-        open(os.path.join(out, "xctrace-time-profile.xml"), "w").write(
-            TP_XML.replace(">1000000</sample-time>", ">1001000000</sample-time>").replace(">2000000</sample-time>", ">1002000000</sample-time>"))
-        summary = build(out)
+        summary = build_fixture(out)
         with gzip.open(os.path.join(out, "trace.json.gz"), "rt") as f:
             trace = json.load(f)
         names = [e.get("name") for e in trace["traceEvents"]]
@@ -2571,13 +2793,29 @@ def check_wrapped_group_ends():
     with tempfile.TemporaryDirectory() as scratch:
         ready = os.path.join(scratch, "ready")
         os.mkfifo(ready)
-        stubborn = WrappedCommand(["/bin/sh", "-c", 'trap "" TERM; sleep 30 & echo ready > "$0"; wait', ready], grace=0.5)
+        stubborn = WrappedCommand(["/bin/sh", "-c", 'trap "" TERM; sleep 30 & echo ready > "$0"; wait', ready], grace=0.5,
+                                  orphan_grace=0.5)
         stubborn.start()
         with open(ready) as fifo:  # the shell ignores TERM and has started its child once it writes here
             fifo.read()
         record = stubborn.stop()
     assert stubborn.members() == [] and record["killed"], (stubborn.members(), record)
     assert stubborn.stop() is None, "a second stop of an ended group does nothing"
+    # Review 2: the command gets SIGTERM first and ends its own teardown (a wrapper's BenchApp.stop quits its app
+    # with debug.quit) before the rest of its group (that app) gets SIGTERM.
+    with tempfile.TemporaryDirectory() as scratch:
+        ready, order = os.path.join(scratch, "ready"), os.path.join(scratch, "order")
+        os.mkfifo(ready)
+        child = 'trap "echo app-term >> $1; exit 0" TERM; sleep 30 & echo ready > "$0"; wait'
+        leader = ('trap "sleep 0.5; echo wrapper-teardown-done >> $1; exit 0" TERM; '
+                  '/bin/sh -c \'%s\' "$0" "$1" & wait' % child)
+        polite = WrappedCommand(["/bin/sh", "-c", leader, ready, order], grace=5, orphan_grace=5)
+        polite.start()
+        with open(ready) as fifo:  # the app stand-in has its TERM trap
+            fifo.read()
+        polite.stop()
+        assert open(order).read().split() == ["wrapper-teardown-done", "app-term"], open(order).read()
+        assert polite.members() == [], polite.members()
     with tempfile.TemporaryDirectory() as out:
         rec = quiet_recording(out)
         rec.meta.update(timed_out=[], errors=[], command_exit=2)
@@ -2632,6 +2870,18 @@ def check_export_part_files():
         summary = build(out)
         assert "time-profile" in summary["sources"]["unreadable_tables"], summary["sources"]
         assert "xctrace table time-profile skipped" in summary_text(summary)
+        os.unlink(os.path.join(out, "xctrace-time-profile.xml"))
+        # Review 2: the run keeps recording.trace (the only source of the missing table) after a failed table
+        # export, so `trace.py export DIR` can export it again; the summary names the missing table.
+        open(os.path.join(tools, "mode"), "w").write("fail")
+        assert missing_tables(out) == ["time-profile"], missing_tables(out)
+        rec = quiet_recording(out, recorder="xctrace")
+        rec.xctrace_tool = (sys.executable, "-I", fake)
+        rec.meta.update(stages=[], timed_out=[], errors=[])
+        summary = rec.finish()
+        assert os.path.isdir(os.path.join(out, "recording.trace")), "recording.trace was removed after a failed export"
+        assert any("recording.trace is kept" in w for w in rec.meta["warnings"]), rec.meta["warnings"]
+        assert "xctrace tables not exported: time-profile" in open(os.path.join(out, "SUMMARY.txt")).read()
 
 
 def check_xctrace_clock():
@@ -2663,6 +2913,19 @@ def check_xctrace_clock():
         stats = {}
         assert xctrace_signposts(path, stats) == [(7000, "action.perform", "Begin", None)], stats
         assert stats["rows"] == 2 and stats["cmux_rows"] == 1 and "subsystem" in stats["columns"], stats
+        # Review 2: cells keyed by the schema's mnemonics in column order, not by their tag (the engineering
+        # type): two `string` columns stay apart, and a `<sentinel/>` (an empty cell) keeps the order.
+        open(path, "w").write(
+            '<?xml version="1.0"?><trace-query-result><node><schema name="os-signpost">'
+            '<col><mnemonic>time</mnemonic><engineering-type>event-time</engineering-type></col>'
+            '<col><mnemonic>event-type</mnemonic><engineering-type>string</engineering-type></col>'
+            '<col><mnemonic>identifier</mnemonic><engineering-type>uint64</engineering-type></col>'
+            '<col><mnemonic>subsystem</mnemonic><engineering-type>string</engineering-type></col>'
+            '<col><mnemonic>name</mnemonic><engineering-type>string</engineering-type></col></schema>'
+            '<row><event-time id="1">9000</event-time><string id="2">Begin</string><sentinel/>'
+            f'<string id="3">{SUBSYSTEM}</string><string id="4">action.commit</string></row>'
+            '</node></trace-query-result>')
+        assert xctrace_signposts(path) == [(9000, "action.commit", "Begin", None)], list(xctrace_rows(path))
 
 
 def check_cef_validity():
@@ -2681,10 +2944,158 @@ def check_cef_validity():
     assert "chromium valid: False (WebKit fallbacks" in summary_text({"cef": cef_validity(fallback)})
 
 
+def check_bound_inside_a_swallowing_wait():
+    """Review 2: the build stages spend their time in perf-stress-session.py's `wait()`, whose predicate runs
+    under `except Exception`. The bound must still end the stage at its bound there (StageTimeout is a
+    BaseException), not after the sum of the inner timeouts."""
+    meta = {}
+    stages = Stages(meta, heartbeat_s=60, log=lambda line: None)
+    started = time.monotonic()
+    with stages.run("stress-build", bound=0.3):
+        stress_lib.wait(lambda: time.sleep(5), 30)
+    assert time.monotonic() - started < 2, f"the stage ran {time.monotonic() - started:.1f} s past its 0.3 s bound"
+    assert meta["timed_out"] == ["stress-build"], meta
+
+
+def check_signal_after_the_stop():
+    """Review 2: a SIGTERM during the export or the build (after the recorders and the app stopped) ends the run
+    then, with exit 128 + N, instead of waiting for the export and build and exiting 0 or 3."""
+    with tempfile.TemporaryDirectory() as out:
+        rec = quiet_recording(out, recorder="xctrace")
+        rec.setup_and_window = lambda: None
+        exported = []
+
+        def finish():
+            os.kill(os.getpid(), signal.SIGTERM)  # a fleet cancel while the export runs
+            exported.append("went on past the signal")
+            return None
+        rec.finish = finish
+        previous = {number: signal.getsignal(number) for number in (signal.SIGTERM, signal.SIGHUP)}
+        try:
+            code = rec.record()
+        finally:
+            for number, handler in previous.items():
+                signal.signal(number, handler)
+        assert code == 128 + signal.SIGTERM and not exported, (code, exported)
+        assert read_json(os.path.join(out, "summary.json"))["exit_code"] == 128 + signal.SIGTERM
+        rec.meta["errors"] = [{"stage": "x", "error": "y"}]
+        assert rec.exit_code() == 128 + signal.SIGTERM, "a signal's exit code wins over 3"
+
+
+FAKE_XCTRACE_RECORD = r"""
+import os, signal, sys, time
+log, saving = sys.argv[1], sys.argv[3]
+count = []
+
+def on_int(_signum, _frame):
+    count.append(1)
+    open(log, "a").write("SIGINT\n")
+    if len(count) > 1:
+        open(log, "a").write("ABORTED THE SAVE\n")
+        sys.exit(2)
+signal.signal(signal.SIGINT, on_int)
+print("Starting recording", flush=True)
+while not count:
+    signal.pause()
+with open(saving, "w") as fifo:  # tells the test the first SIGINT was handled and the save began
+    fifo.write("saving")
+time.sleep(1.0)  # processes and saves the recording; a second Ctrl-C here aborts it
+os.makedirs(sys.argv[2], exist_ok=True)
+open(log, "a").write("saved\n")
+"""
+
+
+def check_xctrace_gets_one_sigint():
+    """Review 2: the stop path ends the recording at the window's end and waits for the save minutes later; the
+    stand-in xctrace aborts its save on a second SIGINT, as Ctrl-C twice may, so it must get exactly one."""
+    with tempfile.TemporaryDirectory() as tools, tempfile.TemporaryDirectory() as out:
+        fake = os.path.join(tools, "fake_xctrace_record.py")
+        open(fake, "w").write(FAKE_XCTRACE_RECORD)
+        log, saving = os.path.join(tools, "log"), os.path.join(tools, "saving")
+        os.mkfifo(saving)
+        xc = XcTrace(out)
+        xc.command = lambda: [sys.executable, "-I", fake, log, xc.path, saving]
+        xc.start(timeout=10)
+        xc.interrupt()  # the xctrace-end stage
+        with open(saving) as fifo:  # the stand-in handled that SIGINT and is inside its save
+            fifo.read()
+        assert xc.stop(timeout=10), open(log).read()
+        assert open(log).read().split() == ["SIGINT", "saved"], open(log).read()
+
+
+def check_synthetic_tids_fit_uint32():
+    """Review 2: Perfetto's JSON importer reads pid and tid as uint32; a synthetic track id over it falls back
+    onto the process track, where slices of different tracks overlap and are dropped. Every pid and tid in a
+    built trace fits in 31 bits, and no synthetic track takes an id an OS thread uses."""
+    tracks = SyntheticTracks({SYNTHETIC_TID_BASE, SYNTHETIC_TID_BASE + 1})
+    assert tracks.tid(1, "a") == SYNTHETIC_TID_BASE + 2 and tracks.tid(1, "a") == SYNTHETIC_TID_BASE + 2
+    assert tracks.tid(1, "b") == SYNTHETIC_TID_BASE + 3 and tracks.tid(2, "a") == SYNTHETIC_TID_BASE + 4
+    with tempfile.TemporaryDirectory() as out:
+        build_fixture(out)
+        with gzip.open(os.path.join(out, "trace.json.gz"), "rt") as f:
+            trace = json.load(f)
+        ids = [(e.get("name"), key, e[key]) for e in trace["traceEvents"] for key in ("pid", "tid") if key in e]
+        over = [x for x in ids if not (isinstance(x[2], int) and 0 <= x[2] < 1 << 31)]
+        assert not over, over[:6]
+        synthetic = {e["tid"] for e in trace["traceEvents"] if e.get("cat") in ("watchdog", "daemon.spans", "driver")
+                     or str(e.get("cat", "")).startswith("signpost.")}
+        assert synthetic and not synthetic & {26, 259}, synthetic
+
+
+def check_cli_named_cmux_is_not_the_app():
+    """Review 2: the bundled CLI's process is named `cmux`; a storm's CLI processes are in no ps snapshot. In
+    wrap mode (no app pid in meta) a CLI process sampled before the app must not become the app: the app is
+    the process that emitted the action signposts, and the CLI's CPU counts as `cli`."""
+    assert role_from_name("cmux") == "cli" and role_from_name("cmux DEV trc") == "app"
+    with tempfile.TemporaryDirectory() as out:
+        cli = TP_XML.replace("Main Thread  0x1a (cmux DEV, pid: 42)", "Main Thread  0x2b (cmux, pid: 7)") \
+            .replace('fmt="cmux DEV (42)"><pid id="5" fmt="42">42</pid>', 'fmt="cmux (7)"><pid id="5" fmt="7">7</pid>') \
+            .replace('fmt="0x1a">26</tid>', 'fmt="0x2b">43</tid>')
+        app = TP_XML.replace('id="', 'id="a')
+        app = app.replace('ref="', 'ref="a')
+        rows = lambda xml: xml.split('<schema name="time-profile"/>', 1)[1].rsplit("</node>", 1)[0]
+        open(os.path.join(out, "xctrace-time-profile.xml"), "w").write(
+            '<?xml version="1.0"?><trace-query-result><node xpath="x"><schema name="time-profile"/>'
+            + rows(cli) + rows(app) + "</node></trace-query-result>")
+        open(os.path.join(out, "signposts.ndjson"), "w").write(signposts_lib.SAMPLE.replace('"processID":1', '"processID":42'))
+        write_json(os.path.join(out, "meta.json"), {"scenario": "wrap", "window_start_us": 0.0, "window_end_us": 9e6})
+        summary = build(out)
+        assert summary["sources"]["app_pid"] == 42 and summary["sources"]["app_pid_from"] == "action signposts", summary["sources"]
+        assert summary["cpu_s_by_role"].get("cli") and summary["actions"].get("tab.new"), summary
+
+
+def check_refuses_a_running_bundle():
+    """Review 2: the stop path ends the bundle's processes and cannot tell this run's from older ones, so a run
+    whose bundle already has a process (another job's app or daemons, a person's app) refuses to start and
+    signals nothing."""
+    with tempfile.TemporaryDirectory() as scratch, tempfile.TemporaryDirectory() as out:
+        bundle = os.path.realpath(os.path.join(scratch, "cmux DEV other.app"))
+        os.makedirs(os.path.join(bundle, "Contents/Resources/bin"))
+        other = subprocess.Popen([os.path.join(bundle, "Contents/Resources/bin/cmux-tui"), "30"], executable="/bin/sleep")
+        try:
+            meta = {"host": "self-test", "scenario": "self-test", "sources": {}, "warnings": []}
+            rec = Recording(fake_opts(command=["/usr/bin/true"]), out, meta, Stages(meta, 60, lambda line: None),
+                            bundle, "sample")
+            previous = {number: signal.getsignal(number) for number in (signal.SIGTERM, signal.SIGHUP)}
+            try:
+                code = rec.record()
+            finally:
+                for number, handler in previous.items():
+                    signal.signal(number, handler)
+            assert code == 3 and "bundle-in-use" in meta["errors"][0]["error"], meta["errors"]
+            assert rec.wrapped is None and other.poll() is None, "a process this run did not start was signalled"
+            assert other.pid in rec.processes["before"], rec.processes
+        finally:
+            other.kill()
+            other.wait()
+
+
 SELF_TESTS = [check_parsers_and_merge, check_stage_bounds, check_stage_errors, check_hold_defers_the_bound,
               check_stop_survives_a_failing_source, check_record_ends_cleanly, check_xctrace_held_before_start,
               check_wrapped_group_ends,
-              check_export_part_files, check_xctrace_clock, check_cef_validity]
+              check_export_part_files, check_xctrace_clock, check_cef_validity, check_bound_inside_a_swallowing_wait,
+              check_signal_after_the_stop, check_xctrace_gets_one_sigint, check_synthetic_tids_fit_uint32,
+              check_cli_named_cmux_is_not_the_app, check_refuses_a_running_bundle]
 
 
 def self_test():
@@ -2697,7 +3108,7 @@ def self_test():
             with contextlib.redirect_stdout(captured):
                 check()
             print(f"ok   {check.__name__}")
-        except Exception as error:  # reported per check; the self-test exits 1
+        except (Exception, StageTimeout) as error:  # reported per check; the self-test exits 1
             failed.append(check.__name__)
             print(f"FAIL {check.__name__}: {type(error).__name__}: {str(error)[:600]}")
     print("self-test ok" if not failed else f"self-test FAILED: {', '.join(failed)}")
