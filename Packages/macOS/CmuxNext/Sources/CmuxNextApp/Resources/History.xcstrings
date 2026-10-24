@@ -5373,132 +5373,445 @@
       }
     },
     "history.commands.deleteBody": {
+      "comment": "Confirmation body after terminal command recording is turned off (%lld: the retention setting in days, 1 to 3650). Each plural form agrees with the count; languages whose short form does not inflect (ru/uk: дн.) repeat one sentence.",
       "extractionState": "manual",
       "localizations": {
         "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Recording is off. Each connected machine keeps the commands it already recorded until they are %lld days old."
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Recording is off. Each connected machine keeps the commands it already recorded until they are %lld day old."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Recording is off. Each connected machine keeps the commands it already recorded until they are %lld days old."
+                }
+              }
+            }
           }
         },
         "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "التسجيل متوقف. يحتفظ كل جهاز متصل بالأوامر التي سجّلها بالفعل حتى يصبح عمرها %lld يومًا."
+          "variations": {
+            "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "التسجيل متوقف. يحتفظ كل جهاز متصل بالأوامر التي سجّلها بالفعل حتى يصبح عمرها %lld يوم."
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "التسجيل متوقف. يحتفظ كل جهاز متصل بالأوامر التي سجّلها بالفعل حتى يصبح عمرها %lld يوم."
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "التسجيل متوقف. يحتفظ كل جهاز متصل بالأوامر التي سجّلها بالفعل حتى يصبح عمرها %lld يومين."
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "التسجيل متوقف. يحتفظ كل جهاز متصل بالأوامر التي سجّلها بالفعل حتى يصبح عمرها %lld أيام."
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "التسجيل متوقف. يحتفظ كل جهاز متصل بالأوامر التي سجّلها بالفعل حتى يصبح عمرها %lld يومًا."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "التسجيل متوقف. يحتفظ كل جهاز متصل بالأوامر التي سجّلها بالفعل حتى يصبح عمرها %lld يوم."
+                }
+              }
+            }
           }
         },
         "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Snimanje je isključeno. Svaka povezana mašina čuva već snimljene komande dok ne postanu stare %lld dana."
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Snimanje je isključeno. Svaka povezana mašina čuva već snimljene komande dok ne postanu stare %lld dan."
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Snimanje je isključeno. Svaka povezana mašina čuva već snimljene komande dok ne postanu stare %lld dana."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Snimanje je isključeno. Svaka povezana mašina čuva već snimljene komande dok ne postanu stare %lld dana."
+                }
+              }
+            }
           }
         },
         "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Registrering er slået fra. Hver tilsluttet maskine beholder de kommandoer, den allerede har registreret, indtil de er %lld dage gamle."
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Registrering er slået fra. Hver tilsluttet maskine beholder de kommandoer, den allerede har registreret, indtil de er %lld dag gamle."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Registrering er slået fra. Hver tilsluttet maskine beholder de kommandoer, den allerede har registreret, indtil de er %lld dage gamle."
+                }
+              }
+            }
           }
         },
         "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Die Aufzeichnung ist aus. Jeder verbundene Rechner behält bereits aufgezeichnete Befehle, bis sie %lld Tage alt sind."
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Die Aufzeichnung ist aus. Jeder verbundene Rechner behält bereits aufgezeichnete Befehle, bis sie %lld Tag alt sind."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Die Aufzeichnung ist aus. Jeder verbundene Rechner behält bereits aufgezeichnete Befehle, bis sie %lld Tage alt sind."
+                }
+              }
+            }
           }
         },
         "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "La grabación está desactivada. Cada máquina conectada conserva los comandos ya registrados hasta que tengan %lld días."
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "La grabación está desactivada. Cada máquina conectada conserva los comandos ya registrados hasta que tengan %lld día."
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "La grabación está desactivada. Cada máquina conectada conserva los comandos ya registrados hasta que tengan %lld días."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "La grabación está desactivada. Cada máquina conectada conserva los comandos ya registrados hasta que tengan %lld días."
+                }
+              }
+            }
           }
         },
         "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "L’enregistrement est désactivé. Chaque machine connectée conserve les commandes déjà enregistrées jusqu’à ce qu’elles aient %lld jours."
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "L’enregistrement est désactivé. Chaque machine connectée conserve les commandes déjà enregistrées jusqu’à ce qu’elles aient %lld jour."
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "L’enregistrement est désactivé. Chaque machine connectée conserve les commandes déjà enregistrées jusqu’à ce qu’elles aient %lld jours."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "L’enregistrement est désactivé. Chaque machine connectée conserve les commandes déjà enregistrées jusqu’à ce qu’elles aient %lld jours."
+                }
+              }
+            }
           }
         },
         "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "La registrazione è disattivata. Ogni macchina connessa conserva i comandi già registrati finché non hanno %lld giorni."
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "La registrazione è disattivata. Ogni macchina connessa conserva i comandi già registrati finché non hanno %lld giorno."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "La registrazione è disattivata. Ogni macchina connessa conserva i comandi già registrati finché non hanno %lld giorni."
+                }
+              }
+            }
           }
         },
         "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "記録はオフです。接続中の各マシンは、記録済みのコマンドを %lld 日経過するまで保持します。"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "記録はオフです。接続中の各マシンは、記録済みのコマンドを %lld 日経過するまで保持します。"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "記録はオフです。接続中の各マシンは、記録済みのコマンドを %lld 日経過するまで保持します。"
+                }
+              }
+            }
           }
         },
         "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការកត់ត្រាត្រូវបានបិទ។ ម៉ាស៊ីនដែលបានភ្ជាប់នីមួយៗរក្សាពាក្យបញ្ជាដែលបានកត់ត្រារួច រហូតដល់ពួកវាមានអាយុ %lld ថ្ងៃ។"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "ការកត់ត្រាត្រូវបានបិទ។ ម៉ាស៊ីនដែលបានភ្ជាប់នីមួយៗរក្សាពាក្យបញ្ជាដែលបានកត់ត្រារួច រហូតដល់ពួកវាមានអាយុ %lld ថ្ងៃ។"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "ការកត់ត្រាត្រូវបានបិទ។ ម៉ាស៊ីនដែលបានភ្ជាប់នីមួយៗរក្សាពាក្យបញ្ជាដែលបានកត់ត្រារួច រហូតដល់ពួកវាមានអាយុ %lld ថ្ងៃ។"
+                }
+              }
+            }
           }
         },
         "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "기록이 꺼져 있습니다. 연결된 각 머신은 이미 기록한 명령을 %lld일이 지날 때까지 보관합니다."
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "기록이 꺼져 있습니다. 연결된 각 머신은 이미 기록한 명령을 %lld일이 지날 때까지 보관합니다."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "기록이 꺼져 있습니다. 연결된 각 머신은 이미 기록한 명령을 %lld일이 지날 때까지 보관합니다."
+                }
+              }
+            }
           }
         },
         "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Registrering er av. Hver tilkoblet maskin beholder kommandoene den allerede har registrert til de er %lld dager gamle."
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Registrering er av. Hver tilkoblet maskin beholder kommandoene den allerede har registrert til de er %lld dag gamle."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Registrering er av. Hver tilkoblet maskin beholder kommandoene den allerede har registrert til de er %lld dager gamle."
+                }
+              }
+            }
           }
         },
         "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zapisywanie jest wyłączone. Każda połączona maszyna przechowuje już zapisane polecenia, dopóki nie będą miały %lld dni."
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Zapisywanie jest wyłączone. Każda połączona maszyna przechowuje już zapisane polecenia, dopóki nie będą miały %lld dzień."
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Zapisywanie jest wyłączone. Każda połączona maszyna przechowuje już zapisane polecenia, dopóki nie będą miały %lld dni."
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Zapisywanie jest wyłączone. Każda połączona maszyna przechowuje już zapisane polecenia, dopóki nie będą miały %lld dni."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Zapisywanie jest wyłączone. Każda połączona maszyna przechowuje już zapisane polecenia, dopóki nie będą miały %lld dni."
+                }
+              }
+            }
           }
         },
         "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "A gravação está desativada. Cada máquina conectada mantém os comandos já registrados até que tenham %lld dias."
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "A gravação está desativada. Cada máquina conectada mantém os comandos já registrados até que tenham %lld dia."
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "A gravação está desativada. Cada máquina conectada mantém os comandos já registrados até que tenham %lld dias."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "A gravação está desativada. Cada máquina conectada mantém os comandos já registrados até que tenham %lld dias."
+                }
+              }
+            }
           }
         },
         "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Запись выключена. Каждая подключённая машина хранит уже записанные команды, пока им не исполнится %lld дн."
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Запись выключена. Каждая подключённая машина хранит уже записанные команды, пока им не исполнится %lld дн."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Запись выключена. Каждая подключённая машина хранит уже записанные команды, пока им не исполнится %lld дн."
+                }
+              }
+            }
           }
         },
         "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ปิดการบันทึกแล้ว แต่ละเครื่องที่เชื่อมต่อจะเก็บคำสั่งที่บันทึกไว้แล้วจนกว่าจะมีอายุ %lld วัน"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "ปิดการบันทึกแล้ว แต่ละเครื่องที่เชื่อมต่อจะเก็บคำสั่งที่บันทึกไว้แล้วจนกว่าจะมีอายุ %lld วัน"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "ปิดการบันทึกแล้ว แต่ละเครื่องที่เชื่อมต่อจะเก็บคำสั่งที่บันทึกไว้แล้วจนกว่าจะมีอายุ %lld วัน"
+                }
+              }
+            }
           }
         },
         "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kayıt kapalı. Bağlı her makine, kaydettiği komutları %lld günlük olana kadar saklar."
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Kayıt kapalı. Bağlı her makine, kaydettiği komutları %lld günlük olana kadar saklar."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Kayıt kapalı. Bağlı her makine, kaydettiği komutları %lld günlük olana kadar saklar."
+                }
+              }
+            }
           }
         },
         "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Запис вимкнено. Кожна підключена машина зберігає вже записані команди, доки їм не виповниться %lld дн."
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Запис вимкнено. Кожна підключена машина зберігає вже записані команди, доки їм не виповниться %lld дн."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Запис вимкнено. Кожна підключена машина зберігає вже записані команди, доки їм не виповниться %lld дн."
+                }
+              }
+            }
           }
         },
         "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Đã tắt ghi. Mỗi máy đã kết nối giữ các lệnh đã ghi cho đến khi chúng được %lld ngày."
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Đã tắt ghi. Mỗi máy đã kết nối giữ các lệnh đã ghi cho đến khi chúng được %lld ngày."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Đã tắt ghi. Mỗi máy đã kết nối giữ các lệnh đã ghi cho đến khi chúng được %lld ngày."
+                }
+              }
+            }
           }
         },
         "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "记录已关闭。每台已连接的机器会保留已记录的命令，直到它们满 %lld 天。"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "记录已关闭。每台已连接的机器会保留已记录的命令，直到它们满 %lld 天。"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "记录已关闭。每台已连接的机器会保留已记录的命令，直到它们满 %lld 天。"
+                }
+              }
+            }
           }
         },
         "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "記錄已關閉。每台已連線的機器會保留已記錄的指令，直到它們滿 %lld 天。"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "記錄已關閉。每台已連線的機器會保留已記錄的指令，直到它們滿 %lld 天。"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "記錄已關閉。每台已連線的機器會保留已記錄的指令，直到它們滿 %lld 天。"
+                }
+              }
+            }
           }
         }
       }

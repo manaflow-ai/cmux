@@ -705,5 +705,17 @@
     "arguments": [
       1
     ]
+  },
+  "history.commands.deleteBody": {
+    "source": "Recording is off. Each connected machine keeps the commands it already recorded until they are %lld days old.",
+    "arguments": [
+      1
+    ]
+  },
+  "diff.page.revert.manyTitle": {
+    "source": "Revert changes to %lld files?",
+    "arguments": [
+      1
+    ]
   }
 }
