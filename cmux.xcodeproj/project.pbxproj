@@ -374,6 +374,7 @@
 				"$(CMUX_NEXT_TUI_MODE)",
 				"$(CMUX_TUI_TREE_KEY)",
 				"$(CMUX_TUI_CLIENT_CACHE)",
+				"$(HOME)/Library/Caches/cmux/cmux-tui-client",
 				"$(CONFIGURATION)",
 				"$(NATIVE_ARCH_ACTUAL)",
 			);
