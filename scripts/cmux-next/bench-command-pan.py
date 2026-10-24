@@ -18,8 +18,12 @@ Base leg (same build, same session): `layout.scrollModifier` set to `none` (sett
 plain gestures (the strip pan before this setting existed), then back to `command`. Its row is
 `"mode": "base"`; compare its p95 and missed frames with the `"mode": "command"` row.
 
-The pointer is over the terminal that newColumn made (the layout's own window path); a Chromium page
-variant follows once `debug.mouse` can scroll a page's own window.
+--target picks the pane under the pointer:
+  terminal  (default) the terminal that newColumn made: the layout's own window path.
+  chromium  a Chromium page opened in that pane (openBrowser.chromium on a local page); the events go to the
+            page's own child window (`debug.mouse` scroll with `target: "page"`), the route a real gesture
+            over a Chromium page takes (LayoutRootView's page-window routing, CEFSwipeNavigation). Before
+            any number, `debug.cef` must show no unavailable state and no WebKit fallback, or the run fails.
 
 --dry-run launches nothing: it parses the arguments and checks every call this script makes on BenchApp
 (bench_launch.py), on the STRESS builder and on its module (perf-stress-session.py) against their real
@@ -28,7 +32,7 @@ with `python3 -I -m py_compile`, before a fleet submit (a wrong keyword failed o
 app build).
 
 Usage: bench-command-pan.py --app APP --out DIR [--json PATH] [--sessions light,stress] [--rounds 6]
-       [--steps 40] [--dx 24] [--columns 3]
+       [--steps 40] [--dx 24] [--columns 3] [--target terminal|chromium]
        bench-command-pan.py --dry-run
 Fleet: scripts/measure/split-spring.sh --suite=command-pan --vdisplay=120 [--sessions=...] [--rounds=N]
 """
@@ -50,6 +54,7 @@ parser.add_argument("--steps", type=int, default=40)
 parser.add_argument("--dx", type=float, default=24)
 parser.add_argument("--columns", type=int, default=3, help="strip columns added to the measured workspace")
 parser.add_argument("--settle", type=float, default=1.0, help="seconds after the gesture for the spring to rest")
+parser.add_argument("--target", choices=("terminal", "chromium"), default="terminal", help="what the pointer is over")
 opts, _unknown = parser.parse_known_args()
 if not opts.dry_run and not (opts.app and opts.out):
     parser.error("--app and --out are required (or --dry-run)")
@@ -72,6 +77,7 @@ def pct(values, q):
 class Session:
     def __init__(self, app, stress_module):
         self.app = app
+        self.stress_module = stress_module
         self.stress = stress_module.Stress(lambda m, p=None, timeout=60: app.rpc(m, p, timeout))
 
     def workspace(self):
@@ -87,6 +93,15 @@ class Session:
             raise RuntimeError(f"newColumn made {len(after) - before} of {opts.columns} columns: {self.stress.refusals[-3:]}")
         return after
 
+    def chromium_page(self, pane):
+        """Opens a Chromium page in `pane` (selected) and checks debug.cef; raises when it is not Chromium."""
+        workspace = self.stress.focused_workspace()
+        self.stress.add_tab(workspace, pane, "chromium")
+        problems = self.stress_module.cef_problems(self.app.rpc("debug.cef"), self.stress_module.WEB_DEV_CONFIG)
+        if problems:
+            raise RuntimeError(f"the page is not Chromium: {problems}")
+        return problems
+
     def point(self, pane):
         """The window point (top-left points) of `pane`'s center now; the gestures keep it."""
         reply = self.app.rpc("debug.mouse", {"action": "hover", "pane": pane}) or {}
@@ -97,12 +112,13 @@ class Session:
     def gesture(self, point, dx, command):
         """One trackpad gesture at the window `point`; returns the `delivered_to` of each event."""
         modifiers = ["cmd"] if command else []
+        page = {"target": "page"} if opts.target == "chromium" else {}
         period = 1 / 120  # test harness: one event per 120 Hz frame, like a trackpad
         delivered = []
 
         def send(phase, delta, hover=True):
             reply = self.app.rpc("debug.mouse", {"action": "scroll", **point, "dx": delta, "dy": 0, "phase": phase,
-                                                  "modifiers": modifiers, "hover": hover}) or {}
+                                                  "modifiers": modifiers, "hover": hover, **page}) or {}
             delivered.append(reply.get("delivered_to") or reply.get("error") or "?")
 
         send("began", dx)
@@ -132,7 +148,7 @@ def leg(app, name, mode, session, point, report):
         print(f"  {name:<6} {mode:<7} #{index} dx {dx:+.0f}: layout took {taken}/{len(delivered)}, {run['frames']} frames, "
               f"p95 {run['p95_ms']} max {run['max_ms']} ms, missed {run['missed']} (refresh {run['refresh_ms']} ms)", flush=True)
     report["runs"].extend(runs)
-    row = {"session": name, "mode": mode, "target": "terminal", "rounds": len(runs),
+    row = {"session": name, "mode": mode, "target": opts.target, "rounds": len(runs),
            "refresh_ms": pct([r["refresh_ms"] for r in runs], 0.5),
            "missed_total": sum(r["missed"] or 0 for r in runs), "frames_total": sum(r["frames"] or 0 for r in runs),
            "p95_ms": pct([r["p95_ms"] for r in runs], 0.5), "max_ms": pct([r["max_ms"] for r in runs], 1.0),
@@ -157,6 +173,8 @@ def measure(app, name, session, panes, report):
     # Over the focused pane's center (the newest column, on screen), kept for the whole session; the pan moves
     # every column under it (STRESS: the 14-pane grid too).
     pane = (session.stress.topology().get("focus") or {}).get("pane") or panes[-1]["id"]
+    if opts.target == "chromium":
+        report.setdefault("cef_checked", []).append({"session": name, "pane": pane, "problems": session.chromium_page(pane)})
     point = session.point(pane)
     control = session.gesture(point, opts.dx, command=False)
     time.sleep(opts.settle)  # bench harness: a control that wrongly panned rests before the next gesture
