@@ -196,7 +196,10 @@ Now (`HibernationPlanner.plan`):
 - Never: shown pages; playing, muted-playing or Picture in Picture media;
   Web Audio; camera, microphone or screen capture; open DevTools; the
   person's form input or a POST result, also in a child frame cmux cannot
-  read; a `beforeunload` that asks; a connected WebRTC peer; an open device; a running download the tab started (`downloading`);
+  read; a `beforeunload` that asks; a connected WebRTC peer; an open device;
+  without memory pressure, a page whose site may show notifications
+  (`notifications`, WebKit tabs; Chrome's kNotificationsEnabled keeps such a
+  tab from proactive discards only); a running download the tab started (`downloading`);
   an agent's browser lease (`agent_lease`, also never frozen) or an agent
   call in the last 30 s; neighbors of a shown tab and hovered tabs; pinned
   tabs and Never Hibernate hosts unless the settings say otherwise.
