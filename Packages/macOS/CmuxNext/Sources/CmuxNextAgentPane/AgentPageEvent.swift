@@ -7,8 +7,9 @@ public import Foundation
 /// ``AgentPageProvider/hostEvents``. Each kind replaces a script the old host evaluated; the
 /// page's `hostEvents.ts` runs the same `cmuxAcpmuxBridge` function with `value`.
 public nonisolated struct AgentPageEvent: Equatable, Sendable {
-    /// `theme`, `shortcuts`, `preview`, `sessionStatus`, `editedFiles`, `customization`, `registry`, `dictation`, `revealTurn`,
-    /// `command`, `focusLocation` or `transport`.
+    /// `theme`, `shortcuts`, `preview`, `sessionStatus`, `editedFiles`, `customization`, `newTabPlaces`, `newTabWeather`,
+    /// `dictation`, `revealTurn`, `command`, `focusLocation` or `transport` (and the kinds the other files'
+    /// factories add: `deviceChats`, `tabRow`, ...).
     public let kind: String
     public let value: JSONValue
     let deliveryID: UInt64?
@@ -43,8 +44,9 @@ public nonisolated struct AgentPageEvent: Equatable, Sendable {
     public static func sessionStatus(_ on: Bool) -> AgentPageEvent { AgentPageEvent(kind: "sessionStatus", value: .bool(on)) }
 
     /// `{themeCSS, layout}`. A missing theme sends `""`, which clears the style a deleted `theme.css`
-    /// left; a bad layout sends `{}`. The user's `registry.js` is not an event: the view evaluates it
-    /// (``AgentPaneCustomization/registryScript``), since the page's CSP refuses a script the page
+    /// left; a bad layout sends `{}`. The user's `registry.js` is not an event: the view runs it as
+    /// the page's host state script (``AgentPaneCustomization/registryScript``,
+    /// `PageWebView.evaluateHostState(_:key:)`), since the page's CSP refuses a script the page
     /// makes itself.
     public static func customization(_ customization: AgentPaneCustomization) -> [AgentPageEvent] {
         var events: [AgentPageEvent] = []
@@ -56,6 +58,21 @@ public nonisolated struct AgentPageEvent: Equatable, Sendable {
             "themeCSS": .string(customization.themeCSS ?? ""), "layout": layout,
         ]))
         return events
+    }
+
+    /// The open tabs and workspaces a New Tab page's bar lists (``AgentPaneView/refreshNewTabPlaces(tabs:workspaces:)``),
+    /// as the whole ``AgentPaneOmnibar``: state, so a frozen page gets only the newest at its thaw. Nil when it
+    /// does not encode.
+    public static func newTabPlaces(_ omnibar: AgentPaneOmnibar) -> AgentPageEvent? {
+        guard let data = try? JSONEncoder().encode(omnibar), let value = try? JSONValue.parse(data) else { return nil }
+        return AgentPageEvent(kind: "newTabPlaces", value: value)
+    }
+
+    /// The New Tab weather widget's reading (``AgentPaneView/refreshNewTabWeather(_:)``), or `null` when the
+    /// widget turned off: state, so a frozen page gets only the newest at its thaw.
+    public static func newTabWeather(_ weather: AgentPaneNewTabWeather?) -> AgentPageEvent {
+        let value = weather.flatMap { try? JSONEncoder().encode($0) }.flatMap { try? JSONValue.parse($0) } ?? .null
+        return AgentPageEvent(kind: "newTabWeather", value: value)
     }
 
     /// A dictation update for the composer.

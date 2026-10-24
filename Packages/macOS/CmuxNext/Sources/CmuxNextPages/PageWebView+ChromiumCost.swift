@@ -18,8 +18,9 @@ public import WebKit
 //   was asked); once it said it booted, no page message is being handled and it stayed unseen for
 //   the hibernation's grace, the policy freezes it (``PageFreezePolicy``, ``freezeWhileHidden()``).
 //   While it is frozen nothing goes into it and nothing thaws it but a need: its streams' events
-//   fold by their ``PageStreamFreezing`` (one event per key goes at the thaw), the theme, scale,
-//   attribute and glass scripts are sent again at the thaw, and only the person's input to it
+//   fold by their ``PageStreamFreezing`` (one event per key goes at the thaw), a host state script
+//   keeps its newest per key (``evaluateHostState(_:key:)``), the theme, scale, attribute and glass
+//   scripts are sent again at the thaw, and only the person's input to it
 //   (``PageStreamFreezing/input``), a host call or a script, a show or the owner thaws it.
 //
 // A view in an alpha-0 container that is not a ``ParkingContainer`` (the New Tab spare's parking, a
@@ -159,10 +160,11 @@ extension PageWebView {
     }
 
     /// Thaws a frozen page: Chromium first (so what follows runs) and its visibility again (a freeze
-    /// hid it), then the events its streams kept (one per key), then the document's state if a
-    /// script of it was skipped.
+    /// hid it), then the host state scripts it kept (one per key), then the events its streams kept
+    /// (one per key), then the document's state if a script of it was skipped.
     private func thaw(_ session: PageChromiumSession) {
         guard session.thaw(shown: isShownForChromium) else { return }
+        for script in session.takeHeldStateScripts() { scriptTarget.evaluate(script) }
         router.thaw()
         if session.stateStale {
             session.stateStale = false
@@ -176,6 +178,32 @@ extension PageWebView {
     func evaluateDocumentState(_ script: String) {
         if let chromiumSession, chromiumSession.frozen {
             chromiumSession.stateStale = true
+            return
+        }
+        scriptTarget.evaluate(script)
+    }
+
+    /// Runs a script that sets the document to the host's state of `key` (an agent page's user
+    /// `registry.js`, which the page's CSP keeps it from running itself), in whichever engine shows
+    /// the page.
+    ///
+    /// A push of the host's state, not work the page must do now (PATTERNS.md P10): it thaws
+    /// nothing and does not start an unseen page's grace again. While the page is frozen the newest
+    /// script of each key waits and runs at the thaw, before the events its streams kept, so the
+    /// page stands where running every script one by one would have left it. A script that must
+    /// reach the page now (the person's action) goes through ``evaluate(_:)``, which thaws it.
+    ///
+    /// ```swift
+    /// // The agent pane's registry.js, wrapped in its own function scope (AgentPaneCustomization).
+    /// page.evaluateHostState("(function () {\n\(registryJS)\n})();", key: "registry.js")
+    /// ```
+    ///
+    /// - Parameters:
+    ///   - script: The script; running the newest one of `key` must give the state all of them give.
+    ///   - key: What state the script sets: a later script of the same key replaces a held one.
+    public func evaluateHostState(_ script: String, key: String) {
+        if let chromiumSession, chromiumSession.frozen {
+            chromiumSession.holdStateScript(script, key: key)
             return
         }
         scriptTarget.evaluate(script)

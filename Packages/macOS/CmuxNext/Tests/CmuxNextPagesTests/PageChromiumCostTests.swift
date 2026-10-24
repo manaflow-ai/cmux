@@ -448,6 +448,37 @@ struct PageChromiumCostTests {
         view.close()
     }
 
+    /// A host state script (``PageWebView/evaluateHostState(_:key:)``, an agent page's registry.js)
+    /// is a push of the host's state: into an unseen awake page it runs without starting the grace
+    /// again, and a frozen page stays frozen and runs the newest script of each key once at the
+    /// thaw, in the order of their newest. ``PageWebView/evaluate(_:)`` (work the page must do now)
+    /// still thaws.
+    @Test func aHostStateScriptThawsNothingAndTheNewestOfEachKeyRunsAtTheThaw() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (view, page, pane, policy, _) = try await hiddenBootedPage()
+
+        let woke = policy.woke
+        view.evaluateHostState("window.__state = 'awake'", key: "state")
+        #expect(await waitForEvaluation(page, containing: "window.__state = 'awake'"))
+        #expect(policy.woke == woke, "a host state script restarted the unseen page's grace")
+
+        #expect(view.freezeWhileHidden())
+        view.evaluateHostState("window.__state = 'held-1'", key: "state")
+        view.evaluateHostState("window.__other = 'held'", key: "other")
+        view.evaluateHostState("window.__state = 'held-2'", key: "state")
+        #expect(page.freezes == [true], "a host state script thawed the frozen page")
+        #expect(policy.woke == woke)
+
+        pane.isHidden = false
+        #expect(await waitForEvaluation(page, containing: "window.__state = 'held-2'"))
+        #expect(evaluations(page, containing: "window.__state = 'held-1'") == 0)
+        #expect(evaluations(page, containing: "window.__other = 'held'") == 1)
+        let order = page.calls.compactMap { $0.params["expression"] as? String }
+            .filter { $0.contains("window.__other = 'held'") || $0.contains("window.__state = 'held-2'") }
+        #expect(order.count == 2 && order[0].contains("__other") && order[1].contains("held-2"))
+        view.close()
+    }
+
     /// A page busy with the host (a call of its own still running) does not freeze: its grace
     /// starts again when the reply went.
     @Test func aPageWithACallRunningDoesNotFreezeUntilTheReplyWent() async throws {
