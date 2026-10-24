@@ -170,6 +170,28 @@ let appFFI: Target = .binaryTarget(
     checksum: "4905984c126fd513b61d981613a392bdd95e459983522819e870111f59746e43"
 )
 
+// Debug-only product consumed by Prototypes/UiLayerHost. Keeping this leaf
+// separate from CmuxNextApp lets the host build real SwiftUI chrome without
+// pulling in the app composition root.
+let uiLayerPreviewProducts: [Product] = [
+    .library(name: "CmuxNextUiLayerPreview", targets: ["CmuxNextUiLayerPreview"]),
+]
+
+let uiLayerPreviewTargets: [Target] = [
+    .target(
+        name: "CmuxNextUiLayerPreview",
+        dependencies: ["CmuxNextDesign", "CmuxNextIcons"],
+        swiftSettings: uiSwiftSettings + [
+            .define("CMUX_UI_LAYER_PREVIEW", .when(configuration: .debug)),
+        ]
+    ),
+    .testTarget(
+        name: "CmuxNextUiLayerPreviewTests",
+        dependencies: ["CmuxNextUiLayerPreview"],
+        swiftSettings: uiSwiftSettings
+    ),
+]
+
 let package = Package(
     name: "CmuxNext",
     defaultLocalization: "en",
@@ -178,7 +200,7 @@ let package = Package(
     ],
     products: [
         .library(name: "CmuxNextApp", targets: ["CmuxNextApp"]),
-    ],
+    ] + uiLayerPreviewProducts,
     dependencies: [
         .package(path: "../../Shared/CmuxGhosttyKit"),
         .package(path: "../../Shared/CMUXAuthCore"),
@@ -217,7 +239,7 @@ let package = Package(
         // Test-only: the iOS app's cmux-tui client drives the daemon lane end to end.
         .package(path: "../../iOS/CmuxMobileSSH"),
     ],
-    targets: [
+    targets: uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextApp",
             dependencies: [
