@@ -54,7 +54,9 @@ final class ControlSocketPathWatch: Sendable {
         var backoff = Backoff(initial: .seconds(1), maximum: .seconds(60))
     }
 
-    init(path: String, queue: DispatchQueue, onMissing: @escaping @Sendable () -> Bool) {
+    /// `yieldsToHeldPath`: watch nothing while a foreign entry holds the path in a shared
+    /// directory (not yet honored).
+    init(path: String, queue: DispatchQueue, yieldsToHeldPath: Bool = false, onMissing: @escaping @Sendable () -> Bool) {
         self.path = path
         self.queue = queue
         self.onMissing = onMissing
