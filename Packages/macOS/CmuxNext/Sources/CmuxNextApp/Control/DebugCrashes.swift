@@ -59,7 +59,7 @@ enum DebugCrashes {
         return .object(object)
     }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.crash.app`: ends this process like a crash (DEBUG builds), to
     /// verify relaunch recovery. `signal`: "segv" (default), "abort", "trap",
     /// "frozen". "frozen" is a crash that blocks: it starts the crash path
@@ -96,7 +96,7 @@ enum DebugCrashes {
     #endif
 }
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// The target of `debug.crash.exception`'s run-loop perform.
 final class DebugExceptionRaiser: NSObject {
     static let shared = DebugExceptionRaiser()

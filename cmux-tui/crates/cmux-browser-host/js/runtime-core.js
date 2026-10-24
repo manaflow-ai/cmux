@@ -799,7 +799,12 @@
       this.closedTargets = new Set();
       this.defaultTimeout = DEFAULT_TIMEOUT;
       // Agent pointer motion settings (`browser.agentMouse.*`, human-mouse.js).
-      this.agentMouse = ns.humanMouse.config(host && host.agentMouse);
+      // Tabs nobody sees (headless Chromium) default to instant motion: the
+      // human path is for a person watching the cursor and cost every click
+      // 0.4-0.5 s. Settings and page.mouse.configure still choose.
+      const caps = driver && typeof driver.capabilities === "function" ? driver.capabilities() : [];
+      const unseen = Array.isArray(caps) && caps.includes("headless") ? { motion: "instant" } : {};
+      this.agentMouse = ns.humanMouse.config({ ...unseen, ...((host && host.agentMouse) || {}) });
       this.defaultNavigationTimeout = DEFAULT_TIMEOUT;
       this.errors = [];
       this._lazyCounter = 0;
@@ -2782,6 +2787,9 @@
       if (frame === this._mainFrame) {
         this._mainFrame._id = this._mainFrame._id || p.frameId;
         this._url = p.url;
+        // A new document starts its snapshots over: a diff against another
+        // document's tree says nothing and costs a whole-tree diff.
+        if (p.sameDocument !== true) this._snapshotBaselines = null;
       } else frame._url = p.url;
       this.emit("framenavigated", frame);
     }

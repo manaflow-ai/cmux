@@ -13,17 +13,15 @@ public extension NSApplication {
         let site = "\(fileID):\(line)"
         // Who asked, read now: inside the callout the stack is only the run loop's.
         let asker = Thread.callStackSymbols
-        RunLoop.main.perform(inModes: [.common]) {
-            MainActor.assumeIsolated { // main-proof: RunLoop.main runs its callouts on the main thread
-                guard NSApp.isRunning else {
-                    refusedTerminations.append(site)
-                    let stack = asker.joined(separator: "\n")
-                    FileHandle.standardError.write(Data("NSApp.terminate refused: the app is not running (a test process); asked at \(site) by\n\(stack)\n".utf8))
-                    return
-                }
-                before?()
-                NSApp.terminate(nil)
+        MainRunLoopBlock.perform {
+            guard NSApp.isRunning else {
+                refusedTerminations.append(site)
+                let stack = asker.joined(separator: "\n")
+                FileHandle.standardError.write(Data("NSApp.terminate refused: the app is not running (a test process); asked at \(site) by\n\(stack)\n".utf8))
+                return
             }
+            before?()
+            NSApp.terminate(nil)
         }
     }
 

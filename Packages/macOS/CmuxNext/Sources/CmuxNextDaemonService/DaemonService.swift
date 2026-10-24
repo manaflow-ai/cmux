@@ -438,7 +438,7 @@ public final class DaemonService {
         await failure(label, ticket: openTicket(label), body)
     }
 
-    private func failure(_ label: String, ticket: CommandTicket?,
+    func failure(_ label: String, ticket: CommandTicket?,
                          _ body: DaemonCommandBody) async -> ActionWorkFailure? {
         guard let connection else {
             logger.error("\(label, privacy: .public): not connected")

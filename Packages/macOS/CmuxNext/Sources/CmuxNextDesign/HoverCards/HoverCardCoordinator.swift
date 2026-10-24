@@ -42,6 +42,12 @@ public final class HoverCardCoordinator {
     /// The last pointer move was on the card.
     private var pointerWasOnCard = false
     private var observers: [MainActorObservation] = []
+    /// Bumped when a window may have moved, resized, closed, changed key, occlusion or Space: the cached
+    /// top window (``topWindowCache``) no longer holds.
+    var windowsEpoch: UInt64 = 0
+    /// The last window-server answer to "which window is on top here": valid for its point while
+    /// ``windowsEpoch`` has not moved, so relayouts under a still pointer ask once (a round trip each).
+    var topWindowCache: (point: CGPoint, epoch: UInt64, number: Int)?
     /// Machine events delivered (debug report).
     public private(set) var eventCount = 0
 
@@ -104,16 +110,28 @@ public final class HoverCardCoordinator {
             self?.hoverCardsSettingChanged()
         })
         observers.append(MainActorObservation(NSApplication.didResignActiveNotification, center: center) { [weak self] in
+            self?.windowsEpoch &+= 1
             if !WindowPlacement.noActivate { self?.dismiss(.appDeactivated) }
         })
         observers.append(MainActorObservation(NSWorkspace.activeSpaceDidChangeNotification, center: NSWorkspace.shared.notificationCenter) { [weak self] in
+            self?.windowsEpoch &+= 1
             self?.dismiss(.windowResignedKey)
         })
-        for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification, NSWindow.didEndLiveResizeNotification,
-                     NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification] {
-            let ended = name != NSWindow.didMoveNotification && name != NSWindow.didResizeNotification
+        // Window changes: each one ends the cached top window (``windowsEpoch``); a geometry change also
+        // hit-tests again. NSApplication.didBecomeActive's object is the app, not a window (number nil).
+        let geometry: Set<Notification.Name> = [NSWindow.didMoveNotification, NSWindow.didResizeNotification,
+                                                NSWindow.didEndLiveResizeNotification, NSWindow.didEnterFullScreenNotification,
+                                                NSWindow.didExitFullScreenNotification]
+        for name in geometry.sorted(by: { $0.rawValue < $1.rawValue }) + [
+            NSApplication.didBecomeActiveNotification, NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
+            NSWindow.willCloseNotification, NSWindow.didChangeOcclusionStateNotification, NSWindow.didMiniaturizeNotification,
+            NSWindow.didDeminiaturizeNotification, NSWindow.didChangeScreenNotification,
+        ] {
+            let moves = geometry.contains(name)
+            let ended = moves && name != NSWindow.didMoveNotification && name != NSWindow.didResizeNotification
             observers.append(MainActorObservation(name, center: center, read: { ($0.object as? NSWindow)?.windowNumber }) { [weak self] number in
-                self?.windowGeometryChanged(number, liveResizeEnded: ended)
+                self?.windowsEpoch &+= 1
+                if moves { self?.windowGeometryChanged(number, liveResizeEnded: ended) }
             })
         }
     }

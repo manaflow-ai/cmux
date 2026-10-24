@@ -114,6 +114,13 @@ public final class ActionRegistry {
 
     /// Sees every `refuse(_:quiet:)` reason and whether it is quiet (the App logs it; a loud one shows the HUD).
     @ObservationIgnored public var refusalObserver: (@MainActor (_ reason: String, _ quiet: Bool) -> Void)?
+    /// Sees the remote half of an ``ActionEffect`` fail after its local change was rolled back, with
+    /// the localized notice, for a run no caller waits on (a keyboard, menu or palette run): the App
+    /// shows it where it shows refusals. A capturing caller (the control socket) reports it itself.
+    @ObservationIgnored public var remoteFailureObserver: (@MainActor (_ action: ActionID, _ notice: String) -> Void)?
+    /// Runs of ``ActionEffect/waiting(_:_:)`` effects since launch, by action and reason: the
+    /// actions that still show nothing until a reply (`debug.action_budget`, the latency report).
+    @ObservationIgnored public internal(set) var waitingRuns: [ActionID: [ActionWait: Int]] = [:]
 
     /// Confirms destructive actions run from the keyboard, menu, or palette
     /// (`ActionRegistry+Confirmation`). Nil refuses them.
@@ -232,7 +239,9 @@ public final class ActionRegistry {
     /// are folded into their canonical ID.
     public func register(_ action: Action) {
         let id = canonicalID(for: action.id)
-        let stored = id == action.id ? action : action.withID(id)
+        var stored = id == action.id ? action : action.withID(id)
+        // Interned here, when bound, so a run's timing looks nothing up (ActionBudgetMonitor).
+        stored.timingIndex = runTiming.intern(id)
         if let index = indexByID[id] {
             actions[index] = stored
         } else {

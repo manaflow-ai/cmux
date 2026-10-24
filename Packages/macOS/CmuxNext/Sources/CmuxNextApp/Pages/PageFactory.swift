@@ -211,7 +211,11 @@ struct PageFactory {
                       PageRoute(prefix: ChannelsPageProvider.prefix, provider: ChannelsPageProvider(updater: services.updater)),
                       PageRoute(prefix: WebUpdatesPageProvider.prefix, provider: WebUpdatesPageProvider()),
                       // Chief > Voice input: the home.voiceInput tunable (DEV and NIGHTLY).
-                      PageRoute(prefix: ChiefVoiceInputPageRoute.prefix, provider: ChiefVoiceInputPageRoute())]
+                      PageRoute(prefix: ChiefVoiceInputPageRoute.prefix, provider: ChiefVoiceInputPageRoute()),
+                      // Settings > Server: Restart… (the toast's confirm) and Pair (the Server panel).
+                      PageRoute(prefix: ServerSettingsPageRoute.prefix, provider: ServerSettingsPageRoute(
+                          confirmRestart: { [weak services] in services?.serverUpdates.confirmRestart(kind: $0, host: $1) },
+                          pair: { [weak services] in services?.registry.perform("server.showPanel") }))]
             + (images.map { [PageRoute(prefix: BackdropImagesPageProvider.prefix, provider: $0)] } ?? [])
         // `appearance.surfaces.settings` colors the page, as it colored the Swift Settings view.
         let dynamicResources = SettingsBackdropThumbnails(choices: SettingsWindowService.backdrops.choices,

@@ -38,6 +38,7 @@ import { acpmuxPerf } from "../perf";
 import { StartedSessionChip, useStartedMentions, type StartedMentions } from "../started/StartedSessionCard";
 import { splitMentions } from "../started/startedSessions";
 import { entranceAllowed } from "../../shared/pageReveal";
+import { decorateTimes, splitTimeTokens, TimeHover } from "./timeHover";
 
 export type Align = "left" | "center" | "right" | null;
 
@@ -64,9 +65,43 @@ export const MAX_NESTING = 32;
 const FOOTNOTE_DEF = /^\[\^([\w-]+)\]:\s*(.*)$/;
 
 /** Parse the supported Markdown subset into blocks. */
-export function parseMarkdown(src: string): MdBlock[] {
+export function parseMarkdown(src: string, options: { messageAt?: number } = {}): MdBlock[] {
   const lines = normalizeMath(src.replace(/\r\n?/g, "\n").split("\n"));
-  return parseLines(lines);
+  const blocks = parseLines(lines);
+  return options.messageAt === undefined ? blocks : decorateBlocks(blocks, options.messageAt);
+}
+
+function decorateBlocks(blocks: MdBlock[], messageAt?: number): MdBlock[] {
+  return blocks.map((block) => {
+    switch (block.type) {
+      case "heading":
+      case "paragraph":
+        return { ...block, text: decorateTimes(block.text, messageAt) };
+      case "blockquote":
+        return { ...block, children: decorateBlocks(block.children, messageAt) };
+      case "list":
+        return {
+          ...block,
+          items: block.items.map((item) => ({
+            ...item,
+            text: decorateTimes(item.text, messageAt),
+            children: decorateBlocks(item.children, messageAt),
+          })),
+        };
+      case "table":
+        return {
+          ...block,
+          header: block.header.map((cell) => decorateTimes(cell, messageAt)),
+          rows: block.rows.map((row) => row.map((cell) => decorateTimes(cell, messageAt))),
+        };
+      case "footnote":
+        return { ...block, text: decorateTimes(block.text, messageAt) };
+      case "code":
+      case "math":
+      case "hr":
+        return block;
+    }
+  });
 }
 
 /// `depth`: how many quotes and lists hold these lines (MAX_NESTING).
@@ -469,25 +504,37 @@ function quietCommitReferences(text: string, issues: GithubReference[], reposito
 
 /// Plain prose: a started chat's name is its chip; the rest links GitHub references and URLs.
 function proseText(text: string, key: string, opts: InlineOptions): ReactNode[] {
-  const pieces = opts.started?.mentions.length ? splitMentions(text, opts.started.mentions) : [text];
-  return pieces.flatMap((piece, index): ReactNode[] =>
-    typeof piece === "string"
-      ? linkedGithubText(
-          piece,
-          `${key}-${index}`,
-          opts.githubRepository,
-          opts.linkGithubReferences !== false,
-          opts.commits === "quiet",
-        )
-      : [
-          <StartedSessionChip
-            key={`${key}-${index}`}
-            mention={piece.mention}
-            text={piece.text}
-            onOpen={opts.started!.open}
-          />,
-        ],
-  );
+  const out: ReactNode[] = [];
+  let index = 0;
+  for (const part of splitTimeTokens(text)) {
+    if (typeof part !== "string") {
+      out.push(<TimeHover key={`${key}-${index++}`} token={part} />);
+      continue;
+    }
+    const pieces = opts.started?.mentions.length ? splitMentions(part, opts.started.mentions) : [part];
+    out.push(
+      ...pieces.flatMap((piece): ReactNode[] => {
+        const current = `${key}-${index++}`;
+        return typeof piece === "string"
+          ? linkedGithubText(
+              piece,
+              current,
+              opts.githubRepository,
+              opts.linkGithubReferences !== false,
+              opts.commits === "quiet",
+            )
+          : [
+              <StartedSessionChip
+                key={current}
+                mention={piece.mention}
+                text={piece.text}
+                onOpen={opts.started!.open}
+              />,
+            ];
+      }),
+    );
+  }
+  return out;
 }
 
 // Groups: code, bold, strikethrough, italic, image or link, line break, `$$…$$` inside a
@@ -895,6 +942,8 @@ export type MarkdownProps = InlineOptions & {
   now?: number;
   /** Fences draw as plain lines, never a highlighted diff card (review comments inside a diff). */
   plainCode?: boolean;
+  /** Epoch timestamp of the message, used to date bare UTC clock times. */
+  messageAt?: number;
 };
 
 function noteRank(block: MdBlock, opts: InlineOptions): number {
@@ -913,10 +962,11 @@ export function Markdown({
   plainCode = false,
   commits,
   thumbnails,
+  messageAt,
 }: MarkdownProps) {
   const parser = useRef<IncrementalMarkdown | null>(null);
   parser.current ??= new IncrementalMarkdown();
-  const blocks = acpmuxPerf.timed("markdown.parse", () => parser.current!.update(children, { streaming }));
+  const blocks = acpmuxPerf.timed("markdown.parse", () => parser.current!.update(children, { streaming, messageAt }));
   // Blocks there at the first render (history, a row scrolled into view) never animate.
   const atMount = useRef<Set<string> | null>(null);
   atMount.current ??= new Set(blocks.map((entry) => entry.key));

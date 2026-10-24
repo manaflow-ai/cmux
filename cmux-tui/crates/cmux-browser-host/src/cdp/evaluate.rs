@@ -17,7 +17,8 @@ const FOCUSED_IN_FRAME: &str = "function () { let doc = document; for (let i = 0
     const el = doc.activeElement; if (!el || (el.tagName !== 'IFRAME' && el.tagName !== 'FRAME')) return doc.location.href; \
     let inner = null; try { inner = el.contentDocument; } catch (e) { inner = null; } if (!inner) return el; doc = inner; } return null; }";
 
-/// How long to wait for a world's context to be reported before creating it.
+/// How long to wait for the agent world's context (its new-document script
+/// creates it) to be reported before creating it.
 const CONTEXT_GRACE: Duration = Duration::from_millis(500);
 
 /// Prefix of the error the handle wrapper throws for a handle that no longer resolves.
@@ -92,10 +93,13 @@ impl Inner {
         deadline: Instant,
     ) -> Result<Context, DriverError> {
         let key = (frame_id.to_owned(), world);
-        // A fetch shell never reports the host world (nothing creates it
-        // but the host): look once, then create it, without the grace.
-        let shell_host = world == World::Host && self.lock().is_hidden(&session.target_id);
-        let grace = if shell_host { Instant::now() } else { Instant::now() + CONTEXT_GRACE };
+        // No document reports the host world by itself (no new-document
+        // script names it; only the host creates it): look once, then create
+        // it, without the grace. Waiting it out cost a fetch shell, and the
+        // focus probe before the first typed input on every new document,
+        // 500 ms each.
+        let host = world == World::Host;
+        let grace = if host { Instant::now() } else { Instant::now() + CONTEXT_GRACE };
         let grace = grace.min(deadline);
         let known = self.wait_for(&session.target_id, grace, "the frame's script context", |tab| {
             tab.contexts

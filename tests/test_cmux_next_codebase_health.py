@@ -7,7 +7,8 @@ report looked). These tests build a throwaway repository with markers inside and
 scope, and one on the last line of a multi-line signature (KeyBindingTable.step and ChordTracker.step have that
 shape; the hook's parser finds no declaration there), and check what the report prints, and that its "warns at
 push" claim is what guardrails.py really does for an edit of each marked function. They also check that a
-NotificationCenter observer behind the `MainActorObservation(` wrapper counts as an observer (sections 1 and 2),
+NotificationCenter observer behind the `MainActorObservation(` wrapper counts as an observer at each use of the
+wrapper, its own body does not (sections 1 and 2),
 and that the header cites a sha on feat-cmux-next, not a local commit a rebase rewrites. Not on CI (Lawrence
 2026-10-23: no new CI gates): run it yourself after a change to codebase-health.py or to guardrails.py's diff
 scope or declaration parser: python3 tests/test_cmux_next_codebase_health.py
@@ -53,6 +54,7 @@ ROUTER = "Packages/macOS/CmuxNext/Sources/CmuxNextKit/Router.swift"
 CHORD = "Packages/macOS/CmuxNext/Sources/CmuxNextKit/Chord.swift"
 PANE_HOST = "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Cmux/PaneHost.swift"
 OBSERVERS = "Packages/macOS/CmuxNext/Sources/CmuxNextKit/KeyWatcher.swift"
+WRAPPER_PATH = "Packages/macOS/CmuxNext/Sources/CmuxNextCompat/MainActorObservation.swift"
 
 
 def marked(kind: str, path_id: str, body: str) -> str:
@@ -77,6 +79,20 @@ final class KeyWatcher {
     func watch(_ window: NSWindow) {
         observers.append(MainActorObservation(NSWindow.didBecomeKeyNotification, object: window) { })
         observers.append(MainActorObservation(.paneMoved) { })
+    }
+}
+"""
+
+
+# CmuxNextCompat's wrapper: a use of it is an observer by what its init does; its own addObserver is not another one.
+WRAPPER = """import Foundation
+public final class MainActorObservation {
+    private let token: any NSObjectProtocol
+    public init(_ name: Notification.Name, object: AnyObject? = nil, center: NotificationCenter = .default,
+                _ handler: @escaping @MainActor () -> Void) {
+        token = center.addObserver(forName: name, object: object, queue: .main) { _ in
+            MainActor.assumeIsolated { handler() }
+        }
     }
 }
 """
@@ -139,6 +155,7 @@ class CodebaseHealthPerfHotTests(unittest.TestCase):
         self.write(PANE_HOST, marked("PaneHost", "home-key", "count += key"))
         self.write(CHORD, marked_multiline("Chord", "key-dispatch", "count += key"))
         self.write(OBSERVERS, WATCHER)
+        self.write(WRAPPER_PATH, WRAPPER)
         self.base = self.commit("base")
 
     def tearDown(self):
@@ -218,9 +235,8 @@ class CodebaseHealthPerfHotTests(unittest.TestCase):
         # the next line counts, and the number equals arch-ratchet.json's observer_sites at the same tree.
         self.write("Packages/macOS/CmuxNext/Sources/CmuxNextKit/MoveWatcher.swift", MULTILINE)
         self.commit("a multi-line observer")
-        shared = sum(1 for path in self.git("ls-files", "Packages/macOS/CmuxNext/Sources").split()
-                     for site in arch_counts.analyze(path, (self.repo / path).read_text()).sites
-                     if site.row == "observer_sites")
+        paths = self.git("ls-files", "Packages/macOS/CmuxNext/Sources").split()
+        shared = arch_counts.observer_registrations({path: (self.repo / path).read_text() for path in paths}).total()
         self.assertEqual(shared, 3)
         report = health.report(self.repo)
         row = next(line for line in report.splitlines() if line.startswith("| NotificationCenter observers"))
@@ -233,14 +249,15 @@ class CodebaseHealthPerfHotTests(unittest.TestCase):
         self.assertRegex(observed, r"2 sites\s+0 per-instance\s+paneMoved")
 
     def test_a_loop_over_names_is_one_observer_of_each_name_it_binds(self):
-        # SidebarListView's shape: one registration in a loop over two custom names is one observer site
-        # (section 1) that observes both names (section 2), not a name called `name`. A system name passed
-        # as `Type.member` keeps its own name even with a custom name on the line above.
+        # SidebarListView's shape: one registration in a loop over two custom names registers two observers
+        # (section 1: a literal loop whose binding the registration uses counts per element) and observes both
+        # names (section 2), not a name called `name`. A system name passed as `Type.member` keeps its own name
+        # even with a custom name on the line above.
         self.write("Packages/macOS/CmuxNext/Sources/CmuxNextKit/Settler.swift", LOOP)
         self.commit("a loop over two names")
         report = health.report(self.repo)
         row = next(line for line in report.splitlines() if line.startswith("| NotificationCenter observers"))
-        self.assertEqual([c.strip() for c in row.strip("|").split("|")][1], "4", row)
+        self.assertEqual([c.strip() for c in row.strip("|").split("|")][1], "5", row)
         self.assertIn("| `refused` | 1 | 1 | 0 |", report)
         self.assertIn("| `settled` | 1 | 1 | 0 |", report)
         observed = report.split("<details><summary>Observed names</summary>", 1)[1].split("</details>", 1)[0]
