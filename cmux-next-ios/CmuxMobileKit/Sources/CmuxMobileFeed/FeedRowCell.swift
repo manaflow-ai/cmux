@@ -688,6 +688,8 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
         guard offset == 0 else { return }
         // A link in the body: a web link opens in Safari; a file link opens the event, whose chat previews it.
         var url: URL?
+        // Only inside the shown body (its hidden overflow under Show more holds links too).
+        guard body.bounds.contains(tap.location(in: body)) else { return delegate?.rowOpen(id) ?? () }
         if !inlineText.isHidden { url = NativeMarkdownView.link(in: inlineText, at: tap.location(in: inlineText)) }
         if url == nil, made.contains("markdown"), !markdown.isHidden { url = markdown.link(at: tap.location(in: markdown)) }
         if let url, let scheme = url.scheme?.lowercased(), ["http", "https", "mailto", "tel", "sms", "facetime"].contains(scheme) {

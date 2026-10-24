@@ -19,7 +19,8 @@ final class FeedListLayout: UICollectionViewLayout {
     /// The rows' heights in `order`. `changed`: only these rows' heights may differ (a reconfigure),
     /// so only they are read and the frames below the first of them are summed again; nil: all.
     func setHeights(order: [String], heights: [String: CGFloat], changed: [String]?) {
-        if let changed, order.count == rowHeights.count, !index.isEmpty {
+        // Only when the frames are current for these rows (a full reset waits for prepare()).
+        if let changed, !dirty, tops.count == rowHeights.count, order.count == rowHeights.count, !index.isEmpty {
             var first = Int.max
             for id in changed {
                 guard let row = index[id], let height = heights[id], rowHeights[row] != height else { continue }
@@ -35,7 +36,7 @@ final class FeedListLayout: UICollectionViewLayout {
     }
 
     private func resum(from row: Int) {
-        guard row < tops.count else { dirty = true; return }
+        guard !dirty, tops.count == rowHeights.count, row < tops.count else { dirty = true; return }
         var y = tops[row]
         for i in row..<rowHeights.count {
             tops[i] = y
