@@ -10,6 +10,12 @@ import Foundation
 /// thread of the connection's own, blocked in `read` on a second descriptor,
 /// and arrive as ``frames``.
 ///
+/// The reader is a thread, not a `DispatchSource` read source: it holds only
+/// the ``ChromiumHostWireState`` (so a connection dropped without ``close()``
+/// still deinits), it wakes in `read` the moment the host writes, with no
+/// queue hop before the frame is decoded, and EOF ends it with no source to
+/// cancel. One thread per running host; it ends with the host's wire.
+///
 /// Two pairs, because a socket's file status flags are shared by every
 /// descriptor of it, and macOS ignores `MSG_DONTWAIT` on Unix sockets (checked
 /// 2026-10-23): one socket cannot be written non-blocking from the main actor

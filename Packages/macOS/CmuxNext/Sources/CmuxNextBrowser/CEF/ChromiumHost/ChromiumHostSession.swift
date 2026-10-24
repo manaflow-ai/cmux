@@ -13,7 +13,9 @@ import Observation
 /// (a Chromium CHECK, a crash, a kill), cmux keeps running; the page view
 /// shows nothing until a new host gives its context, and
 /// ``ChromiumHostRestartPolicy`` decides whether a new host starts with the
-/// saved page.
+/// saved page. A host that could not start (``ChromiumHostExit/startFailure``)
+/// is not restarted: a new one would fail the same way. Frames that a host
+/// sent before it ended and that arrive after it ended change nothing.
 ///
 /// Ending on purpose (``close()``) sends `quit` and SIGKILLs a host that has
 /// not ended ``ChromiumHostFrame/quitLimit`` later (a hung UI thread never
@@ -230,7 +232,9 @@ public final class ChromiumHostSession {
         let launcher = launcher
         tasks = [
             Task { [weak self] in
-                for await frame in connection.frames { self?.handle(frame) }
+                // A cancelled iterator still gets the frames the stream holds, so a frame of
+                // a host that has ended can come after hostEnded started the next host.
+                for await frame in connection.frames { self?.handle(frame, from: connection) }
                 // The wire ended. A host that broke the protocol (a bad frame, a
                 // flood) is still alive: end it, so its exit restarts it by the policy.
                 // Its pid cannot be reused yet: an ended host stays a zombie until hostEnded reaps it.
@@ -247,7 +251,10 @@ public final class ChromiumHostSession {
         ]
     }
 
-    private func handle(_ frame: ChromiumHostFrame) {
+    /// Applies a frame of `source`; a frame of an earlier host (not the
+    /// current connection) changes nothing.
+    private func handle(_ frame: ChromiumHostFrame, from source: ChromiumHostConnection) {
+        guard source === connection else { return }
         switch frame.kind {
         case .ready:
             forkAPI = frame.v[0]
@@ -289,7 +296,13 @@ public final class ChromiumHostSession {
         quitDeadline?.cancel()
         quitDeadline = nil
         let ranFor = startedAt.map { now() - $0 } ?? .zero
-        if closing {
+        if let failure = exit.startFailure {
+            // The host could not start (no wire, no framework, an old fork, CefInitialize):
+            // a new host would fail the same way, so none starts until ``open(_:)``.
+            closing = false
+            reopenWhenEnded = false
+            phase = .ended(failure)
+        } else if closing {
             closing = false
             if reopenWhenEnded {
                 reopenWhenEnded = false
