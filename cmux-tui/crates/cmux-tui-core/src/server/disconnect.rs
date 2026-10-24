@@ -131,6 +131,8 @@ fn disconnect_client_with_notice(
     let record = {
         let _lifecycle = mux.lock_client_sizing_lifecycle();
         let Some(record) = mux.control_clients.remove(client) else { return false };
+        // Its size leases now bound the departed-view holds it sets (size_lease.rs).
+        mux.control_clients.size_leases.client_left(client);
         mux.remove_size_client_from_attached_surfaces(client, record.attached.keys().copied());
         record
     };

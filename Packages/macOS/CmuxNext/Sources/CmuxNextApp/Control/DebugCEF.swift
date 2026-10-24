@@ -145,6 +145,9 @@ enum DebugCEF {
             "clip_hits": .number(Double(stats.clipHits)),
             "clip_ms": .number(stats.clipSeconds * 1_000),
             "geometry_posts": .number(Double(stats.geometryPosts)),
+            "hosted_pages": .number(Double(stats.hostedPages)),
+            "hosting_refused": .number(Double(stats.hostingRefused)),
+            "geometry_skips": .number(Double(stats.geometrySkips)),
         ])
     }
 

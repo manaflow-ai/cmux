@@ -1,0 +1,1438 @@
+#!/usr/bin/env python3
+"""cmux-next guardrails (scripts/cmux-next/guardrails.py): refuse new debt, warn on hot paths and owners.
+
+Each test commits into a throwaway repository and checks what the commit adds. The rule tests call
+`guardrails.check` directly; the hook tests install the real hooks and push through the real `git push`,
+so the installed trusted copy of the gate is what runs. Not on CI (Lawrence 2026-10-23: "not to add
+gates/tests in CI, but you have to run them yourself"): run it yourself after every change to guardrails.py,
+prepush-gate.py's guardrails path or install-git-hooks.sh: python3 tests/test_cmux_next_guardrails.py
+"""
+import dataclasses
+import importlib.util
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+import types
+import unittest
+from unittest import mock
+
+
+def _load_git_fixture_env():
+    """tests/git_fixture_env.py by path, so `python3 -I` (no script folder on sys.path) runs this file too."""
+    spec = importlib.util.spec_from_file_location("git_fixture_env", Path(__file__).resolve().parent / "git_fixture_env.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)  # importing it disables git auto maintenance
+    return module
+
+
+git_fixture_env = _load_git_fixture_env()
+
+SOURCE = Path(__file__).resolve().parents[1]
+PKG = "Packages/macOS/CmuxNext"
+KIT = f"{PKG}/Sources/CmuxNextKit"
+APP = f"{PKG}/Sources/CmuxNextApp"
+AGENT_VARS = ("CMUX_AGENT", "CMUX_REQUIRE_FORMATTERS", "CI", "CLAUDECODE", "CODEX_CI", "CODEX_THREAD_ID",
+              "CODEX_SANDBOX", "CMUX_WEB_LINT_SKIP_REASON", "CMUX_NEXT_CHECKS_SKIP_REASON",
+              "CMUX_GUARDRAILS_SKIP_REASON", "GITHUB_ACTIONS")
+if os.uname().sysname == "Darwin":
+    TOOLS = Path.home() / "Library" / "Caches" / "cmux-lint-tools"
+else:
+    TOOLS = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "cmux-lint-tools"
+TOOLS = Path(os.environ.get("CMUX_LINT_TOOLS_DIR", TOOLS))
+
+_spec = importlib.util.spec_from_file_location("cmux_next_guardrails", SOURCE / "scripts/cmux-next/guardrails.py")
+guardrails = importlib.util.module_from_spec(_spec)
+sys.modules[_spec.name] = guardrails
+_spec.loader.exec_module(guardrails)
+
+HOT = """import Foundation
+final class Router {
+    var count = 0
+    func dispatch(_ key: Int) { // perf-hot: 2ms key-dispatch
+        count += key
+    }
+    func cold() {
+        count = 0
+    }
+}
+"""
+OWNERS = """# owners
+
+| Area | Paths | Owner | Read first |
+|---|---|---|---|
+| Kit sidebar | `Packages/macOS/CmuxNext/Sources/CmuxNextKit/Sidebar/` | a590 | [sidebar-owner.md](sidebar-owner.md) |
+"""
+BENCHES = '{"paths": {"key-dispatch": {"bench": "scripts/cmux-next/bench-typing.py", "owner": "PL-typing"}}}'
+# Base debt: one main-queue hop (the line rules' running example).
+OLD = "final class Old {\n    func f() {\n        DispatchQueue.main.async { print(0) }\n    }\n}\n"
+ROW = """import SwiftUI
+struct WorkspaceRow: View {
+    let title: String
+    var body: some View { Text(title) }
+}
+"""
+
+# rule id -> (file text that adds it, the same with its reviewed escape or the right pattern). Singletons,
+# assumeIsolated and Notification.Name have no line rule: the arch ratchet holds them
+# (scripts/cmux-next/tests/test_arch_ratchet.py).
+CASES = {
+    "unchecked-sendable": ("final class Box: @unchecked Sendable {\n    var x = 0\n}\n",
+                           "// crash-allow: x is written once in init, then only read\n"
+                           "final class Box: @unchecked Sendable {\n    let x = 0\n}\n"),
+    "sleep-poll": ("func wait() async throws {\n    while !ready() {\n        try await Task.sleep(for: .milliseconds(5))\n    }\n}\n",
+                   "func wait() async throws {\n    try await Task.sleep(for: .seconds(2)) // a minimum display time\n}\n"),
+    "main-async": ("func f() {\n    DispatchQueue.main.async { print(1) }\n}\n",
+                   "@MainActor func f() {\n    print(1)\n}\n"),
+    "combine-state": ("import Combine\nfinal class Model: ObservableObject {\n    @Published var x = 0\n}\n",
+                      "import Observation\n@Observable final class Model {\n    var x = 0\n}\n"),
+    "generic-class-deinit": ("@MainActor final class Once<T> {\n    var value: T?\n}\n",
+                             "@MainActor final class Once<T> {\n    var value: T?\n    nonisolated deinit {}\n}\n"),
+    "row-store": ("import SwiftUI\nstruct WorkspaceRow: View {\n    let title: String\n"
+                  "    @Environment(SidebarStore.self) private var store\n    var body: some View { Text(title) }\n}\n",
+                  "import SwiftUI\nstruct WorkspaceRow: View {\n    let title: String\n    let onSelect: () -> Void\n"
+                  "    var body: some View { Text(title) }\n}\n"),
+}
+
+
+class Fixture(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix="cmux-guardrails-")
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.repo = self.root / "repository"
+        self.origin = self.root / "origin.git"
+        config = self.root / "gitconfig"
+        config.write_text("[user]\n\tname = Fixture\n\temail = fixture@example.com\n")
+        self.env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_") and k not in AGENT_VARS}
+        self.env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=str(config), HOME=str(self.root),
+                        CMUX_LINT_TOOLS_DIR=str(TOOLS))
+        git_fixture_env.without_auto_maintenance(self.env)
+        subprocess.run(["git", "init", "--quiet", "--bare", "--initial-branch=feat-cmux-next", str(self.origin)],
+                       env=self.env, check=True, capture_output=True)
+        self.repo.mkdir()
+        self.git("init", "--quiet", "--initial-branch=feat-cmux-next")
+        self.git("remote", "add", "origin", str(self.origin))
+        self.write(f"{KIT}/Router.swift", HOT)
+        self.write(f"{KIT}/WorkspaceRow.swift", ROW)
+        self.write(f"{KIT}/Old.swift", OLD)  # base debt
+        self.write("plans/cmux-next/OWNERS.md", OWNERS)
+        self.write("scripts/cmux-next/perf-hot-benches.json", BENCHES)
+        self.commit("base")
+        self.base = self.git("rev-parse", "HEAD").stdout.strip()
+
+    def git(self, *args, check=True):
+        return subprocess.run(["git", "-C", str(self.repo), *args], env=self.env, text=True, capture_output=True,
+                              check=check)
+
+    def write(self, relative, text):
+        path = self.repo / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+
+    def commit(self, message):
+        self.git("add", "-A")
+        self.git("commit", "--quiet", "--no-verify", "-m", message)
+
+    def rebase_on(self, files, message="more base debt"):
+        for relative, text in files.items():
+            self.write(relative, text)
+        self.commit(message)
+        self.base = self.git("rev-parse", "HEAD").stdout.strip()
+
+    def check(self, function=None, *args):
+        saved = {k: os.environ.pop(k) for k in list(os.environ) if k.startswith("GIT_")}
+        try:
+            return (function or guardrails.check)(self.repo, *(args or (self.base, "HEAD")))
+        finally:
+            os.environ.update(saved)
+
+    def refused(self, *args):
+        return [(r.id, [f"{h.path.rsplit('/', 1)[-1]}: {h.text.strip()}" for h in hits]) for r, hits in self.check(*args)[0]]
+
+    def report(self, skip, refusals):
+        os.environ[guardrails.SKIP_ENV] = skip
+        try:
+            return guardrails.format_report(refusals, [])
+        finally:
+            del os.environ[guardrails.SKIP_ENV]
+
+
+class RuleTests(Fixture):
+    def test_each_rule_refuses_what_a_push_adds_and_passes_the_right_pattern(self):
+        for rule, (bad, good) in CASES.items():
+            with self.subTest(rule=rule):
+                self.git("reset", "--quiet", "--hard", self.base)
+                target = f"{KIT}/WorkspaceRow.swift" if rule == "row-store" else f"{KIT}/Added.swift"
+                self.write(target, bad)
+                self.commit(f"adds {rule}")
+                refusals, _ = self.check()
+                self.assertIn(rule, [r.id for r, _ in refusals], f"{rule} not refused")
+                text, refused = guardrails.format_report(refusals, [])
+                self.assertTrue(refused)
+                self.assertIn("why:", text)
+                self.assertIn("do:", text)
+                self.assertIn(guardrails.SKIP_ENV, text)
+
+                self.git("reset", "--quiet", "--hard", self.base)
+                self.write(target, good)
+                self.commit(f"right pattern for {rule}")
+                refusals, _ = self.check()
+                self.assertEqual([r.id for r, _ in refusals], [], f"{rule}: the right pattern was refused")
+
+    def test_base_debt_and_moved_lines_never_count(self):
+        self.git("mv", f"{KIT}/Old.swift", f"{KIT}/Moved.swift")
+        self.write(f"{KIT}/Router.swift", HOT.replace("var count = 0", "var count = 1"))
+        self.commit("moves the old main hop and edits elsewhere")
+        refusals, _ = self.check()
+        self.assertEqual(refusals, [])
+
+    def test_editing_a_line_that_already_has_debt_adds_none(self):
+        before = {
+            f"{KIT}/Box.swift": "final class Box: @unchecked Sendable {\n    var x = 0\n}\n",
+            f"{KIT}/Wait.swift": "func wait() async throws {\n    while !ready() {\n"
+                                 "        try await Task.sleep(for: .milliseconds(5))\n    }\n}\n",
+        }
+        self.rebase_on(before)
+        after = {
+            f"{KIT}/Old.swift": OLD.replace("print(0)", "print(1)"),
+            f"{KIT}/Box.swift": "final class Box: Equatable, @unchecked Sendable {\n    var x = 0\n}\n",
+            f"{KIT}/Wait.swift": "func wait() async throws {\n    while !ready() {\n"
+                                "        try await Task.sleep(for: .milliseconds(50))\n    }\n}\n",
+        }
+        for relative, text in after.items():
+            self.write(relative, text)
+        self.commit("edits lines that already had debt")
+        refusals, _ = self.check()
+        self.assertEqual([(r.id, [h.text.strip() for h in hits]) for r, hits in refusals], [])
+
+    def test_an_edit_does_not_hide_a_second_new_hit_in_the_same_file(self):
+        self.write(f"{KIT}/Old.swift", "final class Old {\n    func f() {\n        DispatchQueue.main.async { print(2) }\n"
+                                       "    }\n    func g() {\n        DispatchQueue.main.async { print(3) }\n    }\n}\n")
+        self.commit("edits one main hop and adds another")
+        refusals, _ = self.check()
+        self.assertEqual([(r.id, len(hits)) for r, hits in refusals], [("main-async", 1)])
+
+    def test_a_one_line_poll_is_refused_and_wakeup_allow_is_its_escape(self):
+        poll = "func wait() async throws {\n    while !ready() { try await Task.sleep(for: .milliseconds(5)) }\n}\n"
+        self.write(f"{KIT}/Added.swift", poll)
+        self.commit("one-line poll")
+        self.assertIn("sleep-poll", [r.id for r, _ in self.check()[0]])
+        self.git("reset", "--quiet", "--hard", self.base)
+        self.write(f"{KIT}/Added.swift", poll.replace("    while", "    // wakeup-allow: the device has no change event\n    while"))
+        self.commit("reviewed poll")
+        self.assertEqual(self.check()[0], [])
+
+    def test_a_removed_one_shot_delay_does_not_pay_for_a_new_poll(self):
+        self.rebase_on({f"{KIT}/Wait.swift": "func wait() async throws {\n    try await Task.sleep(for: .seconds(2))\n}\n"})
+        self.write(f"{KIT}/Wait.swift", "func wait() async throws {\n    while !ready() {\n"
+                                        "        try await Task.sleep(for: .milliseconds(5))\n    }\n}\n")
+        self.commit("delay -> poll")
+        self.assertEqual(self.refused(), [("sleep-poll", ["Wait.swift: try await Task.sleep(for: .milliseconds(5))"])])
+
+    def test_wrapping_an_old_sleep_in_a_new_loop_is_refused(self):
+        delay = "func wait() async throws {\n    try await Task.sleep(for: .seconds(2))\n}\n"
+        start = self.base
+        for name, wrapped in (
+            ("re-indented", "func wait() async throws {\n    while !ready() {\n        try await Task.sleep(for: .seconds(2))\n"
+                            "    }\n}\n"),
+            ("same indent", "func wait() async throws {\n    while !ready() {\n    try await Task.sleep(for: .seconds(2))\n"
+                            "    }\n}\n"),
+        ):
+            with self.subTest(name):
+                self.git("reset", "--quiet", "--hard", start)
+                self.rebase_on({f"{KIT}/Wait.swift": delay})
+                self.write(f"{KIT}/Wait.swift", wrapped)
+                self.commit("wraps the delay in a loop")
+                self.assertEqual([rule for rule, _ in self.refused()], ["sleep-poll"])
+
+    def test_an_edit_of_the_opener_around_old_debt_adds_none(self):
+        poll = "func wait() async throws {\n    while !ready() {\n        try await Task.sleep(for: .milliseconds(5))\n    }\n}\n"
+        self.rebase_on({f"{KIT}/Wait.swift": poll})
+        self.write(f"{KIT}/Old.swift", OLD.replace("final class Old {", "final class Old: Sendable {"))
+        self.write(f"{KIT}/Wait.swift", poll.replace("!ready()", "!isReady()"))
+        self.commit("edits the class and loop lines around old debt")
+        self.assertEqual(self.refused(), [])
+
+    def test_a_view_renamed_to_a_row_around_a_store_is_refused(self):
+        view = ("import SwiftUI\nstruct EntryView: View {\n    @Environment(SidebarStore.self) private var store\n"
+                "    var body: some View { Text(\"x\") }\n}\n")
+        self.rebase_on({f"{KIT}/Entry.swift": view})
+        self.write(f"{KIT}/Entry.swift", view.replace("EntryView", "EntryRow"))
+        self.commit("renames the view to a row")
+        self.assertEqual([rule for rule, _ in self.refused()], ["row-store"])
+
+    def test_a_removed_escaped_line_does_not_pay_for_an_unescaped_one(self):
+        self.rebase_on({f"{KIT}/Box.swift": "// crash-allow: x is written once in init, then only read\n"
+                                            "final class Box: @unchecked Sendable {\n    let x = 0\n}\n"})
+        self.write(f"{KIT}/Box.swift", "final class Other: @unchecked Sendable {\n    var y = 0\n}\n")
+        self.commit("swaps a justified box for an unjustified one")
+        self.assertEqual([rule for rule, _ in self.refused()], ["unchecked-sendable"])
+
+    def test_a_removed_line_pays_once_not_also_as_a_move(self):
+        self.rebase_on({f"{KIT}/Cache.swift": "func a() {\n    DispatchQueue.main.async { print(1) }\n}\n"})
+        self.write(f"{KIT}/Cache.swift", "func a() {\n    DispatchQueue.main.async { print(1, 2) }\n}\n")
+        self.write(f"{KIT}/Store.swift", "func b() {\n    DispatchQueue.main.async { print(1) }\n}\n")
+        self.commit("edits one main hop and copies its old line into another file")
+        self.assertEqual(self.refused(), [("main-async", ["Cache.swift: DispatchQueue.main.async { print(1, 2) }"])])
+
+    def test_a_no_prefix_diff_config_still_applies_the_rules(self):
+        self.git("config", "diff.noprefix", "true")
+        self.git("config", "diff.mnemonicPrefix", "true")
+        self.write(f"{KIT}/Added.swift", CASES["main-async"][0])
+        self.write(f"{KIT}/Conflict.swift", "<<<<<<< HEAD\nlet a = 1\n=======\nlet a = 2\n>>>>>>> topic\n")
+        self.commit("a main hop and a conflict")
+        self.assertEqual([rule for rule, _ in self.refused()], ["main-async"])
+        spec = importlib.util.spec_from_file_location("cmux_next_prepush_gate", SOURCE / "scripts/cmux-next/prepush-gate.py")
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        saved = {k: os.environ.pop(k) for k in list(os.environ) if k.startswith("GIT_")}
+        try:
+            markers = gate.conflict_markers(self.repo, self.base, "HEAD")
+        finally:
+            os.environ.update(saved)
+        self.assertEqual(len(markers), 2, markers)
+
+    def test_lines_brought_in_from_feat_cmux_next_never_count(self):
+        self.git("checkout", "--quiet", "-b", "topic")
+        self.write(f"{KIT}/Topic.swift", "struct Topic {}\n")
+        self.commit("topic work")
+        pushed = self.git("rev-parse", "HEAD").stdout.strip()
+        self.git("checkout", "--quiet", "feat-cmux-next")
+        self.write(f"{KIT}/Landed.swift", CASES["main-async"][0])
+        self.commit("debt that landed past the guardrails (a skip reason, a clone without hooks)")
+        self.git("checkout", "--quiet", "topic")
+        self.git("merge", "--quiet", "--no-edit", "feat-cmux-next")
+        self.assertEqual(self.refused(guardrails.check, pushed, "HEAD"),
+                         [("main-async", ["Landed.swift: DispatchQueue.main.async { print(1) }"])],
+                         "control: the plain range has it")
+        self.assertEqual(self.refused(guardrails.check_push, pushed, "HEAD", "feat-cmux-next"), [], "merged")
+        self.write(f"{KIT}/Own.swift", "func own() {\n    DispatchQueue.main.async { print(2) }\n}\n")
+        self.commit("the branch's own main hop")
+        self.assertEqual(self.refused(guardrails.check_push, pushed, "HEAD", "feat-cmux-next"),
+                         [("main-async", ["Own.swift: DispatchQueue.main.async { print(2) }"])])
+        self.git("reset", "--quiet", "--hard", pushed)
+        self.git("rebase", "--quiet", "feat-cmux-next")
+        # The hook's base for a force push is the merge base of the new and the old head: the old fork point.
+        fork = self.git("merge-base", "HEAD", pushed).stdout.strip()
+        self.assertEqual(self.refused(guardrails.check, fork, "HEAD"),
+                         [("main-async", ["Landed.swift: DispatchQueue.main.async { print(1) }"])],
+                         "control: the plain range has it")
+        self.assertEqual(self.refused(guardrails.check_push, fork, "HEAD", "feat-cmux-next"), [], "rebased")
+
+    def test_owner_globs_do_not_cross_folders_with_a_single_star(self):
+        self.assertTrue(guardrails.glob_match("A/Motion/Spring.swift", "A/Motion/"))
+        self.assertTrue(guardrails.glob_match("A/MotionGate.swift", "A/Motion*.swift"))
+        self.assertFalse(guardrails.glob_match("A/Motion/Spring.swift", "A/Motion*.swift"))
+        self.assertTrue(guardrails.glob_match("A/B/C/D.swift", "A/**/D.swift"))
+
+    def test_a_moved_line_that_only_gains_an_access_modifier_is_no_new_debt(self):
+        self.rebase_on({f"{KIT}/Box.swift": "final class Box: @unchecked Sendable {\n    var x = 0\n}\n"})
+        (self.repo / "Packages/macOS/CmuxNext/Sources/CmuxNextOther").mkdir(parents=True)
+        self.git("mv", f"{KIT}/Box.swift", "Packages/macOS/CmuxNext/Sources/CmuxNextOther/Box.swift")
+        self.write("Packages/macOS/CmuxNext/Sources/CmuxNextOther/Box.swift",
+                   "package final class Box: @unchecked Sendable {\n    package var x = 0\n}\n")
+        self.commit("git mv into another package; access internal -> package")
+        self.assertEqual(self.refused(), [])
+
+    def test_the_bench_configuration_is_refused_in_shipped_build_settings(self):
+        self.write(".github/workflows/nightly.yml", "jobs:\n  build:\n    steps:\n      - run: ./scripts/reload.sh --config bench\n")
+        self.write("config/Release.xcconfig", "OTHER_SWIFT_FLAGS = $(inherited) -DCMUX_BENCH_HOOKS\n")
+        self.write("scripts/measure/pane-perf.sh", "./scripts/reload.sh --config bench\n")
+        self.commit("bench flags in shipped settings, and in a measure script")
+        self.assertEqual(self.refused(), [("bench-hooks-shipped", [
+            "nightly.yml: - run: ./scripts/reload.sh --config bench",
+            "Release.xcconfig: OTHER_SWIFT_FLAGS = $(inherited) -DCMUX_BENCH_HOOKS"])])
+
+    def test_the_generic_class_rule_reads_test_targets_and_honors_nonisolated(self):
+        tests = "Packages/macOS/CmuxNext/Tests/CmuxNextFooTests"
+        self.write(f"{tests}/Wait.swift", "final class Once<T> {\n    var value: T?\n}\n")
+        self.write(f"{KIT}/Free.swift", "nonisolated final class Box<T> {\n    var value: T?\n}\n"
+                   "final class Mailbox<T> { // generic-class-allow: a nonisolated target\n    var value: T?\n}\n")
+        self.commit("generic classes in a test target and Sources")
+        self.assertEqual(self.refused(), [("generic-class-deinit", ["Wait.swift: final class Once<T> {"])])
+
+    def test_other_rules_do_not_read_test_targets(self):
+        self.write("Packages/macOS/CmuxNext/Tests/CmuxNextFooTests/Fake.swift",
+                   "func fake() {\n    DispatchQueue.main.async { print(1) }\n}\n")
+        self.commit("a main hop in a test target")
+        self.assertEqual(self.refused(), [])
+
+    def test_skip_reason_lets_the_push_through_and_is_printed(self):
+        self.write(f"{KIT}/Added.swift", CASES["main-async"][0])
+        self.commit("adds a main hop")
+        refusals, warnings = self.check()
+        os.environ[guardrails.SKIP_ENV] = "main-async: test"
+        try:
+            text, refused = guardrails.format_report(refusals, warnings)
+        finally:
+            del os.environ[guardrails.SKIP_ENV]
+        self.assertFalse(refused)
+        self.assertIn("SKIPPED", text)
+
+    def test_a_rule_that_raises_is_off_for_that_push_and_the_others_still_refuse(self):
+        self.write(f"{KIT}/Added.swift", CASES["main-async"][0])
+        self.commit("adds a main hop")
+
+        def broken(changes, moved):
+            raise RuntimeError("boom")
+
+        for failing in ("app-size", "main-async"):
+            with self.subTest(failing=failing):
+                rules = tuple(dataclasses.replace(r, find=broken) if r.id == failing else r for r in guardrails.RULES)
+                with mock.patch.object(guardrails, "RULES", rules):
+                    refusals, warnings = self.check()
+                self.assertEqual([r.id for r, _ in refusals], [] if failing == "main-async" else ["main-async"])
+                failed = [text for kind, text in warnings if kind == "guardrails"]
+                self.assertEqual(len(failed), 1, warnings)
+                self.assertIn(f"rule {failing} failed (RuntimeError: boom at test_cmux_next_guardrails.py:", failed[0])
+        with mock.patch.object(guardrails, "perf_hot_warnings", broken):
+            refusals, warnings = self.check()
+        self.assertEqual([r.id for r, _ in refusals], ["main-async"])
+        self.assertIn("perf-hot failed (RuntimeError: boom", " ".join(text for _, text in warnings))
+        # The installed hook copies scripts/cmux-next; a CI edit of the lexer next to guardrails.py that no
+        # longer loads turns off app-size only, never the whole module (and so every rule).
+        installed = self.root / "installed"
+        installed.mkdir()
+        shutil.copy(SOURCE / "scripts/cmux-next/guardrails.py", installed)
+        (installed / "count-swift-code-lines.py").write_text("raise ImportError('a lexer that does not load')\n")
+        spec = importlib.util.spec_from_file_location("cmux_next_guardrails_broken_lexer", installed / "guardrails.py")
+        copy = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = copy
+        self.addCleanup(sys.modules.pop, spec.name, None)
+        spec.loader.exec_module(copy)
+        self.write(f"{APP}/Grown.swift", "struct Grown {}\n")
+        self.commit("an App file, so app-size reads the lexer")
+        refusals, warnings = self.check(copy.check)
+        self.assertEqual([r.id for r, _ in refusals], ["main-async"], "the other line rules still refuse")
+        failed = [text for kind, text in warnings if kind == "guardrails"]
+        self.assertEqual(len(failed), 1, warnings)
+        self.assertIn("rule app-size failed (ImportError: a lexer that does not load", failed[0])
+
+    def test_a_refusal_names_only_crash_ratchet_options_that_exist(self):
+        # The unchecked-sendable refusal sends the author to crash_ratchet.py: every option it names must run.
+        self.write(f"{KIT}/Added.swift", CASES["unchecked-sendable"][0])
+        self.commit("adds an unchecked Sendable")
+        refusals, _ = self.check()
+        self.assertEqual([r.id for r, _ in refusals], ["unchecked-sendable"])
+        text, refused = guardrails.format_report(refusals, [])
+        self.assertTrue(refused, text)
+        self.assertIn("crash_ratchet.py", text)
+        named = [option for options in re.findall(r"crash_ratchet\.py((?:\s+--[\w-]+)+)", text)
+                 for option in options.split()]
+        usage = subprocess.run([sys.executable, "-I", str(SOURCE / "scripts/cmux-next/crash_ratchet.py"), "--help"],
+                               capture_output=True, text=True, check=True).stdout
+        for option in named:
+            self.assertRegex(usage, rf"(^|\s|\[){re.escape(option)}\b", f"{option} is not a crash_ratchet.py option")
+
+    def test_a_rule_that_raises_only_on_the_pushed_range_of_a_merge_is_warned_once(self):
+        # A branch that merged feat-cmux-next in: check_push checks the pushed range and the branch's own range.
+        self.git("checkout", "--quiet", "-b", "topic")
+        self.write(f"{KIT}/Topic.swift", "struct Topic {}\n")
+        self.commit("topic work")
+        pushed = self.git("rev-parse", "HEAD").stdout.strip()
+        self.git("checkout", "--quiet", "feat-cmux-next")
+        self.write(f"{APP}/Landed.swift", "struct Landed {}\n")
+        self.commit("landed on feat-cmux-next")
+        self.git("checkout", "--quiet", "topic")
+        self.git("merge", "--quiet", "--no-edit", "feat-cmux-next")
+        self.write(f"{KIT}/Own.swift", "func own() {\n    DispatchQueue.main.async { print(2) }\n}\n")
+        self.commit("the branch's own main hop")
+        original = next(r for r in guardrails.RULES if r.id == "app-size")
+
+        def only_pushed(changes, moved):  # Landed.swift is only in the pushed range, never in the branch's own
+            if any(c.path.endswith("/Landed.swift") for c in changes):
+                raise RuntimeError("boom")
+            return original.find(changes, moved)
+
+        def always(changes, moved):
+            raise RuntimeError("boom")
+
+        for name, find in (("pushed range only", only_pushed), ("both ranges", always)):
+            with self.subTest(failing=name):
+                rules = tuple(dataclasses.replace(r, find=find) if r.id == "app-size" else r for r in guardrails.RULES)
+                with mock.patch.object(guardrails, "RULES", rules):
+                    _, branch_warnings = self.check(guardrails.check, "feat-cmux-next", "HEAD")
+                    refusals, warnings = self.check(guardrails.check_push, pushed, "HEAD", "feat-cmux-next")
+                if find is only_pushed:
+                    self.assertEqual([t for k, t in branch_warnings if k == "guardrails"], [],
+                                     "control: the rule runs on the branch's own range")
+                self.assertEqual([(r.id, [h.path.rsplit("/", 1)[-1] for h in hits]) for r, hits in refusals],
+                                 [("main-async", ["Own.swift"])])
+                failed = [text for kind, text in warnings if kind == "guardrails"]
+                self.assertEqual(len(failed), 1, warnings)
+                self.assertIn("rule app-size failed (RuntimeError: boom at test_cmux_next_guardrails.py:", failed[0])
+
+    def test_skip_reason_skips_only_the_named_rules(self):
+        self.write(f"{KIT}/Added.swift", CASES["unchecked-sendable"][0] + CASES["main-async"][0])
+        self.commit("adds an unchecked box and a main hop")
+        refusals, _ = self.check()
+        self.assertEqual(sorted(r.id for r, _ in refusals), ["main-async", "unchecked-sendable"])
+        text, refused = self.report("unchecked-sendable: a fixture", refusals)
+        self.assertTrue(refused, text)
+        self.assertIn("[main-async]", text)
+        self.assertIn("SKIPPED", text)
+        text, refused = self.report("unchecked-sendable, main-async: a fixture", refusals)
+        self.assertFalse(refused, text)
+        for bad, error in (("unchecked: typo", "names no rule unchecked"), ("unchecked-sendable", "must be"),
+                           ("unchecked-sendable:   ", "must be")):
+            with self.subTest(skip=bad):
+                text, refused = self.report(bad, refusals)
+                self.assertTrue(refused, text)
+                self.assertIn(error, text)
+
+
+def swift_body(lines, tag):
+    """LINES physical lines of realistic Swift, unique to TAG: functions with a guard, braces and blank lines. Every
+    eighth line is blank (no source line); of the source lines, `}` and `return 0` are generic (every file has them)."""
+    out, i = [], 0
+    while len(out) < lines:
+        out += [f"    func {tag}Value{i}(_ value: Int) -> Int {{", f"        let {tag}Scaled{i} = value * {i + 2}",
+                f"        guard {tag}Scaled{i} > 0 else {{", "            return 0", "        }",
+                f"        return {tag}Scaled{i}", "    }", ""]
+        i += 1
+    return "".join(line + "\n" for line in out[:lines])
+
+
+def code(text):
+    """Source lines of TEXT made of swift_body/host_file lines (no comments there): its non-blank lines."""
+    if not isinstance(text, str):
+        text = "".join(text)
+    return sum(1 for line in text.splitlines() if line.strip())
+
+
+def swift_type(name, lines, kind="struct", head=""):
+    """A top-level KIND NAME of LINES physical lines (swift_body inside, unique to NAME); HEAD goes before `struct`."""
+    return f"{head}{kind} {name} {{\n" + swift_body(lines - 2, name[0].lower() + name[1:]) + "}\n"
+
+
+def host_file(lines, domain="Foo", declare=True):
+    """A Host file of LINES physical lines (one blank): one-line forwards in `extension AppServices: <Domain>Host`."""
+    head = ["import CmuxNext" + domain, "", "@MainActor",
+            f"extension AppServices{': ' + domain + 'Host' if declare else ''} {{"]
+    body = [f"    func {domain.lower()}Forward{i}() {{ {domain.lower()}.forward{i}() }}" for i in range(lines - len(head) - 1)]
+    return "\n".join(head + body + ["}"]) + "\n"
+
+
+class AppSizeTests(Fixture):
+    """`app-size`: a push grows CmuxNextApp's root only by its wiring budget and adds App files only as moves
+    (refusals); App growth is a warning (guardrails.py "app-size"), in source lines."""
+
+    def setUp(self):
+        super().setUp()
+        self.rebase_on({
+            f"{APP}/AppDelegate.swift": swift_body(200, "delegate"),
+            f"{APP}/AppServices.swift": swift_body(200, "services"),
+            f"{APP}/AppServices+Glass.swift": swift_body(50, "glass"),
+            f"{APP}/CmuxNextApp.swift": swift_body(40, "main"),
+            f"{APP}/Cloud/AppServices+Cloud.swift": swift_body(80, "cloud"),
+            f"{APP}/TextBox/TextBoxView.swift": swift_body(120, "textBox"),
+            f"{APP}/Quit/QuitCoordinator.swift": swift_body(300, "quit"),
+            f"{APP}/Resources/Strings.xcstrings": "{}\n",
+        }, "an App")
+        self.quit = swift_body(300, "quit").splitlines(keepends=True)
+
+    def append(self, relative, text):
+        with open(self.repo / relative, "a") as handle:
+            handle.write(text)
+
+    def shrink_quit(self, keep=200):
+        """Delete QuitCoordinator's lines after KEEP (moved to a package: out of the App's scope); returns how many
+        source lines that pays for."""
+        self.write(f"{APP}/Quit/QuitCoordinator.swift", "".join(self.quit[:keep]))
+        return code(self.quit[keep:])
+
+    def hits(self, *args):
+        refusals, _ = self.check(*args)
+        return [hit for rule, found in refusals if rule.id == "app-size" for hit in found]
+
+    def assertRefused(self, *needles, args=()):
+        found = self.hits(*args)
+        self.assertTrue(found, "expected an app-size refusal")
+        text = "\n".join(f"{h.path}:{h.number}: {h.text}" for h in found)
+        for needle in needles:
+            self.assertIn(needle, text)
+        return found
+
+    def growth(self, *args):
+        """The push's app-size growth warnings (`path:line: text`): never refusals for now."""
+        _, warnings = self.check(*args)
+        return [text for kind, text in warnings if kind == "app-size"]
+
+    def assertWarned(self, *needles, args=()):
+        """An app-size growth warning with every NEEDLE, and no app-size refusal; returns the warnings."""
+        self.assertEqual([h.text for h in self.hits(*args)], [], "growth warns, it does not refuse")
+        found = self.growth(*args)
+        self.assertTrue(found, "expected an app-size growth warning")
+        text = "\n".join(found)
+        for needle in needles:
+            self.assertIn(needle, text)
+        return found
+
+    def assertPasses(self, message=""):
+        self.assertEqual([h.text for h in self.hits()], [], message)
+        self.assertEqual(self.growth(), [], message)
+
+    def reset(self):
+        self.git("reset", "--quiet", "--hard", self.base)
+
+    def test_growth_of_a_feature_file_warns_at_its_first_added_line_with_its_bytes(self):
+        self.append(f"{APP}/TextBox/TextBoxView.swift", swift_body(5, "added"))
+        self.commit("grow")
+        added = sum(len(line) + 1 for line in swift_body(5, "added").splitlines() if line.strip())
+        found = self.assertWarned(f"outside the root grows +5 source lines (+{added} bytes); move the code to its "
+                                  "domain package (the `TextBox` folder's row in",
+                                  f"CmuxNextApp grows +5 source lines (+{added} bytes")
+        self.assertTrue(found[0].startswith(f"{APP}/TextBox/TextBoxView.swift:121: "), found[0])
+        text, refused = guardrails.format_report(*self.check())
+        self.assertFalse(refused, text)
+        self.assertIn("warnings (never refuse):\n  [app-size] ", text)
+
+    def test_root_wiring_is_capped_at_thirty_lines_and_warns_unless_an_app_shrink_pays(self):
+        wire = code(swift_body(20, "wire"))
+        self.append(f"{APP}/AppServices+Glass.swift", swift_body(20, "wire"))
+        self.commit("wiring with no shrink")
+        found = self.assertWarned(f"CmuxNextApp grows +{wire} source lines")
+        self.assertEqual(len(found), 1, "the root's own budget is not over and no feature file grew")
+        self.reset()
+        self.append(f"{APP}/AppServices+Glass.swift", swift_body(20, "wire"))
+        self.shrink_quit()
+        self.commit("wiring paid by moving Quit code to its package")
+        self.assertPasses()
+        self.reset()
+        for relative, tag in (("AppDelegate.swift", "a"), ("CmuxNextApp.swift", "b"), ("AppServices.swift", "c")):
+            self.append(f"{APP}/{relative}", swift_body(11, tag))
+        self.assertEqual(3 * code(swift_body(11, "a")), 30)
+        self.shrink_quit()
+        self.commit("30 lines across the root files, paid")
+        self.assertPasses()
+        self.reset()
+        self.append(f"{APP}/AppDelegate.swift", swift_body(35, "wire"))
+        self.assertEqual(code(swift_body(35, "wire")), 31)
+        self.shrink_quit(0)
+        self.commit("31 lines, paid many times over")
+        found = self.assertRefused("the composition root grows +31 source lines", "budget of +30")
+        self.assertEqual([h.bucket for h in found], ["root"])
+
+    def test_an_app_services_extension_in_a_feature_folder_is_not_root(self):
+        self.append(f"{APP}/Cloud/AppServices+Cloud.swift", swift_body(20, "wire"))
+        self.commit("feature code in an AppServices extension")
+        self.assertWarned(f"outside the root grows +{code(swift_body(20, 'wire'))} source lines",
+                          "the `Cloud` folder's row in")
+
+    def test_a_moved_file_passes_and_a_split_s_new_imports_are_growth_as_ci_counts_them(self):
+        (self.repo / APP / "Shutdown").mkdir()  # git before 2.54 does not create the folder for a git mv
+        self.git("mv", f"{APP}/Quit/QuitCoordinator.swift", f"{APP}/Shutdown/QuitCoordinator.swift")
+        self.commit("move")
+        self.assertPasses("a git mv")
+        self.reset()
+        self.write(f"{APP}/Quit/QuitCoordinator.swift", "".join(self.quit[:150]))
+        self.write(f"{APP}/Quit/QuitSteps.swift", "import AppKit\nimport CmuxNextDesign\n\n" + "".join(self.quit[150:]))
+        self.commit("split")
+        found = self.assertWarned("outside the root grows +2 source lines", "CmuxNextApp grows +2 source lines")
+        self.assertEqual(len(found), 2, "the split file itself is a move: no new-file refusal")
+        self.reset()
+        self.write(f"{APP}/Quit/QuitCoordinator.swift", "".join(self.quit[:150]))
+        self.write(f"{APP}/Quit/QuitSteps.swift", "import AppKit\nimport CmuxNextDesign\n\n" + "".join(self.quit[150:]))
+        self.write(f"{APP}/TextBox/TextBoxView.swift", "".join(swift_body(120, "textBox").splitlines(keepends=True)[:112]))
+        self.commit("split, its imports paid by a deleted function")
+        self.assertPasses("a split whose imports the push pays for")
+
+    def test_code_moved_between_the_root_and_feature_files_is_not_growth(self):
+        lines = swift_body(200, "delegate").splitlines(keepends=True)
+        self.write(f"{APP}/AppDelegate.swift", "".join(lines[:37] + lines[137:]))
+        self.write(f"{KIT}/Delegate/DelegateParts.swift", "".join(lines[37:137]))
+        self.commit("100 lines out of AppDelegate into a package")
+        self.assertPasses("out of the root into a package")
+        self.reset()
+        # Lead decision (b), item 2: out of the root into another App file is no App growth (no `total` warning),
+        # but it counts against the root's budget.
+        self.write(f"{APP}/AppDelegate.swift", "".join(lines[:37] + lines[137:]))
+        self.append(f"{APP}/TextBox/TextBoxView.swift", "".join(lines[37:137]))
+        self.commit("100 lines out of AppDelegate into a feature file")
+        found = self.assertRefused("moved from the root into other App files count too")
+        self.assertEqual([h.bucket for h in found], ["root"])
+        self.assertEqual(self.growth(), [], "a move inside the App is no App growth")
+        self.reset()
+        self.write(f"{APP}/Quit/QuitCoordinator.swift", "".join(self.quit[:201]))
+        self.append(f"{APP}/AppDelegate.swift", "".join(self.quit[201:]))
+        self.commit("99 lines into AppDelegate")
+        found = self.assertRefused(f"the composition root grows +{code(self.quit[201:])} source lines",
+                                   "budget of +30")
+        self.assertEqual([h.bucket for h in found], ["root"], "a move into the root is not App growth")
+        self.reset()
+        self.write(f"{APP}/Quit/QuitCoordinator.swift", "".join(self.quit[:270]))
+        self.append(f"{APP}/AppDelegate.swift", "".join(self.quit[270:]))
+        self.assertLessEqual(code(self.quit[270:]), 30)
+        self.commit("30 lines into AppDelegate")
+        self.assertPasses("a move into the root within its budget")
+
+    def test_a_block_that_stays_in_its_file_is_no_move_into_a_new_file(self):
+        # Re-indenting a block (wrapping it in `Task { @MainActor in ... }`) removes and re-adds every line with the
+        # same stripped text: the block is still in its file, so a copy of it in a new file is new code.
+        lines = swift_body(120, "textBox").splitlines(keepends=True)
+        self.write(f"{APP}/TextBox/TextBoxView.swift",
+                   "".join(["    " + line if line.strip() else line for line in lines[:40]] + lines[40:]))
+        self.write(f"{APP}/TextBox/TextBoxReload.swift", "".join(lines[:40]))
+        self.commit("a re-indented block, and a copy of it in a new file")
+        found = self.assertRefused(f"new App file, {code(lines[:40])} source lines ({code(lines[:40])} not moved)",
+                                   "only a move or the push's one Host conformance file may be added")
+        self.assertEqual([h.bucket for h in found], [f"new:{APP}/TextBox/TextBoxReload.swift"])
+        self.reset()
+        self.write(f"{APP}/TextBox/TextBoxView.swift", "".join(lines[40:]))
+        self.write(f"{APP}/TextBox/TextBoxReload.swift", "".join(lines[:40]))
+        self.commit("control: the block really leaves its file")
+        self.assertPasses("a split")
+
+    def test_moved_imports_do_not_count_toward_a_new_file_s_moved_share(self):
+        imports = "import Foundation\nimport SwiftUI\nimport AppKit\nimport CmuxNextCore\n\n"
+        old = swift_body(16, "old").splitlines(keepends=True)
+        self.rebase_on({f"{APP}/Quit/QuitOld.swift": imports + "".join(old)}, "an old Quit file")
+        self.git("rm", "--quiet", f"{APP}/Quit/QuitOld.swift")
+        fresh = "".join(f"    let quitFresh{i} = {i}\n" for i in range(4))
+        self.write(f"{APP}/Quit/QuitNew.swift", imports + "".join(old[:8]) + fresh)
+        self.commit("one moved function and four new lines in a new file; the old file's imports come along")
+        moved, total = code(old[:8]), code(old[:8]) + 4
+        self.assertLess(moved, guardrails.MOVE_SHARE * total, "the file's code is not mostly moved")
+        self.assertGreaterEqual(moved + 4, guardrails.MOVE_SHARE * total, "the imports would push it over")
+        found = self.assertRefused(f"new App file, {total + 4} source lines")
+        self.assertEqual([h.bucket for h in found], [f"new:{APP}/Quit/QuitNew.swift"])
+
+    def test_a_move_out_of_the_root_is_counted_whole_when_feature_files_drop_stub_lines(self):
+        # The feature side's removed `}` and `return 0` lines match the moved block's: they must not cut the block
+        # into runs too short to count as moved out of the root. Each line not counted would be a root shrink (-1)
+        # instead of root growth (+1, lead decision (b) item 2): free root budget either way.
+        lines = swift_body(200, "delegate").splitlines(keepends=True)
+        moved = code(lines[40:136])
+        self.assertEqual(moved, 84)
+        wire = swift_body(35, "wire")
+        self.assertEqual(code(wire), guardrails.ROOT_BUDGET + 1)
+        self.write(f"{APP}/AppDelegate.swift", "".join(lines[:40] + lines[136:]) + wire)
+        self.append(f"{APP}/TextBox/TextBoxView.swift", "".join(lines[40:136]))
+        self.write(f"{APP}/Quit/QuitCoordinator.swift", "".join(self.quit[:200]))
+        self.commit("84 lines out of AppDelegate, dead Quit code deleted, 31 new wiring lines")
+        found = self.assertRefused(f"the composition root grows +{code(wire) + moved} source lines",
+                                   f"{moved} moved from the root into other App files count too", "budget of +30")
+        self.assertEqual([(h.bucket, h.excess) for h in found], [("root", code(wire) + moved - guardrails.ROOT_BUDGET)])
+        self.reset()
+        self.write(f"{APP}/AppDelegate.swift", "".join(lines[:40] + lines[136:]))
+        self.write(f"{KIT}/Delegate/DelegateParts.swift", "".join(lines[40:136]))
+        self.write(f"{APP}/Quit/QuitCoordinator.swift", "".join(self.quit[:200]))
+        self.commit("control: the same block moved into a package, with no new wiring")
+        self.assertPasses("a move out of the root into a package and a deletion")
+
+    def test_a_small_file_renamed_whole_is_a_move(self):
+        flag = "import Foundation\n\nlet quitFlag = true\n"
+        self.rebase_on({f"{APP}/Quit/QuitFlag.swift": flag}, "a small Quit file")
+        (self.repo / APP / "Shutdown").mkdir()  # git before 2.54 does not create the folder for a git mv
+        self.git("mv", f"{APP}/Quit/QuitFlag.swift", f"{APP}/Shutdown/QuitFlag.swift")
+        self.commit("rename a two-line file")
+        self.assertPasses("a git mv of a file shorter than MOVE_RUN")
+        self.reset()
+        (self.repo / APP / "Shutdown").mkdir(exist_ok=True)
+        self.git("mv", f"{APP}/Quit/QuitFlag.swift", f"{APP}/Shutdown/QuitFlag.swift")
+        self.write(f"{APP}/Shutdown/QuitFlagCopy.swift", flag)
+        self.commit("rename it and copy it")
+        found = self.assertRefused("new App file, 2 source lines")
+        self.assertEqual([h.bucket for h in found], [f"new:{APP}/Shutdown/QuitFlagCopy.swift"])
+        self.reset()
+        self.git("mv", f"{APP}/Quit/QuitFlag.swift", f"{APP}/AppServices+QuitFlag.swift")
+        self.commit("a feature file renamed into the root")
+        self.assertRefused("a new root file is split from the root files")
+        self.reset()
+        self.rebase_on({f"{APP}/AppServices+Flag.swift": "import Foundation\n\nlet appFlag = true\n"}, "a small root file")
+        self.git("mv", f"{APP}/AppServices+Flag.swift", f"{APP}/Quit/Flag.swift")
+        self.commit("a root file renamed into a feature folder")
+        # Its 2 lines left the root for an App file: root +2 (lead decision (b) item 2), within the budget; no
+        # feature growth and no App growth.
+        self.assertPasses("a short rename out of the root is moved whole: no feature growth, root +2 of its budget")
+
+    def test_feature_logic_pasted_into_an_existing_app_services_file_is_refused(self):
+        lines = swift_body(120, "textBox").splitlines(keepends=True)
+        self.write(f"{APP}/TextBox/TextBoxView.swift", "".join(lines[:20]))
+        self.append(f"{APP}/AppServices.swift", "".join(lines[20:]))
+        self.commit("100 lines of TextBox logic into AppServices.swift")
+        found = self.assertRefused(f"the composition root grows +{code(lines[20:])} source lines", "budget of +30",
+                                   "AppServices.swift +")
+        self.assertEqual([h.bucket for h in found], ["root"])
+        self.assertEqual(found[0].path, f"{APP}/AppServices.swift")
+
+    def test_new_app_files_are_refused_however_small(self):
+        model = code(swift_body(300, "model"))
+        self.write(f"{APP}/TextBox/TextBoxModel.swift", swift_body(300, "model"))
+        self.commit("a new 300-line file")
+        self.assertRefused(f"new App file, {model} source lines ({model} not moved), goes to its domain package "
+                           "(the `TextBox` folder's row in")
+        self.assertIn(f"outside the root grows +{model} source lines", "\n".join(self.growth()))
+        self.reset()
+        self.write(f"{APP}/AppDelegate+Menus.swift",
+                   "import AppKit\n\n" + "".join(f"func menu{i}() {{ build({i}) }}\n" for i in range(8)))
+        self.commit("a new 10-line root file of new code")
+        self.assertRefused("new App file, 9 source lines", "a new root file is split from the root files")
+        self.reset()
+        self.assertEqual(self.shrink_quit(291), 8)
+        self.write(f"{APP}/Quit/NewThing.swift", "".join(f"let newThing{i} = {i}\n" for i in range(8)))
+        self.commit("an 8-line new file paid for by an 8-line deletion")
+        found = self.assertRefused("new App file, 8 source lines (8 not moved)")
+        self.assertEqual([h.bucket for h in found], [f"new:{APP}/Quit/NewThing.swift"])
+
+    def test_a_new_file_that_copies_lines_its_old_file_keeps_is_not_a_move(self):
+        # Re-indenting a block shows it as removed and re-added (-U0); its lines still exist in the old file.
+        lines = swift_body(120, "textBox").splitlines(keepends=True)
+        block = lines[16:56]
+        wrapped = ["    func reload() {\n"] + [("    " + line) if line.strip() else line for line in block] + ["    }\n"]
+        self.write(f"{APP}/TextBox/TextBoxView.swift", "".join(lines[:16] + wrapped + lines[56:]))
+        self.write(f"{APP}/TextBox/TextBoxReload.swift", "".join(block))
+        self.commit("a block wrapped in place and copied into a new file")
+        found = self.assertRefused("new App file", "only a move or the push's one Host conformance file")
+        self.assertIn(f"new:{APP}/TextBox/TextBoxReload.swift", [h.bucket for h in found])
+        self.reset()
+        self.write(f"{APP}/TextBox/TextBoxView.swift", "".join(lines[:16] + lines[56:]))
+        self.write(f"{APP}/TextBox/TextBoxReload.swift", "".join(block))
+        self.commit("the same block moved out")
+        self.assertEqual([h.bucket for h in self.hits()], [], "control: a real move into a new file passes")
+
+    def test_a_file_deleted_whole_and_pasted_into_an_existing_file_is_no_rename_of_a_new_copy(self):
+        # The deleted file's lines are back in TextBoxView: they did not leave the App, so a new file with the same
+        # text is a copy, not a rename, however exactly it matches the deleted file.
+        old = swift_body(40, "old")
+        self.rebase_on({f"{APP}/Quit/QuitOld.swift": old}, "an old Quit file")
+        self.git("rm", "--quiet", f"{APP}/Quit/QuitOld.swift")
+        self.append(f"{APP}/TextBox/TextBoxView.swift", old)
+        self.write(f"{APP}/Quit/QuitCopy.swift", old)
+        self.commit("delete a file, paste it into an existing file and re-add it under a new name")
+        found = self.assertRefused(f"new App file, {code(old)} source lines ({code(old)} not moved)",
+                                   "only a move or the push's one Host conformance file may be added")
+        self.assertEqual([h.bucket for h in found], [f"new:{APP}/Quit/QuitCopy.swift"])
+        self.reset()
+        self.git("rm", "--quiet", f"{APP}/Quit/QuitOld.swift")
+        self.write(f"{APP}/Quit/QuitCopy.swift", old)
+        self.commit("control: the same file renamed, not pasted anywhere else")
+        self.assertEqual([h.bucket for h in self.hits()], [], "a rename passes")
+
+    def test_one_deleted_file_is_renamed_once_whatever_the_names_of_its_copies(self):
+        # An exact copy and a near copy of one deleted file: one block moved once, so one of them is refused, and
+        # it is the near copy (the exact copy is the rename) in either name order.
+        old = swift_body(40, "old")
+        near = old + "    let quitFresh = 1\n"
+        self.rebase_on({f"{APP}/Quit/QuitOld.swift": old}, "an old Quit file")
+        for exact, copy in (("B", "A"), ("A", "B")):
+            with self.subTest(exact=exact):
+                self.reset()
+                self.git("rm", "--quiet", f"{APP}/Quit/QuitOld.swift")
+                self.write(f"{APP}/Quit/Quit{exact}.swift", old)
+                self.write(f"{APP}/Quit/Quit{copy}.swift", near)
+                self.commit(f"Quit{exact} renames QuitOld, Quit{copy} copies it with one new line")
+                found = self.assertRefused(f"new App file, {code(near)} source lines ({code(near)} not moved)")
+                self.assertEqual([h.bucket for h in found], [f"new:{APP}/Quit/Quit{copy}.swift"])
+
+    def test_the_growth_summary_names_a_feature_file_s_new_lines_beside_a_move_into_it(self):
+        # TextBoxView takes 84 lines out of AppDelegate, deletes one of its own functions (its `return 0` and two
+        # `}` match the moved block's) and adds 3 new lines: those 3 are its growth, and the summary names them.
+        lines = swift_body(200, "delegate").splitlines(keepends=True)
+        box = swift_body(120, "textBox").splitlines(keepends=True)
+        fresh = "".join(f"    let textBoxFresh{i} = {i}\n" for i in range(3))
+        self.rebase_on({f"{APP}/Zoom/ZoomModel.swift": swift_body(40, "zoom")}, "a Zoom file")
+        self.write(f"{APP}/AppDelegate.swift", "".join(lines[:40] + lines[136:]))
+        self.write(f"{APP}/TextBox/TextBoxView.swift", "".join(box[8:] + lines[40:136]) + fresh)
+        self.append(f"{APP}/Zoom/ZoomModel.swift", swift_body(10, "zoomMore"))
+        self.commit("84 lines out of AppDelegate into TextBoxView, which drops a function and adds 3 lines")
+        grows = code(box[8:] + lines[40:136]) + 3 + code(swift_body(10, "zoomMore")) - code(box) - code(lines[40:136])
+        self.assertGreater(grows, 0)
+        # The 84 moved lines are root growth (lead decision (b) item 2), not feature growth: the root refuses.
+        self.assertEqual([h.bucket for h in self.hits()], ["root"])
+        text = "\n".join(self.growth())
+        self.assertIn(f"App outside the root grows +{grows} source lines", text)
+        self.assertIn("TextBox/TextBoxView.swift +3 new", text)
+
+    def test_a_file_s_own_re_indented_braces_beside_a_move_out_of_the_root_are_not_moved(self):
+        # AppDelegate moves 10 lines into TextBoxView, re-indents 20 of its own statements and adds 25 wiring lines;
+        # TextBoxView wraps its own 20 statements and the moved lines in `Task { @MainActor in ... }`. Each file's
+        # re-added `}` lines are its own: none moved out of the root, and none is new. The 10 moved lines count
+        # against the root's budget (lead decision (b) item 2): root +25 - 10 + 2 * 10 = +35, exactly; each `}`
+        # wrongly taken as moved out of the root would add 2.
+        def statements(tag, indent):
+            pad = " " * indent
+            return "".join(f"{pad}if {tag}Ready{i} {{\n{pad}    {tag}Start{i}()\n{pad}}}\n" for i in range(20))
+        moved = "".join(f"        let delegateMoved{i} = delegateMove({i})\n" for i in range(10))
+        wire = "".join(f"        let delegateWire{i} = DelegateWire({i})\n" for i in range(25))
+        self.rebase_on({
+            f"{APP}/AppDelegate.swift": "final class AppDelegate {\n    func launch() {\n" + moved
+                                        + statements("delegate", 8) + "    }\n}\n",
+            f"{APP}/TextBox/TextBoxView.swift": "final class TextBoxView {\n    func reload() {\n"
+                                                + statements("textBox", 8) + "    }\n}\n",
+        }, "a launch and a reload")
+        self.write(f"{APP}/AppDelegate.swift", "final class AppDelegate {\n    func launch() {\n"
+                   + statements("delegate", 12) + wire + "    }\n}\n")
+        self.write(f"{APP}/TextBox/TextBoxView.swift", "final class TextBoxView {\n    func reload() {\n"
+                   "        Task { @MainActor in\n" + "".join("    " + line for line in moved.splitlines(keepends=True))
+                   + statements("textBox", 12) + "        }\n    }\n}\n")
+        self.commit("10 lines out of AppDelegate, both files re-indent their own statements, 25 wiring lines")
+        found = self.assertRefused("the composition root grows +35 source lines",
+                                   "10 moved from the root into other App files count too")
+        self.assertEqual([(h.bucket, h.excess) for h in found], [("root", 35 - guardrails.ROOT_BUDGET)])
+        text = "\n".join(self.growth())
+        for needle in ("App outside the root grows +2 source lines", "CmuxNextApp grows +27 source lines",
+                       "AppDelegate.swift +25 added, TextBox/TextBoxView.swift +2 new"):
+            self.assertIn(needle, text)
+
+    def test_a_new_wrapper_around_a_block_moved_out_of_the_root_is_not_moved(self):
+        # The block moved out of AppDelegate goes into a new `extension TextBoxView { ... }`. The wrapper's `}`
+        # closes no opener of the block, so it is new feature code, not a line moved out of the root, even when the
+        # root re-adds braces (a re-indented function of its own) that could pay for it: the wiring count is exact.
+        # The 84 moved lines count against the root's budget (lead decision (b) item 2): root = wiring + 84, and
+        # the wrapper's `}` wrongly taken as moved out of the root would make it wiring + 86.
+        lines = swift_body(200, "delegate").splitlines(keepends=True)
+        moved = code(lines[40:136])
+        own = ["  " + line if line.strip() else line for line in lines[:8]]
+        block = "extension TextBoxView {\n" + "".join(lines[40:136]) + "}\n"
+        for wire in (swift_body(34, "wire"), swift_body(35, "wire")):
+            with self.subTest(wiring=code(wire)):
+                self.reset()
+                self.write(f"{APP}/AppDelegate.swift", "".join(own + lines[8:40] + lines[136:]) + wire)
+                self.append(f"{APP}/TextBox/TextBoxView.swift", block)
+                self.write(f"{APP}/Quit/QuitCoordinator.swift", "".join(self.quit[:200]))
+                self.commit(f"84 lines out of AppDelegate into a new extension, {code(wire)} new wiring lines")
+                found = self.assertRefused(f"the composition root grows +{code(wire) + moved} source lines")
+                self.assertEqual([(h.bucket, h.excess) for h in found],
+                                 [("root", code(wire) + moved - guardrails.ROOT_BUDGET)])
+
+    def test_the_growth_summary_counts_a_file_s_own_re_added_lines_whatever_the_root_removed(self):
+        # TextBoxView's `}` and `return 0` lines that its own removed lines explain are not new, whether or not the
+        # root also removes such lines in the push (AppDelegate deletes a function: its braces join the lines the
+        # root lost). Once in a re-indented function, once after new code that ends a run too short to credit.
+        box = swift_body(120, "textBox").splitlines(keepends=True)
+        delegate = swift_body(200, "delegate").splitlines(keepends=True)
+        reindented = "".join(["  " + line if line.strip() else line for line in box[:8]] + box[8:])
+        fresh = "".join(f"    let textBoxFresh{i} = {i}\n" for i in range(3))
+        after_new = ("    func textBoxFresh() -> Int {\n        textBoxRun()\n        return 0\n    }\n"
+                     + "".join(f"    let textBoxFresh{i} = {i}\n" for i in range(6)))
+        for name, text, new in (("re-indented", reindented + fresh, 3),
+                                ("own function replaced", "".join(box[8:]) + after_new, 8)):
+            for root_edit in (False, True):
+                with self.subTest(name, root_edit=root_edit):
+                    self.reset()
+                    self.write(f"{APP}/TextBox/TextBoxView.swift", text)
+                    if root_edit:
+                        self.write(f"{APP}/AppDelegate.swift", "".join(delegate[8:]))
+                    self.commit(f"TextBoxView: {name}; AppDelegate deletes a function: {root_edit}")
+                    self.assertWarned("App outside the root grows +3 source lines",
+                                      f"TextBox/TextBoxView.swift +{new} new")
+
+    def test_a_new_type_in_an_existing_app_file_is_refused_like_a_new_file(self):
+        # Lead decision (b): appending a new type to an existing file must not pass where its own new file would not.
+        view = f"{APP}/TextBox/TextBoxView.swift"
+        thing = swift_type("NewThingView", 40, head="@MainActor\n")
+        self.append(view, "\n" + thing)
+        self.commit("a new 40-line type appended to an existing App file")
+        found = self.assertRefused("new type NewThingView in an existing App file", "its own file",
+                                   "// app-type-allow:")
+        self.assertEqual([h.bucket for h in found], [f"new:{view}:NewThingView"])
+        self.assertEqual(found[0].number, 122, "points at the declaration line")
+        for name, text in (("an actor", swift_type("Loader", 20, kind="actor")),
+                           ("a public final class", swift_type("Store", 20, kind="class", head="public final ")),
+                           ("an enum", swift_type("Mode", 20, kind="enum")),
+                           ("a protocol", "protocol Saving {\n    func save()\n}\n"),
+                           ("a private type over 15 lines", swift_type("Helper", 20, head="private "))):
+            with self.subTest(refused=name):
+                self.reset()
+                self.append(view, text)
+                self.commit(name)
+                self.assertTrue([h for h in self.hits() if h.bucket.startswith(f"new:{view}:")], name)
+
+    def test_a_new_type_in_an_existing_file_passes_when_it_is_moved_small_private_an_extension_or_escaped(self):
+        view = f"{APP}/TextBox/TextBoxView.swift"
+        quit_type = swift_type("QuitSteps", 40)
+        self.rebase_on({f"{APP}/Quit/QuitSteps.swift": quit_type,
+                        f"{KIT}/KitModel.swift": swift_type("KitModel", 40),
+                        f"{APP}/TextBox/TextBoxStyle.swift": "struct TextBoxStyle {\n    let size = 1\n}\n"},
+                       "types to move")
+        cases = {
+            "a type moved in from another App file": ({f"{APP}/Quit/QuitSteps.swift": None}, quit_type),
+            "a type moved in from a package": ({f"{KIT}/KitModel.swift": None}, swift_type("KitModel", 40)),
+            "a private helper of 15 source lines": ({}, swift_type("Row", 16, head="private ")),
+            "a fileprivate helper of 15 source lines": ({}, swift_type("Cell", 16, head="fileprivate ")),
+            "an extension": ({}, "extension TextBoxStyle {\n" + swift_body(30, "ext") + "}\n"),
+            "an escaped type": ({}, "// app-type-allow: the view's preview needs the private type\n"
+                                + swift_type("Preview", 30, head="@MainActor\n")),
+            "a type declared in a multi-line string": ({}, 'let template = """\n}\nstruct Fake {\n"""\n'),
+        }
+        self.assertEqual(code(swift_type("Row", 16)), 15)
+        for name, (deleted, text) in cases.items():
+            with self.subTest(passes=name):
+                self.reset()
+                for path in deleted:
+                    (self.repo / path).unlink()
+                self.append(view, text)
+                self.commit(name)
+                self.assertEqual([h.text for h in self.hits() if h.bucket.startswith(f"new:{view}")], [], name)
+        self.reset()
+        self.write(f"{APP}/Quit/QuitCoordinator.swift", "".join(self.quit) + quit_type)
+        self.commit("setup: QuitSteps also in an existing file")
+        self.base = self.git("rev-parse", "HEAD").stdout.strip()
+        self.write(f"{APP}/Quit/QuitCoordinator.swift", "".join(self.quit))
+        self.append(view, quit_type)
+        self.commit("a type moved between two existing App files")
+        self.assertEqual([h.text for h in self.hits()], [], "a move between existing files is a move")
+        self.reset()
+        nested = "struct TextBoxLayout {\n" + "".join("    " + line if line.strip() else line
+                                                     for line in swift_type("Metrics", 30).splitlines(True)) + "}\n"
+        self.rebase_on({f"{APP}/TextBox/TextBoxLayout.swift": nested}, "a nested type")
+        self.write(f"{APP}/TextBox/TextBoxLayout.swift", "struct TextBoxLayout {\n}\n" + swift_type("Metrics", 30))
+        self.commit("a nested type lifted to the top level of its file")
+        self.assertEqual([h.text for h in self.hits()], [], "a lifted nested type is a move")
+        self.reset()
+        self.write(f"{APP}/TextBox/TextBoxStyle.swift", "struct TextBoxStyle: Equatable {\n    let size = 1\n}\n")
+        self.commit("an old type's declaration line gains a conformance")
+        self.assertPasses("an edited declaration of a type the file already had is not a new type")
+        self.reset()
+        self.write(f"{APP}/TextBox/TextBoxStyle.swift", "struct TextBoxLook {\n    let size = 1\n}\n")
+        self.commit("an old type renamed in place")
+        self.assertEqual([h.text for h in self.hits()], [], "a rename in place adds no new code")
+
+    def test_root_lines_moved_into_other_app_files_count_against_the_root_budget(self):
+        # Lead decision (b), item 2: wiring that leaves the root for another App file still grows the App's wiring
+        # (P1: objects are built in the composition root); only a move into a package is the wanted direction.
+        services = swift_body(200, "services").splitlines(keepends=True)
+        moved = services[40:64]  # 21 source lines of existing root code
+        self.assertEqual(code(moved), 21)
+        # New wiring with no generic line (`}`, `return 0`): the root's own removed generic lines then all stay
+        # available to the moved block, so this test checks the rule, not the cross-root run count.
+        wire = "".join(f"    let wire{i} = makeWire({i})\n" for i in range(11))
+        kept = "".join(services[:40] + services[64:])
+        self.write(f"{APP}/AppServices.swift", kept + wire)
+        self.write(f"{APP}/Workspace/WorkspaceWiring.swift", "extension AppServices {\n" + "".join(moved) + "}\n")
+        self.commit("21 root lines moved into a feature file, 11 new root lines")
+        found = self.assertRefused("the composition root grows +32 source lines",
+                                   "21 moved from the root into other App files", "budget of +30")
+        self.assertEqual([(h.bucket, h.excess) for h in found if h.bucket == "root"], [("root", 2)])
+        self.reset()
+        self.write(f"{APP}/AppServices.swift", kept + wire)
+        self.append(f"{APP}/TextBox/TextBoxView.swift", "".join(moved))
+        self.commit("the same lines appended to an existing feature file")
+        self.assertEqual([(h.bucket, h.excess) for h in self.hits() if h.bucket == "root"], [("root", 2)])
+        self.reset()
+        self.write(f"{APP}/AppServices.swift", kept + wire)
+        self.write(f"{KIT}/Workspace/WorkspaceWiring.swift", "".join(moved))
+        self.commit("control: the same lines moved into a package")
+        self.assertEqual([h.text for h in self.hits()], [], "a move from the root into a package stays exempt")
+
+    def test_new_wiring_split_between_the_root_and_a_feature_file_is_not_a_move_out_of_the_root(self):
+        # Case 2 of the review: 41 new wiring lines, 29 in the root and 12 in a feature file. None of them was in
+        # the root, so nothing moved out of it: the feature file's +12 is App growth (a warning, as agreed), and
+        # the root is within its budget. Lead (2026-10-23): no lines out of the root is not an evasion; it passes.
+        wire = swift_body(33, "wire")
+        self.assertEqual(code(wire), 29)
+        self.append(f"{APP}/AppServices.swift", wire)
+        self.write(f"{APP}/Workspace/WorkspaceWiring.swift", "extension AppServices {\n" + swift_body(11, "split") + "}\n")
+        self.write(f"{APP}/Quit/QuitCoordinator.swift", "".join(self.quit[:250]))  # an unrelated deletion
+        self.commit("29 new root lines and 12 new lines in an AppServices extension in a feature folder")
+        found = self.hits()
+        self.assertEqual([h.bucket for h in found if h.bucket == "root"], [], "no root refusal")
+        self.reset()
+        self.append(f"{APP}/AppServices.swift", wire)
+        self.append(f"{APP}/TextBox/TextBoxView.swift", swift_body(13, "split"))
+        self.commit("the same 12 lines in an existing feature file")
+        self.assertWarned("outside the root grows +12 source lines")
+
+    def test_one_host_conformance_file_of_forwards_per_push(self):
+        self.write(f"{APP}/AppServices+FooHost.swift", host_file(25))
+        self.commit("a 25-line Host conformance, unpaid")
+        self.assertWarned(f"CmuxNextApp grows +{code(host_file(25))} source lines")
+        self.reset()
+        self.assertEqual(code(host_file(31)), guardrails.HOST_FILE_MAX)
+        self.write(f"{APP}/AppServices+FooHost.swift", host_file(31))
+        self.shrink_quit()
+        self.commit("a 30-source-line Host conformance for Quit code moved to its package")
+        self.assertPasses()
+        logic = "import CmuxNextFoo\n\n@MainActor\nextension AppServices: FooHost {}\n" + swift_body(24, "logic")
+        nested = "import CmuxNextFoo\n\nextension AppServices: FooHost {\n" + swift_body(20, "logic") + "}\n"
+        lines = host_file(25).splitlines(keepends=True)
+
+        def member(text):
+            """host_file(25) with TEXT as its first member: the Host file a dodge would write."""
+            return "".join(lines[:4] + [f"    {text}\n"] + lines[4:])
+        for text, needle in ((host_file(25, declare=False), "is outside `extension AppServices: <Domain>Host"),
+                             (host_file(32), "at most 30 source lines"),
+                             (logic, "holds only one-line forwards: line 5"),
+                             (nested, "is not a one-line forward"),
+                             (member("static var cache: [String: Int] = [:]"), "line 5 (`static var cache"),
+                             (member("private static let table = makeTable()"), "stores state"),
+                             (member("class var counter = 0"), "stores state"),
+                             (member("var pending: [Int]"), "stores state"),
+                             (member("init(foo: Foo) { self.init() }"), "is not a one-line forward")):
+            with self.subTest(needle=needle):
+                self.reset()
+                self.write(f"{APP}/AppServices+FooHost.swift", text)
+                self.shrink_quit(0)
+                self.commit("a host file")
+                found = self.assertRefused(needle)
+                self.assertEqual([h.bucket for h in found if h.bucket.startswith("new:")],
+                                 [f"new:{APP}/AppServices+FooHost.swift"])
+        self.reset()
+        self.write(f"{APP}/AppServices+FooHost.swift", member("var fooState: FooState { foo.state }"))
+        self.shrink_quit()
+        self.commit("a computed var forward")
+        self.assertPasses("a computed var whose body is one brace pair is a forward")
+        self.reset()
+        domains = [f"Domain{chr(65 + i)}" for i in range(10)]
+        for domain in domains:
+            self.write(f"{APP}/AppServices+{domain}Host.swift", host_file(30, domain))
+        self.commit("ten 30-line host files")
+        found = self.assertRefused("one new Host conformance file per push")
+        self.assertEqual(len([h for h in found if h.bucket.startswith("new:")]), 9)
+        self.assertIn(f"the composition root grows +{9 * code(host_file(30))} source lines",
+                      "\n".join(h.text for h in found))
+
+    def test_a_host_file_that_takes_feature_lines_gives_no_shrink_credit(self):
+        forwards = "".join(f"    func quitForward{i}() {{ quit.forward{i}() }}\n" for i in range(20))
+        self.rebase_on({f"{APP}/Quit/QuitForwards.swift": "extension QuitCoordinator {\n" + forwards + "}\n"},
+                       "Quit forwards")
+        self.write(f"{APP}/Quit/QuitForwards.swift", "extension QuitCoordinator {\n}\n")
+        self.write(f"{APP}/AppServices+QuitHost.swift",
+                   "import CmuxNextQuit\n\n@MainActor\nextension AppServices: QuitHost {\n" + forwards + "}\n")
+        self.append(f"{APP}/TextBox/TextBoxView.swift", swift_body(22, "fresh"))
+        self.assertEqual(code(swift_body(22, "fresh")), 20)
+        self.commit("20 feature lines into the Host file, 20 new feature lines")
+        found = self.assertWarned("outside the root grows +20 source lines")
+        self.assertEqual(len(found), 2, "the Host file itself is valid; the App grows by it")
+
+    def test_a_feature_file_renamed_into_the_root_is_refused(self):
+        self.git("mv", f"{APP}/Cloud/AppServices+Cloud.swift", f"{APP}/AppServices+Cloud.swift")
+        self.commit("feature code becomes a root file")
+        self.assertRefused("a new root file is split from the root files")
+
+    def test_generic_lines_do_not_count_as_moves(self):
+        self.write(f"{APP}/Quit/QuitCoordinator.swift", "".join(self.quit[:100]))
+        self.append(f"{APP}/AppDelegate.swift", swift_body(60, "fresh"))
+        self.commit("200 dead lines deleted, 60 new root lines (a third braces and return 0)")
+        self.assertRefused(f"the composition root grows +{code(swift_body(60, 'fresh'))} source lines")
+        self.reset()
+        lines = swift_body(200, "delegate").splitlines(keepends=True)
+        self.write(f"{APP}/AppDelegate.swift", "".join(lines[:100]))
+        self.append(f"{APP}/TextBox/TextBoxView.swift", swift_body(100, "fresh"))
+        self.commit("the root shrinks by 100, a feature file gets 100 new lines")
+        self.assertWarned(f"outside the root grows +{code(swift_body(100, 'fresh'))} source lines")
+
+    def test_a_long_numeric_line_in_a_move_is_judged_in_linear_time(self):
+        line = "    [" + "1" * 40 + ", quitX],"
+        started = time.monotonic()
+        self.assertFalse(guardrails.is_generic(line.strip()))
+        self.assertTrue(guardrails.is_generic("[" + "1" * 40 + "]"))
+        self.assertLess(time.monotonic() - started, 1.0, "a nested-repeat regex takes 2^40 steps here")
+        self.rebase_on({f"{APP}/Quit/QuitTable.swift": "let quitTable = [\n" + line + "\n" + swift_body(20, "table")
+                        + "]\n"}, "a table")
+        (self.repo / APP / "Shutdown").mkdir()
+        self.git("mv", f"{APP}/Quit/QuitTable.swift", f"{APP}/Shutdown/QuitTable.swift")
+        self.commit("move the table")
+        self.assertPasses()
+
+    def test_feature_growth_paid_by_a_feature_deletion_passes_and_warns_when_a_root_shrink_pays(self):
+        self.shrink_quit(290)
+        self.append(f"{APP}/TextBox/TextBoxView.swift", swift_body(5, "added"))
+        self.commit("trade")
+        self.assertPasses()
+        self.reset()
+        self.write(f"{APP}/AppDelegate.swift", swift_body(100, "delegate"))
+        self.append(f"{APP}/TextBox/TextBoxView.swift", swift_body(5, "added"))
+        self.commit("the root pays")
+        found = self.assertWarned("outside the root grows +5 source lines")
+        self.assertEqual(len(found), 1, "the App as a whole shrank")
+
+    def test_source_lines_count_as_ci_counts_them_and_only_app_swift_files(self):
+        self.append(f"{APP}/TextBox/TextBoxView.swift", "// a comment\n\n/*\nlet commented = 1\n*/\nlet last = 1")
+        self.commit("one source line among comments and a blank")
+        self.assertWarned("outside the root grows +1 source lines (+13 bytes)")
+        self.reset()
+        self.write(f"{APP}/Resources/Strings.xcstrings", "{\n" * 400)
+        self.write(f"{KIT}/New.swift", swift_body(300, "kit"))
+        self.commit("strings and a package file")
+        self.assertPasses()
+
+    def test_comment_and_blank_lines_are_neither_growth_nor_credit(self):
+        lines = swift_body(120, "textBox").splitlines(keepends=True)
+        lines.insert(1, "        // main-proof: an AppKit callback on the main thread\n\n")
+        self.write(f"{APP}/TextBox/TextBoxView.swift", "".join(lines))
+        self.append(f"{APP}/AppServices.swift", "/// The services every window shares.\n///\n/// More.\n")
+        self.commit("comments and blank lines only")
+        self.assertPasses("a `// main-proof:` reason is not growth")
+        self.reset()
+        blanks = len(self.quit) - code(self.quit)
+        self.write(f"{APP}/Quit/QuitCoordinator.swift", "".join(line for line in self.quit if line.strip()))
+        self.append(f"{APP}/TextBox/TextBoxView.swift", swift_body(42, "fresh"))
+        self.assertEqual(code(swift_body(42, "fresh")), blanks)
+        self.commit("blank lines deleted pay for nothing")
+        self.assertWarned(f"outside the root grows +{blanks} source lines")
+
+    def test_a_merge_counts_only_the_branch_s_own_growth(self):
+        self.git("checkout", "--quiet", "-b", "topic")
+        self.write(f"{KIT}/Topic.swift", "struct Topic {}\n")
+        self.commit("topic work")
+        pushed = self.git("rev-parse", "HEAD").stdout.strip()
+        self.git("checkout", "--quiet", "feat-cmux-next")
+        self.append(f"{APP}/TextBox/TextBoxView.swift", swift_body(50, "landed"))
+        self.commit("App growth that landed past the guardrails")
+        self.git("checkout", "--quiet", "topic")
+        self.git("merge", "--quiet", "--no-edit", "feat-cmux-next")
+        self.assertWarned(f"grows +{code(swift_body(50, 'landed'))} source lines",
+                          args=(guardrails.check, pushed, "HEAD"))
+        self.assertEqual(self.growth(guardrails.check_push, pushed, "HEAD", "feat-cmux-next"), [], "merged")
+        self.append(f"{APP}/Quit/QuitCoordinator.swift", swift_body(5, "own"))
+        self.commit("the branch's own growth")
+        found = self.assertWarned("outside the root grows +5 source lines", "CmuxNextApp grows +5 source lines",
+                                  args=(guardrails.check_push, pushed, "HEAD", "feat-cmux-next"))
+        self.assertEqual(len(found), 2, found)
+        # A root refusal in a merge counts only the branch's own excess, as before.
+        self.append(f"{APP}/AppDelegate.swift", swift_body(40, "ownWire"))
+        self.commit("the branch's own root wiring")
+        found = self.assertRefused(f"the composition root grows +{code(swift_body(40, 'ownWire'))} source lines",
+                                   args=(guardrails.check_push, pushed, "HEAD", "feat-cmux-next"))
+        self.assertEqual([(h.bucket, h.excess) for h in found],
+                         [("root", code(swift_body(40, "ownWire")) - guardrails.ROOT_BUDGET)])
+
+    def test_the_guardrails_skip_reason_names_the_rule(self):
+        self.append(f"{APP}/AppDelegate.swift", swift_body(35, "wire"))
+        self.shrink_quit(0)
+        self.commit("31 root lines")
+        refusals, _ = self.check()
+        text, refused = self.report("app-size: generated wiring, reviewed", refusals)
+        self.assertFalse(refused, text)
+        self.assertIn("SKIPPED", text)
+        text, refused = self.report("app-sise: typo", refusals)
+        self.assertTrue(refused, text)
+        self.assertIn("names no rule app-sise", text)
+
+
+class WarningTests(Fixture):
+    def test_changing_a_perf_hot_function_names_its_bench(self):
+        self.write(f"{KIT}/Router.swift", HOT.replace("count += key", "count += key * 2"))
+        self.commit("changes the hot path")
+        refusals, warnings = self.check()
+        self.assertEqual(refusals, [])
+        hot = [w for kind, w in warnings if kind == "perf-hot"]
+        self.assertEqual(len(hot), 1, warnings)
+        self.assertIn("bench-typing.py", hot[0])
+        self.assertIn("2ms", hot[0])
+
+    def test_changing_a_cold_function_does_not_warn(self):
+        self.write(f"{KIT}/Router.swift", HOT.replace("count = 0\n    }\n}", "count = -1\n    }\n}"))
+        self.commit("changes the cold path")
+        _, warnings = self.check()
+        self.assertEqual([w for kind, w in warnings if kind == "perf-hot"], [])
+
+    def test_removing_a_perf_hot_marker_warns(self):
+        self.write(f"{KIT}/Router.swift", HOT.replace(" // perf-hot: 2ms key-dispatch", ""))
+        self.commit("drops the marker")
+        _, warnings = self.check()
+        self.assertTrue(any("removes a perf-hot marker" in w for _, w in warnings), warnings)
+
+    def test_editing_a_marked_declaration_line_keeps_its_marker_without_a_warning(self):
+        self.write(f"{KIT}/Router.swift", HOT.replace("func dispatch(_ key: Int) {", "func dispatch(_ key: Int, again: Bool = false) {"))
+        self.commit("adds a parameter to the hot function")
+        _, warnings = self.check()
+        self.assertFalse(any("removes a perf-hot marker" in w for _, w in warnings), warnings)
+        self.assertTrue(any(kind == "perf-hot" for kind, _ in warnings), warnings)
+
+    def test_touching_an_owned_area_names_the_owner_and_doc(self):
+        self.write(f"{KIT}/Sidebar/Row.swift", "struct R {}\n")
+        self.commit("sidebar row")
+        refusals, warnings = self.check()
+        self.assertEqual(refusals, [])
+        owners = [w for kind, w in warnings if kind == "owner"]
+        self.assertEqual(len(owners), 1, warnings)
+        self.assertIn("a590", owners[0])
+        self.assertIn("plans/cmux-next/sidebar-owner.md", owners[0])
+
+    def test_a_typical_push_runs_git_a_fixed_number_of_times(self):
+        # The cost that grows with a push is git process starts, so count them instead of timing a busy runner:
+        # one diff, one name list and one batched blob read, however many files the push changes.
+        for n in range(5):
+            self.write(f"{KIT}/F{n}.swift", "import Foundation\n" + "func f() { print(1) }\n" * 300)
+        self.commit("five files")
+        calls = []
+
+        def run(args, *rest, **kwargs):
+            calls.append(args)
+            return subprocess.run(args, *rest, **kwargs)
+
+        def popen(args, *rest, **kwargs):
+            calls.append(args)
+            return subprocess.Popen(args, *rest, **kwargs)
+
+        # A stand-in for the module guardrails.py imported, so subprocess's own internals are not counted.
+        guardrails.subprocess = types.SimpleNamespace(run=run, Popen=popen, PIPE=subprocess.PIPE,
+                                                      DEVNULL=subprocess.DEVNULL)
+        try:
+            refusals, _ = self.check()
+        finally:
+            guardrails.subprocess = subprocess
+        self.assertEqual(refusals, [])
+        self.assertEqual(len(calls), 3, calls)
+
+
+class HookTests(Fixture):
+    """The installed pre-push hook runs the guardrails; CI (GITHUB_ACTIONS, --commits) never does."""
+
+    def setUp(self):
+        super().setUp()
+        tracked = subprocess.run(["git", "-C", str(SOURCE), "ls-files", "--cached", "--others", "--exclude-standard",
+                                  "scripts/cmux-next"], text=True, capture_output=True, check=True).stdout.split()
+        checks = [p for p in tracked if "/" not in p[len("scripts/cmux-next/"):]
+                  or p.startswith(("scripts/cmux-next/lint/", "scripts/cmux-next/arch_rules/"))]
+        for relative in ("scripts/git-hooks", "scripts/install-git-hooks.sh", "scripts/web_lint_prepush.py",
+                         "scripts/ci/base_merge_warning.py", "scripts/web-lint.sh", "scripts/merge-xcstrings.py",
+                         "scripts/merge-pbxproj.py", "scripts/merge-baseline.py", "scripts/merge-daemon-capabilities.py",
+                         "scripts/ci/merge_main_resolver.py", "scripts/ci/validate_test_execution_registry.py",
+                         "scripts/ci/test_execution_registry.py", "scripts/ci/workload_entrypoints.py",
+                         "scripts/normalize-pbxproj.py", *checks):
+            source, target = SOURCE / relative, self.repo / relative
+            if not source.exists() or target.exists():
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if source.is_dir():
+                shutil.copytree(source, target)
+            else:
+                shutil.copyfile(source, target)
+                shutil.copymode(source, target)
+        self.commit("scripts")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        self.install()
+        self.write(f"{KIT}/Added.swift", "func added() {\n    DispatchQueue.main.async { print(1) }\n}\n")
+        self.commit("adds a main hop")
+
+    def install(self):
+        installed = subprocess.run(["bash", "scripts/install-git-hooks.sh"], cwd=self.repo, env=self.env, text=True,
+                                   capture_output=True)
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+
+    def push(self, *args, **env):
+        return subprocess.run(["git", "-C", str(self.repo), "push", "origin", *(args or ("feat-cmux-next",))],
+                              env={**self.env, **env}, text=True, capture_output=True)
+
+    def test_debt_landed_on_feat_cmux_next_does_not_block_a_branch_merged_with_or_rebased_onto_it(self):
+        other = {"CMUX_NEXT_CHECKS_SKIP_REASON": "fixture: other checks"}
+        self.git("checkout", "--quiet", "-b", "topic", "HEAD~1")
+        self.write(f"{KIT}/Topic.swift", "struct Topic {}\n")
+        self.commit("topic work")
+        first = self.push("topic", **other)
+        self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+        before = self.git("rev-parse", "HEAD").stdout.strip()
+        # The main-hop commit lands on feat-cmux-next past the guardrails (a skip reason, a clone without hooks).
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        self.git("merge", "--quiet", "--no-edit", "--no-verify", "origin/feat-cmux-next")
+        merged = self.push("topic", **other)
+        output = merged.stdout + merged.stderr
+        self.assertEqual(merged.returncode, 0, output)
+        self.assertNotIn("[main-async]", output)
+        self.git("reset", "--quiet", "--hard", before)
+        self.git("rebase", "--quiet", "origin/feat-cmux-next")
+        rebased = self.push("--force", "topic", **other)
+        output = rebased.stdout + rebased.stderr
+        self.assertEqual(rebased.returncode, 0, output)
+        self.assertNotIn("[main-async]", output)
+        self.write(f"{KIT}/Own.swift", "func own() {\n    DispatchQueue.main.async { print(2) }\n}\n")
+        self.commit("the branch's own main hop")
+        own = self.push("topic", **other)
+        output = own.stdout + own.stderr
+        self.assertNotEqual(own.returncode, 0, output)
+        self.assertIn("Own.swift", output)
+        self.assertNotIn("Added.swift", output)
+
+    def test_hook_refuses_a_new_main_hop_even_with_the_checks_skip_reason(self):
+        result = self.push(CMUX_NEXT_CHECKS_SKIP_REASON="fixture: other checks")
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn("[main-async]", output)
+        self.assertIn("Added.swift", output)
+        self.assertNotIn("Old.swift", output, "base debt must not be reported")
+
+    def test_hook_lets_the_push_through_with_the_guardrails_skip_reason(self):
+        result = self.push(CMUX_NEXT_CHECKS_SKIP_REASON="fixture: other checks",
+                           CMUX_GUARDRAILS_SKIP_REASON="main-async: fixture")
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertIn("SKIPPED by CMUX_GUARDRAILS_SKIP_REASON", output)
+
+    def test_hook_refuses_app_growth_and_its_skip_reason_lets_it_through(self):
+        self.git("reset", "--quiet", "--hard", "HEAD~1")  # without setUp's main hop
+        self.write(f"{APP}/Feature/Thing.swift", swift_body(12, "thing"))
+        self.commit("a new App file")
+        other = {"CMUX_NEXT_CHECKS_SKIP_REASON": "fixture: other checks"}
+        refused = self.push(**other)
+        output = refused.stdout + refused.stderr
+        self.assertNotEqual(refused.returncode, 0, output)
+        self.assertIn("[app-size]", output)
+        self.assertIn("Feature/Thing.swift", output)
+        skipped = self.push(**other, CMUX_GUARDRAILS_SKIP_REASON="app-size: fixture")
+        output = skipped.stdout + skipped.stderr
+        self.assertEqual(skipped.returncode, 0, output)
+        self.assertIn("SKIPPED by CMUX_GUARDRAILS_SKIP_REASON", output)
+    def test_hook_refuses_a_new_stateful_singleton_through_the_arch_ratchet_and_no_skip_reason_skips_it(self):
+        self.write(f"{KIT}/Cache.swift", "final class Cache {\n    var hits = 0\n    static let shared = Cache()\n}\n")
+        self.commit("adds a stateful singleton")
+        result = self.push(CMUX_NEXT_CHECKS_SKIP_REASON="fixture: other checks",
+                           CMUX_GUARDRAILS_SKIP_REASON="main-async: fixture")
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn("[stateful_singletons]", output)
+        self.assertIn("Cache.swift:3", output)
+        self.assertIn('"row": "stateful_singletons"', output, "the refusal names its one escape, a dated exception")
+
+    def test_an_installed_arch_rule_module_refuses_the_push(self):
+        # The installer copies arch_rules/ next to the trusted arch-ratchet.py; a module it left out would never run.
+        self.write("scripts/cmux-next/arch_rules/fixture_refuse.py",
+                   "def check(base, head, changes):\n"
+                   "    return [('fixture_refuse', 'arch rule fixture_refuse: refused this push')], []\n")
+        self.commit("adds an arch rule module")
+        self.install()
+        installed = self.repo / ".git" / "cmux-git-hooks" / "cmux-next-checks" / "arch_rules"
+        self.assertTrue((installed / "fixture_refuse.py").is_file(), sorted(p.name for p in installed.glob("*")))
+        self.assertTrue((installed / "__init__.py").is_file())
+        result = self.push(CMUX_NEXT_CHECKS_SKIP_REASON="fixture: other checks",
+                           CMUX_GUARDRAILS_SKIP_REASON="main-async: fixture")
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn("arch rule fixture_refuse: refused this push", output)
+        self.assertNotIn("arch rules directory", output)
+
+    def test_a_broken_guardrails_script_warns_and_lets_the_push_through(self):
+        installed = self.repo / ".git" / "cmux-git-hooks" / "cmux-next-checks"
+        self.assertTrue(installed.is_symlink(), "the installer swaps a link, so the checks are never missing")
+        (installed / "guardrails.py").write_text("def check(repo, base, head):\n    raise ValueError('boom')\n")
+        result = self.push(CMUX_NEXT_CHECKS_SKIP_REASON="fixture: other checks")
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertIn("guardrails.py failed (ValueError: boom)", output)
+
+    def test_a_second_install_keeps_the_checks_in_place(self):
+        before = (self.repo / ".git" / "cmux-git-hooks" / "cmux-next-checks").resolve()
+        again = subprocess.run(["bash", "scripts/install-git-hooks.sh"], cwd=self.repo, env=self.env, text=True,
+                               capture_output=True)
+        self.assertEqual(again.returncode, 0, again.stderr)
+        link = self.repo / ".git" / "cmux-git-hooks" / "cmux-next-checks"
+        self.assertTrue(link.is_symlink())
+        self.assertNotEqual(link.resolve(), before, "each install writes a new copy")
+        self.assertTrue((link / "guardrails.py").is_file())
+        self.assertTrue((before / "guardrails.py").is_file(), "the replaced copy stays for a push already running")
+
+    def test_ci_runs_never_apply_the_guardrails(self):
+        gate = self.repo / "scripts/cmux-next/prepush-gate.py"
+        local = subprocess.run([sys.executable, "-I", str(gate), "--base", self.base, "--head", "HEAD"],
+                               cwd=self.repo, env=self.env, text=True, capture_output=True)
+        self.assertIn("[main-async]", local.stdout + local.stderr, "a local run applies them (control)")
+        for args, env in (([], {"GITHUB_ACTIONS": "true"}), (["--commits", f"{self.base}..HEAD"], {})):
+            with self.subTest(args=args, env=env):
+                result = subprocess.run([sys.executable, "-I", str(gate), "--base", self.base, "--head", "HEAD", *args]
+                                        if not args else [sys.executable, "-I", str(gate), *args],
+                                        cwd=self.repo, env={**self.env, **env}, text=True, capture_output=True)
+                self.assertNotIn("guardrails", result.stdout + result.stderr)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -433,6 +433,12 @@ public final class MessagesLabHomeView: NSView {
         get { projection.onAttachmentPasteboard }
         set { projection.onAttachmentPasteboard = newValue }
     }
+    /// The words a paste the intake took carries beside its attachments (nil: none): the
+    /// field inserts them at the caret.
+    public var attachmentPasteText: (NSPasteboard) -> String? {
+        get { projection.onAttachmentPasteText }
+        set { projection.onAttachmentPasteText = newValue }
+    }
     /// Whether a paste would be taken (types only).
     public var acceptsAttachmentDrag: (NSPasteboard) -> Bool {
         get { projection.acceptsAttachmentDrag }

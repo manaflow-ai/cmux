@@ -498,10 +498,12 @@ test("a message addressed sender first is that agent's when it names this chat o
   const here = { isThisChat: (name: string) => name.toLowerCase() === "claude-sr2" };
   const sent =
     "summary-panel -> claude-sr2: Confirmed. On feat-cmux-next today, the overlay card is **as tall** as its content.";
+  // Relayed from another machine, so its files are that machine's (#24190).
   expect(incomingPrompt(sent, peer, here)).toEqual({
     kind: "message",
     message: {
       name: "summary-panel",
+      remote: true,
       text: "Confirmed. On feat-cmux-next today, the overlay card is **as tall** as its content.",
       raw: sent,
     },
@@ -513,11 +515,13 @@ test("a message addressed sender first is that agent's when it names this chat o
     "summary-panel→claude-sr2:\nDone.",
     "summary-panel  ->  Claude-SR2: Done.",
   ])
-    for (const client of ["acpmux-peer#01a161", "acpmux-cli#a1b2c3"])
+    for (const client of ["acpmux-peer#01a161", "acpmux-cli#a1b2c3"]) {
+      const remote = client.startsWith("acpmux-peer#") ? { remote: true as const } : {};
       expect(incomingPrompt(text, { client }, here)).toEqual({
         kind: "message",
-        message: { name: "summary-panel", text: "Done.", raw: text },
+        message: { name: "summary-panel", ...remote, text: "Done.", raw: text },
       });
+    }
   // To another chat, from a listed one.
   const listed = {
     isThisChat: (name: string) => name === "coordinator",

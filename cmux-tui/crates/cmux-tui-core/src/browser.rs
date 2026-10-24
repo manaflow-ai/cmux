@@ -40,12 +40,12 @@ mod worker;
 use runtime::runtime_endpoint;
 use runtime::{browser_geometry_locked, capture_scale_for, scaled_pixels};
 pub(crate) use runtime::{new_surface, new_surface_with_resource_identity};
-use worker::{is_cdp_timeout_error, start_browser_worker, start_surface_thread};
 #[cfg(test)]
 use worker::{
-    next_pointer_lifecycle_deadline, record_browser_worker_result,
+    clear_attention_if_page_changed, next_pointer_lifecycle_deadline, record_browser_worker_result,
     release_abandoned_pointer_presses, take_latest_worker_commands,
 };
+use worker::{is_cdp_timeout_error, start_browser_worker, start_surface_thread};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BrowserSource {

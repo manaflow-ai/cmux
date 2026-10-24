@@ -62,16 +62,8 @@ import Testing
         #expect(Self.code(failed) == "upload_failed")
     }
 
-    @Test func aFilePastThePeerLimitIsRefusedBeforeAnyIsSent() async {
-        let files = [AgentPaneUpload(name: "a.txt", data: Data("x".utf8)),
-                     AgentPaneUpload(name: "big.bin", data: Data(count: AgentPaneUpload.maximumPeerFileBytes + 1))]
-        var sent = 0
-        let reply = await AgentPeerUploads.upload(files, machine: "huge-blue") { _, _ in
-            sent += 1
-            return "/x"
-        }
-        #expect(sent == 0)
-        #expect(Self.code(reply) == "too_large")
+    @Test func peerTransportAllowsFilesLargerThanTheFormerFrameCap() {
+        #expect(AgentPaneUpload.maximumPeerFileBytes > 64 * 1024 * 1024)
     }
 
     private static func code(_ reply: [String: Any]) -> String? {

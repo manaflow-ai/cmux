@@ -1,7 +1,7 @@
 /* Thread minimap (ThreadMinimap.tsx), as the Codex desktop app's prompt rail; numbers from its 60 Hz
    recordings (minimap-ref SPEC, model.ts). Colors are the theme's tokens: in the dark reference
    theme a resting tick is the muted text at 40% (#3d3d3d on #161616), a current one the text at
-   60%, a hovered or focused one the text. Motion is transform only. */
+   75%, a hovered or focused one the text. Motion is transform, plus the band's opacity glide. */
 .acpmux-minimap {
   position: sticky;
   top: 0;
@@ -45,15 +45,22 @@
   height: 100%;
   overflow: hidden;
 }
-/* A rail longer than its room fades 2.5rem at an edge with more rows past it. */
+/* A rail longer than its room fades at an edge with more rows past it: 2.5rem, less in a short rail
+   (--acpmux-minimap-fade, model.ts railFade), and never over the prompts on screen (railFades). */
 .acpmux-minimap__list[data-fade-top] {
-  mask-image: linear-gradient(to bottom, transparent, #000 2.5rem);
+  mask-image: linear-gradient(to bottom, transparent, #000 var(--acpmux-minimap-fade, 2.5rem));
 }
 .acpmux-minimap__list[data-fade-bottom] {
-  mask-image: linear-gradient(to top, transparent, #000 2.5rem);
+  mask-image: linear-gradient(to top, transparent, #000 var(--acpmux-minimap-fade, 2.5rem));
 }
 .acpmux-minimap__list[data-fade-top][data-fade-bottom] {
-  mask-image: linear-gradient(to bottom, transparent, #000 2.5rem, #000 calc(100% - 2.5rem), transparent);
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--acpmux-minimap-fade, 2.5rem),
+    #000 calc(100% - var(--acpmux-minimap-fade, 2.5rem)),
+    transparent
+  );
 }
 .acpmux-minimap__tick {
   position: relative;
@@ -66,7 +73,8 @@
   border: 0;
   background: none;
   color: var(--acpmux-minimap-rest);
-  cursor: pointer;
+  /* The rail reads like a scrollbar: it remains usable without turning the pointer into a hand. */
+  cursor: default;
   outline: none;
   contain: layout paint;
 }
@@ -115,18 +123,32 @@
     transition: none;
   }
 }
-/* Prompts on screen: the text at 60%; back to rest while the pointer is on the rail. */
+/* The band moving with the scroll: a row coming on screen brightens, and one leaving dims, over
+   the micro step, so the lit band glides down the rail as a wave instead of flicking row by row
+   (Leo 2026-10-21: "the wave didn't look good enough"). Only when the scroll moves the band: a
+   hovered, scrubbed or Reduce Motion rail, a commit that changes the active row or the hover
+   (`data-snap`: the pointer leaving, a key focusing a tick) and the active row itself switch at
+   once, under the rules above. The full-height map (ScrollMap.tsx) keeps its own look. A transition
+   stops by itself at its end; nothing here runs a timer. */
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-minimap__rail:not(.acpmux-scrollmap):not([data-hovering]):not([data-scrubbing]):not([data-reduce]):not([data-snap]) .acpmux-minimap__tick:not([data-tone="active"]) {
+    transition: color var(--cmux-motion-micro) ease-out;
+  }
+  .acpmux-minimap__rail:not(.acpmux-scrollmap):not([data-hovering]):not([data-scrubbing]):not([data-reduce]):not([data-snap]) .acpmux-minimap__tick:not([data-tone="active"]) .acpmux-minimap__bar {
+    transition:
+      transform var(--cmux-motion-micro) var(--acpmux-minimap-spring),
+      opacity var(--cmux-motion-micro) ease-out;
+  }
+}
+/* Prompts on screen: the text at 75% (--acpmux-minimap-lit, lit.experiment.ts), a clear step over
+   the resting 40%. They stay lit while the pointer is on the rail, so where the reader is shows
+   beside the fisheye (Codex dims them there; Leo, 2026-10-21, wants the lit band to show, as
+   ChatGPT's rail does). */
 .acpmux-minimap__tick[data-tone="current"] {
   color: var(--acpmux-minimap-text);
 }
 .acpmux-minimap__tick[data-tone="current"] .acpmux-minimap__bar {
-  opacity: 0.6;
-}
-.acpmux-minimap__rail[data-hovering] .acpmux-minimap__tick[data-tone="current"] {
-  color: var(--acpmux-minimap-rest);
-}
-.acpmux-minimap__rail[data-hovering] .acpmux-minimap__tick[data-tone="current"] .acpmux-minimap__bar {
-  opacity: 0.4;
+  opacity: var(--acpmux-minimap-lit, 0.75);
 }
 /* The hovered, scrubbed or focused row: the text, at once (no color transition). */
 .acpmux-minimap__tick[data-tone="active"] {
@@ -141,15 +163,8 @@
 .acpmux-minimap__rail[data-hovering] .acpmux-minimap__tick[data-bookmarked] .acpmux-minimap__bar {
   opacity: 1;
 }
-/* No bookmark yet: the hovered row shows a faint dot where a click would set one, a little
-   stronger over the spot itself. */
-.acpmux-minimap__tick[data-tone="active"]:hover:not([data-bookmarked]) .acpmux-minimap__dot {
-  opacity: 0.3;
-}
-.acpmux-minimap__tick[data-tone="active"]:not([data-bookmarked]):has(.acpmux-minimap__dot-hit:hover) .acpmux-minimap__dot {
-  opacity: 0.6;
-}
-/* The dot's hit area: the row's right end past a hovered tick (26 px), so the tick keeps its click. */
+/* The dot's hit area: the row's right end past the tick (26 px), so the tick keeps its click. It
+   remains invisible until the prompt is bookmarked. */
 .acpmux-minimap__dot-hit {
   position: absolute;
   top: 0;

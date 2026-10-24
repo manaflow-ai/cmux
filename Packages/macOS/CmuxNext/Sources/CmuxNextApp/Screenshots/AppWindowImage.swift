@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextPages
+import CmuxNextScreenshots
 
 /// One of this app's main windows as on screen, for `cmux window|pane|tab
 /// screenshot`: the window server's image of the window and its Chromium
@@ -36,7 +37,7 @@ struct AppWindowImage {
             }
             if layers.isEmpty { return base }
             // A mask that cannot be painted never lets the unmasked image out.
-            guard let image = WindowImageLayer.composite(base: base, window: window, layers: layers) else {
+            guard let image = await WindowImageLayer.compositedOffMain(base: base, windowSize: window.frame.size, layers: layers) else {
                 throw WindowScreenshotFailure.blank
             }
             return image
@@ -57,6 +58,7 @@ struct AppWindowImage {
             layers.append(.window(panels))
         }
         if let floating = window.floatingWindowsSnapshot() { layers.append(.window(floating.image)) }
-        return WindowImageLayer.composite(base: base, window: window, layers: layers) ?? base
+        // The full-resolution redraw runs off the main actor.
+        return await WindowImageLayer.compositedOffMain(base: base, windowSize: window.frame.size, layers: layers) ?? base
     }
 }

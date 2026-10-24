@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 import CmuxNextSettings
 import CmuxNextWakeups
@@ -15,23 +15,22 @@ import CmuxNextWakeups
 /// (`nextEvent`, local monitors, `sendEvent`, the key window). Never posts
 /// to another process.
 ///
-/// Step: `{"key_code": 30, "down": true, "after_ms": 5}`; returns at once
-/// with the number of steps scheduled (the last lands after the sum of the
-/// gaps).
+/// Step: `{"key_code": 30, "down": true, "after_ms": 5}`; `"repeat": true` marks a key-down
+/// as a held key's auto-repeat (`NSEvent.isARepeat`). Each event is built when it is posted,
+/// so its timestamp is its own press time (input ages and press addressing read it). Returns
+/// at once with the number of steps scheduled (the last lands after the sum of the gaps).
 extension DebugKey {
     private static let modifierFlags: [UInt16: CGEventFlags] = [
         55: .maskCommand, 54: .maskCommand, 56: .maskShift, 60: .maskShift,
         59: .maskControl, 62: .maskControl, 58: .maskAlternate, 61: .maskAlternate,
     ]
 
-    /// The sequence being played: its events and the timer that posts each.
-    @MainActor private static var queued: [NSEvent] = []
+    /// The sequence being played: the timer that posts each event.
     @MainActor private static var timers: [DemandTimer] = []
 
     @MainActor static func sendSequence(_ steps: [JSONValue]) -> JSONValue {
         timers.forEach { $0.cancel() }
         timers = []
-        queued = []
         let source = CGEventSource(stateID: .privateState)
         var flags: CGEventFlags = []
         var delay = 0.0
@@ -44,16 +43,16 @@ extension DebugKey {
             let keyCode = CGKeyCode(code)
             let modifier = modifierFlags[UInt16(code)]
             if let modifier { if down { flags.insert(modifier) } else { flags.remove(modifier) } }
-            guard let cgEvent = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: down) else { continue }
-            if modifier != nil { cgEvent.type = .flagsChanged }
-            cgEvent.flags = flags
-            guard let event = NSEvent(cgEvent: cgEvent) else { continue }
+            let held = flags, isRepeat = down && step["repeat"]?.boolValue == true
             scheduled += 1
-            queued.append(event)
-            // Posted at its offset from now: the gaps are the sequence's, not this call's.
-            let index = queued.count - 1, timer = DemandTimer(owner: "debug.key.sequence")
+            // Built and posted at its offset from now: the gaps are the sequence's, and the timestamp is the post's.
+            let timer = DemandTimer(owner: "debug.key.sequence")
             timer.schedule(after: .milliseconds(Int(delay * 1000))) { @MainActor in
-                if queued.indices.contains(index) { NSApp.postEvent(queued[index], atStart: false) }
+                guard let cgEvent = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: down) else { return }
+                if modifier != nil { cgEvent.type = .flagsChanged }
+                cgEvent.flags = held
+                if isRepeat { cgEvent.setIntegerValueField(.keyboardEventAutorepeat, value: 1) }
+                if let event = NSEvent(cgEvent: cgEvent) { NSApp.postEvent(event, atStart: false) }
             }
             timers.append(timer)
         }

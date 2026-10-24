@@ -62,14 +62,14 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                                          "Code as a share of the chat's text size. Empty uses the Markdown viewer's."),
                 .number(SettingNumber(0.6...1.25, step: 0.025, unit: .fraction, placeholder: codeScaleFallback)), nil,
                 ["code", "font", "size", "monospace", "scale"]),
-            row(["inspector", "placement"], SettingsText.keyed("settings.agentPane.display.inspector", "Inspector"),
+            row(["inspector", "placement"], SettingsText.keyed("settings.agentPane.display.inspector", "Session Info"),
                 help: SettingsText.keyed("settings.agentPane.display.inspector.help",
-                                         "Where the Inspector opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat."),
+                                         "Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat."),
                 .choice([
                     SettingChoice("push", SettingsText.keyed("settings.choice.agentChatInspectorPush", "Push")),
                     SettingChoice("overlay", SettingsText.keyed("settings.choice.agentChatInspectorOverlay", "Overlay")),
                 ]),
-                .string("overlay"), ["inspector", "panel", "side", "right", "overlay", "push", "details"]),
+                .string("overlay"), ["session", "info", "inspector", "panel", "side", "right", "overlay", "push", "details"]),
         ]
     }
 }

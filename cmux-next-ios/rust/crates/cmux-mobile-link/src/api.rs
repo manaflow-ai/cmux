@@ -37,12 +37,17 @@ pub struct DeviceRegistration {
     pub sibling_device_ids: Vec<String>,
 }
 
-/// The body of `POST /v1/devices/:deviceId/notify`: labels only, never agent output.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+/// The body of `POST /v1/devices/:deviceId/notify` (PROTOCOL.md "Push
+/// notifications (API 0.13.0)"): the event's kind and ids, and what a person
+/// needs to act on it from the notification (the question, the command, the
+/// options, the last lines). Never paths, prompts or tool arguments beyond the
+/// permission's title. Every field past `kind` is optional; a 0.11 Worker
+/// ignores the new ones.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NotifyEvent {
     pub event_id: String,
-    /// `question`, `permission`, `completed`, `failed` or `chief`.
+    /// `question`, `permission`, `completed`, `failed`, `chief` or `terminal`.
     pub kind: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent: Option<String>,
@@ -50,6 +55,70 @@ pub struct NotifyEvent {
     pub place: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
+    /// The workspace's title.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<String>,
+    /// `s<surface>`, as the phone names a tab.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tab_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub permission_id: Option<String>,
+    /// A Chief's home id.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conversation_id: Option<String>,
+    /// The daemon ledger id of a terminal notification.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notification_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub options: Vec<NotifyOption>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub questions: Vec<NotifyQuestion>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub tail: Vec<String>,
+    /// `waiting`, `finished`, `failed` or `notified`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
+    /// A terminal notification that takes a typed reply (`notification-reply-v1`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replyable: Option<bool>,
+}
+
+/// One acpmux permission option (`optionId`, `name`, `kind`).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotifyOption {
+    pub id: String,
+    pub label: String,
+    /// `allow_once`, `allow_always`, `reject_once` or `reject_always`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+}
+
+/// One question of an AskUserQuestion-style ask.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotifyQuestion {
+    pub question: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub header: Option<String>,
+    pub multi_select: bool,
+    pub allows_other: bool,
+    pub options: Vec<NotifyChoice>,
+}
+
+/// One choice of a question.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotifyChoice {
+    pub label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -132,7 +201,8 @@ impl ApiClient {
     }
 
     /// `POST /v1/devices/:deviceId/notify` (PROTOCOL.md): one Feed-worthy event
-    /// for the owner's phones. Returns the backend's `{configured, sent, failed, dropped}`.
+    /// for the owner's phones. Returns the backend's `{configured, sent, failed, dropped, wants?}`
+    /// (`wants`, API 0.13.0: the kinds a phone that has not muted this Mac still wants).
     pub async fn notify(
         &self,
         mac_device_id: &str,
@@ -143,6 +213,23 @@ impl ApiClient {
             .post(format!("{}/v1/devices/{mac_device_id}/notify", self.base))
             .bearer_auth(&self.token)
             .json(event)
+            .send()
+            .await
+            .map_err(|e| ApiError::Http(e.to_string()))?;
+        Self::check(response).await?.json().await.map_err(|e| ApiError::Http(e.to_string()))
+    }
+
+    /// [`Self::notify`] with a body already built (a sealed notify, API 0.13.0).
+    pub async fn notify_body(
+        &self,
+        mac_device_id: &str,
+        body: &serde_json::Value,
+    ) -> Result<serde_json::Value, ApiError> {
+        let response = self
+            .http
+            .post(format!("{}/v1/devices/{mac_device_id}/notify", self.base))
+            .bearer_auth(&self.token)
+            .json(body)
             .send()
             .await
             .map_err(|e| ApiError::Http(e.to_string()))?;

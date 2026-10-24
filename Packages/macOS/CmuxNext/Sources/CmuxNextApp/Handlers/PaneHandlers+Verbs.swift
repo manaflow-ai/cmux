@@ -73,9 +73,13 @@ extension PaneHandlers {
             let kept = Set((screen?.columns ?? []).filter { $0.dock?.isPinned == true }.flatMap(\.layout.paneIDs))
             let others = (screen?.panes ?? []).filter { $0 !== pane && !kept.contains($0.handle) }
             guard !others.isEmpty else { return ctx.refuse(HandlerStrings.noOtherPanes) }
-            // One gesture: one question and one toast decision over every closing tab (cx-lb4al).
-            CloseUndoToasts.close(others.compactMap { ctx.services.paneController(for: $0) }.map { (pane: $0, ids: $0.stripModel.orderedTabs.map(\.id)) })
-            for other in others where ctx.services.paneController(for: other) == nil {
+            // Read before the close: the closing panes leave the layout at once, and a pane looked up
+            // after it has no view and got a second close the daemon refused (`unknown pane`).
+            let shown = others.compactMap { ctx.services.paneController(for: $0) }
+            let unshown = others.filter { ctx.services.paneController(for: $0) == nil }
+            // One gesture: one question, one toast decision and one closed group over every closing tab (cx-lb4al).
+            CloseUndoToasts.close(shown.map { (pane: $0, ids: $0.stripModel.orderedTabs.map(\.id)) })
+            for other in unshown {
                 let handle = other.handle
                 ctx.send("close-pane") { try await $0.closePane(handle) }
             }

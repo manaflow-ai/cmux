@@ -83,6 +83,11 @@ final class FFIMacLink: TimedMacLink, @unchecked Sendable {
         do { return try await handle.ping() } catch let error as CmuxMobileError { throw error.linkError }
     }
 
+    func probe(timeout: Duration) async throws -> UInt32? {
+        let millis = UInt32(clamping: timeout.components.seconds * 1000 + timeout.components.attoseconds / 1_000_000_000_000_000)
+        do { return try await handle.probe(timeoutMs: millis) } catch let error as CmuxMobileError { throw error.linkError }
+    }
+
     func close() async {
         handle.close()
     }

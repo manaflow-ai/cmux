@@ -23,6 +23,14 @@ public struct FrameIntervalStats: Codable, Hashable, Sendable {
     public var durationSeconds: Double
     /// Every interval (ms, in order), so windows can be pooled later.
     public var intervalsMs: [Double]?
+    /// CPU time the main thread used in the window (ms): the app's own work,
+    /// which does not depend on how fast the host renders (a simulator's
+    /// frame times swing with the Mac's load; this does much less).
+    public var mainThreadCPUMs: Double?
+    /// Main-thread CPU time (ms) between each pair of frames, in the order of
+    /// `intervalsMs`: a frame whose main thread was busy past the frame's
+    /// budget was the app's fault, not the renderer's.
+    public var mainThreadCPUPerFrameMs: [Double]?
 
     /// Summarizes `intervals` (seconds). `expected` is the nominal frame interval (seconds).
     public init(label: String, intervals: [Double], expected: Double) {
@@ -70,6 +78,7 @@ public struct FrameIntervalStats: Codable, Hashable, Sendable {
 }
 
 #if os(iOS)
+import Darwin
 import OSLog
 import QuartzCore
 
@@ -150,8 +159,14 @@ public final class FrameClock {
 /// Appends recorder output to a file in the app container (read back with
 /// `simctl get_app_container`), off the main thread.
 public enum FrameLogFile {
+    /// One queue, in order, so `flush()` waits for every append (the rig exits right after its last window).
+    static let queue = DispatchQueue(label: "dev.cmux.mobile.framelog", qos: .utility)
+
+    /// Waits until every queued append is written.
+    public static func flush() { queue.sync {} }
+
     public static func append(_ data: Data, to url: URL) {
-        DispatchQueue.global(qos: .utility).async {
+        queue.async {
             if let handle = try? FileHandle(forWritingTo: url) {
                 _ = try? handle.seekToEnd()
                 try? handle.write(contentsOf: data)
@@ -191,6 +206,9 @@ public final class FrameIntervalLog {
     private var intervals: [Double] = []
     private var expected: Double = 1.0 / 60
     private var window: OSSignpostIntervalState?
+    private var cpuAtBegin: Double?
+    private var cpuAtLastTick: Double?
+    private var cpuPerFrame: [Double] = []
     /// Called with every finished window (tests and drivers).
     public var onSummary: ((FrameIntervalStats) -> Void)?
 
@@ -206,6 +224,10 @@ public final class FrameIntervalLog {
         intervals = []
         intervals.reserveCapacity(4096)
         lastTimestamp = nil
+        cpuAtBegin = Self.mainThreadCPUSeconds()
+        cpuAtLastTick = nil
+        cpuPerFrame = []
+        cpuPerFrame.reserveCapacity(4096)
         window = signposter.beginInterval("window", "\(label, privacy: .public)")
         token = FrameClock.shared.subscribe { [weak self] in self?.tick($0) }
     }
@@ -219,7 +241,10 @@ public final class FrameIntervalLog {
         self.label = nil
         if let window { signposter.endInterval("window", window) }
         window = nil
-        let stats = FrameIntervalStats(label: label, intervals: intervals, expected: expected)
+        var stats = FrameIntervalStats(label: label, intervals: intervals, expected: expected)
+        if let cpuAtBegin, let now = Self.mainThreadCPUSeconds() { stats.mainThreadCPUMs = ((now - cpuAtBegin) * 100_000).rounded() / 100 }
+        cpuAtBegin = nil
+        if cpuPerFrame.count == intervals.count { stats.mainThreadCPUPerFrameMs = cpuPerFrame.map { ($0 * 100_000).rounded() / 100 } }
         log.notice("FRAMELOG \(stats.line, privacy: .public)")
         if var data = try? JSONEncoder().encode(stats) {
             data.append(0x0A)
@@ -232,12 +257,29 @@ public final class FrameIntervalLog {
     private func tick(_ tick: FrameClock.Tick) {
         // The nominal interval: what the display promised for this frame.
         if tick.nominal > 0.001 { expected = tick.nominal }
+        let cpu = Self.mainThreadCPUSeconds()
         if let lastTimestamp {
             let interval = tick.timestamp - lastTimestamp
             intervals.append(interval)
+            if let cpu, let cpuAtLastTick { cpuPerFrame.append(cpu - cpuAtLastTick) }
             signposter.emitEvent("frame", "\(interval * 1000, format: .fixed(precision: 2), privacy: .public)")
         }
         lastTimestamp = tick.timestamp
+        cpuAtLastTick = cpu
+    }
+
+    /// User plus system CPU time of the calling (main) thread, in seconds.
+    private static func mainThreadCPUSeconds() -> Double? {
+        let thread = mach_thread_self()
+        defer { mach_port_deallocate(mach_task_self_, thread) }
+        var info = thread_basic_info()
+        var count = mach_msg_type_number_t(MemoryLayout<thread_basic_info_data_t>.size / MemoryLayout<integer_t>.size)
+        let result = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { thread_info(thread, thread_flavor_t(THREAD_BASIC_INFO), $0, &count) }
+        }
+        guard result == KERN_SUCCESS else { return nil }
+        func seconds(_ value: time_value_t) -> Double { Double(value.seconds) + Double(value.microseconds) / 1_000_000 }
+        return seconds(info.user_time) + seconds(info.system_time)
     }
 
     /// JSON lines next to the app's caches, read back with `simctl get_app_container`.

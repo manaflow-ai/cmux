@@ -78,6 +78,28 @@ fn rows_capability_is_advertised() {
     assert!(advertised_capabilities(false).contains(&"rows-v1"));
 }
 
+/// `row-client-keys-v1` (New Row in the key's turn, perf lead 2026-10-23): `new-row` takes the
+/// client-minted `pane_id` and `tab_id` that `split` takes (`split-client-keys-v1`), so the app can
+/// show the row before the reply and the daemon's pane replaces it under the same public id.
+#[test]
+fn new_row_takes_client_minted_pane_and_tab_ids() {
+    assert!(advertised_capabilities(false).contains(&"row-client-keys-v1"));
+    let (mut wire, pane) = Wire::lone();
+    let pane_id = "pane_0123456789abcdef0123456789abcdef";
+    let tab_id = "tab_0123456789abcdef0123456789abcdef";
+    let created = wire.ok(json!({
+        "cmd": "new-row", "pane": pane, "height_permille": 500, "pane_id": pane_id, "tab_id": tab_id,
+    }));
+    assert_eq!(created["pane_id"], pane_id, "{created}");
+    assert_eq!(created["tab_id"], tab_id, "{created}");
+    let new_pane: PaneId = serde_json::from_value(created["pane"].clone()).unwrap();
+    assert_eq!(wire.mux.with_state(|state| state.panes[&new_pane].public_id.to_string()), pane_id);
+    let bad = wire.send(
+        json!({"cmd": "new-row", "pane": pane, "height_permille": 500, "pane_id": "pane_xyz"}),
+    );
+    assert_eq!(bad["ok"], false, "a malformed pane id is refused: {bad}");
+}
+
 /// New Row on a split screen: the tree becomes the first row of one column,
 /// and a new row with one pane holding one new terminal goes below it.
 #[test]

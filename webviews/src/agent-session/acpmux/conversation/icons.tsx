@@ -148,6 +148,15 @@ export const Retry = (p: CvIconProps) => (
   </Svg>
 );
 
+/** A failure's mark: a circle with an exclamation (a failed turn's card). */
+export const AlertCircle = (p: CvIconProps) => (
+  <Svg {...p}>
+    <circle cx="8" cy="8" r="5.75" />
+    <path d="M8 5.25v3.25" />
+    <circle cx="8" cy="10.75" r=".4" fill="currentColor" />
+  </Svg>
+);
+
 export const Lock = (p: CvIconProps) => (
   <Svg {...p}>
     <rect x="3.25" y="7" width="9.5" height="7" rx="2" />

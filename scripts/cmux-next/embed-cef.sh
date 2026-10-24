@@ -123,7 +123,8 @@ if (( ${#shim_archs[@]} == 2 )); then
     shim_tmp="$(mktemp -d "$cache_root/shim/.universal.XXXXXX")"
     lipo -create "$arm_shim/libcmux_cef_shim.dylib" "$x86_shim/libcmux_cef_shim.dylib" -output "$shim_tmp/libcmux_cef_shim.dylib"
     lipo -create "$arm_shim/cmux-cef-helper" "$x86_shim/cmux-cef-helper" -output "$shim_tmp/cmux-cef-helper"
-    chmod +x "$shim_tmp/cmux-cef-helper"
+    lipo -create "$arm_shim/cmux-chromium-host" "$x86_shim/cmux-chromium-host" -output "$shim_tmp/cmux-chromium-host"
+    chmod +x "$shim_tmp/cmux-cef-helper" "$shim_tmp/cmux-chromium-host"
     printf '%s' "$universal_key" > "$shim_tmp/.build-key"
     /usr/bin/python3 -c 'import os, sys; os.rename(sys.argv[1], sys.argv[2])' "$shim_tmp" "$shim_out" 2>/dev/null || rm -rf "$shim_tmp"
   fi
@@ -256,6 +257,43 @@ for existing in "$frameworks"/*" Helper"*.app; do
   for w in "${wanted[@]}"; do [[ "$w" == "$base" ]] && keep=1; done
   (( keep )) || rm -rf "$existing"
 done
+
+# 3b. The Chromium host app (prototype behind browserHost.helperPrototype,
+# plans/cmux-next/cef-helper-app-DESIGN.md): Chromium's browser process in an
+# app of its own, which uses the helpers above for its child processes. Debug
+# builds only, so Release, RC and NIGHTLY bundles do not change.
+host_app="$frameworks/$product Chromium Host.app"
+if [[ "${CONFIGURATION:-}" == "Debug" ]]; then
+  host_name="$product Chromium Host"
+  mkdir -p "$host_app/Contents/MacOS"
+  copy_if_changed "$shim_out/cmux-chromium-host" "$host_app/Contents/MacOS/$host_name"
+  tmp_plist="$(mktemp)"
+  cat > "$tmp_plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key><string>en</string>
+  <key>CFBundleDisplayName</key><string>$host_name</string>
+  <key>CFBundleExecutable</key><string>$host_name</string>
+  <key>CFBundleIdentifier</key><string>$bundle_id.chromium-host</string>
+  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+  <key>CFBundleName</key><string>$host_name</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>${MARKETING_VERSION:-1.0}</string>
+  <key>CFBundleVersion</key><string>${CURRENT_PROJECT_VERSION:-1}</string>
+  <key>LSEnvironment</key><dict><key>MallocNanoZone</key><string>0</string></dict>
+  <key>LSMinimumSystemVersion</key><string>$min_os</string>
+  <key>LSUIElement</key><string>1</string>
+  <key>NSPrincipalClass</key><string>ChromiumHostApplication</string>
+  <key>NSSupportsAutomaticGraphicsSwitching</key><true/>
+</dict>
+</plist>
+PLIST
+  if ! cmp -s "$tmp_plist" "$host_app/Contents/Info.plist"; then mv "$tmp_plist" "$host_app/Contents/Info.plist"; else rm -f "$tmp_plist"; fi
+else
+  rm -rf "$host_app"
+fi
 
 printf '%s' "$shim_key $product" > "$binary_stamp"
 

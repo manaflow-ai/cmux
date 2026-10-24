@@ -92,7 +92,7 @@ public nonisolated enum RefusalStrings {
     /// updates it. Any other capability has no daemon half in this build yet.
     /// The id itself is never shown.
     public static func needsDaemonCapability(_ capability: String) -> String {
-        DaemonCapabilities.shared.isServedByBundledDaemon(capability) ? restartToUpdateDaemon : notInThisVersion
+        DaemonCapabilities.isServedByBundledDaemon(capability) ? restartToUpdateDaemon : notInThisVersion
     }
     /// The running local daemon is older than the app.
     public static var restartToUpdateDaemon: String {

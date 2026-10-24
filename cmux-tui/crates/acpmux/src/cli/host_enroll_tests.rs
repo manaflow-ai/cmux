@@ -125,6 +125,10 @@ fn ssh_stderr_is_classified() {
     }
     assert!(SshFailure::KeyRejected.fix("leo@box").contains("ssh-copy-id leo@box"));
     assert!(SshFailure::HostKeyChanged.fix("leo@box").contains("ssh-keygen -R box"));
+    let tailnet_fix = SshFailure::NoRoute.fix("leo@huge-blue.tail9.ts.net");
+    assert!(tailnet_fix.contains("Tailscale SSH isn't allowed to this machine"));
+    assert!(tailnet_fix.contains("\"dst\": [\"huge-blue.tail9.ts.net\"]"));
+    assert!(!tailnet_fix.contains("token") && !tailnet_fix.contains("key="));
 }
 
 #[test]

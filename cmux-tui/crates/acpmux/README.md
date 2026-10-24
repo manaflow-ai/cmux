@@ -204,12 +204,15 @@ deleted with the chat (`_acpmux/kill` with purge) and once older than `uploadsMa
 (default 30; 0 keeps them), checked at the daemon's start and daily.
 
 A chat whose harness never titles it (Claude Code's `-p` stream-json has no title
-event) gets a 3-6 word title once, after its first completed turn, logged as `titled`.
-`titles.command` (an argv reading the request on stdin and printing the title; env
-`ACPMUX_TITLE_COMMAND` wins) makes it; unset, the chat's own Claude Code profile runs
-`-p --model haiku` (`titles.model`) with no tools, MCP or session file. A harness title
-always wins, a chat titled before this (or adopted) keeps its title, and
-`titles.generate: false` turns it off.
+event) gets an instant first-message placeholder, then a 3-6 word model title, logged
+as `titled`. A thin first message may get one refresh after its first completed turn;
+later turns never retitle it. `titles.command` (an argv reading the request on stdin
+and printing the title; env `ACPMUX_TITLE_COMMAND` wins) makes it; unset, `_acpmux/complete`
+uses the harness's cheap model (Haiku for Claude, a small Codex model where available)
+with no tools, MCP or session file. A harness or manual title always wins, a chat titled
+before this (or adopted) keeps its title, and `titles.generate: false` turns it off.
+The daemon logs the title model, elapsed time, and estimated input/output token cost for
+each generated title.
 
 ## TUI
 
@@ -563,8 +566,9 @@ allows four, so a client has room for one.
 ### Bring your own ACP harness
 
 Every harness is a `harnesses` entry in `~/.acpmux/config.json`. Discovery fills in the ones on
-PATH (Claude Code, Codex, OpenCode, pi, oh-my-pi, prime-agent, Gemini, `sr claude proxy`); a
-configured entry always wins over a discovered one. A complete entry:
+PATH (Claude Code, Codex, OpenCode, pi, oh-my-pi, prime-agent, Gemini, `sr claude proxy`, and
+Muse Code through the [cmux-muse-acp](https://github.com/manaflow-ai/cmux-muse-acp) adapter
+`muse-acp`, else Muse Code in a terminal tab); a configured entry always wins over a discovered one. A complete entry:
 
 ```jsonc
 {
@@ -1000,6 +1004,8 @@ Extensions:
 | `_acpmux/permission_respond {sessionId, permissionId, optionId}` | Answer a request announced by `_acpmux/permission_pending`. Any client may deny or cancel; only the cmux app's connection (it presents the app's per-launch person key) may allow. Others get `permission.person_required` ("approve this on the Mac app") and the request stays pending. The same rule guards every grant that widens what runs without asking (policy, rules, modes, defaults). |
 | `_acpmux/export {sessionId, dest}`, `_acpmux/import {path, name}` | Bundles. |
 | `_acpmux/file_put {sessionId, fileName, data}` | Save a file the person dropped into the chat (base64, at most 10 MiB) on the machine that runs it, owner-only under `<ACPMUX_HOME>/uploads/<sessionId>/<random>/<fileName>`, and answer `{path}`. A peer's chat is forwarded there (only to a peer whose `initialize` features list `filePut`; else `Method not found`, `data.reason: "filePut.unsupported"`). Not from a Web connection (`filePut.remote`). Nothing deletes uploads yet. |
+| `_acpmux/media_open {sessionId, path}` | Open an image or video the chat names, on the machine that runs it, and answer `{handle, size, mimeType, identity}`. Relative paths start in the chat folder; absolute paths may be inside that folder, `/tmp`, the user's home, or the chat uploads. Every component is opened with `O_NOFOLLOW`, the opened file must be a regular file with one link, inside those roots and not a dot name, key file or `~/Library` path, and its bytes must be png, jpeg, gif or webp (at most 10 MiB) or mp4, mov, m4v or webm (at most 200 MiB). At most 8 handles per connection, each closed after 2 minutes idle and all at disconnect. A peer chat goes to the peer only when its `initialize` features list `mediaRead` (else `mediaRead.unsupported`); never from a Web connection (`mediaRead.remote`). |
+| `_acpmux/media_range {sessionId, handle, offset, length}` | Read 1 to 6 MiB of an open handle and answer `{offset, size, identity, data}` (base64), `size` and `identity` repeating the open. A file changed since the open (device, inode, size or mtime) is refused (`media.changed`) and its handle closed; the range that reaches the end closes it too. |
 | `_acpmux/peers`, `_acpmux/peer_add {name, url, token}`, `_acpmux/peer_remove {name}` | Mirror remote daemons. |
 | `_acpmux/shutdown` | Stop the daemon. |
 

@@ -28,7 +28,7 @@ enum UpdateHandlers {
         }
         // The pulled-build banner's Roll Back: the same stores, and the same question as updates.rollback.
         updater.pulledWatch.stateDirectories = stateDirectories
-        updater.pulledWatch.confirmRollBack = { [weak registry] proceed in registry?.confirmationPresenter?("updates.rollback", ActionInvocation(), proceed) }
+        updater.pulledWatch.confirmRollBack = { [weak registry] proceed in registry?.confirmationPresenter?("updates.rollback", ActionInvocation()) { _ in proceed() } }
         // Drop back (destructive: every entrypoint confirms; the CLI passes --confirm).
         registry.bind("updates.rollback", run: { [weak registry] _ in
             guard let registry else { return }

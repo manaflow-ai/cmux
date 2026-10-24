@@ -80,6 +80,25 @@ test("a project with no icon and no language draws a folder, never its letters",
   expect(badge.textContent).toBe("");
 });
 
+test("an empty first answer does not cache the generic folder over a later project icon", async () => {
+  let calls = 0;
+  setProjectIconHost(async () => {
+    calls += 1;
+    return calls === 1 ? {} : { src: ICON };
+  });
+  const first = await render({ cwd: "/Users/me/code/recover", label: "recover" });
+  expect(first.querySelector("img")).toBeNull();
+  act(() => root?.unmount());
+  root = createRoot(document.getElementById("root")!);
+  await act(async () => {
+    root!.render(<ProjectBadge project={{ cwd: "/Users/me/code/recover", label: "recover" }} />);
+  });
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(document.querySelector(".acpmux-project-badge img")?.getAttribute("src")).toBe(ICON);
+});
+
 test("an answer that is not an image data URL draws the folder", async () => {
   setProjectIconHost(async () => ({ src: "https://example.com/favicon.ico" }));
   const badge = await render({ cwd: "/Users/me/code/elsewhere", label: "elsewhere" });

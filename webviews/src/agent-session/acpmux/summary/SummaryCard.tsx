@@ -20,6 +20,8 @@ import type { SummaryCardControl } from "./cardState";
 import { backgroundCommands } from "../inspector/processes";
 import type { SummaryBackgroundTask } from "./sessionSummary";
 import type { ProcessRegistry } from "../inspector/processes";
+import type { WorkflowActions } from "./WorkflowSummary";
+import type { WorkflowSummary } from "./workflow";
 
 const NO_SESSIONS: readonly StartedSession[] = [];
 const NO_TASKS: readonly SummaryBackgroundTask[] = [];
@@ -34,9 +36,10 @@ const NO_SUBSESSIONS: readonly SubsessionRow[] = [];
 /// A subagent row shows that subagent (`subagents.onOpen`). The Subagents section's title opens a
 /// Subagents tab beside the Summary (SubagentsTab.tsx), as the ChatGPT desktop app's right pane
 /// does; its close button goes back to the summary.
-/// Background work shows live: the chat's background commands (`background`, the process
-/// registry's merged with the transcript's, backgroundWork.ts) with Stop, and the chats its agent
-/// started (`sessions`) under Subagents. The header's counts include the running ones.
+/// Background work shows as compact task cards: the chat's background commands (`background`, the
+/// process registry's merged with the transcript's, backgroundWork.ts) keep their description,
+/// running/completed/failed state and Stop affordance, and the chats its agent started (`sessions`)
+/// stay under Subagents. The header's counts include the running ones.
 export function SummaryCard({
   card,
   rows,
@@ -50,6 +53,8 @@ export function SummaryCard({
   background,
   sessions,
   tools,
+  workflow,
+  workflowActions,
 }: {
   card: SummaryCardControl;
   rows: readonly AcpmuxRow[];
@@ -85,6 +90,9 @@ export function SummaryCard({
   sessions?: { list: readonly StartedSession[]; onOpen: (sessionId: string) => void };
   /// Sources' Use tools: the chat's tools, where acpmux can change them (cx-thur3).
   tools?: ChatToolsControl;
+  /// Labs-only workflow data from the optional acpmux adapter.
+  workflow?: WorkflowSummary;
+  workflowActions?: WorkflowActions;
 }) {
   const t = useT();
   const [gallery, setGallery] = useState(false);
@@ -317,6 +325,8 @@ export function SummaryCard({
               tools={tools}
               commands={commands}
               onStopCommand={background?.onStop}
+              workflow={workflow}
+              workflowActions={workflowActions}
             />
           </div>
         )}

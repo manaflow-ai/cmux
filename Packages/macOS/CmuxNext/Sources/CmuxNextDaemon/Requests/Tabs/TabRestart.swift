@@ -18,7 +18,7 @@ public struct RestartTabRequest: DaemonRequest {
     }
 
     public static let command = "restart-tab"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.tabRestart
+    public static let requiredCapability: String? = DaemonCapabilities.tabRestart
     public var surface: SurfaceID
 
     public init(surface: SurfaceID) {

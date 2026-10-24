@@ -72,6 +72,7 @@ impl Mux {
         if let Some(owner) = &owner {
             crate::state::window_record_store::validate_key("owner", owner)?;
         }
+        let previous_url = runtime.browser_url();
         let (mut record, mut changed) = {
             let mut registry = self.workspace_registry.lock().unwrap();
             let result = registry.update_frontend_browser(
@@ -97,6 +98,8 @@ impl Mux {
             record.owner = Some(owner);
             changed = true;
         }
+        // tab-attention-v1: the page the agent asked the person to act on is gone.
+        let navigated_to = url.clone().filter(|url| previous_url.as_ref() != Some(url));
         if changed {
             if let Some(browser) = runtime.as_browser() {
                 browser.set_frontend_location(url, title.clone());
@@ -106,6 +109,9 @@ impl Mux {
                 self.emit(MuxEvent::TitleChanged { surface, title: Arc::from(title) });
             }
             self.emit_tab_changed(surface);
+        }
+        if let Some(page) = &navigated_to {
+            self.clear_attention_after_navigation(actor, surface, page);
         }
         Ok((record, changed))
     }

@@ -33,6 +33,7 @@ pub(super) fn session_change_kind(record_kind: &str) -> Option<&str> {
         k if k == "dequeued" || k.starts_with("queue") => "queue",
         "permission_auto" => "permission_resolved",
         "permission_reissued" => "permission_request",
+        "available_commands_update" => "commands",
         _ => return None,
     })
 }

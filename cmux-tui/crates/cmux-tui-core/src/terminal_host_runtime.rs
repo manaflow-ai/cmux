@@ -662,7 +662,10 @@ pub use shared::codec::{decode_host_snapshot_payload, encode_host_snapshot_paylo
 pub(crate) use shared::control_responses::{ControlResponses, DeferredCellPixelResolution};
 #[cfg(any(unix, windows))]
 pub use shared::host_serve::{serve_terminal_host_process, serve_terminal_host_stdio};
+pub(crate) use shared::host_state::HOST_TERMINATE_WAIT;
 pub use shared::host_state::set_dev_host_orphan_grace;
+#[cfg(unix)]
+pub(crate) use shared::host_state::spawned_orphan_grace;
 #[cfg(any(unix, windows))]
 pub(crate) use shared::records::live_successor_record;
 #[cfg(unix)]

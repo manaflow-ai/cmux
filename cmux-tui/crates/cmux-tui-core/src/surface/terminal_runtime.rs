@@ -296,7 +296,7 @@ pub struct PtyTerminalRuntime {
     /// every protocol-v7 render attachment.
     pub(super) render: Arc<RankedMutex<RenderHub>>,
     pub(super) render_generation: AtomicU64,
-    pub(super) frame_requests: SyncSender<u64>,
+    pub(super) frame_requests: frame_producer::FrameRequests,
     #[cfg(test)]
     pub(super) frame_producer_before_upgrade: FrameProducerTestHook,
 }
@@ -312,6 +312,10 @@ pub(super) enum PtyRuntime {
         writer: Box<dyn Write + Send>,
         master: Option<Box<dyn MasterPty + Send>>,
         killer: Box<dyn ChildKiller + Send>,
+        /// The holder runs this terminal's shell (`holder_runtime`): a
+        /// daemon shutdown detaches instead of killing it.
+        #[cfg(unix)]
+        holder: Option<Arc<crate::holder_runtime::HolderTerminal>>,
     },
     #[cfg(any(unix, windows))]
     Hosted(Box<crate::terminal_host_runtime::HostAttachment>),

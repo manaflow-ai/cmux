@@ -40,6 +40,7 @@ use detached_terminals::require_live_workspace;
 mod effect_store;
 pub(crate) mod feed_local_store;
 pub use compact::{RegistryCompactError, RegistryCompaction, compact_registry};
+mod browser_profile_proxy;
 mod idle_policy_store;
 mod journal_extensions;
 mod mutation_ledger;
@@ -56,6 +57,7 @@ mod public_fold;
 mod public_projection_store;
 mod receipt_env;
 pub(crate) mod registry_connection;
+pub(crate) mod wal_durability;
 pub(crate) use registry_connection::RegistryConnection;
 mod registry_intent;
 pub(crate) use registry_intent::{
@@ -2526,7 +2528,7 @@ impl WorkspaceRegistry {
         connection.execute_batch(
             "PRAGMA foreign_keys=ON;
              PRAGMA journal_mode=WAL;
-             PRAGMA synchronous=FULL;
+             PRAGMA synchronous=NORMAL;
              PRAGMA wal_autocheckpoint=1000;
              PRAGMA secure_delete=ON;
              CREATE TABLE IF NOT EXISTS meta (
@@ -2899,7 +2901,7 @@ impl WorkspaceRegistry {
             tx.commit()?;
         }
         Ok(Self {
-            connection: RegistryConnection::new(connection),
+            connection: RegistryConnection::new(connection, database_path.as_deref()),
             database_path,
             registry_id,
             generation: try_new_uuid_v4()?,
@@ -3281,23 +3283,6 @@ impl WorkspaceRegistry {
             result: serde_json::from_str(&stored_result)?,
             replayed: true,
         }))
-    }
-
-    /// Make this thread's deferred commits durable: one fully synced commit
-    /// (a write to `meta`, so SQLite flushes the WAL with F_FULLFSYNC). The
-    /// WAL is ordered, so it also makes every earlier commit durable
-    /// (`registry_connection::DeferredDurability`).
-    pub(crate) fn flush_deferred_commits(&mut self) -> anyhow::Result<()> {
-        debug_assert!(!registry_connection::current_thread_commits_deferred());
-        let connection = self.connection.get();
-        let tx = connection.unchecked_transaction()?;
-        tx.execute(
-            "INSERT INTO meta(key, value) VALUES('durability_barrier', '1')
-             ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + 1",
-            [],
-        )?;
-        tx.commit()?;
-        Ok(())
     }
 
     /// Atomically replace the live ordered registry and record the mutation.

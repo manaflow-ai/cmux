@@ -10,6 +10,7 @@
 // transcript rows that scroll under it (Leo 2026-10-19) vanished behind a slab.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
+// Locally: CMUX_BROWSER_TESTS=1 bun test test/composer-glass.test.ts
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
@@ -151,6 +152,100 @@ await requireBrowserLane("composer-glass.test.ts", async () => {
         expect(strip.backdrop, "strip blurs what is under it").toContain("blur(");
         await page.close();
       });
+
+  for (const colorScheme of ["light", "dark"] as const)
+    test(`${colorScheme}, the default composer uses the balanced glass level`, async () => {
+      const page = await open(colorScheme, {});
+      for (const id of ["composer", "strip-composer", "codex-strip-composer"]) {
+        const { fill, backdrop } = await look(page, id);
+        expect(fill[3], `${id} keeps the selected 70% tint`).toBeCloseTo(0.7, 2);
+        expect(backdrop, `${id} keeps the selected 24px blur`).toContain("blur(24px)");
+      }
+      await page.close();
+    });
+
+  // Codex's look (composerLook.css) draws a new chat's folder and computer strip as a tray with a
+  // faint wash of the text colour. On an opaque window that wash went over the solid composer
+  // surface with no blur (after #24457): an opaque tray on a glass card. The tray is the card's
+  // glass there too (glass is never opaque), and the folder name (muted text) stays at 4.5:1 over
+  // the darkest page. Over a pure white page it is about 3.1:1, as the default strip's is about
+  // 3.4:1 under the same 70% glass: the card's glass, not the tray's.
+  for (const colorScheme of ["light", "dark"] as const)
+    test(`${colorScheme}, an opaque window: the Codex look's tray is the card's glass`, async () => {
+      const page = await open(colorScheme, {});
+      const tray = await look(page, "codex-strip", "codex-strip-folder");
+      expect(tray.fill[3], "Codex tray fill alpha (glass is never opaque)").toBeLessThan(0.9);
+      expect(tray.fill[3], "Codex tray fill alpha (still a surface)").toBeGreaterThan(0.2);
+      expect(tray.backdrop, "Codex tray blurs what is under it").toContain("blur(");
+      const surface = over(tray.fill, [0, 0, 0]);
+      expect(
+        contrast(over(tray.ink, surface), surface),
+        "folder name contrast over a black page",
+      ).toBeGreaterThanOrEqual(4.5);
+      await page.close();
+    });
+
+  test("over art the Codex look's tray stays glass, as before", async () => {
+    for (const attributes of [
+      { "data-cmux-see-through": "", "data-glass": "plain" },
+      { "data-cmux-see-through": "", "data-glass": "lens" },
+    ]) {
+      const page = await open("dark", attributes);
+      const tray = await look(page, "codex-strip");
+      expect(tray.fill[3], `Codex tray fill alpha, ${attributes["data-glass"]}`).toBeLessThan(0.9);
+      expect(tray.backdrop, `Codex tray frost, ${attributes["data-glass"]}`).toContain("blur(");
+      await page.close();
+    }
+  });
+
+  test("Reduce Transparency keeps the Codex look's tray solid with no blur", async () => {
+    for (const colorScheme of ["light", "dark"] as const) {
+      const page = await open(colorScheme, { "data-reduce-transparency": "" });
+      const tray = await look(page, "codex-strip");
+      expect(tray.fill[3], `${colorScheme}, the app's Reduce Transparency`).toBe(1);
+      expect(tray.backdrop, `${colorScheme}, the app's Reduce Transparency`).toBe("none");
+      await page.close();
+    }
+    const page = await open("light", {});
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Emulation.setEmulatedMedia", {
+      features: [{ name: "prefers-reduced-transparency", value: "reduce" }],
+    });
+    const tray = await look(page, "codex-strip");
+    expect(tray.fill[3], "the system's Reduce Transparency").toBe(1);
+    expect(tray.backdrop, "the system's Reduce Transparency").toBe("none");
+    await page.close();
+  });
+
+  // The plain top strip draws the strip as bare text in either look: Codex's tray rule
+  // (composerLook.css) loads after the plain strip's and once painted its tray over it, a solid one
+  // on an opaque window.
+  for (const window of windows)
+    test(`${window.name}: the plain top strip in Codex's look is bare text, as in Claude's`, async () => {
+      for (const colorScheme of ["light", "dark"] as const) {
+        const page = await open(colorScheme, { ...window.attributes, "data-top-strip": "plain" });
+        const codex = await page.evaluate(() => {
+          const style = getComputedStyle(document.getElementById("codex-strip")!);
+          return { fill: style.backgroundColor, edge: style.boxShadow, backdrop: style.backdropFilter };
+        });
+        expect(parse(codex.fill)[3], `${colorScheme}: Codex plain strip fill`).toBe(0);
+        expect(codex.edge, `${colorScheme}: Codex plain strip edge`).toBe("none");
+        expect(codex.backdrop, `${colorScheme}: Codex plain strip frost`).toBe("none");
+        await page.close();
+      }
+    });
+
+  test("under Reduce Transparency the plain top strip looks the same in Codex's look as in Claude's", async () => {
+    const page = await open("light", { "data-top-strip": "plain", "data-reduce-transparency": "" });
+    const [claude, codex] = await page.evaluate(() =>
+      ["strip", "codex-strip"].map((id) => {
+        const style = getComputedStyle(document.getElementById(id)!);
+        return { fill: style.backgroundColor, edge: style.boxShadow, backdrop: style.backdropFilter };
+      }),
+    );
+    expect(codex).toEqual(claude!);
+    await page.close();
+  });
 
   test("the plain top strip, bare text with no fill, frosts nothing under it", async () => {
     const page = await open("light", { "data-top-strip": "plain" });

@@ -27,7 +27,7 @@ enum FilePageHandlers {
         // R96: a recovered draft of a local file opens as an unsaved edit (the launch notice's Open),
         // in the page of its file type (D11): a markdown file in the markdown page, others in the
         // code editor page. The page compares the file with the draft's base itself.
-        RecoveryDraftStore.shared.restoreHandler = { [weak services] draft in
+        services.recoveryDrafts.restoreHandler = { [weak services] draft in
             // task-owner: one restore per launch notice Open; it ends when the tab opens
             Task { @MainActor in
                 guard let restore = await FilePageRecovery.restore(draft), let services,

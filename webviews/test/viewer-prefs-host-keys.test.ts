@@ -36,9 +36,14 @@ const EVERY_OPTION: Required<DiffViewerOptions> & { collapsedFiles: string[] } =
   diffIndicators: "bars",
   expandUnchanged: true,
   groupByKind: true,
+  hideWhitespace: true,
+  hideImports: true,
+  loadFullFiles: true,
+  richPreview: true,
   layout: "split",
   lineNumbers: true,
   showBackgrounds: true,
+  showBulkActions: true,
   wordDiffs: true,
   wordWrap: true,
 };
@@ -59,6 +64,10 @@ test("a session-local option is never persisted", async () => {
   // The collapse-all toggle is session-local by design: it is a way of reading this diff now, not
   // a preference about every diff.
   expect(persisted).not.toContain("collapsed");
+  // Hide imports lasts for the tab: it has no settings row, and the host would refuse the key.
+  expect(persisted).not.toContain("hideImports");
+  expect(persisted).not.toContain("richPreview");
+  expect(persisted).not.toContain("loadFullFiles");
 });
 
 test("the file grouping is kept, because the host now has a row for it", async () => {
@@ -69,4 +78,12 @@ test("the file grouping is kept, because the host now has a row for it", async (
   expect(accepted.has("groupByKind")).toBe(true);
   expect(sanitizeViewerPrefs(EVERY_OPTION).groupByKind).toBe(true);
   expect(sanitizeViewerPrefs({ groupByKind: "yes" })).toEqual({});
+});
+
+test("Hide white space is kept, because the host has a row for it", async () => {
+  // The "..." menu's Hide white space writes `diff.hideWhitespace`; without its row in
+  // DiffPrefKey.booleans the host would refuse it and the toggle would reset on every reopen.
+  const accepted = await hostKeys();
+  expect(accepted.has("hideWhitespace")).toBe(true);
+  expect(sanitizeViewerPrefs(EVERY_OPTION).hideWhitespace).toBe(true);
 });

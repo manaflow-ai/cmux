@@ -1,4 +1,5 @@
 import Foundation
+import CmuxNextPalette
 
 /// What Search All Windows looks through, read once when it opens: every
 /// tab's title and place, every terminal's history and screen (from its

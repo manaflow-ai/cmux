@@ -938,6 +938,13 @@ pub fn foreground_process_name(pid: u32) -> Option<String> {
     process_name(foreground_process_group(pid)?)
 }
 
+/// PID of a terminal's live foreground process-group leader (see
+/// [`foreground_cwd`] for the leader resolution contract): the program that
+/// holds the terminal now. `None` when the lookup fails.
+pub fn foreground_leader(pid: u32) -> Option<u32> {
+    foreground_process_group(pid)
+}
+
 /// Program name (basename only, never arguments) of the job a terminal runs
 /// in the foreground when that job is not the terminal's own PTY child
 /// `pid`: the program a shell started and waits for. `None` when the child

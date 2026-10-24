@@ -1,10 +1,10 @@
 // l10n-allow-file: test fixtures.
 // Lawrence 2026-10-20 ("a more comprehensive model and harness picker ... plus any extra config
 // options the harness advertises, shown dynamically"): the composer had chips for the model, the
-// effort level, fast mode and the permission mode only. A config option it did not know (Codex's
-// collaboration mode, a custom harness's own `thinking`) never showed, so it could not be picked.
-// The Options chip lists each one; a pick goes through the same config-option command as the
-// effort chip. The mock daemon offers Codex's collaboration mode and takes `session/set_mode`.
+// effort level, fast mode and the permission mode only. The Options chip now lists custom config
+// options it does not otherwise own; Codex's collaboration mode stays on its command/mode paths.
+// A pick goes through the same config-option command as the effort chip. The mock daemon still
+// offers Codex's collaboration mode and takes `session/set_mode`.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -152,28 +152,53 @@ test("only options no other chip owns are extra", async () => {
     option("sandbox", ["workspace"]),
   ];
   type Summary = Parameters<typeof extraConfigOptions>[0];
-  expect(extraConfigOptions(codex(all) as Summary).map((entry) => entry.id)).toEqual([
-    "collaboration_mode",
-    "thinking",
-  ]);
+  expect(extraConfigOptions(codex(all) as Summary).map((entry) => entry.id)).toEqual(["thinking"]);
   // A harness that reports its modes only as a config option keeps them here.
   const noModes = { ...codex(all), modes: undefined } as Summary;
-  expect(extraConfigOptions(noModes).map((entry) => entry.id)).toEqual(["mode", "collaboration_mode", "thinking"]);
+  expect(extraConfigOptions(noModes).map((entry) => entry.id)).toEqual(["mode", "thinking"]);
 });
 
 test("the Options chip names one option and picks its choice through the config command", async () => {
   const sent: string[] = [];
-  await render(codex([option("collaboration_mode", ["default", "plan"], { name: "Collaboration mode" })]), sent);
+  await render(codex([option("thinking", ["off", "on"], { name: "Thinking" })]), sent);
   const chip = host.querySelector<HTMLElement>("[data-menu=options]");
-  expect(chip?.textContent).toContain("Collaboration mode: Default");
+  expect(chip?.textContent).toContain("Thinking: Off");
   const { openPicker } = await import("../src/agent-session/acpmux/pickerOpeners");
   await act(async () => void openPicker("Options"));
-  const plan = [...dom.window.document.querySelectorAll<HTMLElement>("[role=menuitemradio]")].find((row) =>
-    row.textContent?.includes("Plan"),
+  const on = [...dom.window.document.querySelectorAll<HTMLElement>("[role=menuitemradio]")].find((row) =>
+    row.textContent?.includes("On"),
   );
-  expect(plan).toBeDefined();
-  await act(async () => plan!.click());
-  expect(sent).toEqual(["collaboration_mode=plan"]);
+  expect(on).toBeDefined();
+  await act(async () => on!.click());
+  expect(sent).toEqual(["thinking=on"]);
+});
+
+test("Codex collaboration mode does not add a composer Options chip", async () => {
+  await render(codex([option("collaboration_mode", ["default", "plan"], { name: "Collaboration mode" })]), []);
+  expect(host.querySelector("[data-menu=options]")).toBeNull();
+});
+
+test("a Codex profile collaboration option does not add a composer Options chip", async () => {
+  await render(
+    {
+      ...codex([option("collaboration_mode", ["default", "plan"], { name: "Collaboration mode" })]),
+      harness: "codex-work",
+    },
+    [],
+  );
+  expect(host.querySelector("[data-menu=options]")).toBeNull();
+});
+
+test("a custom harness collaboration option stays available in Options", async () => {
+  const sent: string[] = [];
+  await render(
+    {
+      ...codex([option("collaboration_mode", ["default", "plan"], { name: "Collaboration mode" })]),
+      harness: "custom",
+    },
+    sent,
+  );
+  expect(host.querySelector<HTMLElement>("[data-menu=options]")?.textContent).toContain("Collaboration mode: Default");
 });
 
 test("a session with no extra option shows no Options chip", async () => {

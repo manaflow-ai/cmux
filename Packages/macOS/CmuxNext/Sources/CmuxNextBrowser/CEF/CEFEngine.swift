@@ -198,6 +198,16 @@ public final class CEFEngine: BrowserEngine {
         return store
     }
 
+    /// Sets `profile`'s proxy (nil: direct, #24432). A page made later uses it from its
+    /// first request; a context Chromium already made takes it now.
+    public func setProxy(_ proxy: BrowserProfileProxy?, for profile: BrowserProfileID) {
+        let runtime = CEFRuntime.shared
+        guard runtime.profileProxies[profile] != proxy else { return }
+        runtime.profileProxies[profile] = proxy
+        runtime.unappliedProfileProxies.insert(profile)
+        if runtime.shim != nil { _ = runtime.applyProfileProxy(profile) }
+    }
+
     /// Where Chromium keeps every profile's directory.
     public var storageRoot: URL { CEFRuntime.shared.storage.root }
 

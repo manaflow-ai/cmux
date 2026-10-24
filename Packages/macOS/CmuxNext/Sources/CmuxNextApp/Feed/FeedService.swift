@@ -1,7 +1,9 @@
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextFeed
+import CmuxNextWakeups
 import Foundation
 
 /// The app's feed (plans/cmux-next/feed.md): one `FeedModel` mirroring the
@@ -20,10 +22,15 @@ final class FeedService {
     private let github: GitHubFeedSource
     private let showcase: Bool
     private let auth: CloudAuth
+    private let acpmuxEnvironment: AcpmuxEnvironment?
+    private let reportsClient = AcpmuxMailboxClient()
+    private var reportsTask: Task<Void, Never>?
+    private var reportsCursor: UInt64 = 0
+    private var reportRows: [String: FeedReport] = [:]
     private var started = false
     /// The account the mirror belongs to; a sign-out or another account resets it.
     private var account: String?
-    private var observers: [any NSObjectProtocol] = []
+    private var observers: [MainActorObservation] = []
     private var accountWatch: Task<Void, Never>?
     private(set) var connection: FeedConnection = .disconnected("not started")
     /// Owner-confirmed state of each item (never the overlay).
@@ -39,9 +46,10 @@ final class FeedService {
         auth.configuration.ownerAPIBaseURL(environment: environment)
     }
 
-    init(auth: CloudAuth, showcase: Bool = false) {
+    init(auth: CloudAuth, showcase: Bool = false, acpmuxEnvironment: AcpmuxEnvironment? = nil) {
         self.auth = auth
         self.showcase = showcase
+        self.acpmuxEnvironment = acpmuxEnvironment
         apiBaseURL = Self.apiBaseURL(auth: auth)
         // The answer's device label is the owner's record (the install); this name is only the overlay's.
         source = CloudFeedSource(apiBaseURL: apiBaseURL, device: "Mac") { [auth] in
@@ -74,8 +82,8 @@ final class FeedService {
             source.setPresence(active: forced ?? NSApp.isActive)
             if forced == nil { source.checkAlive() }
         }
-        func on(_ center: NotificationCenter, _ name: Notification.Name, _ forced: Bool?) -> any NSObjectProtocol {
-            center.addObserver(forName: name, object: nil, queue: .main) { _ in MainActor.assumeIsolated { update(forced) } } // main-proof: observer on queue: .main
+        func on(_ center: NotificationCenter, _ name: Notification.Name, _ forced: Bool?) -> MainActorObservation {
+            MainActorObservation(name, center: center) { update(forced) }
         }
         observers = [
             on(app, NSApplication.didBecomeActiveNotification, true),
@@ -96,6 +104,7 @@ final class FeedService {
         if account != nil {
             source.reset(reason: "signed out")
             github.resetDetails()
+            resetReports()
             started = false
         }
         account = user
@@ -106,12 +115,16 @@ final class FeedService {
     /// Starts the mirror when signed in; the panel and requests call it again (after a sign-in).
     func startIfSignedIn() {
         guard !started else {
-            if auth.isSignedIn { source.setPresence(active: NSApp.isActive) }
+            if auth.isSignedIn {
+                startReportsIfNeeded()
+                source.setPresence(active: NSApp.isActive)
+            }
             return
         }
         account = auth.user?.id
         started = true
         model.start()
+        startReportsIfNeeded()
         if auth.isSignedIn { source.setPresence(active: NSApp.isActive) }
     }
 
@@ -135,6 +148,7 @@ final class FeedService {
 
     func stop() {
         accountWatch?.cancel()
+        resetReports()
         model.stop()
         github.stop()
         github.resetDetails()
@@ -165,6 +179,77 @@ final class FeedService {
     }
 
     private var githubEnabled = false
+
+    /// The signed-in account owns its own local alias. Using the stable auth
+    /// id keeps a second account from reading Leo's reports mailbox.
+    private var reportsRecipient: String? {
+        guard let person = auth.user?.id.trimmingCharacters(in: .whitespacesAndNewlines), !person.isEmpty else {
+            return nil
+        }
+        return "reports:\(person)"
+    }
+
+    private func resetReports() {
+        reportsTask?.cancel()
+        reportsTask = nil
+        reportsCursor = 0
+        reportRows.removeAll()
+        model.replaceReports([])
+    }
+
+    /// Reads the quiet reports alias without creating a model attachment. The
+    /// mailbox wait is event-driven; quiet delivery notifies this reader but
+    /// never wakes the sender's ACP turn.
+    private func startReportsIfNeeded() {
+        guard auth.isSignedIn, reportsTask == nil, let socketPath = acpmuxEnvironment?.socketPath,
+              let reportsRecipient else { return }
+        let client = reportsClient
+        reportsTask = Task { [weak self] in
+            guard let self else { return }
+            var backoff = Backoff(initial: .milliseconds(250), maximum: .seconds(30))
+            // wakeup-allow: each pass is one event-driven mailbox wait (acpmux answers on new mail or its 30 s wait end)
+            while !Task.isCancelled {
+                do {
+                    let page = try await client.wait(
+                        socketPath: socketPath,
+                        recipient: reportsRecipient,
+                        after: self.reportsCursor
+                    )
+                    backoff.reset()
+                    applyReports(page)
+                } catch is CancellationError {
+                    return
+                } catch {
+                    // acpmux is not running yet: wait for its socket to appear (a file-system event).
+                    // It runs but refused (handing off): retry after a real failure, spaced by Backoff.
+                    if !FileManager.default.fileExists(atPath: socketPath) {
+                        // concurrency-allow: an async wait for one file-system event, not a blocking wait.
+                        await PathAppearance().wait(for: socketPath)
+                    } else {
+                        // concurrency-allow: Backoff.wait is an async sleep after a failure, not a blocking wait.
+                        do { try await backoff.wait(owner: "feed.reports.retry") } catch { return }
+                    }
+                }
+            }
+        }
+    }
+
+    private func applyReports(_ page: AcpmuxMailboxPage) {
+        for message in page.messages {
+            reportRows[message.id] = FeedReport(
+                id: message.id,
+                sender: message.sender,
+                body: message.body,
+                createdAt: message.createdAt
+            )
+        }
+        if let nextCursor = page.nextCursor {
+            reportsCursor = max(reportsCursor, nextCursor)
+        } else if let last = page.messages.last {
+            reportsCursor = max(reportsCursor, last.seq)
+        }
+        model.replaceReports(Array(reportRows.values))
+    }
 
     private func observe(_ event: FeedSourceEvent) {
         switch event {
@@ -216,16 +301,19 @@ final class FeedService {
         for waiter in list { waiter.resume() }
     }
 
-    /// One HTTP call to the API Worker as the signed-in user (`/v1/ops` or `/v1/read`).
-    func call(_ path: String, _ body: [String: Any]) async throws -> [String: Any] {
+    /// One HTTP call to the API Worker as the signed-in user (`/v1/ops` or `/v1/read`), in its
+    /// personal team or in `team` (`x-cmux-team`; TeamDO confirms the membership).
+    func call(_ path: String, _ body: [String: Any], team: String? = nil) async throws -> [String: Any] {
         guard auth.isSignedIn else { throw FeedServiceError.signedOut }
         var request = URLRequest(url: apiBaseURL.appendingPathComponent(path))
         request.httpMethod = "POST"
         request.timeoutInterval = 15
         request.setValue("application/json", forHTTPHeaderField: "content-type")
         request.setValue("Bearer \(try await auth.tokens().access)", forHTTPHeaderField: "authorization")
+        if let team { request.setValue(team, forHTTPHeaderField: "x-cmux-team") }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, _) = try await URLSession.shared.data(for: request)
+        // The bearer never goes through the shared, caching session.
+        let (data, _) = try await CloudAPIClient.noStoreTransport.data(for: request)
         guard let reply = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw FeedServiceError.badReply }
         if let error = reply["error"] as? [String: Any] {
             throw FeedServiceError.owner(code: error["code"] as? String ?? "error", message: error["message"] as? String ?? "")

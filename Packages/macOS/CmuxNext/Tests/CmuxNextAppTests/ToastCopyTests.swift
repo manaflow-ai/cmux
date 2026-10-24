@@ -4,6 +4,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextSidebar
 import Testing
+import CmuxNextLayout
 
 /// What tabs are called outside their strip, and what errors say (op-next-theme toasts). The
 /// sidebar's tab rows and the closed-tab toasts name a tab as its strip does

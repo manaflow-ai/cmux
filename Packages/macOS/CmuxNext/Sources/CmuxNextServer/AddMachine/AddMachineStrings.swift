@@ -13,6 +13,8 @@ nonisolated enum AddMachineStrings {
     static var tailnet: String { s("addMachine.tailnet", "On your tailnet") }
     static var lookingForPeers: String { s("addMachine.lookingForPeers", "Looking for machines on your tailnet…") }
     static var candidateAdded: String { s("addMachine.candidate.added", "Added") }
+    static var candidateAgentPeer: String { s("addMachine.candidate.agentPeer", "Agent peer") }
+    static var peerConnectFailed: String { s("addMachine.peerConnectFailed", "The app could not connect to it over ssh.") }
     static var candidateSSHOff: String { s("addMachine.candidate.sshOff", "ssh off") }
     static var candidateOffline: String { s("addMachine.candidate.offline", "Offline") }
     static func adding(_ name: String) -> String { String(format: s("addMachine.addingTitle", "Adding %@"), name) }

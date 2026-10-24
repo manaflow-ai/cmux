@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextRemoteView
+import CmuxNextCompat
 
 #if DEBUG
 /// The popup surfaces of one remote tab (`rb.surface.show/update/hide`,
@@ -27,7 +28,7 @@ public final class RemoteBrowserSurfaces {
     private var open: [UInt32: Surface] = [:]
     /// The page window's geometry observers, while a surface is open.
     private weak var observedWindow: NSWindow?
-    private var windowObservers: [any NSObjectProtocol] = []
+    private var windowObservers: [MainActorObservation] = []
 
     /// `source` gives a surface stream's units; `send` sends one rb input
     /// event (`mustDeliver` second).
@@ -150,7 +151,6 @@ public final class RemoteBrowserSurfaces {
         // Same window and observers that match it: nothing to do. (A window
         // that went away leaves observers with a nil `observedWindow`.)
         guard !(window === observedWindow && (window == nil) == windowObservers.isEmpty) else { return }
-        windowObservers.forEach(NotificationCenter.default.removeObserver)
         windowObservers.removeAll()
         observedWindow = window
         guard let window else { return }
@@ -158,18 +158,14 @@ public final class RemoteBrowserSurfaces {
         for name in [NSWindow.didUpdateNotification, NSWindow.didResizeNotification, NSWindow.didEnterFullScreenNotification,
                      NSWindow.didExitFullScreenNotification, NSWindow.didChangeScreenNotification,
                      NSWindow.didDeminiaturizeNotification, NSWindow.didChangeOcclusionStateNotification] {
-            windowObservers.append(center.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
-                // main-proof: observer on queue: .main
-                MainActor.assumeIsolated { self?.placeAll() }
+            windowObservers.append(MainActorObservation(name, object: window, center: center) { [weak self] in
+                self?.placeAll()
             })
         }
-        windowObservers.append(center.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
-            // main-proof: observer on queue: .main
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                for entry in self.open.values { self.detach(entry.panel) }
-                self.observeWindow(nil)
-            }
+        windowObservers.append(MainActorObservation(NSWindow.willCloseNotification, object: window, center: center) { [weak self] in
+            guard let self else { return }
+            for entry in self.open.values { self.detach(entry.panel) }
+            self.observeWindow(nil)
         })
     }
 

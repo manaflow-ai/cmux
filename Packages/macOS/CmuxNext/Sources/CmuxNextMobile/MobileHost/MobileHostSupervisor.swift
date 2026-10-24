@@ -21,7 +21,7 @@ public actor MobileHostSupervisor {
         public var acpmux: @Sendable () async -> (url: URL, token: String)?
         /// hostd's stderr log (0600), nil for none.
         public var log: URL?
-        /// The environment hostd's `HOME`, `PATH` and `TMPDIR` come from.
+        /// The environment hostd's `HOME`, `PATH` and `TMPDIR` (and a DEBUG rig's machine id) come from.
         public var inherited: [String: String]
         /// The app's browser hosts for streamed browser tabs; nil when this
         /// build has none (hostd then refuses `browser` as unavailable).

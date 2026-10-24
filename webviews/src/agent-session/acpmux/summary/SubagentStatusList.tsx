@@ -68,7 +68,16 @@ export function pendingToolCalls(
   if (snapshot.permission?.pending) add(snapshot.permission.toolCallId);
   for (const group of snapshot.permissionGroups?.groups ?? [])
     for (const item of group.items)
-      if (item.state === "pending") add((item.request.toolCall as { toolCallId?: unknown } | undefined)?.toolCallId);
+      if (item.state === "pending") {
+        const request = item.request as {
+          toolCall?: { toolCallId?: unknown };
+          subject?: { type?: unknown; toolCall?: { toolCallId?: unknown } };
+        };
+        add(
+          request.toolCall?.toolCallId ??
+            (request.subject?.type === "tool_call" ? request.subject.toolCall?.toolCallId : undefined),
+        );
+      }
   for (const row of snapshot.rows)
     if (row.kind === "permission" && row.permission?.pending) add(row.permission.toolCallId);
   return calls;

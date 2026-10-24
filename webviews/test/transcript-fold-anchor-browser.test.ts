@@ -130,30 +130,38 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     }, selector);
   /// Clicks the marked line, then follows it every painted frame for `ms`: how far it ever moved, and
   /// whether a fold was playing at some frame.
-  const clickAndWatch = async (page: Page, ms = 450) => {
+  const clickAndWatch = async (page: Page, ms = 450, at?: { x: number; y: number }) => {
     const point = await page.evaluate(() => {
       const box = document.querySelector<HTMLElement>("[data-probe]")!.getBoundingClientRect();
       return { x: box.left + 24, y: box.top + box.height / 2, top: box.top };
     });
     const watching = page.evaluate(
       ({ duration, from }) =>
-        new Promise<{ moved: number; folded: boolean }>((resolve) => {
+        new Promise<{ moved: number; folded: boolean; stacked: number }>((resolve) => {
           const start = performance.now();
           let moved = 0;
           let folded = false;
+          let stacked = 0;
           window.cmuxAfterPaint(() => {
             const line = document.querySelector<HTMLElement>("[data-probe]");
             if (line) moved = Math.max(moved, Math.abs(line.getBoundingClientRect().top - from));
             for (const fold of document.querySelectorAll(".cv-fold"))
               if (fold.getAnimations().length > 0) folded = true;
+            const each = new Map<unknown, number>();
+            for (const animation of document.getAnimations())
+              if (animation.playState === "running" && animation.effect?.getTiming().iterations !== Infinity) {
+                const target = (animation.effect as KeyframeEffect | null)?.target;
+                each.set(target, (each.get(target) ?? 0) + 1);
+              }
+            stacked = Math.max(stacked, ...each.values(), 0);
             if (performance.now() - start < duration) return;
-            resolve({ moved, folded });
+            resolve({ moved, folded, stacked });
             return false;
           });
         }),
       { duration: ms, from: point.top },
     );
-    await page.mouse.click(point.x, point.y);
+    await page.mouse.click((at ?? point).x, (at ?? point).y);
     return { ...(await watching), top: point.top };
   };
   const probedTop = (page: Page) =>
@@ -206,6 +214,177 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     expect(await page.locator("[data-probe]").getAttribute("aria-expanded")).toBe("true");
     expect(opened.moved).toBeLessThanOrEqual(1);
     expect(await page.locator('[data-row-id="t7-run"]').count()).toBe(1);
+    await page.close();
+  });
+
+  test("mid-transcript, Worked for opens and closes with its line on its pixel", async () => {
+    const page = await open("no-preference");
+    await show(page, done);
+    await settle(page);
+    // Up the transcript, with turn 3's line about a third of the way down the view.
+    await page.evaluate(() => {
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      for (let step = 0; step < 40 && !document.querySelector('[data-row-id="worked-t3-user"]'); step += 1) {
+        scroller.scrollTop = Math.max(0, scroller.scrollTop - scroller.clientHeight / 2);
+        scroller.dispatchEvent(new Event("scroll"));
+      }
+    });
+    await settle(page);
+    await page.evaluate(() => {
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const line = document.querySelector<HTMLElement>('[data-row-id="worked-t3-user"] button.cv-worked')!;
+      scroller.scrollTop += line.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 200;
+    });
+    await settle(page);
+    expect(await atLatest(page)).toBe(false);
+    await probe(page, `[data-row-id="worked-t3-user"] button.cv-worked`);
+    const worked = await clickAndWatch(page);
+    expect(await page.locator("[data-probe]").getAttribute("aria-expanded")).toBe("true");
+    expect(worked.moved).toBeLessThanOrEqual(1);
+    await settle(page);
+    await page.evaluate(() => document.querySelector("[data-probe]")?.removeAttribute("data-probe"));
+
+    await probe(page, `[data-row-id="worked-t3-user"] button.cv-worked`);
+    const workedClosed = await clickAndWatch(page);
+    expect(await page.locator("[data-probe]").getAttribute("aria-expanded")).toBe("false");
+    expect(workedClosed.moved).toBeLessThanOrEqual(1);
+    await settle(page);
+    // No copy of a hidden row is left behind, and the closed turn is one line again.
+    expect(await page.locator(".acpmux-row--fold-ghost").count()).toBe(0);
+    expect(await page.locator('[data-row-id="t3-run"]').count()).toBe(0);
+    await page.close();
+  });
+
+  // Every kind of collapsible, opened and closed mid-transcript: the line the reader clicked stays on
+  // its pixel (Show more holds the bubble's top: the text grows below it), and no element ever runs
+  // two animations at once (Leo 2026-10-22: "a few animations that didnt quite work for collapsing
+  // and expanding wrt tool calls and stufff").
+  const longPrompt = Array.from({ length: 24 }, (_, line) => `${line + 1}. The uploader retries on a 5xx.`).join("\n");
+  const execute = (id: string, command: string) => ({
+    kind: "tool",
+    text: "",
+    tool: { id, title: command, kind: "execute", status: "completed", command, output: "3 pass\n0 fail", exitCode: 0 },
+  });
+  const kinds: Row[] = [
+    row("k-user", "user", longPrompt),
+    row("k-run", "activity", undefined, {
+      items: [
+        {
+          kind: "thought",
+          text: "Check the retry wrapper first.\n\nIt swallows the status.",
+          startedAt: 0,
+          endedAt: 9_000,
+        },
+        read("k-read"),
+        execute("k-cmd-a", "bun test src/net"),
+        execute("k-cmd-b", "bun test src/net --watch"),
+      ],
+    }),
+    // Enough below the prompt that Show less, held at its button, never meets the end of the transcript.
+    row("k-answer", "assistant", paragraphs(12)),
+  ];
+  /// Each kind: its toggle (by structure, not by label: the harness page loads no string table, so labels
+  /// are keys), and for Show more what holds still while it opens.
+  const run = '[data-row-id="k-run"] button.cv-tool.is-toggle';
+  const cases: { name: string; toggle: string; text?: string; not?: string; held?: string }[] = [
+    { name: "a thought", toggle: `${run}.cv-thought` },
+    { name: "a tool call", toggle: `${run}:not(.cv-thought):not(.cv-command)`, text: "k-read" },
+    { name: "a command group", toggle: `${run}:not(.cv-thought):not(.cv-command)`, not: "k-read" },
+    {
+      name: "Show more",
+      toggle: '[data-row-id="k-user"] .cv-user__more',
+      held: `[data-row-id="k-user"] .cv-user__bubble`,
+    },
+  ];
+  for (const one of cases)
+    test(`${one.name} opens and closes with its line on its pixel and one animation per element`, async () => {
+      const page = await open("no-preference");
+      await show(page, [...done, ...kinds]);
+      await settle(page);
+      // Marks the toggle (`data-toggle`) and puts it 200 px down the view, away from either end.
+      const mark = () =>
+        page.evaluate(({ toggle, text, not }) => {
+          for (const node of document.querySelectorAll("[data-toggle]")) node.removeAttribute("data-toggle");
+          const found = [...document.querySelectorAll<HTMLElement>(toggle)].find(
+            (node) =>
+              node.hasAttribute("aria-expanded") &&
+              (!text || node.textContent?.includes(text)) &&
+              !(not && node.textContent?.includes(not)),
+          )!;
+          found.dataset.toggle = "true";
+          return found.getAttribute("aria-expanded") === "true";
+        }, one);
+      // A kind can start open (the latest command group does), so the first click closes it.
+      const startsOpen = await mark();
+      for (const opening of [!startsOpen, startsOpen]) {
+        await mark();
+        await page.evaluate(() => {
+          const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+          const toggle = document.querySelector<HTMLElement>("[data-toggle]")!;
+          scroller.scrollTop += toggle.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 200;
+        });
+        await settle(page);
+        const at = await page.evaluate(() => {
+          const box = document.querySelector<HTMLElement>("[data-toggle]")!.getBoundingClientRect();
+          return { x: box.left + Math.min(24, box.width / 2), y: box.top + box.height / 2 };
+        });
+        await page.evaluate(() => document.querySelector("[data-probe]")?.removeAttribute("data-probe"));
+        // Show more holds the bubble's top while the text grows below it; Show less holds the button.
+        await probe(page, opening && one.held ? one.held : "[data-toggle]");
+        const watched = await clickAndWatch(page, 450, at);
+        expect({ opening, held: watched.moved <= 1 }).toEqual({ opening, held: true });
+        expect({ opening, stacked: Math.min(watched.stacked, 2) }).toEqual({ opening, stacked: 1 });
+        await settle(page);
+        await mark();
+        expect(await page.locator("[data-toggle]").getAttribute("aria-expanded")).toBe(String(opening));
+      }
+      await page.close();
+    });
+
+  test("Show less on a prompt several screens tall, with motion off, keeps its button on its pixel", async () => {
+    const page = await open("reduce");
+    const tall = Array.from({ length: 400 }, (_, line) => `${line + 1}. The uploader retries on a 5xx.`).join("\n");
+    await show(page, [
+      ...done,
+      row("tall-user", "user", tall),
+      ...done.map((one) => ({ ...one, id: `after-${one.id}` })),
+    ]);
+    await settle(page);
+    const button = '[data-row-id="tall-user"] .cv-user__more';
+    // The prompt sits mid-transcript, so the view first walks up until its row is mounted, then puts
+    // the button 200 px down. Rows that mount on the way are measured and shift it, so it tries again
+    // until the button rests there.
+    const place = async () => {
+      for (let attempt = 0; attempt < 6; attempt += 1) {
+        await page.evaluate(async (query) => {
+          const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+          for (let step = 0; step < 40 && !document.querySelector(query); step += 1) {
+            scroller.scrollTop -= scroller.clientHeight / 2;
+            await window.cmuxPaintFrame();
+          }
+          const more = document.querySelector<HTMLElement>(query)!;
+          scroller.scrollTop += more.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 200;
+        }, button);
+        await settle(page);
+        const off = await page.evaluate((query) => {
+          const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+          const top = document.querySelector<HTMLElement>(query)?.getBoundingClientRect().top;
+          return top === undefined ? Infinity : Math.abs(top - scroller.getBoundingClientRect().top - 200);
+        }, button);
+        if (off <= 1) return;
+      }
+    };
+    await place();
+    await page.locator(button).click();
+    await settle(page);
+    expect(await page.locator(button).getAttribute("aria-expanded")).toBe("true");
+    await place();
+    await page.evaluate(() => document.querySelector("[data-probe]")?.removeAttribute("data-probe"));
+    await probe(page, button);
+    const closed = await clickAndWatch(page, 250);
+    expect(closed.moved).toBeLessThanOrEqual(1);
+    expect(await page.locator(button).getAttribute("aria-expanded")).toBe("false");
+    expect(Math.abs((await probedTop(page)) - closed.top)).toBeLessThanOrEqual(1);
     await page.close();
   });
 

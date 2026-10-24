@@ -36,6 +36,8 @@ public final class HomeNativeTranscriptView: NSView {
     /// Prepares dropped, pasted and picked files (the data side; the store
     /// by default, a recorder in tests). Nil: the composer takes none.
     public var attachmentPreparer: (any HomeAttachmentPreparing)?
+    /// The "+" file picker over the app's made-ahead panel; nil when the app passed none (tests).
+    let attachmentPanel: HomeAttachmentPanel?
     /// Whether photos and videos keep their location (Settings > Home,
     /// `home.attachments.keepLocation`; false strips it, the default).
     public var keepLocation: () -> Bool = { false }
@@ -121,10 +123,13 @@ public final class HomeNativeTranscriptView: NSView {
     /// The window's typing hold for the compose field's cursor rects (HomeCursorRectHold).
     private var cursorHold: HomeCursorRectHold?
     /// Debug Settings > Home > Avatar and name over the chat, when this conversation opened (off: no header).
-    private let showsHeader = HomeTunables.chatHeader.value
+    let showsHeader = HomeTunables.chatHeader.value
 
     /// - Parameter diagrams: draws Mermaid fences as diagrams (the app's ``OndineMermaidRenderer``); nil keeps them as text.
-    public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, diagrams: (any HomeDiagramRendering)? = nil) {
+    /// - Parameter openPanel: the app's made-ahead file picker (`AppServices.openPanel`) for the "+"; nil (tests) opens none.
+    public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, diagrams: (any HomeDiagramRendering)? = nil,
+                openPanel: MadeAheadOpenPanel? = nil) {
+        attachmentPanel = openPanel.map { HomeAttachmentPanel(openPanel: $0) }
         HomeReduceMotion.install()
         self.me = me
         // Debug Settings > Home > Rich tables, before the transcript maps its first messages.
@@ -172,6 +177,7 @@ public final class HomeNativeTranscriptView: NSView {
         followHeroTunable()
         followChiefPet()
         applyTheme()
+        followTopFadeStyle()
         updateFirstRun()
     }
 
@@ -213,7 +219,7 @@ public final class HomeNativeTranscriptView: NSView {
     nonisolated public override var isFlipped: Bool { true }
     public override var acceptsFirstResponder: Bool { true }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// The first-run panel is on screen (capture scenes settle on it).
     public var debugFirstRunShown: Bool { !firstRun.isHiddenOrHasHiddenAncestor && firstRun.window != nil }
     /// The first-run panel's listed agents, most urgent first.
@@ -442,7 +448,7 @@ public final class HomeNativeTranscriptView: NSView {
             if window == nil || stopped { linkPreviews.coordinator.unregister(linkPreviews) } else { linkPreviews.coordinator.register(linkPreviews) }
         }
         guard let window else { return }
-        if attachmentPreparer != nil { HomeAttachmentPanel.warmWhenIdle() }  // the "+" opens without making a panel
+        if attachmentPreparer != nil { attachmentPanel?.warmWhenIdle() }  // the "+" opens without making a panel
         let nc = NotificationCenter.default
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
                      NSWindow.didChangeOcclusionStateNotification] {
@@ -467,9 +473,9 @@ public final class HomeNativeTranscriptView: NSView {
         let active = performWithTheme { HomeThemePalette.resolveInScope(active: true, style: style, accentOverride: accent) }
         let measured = performWithTheme { HomeThemePalette.usesMessagesBlueInScope(style: style, accentOverride: accent) }
         transcript.applyTheme(active: active, measuredAccent: measured)
-        // No header by default: the rows start at the top and fade out there. Debug Settings brings back
-        // the thin glass band and glass name pill, as Messages on macOS 26 (HeaderGlass.swift).
-        if showsHeader { transcript.setHeaderGlass() } else { transcript.setBareTop() }
+        // The header's top fade (Debug Settings > Home > Top of the chat; the glass band by default,
+        // HeaderGlass.swift), or no header and the rows' own short fade (HomeNativeTranscriptView+TopFade.swift).
+        applyTopFadeStyle()
         performWithTheme {
             firstRun.applyColors(primary: Palette.textPrimary, secondary: Palette.textSecondary, tertiary: Palette.textTertiary, fill: Palette.elevatedBackground,
                                  hover: Palette.hoverFill, border: Palette.separator, attention: Palette.attention,

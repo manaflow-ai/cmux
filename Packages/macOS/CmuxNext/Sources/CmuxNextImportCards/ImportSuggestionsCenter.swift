@@ -1,6 +1,5 @@
 public import AppKit
 public import CmuxNextActions
-import CmuxNextAgentPane
 public import CmuxNextBrowserImport
 import CmuxNextCompat
 import CmuxNextDesign
@@ -14,8 +13,8 @@ import Observation
 /// ``rescanInterval``), keeps the person's dismissals and the Chief's
 /// requests, and runs each card's import as a job saved after every step, so
 /// a quit or crash leaves it paused for Resume (or resumes it at launch when
-/// no prompt is left). Home, New Tab (through `AgentPaneImportCards`) and
-/// Settings › Import draw what ``list(for:)`` returns.
+/// no prompt is left). Settings › Import draws what ``list()`` returns; Home and
+/// New Tab show no suggestion (Leo 2026-10-21: "yes to both", removing it from both).
 @MainActor
 @Observable
 public final class ImportSuggestionsCenter {
@@ -71,13 +70,6 @@ public final class ImportSuggestionsCenter {
         started = true
         restoreJobs()
         state.expire(now: now())
-        AgentPaneImportCards.shared.onAction = { [weak self] id, action in
-            guard let action = ImportCardAction(rawValue: action) else { return }
-            // A New Tab page's button: a first-party control, never the person's own gesture, so a
-            // start asks natively first and a cookie request still gets its consent panel.
-            try? self?.perform(id, action, caller: ActionInvocation(arguments: [:], origin: .page))
-        }
-        follow()
         activation = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil,
                                                             queue: .main) { [weak self] _ in
             Task { @MainActor in self?.rescanIfStale() }
@@ -149,16 +141,16 @@ public final class ImportSuggestionsCenter {
         "terminal.iterm2": "com.googlecode.iterm2", "terminal.ghostty": "com.mitchellh.ghostty", "cmux.classic": "com.cmuxterm.app",
     ]
 
-    /// The cards `surface` draws now; empty while the cards are off.
-    public func list(for surface: ImportCardDeck.Surface) -> ImportCardList {
+    /// The cards Settings › Import lists now; empty while the cards are off.
+    public func list() -> ImportCardList {
         guard isEnabled else { return .empty }
-        return deck.list(for: surface, now: now())
+        return deck.list()
     }
 
     /// Settings › Import's list for the page's host lists (`import_suggestions`), with its empty text; null while the cards are off.
     public var settingsJSON: JSONValue {
         guard isEnabled else { return .null }
-        var value = ImportCardJSON.value(list(for: .settings), keepEmpty: true)
+        var value = ImportCardJSON.value(list(), keepEmpty: true)
         if case .object(var members) = value {
             members["empty"] = .string(ImportSuggestionStrings.settingsEmpty)
             members["scanning"] = .bool(isScanning)
@@ -167,18 +159,9 @@ public final class ImportSuggestionsCenter {
         return value
     }
 
-    /// Pushes the New Tab cards to every agent page on each change of what they show.
-    private func follow() {
-        withObservationTracking {
-            AgentPaneImportCards.shared.cards = ImportCardJSON.value(list(for: .newTab))
-        } onChange: { [weak self] in
-            Task { @MainActor in self?.follow() }
-        }
-    }
-
     // MARK: Buttons
 
-    /// Runs a card's button (Home's row, a page, `import.card`). `caller` is the run that
+    /// Runs a card's button (Settings › Import's page, `import.card`). `caller` is the run that
     /// pressed it, the person's own click when nil. Only that click starts an import at once: any
     /// other caller's Import, Resume or Try Again asks the person in a native dialog first (page
     /// script cannot answer it), and an agent's cookie request always gets
@@ -252,7 +235,7 @@ public final class ImportSuggestionsCenter {
         } else {
             guard let job = ledger.job(id), job.phase != .running else { throw ImportCardsFailure.noSuchCard(id) }
         }
-        guard let card = deck.cards(for: .settings, now: now()).first(where: { $0.id == id }), card.kind.startReadsAnotherApp else { return nil }
+        guard let card = deck.cards().first(where: { $0.id == id }), card.kind.startReadsAnotherApp else { return nil }
         let confirm = CmuxDialogButton(id: "confirm", title: ImportSuggestionStrings.confirmButton(action), role: .default)
         return CmuxDialogSpec(title: ImportSuggestionStrings.confirmTitle(card.title), lines: [card.facts, card.benefit].filter { !$0.isEmpty },
                               buttons: [.cancel(), confirm], identifier: "cmux.dialog.importCard")

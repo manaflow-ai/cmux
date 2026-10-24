@@ -22,12 +22,12 @@ pub(in crate::cli) enum Control {
 impl Session {
     /// The engine report after setting `changes` (none: just read it).
     pub(super) fn engine(&mut self, changes: &[(String, String)]) -> Result<Value, LinkError> {
-        engine(&mut self.control, changes, None)
+        engine(&mut self.client.link, changes, None)
     }
 
     /// Stops the Chief's running turn; whether one was running.
     pub(super) fn stop(&mut self) -> Result<bool, LinkError> {
-        stop(&mut self.control, None, None)
+        stop(&mut self.client.link, None, None)
     }
 }
 

@@ -56,14 +56,14 @@ public final class StashService: StashPageSource {
     public func dropDraft(_ key: String) { drafts[key] = nil }
 
     /// Whether `daemon` keeps stashes; without it no stash UI shows. Only this Mac's daemon.
-    func serves(_ daemon: DaemonService) -> Bool { daemon.isLocal && daemon.supports(DaemonCapabilities.shared.stash) }
+    func serves(_ daemon: DaemonService) -> Bool { daemon.isLocal && daemon.supports(DaemonCapabilities.stash) }
 
     /// The reason Save and Close of tabs (`workspaces` false) or of whole workspaces is unavailable,
     /// or nil while this Mac's daemon keeps them (`stash-v1`, `stash-workspaces-v1`).
     public func unavailableReason(workspaces: Bool = false) -> String? {
         guard let daemon = host?.localDaemon else { return RefusalStrings.daemonConnecting }
-        let capability = workspaces ? DaemonCapabilities.shared.stashWorkspaces : DaemonCapabilities.shared.stash
-        guard daemon.isLocal, daemon.supports(DaemonCapabilities.shared.stash), daemon.supports(capability) else {
+        let capability = workspaces ? DaemonCapabilities.stashWorkspaces : DaemonCapabilities.stash
+        guard daemon.isLocal, daemon.supports(DaemonCapabilities.stash), daemon.supports(capability) else {
             return daemon.missingCapabilityMessage(capability)
         }
         return nil
@@ -111,7 +111,7 @@ public final class StashService: StashPageSource {
         guard let connection = daemon.connection else {
             throw ActionFailure(message: daemon.notConnectedReason ?? RefusalStrings.daemonConnecting)
         }
-        guard serves(daemon) else { throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapabilities.shared.stash)) }
+        guard serves(daemon) else { throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapabilities.stash)) }
         return connection.state
     }
 

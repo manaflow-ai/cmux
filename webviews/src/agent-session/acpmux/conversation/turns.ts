@@ -369,6 +369,14 @@ function shapedTurn(
       ...held,
       ...line,
     ];
+    // Legacy/history turns can end without a turn_result. Keep the normal turn rhythm at the
+    // composer for the latest completed turn without restoring the permanent runway under every
+    // turn. The marker is consumed by the row estimator and CSS only for this terminal row.
+    if (last && !live && held.length === 0 && !turn.some((row) => row.kind === "turnSummary")) {
+      let final = shaped.length - 1;
+      while (final >= 0 && (shaped[final]!.kind === DATE || shaped[final]!.kind === "user")) final -= 1;
+      if (final >= 0) shaped[final] = { ...shaped[final]!, lastTurn: true };
+    }
   }
   if (!live) shapedTurns.set(user, { source, open, last, clockOffset, dated, liveRuns, rows: shaped });
   return shaped;
@@ -984,6 +992,7 @@ function ownRow(row: AcpmuxRow, item: AcpmuxActivity): OwnRow {
     group.type === "item" ||
     group.type === "message" ||
     group.type === "subsession" ||
+    group.type === "dispatch" ||
     (group.type === "mcp" && group.items.length === 1)
   )
     return true;

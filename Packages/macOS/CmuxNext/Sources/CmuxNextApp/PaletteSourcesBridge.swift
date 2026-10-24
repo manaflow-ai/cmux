@@ -104,14 +104,19 @@ enum PaletteSourcesBridge {
             for group in AppPaletteNavigationSource.groups(services) {
                 for id in group.workspaceIDs where groupNames[id] == nil { groupNames[id] = group.name }
             }
+            let subagents = ChiefSubagentIDs.live
             return services.machines.allWorkspaces.map { workspace, daemon in // another machine's rows name it
-                let cwd = workspace.screens.flatMap(\.panes).flatMap(\.tabs).first { $0.cwd != nil }?.cwd
+                let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
+                let cwd = tabs.first { $0.cwd != nil }?.cwd
+                // A Chief subagent's workspace is found by the id the Chief gave it (`a612`).
+                let agentID = subagents.id(name: workspace.displayName, chats: tabs.compactMap(\.agentSession))
                 // The local Chief runs on this Mac, as the sidebar's machine marks say.
                 let onThisMac = daemon.isLocal || MachineID(daemon.machineID).isLocalChief
                 // Named as its sidebar row is: a default-named workspace reads as its front tab.
                 return PaletteWorkspace(id: workspace.id, title: services.shownWorkspaceName(workspace), directory: cwd,
                                         isSelected: workspace.id == shown, unreadCount: workspace.unreadCount,
-                                        groupName: groupNames[workspace.id], machineName: onThisMac ? nil : services.machines.machineName(daemon.machineID))
+                                        groupName: groupNames[workspace.id], machineName: onThisMac ? nil : services.machines.machineName(daemon.machineID),
+                                        agentID: agentID)
             }
         }
 

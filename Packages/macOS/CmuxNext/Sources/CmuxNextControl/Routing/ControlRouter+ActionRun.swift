@@ -181,6 +181,9 @@ extension ControlRouter {
         case .int(let number): JSONValue(number)
         case .double(let number): .number(number)
         case .bool(let flag): .bool(flag)
+        case .null: .null
+        case .array(let items): .array(items.map(json))
+        case .object(let members): .object(members.mapValues(json))
         }
     }
 

@@ -81,6 +81,21 @@ import Testing
         #expect(chief.environment(inherited: [:])["CMUX_MOBILE_CHIEF_SESSION"] == "cmux-chief-c39c6f72")
     }
 
+    /// Test rigs: several hidden tagged apps on one mini each set their own
+    /// machine id (`CMUX_NEXT_MOBILE_MACHINE_ID`, which survives the app's
+    /// launch strip), so the phone lists them as separate Macs instead of
+    /// folding them into one computer. The app passes it to cmux-mobile-host
+    /// as `CMUX_MOBILE_MACHINE_ID`; cmux-mobile-host validates it.
+    @Test func aRigsMachineIDOverrideReachesTheHost() {
+        let launch = Self.launch(executable: URL(fileURLWithPath: "/bin/cmux-mobile-host"))
+        let id = "0123456789abcdef0123456789abcdef"
+        #expect(launch.environment(inherited: [MobileHostLaunch.rigMachineIDKey: id])["CMUX_MOBILE_MACHINE_ID"] == id)
+        #expect(launch.environment(inherited: [:])["CMUX_MOBILE_MACHINE_ID"] == nil)
+        #expect(launch.environment(inherited: [MobileHostLaunch.rigMachineIDKey: ""])["CMUX_MOBILE_MACHINE_ID"] == nil)
+        // The host's own name from the app's environment is not a rig knob (the launch strip removes it).
+        #expect(launch.environment(inherited: ["CMUX_MOBILE_MACHINE_ID": id])["CMUX_MOBILE_MACHINE_ID"] == nil)
+    }
+
     @Test func controlLinesAreSingleJSONLines() throws {
         let line = MobileHostLaunch.tokenLine("a.b.c")
         #expect(line.last == 0x0A)

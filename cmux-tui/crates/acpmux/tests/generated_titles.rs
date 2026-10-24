@@ -1,6 +1,6 @@
 //! Generated chat titles (cx-ncc.91): a session whose harness never titles it
 //! (Claude Code's `-p` stream-json has no title event) is titled once, after
-//! its first turn, by the configured title command. The tests' command is a
+//! its first user message, by the configured title command. The tests' command is a
 //! fake (`tests/fake_titler.py`): no test reaches a model.
 
 #[path = "support/daemon_env.rs"]
@@ -111,7 +111,7 @@ impl Client {
 }
 
 #[tokio::test]
-async fn a_chat_its_harness_never_titles_gets_a_short_generated_title_after_its_first_turn() {
+async fn a_chat_its_harness_never_titles_gets_a_short_generated_title_after_its_first_message() {
     let asked = asked_path("generated");
     let hub = hub(&asked);
     let mut client = Client::open(&hub);
@@ -201,4 +201,19 @@ async fn a_chat_the_person_named_asks_no_model_for_a_title() {
     client.prompt(&renamed, "Plan a three-dish picnic menu").await;
     assert!(client.titled(Duration::from_secs(3)).await.is_none(), "titled a renamed chat");
     assert!(!asked.exists(), "the title command ran: {:?}", std::fs::read_to_string(&asked));
+}
+
+#[tokio::test]
+async fn generated_titles_can_be_disabled_without_removing_the_prompt_placeholder() {
+    let asked = asked_path("off");
+    let hub = hub(&asked);
+    hub.config.write().await.titles.generate = Some(false);
+    let mut client = Client::open(&hub);
+    client.watch().await;
+    let session = client.new_session().await;
+
+    client.prompt(&session, "Plan a three-dish picnic menu").await;
+    assert!(client.titled(Duration::from_secs(2)).await.is_none(), "titled while disabled");
+    assert_eq!(client.title(&session).await, json!("Plan a three-dish picnic menu"));
+    assert!(!asked.exists(), "the title command ran while disabled");
 }

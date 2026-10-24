@@ -64,7 +64,7 @@ final class DaemonPaletteUsageStore: PaletteUsageStore {
 
     private var owner: Owner {
         guard let daemon = services?.machines.local, let connection = daemon.connection else { return .away }
-        guard daemon.supports(DaemonCapabilities.shared.paletteUsage) else { return .local }
+        guard daemon.supports(DaemonCapabilities.paletteUsage) else { return .local }
         return .daemon(PaletteUsageStateClient(connection: connection), ObjectIdentifier(connection))
     }
 

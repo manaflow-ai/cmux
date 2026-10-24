@@ -5,13 +5,26 @@ import CmuxNextTabs
 import Testing
 
 /// The Home Chief pane (the pinned left chat dock, `pinned-dock-v1`) cannot close (Lawrence 2026-10-20:
-/// "make it impossible to close home chief left hand side."). Its tab bar shows like every agent pane's
-/// (Leo 2026-10-21, HomeChiefPaneShowsTabBarTests). plans/cmux-next/home-chief-pane.md. The daemon
-/// refuses every close, move and new tab (cmux-tui `pinned_columns_tests.rs`); these cover what the
-/// app shows and asks.
+/// "make it impossible to close home chief left hand side"). It shows no tab bar while it holds only
+/// Home (Lawrence 2026-10-23, HomeChiefPaneHasNoTabBarTests), and it takes tabs dragged into it (Leo
+/// 2026-10-21), whose strip then shows. plans/cmux-next/home-chief-pane.md. The daemon keeps the
+/// pinned tab (cmux-tui `pinned_columns_tests.rs`); these cover what the app shows and asks.
 @MainActor
 struct HomeChiefPaneUncloseableTests {
     static let home = DockColumn(edge: .left, mode: .docked, role: .agentChat, isPinned: true)
+
+    /// No tab bar over Home's one tab; a tab dragged in brings the strip back so it stays reachable.
+    /// An unpinned dock keeps its bar.
+    @Test func aPinnedDockHoldingOnlyHomeShowsNoTabBar() {
+        #expect(Self.home.hidesTabBar(shownTabs: 1))
+        #expect(Self.home.hidesTabBar(shownTabs: 0))
+        #expect(!Self.home.hidesTabBar(shownTabs: 2), "a dragged-in tab stays reachable")
+        var open = Self.home
+        open.allowsTabs = true
+        #expect(open.hidesTabBar(shownTabs: 1), "Home's dock takes tabs and still shows no bar alone")
+        #expect(!DockColumn(edge: .left, role: .agentChat).hidesTabBar(shownTabs: 1), "an unpinned chat dock keeps its bar")
+        #expect(!DockColumn(edge: .right).hidesTabBar(shownTabs: 1))
+    }
 
     /// Cmd-W with focus in Home does nothing, with no notice: Home's tab is the only one there.
     @Test func cmdWOnHomeAloneIsIgnoredSilently() {
@@ -57,6 +70,23 @@ struct HomeChiefPaneUncloseableTests {
         guard case .pane("dock", _)? = allowed.view.dropTarget(at: CGPoint(x: dock.midX, y: dock.midY))?.target else {
             Issue.record("a pinned dock with allow_tabs refused a drop")
             return
+        }
+    }
+
+    /// Home's dock as the app makes it (`allow_tabs` on) takes a dragged tab, and every zone over it
+    /// joins the tab to the dock: the pinned dock never splits, so no edge previews a split there.
+    @Test func homesDockJoinsADroppedTabAndNeverSplits() throws {
+        var open = Self.home
+        open.allowsTabs = true
+        let screen = Screen(dock: open)
+        let dock = try #require(screen.view.geometry.panes["dock"])
+        for point in [CGPoint(x: dock.midX, y: dock.midY), CGPoint(x: dock.maxX - 4, y: dock.midY),
+                      CGPoint(x: dock.minX + 4, y: dock.midY), CGPoint(x: dock.midX, y: dock.maxY - 6)] {
+            let target = screen.view.dropTarget(at: point)?.target
+            guard case .pane("dock", .center)? = target else {
+                Issue.record("Home's dock did not join a drop at \(point): \(String(describing: target))")
+                continue
+            }
         }
     }
 

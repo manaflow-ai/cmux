@@ -10,7 +10,7 @@ nonisolated enum NowPlayingCardActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "nowPlaying.playPause", title: t("action.nowPlaying.playPause", "Play/Pause Media"),
                 keywords: ["media", "music", "now playing", "play", "pause", "resume", "song"], category: .window,
-                symbol: "playpause.fill", surfaces: [.palette], cliName: "media play-pause",
+                symbol: "playpause", surfaces: [.palette], cliName: "media play-pause",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [
                     ContextMenuPlacement(.nowPlayingCard, .navigate, 0, label: t("menu.nowPlaying.playPause", "Play/Pause")),
                 ])

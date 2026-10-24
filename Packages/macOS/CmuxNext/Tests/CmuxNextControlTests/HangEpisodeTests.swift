@@ -1,5 +1,6 @@
 @testable import CmuxNextControl
 import CmuxNextCompat
+import Dispatch
 import Foundation
 import Testing
 
@@ -223,6 +224,82 @@ struct HangEpisodeTrackerTests {
         recorder.drain()
         #expect(recorder.entries.isEmpty)
         #expect(files(in: directory).isEmpty)
+    }
+
+    /// Each change of the list reaches the recorder's subscribers on its own (Debug Settings
+    /// follows it while the page shows), after the list changed: the first write, the symbols,
+    /// and the end. The symbolicator waits for the test, so each change is taken before the next
+    /// one happens and none folds into another. A stream whose task is cancelled is forgotten.
+    @Test(.timeLimit(.minutes(1))) func eachEpisodeChangeReachesASubscriber() async throws {
+        let directory = scratch()
+        // A latch: once the test signals, this and every later symbolication runs.
+        let symbolsMayRun = DispatchSemaphore(value: 0)
+        let recorder = HangEpisodeRecorder(directory: directory, symbolicate: { addresses in
+            symbolsMayRun.wait()
+            symbolsMayRun.signal()
+            return addresses.map { String($0) }
+        })
+        defer { // on every exit (a failed expectation, the time limit): no symbol queue worker stays blocked
+            symbolsMayRun.signal()
+            recorder.drain()
+            try? FileManager.default.removeItem(at: directory)
+        }
+        recorder.drain(symbols: false) // the (empty) folder of earlier launches is read: no change
+        var changes = recorder.changes().makeAsyncIterator()
+        #expect(recorder.subscriberCount == 1)
+        #expect(recorder.changeNotificationCount == 0)
+
+        recorder.begin(beat: 1, elapsed: .seconds(2), main: [1, 2], others: [])
+        recorder.drain(symbols: false)
+        // The stream folds changes not yet taken, so the count shows a change told twice.
+        #expect(recorder.changeNotificationCount == 1, "one hang file written told the subscribers \(recorder.changeNotificationCount) times")
+        let written = await changes.next() != nil
+        #expect(written, "the first write of the hang file reached no subscriber")
+        #expect(recorder.entries.count == 1, "the change arrived before the list changed")
+        #expect(recorder.entries.first?.ongoing == true)
+        #expect(recorder.entries.first?.topFrames == ["0x1", "0x2"], "symbols before the test let them run")
+
+        symbolsMayRun.signal()
+        recorder.drain()
+        #expect(recorder.changeNotificationCount == 2, "the symbols told the subscribers \(recorder.changeNotificationCount - 1) times")
+        let symbolicated = await changes.next() != nil
+        #expect(symbolicated, "the symbols reached no subscriber")
+        #expect(recorder.entries.first?.topFrames == ["1", "2"])
+        #expect(recorder.entries.first?.ongoing == true)
+
+        recorder.update(beat: 1, duration: .seconds(3), ongoing: false)
+        recorder.drain()
+        #expect(recorder.changeNotificationCount == 3, "the end told the subscribers \(recorder.changeNotificationCount - 2) times")
+        let ended = await changes.next() != nil
+        #expect(ended, "the end of the hang reached no subscriber")
+        #expect(recorder.entries.first?.ongoing == false)
+
+        // The page leaving cancels its watch: the recorder forgets that stream, keeps the others.
+        let leaving = recorder.changes()
+        #expect(recorder.subscriberCount == 2)
+        let watch = Task { for await _ in leaving {} }
+        watch.cancel()
+        await watch.value
+        #expect(recorder.subscriberCount == 1)
+    }
+
+    /// A recorder that goes away ends its streams, so a subscriber that does not own it stops
+    /// waiting for a change that cannot come (defense: Debug Settings owns its recorder and ends
+    /// its stream when its page closes, DebugSettingsHangWatchTests).
+    @Test(.timeLimit(.minutes(1))) func aReleasedRecorderEndsItsStreams() async {
+        let directory = scratch()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var changes: AsyncStream<Void>.Iterator
+        weak var released: HangEpisodeRecorder?
+        do {
+            let recorder = HangEpisodeRecorder(directory: directory, symbolicate: { $0.map { String($0) } })
+            recorder.drain() // the queued read of earlier launches holds the recorder until it ran
+            changes = recorder.changes().makeAsyncIterator()
+            released = recorder
+        }
+        #expect(released == nil, "the recorder outlived its last reference")
+        let element: Void? = await changes.next()
+        #expect(element == nil, "the stream did not end with its recorder")
     }
 }
 

@@ -1,5 +1,5 @@
 // Import suggestion cards (CmuxNextImportCards): what this Mac has that cmux can bring over,
-// on Home, New Tab and Settings › Import. Titles live in ImportActions.xcstrings. The CLI and
+// listed in Settings › Import (never on Home or New Tab). Titles live in ImportActions.xcstrings. The CLI and
 // agents list the cards, press a card's button, and raise a card for a site another browser is
 // signed into (`cmux import suggest --browser chrome --site github.com --reason …`): a raised card
 // reads nothing until the person clicks Import on it.

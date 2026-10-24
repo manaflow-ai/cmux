@@ -181,7 +181,7 @@ cat > "$shared/Sources/MessagesLabHome/F.swift" <<'SWIFT'
 var counts: [String: Int] = [:]
 let e = UInt8(1 + x)
 SWIFT
-printf 'var counts: [Int] = []\nfunc f() { counts[k] += 1 }\nlet lines = text.split(separator: " ")\nvar tally = [String: Int]()\nlet t = tally[k] + lines[i]\nlet u = reduce(into: [:]) { into[k] = 1 }\n' > "$shared/Sources/MessagesLabHome/G.swift"
+printf 'var counts: [Int] = []\nfunc f() { counts[k] += 1 }\nlet lines = text.split(separator: " ")\nvar tally = [String: Int]()\nlet t = tally[k] + lines[i]\nlet u = reduce(into: [:]) { _ = into[k] }\n' > "$shared/Sources/MessagesLabHome/G.swift"
 g add -A
 if out="$(ratchet)"; then fail "an array subscript or a literal expression passed: $out"; fi
 # counts (also an array), lines (inferred) and into (a call label) count; tally does not.
@@ -307,6 +307,41 @@ g add -A
 if out="$(ratchet)"; then fail "a qualified array member, an init label or a nested radix passed: $out"; fi
 [[ "$out" == *"swift MessagesLabHome: index_subscript 0 -> 3"* ]] || fail "transport.pending[i], self.transport.pending[i] or rows[j] was exempt: $out"
 [[ "$out" == *"swift MessagesLabHome: int_conversion 0 -> 1"* ]] || fail "the nested radix exempted UInt8(...): $out"
+g reset -q
+reset
+
+# 19. Dictionaries with an inferred or call-built type (lead, 2026-10-24; PL-main's push of
+#     DaemonStore+SnapshotDiff.swift was refused for 3 lines that cannot trap): an assignment
+#     through a subscript on a name not known to be indexable does not count (a Dictionary
+#     cannot trap there), a `.reduce(into: [:])` / `Dictionary(...)` value is a dictionary for
+#     reads too, and a true array or Data index still counts, read or assigned.
+cat > "$shared/Sources/MessagesLabHome/F.swift" <<'SWIFT'
+func record(memo: Memo, tree: Tree, workspaces: [WorkspaceModel]) {
+    var applied = memo.applied
+    for (id, snapshot) in tree.pairs { applied[id] = snapshot }
+    applied[id] = nil
+    var existing = workspaces.reduce(into: [:]) { $0[$1.id] = $1 }
+    for model in workspaces { existing[model.id] = model }
+    let seen = existing[key]
+    let byKey = Dictionary(uniqueKeysWithValues: tree.pairs)
+    _ = byKey[key]
+}
+SWIFT
+g add -A
+out="$(ratchet)" || fail "a dictionary subscript with an inferred or call-built type counted: $out"
+cat > "$shared/Sources/MessagesLabHome/F.swift" <<'SWIFT'
+func f(memo: Memo) {
+    var rows: [Int] = []
+    rows[i] = 1
+    var bytes = Data()
+    bytes[n] = 0
+    var applied = memo.applied
+    let v = applied[i]
+}
+SWIFT
+g add -A
+if out="$(ratchet)"; then fail "an array or Data index, or an inferred read, passed: $out"; fi
+[[ "$out" == *"swift MessagesLabHome: index_subscript 0 -> 3"* ]] || fail "rows[i] = 1, bytes[n] = 0 or applied[i] (a read) was exempt: $out"
 g reset -q
 reset
 

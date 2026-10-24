@@ -94,3 +94,17 @@ fn protocol_sessions_names_its_page_fields() {
     assert!(params.contains("limit") && params.contains("cursor"), "SessionsParams: {params:?}");
     assert!(fields("SessionsResult").contains("nextCursor"), "SessionsResult lacks nextCursor");
 }
+
+#[test]
+fn protocol_mail_send_supports_optional_reports_target() {
+    let ir: serde_json::Value = serde_json::from_str(&ir_text()).expect("IR is JSON");
+    let params = &ir["types"]["MailSendParams"];
+    let properties = params["properties"].as_object().expect("MailSendParams properties");
+    assert_eq!(properties["target"]["type"], serde_json::json!(["string", "null"]));
+    assert_eq!(properties["recipient"]["type"], serde_json::json!(["string", "null"]));
+    let required = params["required"].as_array().expect("MailSendParams required");
+    assert!(required.iter().all(|field| field != "target" && field != "recipient"));
+    assert!(required.iter().any(|field| field == "id"));
+    assert!(required.iter().any(|field| field == "sender"));
+    assert!(required.iter().any(|field| field == "body"));
+}

@@ -4,7 +4,7 @@ import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextSidebar
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// `debug.windows` and `debug.surfaces` (DEBUG builds; a release router drops
 /// every `debug.*` method): the windows the app keeps and what each pane
 /// draws. The restore journey (scripts/cmux-next/restore-journey.py) reads

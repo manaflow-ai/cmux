@@ -2,7 +2,13 @@ import AppKit
 import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextPages
+public import Foundation
 import WebKit
+
+public extension Notification.Name {
+    /// Posted by an app-owned webview context menu while the Labs pointer inspector is enabled.
+    static let cmuxNextInspectUIElement = Notification.Name("cmux.next.inspect-ui-element")
+}
 
 /// The agent pane's web view on the old host: WebKit's context menu goes through the pane
 /// (``AgentPaneView/editContextMenu(_:)``). On the page host the shared view's
@@ -206,7 +212,10 @@ extension AgentPaneView {
             pathItems: { [weak self] path in self?.pathMenuItems(path) },
             search: { [weak self] text in self?.model.onSearchWeb?(text) },
             page: { [weak self] name, params in self?.runMessageAction(name, params) },
-            pasteTarget: webView))
+            pasteTarget: webView,
+            inspectElement: AgentPaneTunables.pointerInspector.value ? {
+                NotificationCenter.default.post(name: .cmuxNextInspectUIElement, object: self)
+            } : nil))
     }
 
     /// Retry, Edit and Resend, Open Image and a path's Open: the page's own actions, with the menu choice as the gesture.

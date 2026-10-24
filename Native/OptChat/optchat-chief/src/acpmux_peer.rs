@@ -7,7 +7,12 @@
 //!
 //! - its uid is this process's uid (another user is refused);
 //! - its executable (symlinks resolved) is the acpmux this host runs:
-//!   `ACPMUX_BIN`, else the `acpmux` beside this executable.
+//!   `ACPMUX_BIN`, else the `acpmux` beside this executable;
+//! - or, when its executable is gone (an app update moved and deleted the
+//!   bundle a running acpmux came from), the kernel's code signature of the
+//!   running process is Apple-anchored and has the team ID and identifier of
+//!   that acpmux (`code_signature`, macOS only). A path that still exists and
+//!   is another file is refused as before.
 //!
 //! No code-signing gate on the peer: "acpmux is too belt and suspenders
 //! there" (Leo, 2026-10-23). A same-user socket is usable whatever signs the
@@ -70,16 +75,31 @@ pub fn check(stream: &UnixStream, expected: Option<&Path>) -> Result<(), String>
     let Some(expected) = expected else {
         return Err("ACPMUX_BIN is not set and no acpmux is beside this executable".into());
     };
-    let exe = executable(peer.pid)?;
-    if exe != expected {
-        return Err(format!(
-            "pid {} runs {}, not {}",
-            peer.pid,
-            exe.display(),
-            expected.display()
-        ));
-    }
-    Ok(())
+    let gone = match executable(peer.pid) {
+        Ok(exe) if exe == expected => return Ok(()),
+        Ok(exe) if exe.exists() => {
+            return Err(format!(
+                "pid {} runs {}, not {}",
+                peer.pid,
+                exe.display(),
+                expected.display()
+            ));
+        }
+        Ok(exe) => format!("pid {} runs {}, which is gone", peer.pid, exe.display()),
+        Err(why) => why,
+    };
+    // Its executable is gone (an app update moved and deleted the bundle it
+    // runs from): only the kernel's signature can name it (code_signature).
+    moved(stream, expected).map_err(|why| format!("{gone}; {why}"))
+}
+
+/// A peer whose executable is gone passes only when the kernel's signature
+/// of it is Apple-anchored and signed by the team and identifier of
+/// `expected` (`code_signature`'s module doc).
+fn moved(stream: &UnixStream, expected: &Path) -> Result<(), String> {
+    let running = crate::code_signature::running_peer(stream)?;
+    let ours = crate::code_signature::of_file(expected)?;
+    crate::code_signature::verify(&running, &ours)
 }
 
 struct Peer {

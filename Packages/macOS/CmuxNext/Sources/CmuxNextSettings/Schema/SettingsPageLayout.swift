@@ -12,7 +12,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
     /// studio, file actions). Raw values are the export's card ids.
     public nonisolated enum Card: String, Sendable, Hashable, CaseIterable {
         case themeStudio, terminalInfo, ghosttyDiagnostics, computerUse, harnesses, spaces, browserProfiles
-        case machines, accounts, agentHarnesses, agentIntegrations, chiefs, advancedInfo, advancedActions, backdrops, mobile, chiefPet
+        case machines, accounts, agentHarnesses, agentIntegrations, chiefs, advancedInfo, advancedActions, backdrops, mobile, devices, chiefPet
         /// The density tiles, preview and custom density editor (plans/cmux-next/density-DESIGN.md).
         case density
         /// What this Mac has that cmux can bring over (CmuxNextImportCards), every card found.
@@ -47,6 +47,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
         public var actions: [SettingsSection] = []
         /// The section ids (`cmux settings open --section`, old links) that open this category.
         public var aliases: [SettingsSection] = []
+        /// Shown only in DEV builds: the page hides it when the host says it is not one.
+        public var devOnly = false
     }
 
     /// A resolved group card: its rows in display order.
@@ -203,7 +205,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
         CategorySpec(
             id: "browser", title: section(.browser), symbol: "globe",
             groups: [
-                group("settings.group.engine"), group("settings.group.addressBar"), group("settings.group.toolbar"),
+                group("settings.group.engine"), group("settings.group.addressBar"), group("settings.group.toolbar"), group("settings.group.media"),
                 group("settings.group.bookmarks"), group("settings.group.agentInput"), group("settings.group.extensions"),
                 group("settings.group.links"), group("settings.group.openingLinks"), group("settings.group.passwords"),
                 group("settings.group.memory"), group("settings.group.remote"),
@@ -217,9 +219,9 @@ public nonisolated struct SettingsPageLayout: Sendable {
             id: "keyboard", title: section(.keyboard), symbol: "keyboard",
             groups: [
                 group("settings.shortcuts.hintsGroup"),
-                GroupSpec(keys: ["sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps"],
+                GroupSpec(keys: ["tabs.commandDigits", "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps"],
                           title: SettingsText.keyed("settings.pageGroup.sidebarKeys", "Sidebar Navigation")),
-                group("settings.group.palette"),
+                group("settings.group.palette"), group("settings.group.macScreenKeyboard"),
             ],
             actions: [.keyboard], aliases: [.keyboard]),
         CategorySpec(
@@ -230,6 +232,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
                           title: SettingsText.keyed("settings.pageGroup.localData", "Data on This Mac")),
                 GroupSpec(keys: ["browser.omnibar.remoteSuggestions", "announcements.fetch"],
                           title: SettingsText.keyed("settings.pageGroup.network", "Network Requests")),
+                GroupSpec(group: "settings.group.hangReports"),
             ],
             actions: [.home], aliases: [.home]),
         CategorySpec(
@@ -242,6 +245,11 @@ public nonisolated struct SettingsPageLayout: Sendable {
         CategorySpec(
             id: "mobile", title: SettingsText.keyed("settings.category.mobile", "Mobile"), symbol: "iphone",
             groups: [group("settings.group.mobile")], trail: [.mobile]),
+        // This Mac and the person's other devices on the device hub: names, fingerprints, Mac
+        // Screen access, relays and the access history (docs/device-hub). DEV builds only for now.
+        CategorySpec(
+            id: "devices", title: SettingsText.keyed("settings.category.devices", "Devices"), symbol: "laptopcomputer",
+            groups: [], lead: [.devices], devOnly: true),
         CategorySpec(
             id: "advanced", title: section(.advanced), symbol: "curlybraces", groups: [],
             lead: [.advancedInfo], trail: [.advancedActions], actions: [.advanced], aliases: [.advanced]),
@@ -252,5 +260,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 GroupSpec(group: "settings.group.labs", keys: ["appearance.experimentalControls"]),
                 group("settings.group.appearanceTuning"),
             ]),
+        CategorySpec(
+            id: "development", title: section(.development), symbol: "hammer",
+            groups: [group("settings.group.macScreen"), group("settings.group.deviceHub")], aliases: [.development], devOnly: true),
     ]
 }

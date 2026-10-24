@@ -200,7 +200,7 @@ impl Hub {
         let prompt_id = opts.prompt_id.unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
         let control = opts.control;
         let trust_gate = opts.trust_gate;
-        let mut on_accepted = opts.on_accepted;
+        let mut on_accepted = self.with_host_pressure(opts.on_accepted);
         // The prompts this one replaced (`supersede.rs`), named in its acceptance: set where it
         // is committed (queued, started, or steered in), never before a refusal.
         let supersede = opts.supersede.clone();
@@ -249,6 +249,7 @@ impl Hub {
         let slot = super::queue::Slot {
             text: &text,
             blocks: &blocks,
+            display_parts: opts.display_parts.as_ref(),
             client,
             prompt_id: &prompt_id,
             control,
@@ -279,6 +280,7 @@ impl Hub {
         }
         // What its queue entry holds now (`queue_edit.rs` may edit a prompt that waited).
         let (mut blocks, control, trust_gate) = (run.blocks.clone(), run.control, run.trust_gate);
+        let mut display_parts = run.display_parts.clone();
         // A pushed forum rule whose key moved on while it waited tells the current one.
         let mut provenance = run.provenance.clone();
         let pushed = self.forum_refresh_push(&prompt_id, &mut blocks, &mut provenance);
@@ -317,6 +319,7 @@ impl Hub {
             provenance = Some(super::digest::digest_provenance(&parts));
             let blocks = super::digest::digest_blocks(&parts);
             let text = prompt_text(&blocks);
+            display_parts = None;
             (blocks, text)
         };
         let mut blocks = blocks;
@@ -339,7 +342,7 @@ impl Hub {
         self.reset_stream(session);
         let msg = json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id});
         let msg = crate::prompt_provenance::marked(msg, provenance.as_ref());
-        self.append_prompt(session, msg, &blocks);
+        self.append_prompt(session, msg, &blocks, display_parts.as_ref());
         if !waiting {
             // Started at once: only prompts a failed turn holds can wait under its key.
             if let Some(key) = supersede.as_deref() {
@@ -426,12 +429,15 @@ impl Hub {
         }
         self.set_status(session, SessionStatus::Running);
         self.watch_silent_turn(session, &turn_id).await;
-        let mut result = super::steer_end::agent_prompt(
+        // Start title generation after the first prompt is written to the harness, while its
+        // session-info title can still win before the cheap completion is spent.
+        let mut result = super::steer_end::agent_prompt_hook(
             session,
             &child,
             json!({"sessionId": agent_sid, "prompt": acp_prompt_blocks(session, &blocks)?}),
             &turn_id,
             false,
+            || self.title_after_prompt(session),
         )
         .await;
         // The account behind this harness is exhausted: move the session
@@ -514,7 +520,7 @@ impl Hub {
                 turn_id: &turn_id,
                 control,
                 trust_gate,
-                error: agent_error.as_deref().unwrap_or(&e.message),
+                error: super::turn_errors::continuation_error(agent_error.as_deref(), &e.message),
             }),
             _ => None,
         };
@@ -558,7 +564,8 @@ impl Hub {
         if self.settled_by_shutdown.lock().unwrap().contains(turn_id) {
             return result;
         }
-        // A process that died without answering: say what it printed last.
+        // Apply queued stderr before classifying a dead process (a limit never resumes).
+        Self::drain_inbound(session).await;
         if let Err(e) = &mut result {
             let bare = e.message == "agent process closed"
                 || e.message == "Internal error"
@@ -619,10 +626,6 @@ impl Hub {
                 Some(_) => {}
             }
         }
-        // The agent's notifications before this answer (the reply text, the
-        // preview) are applied before the turn settles, so every record below
-        // and the chat activity it sends see them.
-        Self::drain_inbound(session).await;
         let git = super::turn_git::turn_git(session).await;
         match &result {
             Ok(v) => {

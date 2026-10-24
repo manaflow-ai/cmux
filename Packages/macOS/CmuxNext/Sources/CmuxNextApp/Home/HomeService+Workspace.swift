@@ -70,7 +70,7 @@ extension HomeService {
     /// is cancelled by the next local connection).
     private func chiefConnection() async -> DaemonConnection? {
         let chief = chief
-        for await connection in ObservationStream({ chief.supports(DaemonCapabilities.shared.localConversations) ? chief.connection : nil }) {
+        for await connection in ObservationStream({ chief.supports(DaemonCapabilities.localConversations) ? chief.connection : nil }) {
             if let connection { return connection }
         }
         return nil
@@ -112,13 +112,13 @@ extension HomeService {
         // The Chief moved to a server: that server's session joins the sidebar too.
         services.serverReach.refresh()
         guard let connection = services.machines.local.connection,
-              services.machines.local.supports(DaemonCapabilities.shared.workspaceKind) else { return }
+              services.machines.local.supports(DaemonCapabilities.workspaceKind) else { return }
         ensureHomeWorkspace(connection)
     }
 
     private func ensureChiefTab(_ connection: DaemonConnection, home: ResourceID) async throws {
         let local = services.machines.local
-        guard local.supports(DaemonCapabilities.shared.conversationTabs) else {
+        guard local.supports(DaemonCapabilities.conversationTabs) else {
             homeWorkspaceStep = "no chief tab: the daemon lacks conversation tabs"
             return
         }
@@ -145,7 +145,7 @@ extension HomeService {
             owner = await chiefConnection()
             guard owner != nil, !Task.isCancelled else { return }
         } else {
-            owner = chief.supports(DaemonCapabilities.shared.localConversations) ? chief.connection : nil
+            owner = chief.supports(DaemonCapabilities.localConversations) ? chief.connection : nil
         }
         var listedAll: [ConversationSummary] = []
         if let owner { listedAll = try await ConversationClient(owner).list() }
