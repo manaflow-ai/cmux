@@ -22,12 +22,12 @@ const PEER_BUDGET: Duration = Duration::from_secs(5);
 const NEXT: &str = "acpmux host doctor";
 
 /// The `host_pressure` keys a caller of `_acpmux/host_health` gets: the
-/// verdict and this daemon's turns, without the formula or the sessions'
-/// names (`top`).
-const PRESSURE_KEYS: [&str; 10] = [
+/// verdict and this daemon's turns, without the formula, the sessions' names
+/// (`top`) or `warning` (it names the host, which a Web or peer caller does
+/// not get).
+const PRESSURE_KEYS: [&str; 9] = [
     "ok",
     "over",
-    "warning",
     "load1",
     "load_limit",
     "cores",

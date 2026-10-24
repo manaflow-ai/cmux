@@ -53,9 +53,17 @@ impl C {
 }
 
 async fn client(h: Arc<Hub>) -> C {
+    client_as(h, None).await
+}
+
+/// A client of `h` over the local socket, or as `origin` (a Web caller).
+async fn client_as(h: Arc<Hub>, origin: Option<acpmux::server::Origin>) -> C {
     let (in_tx, in_rx) = mpsc::channel(64);
     let (out_tx, out_rx) = mpsc::channel(4096);
-    tokio::spawn(serve_connection(h, in_rx, out_tx));
+    match origin {
+        None => drop(tokio::spawn(serve_connection(h, in_rx, out_tx))),
+        Some(o) => drop(tokio::spawn(acpmux::server::serve_connection_with(h, in_rx, out_tx, o))),
+    }
     let mut c = C { tx: in_tx, rx: out_rx, next: 0 };
     c.call(method::INITIALIZE, json!({"protocolVersion": 1})).await.unwrap();
     c
@@ -115,6 +123,8 @@ async fn peer_status_reads_each_peers_health_live_and_names_an_unreachable_one()
     assert!(peer["pressure"].is_object(), "{reply}");
     assert!(peer["pressure"].get("top").is_none(), "{reply}");
     assert!(peer["pressure"].get("formula").is_none(), "{reply}");
+    // `warning` names the host: a peer or Web caller never gets it.
+    assert!(peer["pressure"].get("warning").is_none(), "{reply}");
     assert_eq!(peer["liveSessions"], 0, "{reply}");
     assert_eq!(peer["version"], acpmux::hub::VERSION, "{reply}");
     assert_eq!(peer["build"], acpmux::hub::BUILD, "{reply}");
@@ -162,4 +172,11 @@ async fn peer_status_rides_on_the_peer_row_read_after_connect() {
     assert!(h["pressure"].is_object(), "{peer}");
     // The row names no host and carries no build twice.
     assert!(h.get("host").is_none() && h.get("build").is_none(), "{peer}");
+
+    // A Web caller gets the links, not the machines' resources.
+    let mut web = client_as(a.clone(), Some(acpmux::server::Origin::Web)).await;
+    let rows = web.call("_acpmux/peers", json!({})).await.unwrap();
+    let row = rows["peers"].as_array().and_then(|r| r.iter().find(|p| p["name"] == "b")).cloned();
+    let row = row.expect("peer b for the web");
+    assert!(row.get("health").is_none() && row.get("healthAt").is_none(), "{row}");
 }

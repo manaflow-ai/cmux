@@ -1207,7 +1207,20 @@ async fn dispatch_request(
             }
             Ok(json!({"policy":policy.to_string()}))
         }
-        "_acpmux/peers" => Ok(json!({"peers": hub.peers()})),
+        "_acpmux/peers" => {
+            let mut peers = hub.peers();
+            // A Web or peer caller gets the links, not the machines' resources
+            // (`peer_health.rs`); this machine's own clients and the app get both.
+            if conn.origin.web_class() {
+                for p in &mut peers {
+                    if let Some(row) = p.as_object_mut() {
+                        row.remove("health");
+                        row.remove("healthAt");
+                    }
+                }
+            }
+            Ok(json!({"peers": peers}))
+        }
         "_acpmux/host_health" => Ok(super::peer_status::host_health(hub, conn.origin).await),
         "_acpmux/peer_status" => super::peer_status::peer_status(hub, conn.origin, &params).await,
         "_acpmux/directories" => {
