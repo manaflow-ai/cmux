@@ -845,6 +845,7 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextDaemonTests",
       "targets": [
+        "CmuxNextCompat",
         "CmuxNextDaemon"
       ],
       "packages": [],
@@ -871,6 +872,7 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextDesignTests",
       "targets": [
+        "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextDesignTokens",
         "CmuxNextWakeupsTestSupport"
