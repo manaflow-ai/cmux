@@ -130,7 +130,7 @@ extension CEFRuntime {
         case .omniboxSuggestions(let requestID, let extensionID, let json):
             omniboxKeywords.suggestionsArrived(requestID: requestID, extensionID: extensionID, json: json)
         case .authCallback(let browser, let url):
-            CEFSignInCallbacks.shared.stopped(browser: browser, url: url)
+            signInCallbacks.stopped(browser: browser, url: url)
         case .bookmarks(let json, let path):
             CEFBookmarkBridge.shared.arrived(json: json, cachePath: path)
         case .unknown:
@@ -211,7 +211,7 @@ extension CEFRuntime {
         tabsByBrowser[browser] = tab
         tab.attach(browser: browser)
         accessibility.attached(browser)
-        CEFSignInCallbacks.shared.attached(tab)
+        signInCallbacks.attached(tab)
     }
 
     private func browserClosed(_ browser: Int32) {
