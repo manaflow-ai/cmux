@@ -527,7 +527,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextAgentPermissionsTests",
-            dependencies: ["CmuxNextAgentPermissions"],
+            dependencies: ["CmuxNextAgentPermissions", "CmuxNextWakeupsTestSupport"],
             swiftSettings: uiSwiftSettings
         ),
         .target(
@@ -1241,6 +1241,12 @@ let package = Package(
             dependencies: ["CmuxNextCompat", "CmuxNextSignposts"],
             swiftSettings: daemonSwiftSettings
         ),
+        // The one test clock of the CmuxNext test targets (ManualClock); test targets only.
+        .target(
+            name: "CmuxNextWakeupsTestSupport",
+            dependencies: ["CmuxNextCompat", "CmuxNextWakeups"],
+            swiftSettings: daemonSwiftSettings
+        ),
         // Install cmux CLI in PATH: the /usr/local/bin link to the bundled CLI
         // (moved out of CmuxNextApp to keep it under its size cap).
         .target(
@@ -1324,6 +1330,7 @@ let package = Package(
             dependencies: [
                 "CmuxNextDesign",
                 "CmuxNextDesignTokens",
+                "CmuxNextWakeupsTestSupport",
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
                 .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
             ],
@@ -1558,7 +1565,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextControlTests",
-            dependencies: ["CmuxNextWakeups", "CmuxNextCompat", "CmuxNextControl", "CmuxNextActions", "CmuxNextSettings", "CmuxNextDaemon"],
+            dependencies: ["CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextCompat", "CmuxNextControl", "CmuxNextActions", "CmuxNextSettings", "CmuxNextDaemon"],
             swiftSettings: daemonSwiftSettings
         ),
         // Settings and palette agent CLI updates (moved out of CmuxNextApp/AgentHarnesses):
@@ -1627,6 +1634,7 @@ let package = Package(
                 "CmuxNextTestExitTrace",
                 "CmuxNextVSCodeServer",
                 "CmuxNextWakeups",
+                "CmuxNextWakeupsTestSupport",
                 "CmuxNextWorkspaceNaming",
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                 // GhosttyGlassMinimumContrastTests builds a Ghostty config.
