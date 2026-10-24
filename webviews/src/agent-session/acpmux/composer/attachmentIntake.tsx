@@ -593,7 +593,7 @@ function PdfAttachmentChip({
         open={pdfOpen}
         onOpenChange={setPdfOpen}
         label={t(ATTACHMENT_LABELS.openAttachment, { name: attachment.name })}
-        className="acpmux-pdf-viewer"
+        className="ui-glass acpmux-pdf-viewer"
         initialFocus={close}
       >
         <div className="acpmux-pdf-viewer-bar">

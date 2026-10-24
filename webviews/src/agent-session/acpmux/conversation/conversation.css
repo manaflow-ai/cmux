@@ -2986,7 +2986,8 @@ a.cv-sha:focus-visible {
   margin-inline: 0;
   display: flex;
   flex-direction: column;
-  background: color-mix(in srgb, var(--agent-page-bg) 94%, transparent);
+  /* Mixed from the opaque surface: the page color is clear in a translucent window. */
+  background: color-mix(in srgb, var(--cmux-surface-solid, var(--agent-page-bg)) 94%, transparent);
   -webkit-backdrop-filter: blur(24px);
   backdrop-filter: blur(24px);
   color: var(--agent-text);
