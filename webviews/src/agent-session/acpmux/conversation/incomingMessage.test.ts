@@ -54,6 +54,18 @@ test("agent_message provenance names the sending chat", () => {
   }
 });
 
+test("a report whose sender acpmux recorded by name is that agent's, from the machine it came from", () => {
+  // acpmux prompt_provenance.rs `named_sender`: `--from`, `ACPMUX_FROM`, or a peer daemon naming
+  // the session that sent it (claude-sr2, 2026-10-24: these read as the person's own words).
+  const named = { kind: "agent_message", from: "fromAgent", fromName: "codex-lane", to: "s-1" };
+  expect(incomingPrompt("#24927 merged.", { _meta: { provenance: named }, client: "acpmux-peer#01a16e" })).toEqual({
+    kind: "message",
+    message: { name: "codex-lane", remote: true, text: "#24927 merged.", raw: "#24927 merged." },
+  });
+  // The same record with no sender is the person's.
+  expect(incomingPrompt("#24927 merged.", { client: "acpmux-peer#01a16e" })).toBeUndefined();
+});
+
 test("only a chat's address opens; a terminal agent or a person at a shell does not", () => {
   for (const from of ["cli", "term_0123456789abcdef0123456789abcdef", "acp:"]) {
     const message = incomingPrompt("hi", { _meta: { provenance: { ...provenance, from, fromName: undefined } } });
