@@ -34,8 +34,8 @@ nonisolated enum RemoteViewStrings {
 
     static func milliseconds(_ value: Int,
                              preferredLocalizations: [String] = Bundle.module.preferredLocalizations, locale: Locale = .current) -> String {
-        Bundle.module.localizedString(forKey: "rd.metric.ms", value: "%lld ms", table: nil, arguments: [.count(value)],
-                                      preferredLocalizations: preferredLocalizations, locale: locale)
+        Bundle.module.localizedDuration(.milliseconds(value), units: [.milliseconds], preferredLocalizations: preferredLocalizations,
+                                        locale: locale)
     }
     static var statusConnecting: String { t("rd.status.connecting", "connecting") }
     static var statusEnded: String { t("rd.status.ended", "ended") }
@@ -69,8 +69,9 @@ nonisolated enum RemoteViewStrings {
     static var latencyTitle: String { t("rd.state.latency.title", "View only: high latency") }
     static func latencyDetail(rtt: Int, path: String, limit: Int,
                               preferredLocalizations: [String] = Bundle.module.preferredLocalizations, locale: Locale = .current) -> String {
-        Bundle.module.localizedString(forKey: "rd.state.latency.detail", value: "%1$lld ms, %2$@. Control turns off above %3$lld ms.",
-                                      table: nil, arguments: [.count(rtt), .text(path), .count(limit)],
+        Bundle.module.localizedString(forKey: "rd.state.latency.detail", value: "%1$@, %2$@. Control turns off above %3$@.",
+                                      table: nil, arguments: [.duration(.milliseconds(rtt), units: [.milliseconds]), .text(path),
+                                                              .duration(.milliseconds(limit), units: [.milliseconds])],
                                       preferredLocalizations: preferredLocalizations, locale: locale)
     }
 

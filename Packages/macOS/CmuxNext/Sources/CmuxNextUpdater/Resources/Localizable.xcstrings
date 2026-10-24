@@ -22927,132 +22927,133 @@
       }
     },
     "updater.notice.checkingNewVersion": {
+      "comment": "Update card detail while the installer checks the new version (%@: the seconds it has taken, already written by Foundation in this language's short units, for example \"45 sec\", ar \"45 ث\", ja \"45秒\"). Do not add a unit or a noun next to %@.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The installer checks the new version (%lld s). cmux relaunches when it is done. Your terminals and agents keep running."
+            "value": "The installer checks the new version (%@). cmux relaunches when it is done. Your terminals and agents keep running."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "インストーラが新しいバージョンを確認しています（%lld 秒）。完了すると cmux が再起動します。ターミナルとエージェントは実行を続けます。"
+            "value": "インストーラが新しいバージョンを確認しています（%@）。完了すると cmux が再起動します。ターミナルとエージェントは実行を続けます。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يتحقق المثبّت من الإصدار الجديد (%lld ث). ستتم إعادة تشغيل cmux عند الانتهاء. تستمر الطرفيات والوكلاء في العمل."
+            "value": "يتحقق المثبّت من الإصدار الجديد (%@). ستتم إعادة تشغيل cmux عند الانتهاء. تستمر الطرفيات والوكلاء في العمل."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Instaler provjerava novu verziju (%lld s). cmux se ponovo pokreće kada završi. Vaši terminali i agenti nastavljaju raditi."
+            "value": "Instaler provjerava novu verziju (%@). cmux se ponovo pokreće kada završi. Vaši terminali i agenti nastavljaju raditi."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Installationsprogrammet tjekker den nye version (%lld s). cmux genstarter, når det er færdigt. Dine terminaler og agenter kører videre."
+            "value": "Installationsprogrammet tjekker den nye version (%@). cmux genstarter, når det er færdigt. Dine terminaler og agenter kører videre."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Das Installationsprogramm prüft die neue Version (%lld s). cmux startet neu, sobald es fertig ist. Deine Terminals und Agenten laufen weiter."
+            "value": "Das Installationsprogramm prüft die neue Version (%@). cmux startet neu, sobald es fertig ist. Deine Terminals und Agenten laufen weiter."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El instalador comprueba la nueva versión (%lld s). cmux se reinicia cuando termina. Tus terminales y agentes siguen funcionando."
+            "value": "El instalador comprueba la nueva versión (%@). cmux se reinicia cuando termina. Tus terminales y agentes siguen funcionando."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le programme d’installation vérifie la nouvelle version (%lld s). cmux se relance une fois terminé. Vos terminaux et agents continuent de tourner."
+            "value": "Le programme d’installation vérifie la nouvelle version (%@). cmux se relance une fois terminé. Vos terminaux et agents continuent de tourner."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Il programma di installazione controlla la nuova versione (%lld s). cmux si riavvia al termine. Terminali e agenti continuano a funzionare."
+            "value": "Il programma di installazione controlla la nuova versione (%@). cmux si riavvia al termine. Terminali e agenti continuano a funzionare."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "កម្មវិធីដំឡើងកំពុងពិនិត្យកំណែថ្មី (%lld វិនាទី)។ cmux នឹងបើកឡើងវិញពេលរួចរាល់។ ទែមីណាល់ និងភ្នាក់ងាររបស់អ្នកនៅតែដំណើរការ។"
+            "value": "កម្មវិធីដំឡើងកំពុងពិនិត្យកំណែថ្មី (%@)។ cmux នឹងបើកឡើងវិញពេលរួចរាល់។ ទែមីណាល់ និងភ្នាក់ងាររបស់អ្នកនៅតែដំណើរការ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "설치 프로그램이 새 버전을 확인하는 중입니다(%lld초). 완료되면 cmux가 다시 실행됩니다. 터미널과 에이전트는 계속 실행됩니다."
+            "value": "설치 프로그램이 새 버전을 확인하는 중입니다(%@). 완료되면 cmux가 다시 실행됩니다. 터미널과 에이전트는 계속 실행됩니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Installasjonsprogrammet sjekker den nye versjonen (%lld s). cmux starter på nytt når det er ferdig. Terminalene og agentene dine fortsetter å kjøre."
+            "value": "Installasjonsprogrammet sjekker den nye versjonen (%@). cmux starter på nytt når det er ferdig. Terminalene og agentene dine fortsetter å kjøre."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Instalator sprawdza nową wersję (%lld s). cmux uruchomi się ponownie po zakończeniu. Terminale i agenci nadal działają."
+            "value": "Instalator sprawdza nową wersję (%@). cmux uruchomi się ponownie po zakończeniu. Terminale i agenci nadal działają."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O instalador verifica a nova versão (%lld s). O cmux reabre quando terminar. Seus terminais e agentes continuam em execução."
+            "value": "O instalador verifica a nova versão (%@). O cmux reabre quando terminar. Seus terminais e agentes continuam em execução."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Установщик проверяет новую версию (%lld с). cmux перезапустится, когда проверка завершится. Терминалы и агенты продолжают работать."
+            "value": "Установщик проверяет новую версию (%@). cmux перезапустится, когда проверка завершится. Терминалы и агенты продолжают работать."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ตัวติดตั้งกำลังตรวจสอบเวอร์ชันใหม่ (%lld วินาที) cmux จะเปิดใหม่เมื่อเสร็จ เทอร์มินัลและเอเจนต์ของคุณยังทำงานต่อ"
+            "value": "ตัวติดตั้งกำลังตรวจสอบเวอร์ชันใหม่ (%@) cmux จะเปิดใหม่เมื่อเสร็จ เทอร์มินัลและเอเจนต์ของคุณยังทำงานต่อ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Yükleyici yeni sürümü denetliyor (%lld sn). Bittiğinde cmux yeniden başlar. Terminalleriniz ve ajanlarınız çalışmaya devam eder."
+            "value": "Yükleyici yeni sürümü denetliyor (%@). Bittiğinde cmux yeniden başlar. Terminalleriniz ve ajanlarınız çalışmaya devam eder."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Інсталятор перевіряє нову версію (%lld с). cmux перезапуститься, коли перевірку завершено. Термінали й агенти продовжують працювати."
+            "value": "Інсталятор перевіряє нову версію (%@). cmux перезапуститься, коли перевірку завершено. Термінали й агенти продовжують працювати."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Trình cài đặt đang kiểm tra phiên bản mới (%lld giây). cmux khởi chạy lại khi xong. Terminal và agent của bạn vẫn tiếp tục chạy."
+            "value": "Trình cài đặt đang kiểm tra phiên bản mới (%@). cmux khởi chạy lại khi xong. Terminal và agent của bạn vẫn tiếp tục chạy."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "安装器正在检查新版本（%lld 秒）。完成后 cmux 将重新启动。你的终端和代理会继续运行。"
+            "value": "安装器正在检查新版本（%@）。完成后 cmux 将重新启动。你的终端和代理会继续运行。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "安裝程式正在檢查新版本（%lld 秒）。完成後 cmux 會重新啟動。你的終端機和代理程式會繼續執行。"
+            "value": "安裝程式正在檢查新版本（%@）。完成後 cmux 會重新啟動。你的終端機和代理程式會繼續執行。"
           }
         }
       }
@@ -23451,132 +23452,133 @@
       }
     },
     "updater.notice.stalledDetail": {
+      "comment": "Updater notice after the installer stalled (%@: the minutes waited, already written by Foundation in this language's short units, for example \"5 min\", ar \"5 د\", ja \"5分\"). Do not add a unit or a noun next to %@.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux waited %lld min for the installer. Your windows are back. Details shows the update log."
+            "value": "cmux waited %@ for the installer. Your windows are back. Details shows the update log."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux はインストーラを %lld 分待ちました。ウインドウは元に戻りました。「詳細」でアップデートのログを確認できます。"
+            "value": "cmux はインストーラを %@待ちました。ウインドウは元に戻りました。「詳細」でアップデートのログを確認できます。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "انتظر cmux المثبّت لمدة %lld دقيقة. عادت نوافذك. يعرض «التفاصيل» سجل التحديث."
+            "value": "انتظر cmux المثبّت لمدة %@. عادت نوافذك. يعرض «التفاصيل» سجل التحديث."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux je čekao instaler %lld min. Vaši prozori su vraćeni. Detalji prikazuju zapisnik ažuriranja."
+            "state": "needs_review",
+            "value": "cmux je %@ čekao instaler. Vaši prozori su vraćeni. Detalji prikazuju zapisnik ažuriranja."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux ventede %lld min. på installationsprogrammet. Dine vinduer er tilbage. Detaljer viser opdateringsloggen."
+            "value": "cmux ventede %@ på installationsprogrammet. Dine vinduer er tilbage. Detaljer viser opdateringsloggen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux hat %lld Min. auf das Installationsprogramm gewartet. Deine Fenster sind zurück. „Details“ zeigt das Update-Protokoll."
+            "value": "cmux hat %@ auf das Installationsprogramm gewartet. Deine Fenster sind zurück. „Details“ zeigt das Update-Protokoll."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux esperó al instalador %lld min. Tus ventanas han vuelto. Detalles muestra el registro de la actualización."
+            "value": "cmux esperó al instalador %@. Tus ventanas han vuelto. Detalles muestra el registro de la actualización."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux a attendu le programme d’installation %lld min. Vos fenêtres sont revenues. Détails affiche le journal de mise à jour."
+            "value": "cmux a attendu le programme d’installation %@. Vos fenêtres sont revenues. Détails affiche le journal de mise à jour."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux ha atteso il programma di installazione per %lld min. Le finestre sono tornate. Dettagli mostra il registro dell’aggiornamento."
+            "value": "cmux ha atteso il programma di installazione per %@. Le finestre sono tornate. Dettagli mostra il registro dell’aggiornamento."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux បានរង់ចាំកម្មវិធីដំឡើង %lld នាទី។ បង្អួចរបស់អ្នកបានត្រឡប់មកវិញ។ «ព័ត៌មានលម្អិត» បង្ហាញកំណត់ហេតុបច្ចុប្បន្នភាព។"
+            "value": "cmux បានរង់ចាំកម្មវិធីដំឡើង %@។ បង្អួចរបស់អ្នកបានត្រឡប់មកវិញ។ «ព័ត៌មានលម្អិត» បង្ហាញកំណត់ហេតុបច្ចុប្បន្នភាព។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux가 설치 프로그램을 %lld분 동안 기다렸습니다. 윈도우가 다시 표시됩니다. 세부사항에서 업데이트 로그를 볼 수 있습니다."
+            "value": "cmux가 설치 프로그램을 %@ 동안 기다렸습니다. 윈도우가 다시 표시됩니다. 세부사항에서 업데이트 로그를 볼 수 있습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux ventet %lld min på installasjonsprogrammet. Vinduene dine er tilbake. Detaljer viser oppdateringsloggen."
+            "value": "cmux ventet %@ på installasjonsprogrammet. Vinduene dine er tilbake. Detaljer viser oppdateringsloggen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux czekał na instalator %lld min. Okna wróciły. Szczegóły pokazują dziennik aktualizacji."
+            "value": "cmux czekał na instalator %@. Okna wróciły. Szczegóły pokazują dziennik aktualizacji."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O cmux esperou o instalador por %lld min. Suas janelas voltaram. Detalhes mostra o registro da atualização."
+            "value": "O cmux esperou o instalador por %@. Suas janelas voltaram. Detalhes mostra o registro da atualização."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux ждал установщик %lld мин. Окна снова на экране. В разделе «Подробнее» есть журнал обновления."
+            "value": "cmux ждал установщик %@. Окна снова на экране. В разделе «Подробнее» есть журнал обновления."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux รอตัวติดตั้งไป %lld นาที หน้าต่างของคุณกลับมาแล้ว รายละเอียดแสดงบันทึกการอัปเดต"
+            "value": "cmux รอตัวติดตั้งไป %@ หน้าต่างของคุณกลับมาแล้ว รายละเอียดแสดงบันทึกการอัปเดต"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux yükleyiciyi %lld dk bekledi. Pencereleriniz geri geldi. Ayrıntılar güncelleme günlüğünü gösterir."
+            "value": "cmux yükleyiciyi %@ bekledi. Pencereleriniz geri geldi. Ayrıntılar güncelleme günlüğünü gösterir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux чекав на інсталятор %lld хв. Вікна знову на екрані. «Докладніше» показує журнал оновлення."
+            "value": "cmux чекав на інсталятор %@. Вікна знову на екрані. «Докладніше» показує журнал оновлення."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux đã chờ trình cài đặt %lld phút. Cửa sổ của bạn đã trở lại. Chi tiết hiển thị nhật ký cập nhật."
+            "value": "cmux đã chờ trình cài đặt %@. Cửa sổ của bạn đã trở lại. Chi tiết hiển thị nhật ký cập nhật."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 等待安装器 %lld 分钟。你的窗口已恢复。“详细信息”中可查看更新日志。"
+            "value": "cmux 等待安装器 %@。你的窗口已恢复。“详细信息”中可查看更新日志。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 等待安裝程式 %lld 分鐘。你的視窗已恢復。「詳細資訊」中可查看更新記錄。"
+            "value": "cmux 等待安裝程式 %@。你的視窗已恢復。「詳細資訊」中可查看更新記錄。"
           }
         }
       }

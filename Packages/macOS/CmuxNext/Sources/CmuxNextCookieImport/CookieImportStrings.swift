@@ -40,9 +40,10 @@ enum CookieImportStrings {
     static func deadline(_ seconds: Int,
                          preferredLocalizations: [String] = Bundle.module.preferredLocalizations, locale: Locale = .current) -> String {
         Bundle.module.localizedString(forKey: "cookieImport.consent.deadline",
-                                      value: "Denied automatically after %lld s",
+                                      value: "Denied automatically after %@",
                                       table: "CookieImport",
-                                      arguments: [.count(seconds)], preferredLocalizations: preferredLocalizations, locale: locale)
+                                      arguments: [.duration(.seconds(seconds), units: [.seconds])],
+                                      preferredLocalizations: preferredLocalizations, locale: locale)
     }
 
     // MARK: Refusals and results (the CLI prints these)

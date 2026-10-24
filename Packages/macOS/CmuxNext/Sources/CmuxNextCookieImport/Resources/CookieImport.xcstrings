@@ -526,132 +526,133 @@
       }
     },
     "cookieImport.consent.deadline" : {
+      "comment" : "Cookie import consent panel: when the request is denied on its own (%@: the seconds left, already written by Foundation in this language's short units, for example \"30 sec\", ar \"30 ث\", ja \"30秒\"). Do not add a unit or a noun next to %@.",
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "سيتم الرفض تلقائيًا بعد %lld ث"
+            "value" : "سيتم الرفض تلقائيًا بعد %@"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Automatski odbijeno nakon %lld s"
+            "value" : "Automatski odbijeno nakon %@"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Afvises automatisk efter %lld s"
+            "value" : "Afvises automatisk efter %@"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Wird nach %lld s automatisch abgelehnt"
+            "value" : "Wird nach %@ automatisch abgelehnt"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Denied automatically after %lld s"
+            "value" : "Denied automatically after %@"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Se denegará automáticamente tras %lld s"
+            "value" : "Se denegará automáticamente tras %@"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Refus automatique après %lld s"
+            "value" : "Refus automatique après %@"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Rifiutato automaticamente dopo %lld s"
+            "value" : "Rifiutato automaticamente dopo %@"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%lld 秒後に自動で拒否します"
+            "value" : "%@後に自動で拒否します"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "នឹងបដិសេធដោយស្វ័យប្រវត្តិបន្ទាប់ពី %lld វិនាទី"
+            "value" : "នឹងបដិសេធដោយស្វ័យប្រវត្តិបន្ទាប់ពី %@"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "%lld초 후 자동으로 거부됩니다"
+            "value" : "%@ 후 자동으로 거부됩니다"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Avslås automatisk etter %lld s"
+            "value" : "Avslås automatisk etter %@"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Automatyczna odmowa po %lld s"
+            "value" : "Automatyczna odmowa po %@"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Negado automaticamente após %lld s"
+            "value" : "Negado automaticamente após %@"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Автоматический отказ через %lld с"
+            "value" : "Автоматический отказ через %@"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "จะปฏิเสธอัตโนมัติใน %lld วินาที"
+            "value" : "จะปฏิเสธอัตโนมัติใน %@"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "%lld sn sonra otomatik olarak reddedilir"
+            "value" : "%@ sonra otomatik olarak reddedilir"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Автоматично відхилиться через %lld с"
+            "value" : "Автоматично відхилиться через %@"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Tự động từ chối sau %lld giây"
+            "value" : "Tự động từ chối sau %@"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "%lld 秒后自动拒绝"
+            "value" : "%@后自动拒绝"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "%lld 秒後自動拒絕"
+            "value" : "%@後自動拒絕"
           }
         }
       }
