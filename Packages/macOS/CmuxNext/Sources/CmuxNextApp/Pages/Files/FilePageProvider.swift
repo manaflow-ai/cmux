@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextAgentPane
+import CmuxNextFiles
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation

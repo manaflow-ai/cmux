@@ -1,5 +1,6 @@
 @testable import CmuxNextApp
 import CmuxNextDesign
+import CmuxNextFiles
 import CmuxNextPages
 import CmuxNextSettings
 import Darwin

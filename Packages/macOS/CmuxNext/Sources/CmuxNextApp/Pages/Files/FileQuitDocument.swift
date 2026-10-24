@@ -1,4 +1,5 @@
 import CmuxNextDesign
+import CmuxNextFiles
 import Foundation
 
 /// One file page document in the R96 quit hook: shared by every tab that shows the file, unsaved
