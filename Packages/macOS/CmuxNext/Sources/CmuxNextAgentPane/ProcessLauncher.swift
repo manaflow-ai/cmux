@@ -21,7 +21,7 @@ public nonisolated struct ProcessLauncher: ProcessLaunching {
     }
 
     /// Runs `executable` to its exit or the deadline.
-    public nonisolated func run(_ executable: URL, arguments: [String], environment: [String: String]) async -> Int32? {
+    public nonisolated func run(_ executable: URL, arguments: [String], environment: [String: String], input: Data? = nil) async -> Int32? {
         do {
             return try await ProcessRunner.run(executable: executable, arguments: arguments, environment: environment,
                                                timeout: timeout, clock: clock).status

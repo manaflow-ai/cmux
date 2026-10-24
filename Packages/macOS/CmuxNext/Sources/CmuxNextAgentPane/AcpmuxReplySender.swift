@@ -43,7 +43,7 @@ public actor AcpmuxReplySender {
         guard !session.isEmpty, !promptID.isEmpty, let environment else { return false }
         let variables = baseEnvironment.merging(environment.childEnvironment) { _, value in value }
         let status = await launcher.run(environment.executable, arguments: Self.arguments(session: session, text: text, promptID: promptID),
-                                        environment: variables)
+                                        environment: variables, input: nil)
         return status == 0
     }
 
