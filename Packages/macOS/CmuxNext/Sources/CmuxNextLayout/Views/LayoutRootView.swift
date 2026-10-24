@@ -37,6 +37,8 @@ public final class LayoutRootView: NSView {
     private var reportedKeepAlive: Set<PaneID> = []
     var scrollLock: ScrollLock = .idle
     var consumeMomentum = false
+    /// The current gesture's touch (`mayBegin`) chose its owner: its `began` keeps it (`LayoutRootView+Scroll`).
+    var ownerDecidedAtTouch = false
     /// What focus-follows-mouse reads besides the model (`LayoutRootView+ScrollFocus`).
     let scrollFocusSignals: ScrollFocusSignals
     /// The pane the pointer was last over (`layout.focusFollowsMouse` hover): focus moves
