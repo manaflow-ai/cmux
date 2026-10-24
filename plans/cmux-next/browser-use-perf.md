@@ -301,8 +301,8 @@ time (2.7 s) is above Stagehand's DOM path (1.0 s), worth a look at its request 
   playwright-core), and runs the warm, cold and YouTube legs; it prints `BROWSER-USE-PERF` lines and writes
   `browser-use-perf.json`. It never fails on a number. Command:
   `cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/browser-use-perf.sh --ref SHA --artifact browser-use-perf.json --timeout 7200`.
-- Step 53c8a51b5bfe3e04b0d872bd (ref eac20cff835) was still queued (measure lane) when this was written;
-  no fleet numbers yet. The local numbers above are from the laptop under load.
+- Step e64b54ef1da8dfae06234aa5 (ref 441f5a3955e; it replaced 53c8a51b5bfe at eac20cff835, cancelled
+  after 80 min in the queue) was queued on the measure lane when this was written; no fleet numbers yet. The local numbers above are from the laptop under load.
 - Not done: the in-app CEF/WebKit leg through `bench_launch.py` BenchApp with the `debug.cef` ready check,
   and Release signposts for app-side timing (the headless host has no app side).
 
