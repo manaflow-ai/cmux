@@ -641,9 +641,7 @@ async fn dispatch_request(
         }
         // ------------------------------------------------ acpmux extensions
         method::MUX_STATUS => Ok(hub.status().await),
-        method::MUX_SESSIONS => {
-            crate::hub::session_pages::session_list_reply(hub.all_session_summaries(), &params)
-        }
+        method::MUX_SESSIONS => hub.session_list(&params),
         method::MUX_WEB_MODES => hub.web_modes_view(&params),
         method::MUX_WEB_TOKEN_ROTATE => hub.rotate_web_token().await,
         method::MUX_WARM => {
@@ -1024,7 +1022,7 @@ async fn dispatch_request(
         method::MUX_WATCH => {
             let on = params.get("enabled").and_then(Value::as_bool).unwrap_or(true);
             conn.watch_all.store(on, Ordering::SeqCst);
-            crate::hub::session_pages::session_list_reply(hub.all_session_summaries(), &params)
+            hub.session_list(&params)
         }
         method::MUX_EVENTS | method::MUX_ATTACHMENT => events::handle(hub, m, &params),
         method::MUX_MAIL_SEND
