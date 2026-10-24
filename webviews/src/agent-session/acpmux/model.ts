@@ -918,8 +918,9 @@ function fallbackRowHeight(row: AcpmuxRow, width: number, beforeFooter = false, 
   // `.cv-worked.is-below`) and the normal turn gap, so the end-of-turn swap keeps its place.
   if ((row.kind === WORKING || row.kind === THINKING) && row.below) return finish(META_ROW + TURN_GAP);
   if (row.kind === WORKED || row.kind === WORKING || row.kind === THINKING) return finish(35);
-  // The activity line: one 24px line with 4px above and 8px below (conversation/ActivityLine.tsx).
-  if (row.kind === ACTIVITY_LINE) return finish(36);
+  // The activity line under a plan is the live footer. It reserves the finished footer's 24px
+  // line and turn gap so swapping in `turnSummary` never changes the transcript geometry.
+  if (row.kind === ACTIVITY_LINE) return row.below ? finish(META_ROW + TURN_GAP) : finish(36);
   // The 20px date line with 8px above it.
   if (row.kind === DATE) return finish(36);
   // The preview card mounts unloaded: one compact row, and 6px below (PreviewCard.tsx). Once the
@@ -1104,6 +1105,8 @@ function measuredRowHeight(
   if (row.received) return finish(26 + MESSAGE_GAP);
   // A turn's footer carries its answer's text for Copy (conversation/turns.ts); it draws one line.
   if (row.kind === "turnSummary") return fallbackRowHeight(row, width, beforeFooter);
+  // The live activity line under a plan has a label, but its row still reserves the footer slot.
+  if (row.kind === ACTIVITY_LINE && row.below) return fallbackRowHeight(row, width, beforeFooter, lastTurn);
   // Another agent's message: one 26px line in `.cv-received`'s 2px margins, then its glass card
   // (4px above, 6px below, 8px padding each side, 22px in from the icon column and 12px padding
   // across), its text cut to RECEIVED_LINES lines (opened, the row measures itself); a notice is a

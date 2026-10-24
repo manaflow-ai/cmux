@@ -69,6 +69,69 @@ test("a reply estimated alone, then with its footer after it, is estimated again
   expect(second.tops[1]).toBe(second.heights[0]);
 });
 
+test("a live footer slot keeps short, long, and tool-ending turns at the settled height", () => {
+  for (const text of ["Done.", "A longer answer that wraps. ".repeat(40)]) {
+    const source = [
+      { id: "u", version: 1, at: 1_000, kind: "user", text: "Go" },
+      { id: "a", version: 1, at: 2_000, kind: "assistant", text },
+    ];
+    const live = turnView(source as never, new Set(), {
+      now: 3_000,
+      working: true,
+      lineBelow: true,
+      liveRuns: true,
+      sessionStatus: true,
+    });
+    const settled = turnView(
+      [...source, { id: "s", version: 1, at: 3_000, kind: "turnSummary", status: "completed", text }] as never,
+      new Set(),
+      { now: 4_000, lineBelow: true, liveRuns: true, sessionStatus: true },
+    );
+    expect(live.at(-1)).toMatchObject({ below: true });
+    expect(settled.at(-1)).toMatchObject({ kind: "turnSummary" });
+    expect(layoutConversation(live, 720).heights.at(-1)).toBe(48);
+    expect(layoutConversation(settled, 720).heights.at(-1)).toBe(48);
+  }
+
+  const liveSource = [
+    { id: "u", version: 1, at: 1_000, kind: "user", text: "Run it" },
+    { id: "a", version: 1, at: 2_000, kind: "assistant", text: "The command is ready." },
+    { id: "p", version: 1, at: 3_000, kind: "plan", plan: [{ content: "Run", status: "in_progress" }] },
+    {
+      id: "t",
+      version: 1,
+      at: 4_000,
+      kind: "activity",
+      items: [{ kind: "tool", text: "", tool: { id: "call", title: "Run", kind: "execute", status: "in_progress" } }],
+    },
+  ];
+  const live = turnView(liveSource as never, new Set(), {
+    now: 5_000,
+    working: true,
+    lineBelow: true,
+    liveRuns: true,
+    sessionStatus: true,
+  });
+  const settledSource = [
+    ...liveSource.slice(0, -1),
+    {
+      ...liveSource.at(-1)!,
+      items: [{ kind: "tool", text: "", tool: { id: "call", title: "Run", kind: "execute", status: "completed" } }],
+    },
+    { id: "s", version: 1, at: 5_000, kind: "turnSummary", status: "completed", text: "The command is ready." },
+  ];
+  const settled = turnView(settledSource as never, new Set(), {
+    now: 6_000,
+    lineBelow: true,
+    liveRuns: true,
+    sessionStatus: true,
+  });
+  expect(live.at(-1)).toMatchObject({ kind: "activityLine", below: true });
+  expect(settled.at(-1)).toMatchObject({ kind: "turnSummary" });
+  expect(layoutConversation(live, 720).heights.at(-1)).toBe(48);
+  expect(layoutConversation(settled, 720).heights.at(-1)).toBe(48);
+});
+
 test("the chat's last footer is placed again when a prompt follows it", () => {
   const rows = [reply("a", "Done."), footer("f")];
   const first = layoutConversation(rows as never, 720);

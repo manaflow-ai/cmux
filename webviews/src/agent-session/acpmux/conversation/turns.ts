@@ -945,6 +945,9 @@ function activityLine(
     at: user.at + clockOffset,
     kind: ACTIVITY_LINE,
     text: label,
+    // This line occupies the footer's slot under the plan.  Keeping the marker on the row lets
+    // the estimator and the DOM swap it for `turnSummary` without changing the rows above it.
+    below: true,
   };
   if (command) line.doingCommand = true;
   return line;

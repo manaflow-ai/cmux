@@ -3706,6 +3706,14 @@ a.cv-sha:focus-visible {
   flex: none;
   font-variant-numeric: tabular-nums;
 }
+/* A live line under a plan is the finished turn footer's slot. Keep its content at the same
+   leading edge while the row holds the footer's 24px line plus turn gap, so `turnSummary` can
+   replace it in place when the turn ends. */
+.acpmux-row.acpmux-activityLine.acpmux-row--below {
+  min-height: 0;
+  height: calc(var(--cv-meta-row) + var(--cv-turn-gap));
+  padding-bottom: 0;
+}
 
 /* ---------- A background shell's end (BackgroundTaskNote.tsx, cx-ncc.84) ---------- */
 /* A failed task keeps its red mark, open or closed. A click opens it in place (`.is-toggle`: the
