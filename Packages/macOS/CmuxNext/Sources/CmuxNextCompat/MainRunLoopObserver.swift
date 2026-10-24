@@ -69,7 +69,7 @@ public nonisolated final class MainRunLoopObserver {
         mode: CFRunLoopMode = .commonModes,
         _ handler: @escaping @MainActor (CFRunLoopActivity) -> Void
     ) {
-        observer = addMainObserver(activities: activities, repeats: repeats, order: order, mode: mode, handler)
+        observer = Self.addMainObserver(activities: activities, repeats: repeats, order: order, mode: mode, handler)
     }
 
     /// Calls `body` once on the main actor, at the main run loop's next stage in `activities`,
@@ -114,21 +114,21 @@ public nonisolated final class MainRunLoopObserver {
     deinit {
         CFRunLoopObserverInvalidate(observer)
     }
-}
 
-/// Makes an observer whose handler runs on the main actor and adds it to the main run loop in
-/// `mode`: the one main-thread proof of ``MainRunLoopObserver``.
-private nonisolated func addMainObserver(
-    activities: CFRunLoopActivity,
-    repeats: Bool,
-    order: CFIndex,
-    mode: CFRunLoopMode,
-    _ handler: @escaping @MainActor (CFRunLoopActivity) -> Void
-) -> CFRunLoopObserver {
-    let observer: CFRunLoopObserver = CFRunLoopObserverCreateWithHandler(nil, activities.rawValue, repeats, order) { _, activity in
-        // main-proof: the observer is added only to CFRunLoopGetMain(), whose observers run on the main thread.
-        MainActor.assumeIsolated { handler(activity) }
+    /// Makes an observer whose handler runs on the main actor and adds it to the main run loop
+    /// in `mode`: the one main-thread proof of this type.
+    private static func addMainObserver(
+        activities: CFRunLoopActivity,
+        repeats: Bool,
+        order: CFIndex,
+        mode: CFRunLoopMode,
+        _ handler: @escaping @MainActor (CFRunLoopActivity) -> Void
+    ) -> CFRunLoopObserver {
+        let observer: CFRunLoopObserver = CFRunLoopObserverCreateWithHandler(nil, activities.rawValue, repeats, order) { _, activity in
+            // main-proof: the observer is added only to CFRunLoopGetMain(), whose observers run on the main thread.
+            MainActor.assumeIsolated { handler(activity) }
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, mode)
+        return observer
     }
-    CFRunLoopAddObserver(CFRunLoopGetMain(), observer, mode)
-    return observer
 }
