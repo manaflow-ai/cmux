@@ -505,6 +505,11 @@ def code(text):
     return sum(1 for line in text.splitlines() if line.strip())
 
 
+def swift_type(name, lines, kind="struct", head=""):
+    """A top-level KIND NAME of LINES physical lines (swift_body inside, unique to NAME); HEAD goes before `struct`."""
+    return f"{head}{kind} {name} {{\n" + swift_body(lines - 2, name[0].lower() + name[1:]) + "}\n"
+
+
 def host_file(lines, domain="Foo", declare=True):
     """A Host file of LINES physical lines (one blank): one-line forwards in `extension AppServices: <Domain>Host`."""
     head = ["import CmuxNext" + domain, "", "@MainActor",
@@ -891,6 +896,62 @@ class AppSizeTests(Fixture):
                     self.commit(f"TextBoxView: {name}; AppDelegate deletes a function: {root_edit}")
                     self.assertWarned("App outside the root grows +3 source lines",
                                       f"TextBox/TextBoxView.swift +{new} new")
+
+    def test_a_new_type_in_an_existing_app_file_is_refused_like_a_new_file(self):
+        # Lead decision (b): appending a new type to an existing file must not pass where its own new file would not.
+        view = f"{APP}/TextBox/TextBoxView.swift"
+        thing = swift_type("NewThingView", 40, head="@MainActor\n")
+        self.append(view, "\n" + thing)
+        self.commit("a new 40-line type appended to an existing App file")
+        found = self.assertRefused("new type NewThingView in an existing App file", "its own file",
+                                   "// app-type-allow:")
+        self.assertEqual([h.bucket for h in found], [f"new:{view}:NewThingView"])
+        self.assertEqual(found[0].number, 122, "points at the declaration line")
+        for name, text in (("an actor", swift_type("Loader", 20, kind="actor")),
+                           ("a public final class", swift_type("Store", 20, kind="class", head="public final ")),
+                           ("an enum", swift_type("Mode", 20, kind="enum")),
+                           ("a protocol", "protocol Saving {\n    func save()\n}\n"),
+                           ("a private type over 15 lines", swift_type("Helper", 20, head="private "))):
+            with self.subTest(refused=name):
+                self.reset()
+                self.append(view, text)
+                self.commit(name)
+                self.assertTrue([h for h in self.hits() if h.bucket.startswith(f"new:{view}:")], name)
+
+    def test_a_new_type_in_an_existing_file_passes_when_it_is_moved_small_private_an_extension_or_escaped(self):
+        view = f"{APP}/TextBox/TextBoxView.swift"
+        quit_type = swift_type("QuitSteps", 40)
+        self.rebase_on({f"{APP}/Quit/QuitSteps.swift": quit_type,
+                        f"{KIT}/KitModel.swift": swift_type("KitModel", 40),
+                        f"{APP}/TextBox/TextBoxStyle.swift": "struct TextBoxStyle {\n    let size = 1\n}\n"},
+                       "types to move")
+        cases = {
+            "a type moved in from another App file": ({f"{APP}/Quit/QuitSteps.swift": None}, quit_type),
+            "a type moved in from a package": ({f"{KIT}/KitModel.swift": None}, swift_type("KitModel", 40)),
+            "a private helper of 15 source lines": ({}, swift_type("Row", 16, head="private ")),
+            "a fileprivate helper of 15 source lines": ({}, swift_type("Cell", 16, head="fileprivate ")),
+            "an extension": ({}, "extension TextBoxStyle {\n" + swift_body(30, "ext") + "}\n"),
+            "an escaped type": ({}, "// app-type-allow: the view's preview needs the private type\n"
+                                + swift_type("Preview", 30, head="@MainActor\n")),
+            "a type declared in a multi-line string": ({}, 'let template = """\n}\nstruct Fake {\n"""\n'),
+        }
+        self.assertEqual(code(swift_type("Row", 16)), 15)
+        for name, (deleted, text) in cases.items():
+            with self.subTest(passes=name):
+                self.reset()
+                for path in deleted:
+                    (self.repo / path).unlink()
+                self.append(view, text)
+                self.commit(name)
+                self.assertEqual([h.text for h in self.hits() if h.bucket.startswith(f"new:{view}")], [], name)
+        self.reset()
+        self.write(f"{APP}/TextBox/TextBoxStyle.swift", "struct TextBoxStyle: Equatable {\n    let size = 1\n}\n")
+        self.commit("an old type's declaration line gains a conformance")
+        self.assertPasses("an edited declaration of a type the file already had is not a new type")
+        self.reset()
+        self.write(f"{APP}/TextBox/TextBoxStyle.swift", "struct TextBoxLook {\n    let size = 1\n}\n")
+        self.commit("an old type renamed in place")
+        self.assertEqual([h.text for h in self.hits()], [], "a rename in place adds no new code")
 
     def test_one_host_conformance_file_of_forwards_per_push(self):
         self.write(f"{APP}/AppServices+FooHost.swift", host_file(25))
