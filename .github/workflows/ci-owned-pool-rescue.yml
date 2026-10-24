@@ -6,8 +6,9 @@ run-name: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow
 # busy the run would wait for it indefinitely. This workflow watches such a run
 # and, when one of its jobs has waited past the five-minute queue alarm (or the
 # longer configured allowance for a picker-managed pool), cancels the run and
-# re-runs it. The retry is admitted through fast checks, a free owned Mac, then
-# Blacksmith macOS. A job an owned runner refused at job start
+# re-runs it. For cmux-next, the retry is admitted through fast checks, a free
+# owned Mac, then Blacksmith macOS; other workflows keep their existing retry
+# policy. A job an owned runner refused at job start
 # (it failed in seconds, before any step succeeded) gets its failed jobs re-run
 # instead, which moves them to the picker's retry_runner on Blacksmith.
 # scripts/ci/owned_pool_rescue.py has the rules.
