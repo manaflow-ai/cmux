@@ -38,10 +38,14 @@ pub enum Inbound {
         id: Id,
         method: String,
         params: Option<Value>,
+        /// The hosted agent entry that carried this message, when durable.
+        host_seq: Option<u64>,
     },
     Notification {
         method: String,
         params: Option<Value>,
+        /// The hosted agent entry that carried this message, when durable.
+        host_seq: Option<u64>,
     },
     /// One stderr line; `host_seq` names the agent host entry it came from.
     Stderr(String, Option<u64>),
@@ -438,11 +442,11 @@ impl ChildAgent {
                                 }
                             }
                             Message::Request { id, method, params } => {
-                                let _ = inbound.send(Inbound::Request { id, method, params }).await;
+                                let _ = inbound.send(Inbound::Request { id, method, params, host_seq: None }).await;
                             }
                             Message::Notification { method, params } => {
                                 let _ =
-                                    inbound.send(Inbound::Notification { method, params }).await;
+                                    inbound.send(Inbound::Notification { method, params, host_seq: None }).await;
                             }
                         }
                     }
@@ -452,7 +456,7 @@ impl ChildAgent {
                     for m in tr.end_background_shells().await {
                         tap(Direction::In, &m, None);
                         if let Message::Notification { method, params } = m {
-                            let _ = inbound.send(Inbound::Notification { method, params }).await;
+                            let _ = inbound.send(Inbound::Notification { method, params, host_seq: None }).await;
                         }
                     }
                 }
@@ -688,10 +692,10 @@ impl ChildAgent {
                     }
                 }
                 Message::Request { id, method, params } => {
-                    let _ = cx.inbound.send(Inbound::Request { id, method, params }).await;
+                    let _ = cx.inbound.send(Inbound::Request { id, method, params, host_seq: None }).await;
                 }
                 Message::Notification { method, params } => {
-                    let _ = cx.inbound.send(Inbound::Notification { method, params }).await;
+                    let _ = cx.inbound.send(Inbound::Notification { method, params, host_seq: None }).await;
                 }
             }
         }
@@ -1037,10 +1041,10 @@ impl ChildAgent {
                         }
                     }
                     Message::Request { id, method, params } => {
-                        let _ = inbound.send(Inbound::Request { id, method, params }).await;
+                        let _ = inbound.send(Inbound::Request { id, method, params, host_seq: Some(h) }).await;
                     }
                     Message::Notification { method, params } => {
-                        let _ = inbound.send(Inbound::Notification { method, params }).await;
+                        let _ = inbound.send(Inbound::Notification { method, params, host_seq: Some(h) }).await;
                     }
                 }
                 true

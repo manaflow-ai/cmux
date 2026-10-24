@@ -267,9 +267,114 @@ mod tests {
             decision_nonce: super::super::person::new_nonce(),
             ancestor_may_answer: may,
             prev_status: SessionStatus::Waiting,
+            agent_request: None,
         };
         session.permissions.lock().unwrap().pending.insert(id.clone(), entry);
         (id, rx)
+    }
+
+    /// A Claude withdrawal removes only the card raised by that agent request.
+    #[tokio::test]
+    async fn an_agent_cancel_request_withdraws_its_pending_card() {
+        let (hub, session, _conn) = hub_with_session().await;
+        let (mine, rx) = pending(&session, false);
+        let (other, _other_rx) = pending(&session, false);
+        {
+            let mut state = session.permissions.lock().unwrap();
+            state.pending.get_mut(&mine).unwrap().agent_request = Some(json!(1007));
+            state.pending.get_mut(&other).unwrap().agent_request = Some(json!(1008));
+        }
+        hub.withdraw_permission(&session, &json!(1007));
+        assert_eq!(rx.await.unwrap(), json!({"outcome": "cancelled"}));
+        let state = session.permissions.lock().unwrap();
+        assert!(!state.pending.contains_key(&mine));
+        assert!(state.pending.contains_key(&other));
+    }
+
+    /// A cancellation can be read before the spawned permission handler gets
+    /// to its lock; the tombstone cancels the eventual card immediately.
+    #[tokio::test]
+    async fn an_agent_cancel_request_before_registration_is_consumed() {
+        let (hub, session, _conn) = hub_with_session().await;
+        hub.withdraw_permission(&session, &json!(1009));
+        let request = json!({
+            "toolCall": {"toolCallId": "e1", "kind": "other", "status": "pending"},
+            "options": [{"optionId": "allow_once", "name": "Allow", "kind": "allow_once"}],
+        });
+        let epoch = session.permission_epoch.load(Ordering::SeqCst);
+        let outcome = hub
+            .handle_permission_for(
+                &session,
+                request,
+                epoch,
+                session.turn().map(|t| t.turn_id),
+                Some(&json!(1009)),
+                None,
+            )
+            .await;
+        assert_eq!(outcome, json!({"outcome": {"outcome": "cancelled"}}));
+        assert!(session.permissions.lock().unwrap().pending.is_empty());
+    }
+
+    /// The withdrawal record is replayed for the same host incarnation, so a
+    /// daemon restart cannot re-show the card.
+    #[tokio::test]
+    async fn an_agent_withdrawal_survives_host_recovery() {
+        let (hub, session, _conn) = hub_with_session().await;
+        hub.append(
+            &session,
+            "mux",
+            "host_started",
+            json!({"incarnation": "inc-1"}),
+        );
+        hub.append(
+            &session,
+            "in",
+            method::SESSION_REQUEST_PERMISSION,
+            json!({"id": 1009, "method": method::SESSION_REQUEST_PERMISSION, "params": {}}),
+        );
+        hub.append(
+            &session,
+            "mux",
+            "permission_request",
+            json!({"permissionId": "p-1", "agentRequestId": 1009, "request": {}}),
+        );
+        hub.append(
+            &session,
+            "mux",
+            "permission_withdrawn",
+            json!({"agentRequestId": 1009}),
+        );
+        let work = hub.open_work(&session, "inc-1");
+        let decision = work.permissions.get("1009").and_then(|entry| entry.2.clone());
+        assert_eq!(decision, Some(json!({"outcome": "cancelled"})));
+    }
+
+    /// A withdrawal logged before the permission record still suppresses the
+    /// request when the adopted host replays its unfinished work.
+    #[tokio::test]
+    async fn an_early_withdrawal_survives_host_recovery() {
+        let (hub, session, _conn) = hub_with_session().await;
+        hub.append(
+            &session,
+            "mux",
+            "host_started",
+            json!({"incarnation": "inc-early"}),
+        );
+        hub.append(
+            &session,
+            "in",
+            method::SESSION_REQUEST_PERMISSION,
+            json!({"id": 1010, "method": method::SESSION_REQUEST_PERMISSION, "params": {}}),
+        );
+        hub.append(
+            &session,
+            "mux",
+            "permission_withdrawn",
+            json!({"agentRequestId": 1010}),
+        );
+        let work = hub.open_work(&session, "inc-early");
+        assert!(work.withdrawn.contains("1010"));
     }
 
     /// The rule under the prompt's lock, without the request check before it:
@@ -330,6 +435,7 @@ mod tests {
             decision_nonce: super::super::person::new_nonce(),
             ancestor_may_answer: true,
             prev_status: SessionStatus::Waiting,
+            agent_request: None,
         };
         session.permissions.lock().unwrap().pending.insert(id.clone(), entry);
         let prompt = "child wants to work in /tmp/untrusted. Do you trust this folder?";
