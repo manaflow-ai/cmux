@@ -12,7 +12,7 @@ use serde_json::{Map, Value, json};
 use super::{AppCommand, READ_TIMEOUT, UsageError, WAITING_RUN_TIMEOUT};
 use crate::localization::AppControlMessages;
 
-/// `cmux action run - [--no-wait] [--no-atomic]` with stdin's ops. `origin`
+/// `cmux action run - [--no-wait] [--split]` with stdin's ops. `origin`
 /// is set on every op that does not name its own.
 pub(super) fn parse_batch(
     args: &[String],
@@ -21,12 +21,12 @@ pub(super) fn parse_batch(
 ) -> Result<AppCommand, UsageError> {
     let messages = &crate::localization::catalog().app_control;
     let mut wait = true;
-    let mut atomic = true;
+    let mut split = false;
     for arg in args {
         match arg.as_str() {
             "--wait" => wait = true,
             "--no-wait" => wait = false,
-            "--no-atomic" => atomic = false,
+            "--split" => split = true,
             _ => {
                 return Err(UsageError::new(messages.unexpected_argument.replace("{value}", arg)));
             }
@@ -40,8 +40,8 @@ pub(super) fn parse_batch(
     let mut params = Map::new();
     params.insert("ops".into(), Value::Array(ops));
     params.insert("wait".into(), json!(wait));
-    if !atomic {
-        params.insert("atomic".into(), json!(false));
+    if split {
+        params.insert("split".into(), json!(true));
     }
     Ok(AppCommand::Call {
         method: "action.batch",
@@ -153,11 +153,11 @@ mod tests {
 
     #[test]
     fn a_json_array_and_the_flags_are_read() {
-        let command = parse(&["--no-wait", "--no-atomic"], "[{\"action\":\"newRow\"}]").unwrap();
+        let command = parse(&["--no-wait", "--split"], "[{\"action\":\"newRow\"}]").unwrap();
         let AppCommand::Call { params, .. } = command else { panic!("not a call") };
         assert_eq!(
             params,
-            json!({"ops": [{"action": "newRow", "origin": "script"}], "wait": false, "atomic": false})
+            json!({"ops": [{"action": "newRow", "origin": "script"}], "wait": false, "split": true})
         );
     }
 

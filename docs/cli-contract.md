@@ -534,7 +534,7 @@ cmux window list
 cmux action list [--category <c>] [--noun <n>] [--available]
 cmux action describe <id>
 cmux action run <id> [--target <id>] [--<arg> <value>] [--arg name=value] [--wait] [--interactive]
-cmux action run - [--no-wait] [--no-atomic] < ops
+cmux action run - [--no-wait] [--split] < ops
 cmux settings get [<path>]
 cmux settings set <path> <value> [--confirm]
 cmux settings reset <path> [--confirm]
@@ -564,8 +564,9 @@ stay applied, and the answer says how many (`applied`). The daemon work an op
 started (a rename, a close) can fail after the ops after it ran, so it does
 not stop them: the answer names the first such op (`op`, 0-based, with its
 own `action`), lists every op whose work failed (`failed`) and says how many
-ops ran (`applied`); an earlier op's failure answers before a later refusal. One transaction holds
-at most 64 ops; `--no-atomic` applies a longer list as consecutive
+ops ran (`applied`); an earlier op's failure answers before a later refusal.
+One transaction (one main-thread task, never rolled back) holds at most 64
+ops; `--split` (wire `split: true`) applies a longer list as consecutive
 transactions (one that never runs, because its deadline passed or the app was
 busy, ends the batch with `applied` set and is never `not_run`), and without
 it a longer list is refused (`batch_too_large`). Targets name
