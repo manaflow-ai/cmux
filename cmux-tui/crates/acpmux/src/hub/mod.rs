@@ -943,6 +943,19 @@ impl Hub {
         (record, stored)
     }
 
+    /// Record one redacted owner-side GitHub broker decision in the session's
+    /// normal event stream so the app and `_acpmux/events` show it alongside
+    /// the work that caused it. Request bodies, titles and credentials never
+    /// enter this record.
+    pub fn append_github_audit(
+        &self,
+        session_id: &str,
+        payload: Value,
+    ) -> Result<EventRecord, RpcError> {
+        let session = self.resolve(session_id)?;
+        Ok(self.append(&session, "mux", "github_broker_action", payload))
+    }
+
     pub fn set_rules(&self, session: &Session, rules: Option<Value>) {
         self.permission_policy_changed(session, |m| m.permission_rules = rules.clone());
         self.save_meta(session);
