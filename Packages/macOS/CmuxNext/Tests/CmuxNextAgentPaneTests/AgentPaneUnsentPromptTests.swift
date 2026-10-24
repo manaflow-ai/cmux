@@ -124,6 +124,7 @@ struct AgentPaneUnsentPromptTests {
 
         let first = AcpmuxStandInServer()
         try await first.start()
+        defer { first.stop() }
         first.hold("session/prompt")
         let run1 = try await Self.pane(first, journal: AgentPanePromptJournal(url: url))
         run1.transport.gestures.record()
