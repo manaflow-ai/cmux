@@ -56,10 +56,11 @@ function Rail() {
   );
 }
 
-export function ChiefPetCard({ focus = null }: { focus?: string | null }) {
+export function ChiefPetCard({ focus = null, changedOnly = false }: { focus?: string | null; changedOnly?: boolean }) {
   const store = useStore();
   const shown = useRowState(CHIEF_PET_ENABLED);
   const character = useRowState(CHIEF_PET_MASCOT);
+  const bubbleStyle = useRowState(CHIEF_BUBBLE_STYLE);
   // A search result (`?focus=`) lands on its control (Show/Hide, or the selected choice) once per
   // focus, after the values arrive (as SettingRow): a later click that moves the selection keeps focus.
   const revealedFor = useRef<string | null>(null);
@@ -83,58 +84,69 @@ export function ChiefPetCard({ focus = null }: { focus?: string | null }) {
   const live = gridLocked ? null : previewed;
   const preview = CHIEF_PET_MASCOTS.find((entry) => entry.id === live) ?? mascot;
   const bubbles = rowsByKey.get(CHIEF_BUBBLE_STYLE);
+  const showPetToggle = !changedOnly || shown.customized;
+  const showMascot = !changedOnly || character.customized;
+  const showBubbleStyle = !changedOnly || bubbleStyle.customized;
   return (
     <section className="group chief-pet ui-glass" data-card="chief-pet" data-enabled={enabled ? "true" : "false"}>
       <h3 className="group-title">{t("settingsPage.chief.look")}</h3>
-      <div className="chief-pet-header" data-row-key={CHIEF_PET_ENABLED}>
-        <p className="chief-pet-lede">{t("settingsPage.chiefPet.lede")}</p>
-        <button
-          type="button"
-          className="button"
-          data-action="chief-pet-toggle"
-          disabled={toggleLocked}
-          ref={target === CHIEF_PET_ENABLED ? reveal : undefined}
-          onClick={() => void store.set(CHIEF_PET_ENABLED, !enabled)}
-        >
-          {enabled ? t("settingsPage.chiefPet.hide") : t("settingsPage.chiefPet.show")}
-        </button>
-      </div>
-      <RowStatus settingKey={CHIEF_PET_ENABLED} state={shown} />
-      <div
-        className="chief-pet-preview"
-        data-enabled={enabled || live ? "true" : "false"}
-        data-previewing={live ? "true" : "false"}
-      >
-        <img className="chief-pet-art" src={preview.art} alt={t(`settings.choice.chiefPetMascot.${preview.id}`)} />
-        <Rail />
-      </div>
-      <h3 className="group-title">{t("settingsPage.chiefPet.pets")}</h3>
-      <RowStatus settingKey={CHIEF_PET_MASCOT} state={character} />
-      <div className="chief-pet-grid" data-row-key={CHIEF_PET_MASCOT}>
-        {CHIEF_PET_MASCOTS.map((entry) => (
-          <button
-            key={entry.id}
-            type="button"
-            aria-pressed={mascot.id === entry.id}
-            className="chief-pet-choice"
-            data-pet={entry.id}
-            disabled={gridLocked}
-            ref={target === CHIEF_PET_MASCOT && mascot.id === entry.id ? reveal : undefined}
-            onClick={() => void store.set(CHIEF_PET_MASCOT, entry.id)}
-            onMouseEnter={() => setPreviewed(entry.id)}
-            onMouseLeave={() => setPreviewed((id) => (id === entry.id ? null : id))}
-            onFocus={() => setPreviewed(entry.id)}
-            onBlur={() => setPreviewed((id) => (id === entry.id ? null : id))}
+      {showPetToggle && (
+        <>
+          <div className="chief-pet-header" data-row-key={CHIEF_PET_ENABLED}>
+            <p className="chief-pet-lede">{t("settingsPage.chiefPet.lede")}</p>
+            <button
+              type="button"
+              className="button"
+              data-action="chief-pet-toggle"
+              disabled={toggleLocked}
+              ref={target === CHIEF_PET_ENABLED ? reveal : undefined}
+              onClick={() => void store.set(CHIEF_PET_ENABLED, !enabled)}
+            >
+              {enabled ? t("settingsPage.chiefPet.hide") : t("settingsPage.chiefPet.show")}
+            </button>
+          </div>
+          <RowStatus settingKey={CHIEF_PET_ENABLED} state={shown} />
+        </>
+      )}
+      {showMascot && (
+        <>
+          <div
+            className="chief-pet-preview"
+            data-enabled={enabled || live ? "true" : "false"}
+            data-previewing={live ? "true" : "false"}
           >
-            <span className="chief-pet-choice-art">
-              <img src={entry.art} alt="" />
-            </span>
-            <strong>{t(`settings.choice.chiefPetMascot.${entry.id}`)}</strong>
-            <span className="chief-pet-choice-help">{t(`settingsPage.chiefPet.about.${entry.id}`)}</span>
-          </button>
-        ))}
-      </div>
-      {bubbles && (
+            <img className="chief-pet-art" src={preview.art} alt={t(`settings.choice.chiefPetMascot.${preview.id}`)} />
+            <Rail />
+          </div>
+          <h3 className="group-title">{t("settingsPage.chiefPet.pets")}</h3>
+          <RowStatus settingKey={CHIEF_PET_MASCOT} state={character} />
+          <div className="chief-pet-grid" data-row-key={CHIEF_PET_MASCOT}>
+            {CHIEF_PET_MASCOTS.map((entry) => (
+              <button
+                key={entry.id}
+                type="button"
+                aria-pressed={mascot.id === entry.id}
+                className="chief-pet-choice"
+                data-pet={entry.id}
+                disabled={gridLocked}
+                ref={target === CHIEF_PET_MASCOT && mascot.id === entry.id ? reveal : undefined}
+                onClick={() => void store.set(CHIEF_PET_MASCOT, entry.id)}
+                onMouseEnter={() => setPreviewed(entry.id)}
+                onMouseLeave={() => setPreviewed((id) => (id === entry.id ? null : id))}
+                onFocus={() => setPreviewed(entry.id)}
+                onBlur={() => setPreviewed((id) => (id === entry.id ? null : id))}
+              >
+                <span className="chief-pet-choice-art">
+                  <img src={entry.art} alt="" />
+                </span>
+                <strong>{t(`settings.choice.chiefPetMascot.${entry.id}`)}</strong>
+                <span className="chief-pet-choice-help">{t(`settingsPage.chiefPet.about.${entry.id}`)}</span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+      {bubbles && showBubbleStyle && (
         <div className="rows">
           <SettingRow row={bubbles} focused={focus === CHIEF_BUBBLE_STYLE} />
         </div>

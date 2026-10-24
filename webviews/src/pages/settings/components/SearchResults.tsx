@@ -57,7 +57,7 @@ export function SearchResults({ query, changedOnly = false }: { query: string; c
           >
             <div className="collapse-body">
               <h2 className="result-section-title">{text(category.title)}</h2>
-              {petShown && <ChiefPetCard />}
+              {petShown && <ChiefPetCard changedOnly={changedOnly} />}
               <GroupList groups={groups} query={query} shown={shown} mounted={mounted} />
             </div>
           </section>
