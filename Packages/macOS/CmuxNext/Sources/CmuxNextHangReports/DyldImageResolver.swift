@@ -36,6 +36,17 @@ public nonisolated struct DyldImageResolver: ImageResolving {
         return nil
     }
 
+    /// Every image loaded now whose path dyld confirms (``image(uuid:)``'s rule).
+    public func loadedImages() -> [LoadedImage] {
+        (0..<_dyld_image_count()).compactMap { index in
+            guard let header = _dyld_get_image_header(index) else { return nil }
+            var info = Dl_info()
+            guard dladdr(header, &info) != 0, let base = info.dli_fbase, UnsafeRawPointer(base) == UnsafeRawPointer(header),
+                  let name = info.dli_fname else { return nil }
+            return Self.image(header: UnsafeRawPointer(header).assumingMemoryBound(to: mach_header_64.self), path: String(cString: name))
+        }
+    }
+
     /// The image at `header`: its LC_UUID and `__TEXT` size; nil for a 32-bit or UUID-less image,
     /// or load commands that do not fit their declared size.
     private static func image(header: UnsafePointer<mach_header_64>, path: String) -> LoadedImage? {

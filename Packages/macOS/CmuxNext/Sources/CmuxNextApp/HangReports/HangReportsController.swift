@@ -67,8 +67,13 @@ final class HangReportsController {
         let endpoint = devOptIn ? environment[devEndpointKey] ?? URLSessionHangReportTransport.defaultEndpoint
             : URLSessionHangReportTransport.defaultEndpoint
         let resolver = DyldImageResolver()
-        let builder = HangReportBuilder(classifier: ImageClassifier(appBundlePath: Bundle.main.bundlePath, forbiddenTerms: personalTermsOfThisMac),
+        // Read at the first MetricKit frame (off main), then cached: a frame not loaded now is ours only by UUID.
+        let own = OwnImageUUIDs(appBundlePath: Bundle.main.bundlePath, images: { resolver.loadedImages() })
+        let builder = HangReportBuilder(classifier: ImageClassifier(appBundlePath: Bundle.main.bundlePath, forbiddenTerms: personalTermsOfThisMac,
+                                                                    ownUUIDs: { own.uuids() }),
                                         resolver: resolver)
+        // A stack sampled before an image unload is never resolved against what loaded there since.
+        DyldImageUnloads().install()
         let collector = HangReportCollector(resolve: { builder.frames(addresses: $0) })
         let info = Bundle.main.infoDictionary ?? [:]
         let os = ProcessInfo.processInfo.operatingSystemVersion

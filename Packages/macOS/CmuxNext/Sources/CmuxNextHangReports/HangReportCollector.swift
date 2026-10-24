@@ -4,7 +4,7 @@ import Foundation
 /// Receives the watchdog's stalls and hangs while hang reports are on, into a ``StallAggregate``
 /// that ``HangReportService`` drains into each report.
 ///
-/// ``noteStall(durationNanos:cpuNanos:addresses:)`` runs on the main thread at the end of each
+/// ``noteStall(durationNanos:cpuNanos:addresses:sampledSinceNanos:)`` runs on the main thread at the end of each
 /// stall over the watchdog's threshold: off, it is one atomic load; on, a lock over a few integer
 /// adds. Only a stall that earns a stack slot (250 ms and up, among the longest 8) leaves the
 /// main thread: its addresses are reduced to ``HangReportFrame``s on a utility task (`resolve`, which
@@ -12,7 +12,8 @@ import Foundation
 ///
 /// ```swift
 /// let collector = HangReportCollector(resolve: { addresses in frames(for: addresses) })
-/// watchdog.onStall = { collector.noteStall(durationNanos: $0.nanos, cpuNanos: $0.cpuNanos, addresses: $0.addresses) }
+/// watchdog.onStall = { collector.noteStall(durationNanos: $0.nanos, cpuNanos: $0.cpuNanos, addresses: $0.addresses,
+///                                          sampledSinceNanos: $0.startUptimeNanos) }
 /// ```
 public final class HangReportCollector: Sendable {
     /// Turns return addresses (innermost first) into report frames. Called off the main thread.
@@ -23,16 +24,26 @@ public final class HangReportCollector: Sendable {
     // end; an actor would add a Task and a hop per stall.
     private let aggregate = Mutex(StallAggregate())
     private let resolve: Resolve
+    /// Whether an image was unloaded at or after a sample's time (``DyldImageUnloads``): then the
+    /// addresses may point into another image, and the stack's frames are all `other`.
+    private let imageRemovedSince: @Sendable (UInt64) -> Bool
     /// Runs a resolution job; the default is a detached utility task. Tests run it inline.
     private let schedule: @Sendable (@escaping @Sendable () -> Void) -> Void
 
     /// Makes the value from its parts.
+    ///
+    /// - Parameters:
+    ///   - resolve: Turns return addresses into frames, off the main thread.
+    ///   - imageRemovedSince: Whether an image was unloaded at or after an uptime (tests pass a fake).
+    ///   - schedule: Runs a resolution job (tests run it inline).
     public init(resolve: @escaping Resolve,
+                imageRemovedSince: @escaping @Sendable (UInt64) -> Bool = { DyldImageUnloads().removed(since: $0) },
                 schedule: @escaping @Sendable (@escaping @Sendable () -> Void) -> Void = { job in
                     // task-owner: one short resolution per sampled stall; nothing to cancel.
                     Task.detached(priority: .utility) { job() }
                 }) {
         self.resolve = resolve
+        self.imageRemovedSince = imageRemovedSince
         self.schedule = schedule
     }
 
@@ -46,7 +57,10 @@ public final class HangReportCollector: Sendable {
     }
 
     /// One finished stall (main thread, from the watchdog's `onStall`).
-    public func noteStall(durationNanos: UInt64, cpuNanos: UInt64, addresses: [UInt]) {
+    ///
+    /// - Parameter sampledSinceNanos: The stall's start (`CLOCK_UPTIME_RAW`): its stack was sampled
+    ///   after it, so an image unloaded since then invalidates the addresses.
+    public func noteStall(durationNanos: UInt64, cpuNanos: UInt64, addresses: [UInt], sampledSinceNanos: UInt64) {
         guard isEnabled else { return }
         let ms = Self.milliseconds(durationNanos)
         // A stall of a hang's length is only counted: its stack came from `noteHang`, sampled
@@ -57,15 +71,18 @@ public final class HangReportCollector: Sendable {
         }
         guard sample else { return }
         keepLater(HangSample(source: .watchdog, kind: .stall, durationMs: ms, cpuMs: Self.milliseconds(cpuNanos), frames: []),
-                  addresses: addresses)
+                  addresses: addresses, sampledSince: sampledSinceNanos)
     }
 
     /// One hang still running (watchdog thread, from the watchdog's `onHang`).
-    public func noteHang(durationNanos: UInt64, addresses: [UInt]) {
+    ///
+    /// - Parameter sampledSinceNanos: The hang's start (`CLOCK_UPTIME_RAW`).
+    public func noteHang(durationNanos: UInt64, addresses: [UInt], sampledSinceNanos: UInt64) {
         guard isEnabled, !addresses.isEmpty else { return }
         let ms = Self.milliseconds(durationNanos)
         guard aggregate.withLock({ $0.wantsHangSample(durationMs: ms) }) else { return }
-        keepLater(HangSample(source: .watchdog, kind: .hang, durationMs: ms, frames: []), addresses: addresses)
+        keepLater(HangSample(source: .watchdog, kind: .hang, durationMs: ms, frames: []), addresses: addresses,
+                  sampledSince: sampledSinceNanos)
     }
 
     /// Takes what was recorded and starts over.
@@ -86,11 +103,14 @@ public final class HangReportCollector: Sendable {
     /// A copy of what is recorded, for a preview.
     public func snapshot() -> StallAggregate { aggregate.withLock { $0 } }
 
-    private func keepLater(_ sample: HangSample, addresses: [UInt]) {
+    private func keepLater(_ sample: HangSample, addresses: [UInt], sampledSince: UInt64) {
         let resolve = resolve
+        let imageRemovedSince = imageRemovedSince
         schedule { [self] in
             var resolved = sample
-            resolved.frames = Array(resolve(addresses).prefix(HangSample.maxFrames))
+            let frames = Array(resolve(addresses).prefix(HangSample.maxFrames))
+            // Checked after resolving: an unload during the resolution counts too.
+            resolved.frames = imageRemovedSince(sampledSince) ? frames.map { _ in .other } : frames
             guard isEnabled else { return }
             aggregate.withLock { $0.keep(resolved) }
         }

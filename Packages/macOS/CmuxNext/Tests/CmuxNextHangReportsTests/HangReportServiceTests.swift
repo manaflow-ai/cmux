@@ -49,7 +49,7 @@ struct HangReportServiceTests {
                          build: String = "70123", allowed: @escaping @Sendable () -> Bool = { true })
         -> HangReportService {
         let clock = clock
-        let collector = HangReportCollector(resolve: { _ in [.other] }, schedule: { $0() })
+        let collector = HangReportCollector(resolve: { _ in [.other] }, imageRemovedSince: { _ in false }, schedule: { $0() })
         return HangReportService(
             store: HangReportStore(directory: directory), transport: transport, builder: HangReportFixtures.builder(),
             scanner: PrivacyLeakScanner(forbiddenTerms: HangReportFixtures.forbiddenTerms),
@@ -63,7 +63,7 @@ struct HangReportServiceTests {
     @Test func offSendsNothing() async {
         let transport = RecordingTransport()
         let service = service(transport)
-        service.collector.noteStall(durationNanos: 400_000_000, cpuNanos: 0, addresses: [1])
+        service.collector.noteStall(durationNanos: 400_000_000, cpuNanos: 0, addresses: [1], sampledSinceNanos: 1)
         await service.receive(HangReportFixtures.metricKitInput())
         await service.launched()
         #expect(transport.sent.isEmpty)
@@ -74,7 +74,7 @@ struct HangReportServiceTests {
         let transport = RecordingTransport()
         let service = service(transport)
         await service.setEnabled(true)
-        service.collector.noteStall(durationNanos: 400_000_000, cpuNanos: 100_000_000, addresses: [1])
+        service.collector.noteStall(durationNanos: 400_000_000, cpuNanos: 100_000_000, addresses: [1], sampledSinceNanos: 1)
         await service.receive(HangReportFixtures.metricKitInput())
         let body = try #require(transport.sent.first)
         #expect(transport.sent.count == 1)
@@ -115,10 +115,10 @@ struct HangReportServiceTests {
         let transport = RecordingTransport()
         let service = service(transport)
         await service.setEnabled(true)
-        service.collector.noteStall(durationNanos: 300_000_000, cpuNanos: 0, addresses: [1])
+        service.collector.noteStall(durationNanos: 300_000_000, cpuNanos: 0, addresses: [1], sampledSinceNanos: 1)
         await service.launched()
         #expect(transport.sent.count == 1)
-        service.collector.noteStall(durationNanos: 300_000_000, cpuNanos: 0, addresses: [1])
+        service.collector.noteStall(durationNanos: 300_000_000, cpuNanos: 0, addresses: [1], sampledSinceNanos: 1)
         await service.launched()
         #expect(transport.sent.count == 1)
         clock.advance(25 * 60 * 60)
@@ -129,7 +129,7 @@ struct HangReportServiceTests {
     @Test func savedFindingsReachTheNextLaunchsReport() async throws {
         let first = service(RecordingTransport())
         await first.setEnabled(true)
-        first.collector.noteStall(durationNanos: 600_000_000, cpuNanos: 0, addresses: [1])
+        first.collector.noteStall(durationNanos: 600_000_000, cpuNanos: 0, addresses: [1], sampledSinceNanos: 1)
         first.saveForNextLaunch()
         let transport = RecordingTransport()
         let second = service(transport)
@@ -196,7 +196,7 @@ struct HangReportServiceTests {
         let first = service(RecordingTransport([.retryLater]))
         await first.setEnabled(true)
         await first.receive(HangReportFixtures.metricKitInput())
-        first.collector.noteStall(durationNanos: 600_000_000, cpuNanos: 0, addresses: [1])
+        first.collector.noteStall(durationNanos: 600_000_000, cpuNanos: 0, addresses: [1], sampledSinceNanos: 1)
         first.saveForNextLaunch()
         #expect(defaults.string(forKey: InstallIdentity.idKey) != nil)
         let second = service(RecordingTransport())
@@ -214,7 +214,7 @@ struct HangReportServiceTests {
         let transport = RecordingTransport()
         let service = service(transport, allowed: { !blocked.withLock { $0 } })
         await service.setEnabled(true)
-        service.collector.noteStall(durationNanos: 400_000_000, cpuNanos: 0, addresses: [1])
+        service.collector.noteStall(durationNanos: 400_000_000, cpuNanos: 0, addresses: [1], sampledSinceNanos: 1)
         blocked.withLock { $0 = true }
         await service.receive(HangReportFixtures.metricKitInput())
         #expect(transport.sent.isEmpty)

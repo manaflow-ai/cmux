@@ -44,7 +44,8 @@ enum HangReportFixtures {
 
     static func classifier(systemNames: Set<String> = ["AppKit", "Foundation", "libsystem_kernel.dylib", "CoreFoundation"])
         -> ImageClassifier {
-        ImageClassifier(appBundlePath: appBundle, forbiddenTerms: forbiddenTerms, systemImageExists: { systemNames.contains($0) })
+        ImageClassifier(appBundlePath: appBundle, forbiddenTerms: forbiddenTerms, systemImageExists: { systemNames.contains($0) },
+                        ownUUIDs: { [appUUID, ghosttyUUID] })
     }
 
     static func builder() -> HangReportBuilder {
