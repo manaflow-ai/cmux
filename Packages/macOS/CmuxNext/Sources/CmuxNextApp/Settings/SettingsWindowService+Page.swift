@@ -56,7 +56,7 @@ extension SettingsWindowService {
             // Chief > Voice input: home.voiceInput, null where the tunable does not exist (Release).
             "voice_input": ChiefVoiceInputPageRoute().hostJSON,
             "settings_file": services.settings.map { .string($0.file.url.path(percentEncoded: false)) } ?? .null,
-            "backdrops": Self.backdrops.pageRows,
+            "backdrops": backdrops.pageRows,
             "derived": .object(pageDerivedNumbers()),
         ]
     }
@@ -71,10 +71,11 @@ extension SettingsWindowService {
         return derived
     }
 
-    /// The wallpaper grid's choices, read each time so an image the person just added, or a
-    /// macOS wallpaper they just downloaded, is listed as it is now.
-    static var backdrops: BackdropCatalog {
-        BackdropCatalog(systemDirectory: AppleWallpapers.system.desktopPictures, fileManager: .default, userImages: userImages)
+    /// Builds the wallpaper grid's full catalog off the main actor (``BackdropCatalogStore``): every
+    /// macOS wallpaper as it is now (one just downloaded too) and the person's own images.
+    static func backdropLister() -> @Sendable () -> BackdropCatalog {
+        let userImages = userImages
+        return { BackdropCatalog(systemDirectory: AppleWallpapers.system.desktopPictures, fileManager: .default, userImages: userImages) }
     }
 
     /// The person's own background images, in the backgrounds folder.
