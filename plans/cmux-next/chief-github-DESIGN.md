@@ -107,6 +107,11 @@ another Chief's object (the object name comes from the running turn's own agent)
   reads the Chief's own token on every call (`optchat-chief github token`) and runs the real `gh`
   with `GH_TOKEN`, or runs it untouched when the Chief has none. Git uses `gh auth git-credential`
   through `GIT_CONFIG_*` env, so both follow a rotate at once with no host restart.
+  Default picked: the turn's git helper list for github.com is reset to that one helper, which
+  falls back to the Mac's `gh auth git-credential` when the Chief has no token of its own (a
+  person whose git uses another helper for github.com would see the Chief use gh's login instead).
+- `mac` forgets the Chief's own token (it goes back to the Mac's login); `logout` does the same and
+  says where to revoke the token. `token` prints the Chief's own token for the shim, else exits 1.
 
 ## 5. Tests (failing first)
 
