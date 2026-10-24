@@ -2,7 +2,7 @@
 // pictures in the new tab area but it works in the existing chats"): a chat's composer (Composer.tsx)
 // and the New Tab page's field (newtab/NewTabScreen.tsx) take a pasted or dropped image or file the
 // same way, show it as the same chip, and send it with the prompt.
-import React, { useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import { Dialog } from "../../../ui/Dialog";
 import {
@@ -23,6 +23,7 @@ import { type StringKey, type Translate, usePaneLanguage, useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import { pasteLines, pasteName } from "../conversation/promptCollapse";
 import { keptThumb } from "./imagePool";
+import { useStripReorder } from "./stripReorder";
 import { intakeFiles, type IntakeError } from "./intakeFiles";
 import { type DropOverlayState, HIDDEN_DROP, landDropOverlay, stepDropOverlay } from "./dropOverlayState";
 import { FADE_BAND_PX } from "../MarkdownField";
@@ -371,8 +372,11 @@ export function AttachmentStrip({
   onExpand,
   onCancel,
   onRetry,
+  onReorder,
 }: {
   attachments: readonly ComposerAttachment[];
+  /// A staged chip dragged (or moved with Option-Left/Right) to `index`; unset, chips stay put.
+  onReorder?(id: string, index: number): void;
   /// Files still being read: a placeholder chip each, after the staged ones (PendingAttachment).
   pending?: readonly PendingAttachment[];
   /// A pending chip's ×; unset, the chip has none.
@@ -390,24 +394,43 @@ export function AttachmentStrip({
   // More chips than fit scroll sideways: the side with chips past it is marked, and the CSS fades it
   // by the prompt's band (composerAttachments.css).
   const edges = useScrollEdges("x");
+  const reorder = useStripReorder(
+    attachments.map((attachment) => attachment.id),
+    onReorder,
+  );
+  const stripRef = useCallback(
+    (node: HTMLElement | null) => {
+      edges(node);
+      reorder.ref(node);
+    },
+    [edges, reorder.ref],
+  );
   // The drop overlay says what a drag does (composer/DropOverlay.tsx); a note here would grow the
   // composer mid-drag.
   if (attachments.length === 0 && pending.length === 0 && !error) return null;
   return (
     <fieldset
-      ref={edges}
+      ref={stripRef}
       className="acpmux-attachments"
+      data-reorder={onReorder && attachments.length > 1 ? "" : undefined}
       aria-label={t(ATTACHMENT_LABELS.attachments)}
       style={{ "--acpmux-md-fade-band": `${FADE_BAND_PX}px` } as React.CSSProperties}
     >
-      {attachments.map((attachment) => (
-        <AttachmentChip
+      {attachments.map((attachment, index) => (
+        // A slot that draws nothing of its own (display: contents): it names the chip for a drag.
+        <div
           key={attachment.id}
-          attachment={attachment}
-          codex={codex}
-          onRemove={onRemove}
-          {...(onExpand ? { onExpand } : {})}
-        />
+          className="acpmux-attachment-slot"
+          data-attachment-index={index}
+          data-dragging={reorder.dragging === attachment.id || undefined}
+        >
+          <AttachmentChip
+            attachment={attachment}
+            codex={codex}
+            onRemove={onRemove}
+            {...(onExpand ? { onExpand } : {})}
+          />
+        </div>
       ))}
       {pending.map((chip) => (
         <PendingChip key={chip.id} chip={chip} {...(onCancel ? { onCancel } : {})} {...(onRetry ? { onRetry } : {})} />
@@ -543,6 +566,8 @@ function AttachmentChip({
     const img = (
       <img
         alt={name}
+        // A drag moves the chip along the strip (stripReorder.ts), never the picture out as a file.
+        draggable={false}
         src={thumb?.url ?? source}
         onError={() => setBroken(true)}
         onLoad={(event) => {
