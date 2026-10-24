@@ -8,6 +8,7 @@ final class UiLayerControlServer: @unchecked Sendable {
     private let socketPath: String
     private let queue = DispatchQueue(label: "cmux.ui-layer-host.control")
     private var descriptor: Int32 = -1
+    @MainActor private var recorder: Recorder?
 
     init?(socketPath: String?) {
         guard let socketPath, !socketPath.isEmpty else { return nil }
@@ -94,6 +95,16 @@ final class UiLayerControlServer: @unchecked Sendable {
                       let path = params["path"] as? String else { return Self.error("snapshot path missing") }
                 try snapshot(to: URL(fileURLWithPath: path))
                 result = ["path": path]
+            case "debug.window_record":
+                guard let params = object["params"] as? [String: Any],
+                      let dir = params["dir"] as? String else { return Self.error("record directory missing") }
+                let seconds = min(12, max(0.1, (params["seconds"] as? NSNumber)?.doubleValue ?? 3))
+                guard recorder == nil else { return Self.error("a recording is running") }
+                recorder = try Recorder(dir: URL(fileURLWithPath: dir), seconds: seconds) { [weak self] in
+                    self?.recorder = nil
+                }
+                recorder?.start()
+                result = ["dir": dir, "seconds": seconds]
             default:
                 return Self.error("unsupported read-only method: \(method)")
             }
@@ -117,6 +128,70 @@ final class UiLayerControlServer: @unchecked Sendable {
             throw SnapshotError.noBitmap
         }
         try data.write(to: path, options: .atomic)
+    }
+
+    @MainActor
+    private final class Recorder {
+        private let dir: URL
+        private let seconds: Double
+        private let onFinish: @MainActor () -> Void
+        private let started = DispatchTime.now().uptimeNanoseconds
+        private var timer: Timer?
+        private var times: [Double] = []
+        private var frame = 0
+
+        init(dir: URL, seconds: Double, onFinish: @escaping @MainActor () -> Void) throws {
+            self.dir = dir
+            self.seconds = seconds
+            self.onFinish = onFinish
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+
+        func start() {
+            let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] timer in
+                Task { @MainActor [weak self] in
+                    guard let self else { timer.invalidate(); return }
+                    self.tick(timer)
+                }
+            }
+            self.timer = timer
+            RunLoop.main.add(timer, forMode: .common)
+        }
+
+        private func tick(_ timer: Timer) {
+            let elapsed = Double(DispatchTime.now().uptimeNanoseconds - started) / 1_000_000_000
+            guard elapsed <= seconds else {
+                timer.invalidate()
+                self.timer = nil
+                finish()
+                return
+            }
+            guard let window = NSApp.windows.first(where: { $0.isVisible }),
+                  let contentView = window.contentView else { return }
+            contentView.displayIfNeeded()
+            let rect = contentView.bounds
+            guard let representation = contentView.bitmapImageRepForCachingDisplay(in: rect) else { return }
+            contentView.cacheDisplay(in: rect, to: representation)
+            guard let data = representation.representation(using: .jpeg, properties: [.compressionFactor: 0.85]) else { return }
+            let path = dir.appendingPathComponent(String(format: "frame-%05d.jpg", frame))
+            do {
+                try data.write(to: path, options: .atomic)
+                times.append(elapsed)
+                frame += 1
+            } catch {
+                timer.invalidate()
+                self.timer = nil
+                finish()
+            }
+        }
+
+        private func finish() {
+            let frames = ["times": times]
+            if let data = try? JSONSerialization.data(withJSONObject: frames) {
+                try? data.write(to: dir.appendingPathComponent("frames.json"), options: .atomic)
+            }
+            onFinish()
+        }
     }
 
     private enum SnapshotError: LocalizedError {
