@@ -329,6 +329,9 @@ async fn peer_back_never_overwrites_a_name_taken_there() {
 async fn peer_back_warns_when_the_remote_cannot_ssh_here() {
     let cases = [
         ("leo@cosmic: Permission denied (publickey).", "key rejected", "authorized_keys"),
+        // OpenSSH wrappers and remote shells can lowercase diagnostics; the
+        // classifier should retain the same actionable setup guidance.
+        ("leo@cosmic: permission denied (publickey).", "key rejected", "authorized_keys"),
         ("ssh: connect to host cosmic port 22: Operation timed out", "no route", "tailnet ACL"),
         (
             "ssh: Could not resolve hostname cosmic: nodename nor servname",
@@ -336,7 +339,9 @@ async fn peer_back_warns_when_the_remote_cannot_ssh_here() {
             "tailnet ACL",
         ),
         ("Host key verification failed.", "host key is not trusted", "accept"),
+        ("REMOTE HOST IDENTIFICATION HAS CHANGED!", "host key is not trusted", "accept"),
         ("ssh: connect to host cosmic port 22: Connection refused", "ssh is off", "Remote Login"),
+        ("ssh: connect to host cosmic port 22: connection refused", "ssh is off", "Remote Login"),
     ];
     for (stderr, why, fix) in cases {
         let fake = Fake { back: Err(stderr), ..Fake::default() };

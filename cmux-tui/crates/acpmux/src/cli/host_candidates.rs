@@ -19,6 +19,35 @@ const PROBES_AT_ONCE: usize = 8;
 /// The most machines one `--probe` tries; the rest stay unprobed.
 pub(crate) const MAX_PROBES: usize = 32;
 
+/// The safest next step an Add Machine surface can offer for a candidate.
+///
+/// This is deliberately a recommendation, not an enrollment request. The UI
+/// still needs an explicit confirmation before it asks the daemon to mutate
+/// its peer list or runs the remote enrollment script.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum SetupAction {
+    AlreadyConnected,
+    Offline,
+    NotOwned,
+    NeedsSshCheck,
+    ReadyToEnroll,
+    SshUnavailable,
+}
+
+impl SetupAction {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::AlreadyConnected => "already-connected",
+            Self::Offline => "offline",
+            Self::NotOwned => "not-owned",
+            Self::NeedsSshCheck => "needs-ssh-check",
+            Self::ReadyToEnroll => "ready-to-enroll",
+            Self::SshUnavailable => "ssh-unavailable",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub(crate) struct Candidate {
     /// The MagicDNS short name, else the host name: the peer name enroll
@@ -44,6 +73,32 @@ pub(crate) struct Candidate {
     /// one that is not [`Candidate::mine`], or one past [`MAX_PROBES`].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ssh_ok: Option<bool>,
+    /// A non-mutating recommendation for the next Add Machine step. This is
+    /// present even without `--probe`, so an app can decide whether to offer
+    /// an SSH check or a connect confirmation without parsing human output.
+    pub recommended_action: SetupAction,
+}
+
+impl Candidate {
+    fn recommended_action(&self) -> SetupAction {
+        if self.already_peer {
+            SetupAction::AlreadyConnected
+        } else if !self.online {
+            SetupAction::Offline
+        } else if !self.mine {
+            SetupAction::NotOwned
+        } else {
+            match self.ssh_ok {
+                Some(true) => SetupAction::ReadyToEnroll,
+                Some(false) => SetupAction::SshUnavailable,
+                None => SetupAction::NeedsSshCheck,
+            }
+        }
+    }
+
+    fn refresh_recommended_action(&mut self) {
+        self.recommended_action = self.recommended_action();
+    }
 }
 
 /// The host part of a peer URL (`ssh://[user@]host[:port]`, `ws://host:port/…`),
@@ -88,7 +143,7 @@ fn mine(node: &Node, this: &Node) -> bool {
 }
 
 pub(crate) fn candidates(status: &Status, peers: &[Value]) -> Vec<Candidate> {
-    status
+    let mut list: Vec<Candidate> = status
         .peers
         .iter()
         .map(|node| {
@@ -104,9 +159,14 @@ pub(crate) fn candidates(status: &Status, peers: &[Value]) -> Vec<Candidate> {
                 peer,
                 peer_url,
                 ssh_ok: None,
+                recommended_action: SetupAction::NeedsSshCheck,
             }
         })
-        .collect()
+        .collect();
+    for candidate in &mut list {
+        candidate.refresh_recommended_action();
+    }
+    list
 }
 
 /// `ssh -o BatchMode=yes -o ConnectTimeout=5 -- TARGET true`.
@@ -152,6 +212,9 @@ pub(crate) fn probe_all(list: &mut [Candidate], ssh: &(impl Fn(&[String]) -> Ran
     for (i, ok) in results {
         list[i].ssh_ok = Some(ok);
     }
+    for candidate in list.iter_mut() {
+        candidate.refresh_recommended_action();
+    }
 }
 
 pub(crate) async fn list_with(
@@ -193,6 +256,7 @@ pub(crate) async fn run(client: &Client, probe: bool, json_out: bool) -> Result<
                 None => "",
             },
         );
+        println!("  setup {}", c.recommended_action.as_str());
     }
     Ok(())
 }
@@ -249,9 +313,40 @@ mod tests {
         assert_eq!(list[1].os, "macOS");
         assert!(!list[2].online);
         assert!(list.iter().all(|c| !c.already_peer && c.ssh_ok.is_none()));
+        assert_eq!(list[0].recommended_action, SetupAction::NeedsSshCheck);
+        assert_eq!(list[2].recommended_action, SetupAction::Offline);
         let line = serde_json::to_value(&list[1]).unwrap();
         assert_eq!(line["already_peer"], false);
+        assert_eq!(line["recommended_action"], "needs-ssh-check");
         assert!(line.get("ssh_ok").is_none());
+    }
+
+    #[test]
+    fn recommended_action_describes_safe_next_step() {
+        let mut candidate = candidates(&status(), &[]).remove(0);
+        assert_eq!(candidate.recommended_action, SetupAction::NeedsSshCheck);
+
+        candidate.ssh_ok = Some(true);
+        candidate.refresh_recommended_action();
+        assert_eq!(candidate.recommended_action, SetupAction::ReadyToEnroll);
+
+        candidate.ssh_ok = Some(false);
+        candidate.refresh_recommended_action();
+        assert_eq!(candidate.recommended_action, SetupAction::SshUnavailable);
+
+        candidate.mine = false;
+        candidate.ssh_ok = None;
+        candidate.refresh_recommended_action();
+        assert_eq!(candidate.recommended_action, SetupAction::NotOwned);
+
+        candidate.online = false;
+        candidate.refresh_recommended_action();
+        assert_eq!(candidate.recommended_action, SetupAction::Offline);
+
+        candidate.already_peer = true;
+        candidate.refresh_recommended_action();
+        assert_eq!(candidate.recommended_action, SetupAction::AlreadyConnected);
+        assert_eq!(candidate.recommended_action.as_str(), "already-connected");
     }
 
     #[test]
@@ -265,6 +360,7 @@ mod tests {
         assert_eq!(list[0].peer.as_deref(), Some("b"));
         assert_eq!(list[1].peer.as_deref(), Some("hb"));
         assert!(list[1].already_peer);
+        assert_eq!(list[1].recommended_action, SetupAction::AlreadyConnected);
         assert_eq!(list[0].peer_url.as_deref(), Some("ssh://100.64.0.3:47812"));
         let line = serde_json::to_value(&list[0]).unwrap();
         assert_eq!(line["peer_url"], "ssh://100.64.0.3:47812");
@@ -311,6 +407,9 @@ mod tests {
             list.iter().map(|c| c.ssh_ok).collect::<Vec<_>>(),
             [Some(false), Some(true), None]
         );
+        assert_eq!(list[0].recommended_action, SetupAction::SshUnavailable);
+        assert_eq!(list[1].recommended_action, SetupAction::ReadyToEnroll);
+        assert_eq!(list[2].recommended_action, SetupAction::Offline);
         assert_eq!(
             probe_argv("huge-blue").unwrap(),
             ["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "--", "huge-blue", "true"]
