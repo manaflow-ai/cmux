@@ -203,6 +203,10 @@ final class CloseUndoToasts {
         case .askTerminals(let terminals) where asked.covers(terminals):
             run(terminals.contains { asked[$0.surface].flatMap { $0 } != nil })
         case .askTerminals(let terminals):
+            // The daemon pushes each terminal's foreground program: decided now, in the key's turn.
+            if let local = DestructiveConfirmation.localRunningPrograms(bySurface: terminals, on: daemon) {
+                return run(local.values.contains { $0 != nil })
+            }
             // task-owner: one bounded process-info read per terminal (1 s each, concurrent), then the close
             Task { @MainActor in run(!(await DestructiveConfirmation.runningPrograms(of: terminals, on: daemon)).isEmpty) }
         }

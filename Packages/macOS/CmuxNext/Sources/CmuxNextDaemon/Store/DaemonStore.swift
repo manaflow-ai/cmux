@@ -112,6 +112,9 @@ public final class DaemonStore: StateResourceQueries {
     var workspacesByKey: [WorkspaceKey: WorkspaceModel] { index.workspacesByKey }
     var tabGroupsByID: [TabGroupID: TabGroupModel] { index.tabGroupsByID }
     @ObservationIgnored public internal(set) var agents = AgentRoster()
+    /// Each terminal's foreground program (`terminal-foreground-v1`): a close decides its question
+    /// from it in the key's turn. Read at the press, never drawn, so not observed.
+    @ObservationIgnored public internal(set) var foregrounds = TerminalForegrounds()
     @ObservationIgnored var directories = TerminalDirectories()
     /// Pending typed intents shown on top of the confirmed mirror
     /// (DaemonStore+Intents.swift).

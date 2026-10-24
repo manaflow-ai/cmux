@@ -65,6 +65,7 @@ extension DaemonEvent {
             case "notification": return .notification(try d(DaemonNotification.self))
             case "agent-changed": return .agentChanged(try d(AgentStatus.self))
             case "agent-presence-changed": return .agentPresenceChanged(try d(AgentPresence.self))
+            case "terminal-foreground-changed": return .terminalForegroundChanged(try d(TerminalForeground.self))
             case "frontend-projection-changed": return .frontendProjectionChanged(try d(ProjectionChange.self))
             case "terminal-registry-changed":
                 return .terminalRegistryChanged(revision: try d(EventPayload.TerminalRegistryChanged.self).terminalRevision)

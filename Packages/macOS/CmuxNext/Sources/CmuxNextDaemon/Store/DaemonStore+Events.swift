@@ -299,6 +299,9 @@ extension DaemonStore {
         case .agentPresenceChanged(let presence):
             tabsBySurface[presence.surface]?.setPresence(presence.activity == nil ? nil : presence)
             return .none
+        case .terminalForegroundChanged(let foreground):
+            foregrounds.apply(foreground)
+            return .none
 
         case .sessionState(let item): session.apply(item, in: self); return .none
         case .terminalRegistryChanged, .bookmarksChanged, .historyChanged, .keybindingsChanged, .conversationChanged, .conversationTyping, .conversationDraft, .conversationLive, .conversationRunChanged, .cloudConversations,

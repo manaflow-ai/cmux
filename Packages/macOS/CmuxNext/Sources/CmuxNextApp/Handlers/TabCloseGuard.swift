@@ -32,6 +32,17 @@ enum TabCloseGuard {
         // A second close of tabs this close is already asking about (a double click on a close button) is the same close.
         guard tabs.contains(where: { !asking.contains($0.id) }) else { return }
         let ids = Set(tabs.map(\.id))
+        // The daemon pushes each terminal's foreground program: the question shows, or the tabs
+        // close, in the key's turn (no daemon read on the input path).
+        if let (prompt, asked) = localPromptAndAnswers(closing: tabs, on: daemon, services: services) {
+            guard let prompt else { return close(asked) }
+            asking.formUnion(ids)
+            DestructiveConfirmation.present(prompt, in: window, settings: services.settings) {
+                asking.subtract(ids)
+                if $0 { close(asked) }
+            }
+            return
+        }
         asking.formUnion(ids)
         reading.formUnion(ids)
         Task { @MainActor in
@@ -100,18 +111,38 @@ enum TabCloseGuard {
         await promptAndAnswers(closing: tabs, on: daemon, services: services).prompt
     }
 
+    /// ``promptAndAnswers(closing:on:services:)`` decided now from the foreground programs the
+    /// daemon pushed (``DestructiveConfirmation/localRunningPrograms(bySurface:on:)``); nil when
+    /// `daemon` does not push them.
+    static func localPromptAndAnswers(closing tabs: [TabModel], on daemon: DaemonService,
+                                      services: AppServices) -> (prompt: DestructiveConfirmation.Prompt?, asked: RunningPrograms)? {
+        guard daemon.supports(DaemonCapabilities.terminalForeground) else { return nil }
+        return decide(closing: tabs, services: services) { DestructiveConfirmation.localRunningPrograms(bySurface: $0, on: daemon) ?? [:] }
+    }
+
     /// `prompt`, plus each terminal it asked and its answer.
     static func promptAndAnswers(closing tabs: [TabModel], on daemon: DaemonService,
                                  services: AppServices) async -> (prompt: DestructiveConfirmation.Prompt?, asked: RunningPrograms) {
+        if let local = localPromptAndAnswers(closing: tabs, on: daemon, services: services) { return local }
+        // An older or remote daemon: ask the terminals the program question asks, then decide.
+        let warnTab = services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback
+        let others = tabs.filter { $0.kind == .pty && !$0.dead && workingAgent($0) == nil }
+        let read = warnTab && !others.isEmpty ? await DestructiveConfirmation.runningPrograms(bySurface: others, on: daemon) : [:]
+        return decide(closing: tabs, services: services) { _ in read }
+    }
+
+    /// The question for closing `tabs` and each terminal asked, with `programs` answering for the
+    /// terminals the program question asks (those with no working agent).
+    private static func decide(closing tabs: [TabModel], services: AppServices,
+                               programs: ([TabModel]) -> RunningPrograms) -> (prompt: DestructiveConfirmation.Prompt?, asked: RunningPrograms) {
         let snapshot = services.settings?.snapshot
         let warnTab = snapshot?.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback
         let warnAgent = snapshot?.warnBeforeClosingAgentSession ?? CmuxConfigSnapshot.closeWarningFallback
         let terminals = tabs.filter { $0.kind == .pty && !$0.dead }
         guard warnTab || warnAgent, !terminals.isEmpty else { return (nil, [:]) }
         let agents = terminals.compactMap(workingAgent)
-        // A terminal with a working agent is that agent's question, never the program one.
         let others = terminals.filter { workingAgent($0) == nil }
-        let asked = warnTab ? await DestructiveConfirmation.runningPrograms(bySurface: others, on: daemon) : [:]
+        let asked = warnTab ? programs(others) : [:]
         let question = warning(agents: agents, programs: asked.programNames, warnTab: warnTab, warnAgent: warnAgent)
             .map { prompt($0, closing: tabs) }
         return (question, asked)
