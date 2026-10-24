@@ -15,11 +15,24 @@ pub fn of_this_process() -> Option<String> {
     implicit(|key| std::env::var(key).ok())
 }
 
+/// The machine the person's own send ran on (`_meta.acpmux.cliHost`): the transcript says
+/// "via CLI on big-red" under their prompt. None for an agent's send, named or in a session.
+pub fn person_host(named: bool) -> Option<String> {
+    let in_session = in_session(|key| std::env::var(key).ok());
+    (!named && !in_session).then(crate::host_pressure::host_name)
+}
+
+/// It runs in an acpmux session that its caller token proves to the daemon.
+fn in_session(env: impl Fn(&str) -> Option<String>) -> bool {
+    let set = |key: &str| env(key).is_some_and(|v| !v.trim().is_empty());
+    set("ACPMUX_SESSION_ID") && set(crate::hub::person::CALLER_TOKEN_ENV)
+}
+
 /// The sender a send names with no `--from`: `None` when it runs in an acpmux session (the
 /// daemon proves that one) or is the person's.
 pub fn implicit(env: impl Fn(&str) -> Option<String>) -> Option<String> {
     let set = |key: &str| env(key).map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
-    if set("ACPMUX_SESSION_ID").is_some() && set(crate::hub::person::CALLER_TOKEN_ENV).is_some() {
+    if in_session(&env) {
         return None;
     }
     // What the daemon accepts as a sender (`hub/digest.rs` `declared_sender`): one line, at most
