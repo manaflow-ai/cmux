@@ -21,7 +21,7 @@ on waitpid for the app, and on kqueue NOTE_EXIT for the tag's daemon.
 
   scripts/cmux-next/bench-startup.py --tag nxboot [--tag other] [--runs 5]
       [--mode cold --mode warm] [--profile empty|realistic|stress] [--json out.json]
-      [--launch-guard [--max-launch-stall MS] [--first-frame-budget MS]]
+      [--launch-guard [--max-launch-stall MS] [--first-frame-target MS]] [--wake-attachments MB]
   scripts/cmux-next/bench-startup.py --app "/path/cmux DEV launch-1.app" ...
 
 --app runs a fleet artifact staged anywhere (its tag comes from the
@@ -39,18 +39,45 @@ terminals, Chromium and WebKit pages and an agent chat), so the measured
 launch restores 14 panes; its runs end at the first live terminal frame.
 
 --launch-guard (the regression guard of #17587, a script, not a CI gate)
-exits 1 when a launch holds its first window frame with work it does not
-show: any run marked `launch_read_on_main.<file>` (a file the launch draws or
-keeps, read or waited for on the main thread instead of off it from `main`:
-the launch snapshot, the panes' last frames, the agent pages' last images,
-the new chats' unsent drafts, the chats' composer states, the Home cache and
-the Home list's last state); any main-thread stall over --max-launch-stall
-ms (default 50, the watchdog's own stall threshold; measured through
-debug.hangs, so it also catches work no mark reports); or a median
-first_window_frame_committed over --first-frame-budget ms (default 150, the
-launch target in plans/cmux-next/perf-lead.md). Run it light and STRESS:
-`--mode warm --profile realistic --launch-guard` and
-`--mode warm --profile stress --launch-guard`.
+judges only what the launch-files change controls, and exits 1 when:
+- any run is marked `launch_read_on_main.<file>`: a file the launch draws or
+  keeps (the launch snapshot, the panes' last frames, the agent pages' last
+  images, the new chats' unsent drafts, the chats' composer states, the Home
+  cache and the Home list's last state) was read, or waited for, on the main
+  thread instead of off it from `main`. Builds from the guard commit on mark
+  these reads (that commit marks the old main-thread reads, so it is red);
+- with --wake-attachments MB: the saved composer's chips cost the first
+  window frame. Each run is paired with a launch whose last quit left no
+  composer state, interleaved, and the guard fails when the median
+  first_window_frame_committed with the chips is more than --max-launch-stall
+  ms (default 50, the watchdog's stall threshold) later than without them.
+  An app that reads the chips back before its first frame (the code before
+  this change: AgentPaneRelaunchWake.take in AgentTabStore.wired, about 128 MB
+  read and base64-encoded on the main thread) fails it with no mark at all.
+A chip read moved back into the launch's background read holds memory but no
+main-thread time; the unit test
+theLaunchReadsNoChipContentsTheChatsReadyReadsThem guards that.
+
+The launch target (plans/cmux-next/perf-lead.md row 18: a median
+first_window_frame_committed under --first-frame-target ms, default 150, and
+no main-thread stall over --max-launch-stall ms, through debug.hangs) is
+printed with --launch-guard as the target's status, not as the guard's result:
+work outside the launch files (GhosttyRuntime init, the first glass view, the
+saved sidebars' decode, cmux.json) is in the same first-window turn, so the
+target says nothing about whether this change works. Pass
+`--budget first_window_frame_committed=150` to fail on it as well. Run the
+guard light and STRESS:
+`--mode warm --profile realistic --launch-guard --wake-attachments 128` and
+`--mode warm --profile stress --launch-guard` (the registered guard,
+perf-hot-benches.json `launch-first-window`).
+
+--wake-attachments MB writes, before each measured launch, a last quit's
+composer state holding MB of pasted screenshots (5 MB files) in the tag's
+state directory, as a chat whose composer held them at quit leaves it: the
+launch must not read them back or wait for them before its first window
+frame (#17587 review: it read and base64-encoded every chip, up to 128 MB,
+and the main thread waited for that read). The read's cost does not depend
+on which tab the state names, so it names a fixed key.
 
 Several tags run interleaved (A run 1, B run 1, A run 2, ...), so machine
 load affects them alike. Prints the load average and, per tag and mode, one
@@ -518,7 +545,9 @@ def seeded_marker(tag):
     return os.path.join(state_directories(tag)[0], "bench-startup-realistic")
 
 
-def one_run(tag, mode, timeout, profile=None):
+def one_run(tag, mode, timeout, profile=None, chips=None):
+    """One measured launch. `chips`: None leaves the tag's saved composer state as it is; a number of
+    MB writes a last quit's composer holding that many MB of chips first (0: none, the state removed)."""
     scratch = tempfile.mkdtemp(prefix=f"bench-startup-{tag}-")
     with open(os.path.join(scratch, "cmux.json"), "w") as out:
         out.write("{}\n")
@@ -555,6 +584,8 @@ def one_run(tag, mode, timeout, profile=None):
         prime = Launch(tag, scratch)
         prime.wait_for([FINAL_MARK, AGENT_MARK], timeout, any_of=True)
         prime.quit()
+    if chips is not None:
+        write_wake_attachments(tag, chips)
     launch = Launch(tag, scratch)
     try:
         reached = launch.wait_for(final, timeout, any_of=any_of)
@@ -568,6 +599,38 @@ def one_run(tag, mode, timeout, profile=None):
     if getattr(launch, "stalls", None) is not None:
         return {**launch.marks, "stalls": launch.stalls}
     return launch.marks
+
+
+def write_wake_attachments(tag, megabytes):
+    """A last quit's composer state (AgentPaneRelaunchWake) holding `megabytes` of pasted
+    screenshots, 5 MB per file (the composer's own cap), as the quit's save writes it: the JSON
+    lists the chips, each chip's bytes are a file of their own beside it. With 0 MB the last quit
+    left no composer state: the JSON and every attachments' folder (also the one a launch took) go."""
+    state = state_directories(tag)[0]
+    folder = os.path.join(state, "agent-pane-wake-attachments")
+    for old in (folder, folder + ".taken"):
+        shutil.rmtree(old, ignore_errors=True)
+    if not megabytes:
+        try:
+            os.remove(os.path.join(state, "agent-pane-wake-states.json"))
+        except FileNotFoundError:
+            pass
+        return
+    os.makedirs(folder, mode=0o700, exist_ok=True)
+    chunk = 5 * 1024 * 1024
+    chips, files, left = [], {}, megabytes * 1024 * 1024
+    while left > 0:
+        size = min(chunk, left)
+        index = len(chips)
+        name = f"bench-shot-{index}.png"
+        with open(os.path.join(folder, name), "wb") as out:
+            out.write(b"\x89PNG\r\n\x1a\n" + os.urandom(size - 8))
+        chips.append({"id": f"shot-{index}", "kind": "image", "name": f"Screenshot {index}.png",
+                      "mimeType": "image/png", "size": size})
+        files[f"shot-{index}"] = name
+        left -= size
+    with open(os.path.join(state, "agent-pane-wake-states.json"), "w") as out:
+        json.dump({"tab_bench_wake": {"state": {"attachments": chips}, "files": files}}, out)
 
 
 def launch_stalls(tag):
@@ -699,18 +762,24 @@ def main():
                         help="record main-thread stalls over MS during each launch (debug.hangs) and print the worst")
     parser.add_argument("--launch-guard", action="store_true",
                         help="exit 1 when a launch reads or waits for a launch file on the main thread "
-                             "(launch_read_on_main.<file>), stalls its main thread over --max-launch-stall, "
-                             "or its median first window frame is over --first-frame-budget (#17587)")
+                             "(launch_read_on_main.<file>) or, with --wake-attachments, the saved chips delay its "
+                             "first window frame by more than --max-launch-stall (#17587); prints the launch "
+                             "target's status (first frame, stalls) without failing on it")
     parser.add_argument("--max-launch-stall", type=float, default=50.0, metavar="MS",
-                        help="with --launch-guard: the longest main-thread stall a launch may have (debug.hangs; "
-                             "50, the watchdog's own stall threshold)")
-    parser.add_argument("--first-frame-budget", type=float, default=150.0, metavar="MS",
-                        help=f"with --launch-guard: the median {FIRST_FRAME_MARK} budget (the launch target, 150)")
+                        help="with --launch-guard: the most the saved chips may delay the median first window "
+                             "frame, and the target's longest main-thread stall (debug.hangs; 50, the watchdog's "
+                             "own stall threshold)")
+    parser.add_argument("--first-frame-target", type=float, default=150.0, metavar="MS",
+                        help=f"with --launch-guard: the launch target's median {FIRST_FRAME_MARK} (150), reported only")
+    parser.add_argument("--wake-attachments", type=int, default=0, metavar="MB",
+                        help="before each measured launch, leave a last quit's composer state holding MB of "
+                             "pasted screenshots (the launch must not read them before its first frame); with "
+                             "--launch-guard each run is paired with a launch without them")
     args = parser.parse_args()
     global HANG_THRESHOLD_MS, SEED_FOCUS, SEED_CHAT_PANE
     HANG_THRESHOLD_MS = args.hangs
     if args.launch_guard:
-        # The guard judges every stall over --max-launch-stall: the app records at least those
+        # The target's status names every stall over --max-launch-stall: the app records at least those
         # (a --hangs above it would hide the stalls between the two).
         HANG_THRESHOLD_MS = int(min(filter(None, [args.hangs, args.max_launch_stall])))
     SEED_FOCUS = args.focus
@@ -728,28 +797,35 @@ def main():
             daemon_side(tag, args.runs)
         if not modes:
             return
-    results = {tag: {mode: [] for mode in modes} for tag in args.tag}
+    # (result key, MB of saved chips or None) per mode: with --launch-guard --wake-attachments, every run
+    # with the chips is paired with one without them (chips_pair), interleaved, so load affects both.
+    chips = args.wake_attachments or None
+    paired = bool(args.launch_guard and args.wake_attachments)
+    variants = {mode: [(mode, chips)] + ([(without_chips(mode), 0)] if paired else []) for mode in modes}
+    results = {tag: {key: [] for mode in modes for key, _ in variants[mode]} for tag in args.tag}
     print(f"load average: {' '.join(f'{x:.0f}' for x in os.getloadavg())}")
     try:
         for mode in modes:
             for index in range(args.runs):
                 for tag in args.tag:
-                    marks = one_run(tag, mode, args.timeout, args.profile)
-                    results[tag][mode].append(marks)
+                    for key, megabytes in variants[mode]:
+                        marks = one_run(tag, mode, args.timeout, args.profile, chips=megabytes)
+                        results[tag][key].append(marks)
 
-                    def shown(mark):
-                        return "%.0f ms" % marks[mark] if mark in marks else "missing"
-                    print(f"  {tag} {mode} run {index + 1}: first live terminal frame {shown(FINAL_MARK)}, "
-                          f"agent pane {shown(AGENT_MARK)}", flush=True)
-                    for stall in marks.get("stalls", [])[:3]:
-                        print(f"    stall {stall['ms']:.0f} ms (cpu {stall['cpu_ms']:.0f}): "
-                              + " < ".join(stall["frames"][:4]), flush=True)
+                        def shown(mark):
+                            return "%.0f ms" % marks[mark] if mark in marks else "missing"
+                        print(f"  {tag} {key} run {index + 1}: first window frame {shown(FIRST_FRAME_MARK)}, "
+                              f"first live terminal frame {shown(FINAL_MARK)}, agent pane {shown(AGENT_MARK)}",
+                              flush=True)
+                        for stall in marks.get("stalls", [])[:3]:
+                            print(f"    stall {stall['ms']:.0f} ms (cpu {stall['cpu_ms']:.0f}): "
+                                  + " < ".join(stall["frames"][:4]), flush=True)
     finally:
         for tag in args.tag:
             stop(tag_pids(tag))
     print(f"load average: {' '.join(f'{x:.0f}' for x in os.getloadavg())}")
     for tag in args.tag:
-        for mode in modes:
+        for mode in results[tag]:
             runs = results[tag][mode]
             print(f"\n{tag} {mode} {args.profile or 'kept'} profile ({len(runs)} runs), ms since process start")
             print(f"  {'phase':<46} {'median':>8} {'max':>8} {'gap':>8}  n")
@@ -760,14 +836,17 @@ def main():
     if args.json:
         with open(args.json, "w") as out:
             json.dump(results, out, indent=1)
-    budgets = args.budget + ([f"{FIRST_FRAME_MARK}={args.first_frame_budget:g}"] if args.launch_guard else [])
-    orders = args.order + (LAUNCH_ORDER if budgets else [])
-    over = check_budgets(results, budgets) + check_orders(results, orders)
+    orders = args.order + (LAUNCH_ORDER if args.budget else [])
+    over = check_budgets(results, args.budget) + check_orders(results, orders)
     if args.launch_guard:
-        guard = check_launch_guard(results, args.max_launch_stall)
+        guard = check_launch_guard(results, args.max_launch_stall, args.wake_attachments if paired else 0)
         print(f"launch guard: {'FAIL' if guard else 'pass'}"
               + "".join(f"\n  {line}" for line in guard), file=sys.stderr if guard else sys.stdout)
         over += guard
+        target = launch_target_status(results, args.first_frame_target, args.max_launch_stall)
+        print(f"launch target (median {FIRST_FRAME_MARK} < {args.first_frame_target:g} ms, no main-thread stall "
+              f"over {args.max_launch_stall:g} ms; status only, not the guard): {'not met' if target else 'met'}"
+              + "".join(f"\n  {line}" for line in target))
     for line in over:
         print(f"over budget: {line}", file=sys.stderr)
     if over:
@@ -789,11 +868,17 @@ def check_budgets(results, budgets):
     return over
 
 
-def check_launch_guard(results, max_launch_stall):
-    """#17587's regression guard: the files a launch draws or keeps are read off the main thread
-    (no run marked `launch_read_on_main.<file>`), and no run recorded a main-thread stall over
-    `max_launch_stall` ms (measured, so it also catches work no mark covers). The first window
-    frame's budget is checked with the other budgets."""
+def without_chips(mode):
+    """The result key of a guard run paired with `mode`'s: its last quit left no composer state."""
+    return f"{mode} without saved chips"
+
+
+def check_launch_guard(results, max_chips_delay, chips_mb):
+    """#17587's regression guard, on what the launch-files change controls: no run marked
+    `launch_read_on_main.<file>` (a launch file read, or waited for, on the main thread), and, when
+    the runs were paired with and without `chips_mb` MB of saved composer chips, the chips delay the
+    median first window frame by at most `max_chips_delay` ms (the code before the change read them
+    back and base64-encoded them on the main thread before that frame, and marked nothing)."""
     out = []
     for tag, modes in results.items():
         for mode, runs in modes.items():
@@ -802,11 +887,44 @@ def check_launch_guard(results, max_launch_stall):
                 for mark in sorted(name for name in run if name.startswith(MAIN_THREAD_READ)):
                     out.append(f"{where}: {mark.removeprefix(MAIN_THREAD_READ)} read on the main thread at "
                                f"{run[mark]:.0f} ms")
+            if not chips_mb or without_chips(mode) not in modes:
+                continue
+            frames = {}
+            for key in (mode, without_chips(mode)):
+                values = [run[FIRST_FRAME_MARK] for run in modes[key] if FIRST_FRAME_MARK in run]
+                if len(values) < len(modes[key]):
+                    out.append(f"{tag} {key}: {FIRST_FRAME_MARK} missing in {len(modes[key]) - len(values)} "
+                               f"of {len(modes[key])} runs")
+                frames[key] = statistics.median(values) if values else None
+            with_chips, without = frames[mode], frames[without_chips(mode)]
+            if with_chips is not None and without is not None and with_chips - without > max_chips_delay:
+                out.append(f"{tag} {mode}: {chips_mb} MB of saved chips delay the median {FIRST_FRAME_MARK} by "
+                           f"{with_chips - without:.0f} ms ({with_chips:.0f} vs {without:.0f} ms; limit "
+                           f"{max_chips_delay:.0f} ms): the launch reads them before its first frame")
+    return out
+
+
+def launch_target_status(results, first_frame_target, max_launch_stall):
+    """Where the launch misses its target (perf-lead.md row 18): a median first window frame over
+    `first_frame_target` ms, a main-thread stall over `max_launch_stall` ms (with its top frames), or
+    a run whose stalls were not recorded. Reported, never failed on: it includes work outside the
+    launch files."""
+    out = []
+    for tag, modes in results.items():
+        for mode, runs in modes.items():
+            values = [run[FIRST_FRAME_MARK] for run in runs if FIRST_FRAME_MARK in run]
+            if values and statistics.median(values) > first_frame_target:
+                out.append(f"{tag} {mode}: {FIRST_FRAME_MARK} median {statistics.median(values):.0f} ms "
+                           f"> {first_frame_target:g} ms")
+            elif len(values) < len(runs):
+                out.append(f"{tag} {mode}: {FIRST_FRAME_MARK} missing in {len(runs) - len(values)} of {len(runs)} runs")
+            for index, run in enumerate(runs):
+                where = f"{tag} {mode} run {index + 1}"
                 if "stalls" not in run:
                     out.append(f"{where}: no main-thread stall record (debug.hangs did not answer)")
                 for stall in run.get("stalls", []):
                     if stall["ms"] > max_launch_stall:
-                        out.append(f"{where}: main thread stalled {stall['ms']:.0f} ms (limit {max_launch_stall:.0f}): "
+                        out.append(f"{where}: main thread stalled {stall['ms']:.0f} ms (target {max_launch_stall:.0f}): "
                                    + " < ".join(stall["frames"][:4]))
     return out
 
