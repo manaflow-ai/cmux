@@ -1,13 +1,16 @@
 @testable import CmuxNextAgentPermissions
 import CmuxNextWakeupsTestSupport
 import Foundation
+import Observation
 import Testing
 
 /// The request store (agent-permissions-DESIGN.md section 2) against a mock
 /// TCC probe: no card for a grant that is on, nothing opens before Continue,
 /// Deny returns `denied`, the grant landing returns `granted`, computer use
 /// guides through both grants, duplicates join, others queue, timeouts end.
-/// The time limit is the only bound on the shared ManualClock's wait for a sleeper (a signal, not a poll).
+/// Every wait here is a signal, not a poll: `waitUntil` wakes on the store's (and the opener's)
+/// observable changes, and the shared ManualClock's wait for a sleeper on the timer's sleep. The
+/// suite's time limit is their only bound.
 @MainActor @Suite(.timeLimit(.minutes(1))) struct AgentPermissionRequestsTests {
     let probe = MockPermissionProbe()
     let opener = RecordingOpener()
@@ -37,7 +40,7 @@ import Testing
     @Test func nothingOpensBeforeContinueAndDenyReturnsDenied() async throws {
         let requests = makeRequests()
         let waiting = Task { await requests.request(request(.fullDiskAccess), timeout: .seconds(60)) }
-        try await until { requests.current != nil }
+        try await waitUntil { requests.current != nil }
         let shown = try #require(requests.current)
         #expect(shown.phase == .asking)
         #expect(shown.request.requester.agentName == "Claude Code")
@@ -56,9 +59,9 @@ import Testing
     @Test func continueOpensTheListAndTheGrantLandingReturnsGranted() async throws {
         let requests = makeRequests()
         let waiting = Task { await requests.request(request(.fullDiskAccess), timeout: .seconds(60)) }
-        try await until { requests.current != nil }
+        try await waitUntil { requests.current != nil }
         requests.continueCurrent()
-        try await until { opener.opened == [.fullDiskAccess] }
+        try await waitUntil { opener.opened == [.fullDiskAccess] }
         #expect(requests.current?.phase == .guiding)
         #expect(requests.current?.guidingGrant == .fullDiskAccess)
 
@@ -76,11 +79,11 @@ import Testing
             await requests.request(request(.computerUse, reason: "Click Export in Numbers", prompt: "export from Numbers"),
                                    timeout: .seconds(60))
         }
-        try await until { requests.current != nil }
+        try await waitUntil { requests.current != nil }
         requests.continueCurrent()
-        try await until { opener.opened == [.accessibility] }
+        try await waitUntil { opener.opened == [.accessibility] }
         probe.set(.accessibility, .granted)
-        try await until { opener.opened == [.accessibility, .screenRecording] }
+        try await waitUntil { opener.opened == [.accessibility, .screenRecording] }
         #expect(requests.current?.guidingGrant == .screenRecording)
         probe.set(.screenRecording, .granted)
         let outcome = await waiting.value
@@ -91,9 +94,9 @@ import Testing
     @Test func theSameGrantFromTheSameAgentJoinsOneCard() async throws {
         let requests = makeRequests()
         let first = Task { await requests.request(request(.fullDiskAccess), timeout: .seconds(60)) }
-        try await until { requests.current != nil }
+        try await waitUntil { requests.current != nil }
         let second = Task { await requests.request(request(.fullDiskAccess), timeout: .seconds(60)) }
-        try await until { requests.current?.callers == 2 }
+        try await waitUntil { requests.current?.callers == 2 }
         #expect(requests.queued.isEmpty)
         requests.denyCurrent()
         #expect(await first.value.result == .denied)
@@ -104,10 +107,10 @@ import Testing
     @Test func otherRequestsQueueAndShowInTurn() async throws {
         let requests = makeRequests()
         let first = Task { await requests.request(request(.fullDiskAccess), timeout: .seconds(60)) }
-        try await until { requests.current != nil }
+        try await waitUntil { requests.current != nil }
         let second = Task { await requests.request(request(.camera, agent: "term_b", reason: "Scan the QR code", prompt: "scan this QR"),
                                                    timeout: .seconds(60)) }
-        try await until { requests.queued.count == 1 }
+        try await waitUntil { requests.queued.count == 1 }
         #expect(requests.current?.request.kind == .fullDiskAccess)
         requests.denyCurrent()
         #expect(await first.value.result == .denied)
@@ -122,7 +125,7 @@ import Testing
         let requests = makeRequests()
         let waiting = Task { await requests.request(request(.microphone, reason: "Record your voice note", prompt: "record a voice note"),
                                                     timeout: .seconds(300)) }
-        try await until { requests.current != nil }
+        try await waitUntil { requests.current != nil }
         try await clock.waitForSleeper()
         clock.advance(by: .seconds(299))
         #expect(requests.current != nil)
@@ -139,21 +142,15 @@ import Testing
             await requests.request(request(.fullDiskAccess, reason: "Scan the whole system for keys", prompt: "rename the sidebar groups"),
                                    timeout: .seconds(60))
         }
-        try await until { requests.current != nil }
+        try await waitUntil { requests.current != nil }
         #expect(requests.current?.reasonCheck == .unclear)
         requests.denyCurrent()
         #expect(await waiting.value.reasonCheck == .unclear)
     }
 }
 
-/// Records which lists the store opened.
-@MainActor final class RecordingOpener: PermissionSettingsOpening {
+/// Records which lists the store opened; observable, so `waitUntil` wakes when one opens.
+@MainActor @Observable final class RecordingOpener: PermissionSettingsOpening {
     private(set) var opened: [PermissionKind] = []
     func open(_ kind: PermissionKind, target: String?) { opened.append(kind) }
-}
-
-/// Waits (bounded) for main-actor state the store sets after a hop.
-@MainActor func until(_ condition: @MainActor () -> Bool, sourceLocation: SourceLocation = #_sourceLocation) async throws {
-    for _ in 0..<2000 where !condition() { await Task.yield() }
-    try #require(condition(), "condition never held", sourceLocation: sourceLocation)
 }
