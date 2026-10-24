@@ -19,6 +19,7 @@ License: GPL-3.0-or-later AND MIT. The cmux code is GPL-3.0-or-later (`LICENSE`)
 | `auth.ts` | credential kinds of a connection (`auth {kind}`) and the auth choices an add flow offers | cmux |
 | `egress.ts` | SSRF pre-checks on URL text (private, loopback, link-local, ULA, CGNAT; every IPv4 literal form; IPv4-embedding IPv6), the 10 MB and 30 s limits, the `generic_hosts` matcher | cmux |
 | `mcp-names.ts` | `/v1/mcp` tool names (`<namespace>__<path>`, at most 64 characters, hash suffix) and the tool listing (opt-in connections, Block hidden, Ask `per_call`) | cmux |
+| `receipts.ts` | A redacted lifecycle receipt and pure request builders for generic CloudEvents, GitHub repository dispatch and Slack webhooks | cmux |
 | `text.ts` | FNV-1a, UTF-8 length, code-point compare | cmux |
 | `index.ts` | root export: types, policy and importer; format modules as namespaces (`openapi`, `openapiPaths`, `openapiAuth`, `graphql`, `mcp`) | cmux |
 
@@ -52,7 +53,35 @@ One endpoint per principal (`/v1/mcp`). `mcpToolName(namespace, path)` returns `
 
 ## Tests
 
-`bun test libs/integrations-core/test` runs ingestion, policy, egress and MCP naming tests on the fixtures in `test/fixtures/`. No test makes a network call.
+`bun test libs/integrations-core/test` runs ingestion, policy, egress, MCP naming and receipt contract tests on the fixtures in `test/fixtures/`. No test makes a network call.
+
+## Lifecycle receipts
+
+`receiptCloudEvent` gives cmux and acpmux one small event shape for machine and
+agent lifecycle updates. `buildReceiptWebhookRequest` emits CloudEvents 1.0 for
+generic webhooks and Vercel-style deploy hooks; the GitHub and Slack builders
+adapt the same receipt to repository dispatch and incoming-webhook payloads.
+The builders validate a public HTTPS endpoint and return a request description,
+but never call the network or include an authorization header. Add a provider
+token in the host's own secret store immediately before sending:
+
+```ts
+import { buildGitHubDispatchRequest } from "@cmux/integrations-core/receipts"
+
+const request = buildGitHubDispatchRequest(
+  "https://api.github.com/repos/acme/app/dispatches",
+  receipt,
+)
+await fetch(request.url, {
+  method: request.method,
+  headers: { ...request.headers, authorization: `Bearer ${githubToken}` },
+  body: request.body,
+})
+```
+
+The receipt's `details` field is caller-owned and must be redacted before it is
+handed to an adapter. The package does not persist credentials, retry failed
+delivery, or replace the provider's authorization and rate-limit policy.
 
 ## Where this package lives
 

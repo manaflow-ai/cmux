@@ -13,6 +13,7 @@
     "./auth": "./src/auth.ts",
     "./egress": "./src/egress.ts",
     "./mcp-names": "./src/mcp-names.ts",
+    "./receipts": "./src/receipts.ts",
     "./text": "./src/text.ts",
     "./openapi": "./src/openapi.ts",
     "./openapi-paths": "./src/openapi-paths.ts",
