@@ -20,7 +20,7 @@ import Testing
     }
 
     /// The arguments reach the child one by one and as given (no shell, no splitting), also ones
-    /// that start with `-`: a reply's text after `--` is what acpmux gets. The stub records its argv,
+    /// that start with `-` (a reply's own text goes on stdin). The stub records its argv,
     /// NUL-separated, in the file its environment names.
     @Test func theArgumentsReachTheChildAsGiven() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("launcher-argv-\(UUID().uuidString)", isDirectory: true)
@@ -34,7 +34,7 @@ import Testing
         for a in "$@"; do printf '%s\0' "$a" >> "$ARGV_OUT"; done
         """#.utf8).write(to: stub)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: stub.path)
-        let arguments = AcpmuxReplySender.arguments(session: "s-1", text: "- fix the test first", promptID: "p-1")
+        let arguments = AcpmuxReplySender.arguments(session: "s-1", promptID: "p-1")
             + ["a b", "--quiet", "-", "*"]
         let status = await ProcessLauncher().run(stub, arguments: arguments, environment: ["ARGV_OUT": out.path])
         #expect(status == 0)
