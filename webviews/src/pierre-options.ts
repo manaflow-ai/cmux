@@ -178,6 +178,13 @@ export function codeViewUnsafeCSS(): string {
       backdrop-filter: var(--cmux-diff-glass-filter, none);
       border-bottom: 1px solid var(--cmux-diff-border);
     }
+    /* Reduce Transparency: no frost (the host's data-reduce-transparency clears the variable too). */
+    @media (prefers-reduced-transparency: reduce) {
+      [data-diffs-header] {
+        -webkit-backdrop-filter: none;
+        backdrop-filter: none;
+      }
+    }
     [data-line-type='change-addition']:where([data-column-number], [data-gutter-buffer]) {
       color: var(--cmux-diff-number-addition);
     }
@@ -318,6 +325,12 @@ export function fileTreeUnsafeCSS(): string {
       -webkit-backdrop-filter: var(--cmux-diff-files-filter, none);
       backdrop-filter: var(--cmux-diff-files-filter, none);
       box-shadow: 0 1px 0 var(--trees-border-color);
+    }
+    @media (prefers-reduced-transparency: reduce) {
+      [data-file-tree-sticky-overlay-content] {
+        -webkit-backdrop-filter: none;
+        backdrop-filter: none;
+      }
     }
     ${PIERRE_TREES_SCROLLER_CSS}
   `;

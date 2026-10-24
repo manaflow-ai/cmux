@@ -2083,9 +2083,9 @@ svg[data-icon-fill] {
   display: flex;
   align-items: center;
   gap: 4px;
-  /* 3 px and no border: the same 34 px as before, with the rim drawn inside. */
-  padding: 3px;
-  border: 0;
+  /* A clear 1 px border keeps the 34 px height; the rim is drawn inside (box-shadow). */
+  padding: 2px;
+  border: 1px solid transparent;
   border-radius: 8px;
   background: var(--cmux-diff-pill-bg);
   box-shadow: var(--cmux-diff-pill-rim);
