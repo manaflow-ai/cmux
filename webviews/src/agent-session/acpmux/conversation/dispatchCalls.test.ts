@@ -82,6 +82,33 @@ test("parses Codex MCP envelopes for dispatch and reports", () => {
   ).toMatchObject({ kind: "report", briefId: "b-17", summary: "Done" });
 });
 
+test("parses canonical cmux MCP names and nested brief identities", () => {
+  const item = activity(
+    "mcp__cmux__agent_dispatch",
+    { title: "T", body: "B", target: "cmux16", stop_condition: "pass" },
+    {
+      brief: {
+        id: "brf_1",
+        from: { actor_id: "opus", session_id: "src", harness: "opencode", host: "cosmic-gray" },
+        to: { host: "cmux16", session_id: "dst", harness: "pi" },
+        status: "running",
+      },
+    },
+  );
+  expect(dispatchCall(item)).toMatchObject({
+    kind: "dispatch",
+    briefId: "brf_1",
+    from: "opus",
+    to: "cmux16",
+    host: "cmux16",
+    sessionId: "dst",
+  });
+  expect(dispatchCall(activity("cmux.agent_steer", { brief_id: "brf_1", text: "Keep going" }))).toMatchObject({
+    kind: "steer",
+    briefId: "brf_1",
+  });
+});
+
 test("does not classify unrelated MCP or shell envelopes by tool word alone", () => {
   expect(
     dispatchCall(activity("github.report", { server: "github", tool: "report", arguments: { issue: 4 } })),

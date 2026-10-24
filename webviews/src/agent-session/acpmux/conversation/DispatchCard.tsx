@@ -115,7 +115,7 @@ export function lineLabel(t: Translate, call: DispatchCall, title: string, desti
     case "dispatch":
       return t("message.sentTo", { to: `${title}${target}` });
     case "steer":
-      return t("subsession.sent", { name: destination ?? t("message.unknown"), text: title });
+      return `${t("subsession.sent", { name: destination ?? t("message.unknown"), text: title })}${call.status ? ` · ${call.status}` : ""}`;
     case "report":
       return t("message.label", {
         from: call.from ?? t("message.self"),

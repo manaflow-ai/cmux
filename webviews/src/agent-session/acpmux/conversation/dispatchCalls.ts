@@ -29,7 +29,7 @@ type RecordValue = Record<string, unknown>;
 
 const EVENT_KIND = /^(dispatch|steer|report|briefs?)$/i;
 const EXPLICIT_TOOL =
-  /^(?:dispatch|steer|report|briefs?|_acpmux[/:]|(?:mcp__)?(?:acpmux|cmux)(?:__|[./:-])|agent_)(dispatch|steer|report|briefs(?:[_-]?(?:ls|list))?)?$/i;
+  /^(?:dispatch|steer|report|briefs?|(?:mcp__)?(?:acpmux|cmux|codex_apps)(?:__|[./:-])(?:agent_)?|agent_)(dispatch|steer|report|briefs(?:[_-]?(?:ls|list))?)(?:\s+call)?$/i;
 const CLI_TITLE = /^acpmux(?:-debug-cli)?\s+(dispatch|steer|report|briefs(?:\s+(?:ls|list))?)(?:\s|$)/i;
 const CLI_ACTION =
   /(?:^|(?:&&|\|\||;)\s*)(?:\w+=\S+\s+)*(?:\S+\/)?acpmux(?:-debug-cli)?\s+(dispatch|steer|report|briefs(?:\s+(?:ls|list))?)(?:\s|$)/i;
@@ -45,12 +45,12 @@ export function dispatchCall(item: AcpmuxActivity): DispatchCall | undefined {
   const values = [args, output, ...records(args), ...records(output)];
   const call: DispatchCall = {
     kind: operation,
-    briefId: firstString(values, ["briefId", "brief_id"]),
+    briefId: firstString(values, ["briefId", "brief_id", "id"]),
     title: firstString(values, ["title", "briefTitle", "brief_title", "name"]),
-    from: firstString(values, ["from", "sender", "senderId", "sender_id", "agent"]),
-    to: firstString(values, ["to", "target", "recipient"]),
-    host: firstString(values, ["host", "hostname", "machine"]),
-    sessionId: firstString(values, ["sessionId", "session_id", "session"]),
+    from: identityString(values, ["from", "sender"]) ?? firstString(values, ["senderId", "sender_id", "agent"]),
+    to: identityString(values, ["to", "target", "recipient"]) ?? firstString(values, ["target", "recipient"]),
+    host: identityField(values, "to", ["host", "hostname", "machine"]) ?? firstString(values, ["host", "hostname", "machine"]),
+    sessionId: identityField(values, "to", ["sessionId", "session_id", "session"]) ?? firstString(values, ["sessionId", "session_id", "session"]),
     status: firstString(values, ["status", "state"]) ?? statusFromTool(tool),
     stopCondition: firstString(values, ["stopCondition", "stop_condition"]),
     text:
@@ -61,7 +61,7 @@ export function dispatchCall(item: AcpmuxActivity): DispatchCall | undefined {
           : ["brief", "prompt", "text", "body", "content"],
       ) ?? (operation === "report" ? outputSummary(tool.output) : undefined),
     summary: firstString(values, ["summary", "result", "message", "report", "text"]) ?? outputSummary(tool.output),
-    reportBriefId: firstString(values, ["briefId", "brief_id", "briefRef", "brief_ref"]),
+    reportBriefId: firstString(values, ["briefId", "brief_id", "briefRef", "brief_ref", "id"]),
   };
   // A list call's response usually contains entries but no top-level title. Preserve a compact
   // count in the summary without printing the raw JSON in the transcript.
@@ -151,6 +151,30 @@ function firstString(values: readonly unknown[], keys: readonly string[]): strin
       const found = value[key];
       if (typeof found === "string" && found.trim()) return found.trim();
     }
+  }
+  return undefined;
+}
+
+function identityString(values: readonly unknown[], keys: readonly string[]): string | undefined {
+  for (const value of values) {
+    if (!isRecord(value)) continue;
+    for (const key of keys) {
+      const found = value[key];
+      if (typeof found === "string" && found.trim()) return found.trim();
+      if (isRecord(found)) {
+        const identity = firstString([found], ["actor_id", "actorId", "name", "id", "session_id", "session", "harness", "host"]);
+        if (identity) return identity;
+      }
+    }
+  }
+  return undefined;
+}
+
+function identityField(values: readonly unknown[], key: string, fields: readonly string[]): string | undefined {
+  for (const value of values) {
+    if (!isRecord(value) || !isRecord(value[key])) continue;
+    const found = firstString([value[key]], fields);
+    if (found) return found;
   }
   return undefined;
 }
