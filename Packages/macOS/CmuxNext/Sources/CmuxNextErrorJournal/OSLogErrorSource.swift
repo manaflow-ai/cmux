@@ -65,8 +65,10 @@ public struct OSLogErrorSource: ErrorHarvestSource {
     /// The log store predicate for errors and faults (`messageType`, as `log show --predicate` takes
     /// it), without the subsystems a reporter already recorded.
     static var errorsAndFaults: NSPredicate {
-        NSPredicate(format: "(messageType == 'error' OR messageType == 'fault') AND NOT (subsystem IN %@)",
-                    ErrorReporter.recordedSubsystems.sorted())
+        // One `!=` per subsystem: the log store's predicate support is narrower than NSPredicate's.
+        let kept = ErrorReporter.recordedSubsystems.sorted().map { NSPredicate(format: "subsystem != %@", $0) }
+        return NSCompoundPredicate(andPredicateWithSubpredicates:
+            [NSPredicate(format: "messageType == 'error' OR messageType == 'fault'")] + kept)
     }
 
     /// Maps one log entry to an event: the first line is the message, a following `at …`

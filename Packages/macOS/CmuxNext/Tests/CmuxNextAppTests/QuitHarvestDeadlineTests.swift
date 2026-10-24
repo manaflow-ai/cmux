@@ -36,6 +36,8 @@ import Testing
                 order.steps.append("harvest ended")
             }
         ))
-        #expect(order.steps == ["harvest started", "engines", "harvest ended"])
+        // The harvest may start before or after the engines (a child task); it ends after them.
+        #expect(order.steps.last == "harvest ended")
+        #expect(order.steps.firstIndex(of: "engines").map { $0 < order.steps.count - 1 } == true)
     }
 }
