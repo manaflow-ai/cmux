@@ -64,10 +64,18 @@ check("secrets.NIGHTLY_SPARKLE_PRIVATE_KEY" in workflow and "secrets.SPARKLE_NEX
 tip = workflow[workflow.index("\n  tip:\n"):]
 check("environment: release" in tip, "the tip job runs in the existing release environment")
 check("cancel-in-progress: false" in tip, "a newer tip build never cancels a running one")
-check(tip.index("notarytool submit") < tip.index("sparkle_generate_appcast.sh"), "the DMG is notarized before the feed names it")
+check(tip.index("notarytool submit") < tip.index("./scripts/sparkle_generate_appcast.sh"), "the DMG is notarized before the feed names it")
 uploads = tip[tip.index("Upload the tip feed to R2"):]
 check(uploads.index("upload \"tip-new/") < uploads.index("upload \"tip-out/$TIP_APPCAST\""),
       "archives upload before the feed that names them")
+check("TIP_APP_FLOOR_SHA: df21458196edaaf3de5192da56ecd2a315aacae7" in workflow
+      and 'compare/$TIP_APP_FLOOR_SHA...$SOURCE_SHA' in workflow,
+      "a source from before the tip app (#24954) gets no tip feed")
+check("if: steps.stamp.outputs.build != ''" in workflow, "only a stamped build uploads a tip DMG")
+check('[[ "$app_key" == "$signing_key" ]]' in tip, "the feed key must be the key the app in the DMG trusts")
+check("generate_appcast did not add edSignature" in tip, "the sign_update fallback never publishes")
+check(tip.index('[[ "$app_key" == "$signing_key" ]]') < tip.index("./scripts/sparkle_generate_appcast.sh"),
+      "the key is checked before the feed is generated")
 publish = workflow[workflow.index("\n  publish:\n"):workflow.index("\n  tip:\n")]
 check("tip" not in publish.split("needs:")[1].split("\n")[0], "the rolling prerelease never waits for the tip feed")
 

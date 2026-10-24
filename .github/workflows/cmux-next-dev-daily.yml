@@ -53,6 +53,9 @@ jobs:
       # so UpdateFeedResolver reads it as a cmux NEXT nightly feed; the app runs
       # Sparkle for com.cmuxterm.app.debug.next only when it carries this feed.
       TIP_FEED_URL: https://files.cmux.com/nightly-next/tip/appcast-arm64.xml
+      # The first feat-cmux-next commit whose app runs Sparkle on the tip feed
+      # (#24954). An older source would carry the feed but never read it.
+      TIP_APP_FLOOR_SHA: df21458196edaaf3de5192da56ecd2a315aacae7
       # A source run may have unrelated red checks while its app-producing Mac
       # job succeeded. Those independent reds must not suppress this channel.
       SOURCE_APP_PRODUCER_JOBS: |-
@@ -171,8 +174,15 @@ jobs:
         env:
           APP_PATH: ${{ steps.unpack.outputs.app }}
           NIGHTLY_SPARKLE_PRIVATE_KEY: ${{ secrets.NIGHTLY_SPARKLE_PRIVATE_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
+          floor="$(gh api "repos/$GH_REPO/compare/$TIP_APP_FLOOR_SHA...$SOURCE_SHA" --jq '.status')"
+          if [[ "$floor" != ahead && "$floor" != identical ]]; then
+            echo "::notice::$SOURCE_SHA predates the tip app ($TIP_APP_FLOOR_SHA is $floor of it); no tip feed for this build"
+            exit 0
+          fi
           [[ -n "$NIGHTLY_SPARKLE_PRIVATE_KEY" ]] || { echo "Missing NIGHTLY_SPARKLE_PRIVATE_KEY" >&2; exit 1; }
           public_key="$(swift scripts/derive_sparkle_public_key.swift "$NIGHTLY_SPARKLE_PRIVATE_KEY")"
           [[ "$public_key" =~ ^[A-Za-z0-9+/]{43}=$ ]] || { echo "could not derive the tip Sparkle public key" >&2; exit 1; }
@@ -206,6 +216,7 @@ jobs:
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APP_PATH: ${{ steps.unpack.outputs.app }}
+          TIP_BUILD: ${{ steps.stamp.outputs.build }}
           # cmux-next embeds no command palette Nucleo FFI (it was removed).
           CMUX_SIGN_SKIP_NUCLEO_FFI: "1"
         run: |
@@ -214,6 +225,7 @@ jobs:
           ./scripts/sign-cmux-bundle.sh "$APP_PATH" cmux.next-dev.entitlements "$APPLE_SIGNING_IDENTITY"
           /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
           # The tip feed's archive: a signed DMG the tip job notarizes.
+          if [[ "$TIP_BUILD" == "" ]]; then exit 0; fi
           mkdir -p tip-handoff
           dmg_root="$RUNNER_TEMP/cmux-next-dev-daily/dmg-root"
           mkdir -p "$dmg_root"
@@ -233,12 +245,13 @@ jobs:
         if: steps.source-artifact.outputs.archive != ''
         env:
           APP_PATH: ${{ steps.unpack.outputs.app }}
+          TIP_BUILD: ${{ steps.stamp.outputs.build }}
         run: |
           set -euo pipefail
           mkdir -p signed-handoff
           /usr/bin/ditto -c -k --keepParent "$APP_PATH" "signed-handoff/$APP_ARCHIVE_NAME"
           (cd signed-handoff && shasum -a 256 "$APP_ARCHIVE_NAME" > "$APP_ARCHIVE_NAME.sha256")
-          (cd tip-handoff && shasum -a 256 "$TIP_DMG_NAME" > "$TIP_DMG_NAME.sha256")
+          if [[ -n "$TIP_BUILD" ]]; then (cd tip-handoff && shasum -a 256 "$TIP_DMG_NAME" > "$TIP_DMG_NAME.sha256"); fi
           echo "signed=true" >> "$GITHUB_OUTPUT"
           echo "source_sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
 
@@ -253,7 +266,7 @@ jobs:
           retention-days: 3
 
       - name: Upload the signed tip DMG
-        if: steps.source-artifact.outputs.archive != ''
+        if: steps.stamp.outputs.build != ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-next-dev-tip-signed
@@ -513,8 +526,23 @@ jobs:
           SPARKLE_DELTA_NAME_PREFIX: cmux-NEXT-DEV-tip-
         run: |
           set -euo pipefail
+          # The feed key must be the key the app inside this DMG trusts:
+          # sparkle_generate_appcast.sh's sign_update fallback would otherwise
+          # sign with a key installed tip apps reject.
+          signing_key="$(swift scripts/derive_sparkle_public_key.swift "$SPARKLE_PRIVATE_KEY")"
+          mount="$(mktemp -d "$RUNNER_TEMP/tip-dmg.XXXXXX")"
+          hdiutil attach -quiet -nobrowse -readonly -mountpoint "$mount" "tip-new/cmux-NEXT-DEV-$TIP_BUILD.dmg"
+          app_key="$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$mount/cmux NEXT DEV.app/Contents/Info.plist")"
+          app_build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$mount/cmux NEXT DEV.app/Contents/Info.plist")"
+          hdiutil detach -quiet "$mount"
+          [[ "$app_key" == "$signing_key" ]] || { echo "the tip app trusts $app_key, but the feed would be signed by $signing_key" >&2; exit 1; }
+          [[ "$app_build" == "$TIP_BUILD" ]] || { echo "the DMG holds build $app_build, not $TIP_BUILD" >&2; exit 1; }
           mkdir -p tip-out
-          ./scripts/sparkle_generate_appcast.sh "tip-new/cmux-NEXT-DEV-$TIP_BUILD.dmg" cmux-next-tip "tip-out/$TIP_APPCAST"
+          ./scripts/sparkle_generate_appcast.sh "tip-new/cmux-NEXT-DEV-$TIP_BUILD.dmg" cmux-next-tip "tip-out/$TIP_APPCAST" 2>&1 | tee tip-appcast.log
+          if grep -q "generate_appcast did not add edSignature" tip-appcast.log; then
+            echo "generate_appcast refused the key for this archive; not publishing a feed the app cannot verify" >&2
+            exit 1
+          fi
           python3 scripts/ci/tip_feed.py check "tip-out/$TIP_APPCAST" --build "$TIP_BUILD"
 
       # Archives and deltas first, the feed last: a feed never names a file
