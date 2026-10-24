@@ -1,5 +1,6 @@
 import CmuxNextDaemon
 import CmuxNextSettings
+import CmuxNextTabs
 import CmuxNextWakeups
 import Foundation
 import os
@@ -119,15 +120,21 @@ final class InputInvariantMonitor {
         guard !services.dragSession.hasDragInFlight else { return [] }
         return services.windows.controllers.flatMap { controller -> [InputViolation] in
             (controller.content?.panes.values.map { $0 } ?? []).compactMap { pane in
-                // A strip out of the window does not observe its model.
-                guard pane.view.stripView.window != nil else { return nil }
-                let shown = pane.view.stripView.presentedTabIDs.map(\.rawValue)
-                let held = pane.stripModel.orderedTabs.map(\.id.rawValue)
-                guard Set(shown) != Set(held) || shown.count != held.count else { return nil }
-                return InputViolation(invariant: .stripShowsPaneTabs, window: controller.state.id,
-                                      detail: "pane \(pane.paneKey) shows \(shown) but holds \(held)")
+                stripMismatch(pane.view.stripView, holds: pane.stripModel.orderedTabs.map(\.id)).map {
+                    InputViolation(invariant: .stripShowsPaneTabs, window: controller.state.id, detail: "pane \(pane.paneKey) \($0)")
+                }
             }
         }
+    }
+
+    /// One strip's DP1 check: nil when it shows exactly `held`, else what it shows and holds.
+    static func stripMismatch(_ strip: TabStripView, holds held: [TabID]) -> String? {
+        // A strip out of the window does not observe its model.
+        guard strip.window != nil else { return nil }
+        let shown = strip.presentedTabIDs.map(\.rawValue)
+        let heldKeys = held.map(\.rawValue)
+        guard Set(shown) != Set(heldKeys) || shown.count != heldKeys.count else { return nil }
+        return "shows \(shown) but holds \(heldKeys)"
     }
 
     /// M1 (plans/cmux-next/ownership.md step 4): mirror writes outside
