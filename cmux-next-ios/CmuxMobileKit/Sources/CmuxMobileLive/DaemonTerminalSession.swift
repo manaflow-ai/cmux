@@ -80,8 +80,16 @@ public final class DaemonTerminalSession: TerminalSession {
     /// The input lane given up because a `send` got no answer: its other
     /// unanswered sends are not sent again either.
     private var abandonedInputLane: DaemonClient?
-    /// Unanswered sends allowed at once.
-    static let maxInputInFlight = 8
+    /// Unanswered sends allowed at once: about a second of scroll frames, so
+    /// a lost reply does not stop input (later sends keep both directions
+    /// moving, and the loss is repaired by duplicate ACKs).
+    static let maxInputInFlight = 64
+    /// How long a `send` may go unanswered before ``armTailProbe()`` writes
+    /// `ping`s behind it: many round trips, well under the 1 s RTO.
+    var tailProbeDelay: Duration = .milliseconds(150)
+    /// Writes and answers so far: a probe fires only if none came since it was armed.
+    private var inputProgress = 0
+    private var tailProbe: Task<Void, Never>?
     private var nextInputBatch = 0
     /// Batches of the failed channel, held until its sends all settle.
     private var inputFailed: [(number: Int, bytes: Data, at: TimeInterval, written: Bool)] = []
@@ -314,6 +322,8 @@ public final class DaemonTerminalSession: TerminalSession {
         dropInputLane()
         outbox.removeAll()
         input.removeAll()
+        tailProbe?.cancel()
+        tailProbe = nil
     }
 
     /// Attaches again after a dropped link. A no-op while attached or
@@ -775,6 +785,8 @@ public final class DaemonTerminalSession: TerminalSession {
                 }
                 written = true
                 inputWriting = false
+                inputProgress += 1
+                armTailProbe()
                 drainInput()
                 let reply: Data
                 if onLane {
@@ -836,7 +848,13 @@ public final class DaemonTerminalSession: TerminalSession {
     /// typed already: then all of them are dropped and the screen is told.
     private func inputSettled() {
         inputInFlight -= 1
-        guard inputInFlight == 0 else { return drainInput() }
+        inputProgress += 1
+        guard inputInFlight == 0 else {
+            armTailProbe()
+            return drainInput()
+        }
+        tailProbe?.cancel()
+        tailProbe = nil
         inputTarget = nil
         abandonedInputLane = nil
         if inputRecovering {
@@ -856,6 +874,38 @@ public final class DaemonTerminalSession: TerminalSession {
             }
         }
         drainInput()
+    }
+
+    /// TUI scroll tail: when a `send` stays unanswered for
+    /// ``tailProbeDelay`` with no other progress, three `ping`s go behind it
+    /// on the same channel (twice at most per stall). A segment lost at the
+    /// end of a flick has nothing behind it to produce duplicate ACKs, so it
+    /// waited out the 1 s retransmission timeout; the pings' segments (or
+    /// their replies, for a lost reply) bring the three duplicate ACKs that
+    /// retransmit it at once. Nothing typed is ever sent twice.
+    private func armTailProbe() {
+        tailProbe?.cancel()
+        guard inputInFlight > 0, !inputRecovering, let target = inputTarget else {
+            tailProbe = nil
+            return
+        }
+        let mark = inputProgress
+        let delay = tailProbeDelay
+        tailProbe = Task { [weak self] in
+            for _ in 0..<2 {
+                try? await Task.sleep(for: delay)
+                guard !Task.isCancelled, let self, self.inputProgress == mark, self.inputInFlight > 0,
+                      !self.inputRecovering, self.inputTarget === target else { return }
+                log.info("surface \(self.surface, privacy: .public): send unanswered for \(delay, privacy: .public); tail probe")
+                var ids: [String] = []
+                for _ in 0..<3 {
+                    guard let id = try? await target.submit("ping") else { break }
+                    ids.append(id)
+                }
+                // Collect the replies so none is left waiting in the client.
+                Task { for id in ids { _ = try? await target.reply(to: id) } }
+            }
+        }
     }
 
     /// One main-queue turn's input goes out as one `send`: Ghostty writes a
