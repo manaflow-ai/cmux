@@ -5,6 +5,8 @@ import Testing
 /// The Chief owner gets the open-file limit the app was launched with from the app
 /// (`AppEnvironment.daemonEnvironment`), so its brains and their tool shells get it back
 /// (pl-cef-tab-nofile review 1: the owner inherited the app's raised limit and passed it on).
+/// `@MainActor`: `ownerEnvironment` is main-actor isolated (CmuxNextHomeEngine's default).
+@MainActor
 struct ChiefOwnerLaunchLimitTests {
     /// cmux-pty `LAUNCH_SOFT_LIMIT_ENV` (`OpenFileLimit.originalSoftLimitKey`).
     static let key = "CMUX_TUI_HOST_NOFILE_SOFT"
