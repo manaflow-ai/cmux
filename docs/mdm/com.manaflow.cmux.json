@@ -2686,6 +2686,29 @@
       "title" : "Allow iPhone Connections",
       "type" : "boolean"
     },
+    "mobile.terminalSizing" : {
+      "default" : "smallest",
+      "description" : "Decides the size of a terminal while this Mac and a phone show it at once. A device that gets a larger terminal than it fits scrolls sideways or shows empty space; text never wraps wrong. Set the priority order in the cmux app on your iPhone.",
+      "enum" : [
+        "smallest",
+        "mac",
+        "latest",
+        "priority"
+      ],
+      "title" : "Terminal Size When Shared",
+      "type" : "string"
+    },
+    "mobile.terminalSizingOrder" : {
+      "default" : [
+
+      ],
+      "description" : "The devices whose size a shared terminal takes first, highest first, when Terminal Size When Shared is Priority Order.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Terminal Size Priority",
+      "type" : "array"
+    },
     "navigation.history.scope" : {
       "default" : "workspaces",
       "description" : "Workspaces: Go Back and Go Forward move between workspaces and top pages, and return to the tab each one last had focused. Everything: they also step through tabs and panes inside a workspace.",

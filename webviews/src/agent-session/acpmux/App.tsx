@@ -854,21 +854,21 @@ const MessageRow = memo(
           {envelope || row.from === "chief" ? (
             <>
               <ChiefPromptBubble text={envelope ? envelope.task : (row.text ?? "")} />
-              <PromptActions row={row} text={envelope ? envelope.task : (row.text ?? "")} />
-              {/* A Chief's bubble can clip its text, so its Send now keeps a line under it. */}
-              <PendingSteer row={row} send={editQueued} />
+              <PromptActions
+                row={row}
+                text={envelope ? envelope.task : (row.text ?? "")}
+                pending={row.steer === "waiting" ? <PendingSteer row={row} send={editQueued} /> : undefined}
+              />
             </>
           ) : (
-            // A waiting steer's Send now sits at the bubble's left, on its row (Claude's queued
-            // prompts; Leo, 2026-10-21): it never takes a line of its own. A prompt of images
-            // alone draws no bubble, so its Send now keeps the line under the images.
+            // A waiting steer's Send now leads the action row under the queued prompt (Leo,
+            // 2026-10-24). A prompt of images alone gets the same row under the images.
             <>
               <UserBubble
                 row={row}
                 text={row.text ?? ""}
-                pending={row.text?.trim() ? <PendingSteer row={row} send={editQueued} beside /> : undefined}
+                pending={row.steer === "waiting" ? <PendingSteer row={row} send={editQueued} /> : undefined}
               />
-              {!row.text?.trim() && <PendingSteer row={row} send={editQueued} />}
             </>
           )}
           <DeliveryFailure row={row} />

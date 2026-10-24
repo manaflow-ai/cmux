@@ -745,14 +745,13 @@ export const RECEIVED_LINES = 6;
 const receivedPrepared = new Map<string, PreparedText | null>();
 const TURN_GAP = 24;
 /// A prompt's meta row (`.cv-user__actions`, UserBubble.tsx). A steer the agent has not read yet
-/// draws its clock and Send now beside the bubble, adding no height (PendingSteer.tsx,
-/// `.cv-user__pending--beside`), except under a Chief's prompt (ChiefPromptBubble.tsx), which draws
-/// no action row and keeps that line under its bubble, and a prompt of images alone (no bubble).
+/// puts Send now first in that row (PendingSteer.tsx), including a Chief's prompt and a prompt of
+/// images alone.
 const userMetaHeight = (row: AcpmuxRow) => {
   const chief = row.from === "chief" || chiefEnvelope(row.text) !== undefined;
   return (
     (row.text && !row.failed && !row.queued && !chief ? META_GAP + META_ROW : 0) +
-    (row.steer === "waiting" && (chief || !row.text?.trim()) ? USER_STATUS_HEIGHT : 0)
+    (row.steer === "waiting" && !row.text?.trim() ? META_GAP + META_ROW : 0)
   );
 };
 const chromeHeight = (row: AcpmuxRow) =>

@@ -184,9 +184,17 @@ class Stress:
         before = {w["id"] for w in self.workspaces()}
         self.action("workspace.newAtBottom")
         made = wait(lambda: next((w["id"] for w in self.workspaces() if w["id"] not in before), None), 30)
-        if made:
-            wait(lambda: self.focused_workspace() == made, 10)
+        # Focus may not follow on a loaded host; nothing below relies on it: every tab and split is aimed
+        # at its pane by id, and the measured workspace is shown with goToWorkspace.
         return made
+
+    def show(self, workspace):
+        """Shows `workspace` in the window (goToWorkspace); raises StressShapeError when it does not show."""
+        if self.focused_workspace() == workspace:
+            return
+        self.action("goToWorkspace", {"workspace": workspace})
+        if not wait(lambda: self.focused_workspace() == workspace, 10, step=0.05):
+            raise StressShapeError(f"workspace {workspace} never showed")
 
     def focus_pane(self, pane_id):
         """Focuses `pane_id`; raises StressShapeError when focus does not get there (a tab made next
@@ -200,22 +208,24 @@ class Stress:
         return (pane or {}).get("tabs") or []
 
     def add_tab(self, workspace_id, pane_id, kind):
-        """One tab of `kind` (terminal, chromium, webkit, chat) in the focused pane; waits for it."""
+        """One tab of `kind` (terminal, chromium, webkit, chat) in `pane_id`, aimed at it by id (never at
+        whatever has focus); waits for it."""
         before = {t.get("id") for t in self.tabs(workspace_id, pane_id)}
         count = len(before)
+        target = f"pane:{pane_id}"
         if kind == "terminal":
-            self.action("newSurface")
+            self.action("newSurface", target=target)
         elif kind == "chromium":
-            self.action("openBrowser.chromium", {"url": self.pages.url()})
+            self.action("openBrowser.chromium", {"url": self.pages.url()}, target=target)
         elif kind == "webkit":
-            self.action("openBrowser.webkit", {"url": self.pages.url()})
+            self.action("openBrowser.webkit", {"url": self.pages.url()}, target=target)
         else:
-            reply = self.action("palette.newAgentChat", timeout=CHAT_WAIT_S + 2)
+            reply = self.action("palette.newAgentChat", target=target, timeout=CHAT_WAIT_S + 2)
             if isinstance(reply, dict) and reply.get("error") or not wait(
                     lambda: len(self.tabs(workspace_id, pane_id)) > count, CHAT_WAIT_S, step=0.1):
                 # No agent chat (launch denied, a build without it): the New Tab page stands in.
                 self.chat_fallbacks += 1
-                self.action("newTab.page")
+                self.action("newTab.page", target=target)
         wait(lambda: len(self.tabs(workspace_id, pane_id)) > count, 20, step=0.1)
         new = [t.get("id") for t in self.tabs(workspace_id, pane_id) if t.get("id") not in before]
         self.made.setdefault(pane_id, []).append((kind, new[0] if len(new) == 1 else None))
@@ -235,6 +245,8 @@ class Stress:
                 continue
             made.append(workspace)
             if index < chromium:
+                # Shown first: an action resolves a pane target among the panes its window shows.
+                self.show(workspace)
                 pane = (self.panes(self.workspace(workspace)) or [{}])[0].get("id")
                 for _ in range(CHROMIUM_PER_WORKSPACE):
                     self.add_tab(workspace, pane, "chromium")
@@ -426,7 +438,8 @@ class Stress:
         return {"workspaces": len(workspaces), "measured": getattr(self, "measured", None), "shown_columns": shown, "window": frame,
                 "measured_panes": len(self.panes(measured)), "measured_columns": len(columns) or None,
                 "measured_tabs": kinds, "busy_terminals": len(getattr(self, "busy", [])), "busy_where": self.busy_where,
-                "selected": self.selected, "chromium_workspaces": min(CHROMIUM_WORKSPACES, len(getattr(self, "background", []))),
+                "selected": self.selected,
+                "chromium_workspaces": sum(1 for pages in background if pages >= CHROMIUM_PER_WORKSPACE),
                 "chat_fallbacks": self.chat_fallbacks, "refusals": self.refusals[:10], "pane_problems": pane_problems[:6],
                 "background_chromium": background, "chromium_unavailable": unavailable[:3]}
 

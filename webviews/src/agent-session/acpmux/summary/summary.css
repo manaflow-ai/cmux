@@ -37,7 +37,7 @@
 .acpmux-summary-autoopen{color:var(--agent-muted);font-size:var(--text-detail)}
 .acpmux-summary-autoopen>input{flex:none;margin:0;accent-color:var(--agent-text)}
 .acpmux-summary-agent[data-status=waiting] .acpmux-summary-agent__state{color:var(--acpmux-needs-you-mark)}
-.acpmux-summary-agent[data-status=failed] .acpmux-summary-agent__state{color:var(--agent-danger)}
+.acpmux-summary-agent[data-status=failed] .acpmux-summary-agent__state{color:var(--agent-status-failure)}
 /* A sub-session's row (SubagentStatusList.tsx SubsessionStatusRow): its unread dot in the text colour, as the sidebar's, and its queue count muted. */
 .acpmux-summary-subsession__unread{flex:none;width:6px;height:6px;border-radius:50%;background:var(--agent-text)}
 .acpmux-summary-section+.acpmux-summary-section{margin-top:4px;padding-top:4px;border-top:.5px solid var(--agent-border)}
@@ -57,16 +57,16 @@
 .acpmux-summary-link:active,.acpmux-summary-more:active{background:color-mix(in srgb,var(--agent-text) 18%,var(--acpmux-base))}
 .acpmux-summary-link:focus-visible,.acpmux-summary-more:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
 .acpmux-summary-link:disabled{color:var(--agent-muted)}
-.acpmux-summary-link[data-state=open]>svg{color:var(--agent-success,var(--acpmux-add,#3fb950))}
-.acpmux-summary-link[data-state=merged]>svg{color:var(--agent-ansi-5,#a371f7)}
-.acpmux-summary-link[data-state=closed]>svg{color:var(--agent-danger)}
+.acpmux-summary-link[data-state=open]>svg{color:var(--agent-status-success)}
+.acpmux-summary-link[data-state=merged]>svg{color:var(--agent-status-merged)}
+.acpmux-summary-link[data-state=closed]>svg{color:var(--agent-status-failure)}
 .acpmux-summary-more{display:block;width:100%;height:26px;padding:0 8px;border:0;border-radius:7px;background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);text-align:left;cursor:default}
 .acpmux-summary-stack{flex:none;display:flex;padding-left:4px}
 .acpmux-summary-dot{width:14px;height:14px;margin-left:-4px;box-sizing:border-box;border-radius:50%;border:2px solid var(--surface-popup);background:var(--agent-ansi-4,#58a6ff)}
 .acpmux-summary-dot[data-tone="1"]{background:var(--agent-ansi-2,#3fb950)}
 .acpmux-summary-dot[data-tone="2"]{background:var(--agent-ansi-6,#39c5cf)}
 .acpmux-summary-dot[data-tone="3"]{background:var(--agent-ansi-5,#a371f7)}
-.acpmux-summary-dot[data-state=failed]{background:var(--agent-danger)}
+.acpmux-summary-dot[data-state=failed]{background:var(--agent-status-failure)}
 .acpmux-summary-dot[data-state=running]{box-shadow:0 0 0 1px var(--agent-accent)}
 /* The Subagents tab (SubagentsTab.tsx): the Subagents title opens it; the card's head then shows a Summary tab and a closable Subagents tab. Its rows are the transcript's subagent rows (SubagentGroup.tsx), compact and unbordered here. */
 .acpmux-summary-title__button{display:inline-flex;align-items:center;gap:4px;margin:-2px -4px;padding:2px 4px;border:0;border-radius:5px;background:none;color:inherit;font:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out),color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
@@ -132,9 +132,9 @@
 .acpmux-pr-dock__repo{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-pr-dock__title{flex:0 1000 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-pr-dock__state{flex:none;font-size:var(--text-detail);font-weight:500;color:var(--agent-muted)}
-.acpmux-pr-dock__bar[data-state="open"] .acpmux-pr-dock__state,.acpmux-pr-dock__bar[data-state="open"]>svg{color:var(--agent-success,var(--acpmux-add,#3fb950))}
-.acpmux-pr-dock__bar[data-state="merged"] .acpmux-pr-dock__state,.acpmux-pr-dock__bar[data-state="merged"]>svg{color:var(--agent-ansi-5,#a371f7)}
-.acpmux-pr-dock__bar[data-state="closed"] .acpmux-pr-dock__state,.acpmux-pr-dock__bar[data-state="closed"]>svg{color:var(--agent-danger)}
+.acpmux-pr-dock__bar[data-state="open"] .acpmux-pr-dock__state,.acpmux-pr-dock__bar[data-state="open"]>svg{color:var(--agent-status-success)}
+.acpmux-pr-dock__bar[data-state="merged"] .acpmux-pr-dock__state,.acpmux-pr-dock__bar[data-state="merged"]>svg{color:var(--agent-status-merged)}
+.acpmux-pr-dock__bar[data-state="closed"] .acpmux-pr-dock__state,.acpmux-pr-dock__bar[data-state="closed"]>svg{color:var(--agent-status-failure)}
 .acpmux-pr-dock__dismiss{flex:none}
 .acpmux-pr-dock__more{align-self:flex-start;height:24px;padding:0 8px;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);cursor:default}
 .acpmux-pr-dock__more:hover{background:var(--acpmux-composer-hover);color:var(--agent-text)}
@@ -161,7 +161,7 @@
 .acpmux-summary-task{display:flex;align-items:center;gap:2px;margin:2px 0;border:var(--cmux-hairline,.5px) solid var(--agent-border);border-radius:8px;background:color-mix(in srgb,var(--agent-text) 3%,transparent)}
 .acpmux-summary-task>.acpmux-summary-row{flex:1 1 auto;min-width:0;height:auto;min-height:40px;padding-block:6px}
 .acpmux-summary-task>.acpmux-chat-inspector-stop{margin-right:4px}
-.acpmux-summary-task[data-state=failed]>.acpmux-summary-row>svg{color:var(--agent-danger)}
+.acpmux-summary-task[data-state=failed]>.acpmux-summary-row>svg{color:var(--agent-status-failure)}
 .acpmux-summary-task[data-state=stopped]>.acpmux-summary-row>svg,.acpmux-summary-task[data-state=lost]>.acpmux-summary-row>svg{color:var(--agent-muted)}
 .acpmux-summary-task__body{display:flex;min-width:0;flex-direction:column;align-items:flex-start;line-height:16px}
 .acpmux-summary-task__description,.acpmux-summary-task__command{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

@@ -1071,10 +1071,10 @@
   white-space: nowrap;
 }
 .cv-edit-diff__add {
-  color: var(--acpmux-add);
+  color: var(--agent-diff-add);
 }
 .cv-edit-diff__del {
-  color: var(--acpmux-del);
+  color: var(--agent-diff-del);
 }
 /* Wrap lines, then Copy, at the header's end. */
 .cv-edit-diff__wrap {
@@ -2015,7 +2015,7 @@ pre.cv-math-source {
 }
 .cv-tool__failed,
 .cv-command__failed {
-  color: var(--agent-danger);
+  color: var(--agent-status-failure);
 }
 /* A failed call's cause (ToolFailureCause.tsx, the `tool-error-look` experiment): one quiet line
    under the row, starting under its words (the 16px glyph, less its 1.5px overlap, and the 8px
@@ -2049,7 +2049,7 @@ pre.cv-math-source {
   border-radius: 10px;
   background: var(--cv-card-fill);
   box-shadow:
-    inset 2px 0 0 color-mix(in srgb, var(--agent-danger) 70%, transparent),
+    inset 2px 0 0 color-mix(in srgb, var(--agent-status-failure) 70%, transparent),
     inset 0 0 0 1px var(--cv-card-ring);
   font-size: var(--text-detail);
   line-height: 18px;
@@ -2099,7 +2099,7 @@ pre.cv-math-source {
   font-variant-numeric: tabular-nums;
 }
 .cv-command__ok {
-  color: var(--acpmux-add);
+  color: var(--agent-diff-add);
 }
 /* A finished call's check and run time show only while the row is pointed at or focused, as in
    the Codex app: at rest a run reads as its words. A failure keeps its red mark ("exit 1",
@@ -2189,7 +2189,7 @@ pre.cv-math-source {
 /* A send that did not arrive says why at the line's end ("Not delivered: agent stopped"), in a
    muted warning tone rather than the danger red: the message is fine, the other agent was gone. */
 .cv-message[data-delivery="failed"] .cv-message__status {
-  color: color-mix(in srgb, var(--agent-warning, var(--agent-danger)) 75%, var(--cv-text-dim));
+  color: color-mix(in srgb, var(--agent-status-warning) 75%, var(--cv-text-dim));
 }
 .cv-message[data-delivery="failed"] .cv-agentmsg__icon {
   color: inherit;
@@ -2737,7 +2737,7 @@ a.cv-sha:focus-visible {
 .cv-turn-error__icon {
   flex: none;
   margin-top: 2px;
-  color: var(--agent-danger);
+  color: var(--agent-status-failure);
 }
 .cv-turn-error__actions {
   display: flex;
@@ -2793,7 +2793,7 @@ a.cv-sha:focus-visible {
 }
 .cv-turn-error--rail {
   padding-inline-start: 10px;
-  border-inline-start: 2px solid color-mix(in srgb, var(--agent-danger) 70%, transparent);
+  border-inline-start: 2px solid color-mix(in srgb, var(--agent-status-failure) 70%, transparent);
 }
 
 /* R104: a block that appears while the reply streams, and a row that arrives live (a reply, a
@@ -3117,7 +3117,7 @@ a.cv-sha:focus-visible {
   color: var(--cv-text-muted);
 }
 .acpmux-shell-block-failed {
-  color: var(--agent-danger);
+  color: var(--agent-status-failure);
 }
 .acpmux-shell-block button {
   display: inline-flex;
@@ -3161,7 +3161,7 @@ a.cv-sha:focus-visible {
   font: italic 11.5px/18px var(--cv-font);
 }
 .acpmux-shell-block-error {
-  color: var(--agent-danger);
+  color: var(--agent-status-failure);
   font-family: var(--cv-font);
 }
 .acpmux-shell-block-more {
@@ -3354,7 +3354,7 @@ a.cv-sha:focus-visible {
 .cv-diagram__error {
   padding: 8px 10px;
   font-size: 12px;
-  color: var(--agent-danger);
+  color: var(--agent-status-failure);
 }
 .cv-diagram .cv-codeblock {
   margin: 0;
@@ -3699,7 +3699,7 @@ a.cv-sha:focus-visible {
 /* A failed task keeps its red mark, open or closed. A click opens it in place (`.is-toggle`: the
    pointer, the shared focus ring, no hover fill, Leo 2026-10-13); nothing else opens. */
 .cv-bgtask[data-state="failed"] .cv-tool__icon {
-  color: var(--agent-danger);
+  color: var(--agent-status-failure);
 }
 /* The opened card's last line: the harness's words on the end, then Open in terminal at the end. */
 .cv-bgtask__foot {
@@ -3838,7 +3838,7 @@ a.cv-sha:focus-visible {
   color: var(--cv-text-dim);
 }
 .cv-agent-pair__failed {
-  color: var(--agent-danger);
+  color: var(--agent-status-failure);
 }
 .cv-agent-pair__resume {
   all: unset;
@@ -3862,7 +3862,7 @@ a.cv-sha:focus-visible {
 
 /* ---------- A compaction (CompactionNote.tsx) ---------- */
 .cv-compaction[data-state="failed"] .cv-tool__icon {
-  color: var(--agent-danger);
+  color: var(--agent-status-failure);
 }
 
 /* One rhythm for steps (tool calls, thoughts, a background task's end) across transcript rows:
@@ -3900,37 +3900,18 @@ article.acpmux-row:empty {
   padding-bottom: var(--cv-message-gap);
 }
 
-/* A steer the agent has not read yet (PendingSteer.tsx): a faint clock, then Send now. Under a
-   Chief's bubble it is a line of its own; under the person's it sits beside the bubble (below). */
+/* A steer the agent has not read yet (PendingSteer.tsx): plain Send now leads the prompt's action
+   row, before its receipt, age and message buttons. */
 .cv-user__pending {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-  margin-top: 4px;
-  padding-right: 4px;
-  font-family: var(--cv-font);
-  font-size: var(--text-detail);
-  line-height: var(--text-detail--line-height);
-  color: var(--cv-text-muted);
-}
-/* Beside the bubble's left edge, centred on its first line and out of the layout, as Claude draws a
-   queued prompt's controls: a waiting steer is as tall as any prompt (Leo, 2026-10-21). The bubble
-   is at most 70% of its row, so the 30% left of it holds the clock and Send now. */
-.cv-user__pending--beside {
-  position: absolute;
-  top: 0;
-  right: calc(100% + 8px);
-  height: calc(16px + var(--cv-line-height));
   margin: 0;
   padding: 0;
+  font-family: var(--cv-font);
+  font-size: var(--text-caption);
+  line-height: var(--cv-meta-row);
+  color: var(--cv-text-dim);
   white-space: nowrap;
-  user-select: none;
-}
-.cv-user__pending-clock {
-  display: inline-flex;
-  color: var(--agent-accent);
-  opacity: 0.6;
 }
 .cv-user__send-now {
   border: 0;
@@ -3938,8 +3919,6 @@ article.acpmux-row:empty {
   background: none;
   font: inherit;
   color: inherit;
-  text-decoration: underline;
-  text-underline-offset: 2px;
   cursor: default;
 }
 .cv-user__send-now:hover:not(:disabled) {
@@ -3956,7 +3935,7 @@ article.acpmux-row:empty {
   line-height: var(--text-detail--line-height);
 }
 .cv-message__note.is-failed {
-  color: var(--agent-danger);
+  color: var(--agent-status-failure);
 }
 .cv-message__reply {
   display: flex;

@@ -206,6 +206,14 @@ html[data-cmux-page="changelog"] {
   --cv-text: var(--page-text);
   --cv-link: var(--cmux-accent, currentColor);
   --agent-danger: var(--cmux-app-danger, #e5484d);
+  /* The shared pull-request card uses terminal status ink. Changelog has no agent-pane bridge, so
+     give it the same bright ANSI-first fallbacks over the page's glass surface. */
+  --agent-status-success: var(--agent-ansi-10, var(--agent-ansi-2, light-dark(#1a7f37, #3fb950)));
+  --agent-status-failure: var(--agent-ansi-9, var(--agent-ansi-1, light-dark(#b42318, #ff7b72)));
+  --agent-status-warning: var(--agent-ansi-11, var(--agent-ansi-3, light-dark(#8a5a00, #e3b341)));
+  --agent-status-merged: var(--agent-ansi-13, var(--agent-ansi-5, light-dark(#8250df, #d2a8ff)));
+  --agent-diff-add: var(--agent-status-success);
+  --agent-diff-del: var(--agent-status-failure);
 }
 .cl-more {
   margin-top: 6px;

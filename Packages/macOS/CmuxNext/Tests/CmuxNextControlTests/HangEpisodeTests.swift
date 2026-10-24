@@ -224,6 +224,38 @@ struct HangEpisodeTrackerTests {
         #expect(recorder.entries.isEmpty)
         #expect(files(in: directory).isEmpty)
     }
+
+    /// Each change of the list reaches the recorder's subscribers (Debug Settings follows it while
+    /// the page shows), after the list changed; a stream whose task is cancelled is forgotten.
+    @Test(.timeLimit(.minutes(1))) func anEpisodeChangeReachesASubscriber() async throws {
+        let directory = scratch()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        // Symbolication returns the raw addresses as text, so every change is quick.
+        let recorder = HangEpisodeRecorder(directory: directory, symbolicate: { $0.map { String($0) } })
+        recorder.drain() // the (empty) folder of earlier launches is read: no change
+        var changes = recorder.changes().makeAsyncIterator()
+        #expect(recorder.subscriberCount == 1)
+
+        recorder.begin(beat: 1, elapsed: .seconds(2), main: [1, 2], others: [])
+        let written = await changes.next() != nil
+        #expect(written, "the first write of the hang file reached no subscriber")
+        #expect(recorder.entries.count == 1, "the change arrived before the list changed")
+        #expect(recorder.entries.first?.ongoing == true)
+        recorder.update(beat: 1, duration: .seconds(3), ongoing: false)
+        recorder.drain()
+        // drain waited for both changes; the ones not taken yet fold into one pending element.
+        let ended = await changes.next() != nil
+        #expect(ended)
+        #expect(recorder.entries.first?.ongoing == false)
+
+        // The page leaving cancels its watch: the recorder forgets that stream, keeps the others.
+        let leaving = recorder.changes()
+        #expect(recorder.subscriberCount == 2)
+        let watch = Task { for await _ in leaving {} }
+        watch.cancel()
+        await watch.value
+        #expect(recorder.subscriberCount == 1)
+    }
 }
 
 /// The exact length of a hang's stall: recorded by the main thread when it ends, kept until
