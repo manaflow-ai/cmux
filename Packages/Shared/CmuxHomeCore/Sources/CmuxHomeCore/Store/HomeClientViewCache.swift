@@ -18,7 +18,8 @@ import Foundation
 /// Writes run one after another (each waits for the one before it), and
 /// ``flush()`` waits for the one that is running as well as its own: the
 /// app's quit awaits it, so no write is still on the actor when the process
-/// ends. Nothing here blocks a thread.
+/// ends. Nothing here blocks a thread but ``flushBeforeExit()``, the forced
+/// exit's last write, which blocks on purpose: `exit` follows it.
 @MainActor
 final class HomeClientViewCache {
     /// The client's durable copy (the ``HomeCache`` actor), nil for none.
@@ -41,6 +42,8 @@ final class HomeClientViewCache {
     private var dirty = false
     /// Numbers each state handed to the cache, so a late older write never replaces a newer one.
     private var sequence: UInt64 = 0
+    /// The newest state number whose write finished on disk (or was replaced by a newer one).
+    private var finishedSequence: UInt64 = 0
     /// This view cache's name at the cache actor, which orders each writer's states apart.
     private let writer = UUID()
     /// A coalesced write is waiting for its delay.
@@ -125,6 +128,25 @@ final class HomeClientViewCache {
         return wrote && !dirty
     }
 
+    /// The forced exit's last write (a second quit signal while a quit runs, then `exit`): when
+    /// anything is not on disk yet (a change, the coalesced batch, a write still running), writes
+    /// the current state on this thread with the cache's own proportional commit, after the write
+    /// already on its actor, and returns once it is on disk. Blocks the main thread for that one
+    /// commit, so only a path that ends the process next calls it. True when everything this
+    /// cache holds is on disk.
+    @discardableResult
+    func flushBeforeExit() -> Bool {
+        pendingWrite?.cancel()
+        pendingWrite = nil
+        guard let cache, dirty || finishedSequence < sequence else { return !dirty }
+        // A write still running took its state already; this one holds that and everything after.
+        dirty = true
+        guard let taken = takeState() else { return true }
+        let wrote = cache.writeBlocking(taken.state, sequence: taken.sequence, writer: writer)
+        if wrote { finishedSequence = max(finishedSequence, taken.sequence) } else { dirty = true }
+        return wrote
+    }
+
     /// Starts one write of the current state after the one that runs. A failed write marks the
     /// state dirty again, so the next change or flush writes it.
     private func startWrite() {
@@ -136,7 +158,11 @@ final class HomeClientViewCache {
             _ = await previous?.value
             // Encoded and written on the cache's actor; this actor only made the copies.
             let wrote = await cache.write(taken.state, sequence: taken.sequence, writer: writer)
-            if !wrote { self?.dirty = true }
+            if wrote {
+                if let self { self.finishedSequence = max(self.finishedSequence, taken.sequence) }
+            } else {
+                self?.dirty = true
+            }
             return wrote
         }
         inFlight = write

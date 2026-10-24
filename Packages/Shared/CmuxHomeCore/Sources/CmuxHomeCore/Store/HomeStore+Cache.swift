@@ -46,6 +46,15 @@ extension HomeStore {
         await viewCache.flush()
     }
 
+    /// The forced exit's last write (the process ends next): writes what is not on disk yet on
+    /// this thread, after the write already running, with the same proportional commit. Blocks
+    /// the main thread for that one commit, so call it only right before the process ends. True
+    /// when everything the cache holds is on disk.
+    @discardableResult
+    public func flushCacheBeforeExit() -> Bool {
+        viewCache.flushBeforeExit()
+    }
+
     /// Shows what the cache holds before the owner answers. Once per store: the Home list calls it
     /// before its first frame (``primeFromCache()``), `start()` again.
     func restoreCache() {
