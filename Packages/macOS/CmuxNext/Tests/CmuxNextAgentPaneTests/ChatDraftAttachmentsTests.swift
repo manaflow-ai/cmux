@@ -124,6 +124,22 @@ struct ChatDraftAttachmentsTests {
         #expect(try await Self.kept("ordered") == draft.attachments)
     }
 
+    @Test func anOrderedTextOnlyDraftSurvivesWithoutCreatingAttachmentFiles() async throws {
+        let directory = try Self.directory()
+        defer {
+            AgentPaneDraftAttachments.shared = nil
+            try? FileManager.default.removeItem(at: directory)
+        }
+        AgentPaneDraftAttachments.shared = AgentPaneDraftAttachments(directory: directory)
+        let draft = AgentPaneDraft(text: "a caption with no files")
+        #expect(try await Self.keep(draft, for: "text-only").isEmpty)
+
+        let restored = try await Self.ordered("text-only")
+        #expect(restored == draft)
+        let folder = try #require(AgentPaneDraftAttachments.shared?.folder(for: "text-only"))
+        #expect(Self.files(in: folder) == [AgentPaneDraftAttachments.listName])
+    }
+
     @Test func aMissingAttachmentFileRemovesOnlyItsMarkAndKeepsLaterMarksAligned() async throws {
         let directory = try Self.directory()
         defer {

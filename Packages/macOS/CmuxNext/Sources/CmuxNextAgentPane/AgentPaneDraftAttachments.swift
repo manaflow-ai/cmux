@@ -420,9 +420,11 @@ public final class AgentPaneDraftAttachments {
         let manager = FileManager.default
         let previous = saved(in: folder)
         let kept = previous?.files ?? [:]
+        let hasText = ordered && text?.isEmpty == false
         // A chat past the limit keeps nothing rather than some of its chips.
-        guard !attachments.isEmpty, let moved = AgentPaneAttachmentFiles.moveOut(attachments, to: folder, within: limit, kept: kept),
-              !moved.attachments.isEmpty else {
+        guard (hasText || !attachments.isEmpty),
+              let moved = AgentPaneAttachmentFiles.moveOut(attachments, to: folder, within: limit, kept: kept),
+              (hasText || !moved.attachments.isEmpty) else {
             try? manager.removeItem(at: folder)
             return []
         }
@@ -430,7 +432,7 @@ public final class AgentPaneDraftAttachments {
             try manager.createDirectory(at: folder, withIntermediateDirectories: true)
             let list = try JSONEncoder().encode(Saved(attachments: moved.attachments,
                                                       files: moved.files.isEmpty ? nil : moved.files,
-                                                      text: ordered && text?.isEmpty == false ? text : nil))
+                                                      text: hasText ? text : nil))
             try list.write(to: folder.appending(path: listName), options: .atomic)
         } catch {
             try? manager.removeItem(at: folder)
