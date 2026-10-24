@@ -15,10 +15,12 @@ import Foundation
         return store.intentLog.entries.first { provisionalSurface(of: $0.kind) == tab.surface }?.transaction
     }
 
-    /// The pending split intent whose provisional pane is `handle`.
+    /// The pending split intent whose provisional pane is `handle`. A move's stand-in column
+    /// (``ProvisionalPane/moving``) is never a creation: it holds the person's existing tab, so
+    /// closing it is a plain close once the move settles, not a cancelled create.
     static func transaction(showingPane handle: PaneID, in store: DaemonStore) -> ClientTransactionID? {
         store.intentLog.entries.first { entry in
-            guard case .splitPane(_, _, _, let provisional) = entry.kind else { return false }
+            guard case .splitPane(_, _, _, let provisional) = entry.kind, provisional.moving == nil else { return false }
             return provisional.handle == handle
         }?.transaction
     }
@@ -26,7 +28,7 @@ import Foundation
     private static func provisionalSurface(of intent: Intent) -> SurfaceID? {
         switch intent {
         case .createTab(_, let provisional): provisional.surface
-        case .splitPane(_, _, _, let provisional): provisional.surface
+        case .splitPane(_, _, _, let provisional) where provisional.moving == nil: provisional.surface
         default: nil
         }
     }

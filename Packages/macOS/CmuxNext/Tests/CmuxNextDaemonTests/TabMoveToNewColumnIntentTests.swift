@@ -138,6 +138,25 @@ struct TabMoveToNewColumnIntentTests {
         #expect(store.pane(provisional.handle)?.tabs.map(\.surface) == [Self.moved])
         #expect(store.mirrorViolations.isEmpty)
     }
+
+    /// Closing the moved tab or its stand-in column while the move is pending is a plain close of the person's
+    /// tab, never a cancelled create (review of pl-instant-tabcolumn, PL-motion-core): the stand-in holds an
+    /// existing daemon tab, so a cancel would hide the column and close that surface as an unwanted create.
+    @Test func aCloseDuringThePendingMoveIsNoCancelledCreate() throws {
+        let store = Self.store()
+        var closed: [SurfaceID] = []
+        store.creations.onClose { _, surface in closed.append(surface) }
+        let provisional = ProvisionalPane(moving: Self.moved, columnWidth: 0.5, treeWidth: 0.5)
+        store.intend(Self.intent(provisional), transaction: .generate())
+        let movedTab = try #require(store.pane(provisional.handle)?.tabs.first?.id)
+        #expect(!store.creations.isPending(tab: movedTab))
+        #expect(!store.creations.cancel(tab: movedTab), "closing the moved tab cancelled a create")
+        #expect(!store.creations.cancel(splitShowing: movedTab), "closing the stand-in by its tab cancelled a create")
+        #expect(!store.creations.cancel(pane: provisional.handle), "closing the stand-in column cancelled a create")
+        #expect(closed.isEmpty, "a cancelled-create close went out for the person's own tab: \(closed)")
+        #expect(store.pane(provisional.handle)?.tabs.map(\.surface) == [Self.moved], "the stand-in left without a close")
+        #expect(store.mirrorViolations.isEmpty)
+    }
 }
 
 /// The request carries the stand-in's client keys as `pane_id` and `split_id` (`tab-column-client-keys-v1`),

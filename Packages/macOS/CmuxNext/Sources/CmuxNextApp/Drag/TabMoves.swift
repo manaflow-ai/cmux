@@ -148,8 +148,12 @@ enum TabMoves {
             let intent = Intent.splitPane(pane: paneHandle, direction: .right, ratio: 0.5, provisional: provisional)
             let paneID = provisional.paneID, splitID = provisional.splitID
             let sourceKey = services.locateTab(tab.id).flatMap { services.paneController(for: $0.1)?.paneKey }
+            // The anchor at send time: a stand-in (New Column or Cmd-D just before) is the daemon's pane by then
+            // (``DaemonStore/daemonHandle(showing:)``), as NewColumnCommand resolves it.
+            let store = daemon.store
+            let target: @MainActor @Sendable () -> PaneID = { store.daemonHandle(showing: paneHandle) ?? paneHandle }
             let send = daemon.intendNowReporting("move-tab-to-column", intent, transaction: transaction) { connection in
-                try await connection.moveTabToColumn(surface, target: .pane(paneHandle), width: width, keepFocus: keepFocus,
+                try await connection.moveTabToColumn(surface, target: .pane(await target()), width: width, keepFocus: keepFocus,
                                                      transaction: transaction, paneID: paneID, splitID: splitID)
             }
             // Laid out and mounted in this turn (the window follows the store a turn later otherwise), so the
@@ -160,7 +164,8 @@ enum TabMoves {
                 content.expectFocus(on: surface, awayFrom: sourceKey, generation: content.beginFocusIntent())
             }
             content?.applyCurrent()
-            services.registry.track(Task {
+            // After the window's key-turn creates before it, and before the next (one ordering, sendInCreateOrder).
+            let sent: @MainActor () async -> ActionWorkFailure? = {
                 let failure: ActionWorkFailure?
                 switch await send() {
                 case .success: failure = nil
@@ -169,7 +174,8 @@ enum TabMoves {
                 if failure == nil { spawn.commit() }
                 completion(failure == nil)
                 return failure
-            })
+            }
+            services.registry.track(content.map { $0.sendInCreateOrder(sent) } ?? Task { await sent() })
             return
         }
         services.registry.track(Task {

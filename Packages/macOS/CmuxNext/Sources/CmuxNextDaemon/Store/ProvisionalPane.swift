@@ -60,6 +60,8 @@ public struct ProvisionalPane: Sendable, Hashable {
 
     /// A provisional pane that takes existing tab `surface` and opens as a new column (Move Tab to New
     /// Column): `width`, `widths` and `treeWidth` as for ``init(columnWidth:widths:treeWidth:)``.
+    /// Its ``tabID`` and ``terminalID`` are minted like any stand-in's but never sent or shown: the moved
+    /// tab keeps its own ids, and only ``paneID`` and ``splitID`` go to the daemon.
     @MainActor public init(moving surface: SurfaceID, columnWidth width: Double, widths: [ColumnID: Double] = [:], treeWidth: Double? = nil) {
         self.init(tab: nil, moving: surface)
         column = ProvisionalColumn(paneHandle: handle, width: width, widths: widths, treeWidth: treeWidth)

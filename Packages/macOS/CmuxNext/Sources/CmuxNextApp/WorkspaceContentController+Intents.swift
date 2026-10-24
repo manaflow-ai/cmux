@@ -108,17 +108,7 @@ extension WorkspaceContentController {
             }
             return
         }
-        var widths: [DaemonColumnID: Double] = [:]
-        var treeWidth: Double?
-        let columns = daemon.store.screen(containing: handle)?.columns ?? []
-        for change in request.widthChanges {
-            guard let pane = change.panes.lazy.compactMap({ self.handles.panes[$0] }).first else { continue }
-            if let column = columns.first(where: { $0.layout.paneIDs.contains(pane) }) {
-                widths[column.id] = change.width
-            } else if columns.isEmpty {
-                treeWidth = change.width
-            }
-        }
+        let (widths, treeWidth) = standInWidths(for: request, nextTo: handle)
         let provisional = ProvisionalPane(columnWidth: request.width, widths: widths, treeWidth: treeWidth)
         createInKeysTurn("newColumn", provisional: provisional, then: { [layoutModel] in layoutModel.commitNewColumnResize(request) }) {
             command.intendNow(on: self.daemon, provisional: provisional)
@@ -142,12 +132,9 @@ extension WorkspaceContentController {
         BenchSpans.measure("\(label).layout") { applyCurrent() }
         let logger = daemon.logger
         // [services, state]: the task pins this controller's owners until it ends (cx-6so P1b).
-        // After the create before it (a fast second press may target its stand-in).
-        let previous = pendingCreate
-        pendingCreate = Task { [services, state] in
+        sendInCreateOrder { [services, state] in
             var landed = false
             defer { keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
-            await previous?.value
             do {
                 _ = try await send()
                 BenchSpans.mark("\(label).reply.optimistic")
@@ -158,6 +145,37 @@ extension WorkspaceContentController {
             }
             withExtendedLifetime((services, state)) {}
         }
+    }
+
+    /// The width changes of `request` for a stand-in column (``ProvisionalColumn``): by daemon column, or the
+    /// split-tree screen's lone column (`treeWidth`). The one mapping of New Column and Move Tab to New Column.
+    func standInWidths(for request: CmuxNextLayout.NewColumnRequest, nextTo handle: CmuxNextDaemon.PaneID) -> (widths: [DaemonColumnID: Double], treeWidth: Double?) {
+        var widths: [DaemonColumnID: Double] = [:]
+        var treeWidth: Double?
+        let columns = daemon.store.screen(containing: handle)?.columns ?? []
+        for change in request.widthChanges {
+            guard let pane = change.panes.lazy.compactMap({ self.handles.panes[$0] }).first else { continue }
+            if let column = columns.first(where: { $0.layout.paneIDs.contains(pane) }) {
+                widths[column.id] = change.width
+            } else if columns.isEmpty {
+                treeWidth = change.width
+            }
+        }
+        return (widths, treeWidth)
+    }
+
+    /// Runs `send` after the key-turn pane creates and moves sent before it, and holds the next one until it
+    /// ends (``pendingCreate``): one pressed on a stand-in names the daemon's pane by then. The one ordering of
+    /// New Column, New Row and Move Tab to New Column.
+    @discardableResult
+    func sendInCreateOrder<T: Sendable>(_ send: @escaping @MainActor () async -> T) -> Task<T, Never> {
+        let previous = pendingCreate
+        let task = Task { @MainActor in
+            await previous?.value
+            return await send()
+        }
+        pendingCreate = Task { _ = await task.value }
+        return task
     }
 
     /// Runs a pane-creating command and focuses the new pane when it lands;

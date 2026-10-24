@@ -119,19 +119,7 @@ extension AppServices {
         let removing = source.flatMap { $0.tabs.count == 1 ? content.handles.paneIDs[$0.handle] : nil }
         let model = content.layoutModel
         let request = model.prepareNewColumn(nextTo: controller.layoutPaneID, removing: removing)
-        // The width changes for a stand-in column (ProvisionalColumn): by daemon column, or the split-tree
-        // screen's lone column, as New Column computes them.
-        let columns = daemon(for: pane).store.screen(containing: pane.handle)?.columns ?? []
-        var widths: [DaemonColumnID: Double] = [:]
-        var treeWidth: Double?
-        for change in request.widthChanges {
-            guard let changed = change.panes.lazy.compactMap({ content.handles.panes[$0] }).first else { continue }
-            if let column = columns.first(where: { $0.layout.paneIDs.contains(changed) }) {
-                widths[column.id] = change.width
-            } else if columns.isEmpty {
-                treeWidth = change.width
-            }
-        }
+        let (widths, treeWidth) = content.standInWidths(for: request, nextTo: pane.handle)
         return NewColumnSpawn(width: request.width, widths: widths, treeWidth: treeWidth,
                               commit: { [weak model] in model?.commitNewColumnResize(request) })
     }
