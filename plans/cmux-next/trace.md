@@ -60,15 +60,26 @@ Scenarios:
   Wrap mode records the stack samples and the signposts only. The command builds its own app
   environment, so its app gets no DevTools port and no daemon spans. Add `--socket S` for the stall
   track. Keep the command short (`--only`), because an all-process recording grows by about 50 MB a
-  second. The command runs in its own process group. On a timeout, an error or a signal, the group gets
-  SIGTERM, then time for its own teardown (the wrapper's `BenchApp.stop` and `TagTeardown`), then
+  second. The command runs in its own process group. On a timeout, an error or a signal, the command
+  itself gets SIGTERM and time for its own teardown (the wrapper's `BenchApp.stop`, which quits its app
+  with `debug.quit`, and `TagTeardown`). Only then does what is left of the group get SIGTERM, 15 s, and
   SIGKILL; then the bundle's tag teardown (pass `--bundle`) ends the daemons it left. When the
-  recording is complete, the exit code is the command's own.
+  recording is complete, the exit code is the command's own. A wrap run is labelled `wrap-key-unknown`:
+  the command's app has its own environment, so trace.py cannot say whether its window was key.
+
+trace.py signals only processes that it started. Its stop path ends the bundle's processes (the app's
+quit and tag teardown, the wrap teardown, and a SIGKILL by exact PID after a stop that passed its bound).
+So `record` refuses to start (`bundle-in-use`, exit 3) while any process of the bundle runs, in both
+modes: another job's app or daemons of the same bundle, daemons that an earlier run left, or a person's
+app. Quit them, or use a fresh tag.
 
 The app under trace activates, and its window is key where the host allows it (`CMUX_NEXT_NO_ACTIVATE`
 is removed, as `pane-perf-terminal.py` does). The window goes on the main screen at the STRESS size
-(`place_window`). The summary prints whether the window was key and where it was placed. A run whose
-window was not key is labelled `<scenario>-inactive`; do not compare it with a key-window run.
+(`place_window`). trace.py reads whether the window is key at the start of the window and again at its
+end, and the summary prints both reads and where the window was placed. A run whose window was not key at
+either read is labelled `<scenario>-inactive`; do not compare it with a key-window run. An app that
+activates can take key status from another GUI job on a shared host, so record on a reserved host (the
+perf-lead pool) when the numbers matter.
 
 Options: `--system-trace` (thread states: why a thread was off CPU, and which stack blocked;
 heavier), `--recorder sample` (no xctrace: `/usr/bin/sample` of the app and the daemon, aggregate stacks
@@ -86,10 +97,14 @@ complete. A table that does not parse (from an older trace.py) is skipped, and t
 hand-written export shapes, the merge, the xctrace clock (a signpost match, a count mismatch that falls
 back to the start date with a warning, the start date's precision, the recorder start), the
 `debug.cef` validity, the stage bounds and errors, a source whose stop raises or hangs, a wrapped
-command's process group, and the export's part files. It has no real xctrace export yet: the
-time-profile, os-signpost and syscall column tags are not checked against xctrace 15, 16, 26 or 27. If
-the os-signpost columns differ, the clock falls back to the start date, and the summary prints a
-`WARNING` with the columns that it saw.
+command's process group, the export's part files, a bound that fires inside `perf-stress-session.py`'s
+`wait()`, a SIGTERM during the export, one SIGINT only to xctrace, track ids that fit uint32, and a CLI
+process named `cmux` that is not the app. It has no real xctrace export yet: the time-profile, os-signpost
+and syscall columns are not checked against xctrace 15, 16, 26 or 27. The parsers key each cell by its
+column's `<mnemonic>` from the table's `<schema>` (in column order), and fall back to the cell's element
+tag. If the os-signpost columns differ, the clock falls back to the start date, and the summary prints a
+`WARNING` with the columns that it saw. A table that the recording holds but that was not exported is
+named in the summary (`xctrace tables not exported`).
 
 ### Stage bounds (no silent hours)
 
@@ -104,7 +119,14 @@ the DevTools connection), and the recording goes on to the next stage. Every rec
 process starts, so the stop path reaches it even when its start passed the bound. The trace and
 `SUMMARY.txt` are always written; the summary lists `INCOMPLETE: stage(s) ...` and `ERROR: stage X
 failed: ...` lines and the time of each stage. The exit code is 3. SIGTERM or SIGHUP stops every recorder
-and the app, writes `SUMMARY.txt` without an export, and exits 128 + the signal.
+and the app, writes `SUMMARY.txt` without an export, and exits 128 + the signal. A signal during the
+export or the build stops it at once, with the same exit code. `recording.trace` is deleted after the
+export only when every table that trace.py reads was exported; otherwise it is kept, and the summary says
+so, for `trace.py export DIR`.
+
+`StageTimeout` is a `BaseException`, as `KeyboardInterrupt` is. The build stages spend most of their time
+inside `perf-stress-session.py`'s `wait()`, which runs its predicate under `except Exception`; a timeout
+that is an `Exception` was swallowed there, and the stage then ran for the sum of its inner timeouts.
 
 A stage that owns processes or must finish a cleanup has a bound above the sum of its inner timeouts, so
 it fires only when an inner timeout failed to. The build stages run hundreds of socket actions with 120 s
