@@ -143,8 +143,9 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   lane slots `com.cmuxterm.next.work.<x>` (`.files.<priority>`, one per WorkPriority, and `.system.<n>`, `.cpu.<n>`,
   each item at its own QoS: userInitiated, default, utility or background); the updater's own lanes
   `com.cmuxterm.next.work.updater.<x>` (the rollback keep, utility); the Chief avatar lanes
-  `com.cmuxterm.next.work.chief-avatars.<x>` and `com.cmuxterm.next.work.chief-settings.<x>` (default instances when
-  no app lanes are passed, userVisible); ProcessLauncher queues (one serial queue each, at its stated priority's QoS):
+  `com.cmuxterm.next.work.chief-avatars.<x>`, `com.cmuxterm.next.work.chief-settings.<x>`,
+  `com.cmuxterm.next.work.agent-pane.<x>` and `com.cmuxterm.next.work.agent-tabs.<x>` (default instances for tests and
+  previews; the app passes its own lanes); ProcessLauncher queues (one serial queue each, at its stated priority's QoS):
   `com.cmuxterm.next.android-screen` (default), `com.cmuxterm.next.relaunch` (userInitiated),
   `com.cmuxterm.next.sleepy-lock` (userInitiated), `com.cmuxterm.next.now-playing` (default)
 - Named URLSession and promise queues: `header-pull-request` (AgentChatPullRequestReader, utility, 2 at once),

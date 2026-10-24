@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextWakeups
 import CoreGraphics
 import Foundation
@@ -23,13 +24,17 @@ enum AgentPaneCapture {
         guard model.transport.gestures.consume() else { return AgentPaneModel.transportFailure(.gestureRequired) }
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-capture-\(UUID().uuidString).png")
         guard await capture(window: mode == "window", to: file) else { return AgentPaneReply.success(["cancelled": true]) }
-        let taken = Date()
-        // A person waits for the attachment: the read and the scale run at userBlocking's priority.
-        let value = await Task.detached(priority: WorkPriority.userBlocking.taskPriority) { () -> [String: any Sendable] in
-            defer { try? FileManager.default.removeItem(at: file) }
-            return Self.answer((try? Data(contentsOf: file)) ?? Data(), taken: taken)
-        }.value
-        return AgentPaneReply.success(value)
+        return AgentPaneReply.success(await collect(file, taken: Date(), work: model.work))
+    }
+
+    /// The page's answer for the capture in `file`, which it then removes. A person waits for the attachment:
+    /// the read, the scale and the removal run on `work`'s files lane at userBlocking, never on the cooperative
+    /// pool or the caller's actor; `cancelled` when the lanes refuse it (quit).
+    nonisolated static func collect(_ file: URL, taken: Date, work: BackgroundWork) async -> [String: any Sendable] {
+        (try? await work.run(.userBlocking, mayBlock: .files) { () -> [String: any Sendable] in
+            defer { try? FileManager.checked.removeItem(at: file) }
+            return Self.answer((try? Data(blockingContentsOf: file)) ?? Data(), taken: taken)
+        }) ?? ["cancelled": true]
     }
 
     /// The page's answer for the bytes `screencapture` wrote: the image named for when it was
