@@ -49,7 +49,7 @@ pub(super) fn role_refusal(host: &str, work: Work) -> Option<String> {
     let short = host.to_ascii_lowercase();
     let listed = crate::placement::lane_hosts(Some(&registry))?
         .iter()
-        .any(|(names, _)| names.iter().any(|n| *n == short));
+        .any(|(names, _)| names.contains(&short));
     if !listed {
         return None;
     }
