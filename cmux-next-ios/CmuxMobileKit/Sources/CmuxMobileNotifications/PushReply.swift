@@ -87,10 +87,12 @@ public struct PushReply: Codable, Sendable, Equatable, Identifiable {
             guard let option = payload.options.first(where: { $0.kind == .allowOnce }) else { return nil }
             action = .allow(optionID: option.id)
         case .allowAlways:
-            // acpmux refuses a lasting grant from a phone (PushActions offers no such button).
-            return nil
+            // Offered only when there is no single-use Allow, as the Feed (`PushPayload.phoneOptions`).
+            guard let option = payload.phoneOptions.first(where: { $0.kind == .allowAlways }),
+                  !payload.phoneOptions.contains(where: { $0.kind == .allowOnce }) else { return nil }
+            action = .allow(optionID: option.id)
         case .deny:
-            action = .deny(optionID: payload.options.first(where: { $0.kind == .rejectOnce })?.id ?? payload.options.first(where: \.isReject)?.id)
+            action = .deny(optionID: payload.phoneOptions.first(where: { $0.kind == .rejectOnce })?.id ?? payload.phoneOptions.first(where: \.isReject)?.id)
         case .reply, .terminalReply:
             // A terminal takes text only when its poster asked for a reply.
             if button == .terminalReply, payload.kind != .terminal || !payload.replyable || payload.notificationId == nil { return nil }
