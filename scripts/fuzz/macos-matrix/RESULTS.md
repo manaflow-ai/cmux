@@ -24,7 +24,10 @@ vm.sh (the fleet step needs the runner landed). Smoke times are "VM, not compara
   CEF `SetFocus` > `-[NSWindow makeKeyAndOrderFront:]` > `makeKeyWindow` > `_changeKeyAndMainLimitedOK:` >
   `-[NSView _windowChangedKeyState]` (about 20 levels) > `NSButtonCell bezelConfigurationInView:`.
 - Same family as Hang B: a 10 s stall inside an AppKit key-window change that FocusEffectApplier drives.
-  macOS 15 hung in 3 of 4 runs (seeds 21, 22, 21 again); macOS 14 in 0 of 4 at that point.
+- Not macOS-15-only: a 30 min run on 14.8.7 trapped the same way (`PaneController.showSelected` >
+  `FocusEffectApplier` > `reclaimKeyFromPageWindow` > `makeKeyWindow` > `_windowChangedKeyState`). 26.6.2 did not
+  hang in 30 min. Counts: 15 in 3 of 4 runs, 14 in 1 of 1 thirty-minute runs (0 of 3 short ones), 26 in 0 of 1.
+  Issue: https://github.com/manaflow-ai/cmux/issues/24913.
 
 ## Exec (OS probes)
 
@@ -46,6 +49,7 @@ a compile error are NO-VERDICT; the results upload in every case.
 | 2026-10-24 | e2c9cf16ed1f173dd31bd02d (aws-m4pro-6) | perf-1023-2138-v1 | 14.8.7, 15.7.7 | fuzz seed 22 | 14 PASS; 15 FAIL: one 5 s hang at step 351 (a right-click), no sample (fixed in 52ea1f1890e) |
 | 2026-10-24 | 242004ecce1da33452f500c5 (aws-m4pro-6) | perf-1023-2138-v1 | 14.8.7, 15.7.7 | fuzz seed 23 | PASS, PASS |
 | 2026-10-24 | 7eb19ffe6c4f94b5ec8122b1 (aws-m4pro-6) | perf-1023-2138-v1 | 15.7.7 | fuzz seed 21, real 30 min (1972 steps) | FAIL: watchdog trap at step 536 (see "Hang C") |
+| 2026-10-24 | a87b5f477f4d6270f575f6f6 (aws-m4pro-6) | perf-1023-2138-v1 | 14.8.7, 26.6.2 | fuzz seed 21, real 30 min | 14 FAIL (2329 steps): watchdog trap at step 1401, same family; 26: no hang (3045 steps), one exit at step 2952 with no crash report (the windows were gone: a fuzz-caused exit) |
 
 The seed 21-23 runs asked for `--minutes 30` but stopped at the 600-step default (616 with the tour): 5 to 10
 min per major. Fixed after them: `--minutes` without `--steps` now walks until the time is up.
