@@ -435,10 +435,11 @@ unchanged line counts when the push changes its context (a new loop around a sle
 push only brings in from origin/feat-cmux-next (a merge or a rebase onto it) never count. Refusals print the rule,
 why, the right pattern and the escape. One rule is not per line: `app-size` is a net count over the push in
 CmuxNextApp source lines (CI's lexer, as `check-app-size.sh --base` counts them), where removed App lines pay
-for added ones and code moved into the App from a package is growth. Its buckets: the App total 0, the App
-outside the composition root 0, the root's wiring budget (`ROOT_BUDGET` in guardrails.py, `--list` prints it;
-lines moved into the root count), and one
-`AppServices+<Domain>Host.swift` of one-line forwards per push; it is the only App-size limit in force on a
+for added ones and code moved into the App from a package is growth. It refuses the root's wiring over its budget
+(`ROOT_BUDGET` in guardrails.py, `--list` prints it; lines moved into the root count) and a new App file that is
+neither a move nor the push's one `AppServices+<Domain>Host.swift` of one-line forwards; growth of the App total
+and of the App outside the composition root warns (bytes added, the package the code goes to) until the large
+domains are out of CmuxNextApp. It is the only App-size limit in force on a
 push. Skip one rule for one push with
 `CMUX_GUARDRAILS_SKIP_REASON="<rule>[,<rule>]: <why>"` (the other rules still refuse) and say so in your report.
 `guardrails.py --list` prints every rule.

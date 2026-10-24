@@ -24,15 +24,15 @@ Warnings (never refuse):
   owner     the push touches an area in plans/cmux-next/OWNERS.md; names the owner and the doc to read.
 
 `app-size` is a net count over the push, not a per-line rule, in source lines as CI's check-app-size.sh --base
-counts them (count-swift-code-lines.py's lexer: blank and comment lines never count, either way): CmuxNextApp
-does not grow (the same total check-app-size.sh --base computes, a split file's new imports included), the App
-outside the composition root does not grow, the root (top-level AppDelegate, CmuxNextApp and AppServices(+X).swift)
-adds at most ROOT_BUDGET lines per push (lines moved into it from feature files count; lines moved out are free),
-and a new App file is refused unless it is a move or the push's one AppServices+<Domain>Host.swift of one-line
-forwards (outside the budget). So root wiring is paid for by the same push's App shrink, and feature logic does
-not become wiring by moving into a root file. This is the only App-size limit in force on a push: CI's
-check-app-size.sh step is continue-on-error and its absolute cap (app-size-baseline.txt) is below the App's size
-today.
+counts them (count-swift-code-lines.py's lexer: blank and comment lines never count, either way). It refuses
+when the root (top-level AppDelegate, CmuxNextApp and AppServices(+X).swift) adds more than ROOT_BUDGET lines per
+push (lines moved into it from feature files count; lines moved out are free), and when a new App file is
+neither a move nor the push's one AppServices+<Domain>Host.swift of one-line forwards (outside the budget), so
+feature logic does not become wiring by moving into a root file. It warns (never refuses, for now) when the App
+outside the root or CmuxNextApp as a whole grows (the same total check-app-size.sh --base computes, a split
+file's new imports included), with the bytes added and the package the code goes to. This is the only App-size
+limit in force on a push: CI's check-app-size.sh step is continue-on-error and its absolute cap
+(app-size-baseline.txt) is below the App's size today.
 
   scripts/cmux-next/guardrails.py                    # what HEAD adds over origin/feat-cmux-next
   scripts/cmux-next/guardrails.py --base A --head B
@@ -417,18 +417,23 @@ def in_row(version: Version, index: int) -> tuple[bool, list[int]]:
 # a source line as check-app-size.sh --base counts it (count-swift-code-lines.py's lexer: blank and comment lines
 # do not count), so a comment such as a `// main-proof:` reason is neither growth nor credit.
 #
-# The values below are PROPOSED by the arch-app-size slice (session cmux-4f, 2026-10-23); no lead or session
-# cmux-b6 decision is recorded for them yet. Refusing every net source-line growth of a feature App file (the `other`
-# bucket, which replaces the `app-grow` warning) is a cross-session policy that session cmux-b6 must confirm before
-# it lands. Measured on origin/feat-cmux-next at 2952080b0a5 (CI's lexer, first-parent commits, each commit against
-# its first parent):
+# The values and the refuse-or-warn split below are agreed by the Performance Lead (session cmux-4f) with session
+# cmux-b6 (2026-10-23): ROOT_BUDGET 30, HOST_FILE_MAX 30, MOVE_RUN 3, MOVE_SHARE 0.8; the root budget and the
+# new-file rules refuse; net growth of the App outside the root (`other`, which replaces the `app-grow` warning) and
+# of the App total (`total`) is a warning that prints the bytes added and the package the code goes to (NetHit.warn).
+# Revisit: turn the growth warning into a refusal once cmux-next-arch-targets has moved the large domains out of
+# CmuxNextApp (until then about two of every three App pushes grow a feature file, below). The perf cron arch report
+# is the backstop meanwhile: it opens the regression issue when the App line count rises. Measured on
+# origin/feat-cmux-next at 2952080b0a5 (CI's lexer, first-parent commits, each commit against its first parent):
 # - ROOT_BUDGET: the wiring of a few domains per push (a stored instance, its construction, passing it on), never
-#   their logic; the `total` bucket makes the same push pay for it with an App shrink. Of the last 600 App commits
+#   their logic; the `total` warning asks the same push to pay for it with an App shrink. Of the last 600 App commits
 #   (2026-10-20..23), 62 changed root files: net root growth p50 +2, p95 +11, max +41; 61 of 62 are within +30. The
 #   one over (4aa19112632, +41) is folder and harness logic in AppServices+WorkContext.swift, not wiring.
 # - HOST_FILE_MAX: one domain's Host protocol forwards, one member per line; a larger Host protocol is a sign that
 #   the domain still reaches into the App. No AppServices+<Domain>Host.swift exists yet; the four `*Host` protocols
-#   in Sources have 4 to 9 members (BrowserRestoredSessionHost 9), so 60 lines is about 6x the largest known Host.
+#   in Sources have 4 to 9 members (BrowserRestoredSessionHost 9), so 30 lines (the opener, its imports and attribute
+#   and its `}` included) is about 3x the largest known Host; a bigger domain splits into two Host files over two
+#   pushes.
 # - MOVE_RUN: one or two lines in a row that match removed text can be chance (`let x = 0`, a shared call); a
 #   moved block is longer. Over 1500 Sources commits (2026-10-19..23): of 133 new files git calls a >= 90% rename,
 #   132 reach MOVE_SHARE at runs of 2 or 3, 129 at 4, 122 at 5; of 1779 plain new files the p95 credited share is
@@ -439,13 +444,13 @@ def in_row(version: Version, index: int) -> tuple[bool, list[int]]:
 #   renames); 0.7 would pass 25 of 30 at 80-89% and 29 plain new files.
 # - MOVE_GENERIC_PER_LINE: a moved specific line usually closes one or two blocks (`}` of an `if` and of its
 #   function); generic lines beyond that are not explained by the run's specific lines.
-# - The `other` bucket as a refusal: in the same 600 App commits, 404 grew feature App files (net +14726 source
-#   lines against -2417 shrinks); the App grew +12500 source lines in those four days. A refusal stops that growth
-#   at the push; it also refuses about two of every three App pushes of that period until they move lines out.
+# - The `other` and `total` buckets as warnings: in the same 600 App commits, 404 grew feature App files (net +14726
+#   source lines against -2417 shrinks); the App grew +12500 source lines in those four days. A refusal would stop
+#   about two of every three App pushes of that period until they move lines out, so it waits for the domain moves.
 # A source line is the unit (CI's unit): joining statements onto one line lowers the count without removing code,
 # a count dodge this rule cannot see; review rejects it.
-ROOT_BUDGET = 30  # source lines of wiring the root may add per push, moved-in lines included, paid by a shrink
-HOST_FILE_MAX = 60  # source lines of the push's one new `AppServices+<Domain>Host.swift`, all one-line forwards
+ROOT_BUDGET = 30  # source lines of wiring the root may add per push, moved-in lines included
+HOST_FILE_MAX = 30  # source lines of the push's one new `AppServices+<Domain>Host.swift`, all one-line forwards
 MOVE_RUN = 3  # a moved line counts only in a run of this many consecutive moved source lines
 MOVE_SHARE = 0.8  # a new file is a move (git mv, split) when this share of its non-import source lines is moved
 MOVE_GENERIC_PER_LINE = 2  # generic lines a run credits per specific moved line (closing braces of nested blocks)
@@ -481,12 +486,14 @@ source_line_flags = _load_source_line_flags()
 
 @dataclass
 class NetHit(Added):
-    """A refusal of a net-count rule: BUCKET names what grew (`root`, `other`, `total`, `new:<path>`), EXCESS how much.
+    """A hit of a net-count rule: BUCKET names what grew (`root`, `other`, `total`, `new:<path>`), EXCESS how much.
 
+    WARN marks a hit that check() reports as a warning, never a refusal (the `app-size` growth buckets for now).
     check_push compares a merge's two ranges by bucket, not by line text: a count has no line to intersect.
     """
     bucket: str = ""
     excess: int = 0
+    warn: bool = False
 
 
 @dataclass
@@ -621,15 +628,15 @@ def host_problem(file: AppFile) -> str | None:
 
 
 def app_size(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
-    """The App growth a push may not add (NetHit per bucket); see the `app-size` rule's text.
+    """The App growth a push may not add or is warned about (NetHit per bucket); see the `app-size` rule's text.
 
-    Per push, in source lines: the App as a whole does not grow (exactly check-app-size.sh --base's rule: a split
-    file's new import lines are growth there and here); the App outside the root does not grow; the root adds at
-    most ROOT_BUDGET lines besides the push's one Host conformance file, lines moved into it from feature files
-    included; a new file is refused unless it is a move or that Host file. Lines moved between feature files (a
-    git mv, a split) and out of the root are not growth; code moved into the root (a Host file too) counts against
-    the root's budget and gives the rest no shrink credit. MOVED (removed lines of every Sources file) is not used:
-    code moved into the App from a package is App growth.
+    Per push, in source lines: the root adds at most ROOT_BUDGET lines besides the push's one Host conformance
+    file, lines moved into it from feature files included; a new file is refused unless it is a move or that Host
+    file. Growth of the App as a whole (exactly check-app-size.sh --base's count: a split file's new import lines
+    are growth there and here) and of the App outside the root are NetHit.warn hits: warnings, not refusals.
+    Lines moved between feature files (a git mv, a split) and out of the root are not growth; code moved into the
+    root (a Host file too) counts against the root's budget and gives the rest no shrink credit. MOVED (removed
+    lines of every Sources file) is not used: code moved into the App from a package is App growth.
     """
     app = [app_file(c) for c in changes if c.path.startswith(APP) and c.path.endswith(".swift")]
     if not app:
@@ -700,6 +707,11 @@ def app_size(changes: list[FileChange], moved: collections.Counter) -> list[Adde
     def net(files: list[AppFile]) -> int:
         return sum(len(f.added) - len(f.removed) for f in files)
 
+    def net_bytes(files: list[AppFile]) -> int:
+        """UTF-8 bytes of FILES' added source lines minus their removed ones, each with its newline."""
+        return sum(len(line.text.encode()) + 1 for f in files for line in f.added) - sum(
+            len(line.text.encode()) + 1 for f in files for line in f.removed)
+
     def top(files: list[AppFile]) -> tuple[str, int, str]:
         """(path, line, summary) of the files with the most added lines no move out of the root explains."""
         grown = sorted(files, key=lambda f: (-fresh[f.path], f.path))
@@ -721,15 +733,17 @@ def app_size(changes: list[FileChange], moved: collections.Counter) -> list[Adde
         besides = f" besides {app_rel(host.path)}'s {len(host.added)}" if host else ""
         hits.append(NetHit(path, number, f"the composition root grows {wiring:+d} source lines{besides}, over its "
                            f"wiring budget of +{ROOT_BUDGET} per push ({shown})", "root", wiring - ROOT_BUDGET))
+    # Growth warnings, not refusals, until the large domains are out of the App (see the values' comment above).
     if other_net > 0:
         path, number, shown = top(other_files)
-        hits.append(NetHit(path, number, f"App outside the root grows {other_net:+d} source lines (limit 0), goes to "
-                           f"{destination(path)} ({shown})", "other", other_net))
+        hits.append(NetHit(path, number, f"App outside the root grows {other_net:+d} source lines "
+                           f"({net_bytes(other_files):+d} bytes); move the code to {destination(path)} ({shown})",
+                           "other", other_net, warn=True))
     if total > 0:
         path, number, shown = top(app)
-        hits.append(NetHit(path, number, f"CmuxNextApp grows {total:+d} source lines (limit 0, as check-app-size.sh "
-                           f"--base counts them): the push pays for its wiring by moving as many App lines to "
-                           f"packages ({shown})", "total", total))
+        hits.append(NetHit(path, number, f"CmuxNextApp grows {total:+d} source lines ({net_bytes(app):+d} bytes, as "
+                           f"check-app-size.sh --base counts lines): pay for it by moving as many App lines to "
+                           f"{destination(path)} ({shown})", "total", total, warn=True))
     return hits
 
 
@@ -840,14 +854,15 @@ RULES = (
          None,
          line_rule(r"CMUX_BENCH_HOOKS|--config[= ]bench\b", None),
          scope=SHIPPED_BUILD + (".xcconfig", "project.pbxproj")),
-    Rule("app-size", f"CmuxNextApp grows (in source lines: the App 0, outside the root 0, the root's wiring "
-         f"+{ROOT_BUDGET} per push paid by a shrink, moves into the root included, plus one Host file)",
+    Rule("app-size", f"CmuxNextApp's composition root grows (in source lines: the root's wiring +{ROOT_BUDGET} per "
+         f"push, moves into the root included, plus one Host file; new App files only as moves; growth of the App "
+         f"and of its feature files warns)",
          "the App re-emits its whole module on every edit and ends as the composition root only (cmuxApp, "
          "AppDelegate, AppServices wiring: about 5-10k lines, perf-lead.md \"Architecture targets\")",
          f"put the logic in its domain package ({DESIGN}); the root (top-level AppDelegate, CmuxNextApp, "
-         f"AppServices(+X).swift) only constructs and passes instances, and the push that adds that wiring moves at "
-         f"least as many lines out of the App; a domain's one-line forwards go in one new "
-         f"AppServices+<Domain>Host.swift per push (<= {HOST_FILE_MAX} source lines, only "
+         f"AppServices(+X).swift) only constructs and passes instances, and the push that adds that wiring should "
+         f"move at least as many lines out of the App (a warning names the growth); a domain's one-line forwards "
+         f"go in one new AppServices+<Domain>Host.swift per push (<= {HOST_FILE_MAX} source lines, only "
          "`extension AppServices: <Domain>Host { <one-line forwards> }`, no stored `let`/`var`); moves between "
          "feature files (git mv, a split; its new import lines are growth, as check-app-size.sh counts them) and "
          "out of the root are not growth, moves into the root count against its budget; blank and comment lines "
@@ -1081,6 +1096,8 @@ def check(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Added
         except Exception as error:  # fail open for this rule only: a bug in one rule must not switch off the rest
             warnings.append(("guardrails", check_failure(f"rule {rule.id}", error)))
             continue
+        warnings += [(rule.id, f"{h.path}:{h.number}: {h.text}") for h in hits if getattr(h, "warn", False)]
+        hits = [h for h in hits if not getattr(h, "warn", False)]
         if hits:
             refusals.append((rule, hits))
     try:

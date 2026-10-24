@@ -41,9 +41,9 @@ Also on every local run (the hook and a plain run; never --commits, never under 
 gains no gate; Lawrence 2026-10-23): "Guardrails" (guardrails.py, plans/cmux-next/codebase-health.md):
 refuses NEW singletons, unproven MainActor.assumeIsolated, unjustified @unchecked Sendable /
 nonisolated(unsafe), sleeps in loops, DispatchQueue.main.async, new Notification.Name broadcasts,
-ObservableObject/@Published and store references in list rows, in lines the push adds, and CmuxNextApp source
-growth beyond the root's wiring budget (`app-size`, a net count); warns on `// perf-hot:` functions and
-OWNERS.md areas. Skip one push with
+ObservableObject/@Published and store references in list rows, in lines the push adds, and CmuxNextApp
+composition-root growth beyond its wiring budget or a new App file that is not a move (`app-size`, a net
+count); warns on CmuxNextApp source growth, `// perf-hot:` functions and OWNERS.md areas. Skip one push with
 CMUX_GUARDRAILS_SKIP_REASON="<rule>[,<rule>]: <why>" (it skips only the named rules); lines a push only
 brings in from origin/feat-cmux-next (a merge or rebase onto it) never count; --no-guardrails turns it off
 for a manual run.
