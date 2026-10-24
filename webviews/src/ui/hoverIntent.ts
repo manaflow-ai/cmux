@@ -267,3 +267,185 @@ export function aimingAt(from: Point | undefined, to: Point | undefined, rect: R
       ];
   return insideTriangle(to, from, a, b);
 }
+
+/** A pointer-safe bridge between a hover trigger and its portaled card. */
+export type HoverBridgeRegion = "trigger" | "card";
+
+export interface HoverBridgeOptions {
+  /** Rest before the bridge opens. A keyboard focus passes zero. */
+  dwell: number;
+  /** Grace after the pointer leaves both surfaces and their connector. */
+  grace: number;
+  clock?: HoverClock;
+  open(): void;
+  close(): void;
+}
+
+/**
+ * Keeps one hover card alive while the pointer crosses the gap to its portal. The bridge owns one
+ * timer whose named stop condition is either the dwell completing or the pointer leaving the safe
+ * union; callers do not need a separate open and close timer.
+ */
+export class HoverBridge {
+  private readonly clock: HoverClock;
+  private readonly trigger = new Set<HoverBridgeRegion>();
+  private timer: unknown;
+  private state: "idle" | "waiting" | "open" = "idle";
+  private held = false;
+  private triggerRect: Rect | undefined;
+  private cardRect: Rect | undefined;
+  private pointer: Point | undefined;
+
+  constructor(private readonly options: HoverBridgeOptions) {
+    this.clock = options.clock ?? realClock;
+  }
+
+  get open() {
+    return this.state === "open";
+  }
+
+  enter(region: HoverBridgeRegion, rect: Rect | undefined, point?: Point, immediate = false): void {
+    this.setRect(region, rect);
+    this.pointer = point ?? this.pointer;
+    this.trigger.add(region);
+    this.clearTimer();
+    if (this.state === "open") return;
+    if (immediate || this.options.dwell <= 0) return this.show();
+    if (this.state !== "waiting") {
+      this.state = "waiting";
+      this.timer = this.clock.set(() => {
+        this.timer = undefined;
+        if (this.trigger.has("trigger") || this.inSafeZone(this.pointer)) this.show();
+        else this.state = "idle";
+      }, this.options.dwell);
+    }
+  }
+
+  leave(region: HoverBridgeRegion, rect: Rect | undefined, point?: Point): void {
+    this.setRect(region, rect);
+    this.pointer = point ?? this.pointer;
+    this.trigger.delete(region);
+    // Before the card opens there is no portal bridge to aim for. A pointer that is only a few
+    // pixels outside the trigger must cancel the dwell, rather than inheriting the trigger's
+    // padding and opening after the pointer has already left.
+    if (this.state === "waiting" && region === "trigger" && !this.cardRect) {
+      this.clearTimer();
+      this.state = "idle";
+      return;
+    }
+    if (this.held || this.trigger.size > 0 || this.inSafeZone(this.pointer)) return;
+    if (this.state === "waiting") {
+      this.clearTimer();
+      this.state = "idle";
+      return;
+    }
+    this.scheduleClose();
+  }
+
+  /** Tracks the gap between React's trigger/card pointer events. */
+  move(point: Point): void {
+    this.pointer = point;
+    if (this.held) return;
+    if (this.trigger.size > 0 || this.state === "idle" || this.inSafeZone(point)) {
+      this.clearTimer();
+      return;
+    }
+    if (this.state === "waiting") {
+      this.clearTimer();
+      this.state = "idle";
+    } else if (this.state === "open") this.scheduleClose();
+  }
+
+  /** Refreshes portal geometry while the pointer is in the connector gap. */
+  update(rects: { trigger?: Rect; card?: Rect }): void {
+    if (rects.trigger) this.triggerRect = rects.trigger;
+    if (rects.card) this.cardRect = rects.card;
+  }
+
+  /** A menu opened by the card is an explicit hold until it closes. */
+  hold(): void {
+    this.held = true;
+    this.clearTimer();
+  }
+
+  /** Re-evaluate the one close condition after an explicit hold ends. */
+  release(): void {
+    this.held = false;
+    if (this.state === "open" && this.trigger.size === 0 && !this.inSafeZone(this.pointer)) this.scheduleClose();
+  }
+
+  stop(): void {
+    this.clearTimer();
+    this.trigger.clear();
+    this.held = false;
+    const wasOpen = this.state === "open";
+    this.state = "idle";
+    if (wasOpen) this.options.close();
+  }
+
+  private show(): void {
+    this.clearTimer();
+    if (this.state === "open") return;
+    this.state = "open";
+    this.options.open();
+  }
+
+  private scheduleClose(): void {
+    if (this.held || this.timer !== undefined || this.state !== "open") return;
+    this.timer = this.clock.set(() => {
+      this.timer = undefined;
+      // Stop condition: after grace, the pointer is outside both surfaces and their bridge.
+      if (this.trigger.size === 0 && !this.inSafeZone(this.pointer)) {
+        this.state = "idle";
+        this.options.close();
+      }
+    }, this.options.grace);
+  }
+
+  private clearTimer(): void {
+    if (this.timer !== undefined) this.clock.clear(this.timer);
+    this.timer = undefined;
+  }
+
+  private setRect(region: HoverBridgeRegion, rect: Rect | undefined): void {
+    if (region === "trigger") this.triggerRect = rect;
+    else this.cardRect = rect;
+  }
+
+  private inSafeZone(point: Point | undefined): boolean {
+    if (!point) return false;
+    const trigger = this.triggerRect;
+    const card = this.cardRect;
+    if (containsRect(trigger, point, HOVER_BRIDGE_PADDING) || containsRect(card, point, HOVER_BRIDGE_PADDING)) return true;
+    if (!trigger || !card) return false;
+    const from = nearestPoint(trigger, card);
+    const to = nearestPoint(card, trigger);
+    return distanceToSegment(point, from, to) <= HOVER_BRIDGE_PADDING;
+  }
+}
+
+const HOVER_BRIDGE_PADDING = 10;
+
+function containsRect(rect: Rect | undefined, point: Point, padding: number): boolean {
+  return Boolean(
+    rect &&
+      point.x >= rect.left - padding &&
+      point.x <= rect.right + padding &&
+      point.y >= rect.top - padding &&
+      point.y <= rect.bottom + padding,
+  );
+}
+
+function nearestPoint(from: Rect, to: Rect): Point {
+  const x = from.right < to.left ? from.right : from.left > to.right ? from.left : Math.max(from.left, Math.min((to.left + to.right) / 2, from.right));
+  const y = from.bottom < to.top ? from.bottom : from.top > to.bottom ? from.top : Math.max(from.top, Math.min((to.top + to.bottom) / 2, from.bottom));
+  return { x, y };
+}
+
+function distanceToSegment(point: Point, from: Point, to: Point): number {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  if (dx === 0 && dy === 0) return Math.hypot(point.x - from.x, point.y - from.y);
+  const t = Math.max(0, Math.min(1, ((point.x - from.x) * dx + (point.y - from.y) * dy) / (dx * dx + dy * dy)));
+  return Math.hypot(point.x - (from.x + t * dx), point.y - (from.y + t * dy));
+}

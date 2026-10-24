@@ -83,4 +83,42 @@ describe("hover trigger/card bridge", () => {
     expect(opened).toBe(1);
     expect(closed).toBe(0);
   });
+
+  test("a menu hold suppresses the close timer until the menu releases", () => {
+    const clock = new FakeClock();
+    let closed = 0;
+    const bridge = new HoverBridge({
+      clock,
+      dwell: 0,
+      grace: HOVER_INTENT.cardGrace,
+      open: () => {},
+      close: () => (closed += 1),
+    });
+
+    bridge.enter("trigger", trigger, point(60, 30), true);
+    bridge.hold();
+    bridge.leave("trigger", trigger, point(500, 300));
+    clock.advance(HOVER_INTENT.cardGrace + 1);
+    expect(closed).toBe(0);
+    bridge.release();
+    clock.advance(HOVER_INTENT.cardGrace);
+    expect(closed).toBe(1);
+  });
+
+  test("leaving near the trigger before dwell cancels without opening", () => {
+    const clock = new FakeClock();
+    let opened = 0;
+    const bridge = new HoverBridge({
+      clock,
+      dwell: HOVER_INTENT.cardDwell,
+      grace: HOVER_INTENT.cardGrace,
+      open: () => (opened += 1),
+      close: () => {},
+    });
+
+    bridge.enter("trigger", trigger, point(60, 30));
+    bridge.leave("trigger", trigger, point(trigger.right + 4, trigger.bottom / 2));
+    clock.advance(HOVER_INTENT.cardDwell + 1);
+    expect(opened).toBe(0);
+  });
 });
