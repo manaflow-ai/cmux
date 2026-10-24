@@ -105,8 +105,8 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
             // Router-consumed keys never reach AppKit local event monitors.
             (Self.accessibilityWindow(for: keyWindow ?? event.window)?.windowController as? WindowController)?.hideShortcutHintsForKeyDown(event)
         }
-        if event.type == .keyDown, FindPillView.forwardArrowKeyDown(event, in: keyWindow ?? event.window) { return }
         if event.type == .keyDown, let keyDownInterceptor, keyDownInterceptor(event, keyWindow ?? event.window) { return }
+        if event.type == .keyDown, FindPillView.forwardArrowKeyDown(event, in: keyWindow ?? event.window) { return }
         if event.type == .leftMouseDown || event.type == .leftMouseUp {
             BenchSpans.measure(event.type == .leftMouseDown ? "app.sendEvent.down" : "app.sendEvent.up") { super.sendEvent(event) }
         } else {
