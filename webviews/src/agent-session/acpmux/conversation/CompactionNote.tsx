@@ -13,6 +13,7 @@
 import { type StringKey, useT } from "../i18n";
 import type { AcpmuxCompaction, AcpmuxFailover, AcpmuxPolicyUnenforced } from "../model";
 import { ArrowRight, Lock, Spinner, SummaryToggle } from "./icons";
+import { ToolText } from "./ToolText";
 
 /// 27183 -> "27k", 2470 -> "2.5k"; under a thousand as is.
 export function compactTokens(tokens: number): string {
@@ -37,7 +38,7 @@ export function CompactionNote({ compaction }: { compaction: AcpmuxCompaction })
     <div className="cv-tools">
       <div className="cv-tool cv-compaction" data-state={state}>
         <span className="cv-tool__icon">{state === "running" ? <Spinner /> : <SummaryToggle />}</span>
-        <span className="cv-tool__text">{text}</span>
+        <ToolText working={state === "running"}>{text}</ToolText>
       </div>
     </div>
   );

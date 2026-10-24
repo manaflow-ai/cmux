@@ -713,10 +713,11 @@ const liveLineClear = async (ctx: PlayContext) => {
   if (hint && getComputedStyle(hint).opacity !== "0")
     throw new Error("the ⌃B hint shows before the pointer is on the line");
   if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    // The sweep's band (ShimmerText.tsx), a transform loop on a layer inside the words.
     const shimmer = doc
       .querySelector(".cv-worked.is-below .cv-thinking")!
-      .getAnimations()
-      .some((animation) => (animation as CSSAnimation).animationName === "cmux-shimmer");
+      .getAnimations({ subtree: true })
+      .some((animation) => (animation as CSSAnimation).animationName === "cmux-shimmer-band");
     if (!shimmer) throw new Error("the live line's words do not shimmer");
   }
   await ctx.hover({ selector: ".cv-worked.is-below" });
@@ -738,9 +739,14 @@ const runningLineStill =
     const loops = line
       .getAnimations({ subtree: true })
       .filter((animation) => animation.effect?.getTiming().iterations === Infinity);
-    const shimmer = loops.filter((animation) => (animation as CSSAnimation).animationName === "cmux-shimmer");
-    if (loops.length > shimmer.length)
-      throw new Error(`${loops.length - shimmer.length} animations loop on the running line`);
+    // A sweep is two transform loops (ShimmerText.tsx): its band, and the lit words moving back.
+    const name = (animation: Animation) => (animation as CSSAnimation).animationName;
+    const sweep = loops.filter(
+      (animation) => name(animation) === "cmux-shimmer-band" || name(animation) === "cmux-shimmer-lit",
+    );
+    const shimmer = sweep.filter((animation) => name(animation) === "cmux-shimmer-band");
+    if (loops.length > sweep.length)
+      throw new Error(`${loops.length - sweep.length} animations loop on the running line`);
     // Motion allowed (the gallery stage), the word Thinking sweeps; Reduce Motion stills it (CSS).
     if (shimmers && shimmer.length !== 1) throw new Error(`Thinking shimmers ${shimmer.length} times, not once`);
     if (!shimmers && shimmer.length) throw new Error("a line other than Thinking shimmers");
