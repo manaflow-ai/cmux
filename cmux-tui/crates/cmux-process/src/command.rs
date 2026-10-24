@@ -26,6 +26,9 @@ pub struct Command {
     pub(crate) env: BTreeMap<OsString, Option<OsString>>,
     pub(crate) cwd: Option<PathBuf>,
     pub(crate) stdin: Option<Stdio>,
+    /// [`Command::open_stdin_path`]: a path the child opens read-write as
+    /// descriptor 0.
+    pub(crate) stdin_path: Option<PathBuf>,
     pub(crate) stdout: Option<Stdio>,
     pub(crate) stderr: Option<Stdio>,
     pub(crate) process_group: Option<i32>,
@@ -47,6 +50,7 @@ impl Command {
             env: BTreeMap::new(),
             cwd: None,
             stdin: None,
+            stdin_path: None,
             stdout: None,
             stderr: None,
             process_group: None,
@@ -117,8 +121,25 @@ impl Command {
     }
 
     /// The child's stdin (default: inherit; `output` defaults to null).
+    /// Replaces an earlier [`Command::open_stdin_path`].
     pub fn stdin(&mut self, stdio: impl Into<Stdio>) -> &mut Self {
         self.stdin = Some(stdio.into());
+        self.stdin_path = None;
+        self
+    }
+
+    /// Have the child open `path` read-write as its descriptor 0, and make
+    /// its stdout and stderr copies of it (unless [`Command::stdout`] or
+    /// [`Command::stderr`] set them). With [`Command::new_session`] and a
+    /// terminal path (a PTY slave), that terminal becomes the child's
+    /// controlling terminal: a session leader with none acquires the first
+    /// terminal it opens (macOS and Linux). The shell spawn of a PTY uses it,
+    /// as `cmux-mux2`'s `spawn_pty` does (`posix_spawn_file_actions_addopen`
+    /// on 0, then `adddup2` 0 to 1 and 2 on macOS). A failed open is the
+    /// spawn's error. Replaces an earlier [`Command::stdin`].
+    pub fn open_stdin_path(&mut self, path: impl AsRef<Path>) -> &mut Self {
+        self.stdin_path = Some(path.as_ref().to_owned());
+        self.stdin = None;
         self
     }
 
@@ -185,7 +206,7 @@ impl Command {
     /// Run the child to its end with stdin null and stdout and stderr
     /// captured (unless set), as `std::process::Command::output`.
     pub fn output(&mut self) -> io::Result<Output> {
-        if self.stdin.is_none() {
+        if self.stdin.is_none() && self.stdin_path.is_none() {
             self.stdin = Some(Stdio::null());
         }
         for stream in [&mut self.stdout, &mut self.stderr] {
@@ -238,11 +259,26 @@ impl Command {
             if let Some(pgid) = self.process_group {
                 command.process_group(pgid);
             }
-            if self.new_session || !self.inherit.is_empty() {
+            if self.new_session || !self.inherit.is_empty() || self.stdin_path.is_some() {
                 // The std path has no posix_spawn file actions: setsid and
                 // each inherited descriptor go in a pre_exec hook (only
                 // async-signal-safe calls; the copies are this builder's).
                 let new_session = self.new_session;
+                // (path, also onto 1, also onto 2): stdout and stderr not set
+                // become copies of the opened descriptor.
+                let stdin_path = match &self.stdin_path {
+                    Some(path) => Some((
+                        std::ffi::CString::new(std::os::unix::ffi::OsStrExt::as_bytes(
+                            path.as_os_str(),
+                        ))
+                        .map_err(|_| {
+                            io::Error::new(io::ErrorKind::InvalidInput, "a NUL byte in a path")
+                        })?,
+                        self.stdout.is_none(),
+                        self.stderr.is_none(),
+                    )),
+                    None => None,
+                };
                 let inherit: Vec<(RawFd, RawFd)> = self
                     .inherit
                     .iter()
@@ -254,6 +290,22 @@ impl Command {
                     command.pre_exec(move || {
                         if new_session && libc::setsid() < 0 {
                             return Err(io::Error::last_os_error());
+                        }
+                        // After setsid: a terminal opened here becomes the
+                        // controlling terminal of the new session.
+                        if let Some((path, onto_out, onto_err)) = &stdin_path {
+                            let fd = libc::open(path.as_ptr(), libc::O_RDWR);
+                            if fd < 0 {
+                                return Err(io::Error::last_os_error());
+                            }
+                            for (wanted, target) in [(true, 0), (*onto_out, 1), (*onto_err, 2)] {
+                                if wanted && fd != target && libc::dup2(fd, target) < 0 {
+                                    return Err(io::Error::last_os_error());
+                                }
+                            }
+                            if fd > 2 {
+                                libc::close(fd);
+                            }
                         }
                         for &(fd, at) in &inherit {
                             let result = if fd == at {

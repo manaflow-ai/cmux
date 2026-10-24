@@ -3,7 +3,10 @@ import CmuxNextWakeups
 
 /// A GitHub API implementation that uses the user's existing `gh` login.
 /// No token is read, copied, or persisted by cmux.
-public struct GitHubCLIClient: GitHubFeedAPI {
+///
+/// `nonisolated`, and each request `@concurrent`: the feed source that calls it is main-actor, and the
+/// `gh` spawn, the HTTP parse and the JSON decode of up to 100 items must never run on the main thread.
+public nonisolated struct GitHubCLIClient: GitHubFeedAPI {
     public var executable: String
 
     public init(executable: String = "/usr/bin/env") {
@@ -35,7 +38,7 @@ public struct GitHubCLIClient: GitHubFeedAPI {
         )
     }
 
-    private func request<Value: Decodable & Sendable>(
+    @concurrent private func request<Value: Decodable & Sendable>(
         path: String, fields: [String: String], etag: String?, listKey: String? = nil
     ) async throws -> GitHubAPIResponse<[Value]> {
         let result = try await Self.run(executable: executable, path: path, fields: fields, etag: etag)
@@ -60,7 +63,7 @@ public struct GitHubCLIClient: GitHubFeedAPI {
         var body: Data
     }
 
-    private static func run(
+    @concurrent private static func run(
         executable: String, path: String, fields: [String: String], etag: String?
     ) async throws -> CommandResult {
         let command = ["gh", "api", "--include", "-X", "GET", path]

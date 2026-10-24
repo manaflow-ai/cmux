@@ -6,6 +6,7 @@ import CmuxScreenKit
 import CryptoKit
 import Foundation
 import Testing
+import CmuxNextWakeupsTestSupport
 
 // Mac Screen with the device hub (docs/device-hub/PROTOCOL.md): device
 // records, the viewer's cards per hub state and error code, View Only

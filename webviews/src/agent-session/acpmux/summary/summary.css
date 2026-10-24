@@ -184,6 +184,7 @@
 .acpmux-workflow__phase>span:first-child,.acpmux-workflow__agent>.acpmux-summary-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-workflow__phase>span:last-child{flex:none;text-transform:capitalize}
 .acpmux-workflow__agent{padding-inline:4px}
+.acpmux-workflow__agent-list{margin:0;padding:0;list-style:none}
 .acpmux-workflow__agent[data-selected=true]{border-radius:var(--ui-row-radius);background:var(--acpmux-pill-fill);color:var(--agent-text)}
 .acpmux-workflow__agent>.acpmux-summary-text{display:flex;flex:1;flex-direction:column}
 .acpmux-workflow__doing{overflow:hidden;color:var(--agent-soft);text-overflow:ellipsis;white-space:nowrap}

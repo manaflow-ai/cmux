@@ -13,7 +13,7 @@ struct WebKitPageAutomation {
     /// does. A navigation ends the call with an error.
     func evaluateAsync(_ body: String) async throws -> BrowserJSValue {
         do {
-            return try await tab.callFunction(body, world: .page)
+            return try await tab.callFunction(body, world: .page, gesture: .agent)
         } catch let error as WKError where error.code == .javaScriptResultTypeIsUnsupported {
             return .null
         } catch let error as WKError where error.code == .javaScriptExceptionOccurred {
@@ -26,7 +26,7 @@ struct WebKitPageAutomation {
     /// stitched capture). Fixed-position elements repeat in each tile.
     func fullPageSnapshot() async throws -> CGImage {
         guard !tab.isClosed else { throw BrowserTabError.closed }
-        let metrics = try await tab.callFunction(Self.metricsScript, world: .page)
+        let metrics = try await tab.callFunction(Self.metricsScript, world: .page, gesture: .agent)
         func number(_ key: String) -> CGFloat { CGFloat(Self.member(metrics, key) ?? 0) }
         // Tiles step by the client area, which leaves out classic scrollbars;
         // each snapshot covers the whole window, scrollbars included.
@@ -78,7 +78,7 @@ struct WebKitPageAutomation {
     /// gets no frames) so the snapshot shows it. Returns where it scrolled.
     private func scroll(to point: CGPoint) async throws -> CGPoint {
         let value = try await tab.callFunction(Self.scrollScript, arguments: ["x": .number(Double(point.x)), "y": .number(Double(point.y))],
-                                           world: .page)
+                                           world: .page, gesture: .agent)
         return CGPoint(x: Self.member(value, "x") ?? Double(point.x), y: Self.member(value, "y") ?? Double(point.y))
     }
 

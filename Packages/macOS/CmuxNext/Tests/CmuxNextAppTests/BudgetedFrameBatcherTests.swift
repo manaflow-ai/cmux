@@ -3,6 +3,7 @@ import CmuxNextDaemonService
 import CmuxNextWakeups
 import Foundation
 import Testing
+import CmuxNextWakeupsTestSupport
 
 /// The control work queue on the app's budgeted batcher, through the real path
 /// (`FrameBatcher` -> `FrameBatchQueue` -> `FrameScheduler` of a ``MainWorkScheduler``): work

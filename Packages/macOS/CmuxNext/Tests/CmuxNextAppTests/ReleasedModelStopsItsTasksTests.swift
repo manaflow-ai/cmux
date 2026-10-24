@@ -2,6 +2,7 @@ import CmuxNextFilesUI
 @testable import CmuxNextApp
 import Foundation
 import Testing
+import CmuxNextWakeupsTestSupport
 
 /// A model's nonisolated deinit stops the tasks it owns on the thread that releases it, main or not.
 /// The App's deinits used to return early off the main thread (`guard Thread.isMainThread else

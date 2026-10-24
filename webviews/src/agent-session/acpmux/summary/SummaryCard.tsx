@@ -22,6 +22,7 @@ import type { SummaryBackgroundTask } from "./sessionSummary";
 import type { ProcessRegistry } from "../inspector/processes";
 import type { WorkflowActions } from "./WorkflowSummary";
 import type { WorkflowSummary } from "./workflow";
+import type { WorkflowCapacitySignal } from "./foldWorkflows";
 
 const NO_SESSIONS: readonly StartedSession[] = [];
 const NO_TASKS: readonly SummaryBackgroundTask[] = [];
@@ -55,6 +56,9 @@ export function SummaryCard({
   tools,
   workflow,
   workflowActions,
+  workflows,
+  workflowActionsFor,
+  workflowCapacity,
 }: {
   card: SummaryCardControl;
   rows: readonly AcpmuxRow[];
@@ -93,6 +97,9 @@ export function SummaryCard({
   /// Labs-only workflow data from the optional acpmux adapter.
   workflow?: WorkflowSummary;
   workflowActions?: WorkflowActions;
+  workflows?: readonly WorkflowSummary[];
+  workflowActionsFor?: (workflow: WorkflowSummary) => WorkflowActions;
+  workflowCapacity?: WorkflowCapacitySignal;
 }) {
   const t = useT();
   const [gallery, setGallery] = useState(false);
@@ -327,6 +334,9 @@ export function SummaryCard({
               onStopCommand={background?.onStop}
               workflow={workflow}
               workflowActions={workflowActions}
+              workflows={workflows}
+              workflowActionsFor={workflowActionsFor}
+              workflowCapacity={workflowCapacity}
             />
           </div>
         )}

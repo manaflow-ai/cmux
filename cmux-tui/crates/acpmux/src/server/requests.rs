@@ -4,6 +4,7 @@ use super::*;
 use crate::no_panic::JsonExt;
 use crate::no_panic::LockExt;
 
+mod briefs;
 mod composer;
 mod events;
 #[path = "requests/mailbox.rs"]
@@ -441,145 +442,6 @@ async fn dispatch_brief(
     )
 }
 
-async fn steer_brief(hub: &Arc<Hub>, conn: &Arc<Conn>, params: Value) -> Result<Value, RpcError> {
-    let id = params
-        .get("briefId")
-        .and_then(Value::as_str)
-        .ok_or_else(|| RpcError::invalid_params("briefId is required"))?;
-    let row = hub.briefs.get(id).ok_or_else(|| RpcError::not_found(format!("no brief {id:?}")))?;
-    let idempotency = params
-        .get("idempotencyKey")
-        .or_else(|| params.get("idempotency_key"))
-        .and_then(Value::as_str);
-    if idempotency.is_some_and(|key| row.get("lastSteerKey").and_then(Value::as_str) == Some(key)) {
-        return Ok(
-            json!({"brief":row,"event":crate::hub::dispatch::event("steer", &row),"replayed":true}),
-        );
-    }
-    if let Some(host) = row.get("host").and_then(Value::as_str).filter(|host| *host != "local")
-        && let Some(peer) = hub.peer_by_name(host)
-    {
-        let mut forwarded = params.clone();
-        super::remote_guard::mark_forwarded(conn.origin, conn.auth, &params, &mut forwarded);
-        let result = peer.request(method::MUX_STEER, forwarded).await.map_err(|e| {
-            RpcError::internal(format!(
-                "steer to {host} failed: {e}; recovery: reconnect the peer and retry"
-            ))
-        })?;
-        if let Some(remote) = result.get("brief").cloned() {
-            hub.briefs.put(remote);
-        }
-        return Ok(result);
-    }
-    let sid = row
-        .get("sessionId")
-        .and_then(Value::as_str)
-        .ok_or_else(|| RpcError::not_found("brief has no session"))?;
-    let text = params
-        .get("text")
-        .and_then(Value::as_str)
-        .ok_or_else(|| RpcError::invalid_params("steer text is required"))?;
-    let mut p = json!({"sessionId":sid,"text":text,"steer":true,"_meta":{"acpmux":{"briefId":id,"steer":true}}});
-    if let Some(via) = params.pointer("/_meta/acpmux/via").cloned() {
-        p["_meta"]["acpmux"]["via"] = via;
-    }
-    Box::pin(handle_request(hub, conn, method::SESSION_PROMPT, p)).await?;
-    let row = hub
-        .briefs
-        .update(id, |r| {
-            r["status"] = json!("running");
-            if let Some(key) = idempotency {
-                r["lastSteerKey"] = json!(key);
-            }
-        })
-        .unwrap_or(row);
-    Ok(json!({"brief":row,"event":crate::hub::dispatch::event("steer", &row)}))
-}
-
-async fn list_briefs(hub: &Arc<Hub>, params: Value) -> Result<Value, RpcError> {
-    let status = params.get("status").and_then(Value::as_str);
-    let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(100) as usize;
-    let mut rows = hub.briefs.list(status, limit);
-    for peer in hub.connected_peers() {
-        let Ok(remote) = peer.request(method::MUX_BRIEFS, json!({"limit": 500})).await else {
-            continue;
-        };
-        for row in remote.get("briefs").and_then(Value::as_array).into_iter().flatten() {
-            let Some(id) = row.get("briefId").and_then(Value::as_str) else { continue };
-            if let Some(local) = rows
-                .iter_mut()
-                .find(|candidate| candidate.get("briefId").and_then(Value::as_str) == Some(id))
-            {
-                *local = row.clone();
-            } else if status
-                .is_none_or(|want| row.get("status").and_then(Value::as_str) == Some(want))
-            {
-                rows.push(row.clone());
-            }
-            hub.briefs.put(row.clone());
-        }
-    }
-    if let Some(want) = status {
-        rows.retain(|row| row.get("status").and_then(Value::as_str) == Some(want));
-    }
-    Ok(json!({"briefs":rows.into_iter().take(limit.clamp(1, 500)).collect::<Vec<_>>() }))
-}
-
-async fn report_brief(hub: &Arc<Hub>, conn: &Arc<Conn>, params: Value) -> Result<Value, RpcError> {
-    let id = params
-        .get("briefId")
-        .and_then(Value::as_str)
-        .ok_or_else(|| RpcError::invalid_params("briefId is required"))?;
-    let row = hub.briefs.get(id).ok_or_else(|| RpcError::not_found(format!("no brief {id:?}")))?;
-    let key = params
-        .get("idempotencyKey")
-        .or_else(|| params.get("idempotency_key"))
-        .and_then(Value::as_str);
-    if key.is_some_and(|key| row.get("lastReportKey").and_then(Value::as_str) == Some(key)) {
-        return Ok(
-            json!({"brief":row,"event":crate::hub::dispatch::event("report", &row),"replayed":true}),
-        );
-    }
-    if let Some(host) = row.get("host").and_then(Value::as_str).filter(|host| *host != "local")
-        && let Some(peer) = hub.peer_by_name(host)
-    {
-        let mut forwarded = params.clone();
-        super::remote_guard::mark_forwarded(conn.origin, conn.auth, &params, &mut forwarded);
-        let result = peer.request(method::MUX_REPORT, forwarded).await.map_err(|e| {
-            RpcError::internal(format!(
-                "report to {host} failed: {e}; recovery: reconnect the peer and retry"
-            ))
-        })?;
-        if let Some(remote) = result.get("brief").cloned() {
-            hub.briefs.put(remote);
-        }
-        return Ok(result);
-    }
-    let summary = params
-        .get("summary")
-        .or_else(|| params.get("details"))
-        .cloned()
-        .ok_or_else(|| RpcError::invalid_params("summary is required"))?;
-    let status = params.get("status").and_then(Value::as_str).unwrap_or("reported");
-    if !["reported", "merged", "running"].contains(&status) {
-        return Err(RpcError::invalid_params("status must be running, reported or merged"));
-    }
-    let row = hub
-        .briefs
-        .update(id, |r| {
-            r["status"] = json!(status);
-            r["report"] = summary.clone();
-            r["reportedAt"] = json!(crate::store::now_ms());
-            if let Some(key) = key {
-                r["lastReportKey"] = json!(key);
-            }
-            r["reportedBy"] =
-                json!(conn.caller().map(|id| hub.session_name(id)).unwrap_or_else(|| conn.label()));
-        })
-        .ok_or_else(|| RpcError::not_found(format!("no brief {id:?}")))?;
-    Ok(json!({"brief":row,"event":crate::hub::dispatch::event("report", &row)}))
-}
-
 /// The tag the chat lists hide a session by (webviews sessionList.ts `ARCHIVED_TAG`).
 const ARCHIVED_TAG: &str = "archived";
 // The tag that marks a side chat, valued with its chat's session (`hub/btw.rs`).
@@ -648,9 +510,9 @@ async fn dispatch_request(
     }
     match m {
         method::MUX_DISPATCH => dispatch_brief(hub, conn, params).await,
-        method::MUX_STEER => steer_brief(hub, conn, params).await,
-        method::MUX_BRIEFS => list_briefs(hub, params).await,
-        method::MUX_REPORT => report_brief(hub, conn, params).await,
+        method::MUX_STEER => briefs::steer(hub, conn, params).await,
+        method::MUX_BRIEFS => briefs::list(hub, params).await,
+        method::MUX_REPORT => briefs::report(hub, conn, params).await,
         method::INITIALIZE => {
             if let Some(name) = params.pointer("/clientInfo/name").and_then(Value::as_str) {
                 *conn.name.lock_or_recover() = name.to_owned();
@@ -1028,10 +890,21 @@ async fn dispatch_request(
                 }
                 (provenance, _) => provenance,
             };
+            let declared = crate::hub::declared_sender(&params)?;
+            // A sender that named itself, with neither (`--from`, `ACPMUX_FROM`, a peer daemon
+            // forwarding its own session's prompt): that agent's message,
+            // so the transcript never shows it as the person's. Not a note a session here sends
+            // itself; names are each daemon's own, so a peer's `coordinator` is another session.
+            let provenance = provenance.or_else(|| {
+                let own = s.meta().name;
+                let name = declared
+                    .as_deref()
+                    .filter(|name| conn.origin == super::Origin::Peer || *name != own)?;
+                Some(crate::prompt_provenance::named_sender(name, &s.id))
+            });
             // Another agent's message with no provenance (`hub/digest.rs`): one that names its
             // sender, or one from a connection that proved it runs in an acpmux session.
-            let agent = crate::hub::declared_sender(&params)?
-                .or_else(|| conn.caller().map(|id| hub.session_name(id)));
+            let agent = declared.or_else(|| conn.caller().map(|id| hub.session_name(id)));
             let flag = |k| mux_meta(&params).and_then(|m| m.get(k)).and_then(Value::as_bool);
             let steer = flag("steer").or_else(|| params.get("steer").and_then(Value::as_bool));
             let steer = steer.unwrap_or(false);
@@ -1074,7 +947,16 @@ async fn dispatch_request(
             };
             let agent_message = opts.provenance.is_some();
             super::agent_messages::person_prompt(hub, conn, &s, agent_message).await;
-            hub.prompt_with(&s, blocks, &conn.label(), steer, opts).await
+            // The person's own `acpmux send` names the machine it ran on (`cli/sender.rs`): the
+            // recorded client says it (`acpmux-cli#…@big-red`), and the transcript shows "via CLI on
+            // big-red" under their prompt. An agent's message names its sender instead.
+            let host = crate::prompt_provenance::cli_host(&params)
+                .filter(|_| !agent_message && opts.agent.is_none());
+            let client = match host {
+                Some(host) => format!("{}@{host}", conn.label()),
+                None => conn.label(),
+            };
+            hub.prompt_with(&s, blocks, &client, steer, opts).await
         }
         // ACP defines cancel as a notification; a client that sends it as a
         // request gets an empty result instead of a request forwarded to

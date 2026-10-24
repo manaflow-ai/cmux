@@ -3,7 +3,12 @@ import type { AcpmuxSnapshot } from "../model";
 export type WorkflowAgent = {
   id: string;
   name: string;
-  state: "pending" | "running" | "waiting" | "completed" | "failed";
+  state: "pending" | "running" | "waiting" | "completed" | "failed" | "paused" | "cancelled" | "unknown";
+  index?: number;
+  agentId?: string;
+  lastProgressAt?: number;
+  retryReason?: string;
+  cached?: boolean;
   doing?: string;
   tokens?: number;
   transcriptRowId?: string;
@@ -12,18 +17,25 @@ export type WorkflowAgent = {
 export type WorkflowPhase = {
   id: string;
   name: string;
-  state: "pending" | "running" | "completed" | "failed";
+  state: WorkflowAgent["state"];
   agentIds: string[];
 };
 
 export type WorkflowSummary = {
   id: string;
   title: string;
-  state: "pending" | "running" | "paused" | "completed" | "failed";
+  state: WorkflowAgent["state"];
+  sessionId?: string;
+  runId?: string;
+  resumedFrom?: string;
+  counts?: { done: number; started: number; failed?: number; queued?: number };
+  projectedTokens?: number;
+  action?: string;
   phase?: string;
   phases: WorkflowPhase[];
   agents: WorkflowAgent[];
   elapsedMs?: number;
+  startedAt?: number;
   tokens?: number;
   large?: boolean;
   selectedAgentId?: string;
