@@ -2,6 +2,7 @@ import CmuxNextBrowser
 import CmuxNextBrowserHistory
 import CmuxNextDaemon
 import CmuxNextDaemonService
+import CmuxNextRemoteLocalhostService
 import CmuxNextSettings
 import Foundation
 
@@ -98,6 +99,8 @@ final class BrowserTabService {
     var isIncognitoPane: @MainActor (PaneModel) -> Bool = { _ in false }
     /// True for a tab of an incognito window, by tab id (the App sets it).
     var isIncognitoTab: @MainActor (String) -> Bool = { _ in false }
+    /// Where `localhost` goes for a new tab of `pane` on `daemon` with `engine` (the notice says so).
+    var localhostRoute: @MainActor (DaemonService, PaneModel, BrowserEngineKind) -> RemoteLocalhostRoute? = { _, _, _ in nil }
     /// Start URLs of incognito tabs, by surface, in memory only.
     private var incognitoURLs: [SurfaceKey: String] = [:]
     /// Surfaces created in this process (`open`): pages the user asked for
@@ -273,7 +276,8 @@ final class BrowserTabService {
         let profile = offTheRecord ? nil : resolveProfile(pane, explicit)
         // A machine browser record runs there: no "runs on this Mac" notice.
         let runsHere = !daemon.isLocal && !MachineBrowserRecord.matches(URL(string: url))
-        let shown = notice ?? (runsHere ? RemoteStrings.browserRunsOnThisMac(machineName(daemon)) : nil)
+        let shown = notice ?? (runsHere ? RemoteStrings.browserRunsOnThisMac(
+            machineName(daemon), route: localhostRoute(daemon, pane, choice.engine == .cef ? .cef : .webkit)) : nil)
         return try await open(choice, in: pane.handle, on: daemon, url: url, offTheRecord: offTheRecord, profile: profile,
                               notice: shown, activate: activate, after: after)
     }

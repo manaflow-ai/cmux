@@ -4,6 +4,7 @@ import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextPages
+import CmuxNextRemoteLocalhostService
 import CmuxNextTabs
 
 /// Opens a browser tab in one pane: daemon-owned when supported, on the
@@ -162,7 +163,10 @@ struct PaneBrowserTabOpener {
         let local = LocalBrowserTab.make(url: url)
         // Another machine's workspace: the tab is this Mac's; its page says so.
         if !holder.daemon.isLocal, !onMachine {
-            browserTabs.setNotice(notice ?? RemoteStrings.browserRunsOnThisMac(browserTabs.machineName(holder.daemon)), forKey: local.id)
+            browserTabs.setNotice(notice ?? {
+                let name = browserTabs.machineName(holder.daemon)
+                return RemoteStrings.browserRunsOnThisMac(name, route: .thisMacInstead(name, .webKit))
+            }(), forKey: local.id)
         }
         holder.state?.localBrowserTabs[holder.paneKey].append(local)
         holder.apply(holder.snapshot())
