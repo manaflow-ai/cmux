@@ -573,10 +573,16 @@ impl Gate {
         now: std::time::Instant,
     ) -> Admit {
         let newest = self.newest_ts.iter().position(|(t, _)| *t == tag);
-        let newer = newest
-            .and_then(|at| self.newest_ts.get(at))
-            .is_none_or(|(_, newest)| (ts.wrapping_sub(*newest) as i32) > 0);
-        let pass = self.current.is_none() || (self.current == Some(id)) || (keyframe && newer);
+        let behind =
+            newest.and_then(|at| self.newest_ts.get(at)).map(|(_, newest)| ts.wrapping_sub(*newest) as i32);
+        let newer = behind.is_none_or(|d| d > 0);
+        let stuck = self.last_pass.is_none_or(|at| now.duration_since(at) >= GATE_STUCK);
+        // A still page's keyframes are re-encodes of one picture, with one
+        // capture time: on the route the Mac moved to, a keyframe as new as
+        // the newest passes once the route it left went quiet. (Right after
+        // a switch an equal one is a late copy on the left route.)
+        let as_new = behind == Some(0) && stuck;
+        let pass = self.current.is_none() || (self.current == Some(id)) || (keyframe && (newer || as_new));
         if pass {
             self.current = Some(id);
             if newer {
@@ -591,7 +597,6 @@ impl Gate {
             self.last_pass = Some(now);
             return Admit::Pass;
         }
-        let stuck = self.last_pass.is_none_or(|at| now.duration_since(at) >= GATE_STUCK);
         let due = self.last_ask.is_none_or(|at| now.duration_since(at) >= GATE_STUCK);
         if stuck && due {
             self.last_ask = Some(now);
