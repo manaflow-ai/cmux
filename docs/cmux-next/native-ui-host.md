@@ -43,3 +43,8 @@ The trace command above is required for the receipt: the watcher logs the save
 request, and the host logs its first completed AppKit display pass.
 Report the commit, fleet host, source file, `ui-layer.reload` timestamp, frame
 timestamp, and total elapsed time. Do not run this build or capture on Air Blue.
+
+For a host-side recording without Screen Recording permission, set the
+capture-only `CMUX_UI_LAYER_CONTROL_SOCKET` path and call `debug.window_record`
+with `{dir, seconds}`. This socket is separate from `CMUX_SOCKET_PATH`, so the
+host cannot take over cmux's live control socket.

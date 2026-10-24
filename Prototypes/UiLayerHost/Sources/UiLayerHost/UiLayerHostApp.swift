@@ -11,7 +11,9 @@ struct UiLayerHostApp: App {
     @State private var projection = ProjectionModel(arguments: CommandLine.arguments)
 
     init() {
-        let path = ProcessInfo.processInfo.environment["CMUX_SOCKET_PATH"]
+        // Never claim cmux's live control socket. Capture tooling opts in to
+        // this host-only seam with its separate path.
+        let path = ProcessInfo.processInfo.environment["CMUX_UI_LAYER_CONTROL_SOCKET"]
         controlServer = UiLayerControlServer(socketPath: path)
         controlServer?.start()
     }

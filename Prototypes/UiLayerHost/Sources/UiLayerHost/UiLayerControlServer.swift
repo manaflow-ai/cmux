@@ -1,9 +1,12 @@
 import AppKit
 import Darwin
 import Foundation
+import ImageIO
+import UniformTypeIdentifiers
 
-/// A read-only capture seam for the host. It is enabled only when a capture
-/// slot provides CMUX_SOCKET_PATH; it never forwards commands to cmuxd.
+/// A read-only capture seam for the host. It is enabled only when capture
+/// tooling provides CMUX_UI_LAYER_CONTROL_SOCKET; it never claims or forwards
+/// commands to cmux's live control socket.
 final class UiLayerControlServer: @unchecked Sendable {
     private let socketPath: String
     private let queue = DispatchQueue(label: "cmux.ui-layer-host.control")
@@ -139,6 +142,8 @@ final class UiLayerControlServer: @unchecked Sendable {
         private var timer: Timer?
         private var times: [Double] = []
         private var frame = 0
+        private let ioQueue = DispatchQueue(label: "cmux.ui-layer-host.recording", qos: .userInitiated)
+        private let writes = DispatchGroup()
 
         init(dir: URL, seconds: Double, onFinish: @escaping @MainActor () -> Void) throws {
             self.dir = dir
@@ -172,25 +177,28 @@ final class UiLayerControlServer: @unchecked Sendable {
             let rect = contentView.bounds
             guard let representation = contentView.bitmapImageRepForCachingDisplay(in: rect) else { return }
             contentView.cacheDisplay(in: rect, to: representation)
-            guard let data = representation.representation(using: .jpeg, properties: [.compressionFactor: 0.85]) else { return }
+            guard let image = representation.cgImage else { return }
             let path = dir.appendingPathComponent(String(format: "frame-%05d.jpg", frame))
-            do {
-                try data.write(to: path, options: .atomic)
-                times.append(elapsed)
-                frame += 1
-            } catch {
-                timer?.invalidate()
-                self.timer = nil
-                finish()
+            times.append(elapsed)
+            frame += 1
+            writes.enter()
+            ioQueue.async { [writes] in
+                defer { writes.leave() }
+                guard let destination = CGImageDestinationCreateWithURL(path as CFURL, UTType.jpeg.identifier as CFString, 1, nil) else { return }
+                CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary)
+                CGImageDestinationFinalize(destination)
             }
         }
 
         private func finish() {
             let frames = ["times": times]
-            if let data = try? JSONSerialization.data(withJSONObject: frames) {
-                try? data.write(to: dir.appendingPathComponent("frames.json"), options: .atomic)
+            ioQueue.async { [dir, writes, onFinish] in
+                writes.wait()
+                if let data = try? JSONSerialization.data(withJSONObject: frames) {
+                    try? data.write(to: dir.appendingPathComponent("frames.json"), options: .atomic)
+                }
+                Task { @MainActor in onFinish() }
             }
-            onFinish()
         }
     }
 
