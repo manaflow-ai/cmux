@@ -92,6 +92,8 @@ final class BrowserTabService {
     private var historyFetches: [String: Task<Void, Never>] = [:]
     /// Restored pages that start once their saved history is read.
     let historyStarts = BrowserHistoryStarts()
+    /// The App's incognito profiles (the engines' ``BrowserSharedStores``).
+    let offTheRecord: OffTheRecordProfiles
     /// Per tab: the page follows the tab record's `extra.emulation` (`trackEmulation`).
     var emulationFollowers: [String: Task<Void, Never>] = [:]
     /// True for a pane of an incognito window (the App sets it).
@@ -115,6 +117,7 @@ final class BrowserTabService {
     }
 
     init(daemon local: DaemonService, cef: CEFEngine) {
+        offTheRecord = cef.stores.offTheRecord
         // The service lives in the cache, which the App owns beside the local daemon (no cycle).
         daemonForPane = { [local] _ in local }
         daemonForTab = { [local] _ in local }
@@ -388,7 +391,7 @@ final class BrowserTabService {
                 restoring.restoreSession(session.entries, current: session.current)
             }
             self.historyWriters[id] = BrowserHistoryWriter(page: restoring, recorded: saved, keepsEngineState: daemon.isLocal
-                                                           && !OffTheRecordProfiles.shared.isOffTheRecord(page.profileID),
+                                                           && !self.offTheRecord.isOffTheRecord(page.profileID),
                                                            delay: self.writeBackDelay, sleep: self.sleep) { [weak self] history in
                 guard let tab = self?.tabModel(id) else { return false }
                 // Engine state stays on this Mac, also for a tab that moved to another machine.

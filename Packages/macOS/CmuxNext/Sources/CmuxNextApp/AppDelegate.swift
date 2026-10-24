@@ -201,9 +201,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.startChromiumRuntime()
         firstFrame.whenOpen { [weak services] in services?.startLaterTabWarmups() }
         // Other apps' sign-ins, before any request a launch by one delivers.
-        // The engine's own OffTheRecordProfiles and CEFSignInCallbacks (CEFRuntime reads `.shared`).
+        // The engines' incognito profiles and the Chromium engine's sign-in tabs (AppServices).
         let webAuthWindows = WebAuthSessionWindows(host: services, logger: services.daemon.logger,
-                                                   profiles: .shared, signInCallbacks: .shared,
+                                                   profiles: services.browserStores.offTheRecord, signInCallbacks: services.signInCallbacks,
                                                    contextMenus: services.contextMenus)
         let webAuthHandler = WebAuthSessionHandler(broker: WebAuthSessionBroker(opener: webAuthWindows))
         self.webAuthHandler = webAuthHandler

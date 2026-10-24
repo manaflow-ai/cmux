@@ -84,7 +84,7 @@ struct HomeDockOpensTests {
         try await PasswordManagerRouteTests.withApp { services, connection in
             let (_, home, dock) = try await Self.openHome(services, connection)
             let url = URL(string: "https://example.com/")
-            let page = WebKitEngine().makeWebKitTab(initialURL: url)
+            let page = WebKitEngine(stores: .inMemory()).makeWebKitTab(initialURL: url)
             #expect(dock.newBrowserTab(url: url, inherited: BrowserEngineTag.webkit.rawValue, adopting: page))
             let right = try await Self.untilBeside(home, dock.pane, "adopted page")
             #expect(right.tabs.contains { $0.kind == .browser })

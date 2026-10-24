@@ -7,7 +7,11 @@ public import WebKit
 /// `WKWebsiteDataStore`, media capture decisions from the shared store, and
 /// per-navigation JavaScript (`WKWebpagePreferences.allowsContentJavaScript`).
 extension WebKitTab: PageInfoProviding {
-    public var pageInfoSettings: SiteSettingsRegistry { engine?.siteSettings ?? .shared }
+    /// The engine's registry; a page whose engine is gone (it no longer loads) gets an empty one in memory.
+    public var pageInfoSettings: SiteSettingsRegistry { engine?.siteSettings ?? BrowserSharedStores.inMemory().siteSettings }
+
+    /// The engine's zoom per site; nil once the engine is gone.
+    public var siteZoomLevels: SiteZoomLevels? { engine?.stores.siteZoom }
 
     /// WebKit has per-site hooks for these only: camera and microphone
     /// through `WKUIDelegate`, location and notifications through its

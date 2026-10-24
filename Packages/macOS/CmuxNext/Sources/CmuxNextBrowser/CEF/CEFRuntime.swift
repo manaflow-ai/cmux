@@ -129,11 +129,27 @@ final class CEFRuntime {
     private(set) var initializeDuration: Duration?
     private(set) var readyAfterLaunch: Double?
 
-    private init() {
+    /// The App's browser stores, handed over by the engine before it starts or makes a tab
+    /// (`adopt`); in memory until then (a spy runtime in tests).
+    private(set) var stores = BrowserSharedStores.inMemory()
+    /// The App's sign-in tabs (`adopt`): the shim's AUTH_CALLBACK events go here.
+    private(set) var signInCallbacks = CEFSignInCallbacks()
+
+    private init() {}
+
+    /// Takes the engine's stores and sign-in tabs (the process has one Chromium, so the App's one
+    /// engine hands them over before its first start or tab). Idempotent for the same stores.
+    func adopt(stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks) {
+        self.signInCallbacks = signInCallbacks
+        guard stores !== self.stores else { return }
+        self.stores = stores
         // An incognito session ended: drop its in-memory contexts, so
         // Chromium destroys their profiles (and data) once no browser uses
         // them.
-        OffTheRecordProfiles.shared.observeEnd { [weak self] profile in self?.releaseOffTheRecordContexts(of: profile) }
+        stores.offTheRecord.observeEnd { [weak self, weak stores] profile in
+            guard let self, let stores, self.stores === stores else { return }
+            self.releaseOffTheRecordContexts(of: profile)
+        }
     }
 
     /// A runtime over `shim` that never loads or starts Chromium, its profiles under `storage`
