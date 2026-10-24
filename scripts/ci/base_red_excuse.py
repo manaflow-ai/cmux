@@ -622,9 +622,15 @@ class Base:
 
     def workflow_runs(self, workflow) -> list[dict]:
         if workflow not in self._workflow_runs:
-            listed = self.github.json(
-                f"repos/{self.repo}/actions/workflows/{workflow}/runs?branch={self.base}&status=completed&per_page=20")
-            runs = [run for run in listed.get("workflow_runs") or []
+            listing = f"repos/{self.repo}/actions/workflows/{workflow}/runs?branch={self.base}&status=completed&per_page=20"
+            # Dispatched runs are read on their own too: a job that base pushes skip (feat-cmux-next's
+            # Swift suite) gets its base verdict only from a dispatched run, such as the scheduled tip
+            # Swift suite, which twenty pushes on a busy base would push out of the first listing.
+            listed = {}
+            for page in (self.github.json(listing), self.github.json(f"{listing}&event=workflow_dispatch")):
+                for run in page.get("workflow_runs") or []:
+                    listed.setdefault(run.get("id"), run)
+            runs = [run for run in listed.values()
                     if run.get("event") not in ("pull_request", "pull_request_target")
                     and run.get("conclusion") != "skipped"]
             # Newest first by creation, which GitHub returns but does not document: the newest run
