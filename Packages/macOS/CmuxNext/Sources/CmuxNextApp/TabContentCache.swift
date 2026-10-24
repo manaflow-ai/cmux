@@ -5,6 +5,7 @@ import CmuxNextDaemon
 import CmuxNextMacScreen
 import CmuxNextRemote
 import CmuxNextTerminal
+import CmuxNextWakeups
 import Observation
 
 /// Owns every terminal surface and browser page in the process
@@ -16,6 +17,8 @@ import Observation
 /// from the daemon replay when shown. Previews of destroyed surfaces stay in a 32 MB image LRU.
 final class TabContentCache {
     private let daemon: DaemonService
+    /// The app's blocking-work lanes (the omnibar's DNS lookups run there).
+    let work: BackgroundWork
     var terminals: [String: TerminalEntry] = [:]
     var browsers: [String: BrowserEntry] = [:] { didSet { if browsers.count != oldValue.count { pageRequests.media.tabsChanged() } } }
     var ledger = SurfaceLedger<String, ObjectIdentifier>(capacity: WarmSetBudget.standard.terminalCapacity)
@@ -124,8 +127,9 @@ final class TabContentCache {
     /// closed; the App routes it through the window's focus coordinator.
     var onDevToolsChange: ((String, BrowserDevToolsState, Bool) -> Void)?
 
-    init(daemon: DaemonService, cef: CEFEngine = CEFEngine()) {
+    init(daemon: DaemonService, work: BackgroundWork, cef: CEFEngine = CEFEngine()) {
         self.daemon = daemon
+        self.work = work
         self.cef = cef
         browserTabs = BrowserTabService(daemon: daemon, cef: cef)
         wireNotices()

@@ -1,38 +1,39 @@
 import AppKit
 import CmuxNextActions
-import CmuxNextApps
 import CmuxNextAgentPane
+import CmuxNextApps
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextBrowserHistory
+import CmuxNextBrowserImport
 import CmuxNextChiefPetWiring
 import CmuxNextChromiumWarmup
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextCrashReporting
-import CmuxNextDesign
-import CmuxNextMobileHost
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextFeed
+import CmuxNextFocusUI
 import CmuxNextHomeEngine
 import CmuxNextIcons
-import CmuxNextPalette
+import CmuxNextMobileHost
 import CmuxNextPages
-import CmuxNextPopups
-import CmuxNextBrowserImport
+import CmuxNextPalette
 import CmuxNextPhone
 import CmuxNextPhoneAccess
+import CmuxNextPopups
 import CmuxNextServer
 import CmuxNextSettings
 import CmuxNextSidebar
+import CmuxNextTabs
 import CmuxNextTerminal
 import CmuxNextUpdater
 import CmuxNextVSCodeServer
+import CmuxNextWakeups
 import CmuxNextWorkspaceNaming
 import CmuxNextWorkspaceRepair
 import os
-import CmuxNextFocusUI
-import CmuxNextTabs
 /// Process-wide services the window controllers share. Model state is not
 /// here: the daemon owns it, windows own their local state.
 final class AppServices {
@@ -112,7 +113,7 @@ final class AppServices {
     var paletteShortcutEditor: PaletteShortcutEditor?
     /// Where Chromium comes from: embedded, or downloaded on first use (bundle-size-DESIGN.md section 6).
     let chromiumRuntime = ChromiumRuntimeService.make()
-    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, cef: CEFEngine(source: chromiumRuntime.source, lifecycleTrace: .shared, contextMenus: self.contextMenus))  // first read in init (no IUO)
+    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, work: work, cef: CEFEngine(source: chromiumRuntime.source, lifecycleTrace: .shared, contextMenus: self.contextMenus))  // first read in init (no IUO)
     private(set) lazy var windows: WindowManager = WindowManager(services: self)  // first read in init (no IUO)
     private(set) lazy var dragSession: TabDragSession = TabDragSession(services: self)  // first read in init (no IUO)
     private(set) lazy var palette: PaletteController = {
@@ -368,6 +369,8 @@ final class AppServices {
     let hoverCards = HoverCardCoordinator()
     /// Refusal messages for keyboard and menu runs.
     let refusalHUD = RefusalHUD()
+    /// The app's one set of blocking-work lanes (task traits: plans/cmux-next/threading-model.md).
+    let work = BackgroundWork()
     /// The inline VS Code server (`serve-web`) behind VS Code (Inline); starts on first use.
     let vscodeServeWeb = VSCodeServeWebService(
         planner: VSCodeServeWebLaunchPlanner(homeDirectory: FileManager.default.homeDirectoryForCurrentUser,
