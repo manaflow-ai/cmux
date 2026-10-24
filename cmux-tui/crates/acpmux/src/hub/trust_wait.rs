@@ -310,11 +310,12 @@ impl Hub {
     /// the first place? I thought we bypassed this"). Only all of these: `parent` runs in full
     /// access by cmux's own doing ([`full_access_by_cmux`]: its command, or a mode cmux set, never
     /// one the harness claimed), outside a Web turn, and is no chat a Web client started
-    /// (`remote_origin`); `cwd` is the parent's own folder or under it; a decision trusts that
-    /// folder for the parent's agent (a person's answer, the agent's own level, or a folder cmux
-    /// made: never an auto-trust rule alone); and nobody marked `cwd` untrusted. Any other start
-    /// keeps its card, and the folder walk after it (`subsession_folder_check`) still refuses a
-    /// folder marked untrusted anywhere up to `/`.
+    /// (`remote_origin`); `cwd` is the parent's own folder or under it, a folder recorded as it
+    /// resolves (no link on the way); a decision trusts that folder for the parent's agent (a
+    /// person's answer, the agent's own level, or a folder cmux made: never an auto-trust rule
+    /// alone); and nobody marked `cwd` untrusted. Any other start keeps its card, and the folder
+    /// walk after it (`subsession_folder_check`) still refuses a folder marked untrusted anywhere
+    /// up to `/`.
     async fn inherits_parent_trust(
         &self,
         paths: &crate::trust::Paths,
@@ -331,8 +332,10 @@ impl Hub {
         if pm.remote_origin || !full_access_by_cmux(&pm) {
             return false;
         }
+        // Only a folder recorded as it resolves: through a link the agent could point elsewhere
+        // after it started, the folder it runs in is not the one the link names now.
         let Ok(own) = std::fs::canonicalize(&pm.cwd) else { return false };
-        if !cwd.starts_with(&own) {
+        if own != pm.cwd || !cwd.starts_with(&own) {
             return false;
         }
         let family = self.trust_family(&pm.harness).await;

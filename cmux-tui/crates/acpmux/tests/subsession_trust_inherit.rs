@@ -162,6 +162,7 @@ async fn a_full_access_chat_lends_its_folder_trust_to_sub_sessions_under_it() {
         "web/lanes",
         "spoof/lanes",
         "spoof/child",
+        "linked-target/lanes",
         "elsewhere/lanes",
     ] {
         std::fs::create_dir_all(root.join(folder)).unwrap();
@@ -221,6 +222,16 @@ async fn a_full_access_chat_lends_its_folder_trust_to_sub_sessions_under_it() {
     assert!(!record.contains("lanes"), "the child's folder was recorded: {record}");
     // Its own folder itself, too.
     assert!(!start_waits_on_a_card(&hub, &mut app, &full, &root.join("full")).await);
+
+    // A chat in full access whose folder was named through a link: the link may point elsewhere
+    // by now, so a start under where it points still asks.
+    decide("linked-target", "trusted");
+    std::os::unix::fs::symlink(root.join("linked-target"), root.join("link")).unwrap();
+    let linked = app.new_session(&root.join("link"), "fake-full").await;
+    assert!(
+        start_waits_on_a_card(&hub, &mut app, &linked, &root.join("linked-target/lanes")).await,
+        "a folder named through a link lent its trust"
+    );
 
     // Outside its folder it still asks.
     let outside = root.join("elsewhere/lanes");
