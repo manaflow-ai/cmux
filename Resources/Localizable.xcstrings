@@ -561909,6 +561909,256 @@
         }
       }
     },
+    "settings.app.equalizeSplitsOnDividerDoubleClick": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Equalize Splits on Divider Double-Click"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مساواة أحجام الأجزاء بالنقر المزدوج على الفاصل"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teilungen bei Doppelklick auf die Trennlinie ausgleichen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Igualar paneles al hacer doble clic en el divisor"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Égaliser les volets par double-clic sur le séparateur"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "区切り線のダブルクリックでペインを均等化"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "구분선을 두 번 클릭하면 창 크기 균등화"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "双击分隔线时均分窗格"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按兩下分隔線時均分窗格"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Izjednači panele dvostrukim klikom na razdjelnik"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gør paneler lige store ved dobbeltklik på skillelinjen"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uniforma le dimensioni dei pannelli con un doppio clic sul divisore"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ធ្វើឱ្យផ្ទាំងមានទំហំស្មើគ្នា ដោយចុចពីរដងលើបន្ទាត់ខណ្ឌចែក"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gjør paneler like store ved dobbeltklikk på skillelinjen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyrównaj rozmiary paneli po dwukrotnym kliknięciu separatora"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Igualar painéis ao clicar duas vezes no divisor"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выравнивать размеры панелей по двойному щелчку на разделителе"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปรับขนาดบานหน้าต่างให้เท่ากันเมื่อดับเบิลคลิกเส้นแบ่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ayırıcıya çift tıklandığında bölme boyutlarını eşitle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вирівнювати розміри панелей подвійним клацанням роздільника"
+          }
+        }
+      }
+    },
+    "settings.app.equalizeSplitsOnDividerDoubleClick.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Double-clicking a divider makes the panes in its row or column equal in size."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يؤدي النقر المزدوج على فاصل إلى جعل الأجزاء في صفه أو عموده متساوية الحجم."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Doppelklick auf eine Trennlinie macht die Bereiche in ihrer Zeile oder Spalte gleich groß."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Al hacer doble clic en un divisor, los paneles de su fila o columna pasan a tener el mismo tamaño."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un double-clic sur un séparateur donne la même taille aux volets de sa ligne ou de sa colonne."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "区切り線をダブルクリックすると、その行または列のペインが同じサイズになります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "구분선을 두 번 클릭하면 해당 행이나 열의 창이 같은 크기로 조정됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "双击分隔线，将其所在行或列的窗格调整为相同大小。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按兩下分隔線，將其所在列或欄的窗格調整為相同大小。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dvostrukim klikom na razdjelnik paneli u njegovom redu ili koloni postaju jednake veličine."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dobbeltklik på en skillelinje gør panelerne i dens række eller kolonne lige store."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Facendo doppio clic su un divisore, i pannelli della sua riga o colonna assumono le stesse dimensioni."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការចុចពីរដងលើបន្ទាត់ខណ្ឌចែក ធ្វើឱ្យផ្ទាំងក្នុងជួរដេក ឬជួរឈររបស់វាមានទំហំស្មើគ្នា។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dobbeltklikk på en skillelinje gjør panelene i raden eller kolonnen like store."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dwukrotne kliknięcie separatora wyrównuje rozmiary paneli w jego wierszu lub kolumnie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clicar duas vezes em um divisor deixa os painéis da sua linha ou coluna com o mesmo tamanho."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Двойной щелчок по разделителю делает панели в его строке или столбце одинакового размера."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การดับเบิลคลิกเส้นแบ่งจะทำให้บานหน้าต่างในแถวหรือคอลัมน์นั้นมีขนาดเท่ากัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir ayırıcıya çift tıklamak, o satır veya sütundaki bölmelerin boyutlarını eşitler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подвійне клацання роздільника робить панелі в його рядку або стовпці однаковими за розміром."
+          }
+        }
+      }
+    },
     "settings.terminal.showPasswordInputIndicator.subtitle": {
       "extractionState": "manual",
       "localizations": {

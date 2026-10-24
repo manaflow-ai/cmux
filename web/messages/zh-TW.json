@@ -2181,6 +2181,7 @@
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
+          "equalizeSplitsOnDividerDoubleClick": "啟用後，按兩下窗格分隔線會將其所在列或欄的窗格調整為相同大小。其他列和欄維持原有大小。",
           "confirmQuit": "控制 cmux 在退出前何時要求確認。無論此設定為何，DEV 建置都會立即退出。舊的 app.warnBeforeQuit 仍會作為布林後備值接受。",
           "windowTitleTemplate": "可選的 NSWindow 標題範本。留空會保留 cmux 既有的預設標題行為，包括回退到目前目錄。支援的預留位置：'{windowId}'、'{windowToken}'、'{activeWorkspace}'、'{activeDirectory}'、'{defaultTitle}'、'{appName}'。",
           "devWindowDisplay": "僅在 DEBUG 建置中開啟新視窗時使用的顯示器名稱。空值會使用系統預設值。",

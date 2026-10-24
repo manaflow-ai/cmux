@@ -348,6 +348,44 @@ def test_same_named_job_in_another_workflow_does_not_admit() -> None:
     assert out["decision"]["action"] == "refuse"
 
 
+def test_tip_without_release_compile_promotes_newest_earlier_green_commit() -> None:
+    case = scenario(runs=[gate_run(id=8, head_sha=MID)], jobs={"8": GREEN})
+    out = run(case)
+    assert out["decision"]["action"] == "promote", out
+    assert out["decision"]["sha"] == MID, out
+    assert any("newest green source commit" in note for note in out["notices"]), out["notices"]
+
+
+def test_fallback_ranks_green_commits_by_ancestry_not_run_time() -> None:
+    older, newer, tip = "e" * 40, "d" * 40, "f" * 40
+    commits = [
+        {"sha": tip, "parents": [{"sha": newer}], "author": {"login": "lawrencecchen"}, "committer": {"login": "lawrencecchen"}, "files": []},
+        {"sha": newer, "parents": [{"sha": older}], "author": {"login": "lawrencecchen"}, "committer": {"login": "lawrencecchen"}, "files": []},
+        {"sha": older, "parents": [{"sha": CURRENT}], "author": {"login": "lawrencecchen"}, "committer": {"login": "lawrencecchen"}, "files": []},
+        {"sha": CURRENT, "parents": [], "author": {"login": "lawrencecchen"}, "committer": {"login": "lawrencecchen"}, "files": []},
+    ]
+    case = scenario(sha=tip, sourceHead=tip, onSource={tip: "identical"}, commits=commits,
+                    runs=[gate_run(id=8, head_sha=older, created_at="2026-10-24T01:00:00Z"), gate_run(id=9, head_sha=newer, created_at="2026-10-24T00:59:00Z")],
+                    jobs={"8": GREEN, "9": GREEN})
+    out = run(case)
+    assert out["decision"]["action"] == "promote", out
+    assert out["decision"]["sha"] == newer, out
+
+
+def test_fallback_never_promotes_a_descendant_of_an_older_requested_sha() -> None:
+    requested, later = "d" * 40, "e" * 40
+    commits = [
+        {"sha": later, "parents": [{"sha": requested}], "author": {"login": "lawrencecchen"}, "committer": {"login": "lawrencecchen"}, "files": []},
+        {"sha": requested, "parents": [{"sha": CURRENT}], "author": {"login": "lawrencecchen"}, "committer": {"login": "lawrencecchen"}, "files": []},
+        {"sha": CURRENT, "parents": [], "author": {"login": "lawrencecchen"}, "committer": {"login": "lawrencecchen"}, "files": []},
+    ]
+    case = scenario(sha=requested, sourceHead=later, onSource={requested: "ahead"}, commits=commits,
+                    runs=[gate_run(id=8, head_sha=later)], jobs={"8": GREEN})
+    out = run(case)
+    assert out["decision"]["action"] == "refuse", out
+    assert "no earlier green source commit" in out["decision"]["reason"], out
+
+
 def test_admission_retries_while_the_index_lags() -> None:
     out = run(scenario(emptyRuns=2))
     assert out["decision"]["action"] == "promote"
@@ -831,7 +869,9 @@ def test_the_request_title_names_its_commit() -> None:
 
     data = yaml.safe_load(WORKFLOW)
     # guard.evictedPromotions() parses this title (REQUEST_TITLE).
-    assert data["run-name"] == "${{ inputs.promote_nightly_next_sha && format('Promote nightly-next to {0}', inputs.promote_nightly_next_sha) || '' }}"
+    run_name = data["run-name"]
+    assert run_name.startswith("${{ inputs.promote_nightly_next_sha && format('Promote nightly-next to {0}', inputs.promote_nightly_next_sha)")
+    assert "github.event_name == 'schedule'" in run_name
     assert data["jobs"]["promote-nightly-next"]["permissions"]["checks"] == "read"
 
 
@@ -846,14 +886,42 @@ def test_workflow_runs_the_guard_from_main_and_gates_the_move() -> None:
     assert "guard.decideNewest({" in WORKFLOW
 
 
+def test_non_macos_nightly_next_orchestration_uses_the_trusted_fast_check_fallback() -> None:
+    import yaml
+
+    jobs = yaml.safe_load(WORKFLOW)["jobs"]
+    for name in (
+        "decide",
+        "promote-nightly-next",
+        "await-release-surface-ack",
+        "promote-nightly-next-acked",
+        "resolve-nightly-cmux-tui-client",
+        "publish-nightly",
+        "republish-nightly-deltas",
+        "report-nightly-failure",
+        "close-nightly-failure-issue",
+    ):
+        runner = str(jobs[name]["runs-on"])
+        assert "blacksmith-2vcpu-ubuntu-2404" in runner, name
+        assert runner != "ubuntu-24.04", name
+    probe = yaml.safe_load((ROOT / ".github/workflows/nightly-tag-permission-probe.yml").read_text())
+    assert "blacksmith-2vcpu-ubuntu-2404" in str(probe["jobs"]["probe"]["runs-on"])
+    for workflow in ("nightly-next-tick.yml", "nightly-next-feed-watch.yml"):
+        document = yaml.safe_load((ROOT / ".github/workflows" / workflow).read_text())
+        for name, job in document["jobs"].items():
+            runner = str(job.get("runs-on", ""))
+            if runner:
+                assert "blacksmith-2vcpu-ubuntu-2404" in runner, f"{workflow}:{name}"
+
+
 def test_only_the_wait_for_the_approval_is_cancellable() -> None:
     import yaml
 
     jobs = yaml.safe_load(WORKFLOW)["jobs"]
     wait, move, decide_job = jobs["await-release-surface-ack"], jobs["promote-nightly-next-acked"], jobs["promote-nightly-next"]
-    # The waiter: one shared cancel-in-progress group (a per-run group when the
+    # The waiter: one shared non-cancelling group (a per-run group when the
     # scan failed), the approval environment only for needs-ack, no secrets.
-    assert wait["concurrency"]["cancel-in-progress"] is True
+    assert wait["concurrency"]["cancel-in-progress"] is False
     assert wait["concurrency"]["group"].startswith("nightly-next-promote-ack${{")
     assert "scan_failed == 'true' && format('-wait-{0}', github.run_id)" in wait["concurrency"]["group"]
     assert "'release-surface-ack'" in wait["environment"] and "action == 'needs-ack'" in wait["environment"]
