@@ -38,13 +38,10 @@ public final class MessagesLabHomeView: NSView {
         wantsLayer = true
         addSubview(controller.host)
         projection.start()
-        // Reduce Motion changes (the system setting or the host's pin) still or restart the loops
-        // already running (MessagesLabHomeView+Motion.swift).
-        motionObservers = observeReduceMotion()
+        // Reduce Motion changes reach loops already running through the host's call to
+        // applyReduceMotion() (MessagesLabHomeView+Motion.swift).
     }
 
-    /// The Reduce Motion observers (weak: a closed view's turn is a no-op).
-    private var motionObservers: [any NSObjectProtocol] = []
     /// An open came before the message field existed: the field takes the keyboard when it is
     /// installed, if the keyboard is still on `openKeyboardFrom` (the responder then) or nowhere.
     private var openKeyboardWaits = false

@@ -5,49 +5,27 @@ import os
 /// Motion): the vendored transcript's caret and typing row read this.
 extension MessagesLabHomeView {
     /// The host's Reduce Motion pin (cmux-next mirrors `Motion.reduceMotionOverride`, the
-    /// tests' pin); nil reads the system setting. A change posts `reduceMotionDidChange`.
+    /// tests' pin); nil reads the system setting. The vendored code reads it when a loop starts;
+    /// a loop already running changes only when the host calls ``applyReduceMotion()``.
     nonisolated public static var reduceMotionOverride: Bool? {
         get { reduceMotionPin.withLock { $0 } }
-        set {
-            let changed = reduceMotionPin.withLock { pin in
-                defer { pin = newValue }
-                return pin != newValue
-            }
-            if changed { NotificationCenter.default.post(name: reduceMotionDidChange, object: nil) }
-        }
+        set { reduceMotionPin.withLock { $0 = newValue } }
     }
+    // A lock, not an actor: the vendored code reads the pin synchronously from any thread, and
+    // it guards one Bool? value (no list, no callbacks).
     nonisolated private static let reduceMotionPin = OSAllocatedUnfairLock<Bool?>(initialState: nil)
-
-    /// Posted when `reduceMotionOverride` changes.
-    nonisolated public static let reduceMotionDidChange = Notification.Name("MessagesLabHome.reduceMotionDidChange")
 
     /// Reduce Motion: the caret holds solid, the typing dots stand still and do not breathe.
     nonisolated static var reducesMotion: Bool {
         reduceMotionOverride ?? NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     }
 
-    /// Follows the system setting and the pin: loops already running stop or start again. Runs at
-    /// once on the main thread (a test's pin change applies before it returns), else on the main
-    /// queue's next turn.
-    func observeReduceMotion() -> [any NSObjectProtocol] {
-        let apply: @Sendable (Notification) -> Void = { [weak self] _ in
-            if Thread.isMainThread {
-                // main-proof: guarded by Thread.isMainThread above
-                MainActor.assumeIsolated { self?.applyReduceMotion() }
-            } else {
-                // main-proof: DispatchQueue.main runs its blocks on the main thread
-                DispatchQueue.main.async { MainActor.assumeIsolated { self?.applyReduceMotion() } }
-            }
-        }
-        return [
-            NSWorkspace.shared.notificationCenter.addObserver(
-                forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: nil, using: apply),
-            NotificationCenter.default.addObserver(forName: Self.reduceMotionDidChange, object: nil, queue: nil, using: apply),
-        ]
-    }
-
-    /// Stills (or restarts) the caret blink and every typing row under this view.
-    func applyReduceMotion() {
+    /// Stills (or restarts) the caret blink and every typing row under this view, for the Reduce
+    /// Motion setting now (``reducesMotion``).
+    ///
+    /// The view observes no notification: its host calls this after the system setting or the
+    /// pin changed (cmux-next: `HomeReduceMotion`, one observer for every Home view).
+    public func applyReduceMotion() {
         var views: [NSView] = [self]
         while let view = views.popLast() {
             if let field = view as? FieldTextView { field.applyReduceMotion() }

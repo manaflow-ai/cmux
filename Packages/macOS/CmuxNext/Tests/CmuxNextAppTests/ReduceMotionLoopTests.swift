@@ -1,4 +1,5 @@
 import AppKit
+@testable import CmuxHomeCore
 @testable import CmuxNextDesign
 @testable import CmuxNextHome
 @testable import MessagesLabHome
@@ -88,6 +89,27 @@ import Testing
         // Hoisted: #expect wraps a rethrowing call in a throwing closure ("call can throw").
         let breathLoops: [String] = [cell.typingContainer, cell.typingClip].flatMap { Self.loops(under: $0) }
         #expect(breathLoops == [])
+    }
+
+    /// Reduce Motion turning on while a typing row runs in a Home chat stills it: the transcript
+    /// observes nothing itself, so this fails unless its host gave it to `HomeReduceMotion`.
+    @Test func reduceMotionTurningOnStillsATypingRowInAHostedTranscript() throws {
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(HomeTunables.all)
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let home = HomeStore(source: MockHomeSource(options: .immediate))
+        let view = HomeNativeTranscriptView(store: home, conversation: ConversationID("conv_reduce_motion"), me: ParticipantID("user_me"))
+        defer { view.stop() }
+        view.transcript.wantsLayer = true
+        let cell = RowCell(frame: CGRect(x: 0, y: 0, width: 400, height: 40))
+        try #require(view.transcript.layer).addSublayer(cell.layer)
+        cell.startTypingDots(begin: CACurrentMediaTime())
+        cell.startTypingBreath(insert: CACurrentMediaTime())
+        let typing = cell.dots + cell.typingDiscs + [cell.typingContainer, cell.typingClip]
+        #expect(typing.flatMap { Self.loops(under: $0) } != [], "the typing row should loop before Reduce Motion")
+        Motion.reduceMotionOverride = true
+        #expect(typing.flatMap { Self.loops(under: $0) } == [], "the hosted transcript's typing row keeps looping after Reduce Motion turned on")
     }
 
     /// The pins follow `Motion.reduceMotionOverride` after the mirror is installed.

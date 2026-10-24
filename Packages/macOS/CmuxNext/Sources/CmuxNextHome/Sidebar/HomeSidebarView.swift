@@ -73,6 +73,7 @@ public final class HomeSidebarView: NSView {
     public override init(frame: NSRect) {
         HomeReduceMotion.install()
         super.init(frame: frame)
+        HomeReduceMotion.follow(list)
         wantsLayer = true
         list.frame = bounds
         addSubview(list)
