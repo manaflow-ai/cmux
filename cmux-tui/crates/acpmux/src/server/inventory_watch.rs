@@ -27,10 +27,17 @@ pub(super) async fn send_latest(
     snapshots: &mut tokio::sync::watch::Receiver<crate::harness_health::inventory_feed::Snapshot>,
 ) {
     let enabled = *conn.watch_inventory.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    if enabled
-        && conn.out.capacity() > super::OUTBOUND_CONTROL_RESERVE
-        && let Ok(permit) = conn.out.reserve().await
-    {
+    let permit = if enabled {
+        let _guard = conn.outbound_lock.lock().unwrap_or_else(|e| e.into_inner());
+        if conn.out.capacity() > super::OUTBOUND_CONTROL_RESERVE {
+            conn.out.try_reserve().ok()
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    if let Some(permit) = permit {
         // Serialize enqueue with disable: every earlier notification is queued
         // before the disable reply, and no notification can pass its false flag.
         let enabled =
@@ -47,7 +54,12 @@ pub(super) async fn send_latest(
     } else if enabled {
         // Keep the response and gap-marker permits available when an
         // inventory watcher is slower than the daemon's bounded queue.
-        super::report_outbound_loss(&conn.out, &conn.outbound_dropped, &conn.outbound_gap_pending);
+        super::report_outbound_loss(
+            &conn.out,
+            &conn.outbound_dropped,
+            &conn.outbound_gap_pending,
+            &conn.outbound_lock,
+        );
     }
     // Do not replay changes that happened while the subscription was off.
     let _ = snapshots.borrow_and_update();
