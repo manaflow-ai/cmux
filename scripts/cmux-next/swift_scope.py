@@ -124,9 +124,23 @@ NONISOLATED_DEINIT = re.compile(r"\bnonisolated\s+deinit\b")
 OWN_ISOLATION = re.compile(r"\bnonisolated\b(?!\s*\(unsafe\))|@MainActor\b")
 
 
+def generic_declarations(text: str) -> dict[str, list[int]]:
+    """{type name: the 1-based lines of TEXT that declare it generic (`struct Name<...>`)}."""
+    found: dict[str, list[int]] = {}
+    for match in GENERIC_TYPE.finditer(text):
+        found.setdefault(match.group(1), []).append(text.count("\n", 0, match.start()) + 1)
+    return found
+
+
 def generic_names(text: str) -> set[str]:
     """The type names TEXT declares generic (`struct Name<...>`)."""
     return set(GENERIC_TYPE.findall(text))
+
+
+def extended_names(line: str, names: set[str] | frozenset[str]) -> set[str]:
+    """The NAMES an `extension A.B` declaration on LINE extends (any component of its dotted name)."""
+    extension = EXTENSION.search(code_of(line))
+    return set(extension.group(1).split(".")) & set(names) if extension else set()
 
 
 def declaration_of(lines: list[str], number: int, opener: str) -> str:
@@ -141,20 +155,23 @@ def declaration_of(lines: list[str], number: int, opener: str) -> str:
     return text
 
 
-def generic_context(lines: list[str], index: int, prefix: str, is_generic: Callable[[str], bool]) -> list[int]:
-    """The 1-based lines of the generic declarations LINES[INDEX] is nested in: a generic type or function, a
-    `where` clause, or an extension of a type IS_GENERIC names."""
-    found = []
+def generic_context(lines: list[str], index: int, prefix: str,
+                    is_generic: Callable[[str], bool]) -> list[tuple[int, str | None]]:
+    """The generic declarations LINES[INDEX] is nested in, innermost first: a generic type or function, a
+    `where` clause, or an extension of a type IS_GENERIC names. Each is (its 1-based line, the extended type's
+    name when only an extension of a type declared generic elsewhere makes it generic, else None)."""
+    found: list[tuple[int, str | None]] = []
     for opener, number in enclosing_openers(lines, index, NEVER, prefix):
         decl = declaration_of(lines, number, opener)
         if not DECL_OPENER.search(decl):
             continue  # a control-flow block (`for x in xs where ...`) is no generic context
+        if GENERIC_DECL.search(decl) or re.search(r"\bwhere\b", decl):
+            found.append((number, None))
+            continue
         extension = EXTENSION.search(decl)
-        generic = bool(GENERIC_DECL.search(decl) or re.search(r"\bwhere\b", decl))
-        if not generic and extension:
-            generic = any(is_generic(n) for n in extension.group(1).split("."))
-        if generic:
-            found.append(number)
+        extended = next((n for n in extension.group(1).split(".") if is_generic(n)), None) if extension else None
+        if extended is not None:
+            found.append((number, extended))
     return found
 
 
@@ -183,6 +200,9 @@ class Judgement(NamedTuple):
     """A generic main-actor class with no `nonisolated deinit`: what makes it one, and where it is."""
     context: list[int]  # 1-based lines of the generic declarations around it (empty: generic by itself)
     span: tuple[int, int]  # 1-based declaration line and closing-brace line of its body
+    # When only extensions of types declared generic elsewhere make it generic: those types. A change to their
+    # declaration (in another file) makes or unmakes this class a candidate, so that file owns it too.
+    extended: tuple[str, ...] = ()
 
 
 def is_main(lines: list[str], index: int, code: str, keyword: int, main: list[bool], default_main: bool) -> bool:
@@ -220,4 +240,6 @@ def judge(lines: list[str], index: int, is_generic: Callable[[str], bool], main:
     members, last = class_body(lines, index, code[keyword:])
     if NONISOLATED_DEINIT.search(members):
         return None
-    return Judgement(context, (index + 1, last + 1))
+    # Only when nothing in this file makes it generic does a declaration elsewhere decide it.
+    extended = () if own or any(name is None for _, name in context) else tuple(dict.fromkeys(n for _, n in context))
+    return Judgement([number for number, _ in context], (index + 1, last + 1), extended)
