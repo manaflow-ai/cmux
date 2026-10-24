@@ -344,11 +344,11 @@ SINGLETON_ALLOW = re.compile(r"//\s*singleton-allow:\s*\S")
 # (`AppServices.themeRoot` / `.themeStore`).
 AMBIENT_THEME = re.compile(r"\bThemeScope\.app\b|\bThemeScope\s*=\s*\.app\b")
 AMBIENT_THEME_ALLOW = re.compile(r"//\s*theme-root-allow:\s*\S")
-DESIGN = SOURCES + "CmuxNextDesign/"
+DESIGN_SOURCES = SOURCES + "CmuxNextDesign/"
 
 
 def outside_design(version: Version, index: int) -> tuple[bool, list[int]]:
-    return not version.path.startswith(DESIGN), []
+    return not version.path.startswith(DESIGN_SOURCES), []
 
 
 def holds_state(version: Version, index: int) -> tuple[bool, list[int]]:
