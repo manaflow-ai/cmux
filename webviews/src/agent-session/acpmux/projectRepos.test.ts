@@ -13,6 +13,7 @@ import {
   worktreeName,
   type RepoFolder,
 } from "./projectRepos";
+import { githubRepository } from "./githubRepository";
 
 const cmux = (branch: string) => ({ root: "/Users/me/src/cmux", name: "cmux", branch });
 const lane = (name: string): RepoFolder => ({
@@ -122,6 +123,39 @@ test("the host's repos are checked before use", () => {
   });
   expect(parseProjectRepos(undefined)).toEqual({});
   expect(parseProjectRepos([1])).toEqual({});
+});
+
+test("GitHub remotes normalize to one identity before project grouping", () => {
+  const cases: Array<[unknown, string | undefined]> = [
+    ["manaflow-ai/cmux", "manaflow-ai/cmux"],
+    ["github.com/manaflow-ai/cmux", "manaflow-ai/cmux"],
+    ["https://github.com/manaflow-ai/cmux.git", "manaflow-ai/cmux"],
+    ["https://www.github.com/manaflow-ai/cmux/", "manaflow-ai/cmux"],
+    ["ssh://git@github.com/manaflow-ai/cmux.git", "manaflow-ai/cmux"],
+    ["git://github.com/manaflow-ai/cmux.git", "manaflow-ai/cmux"],
+    ["git@github.com:manaflow-ai/cmux.git", "manaflow-ai/cmux"],
+    ["https://gitlab.com/manaflow-ai/cmux.git", undefined],
+    ["https://github.com/manaflow-ai/cmux/issues", undefined],
+    ["github.com/manaflow-ai/cmux/extra", undefined],
+    ["not a repository", undefined],
+    [null, undefined],
+  ];
+  for (const [remote, expected] of cases) expect(githubRepository(remote)).toBe(expected);
+
+  const parsed = parseProjectRepos({
+    "/Users/me/src/cmux": {
+      root: "/Users/me/src/cmux",
+      name: "cmux",
+      github: "https://github.com/manaflow-ai/cmux.git",
+    },
+    "/Users/me/.cmux/worktrees/cmux/fix": {
+      root: "/Users/me/src/cmux",
+      name: "cmux",
+      branch: "fix",
+      github: "git@github.com:manaflow-ai/cmux.git",
+    },
+  });
+  expect(Object.values(parsed).map((repo) => repo.github)).toEqual(["manaflow-ai/cmux", "manaflow-ai/cmux"]);
 });
 
 test("a folder inside a checkout is named by its path below it, never as the checkout", () => {
