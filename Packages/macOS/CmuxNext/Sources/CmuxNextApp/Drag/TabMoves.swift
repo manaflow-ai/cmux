@@ -137,7 +137,8 @@ enum TabMoves {
         let spawn = services.newColumnWidth(nextTo: pane, movingFrom: services.locateTab(tab.id)?.1)
         let width = spawn.width
         services.registry.track(Task {
-            let ok = await daemon.request("move-tab-to-column") { connection -> Void in
+            // The daemon's reason reaches the caller (a CLI run's reply, the sweep's row), not only the log.
+            let failure = await daemon.failure("move-tab-to-column") { connection in
                 do {
                     _ = try await connection.moveTabToColumn(surface, target: .pane(paneHandle), afterColumn: afterColumn,
                                                              width: width, keepFocus: keepFocus, transaction: echoes ? transaction : nil)
@@ -145,10 +146,10 @@ enum TabMoves {
                     let created = try await connection.newColumn(rightOf: paneHandle, width: width)
                     _ = try await adopt(surface, into: created, connection: connection)
                 }
-            } != nil
-            if ok { spawn.commit() }
-            completion(ok)
-            return ok ? nil : "move-tab-to-column failed (see the app log)"
+            }
+            if failure == nil { spawn.commit() }
+            completion(failure == nil)
+            return failure
         })
     }
 
