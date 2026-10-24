@@ -13,7 +13,9 @@ public struct TerminalDemoRoot: View {
     @State private var host: TerminalTabHost
 
     public init() {
-        let model = TerminalModel(session: MockTerminalSession(), artifactSource: MockArtifactSource(), title: "zsh — cmux-next")
+        let session: any TerminalSession = TerminalHostGridDemoSession.requestedSpec
+            .flatMap(TerminalHostGridDemoSession.init(spec:)) ?? MockTerminalSession()
+        let model = TerminalModel(session: session, artifactSource: MockArtifactSource(), title: "zsh — cmux-next")
         _model = State(initialValue: model)
         _host = State(initialValue: TerminalTabHost(model: model))
     }
@@ -35,6 +37,8 @@ public struct TerminalDemoRoot: View {
             }
         }
         .task {
+            // The host grid demo is a still: no scripted phases.
+            guard TerminalHostGridDemoSession.requestedSpec == nil else { return }
             let phases = UserDefaults.standard.string(forKey: "CmuxMobileTerminalDemoPhases")?
                 .split(separator: ",").map(String.init)
             await TerminalDemoDriver(model: model).run(phases: phases)

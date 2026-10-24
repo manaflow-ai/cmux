@@ -36,7 +36,7 @@ import {
   isEffortOption,
   isFastModeOption,
 } from "./heldOptions";
-import { type KeptStartMode, useStartMode } from "./startMode";
+import { type KeptStartMode, type StartMode, useStartMode } from "./startMode";
 import type { PickerCatalog } from "./modelCatalogData";
 import { catalogProfiles } from "./pickerProfiles";
 import { useModelCatalogState } from "./modelCatalogHost";
@@ -60,6 +60,7 @@ import {
   type ModeIconName,
   RECOMMENDED_BADGE,
   type ShownMode,
+  harnessFamilyMenu,
   harnessModeMenu,
   highestMode,
   shownModes,
@@ -364,11 +365,20 @@ export function ComposerPickers({
   const levelRow = ownRow?.efforts.length ? ownRow : (releaseRows.find((row) => row.efforts.length > 0) ?? ownRow);
   const defaultEffort =
     ownRow?.defaultEffort ?? releaseRows.find((row) => row.defaultEffort !== undefined)?.defaultEffort;
+  // A direct profile can declare an alias with `efforts: []` before the joined catalog has retained
+  // its `own` marker. Keep that explicit no-level declaration attached to the running release row.
+  const profileDeclaresNoEffort = snapshot.catalog
+    .find((entry) => entry.id === summary?.harness)
+    ?.models.some(
+      (model) => Object.hasOwn(model, "efforts") && Array.isArray(model.efforts) && model.efforts.length === 0,
+    );
   const efforts: Choice[] = reasoningChoices(
     effort?.options ?? [],
     {
       ...(levelRow ? { efforts: levelRow.efforts } : {}),
       ...(defaultEffort ? { defaultEffort } : {}),
+      ...(levelRow?.own?.efforts || profileDeclaresNoEffort ? { own: { efforts: true } } : {}),
+      ...(profileDeclaresNoEffort ? { noEffort: true } : {}),
     },
     t,
   );
@@ -701,11 +711,18 @@ export function ComposerPickers({
     !reported && awaiting
       ? reasoningChoices(heldOption?.options ?? (heldModel?.efforts ?? []).map((value) => ({ value })), heldModel, t)
       : [];
+  // With nothing kept or answered yet (the launch's first page), the chip model's own default level:
+  // what acpmux starts the chat on when no setting names one (its curated catalog's default for the
+  // model, hub/start_defaults.rs), so the chip names it from the first frame and acpmux's answer
+  // replaces it only when it differs (Lucas 2026-10-24).
   const heldValue =
     (heldPick?.harness === chipHarness ? heldPick.value : undefined) ??
     startEffort ??
     heldLevels.find((choice) => choice.name === lastChips?.effort)?.id ??
-    heldOption?.currentValue;
+    heldOption?.currentValue ??
+    (snapshot.catalog.length === 0
+      ? heldLevels.find((choice) => choice.id === heldModel?.defaultEffort)?.id
+      : undefined);
   // The held chip steps down as the reported one does: "Med" in a narrow row (composerRowFit.ts).
   const heldChoice = heldLevels.find((choice) => choice.id === heldValue);
   const heldShort = heldChoice && heldChoice.id !== "ultracode" ? shortLevel(heldChoice, t) : undefined;
@@ -741,35 +758,57 @@ export function ComposerPickers({
       ...(harnessProfiles.get(chipHarness)?.modes?.availableModes ?? []).map((choice) => choice.id),
       ...(startMode && !startMode.borrowed ? [startMode.modeId] : []),
     ]);
-  const startModeName = startMode?.borrowed
-    ? t(PICKER_LABELS.mode)
+  // The chip names a mode whenever one is likely, not a bare "Mode" (Lucas 2026-10-24: "always
+  // show the bypass permissions or whatever the mode is meant to be"): another folder's answer names
+  // its mode until this folder's own replaces it in place. "Mode" stays for acpmux answering that it
+  // sets none here (the harness's own mode applies) and for a chat on another machine.
+  const shownStart: StartMode | undefined = startMode?.borrowed
+    ? startMode.modeId
+      ? startMode
+      : undefined
+    : startMode;
+  const startModeName = shownStart
+    ? (pendingMenu?.rows.find((row) => row.id === shownStart.modeId)?.name ??
+      shownStart.name ??
+      harnessProfiles.get(chipHarness)?.modes?.availableModes.find((choice) => choice.id === shownStart.modeId)?.name ??
+      shownStart.modeId)
     : startMode
-      ? (pendingMenu?.rows.find((row) => row.id === startMode.modeId)?.name ??
-        startMode.name ??
-        harnessProfiles.get(chipHarness)?.modes?.availableModes.find((choice) => choice.id === startMode.modeId)
-          ?.name ??
-        startMode.modeId)
+      ? t(PICKER_LABELS.mode)
       : undefined;
-  // Until the chat reports its modes, the start mode acpmux answered is a live menu (not an inert
-  // chip) where a pick is held (`holdsModePick`): the harness's last mode catalog for the rows,
-  // checked at the start mode, never at the mode its last chat showed, and named as acpmux named
-  // it. A start in Plan keeps the inert chip: Plan is never an access row.
+  // The start mode the chip names: none for the "Mode" placeholder or another folder's answer.
+  const namedStart = startMode && !startMode.borrowed ? startMode : undefined;
+  // Until the chat reports its modes, the access chip is a live menu (not an inert chip) where a
+  // pick is held (`holdsModePick`): the harness's last mode catalog for the rows (else its family's
+  // own menu), checked at the start mode acpmux answered, never at the mode its last chat showed,
+  // and named as acpmux named it. With no start mode to name (acpmux sets none, has not answered
+  // for this folder) it checks none and says "Mode", still a pick (Lucas 2026-10-24: a New Tab's
+  // "Mode" chip had a chevron but no menu). A start in Plan keeps the inert chip: Plan is never an
+  // access row.
   const pendingAccessModes: ModeChoice[] = (() => {
-    if (!holdsModePick || !startMode || startMode.borrowed || isPlan(startMode.modeId)) return [];
+    if (!holdsModePick || !startMode || (namedStart && isPlan(namedStart.modeId))) return [];
+    const menu =
+      pendingMenu ??
+      harnessFamilyMenu(
+        summary?.family ?? snapshot.catalog.find((entry) => entry.id === chipHarness)?.family,
+        chipHarness,
+      );
+    const profileModes = harnessProfiles.get(chipHarness)?.modes?.availableModes ?? [];
+    const rows: readonly { id: string; name?: string; description?: string }[] =
+      profileModes.length > 0 ? profileModes : (menu?.rows ?? []);
     const known = shownModes(
-      pendingMenu,
-      (harnessProfiles.get(chipHarness)?.modes?.availableModes ?? [])
+      menu,
+      rows
         .filter((choice) => !isPlan(choice.id))
         .map((choice) => ({
           id: choice.id,
-          name: (choice.id === startMode.modeId ? startMode.name : undefined) || choice.name || choice.id,
+          name: (choice.id === namedStart?.modeId ? namedStart.name : undefined) || choice.name || choice.id,
           ...(choice.description ? { description: choice.description } : {}),
         })),
-      startMode.modeId,
+      namedStart?.modeId,
     );
-    if (known.some((choice) => choice.id === startMode.modeId)) return known;
-    const description = unrestricted(startMode.modeId) ? t(PICKER_LABELS.fullAccessWarning) : undefined;
-    return [{ id: startMode.modeId, name: startModeName ?? startMode.modeId, description }, ...known];
+    if (!namedStart || known.some((choice) => choice.id === namedStart.modeId)) return known;
+    const description = unrestricted(namedStart.modeId) ? t(PICKER_LABELS.fullAccessWarning) : undefined;
+    return [{ id: namedStart.modeId, name: startModeName ?? namedStart.modeId, description }, ...known];
   })();
   useEffect(() => {
     if (!awaiting && chipHarness && summary?.sessionId && effortShown)
@@ -812,7 +851,7 @@ export function ComposerPickers({
             onEffort(effort.id, value);
           },
         }
-      : heldLevels.length > 1 && chipHarness
+      : heldLevels.length > 1 && chipHarness && !profileDeclaresNoEffort
         ? {
             levels: heldLevels,
             current: heldValue,
@@ -952,8 +991,8 @@ export function ComposerPickers({
         pendingAccessModes.length === 0 && (
           <PendingMode
             label={startModeName}
-            modeId={startMode.borrowed ? undefined : startMode.modeId}
-            icon={startMode.borrowed ? undefined : pendingMenu?.rows.find((row) => row.id === startMode.modeId)?.icon}
+            modeId={shownStart?.modeId}
+            icon={pendingMenu?.rows.find((row) => row.id === shownStart?.modeId)?.icon}
           />
         )}
       {/* Granted folder trust and chat allowance stay revocable when the harness offers no modes. */}
@@ -961,7 +1000,7 @@ export function ComposerPickers({
         <AccessMenu
           label={t(PICKER_LABELS.mode)}
           modes={modes.length > 0 ? modes : pendingAccessModes}
-          current={mode?.id ?? (pendingAccessModes.length > 0 ? startMode?.modeId : undefined)}
+          current={mode?.id ?? (pendingAccessModes.length > 0 ? shownStart?.modeId : undefined)}
           sessionId={summary?.sessionId}
           warning={t(PICKER_LABELS.fullAccessWarning)}
           help={t(PICKER_LABELS.modeHelp)}
@@ -1241,7 +1280,7 @@ export function isPlan(modeId: string): boolean {
 const TABBABLE =
   'a[href],button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[tabindex]:not([tabindex="-1"])';
 
-/// How much of the context window the session has used, as a ring that fills. Resting the pointer
+/// How much of the context window the session has used, as a neutral ring that fills. Resting the pointer
 /// on it, or focusing it, shows the context card with no click (ContextCard.tsx; Leo 2026-10-21,
 /// after Claude's and Codex's): the share and tokens used, the window as a stacked bar, and
 /// Details ›, which opens the Inspector's Context section. A click pins the card until a press
@@ -1326,7 +1365,6 @@ export function ContextRing({
     document.addEventListener("pointerdown", onPress, true);
     return () => document.removeEventListener("pointerdown", onPress, true);
   }, [pinned]);
-  const full = fraction >= 0.8 ? " acpmux-context-full" : "";
   /// The card's buttons the keyboard reaches (Compact, Details ›).
   const cardButtons = () => [...(card.current?.querySelectorAll<HTMLElement>("button:not(:disabled)") ?? [])];
   /// Leaves the card forward: to whatever the page tabs to after the ring, and the card closes.
@@ -1368,7 +1406,7 @@ export function ContextRing({
     // tooltip-allow: before any usage the inert ring says why; once usage is known the card replaces it.
     <span
       ref={wrapper}
-      className={`acpmux-picker acpmux-context${full}`}
+      className="acpmux-picker acpmux-context"
       title={known ? undefined : t("context.ringTooltipEmpty")}
     >
       <button
@@ -1421,7 +1459,7 @@ export function ContextRing({
       <AnchoredCard
         anchor={shown ? trigger.current : null}
         // AnchoredCard makes it the shared glass hover card (ui-tooltip ui-card ui-glass).
-        className={`acpmux-context-card acpmux-context-pop${breakdown ? " acpmux-context-pop--breakdown" : " acpmux-context-pop--compact"}${full}`}
+        className={`acpmux-context-card acpmux-context-pop${breakdown ? " acpmux-context-pop--breakdown" : " acpmux-context-pop--compact"}`}
         side="top"
         interactive
         ariaLabel={t("context.title")}
@@ -2003,9 +2041,10 @@ const PLAIN_LEVELS = new Set(["none", "minimal", "low", "medium", "high", "xhigh
 /// not a level).
 export function reasoningChoices(
   options: { value: string; name?: string; description?: string }[],
-  model: { efforts?: readonly string[]; defaultEffort?: string } | undefined,
+  model: { efforts?: readonly string[]; defaultEffort?: string; own?: { efforts?: true }; noEffort?: true } | undefined,
   t: (key: StringKey) => string,
 ): Choice[] {
+  if (model?.noEffort || (model?.own?.efforts && (model.efforts ?? []).length === 0)) return [];
   const levels = model?.efforts && model.efforts.length > 0 ? new Set<string>(model.efforts) : undefined;
   const offered = options.filter((option) => {
     if (["default", "ultracode", "ultrathink"].includes(option.value)) return false;

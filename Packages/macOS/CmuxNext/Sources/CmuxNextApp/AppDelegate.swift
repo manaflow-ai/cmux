@@ -11,6 +11,7 @@ import CmuxNextKeepAwake
 import CmuxNextPages
 import CmuxNextPalette
 import CmuxNextPhoneAccess
+import CmuxNextPopups
 import CmuxNextSettings
 import CmuxNextTerminal
 import os
@@ -182,6 +183,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         FirstPartyPageSchemes.install()
         // Every cmux page view follows `browser.defaultEngine` (Chromium by default) through this one host.
         PageWebView.openPanel = services.openPanel
+        // A WebKit browser tab's file input takes the same made-ahead panel as a cmux page's.
+        services.cache.webKit.fileInput = services.openPanel
         PageWebView.chromiumHosting = ChromiumPageHost(
             cef: services.cache.cef,
             preference: { [weak services] in
@@ -200,7 +203,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.startChromiumRuntime()
         firstFrame.whenOpen { [weak services] in services?.startLaterTabWarmups() }
         // Other apps' sign-ins, before any request a launch by one delivers.
-        let webAuthHandler = WebAuthSessionHandler(broker: WebAuthSessionBroker(opener: WebAuthSessionWindows(services: services)))
+        // The engine's own OffTheRecordProfiles and CEFSignInCallbacks (CEFRuntime reads `.shared`).
+        let webAuthWindows = WebAuthSessionWindows(host: services, logger: services.daemon.logger,
+                                                   profiles: .shared, signInCallbacks: .shared,
+                                                   contextMenus: services.contextMenus)
+        let webAuthHandler = WebAuthSessionHandler(broker: WebAuthSessionBroker(opener: webAuthWindows))
         self.webAuthHandler = webAuthHandler
         WebAuthSessionHandler.install(webAuthHandler)
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURLEvent(_:reply:)),
@@ -336,6 +343,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 DebugNowPlaying.register(on: control.service?.router, services: services)
                 DebugDownloads.register(on: control.service?.router, services: services)
                 DebugCEFDevToolsLayout.register(on: control.service?.router, services: services)
+                #if DEBUG
+                // The Chromium host app prototype (browserHost.helperPrototype; cef-helper-app-DESIGN.md).
+                let chromiumHost = ChromiumHostPrototype { ChromiumHostPrototype.bundledConfiguration() }
+                control.service?.router.register([
+                    .mainActor("debug.chromium_host") { [weak services] call in
+                        let controller = services?.windows.controllers.first
+                        let pane = (call.params["pane"]?.stringValue ?? controller?.focus.state.pane).flatMap { controller?.content?.paneController(key: $0) }
+                        let fields = chromiumHost.handle(op: call.params["op"]?.stringValue, url: call.params["url"]?.stringValue,
+                                                         over: pane?.view.contentHost, focus: call.params["focus"]?.boolValue != false)
+                        return .value(JSONValue(foundation: fields) ?? .null)
+                    },
+                    .async("debug.chromium_host.measure") { call in
+                        guard let fields = await chromiumHost.measure(op: call.params["op"]?.stringValue, count: call.params["count"]?.intValue)
+                        else { return ["error": "no running Chromium host"] }
+                        return .object(fields.mapValues(JSONValue.number))
+                    }.withDeadline(.fixed(.seconds(60))),
+                ])
+                #endif
                 DebugBrowserExternal.register(on: control.service?.router, services: services)
                 DebugCloudMove.register(on: control.service?.router, services: services)
                 DebugTerminalLinks.register(on: control.service?.router, services: services)

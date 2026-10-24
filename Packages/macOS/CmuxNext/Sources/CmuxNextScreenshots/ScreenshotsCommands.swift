@@ -110,10 +110,13 @@ public final class ScreenshotsCommands {
         let baseLength = (item.name as NSString).deletingPathExtension.utf16.count
         let response: NSApplication.ModalResponse
         if let window {
-            async let answer = alert.beginSheetModal(for: window)
-            alert.window.makeFirstResponder(field)
-            field.currentEditor()?.selectedRange = NSRange(location: 0, length: baseLength)
-            response = await answer
+            // Begin the sheet here, on the main actor: an `async let` runs it in a
+            // child task off main, where AppKit throws (#24760).
+            response = await withCheckedContinuation { continuation in
+                alert.beginSheetModal(for: window) { continuation.resume(returning: $0) }
+                alert.window.makeFirstResponder(field)
+                field.currentEditor()?.selectedRange = NSRange(location: 0, length: baseLength)
+            }
         } else {
             response = alert.runModal()
         }

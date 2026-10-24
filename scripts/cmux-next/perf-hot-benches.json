@@ -1,6 +1,11 @@
 {
   "_doc": "Hot-path ids for `// perf-hot: <budget> <path-id>` markers (plans/cmux-next/codebase-health.md section 6). scripts/cmux-next/guardrails.py warns when a push changes a marked function and names the bench here. Run it yourself on the fleet (nx-remote --needs gui), light and STRESS (perf-lead-brief), before and after; never add it to CI.",
   "paths": {
+    "cef-host-input": {
+      "what": "one input event forwarded to the Chromium host app (prototype, browserHost.helperPrototype): encode and one non-blocking write",
+      "bench": "scripts/cmux-next/chromium-host-bench.py (hop_us, ping_us)",
+      "owner": "PL-cef-helper"
+    },
     "key-dispatch": {
       "what": "every key-down: shortcut table, chord tracker, focus routing",
       "bench": "scripts/cmux-next/bench-typing.py",

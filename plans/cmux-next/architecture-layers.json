@@ -12,6 +12,7 @@
     "CmuxNextTerminalFind": {"layer": "core"},
     "CmuxNextAgentCursorVisibility": {"layer": "core"},
     "CmuxNextProcessEnvironment": {"layer": "core"},
+    "CmuxNextRemoteLayer": {"layer": "core"},
     "CmuxNextMallocZone": {"layer": "core"},
     "CmuxNextWorkspaceNaming": {"layer": "core"},
 

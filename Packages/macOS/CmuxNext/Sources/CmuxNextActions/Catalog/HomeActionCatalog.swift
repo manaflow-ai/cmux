@@ -9,7 +9,7 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
         // Owner round trips a caller that waits (`action.run` with `wait`) gets the
         // 40 s result deadline for: a group with invites takes several requests.
-        let waits: Set<ActionID> = ["home.newMessage", "home.invite", "home.newChief", "home.archiveChief",
+        let waits: Set<ActionID> = ["home.newMessage", "home.invite", "home.newChief", "home.archiveChief", "home.deleteChief",
                                     "home.renameConversation", "home.addMembers", "home.removeMember", "home.leaveConversation",
                                     "home.muteConversation", "home.unmuteConversation", "home.sendMessage",
                                     "home.createGroup", "home.setChiefReplies"]
@@ -187,6 +187,15 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 category: .window, symbol: "archivebox", surfaces: [.keyboard],
                 arguments: [ActionArgument(name: "chief", title: t("argument.home.chief.id", "Chief"), kind: .string)],
                 cliName: "home archive-chief",
+                surfacePlan: ActionSurfacePlan(palette: .exempt(.noTargetSurface), cli: .offered, contextMenuExemption: .noTargetSurface)
+            ),
+            // Deleting cannot be undone (Archive Chief can): it asks first.
+            ActionDescriptor(
+                id: "home.deleteChief", title: t("action.home.deleteChief", "Delete Chief…"),
+                keywords: ["home", "chief", "delete", "remove", "agent"],
+                category: .window, symbol: "trash", surfaces: [.keyboard],
+                arguments: [ActionArgument(name: "chief", title: t("argument.home.chief.id", "Chief"), kind: .string)],
+                cliName: "home delete-chief", destructive: true,
                 surfacePlan: ActionSurfacePlan(palette: .exempt(.noTargetSurface), cli: .offered, contextMenuExemption: .noTargetSurface)
             ),
             // On Home the tab keys move through the chat list (Lawrence 2026-10-21): Ctrl-Tab /

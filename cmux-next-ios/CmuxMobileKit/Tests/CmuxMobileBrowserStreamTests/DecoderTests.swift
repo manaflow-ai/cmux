@@ -98,4 +98,36 @@ import VideoToolbox
         #expect(shown.first?.width == 320 && shown.first?.height == 240)
         #expect(shown.allSatisfy { ($0.latencyMicros ?? 0) >= 12_000 })
     }
+
+    /// The 2026-10-24 freeze class: a decoder whose session died (iOS
+    /// invalidates it while the app is in the background) failed every frame,
+    /// keyframes included, and asked for a keyframe forever. The next
+    /// keyframe now starts a new session.
+    @Test(.timeLimit(.minutes(1))) func aDeadSessionIsReplacedAtTheNextKeyframe() async throws {
+        let units = try Self.encode(frames: 3, width: 320, height: 240)
+        try #require(units.count == 3)
+        let decoder = BrowserVideoDecoder()
+        let collected = Collected()
+        decoder.shown = { shown in collected.lock.withLock { collected.shown.append(shown) } }
+        decoder.requestKeyframe = { collected.lock.withLock { collected.keyframeRequests += 1 } }
+        decoder.submit(frame: 0, accessUnit: units[0], keyframe: true, receivedMicros: 0, ageMicros: nil)
+        for _ in 0..<200 where collected.lock.withLock({ collected.shown.count }) < 1 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try #require(collected.lock.withLock { collected.shown.count } == 1)
+        decoder.invalidateSessionForTesting()
+        // The P-frame fails on the dead session and asks for a keyframe...
+        decoder.submit(frame: 1, accessUnit: units[1], keyframe: false, receivedMicros: 0, ageMicros: nil)
+        for _ in 0..<200 where collected.lock.withLock({ collected.keyframeRequests }) < 1 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        // ...and the keyframe that answers shows.
+        decoder.submit(frame: 2, accessUnit: units[0], keyframe: true, receivedMicros: 0, ageMicros: nil)
+        for _ in 0..<200 where collected.lock.withLock({ collected.shown.count }) < 2 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let shown = collected.lock.withLock { collected.shown.map(\.frame) }
+        #expect(shown == [0, 2])
+        #expect(collected.lock.withLock { collected.keyframeRequests } == 1)
+    }
 }

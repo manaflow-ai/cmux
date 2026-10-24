@@ -160,6 +160,21 @@ export const ChiefArchive = def({
   mcp: { expose: "never", group: "home" }
 })
 
+export const ChiefDelete = def({
+  name: "chief.delete",
+  owner: "cloud:UserDO",
+  class: "mutation",
+  risk: "destructive",
+  target: "chief",
+  principals: ["session"],
+  params: Schema.Struct({ chief: ChiefId, expected_rev: Schema.Number }),
+  result: Chief,
+  errors: [...mutationErrors, "selector.not_found", "chief_is_default"],
+  docs: "Delete a chief (not the default; active or archived) for good: it stops waking, its tokens end, its sandboxes are deleted, and only a tombstone keeps its id; its conversation history stays read-only with its members. No restore.",
+  cli: { path: "chief delete", visible: true },
+  mcp: { expose: "never", group: "home" }
+})
+
 export const ChiefList = def({
   name: "chief.list",
   owner: "cloud:UserDO",
@@ -279,6 +294,7 @@ export const homeInboxOps = [
   ChiefCreate,
   ChiefUpdate,
   ChiefArchive,
+  ChiefDelete,
   ChiefList,
   HomeSettingsSet,
   MuxAck,

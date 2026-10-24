@@ -145,4 +145,15 @@ import Testing
         let (identity, tag) = launch(home: home)
         #expect(identity.socketPath == "/tmp/cmux-debug-\(tag).sock", "a path sun_path cannot hold keeps the old name")
     }
+
+    /// The rig's machine id (`CMUX_NEXT_MOBILE_MACHINE_ID`, read by
+    /// `MobileHostLaunch`) survives the launch strip of inherited `CMUX*`
+    /// variables; the host's own `CMUX_MOBILE_MACHINE_ID` would not.
+    @Test func aRigsMachineIDSurvivesTheLaunchStrip() {
+        let environment = ["CMUX_NEXT_MOBILE_MACHINE_ID": "0123456789abcdef0123456789abcdef",
+                           "CMUX_MOBILE_MACHINE_ID": "0123456789abcdef0123456789abcdef"]
+        let stripped = LaunchIdentity.inheritedKeys(processEnvironment: environment, bundledEnvironment: [:])
+        #expect(!stripped.contains("CMUX_NEXT_MOBILE_MACHINE_ID"))
+        #expect(stripped.contains("CMUX_MOBILE_MACHINE_ID"))
+    }
 }

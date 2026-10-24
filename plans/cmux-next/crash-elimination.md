@@ -163,7 +163,21 @@ every socket says how it avoids SIGPIPE (check-crash-safety.sh).
 Every gate starts in ratchet mode: the tree stays green, a module or crate
 may never gain a hit, and a fix lowers the baseline in the same commit
 (`scripts/cmux-next/crash_ratchet.py --update-baseline`). A reviewed
-`// crash-allow: <reason>` on the line or the line above exempts one hit.
+`// crash-allow: <reason>` on the line or the line above makes one hit a waived
+hit: it is counted apart, per class and module, in the baseline's `waived`
+section, which may not grow either. So a new waiver is a baseline change the
+reviewer sees (`<class>.waived N -> M`), and a waiver added while code moves to
+another module cannot turn into a reduction (B1, ba5e6df99f9).
+
+The baseline only goes down. `--update-baseline` lowers rows and never raises
+one: a row the tree is over stays put, is printed, and the run exits 1, so
+recording a fix never records another change's regression. A new reviewed
+waiver is recorded with `--record-waivers` (waived rows only). A hit that moved
+to another module carries its row with `--update-baseline --base <the base
+commit>`: the same line must have left the other module, and only as many hits
+as that module's base row covers move (a hit the base was red on does not). The
+CI job and safe-push run `--baseline-against <base tree>`: a counted row above
+the base's (after proven moves) is red, a raised waived row is annotated.
 
 | Class | Rule | Gate (now) | Gate (next) | Containment |
 | --- | --- | --- | --- | --- |

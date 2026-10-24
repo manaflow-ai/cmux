@@ -277,6 +277,47 @@ async function renderPictured(onChange: (id: string, edit: QueueEdit) => Promise
   return container;
 }
 
+test("cancel and edit withdraws a queued prompt and restores its text and images", async () => {
+  const restored: [string, string, { id: string; data?: string }[]][] = [];
+  const cancelQueue = [
+    {
+      ...pictured[0]!,
+      images: [pictured[0]!.images![0]!, { ...pictured[0]!.images![1]!, src: undefined }],
+    },
+  ];
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ComposerQueue
+        queue={cancelQueue}
+        chat="c"
+        t={t}
+        onCancelEdit={async (id, text, attachments) => {
+          restored.push([id, text, attachments.map(({ id: imageId, data }) => ({ id: imageId, data }))]);
+          return true;
+        }}
+        readImage={async (id) => (id === SHOT_B ? "data:image/png;base64,Qg==" : undefined)}
+      />,
+    );
+  });
+  const cancel = container.querySelector<HTMLButtonElement>('[data-prompt-id="p-1"] [data-action="cancel-edit"]');
+  expect(cancel?.querySelector("svg")?.dataset.icon).toBe("action.close");
+  await act(async () => cancel!.click());
+  await settle();
+  expect(restored).toEqual([
+    [
+      "p-1",
+      "why does this overlap?",
+      [
+        { id: SHOT_A, data: "QQ==" },
+        { id: SHOT_B, data: "Qg==" },
+      ],
+    ],
+  ]);
+  expect(container.querySelector('[data-prompt-id="p-1"]')).toBeNull();
+});
+
 const thumbnails = (container: HTMLElement) => [
   ...container.querySelectorAll<HTMLButtonElement>('[data-prompt-id="p-1"] .acpmux-queued-image'),
 ];

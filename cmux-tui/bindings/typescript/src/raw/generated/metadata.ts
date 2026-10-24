@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 1e8ed8d1c9488496f61ce39773888417486f7d9a3ecf0469f4e801cd383fe3bd. */
+/* cmux-tui mux protocol 12, IR cb12b489fcaad8bfa7cd1979fdcc27eaff578f0f3540c961896abdc0c61eeea0. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "1e8ed8d1c9488496f61ce39773888417486f7d9a3ecf0469f4e801cd383fe3bd" as const;
+export const SDK_IR_SHA256 = "cb12b489fcaad8bfa7cd1979fdcc27eaff578f0f3540c961896abdc0c61eeea0" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1412,6 +1412,16 @@ export const COMMAND_METADATA = {
       "Each identifier is nonempty, contains no control character, and is at most 128 bytes."
     ]
   },
+  "get-host-size-policy": {
+    "authority": "control",
+    "since": 12,
+    "capability": "host-size-policy-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The host policy applies to every terminal without a terminal override or workspace default."
+    ]
+  },
   "get-size-state": {
     "authority": "control",
     "since": 12,
@@ -2713,6 +2723,10 @@ export const COMMAND_METADATA = {
         "since": 12,
         "capability": null
       },
+      "remote": {
+        "since": 12,
+        "capability": "host-size-policy-v1"
+      },
       "user_id": {
         "since": 12,
         "capability": "shared-sizing-v1"
@@ -2803,6 +2817,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
+    ]
+  },
+  "set-host-size-policy": {
+    "authority": "control",
+    "since": 12,
+    "capability": "host-size-policy-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Writes mobile.terminalSizing and mobile.terminalSizingOrder in the host's settings file, then applies them."
     ]
   },
   "set-personal-terminal": {
@@ -6881,6 +6905,34 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "GetHostSizePolicyResult": {
+    "additional_properties": false,
+    "fields": {
+      "mac_participants": {
+        "constraints": [
+          "Size-state participant ids of the surface's terminal that are this host's own views; empty without surface."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
+      "policy": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "HostSizePolicy"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "GetSizeStateResult": {
     "additional_properties": false,
     "fields": {
@@ -7184,6 +7236,72 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "HostSizeMode": {
+    "kind": "enum",
+    "values": [
+      "smallest",
+      "mac",
+      "latest",
+      "priority"
+    ]
+  },
+  "HostSizePolicy": {
+    "additional_properties": false,
+    "fields": {
+      "mode": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "HostSizeMode"
+        }
+      },
+      "order": {
+        "constraints": [
+          "Device tokens, highest first: mac (this host's own views) or device:<id>; at most 32."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "HostSizePolicyRequest": {
+    "additional_properties": false,
+    "fields": {
+      "mode": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "HostSizeMode"
+        }
+      },
+      "order": {
+        "constraints": [
+          "Device tokens, highest first: mac or device:<id> (1 to 128 of [A-Za-z0-9_.:-]); at most 32. Omitted keeps the stored order."
+        ],
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
         }
       }
     },
@@ -10581,6 +10699,20 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
             "name": "CellPixelResize"
           },
           "kind": "array"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "SetHostSizePolicyResult": {
+    "additional_properties": false,
+    "fields": {
+      "policy": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "HostSizePolicy"
         }
       }
     },
@@ -19489,6 +19621,27 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "FrontendProjection"
     }
   },
+  "get-host-size-policy": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "surface": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "GetHostSizePolicyResult"
+    }
+  },
   "get-size-state": {
     "request": {
       "additional_properties": false,
@@ -24659,6 +24812,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "string"
           }
         },
+        "remote": {
+          "capability": "host-size-policy-v1",
+          "constraints": [
+            "A remote device's spliced lane (cmux-mobile-host sets it); never one of this host's own views. Sticky: false never clears it."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
         "user_id": {
           "capability": "shared-sizing-v1",
           "constraints": [
@@ -24966,6 +25133,26 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "JsonValue"
+    }
+  },
+  "set-host-size-policy": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "policy": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "HostSizePolicyRequest"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "SetHostSizePolicyResult"
     }
   },
   "set-personal-terminal": {
