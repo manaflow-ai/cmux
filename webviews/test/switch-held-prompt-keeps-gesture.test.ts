@@ -47,7 +47,7 @@ test("a prompt held behind a slow start goes with the ticket its Enter took", as
   pane.store.connect(pane.port(pane.slowStart));
   // The pick starts the harness; the person presses Enter while it starts.
   const opened = pane.store.switchTo("claude", "/Users/dev");
-  const turn = pane.store.send("Add a remove command");
+  const turn = pane.store.send("Add a remove command", [], undefined, undefined, true);
   // The ticket is asked for in the send itself, while the Enter's gesture is live.
   expect(pane.intents).toHaveLength(1);
   const intent = pane.intents[0]!;
@@ -68,8 +68,8 @@ test("only the first held prompt takes a ticket; the others go on a live gesture
   const pane = harness();
   pane.store.connect(pane.port(pane.slowStart));
   const opened = pane.store.switchTo("claude", "/Users/dev");
-  const first = pane.store.send("first");
-  const second = pane.store.send("second");
+  const first = pane.store.send("first", [], undefined, undefined, true);
+  const second = pane.store.send("second", [], undefined, undefined, true);
   pane.start("s1");
   await opened;
   await Promise.all([first, second]);
@@ -96,7 +96,7 @@ test("a chat on another machine leaves the Enter's gesture to the start it needs
   const pane = harness({ startsOnSend: true });
   pane.store.connect(pane.port(async () => "s1"));
   const opened = pane.store.switchTo("claude", "/Users/dev");
-  const turn = pane.store.send("remote");
+  const turn = pane.store.send("remote", [], undefined, undefined, true);
   await opened;
   await turn;
   expect(pane.intents).toEqual([]);
@@ -108,7 +108,7 @@ test("a ticket taken before a reconnect is not sent on the new connection", asyn
   const before = pane.port(pane.slowStart);
   pane.store.connect(before);
   const opened = pane.store.switchTo("claude", "/Users/dev");
-  const turn = pane.store.send("after reconnect");
+  const turn = pane.store.send("after reconnect", [], undefined, undefined, true);
   expect(pane.intents).toHaveLength(1);
   // The connection drops while the harness starts; the next client opens the started chat.
   pane.store.disconnect(before);
@@ -131,7 +131,48 @@ test("a send that restarts a failed switch leaves the gesture to the new start",
   await pane.store.switchTo("claude", "/Users/dev");
   expect(pane.store.view().intent?.phase).toBe("failed");
   // Enter after the failure starts the harness again: its session/new may need this gesture.
-  await pane.store.send("retry");
+  await pane.store.send("retry", [], undefined, undefined, true);
   expect(pane.intents).toEqual([]);
   expect(pane.sent).toEqual([{ text: "retry", promptId: expect.any(String) }]);
+});
+
+test("a seed with no host ticket takes no gesture: no key or click sent it", async () => {
+  const pane = harness();
+  pane.store.connect(pane.port(pane.slowStart));
+  const opened = pane.store.switchTo("claude", "/Users/dev");
+  // Onboarding's seeded task from a script: no promptId and no person behind the send.
+  const turn = pane.store.send("seeded by a script");
+  pane.start("s1");
+  await opened;
+  await turn;
+  expect(pane.intents).toEqual([]);
+  expect(pane.sent).toEqual([{ text: "seeded by a script", promptId: expect.any(String) }]);
+});
+
+test("a ticketed prompt held for the folder's Trust answer goes after Trust with its ticket", async () => {
+  const pane = harness();
+  const holds: string[] = [];
+  pane.store.setHandlers({
+    gesture: async () => "ticket-1",
+    holdPrompt: (promptId: string) => holds.push(promptId),
+  });
+  let attempts = 0;
+  pane.store.connect(
+    pane.port(async () => {
+      attempts += 1;
+      if (attempts === 1) throw Object.assign(new Error("trust"), { reason: "trust.pending", cwd: "/Users/dev" });
+      return "s1";
+    }),
+  );
+  const opened = pane.store.switchTo("claude", "/Users/dev");
+  const turn = pane.store.send("after trust", [], undefined, undefined, true);
+  // The start's trust refusal settles over a few microtasks.
+  for (let step = 0; step < 10 && pane.store.view().intent?.phase !== "trust"; step += 1) await Promise.resolve();
+  expect(pane.store.view().intent?.phase).toBe("trust");
+  // The send already kept its gesture: the trust refusal reserves no second one.
+  expect(holds).toEqual([]);
+  pane.store.resumeAfterTrust();
+  expect(await opened).toBe("s1");
+  await turn;
+  expect(pane.sent.map((prompt) => [prompt.text, prompt.ticket])).toEqual([["after trust", "ticket-1"]]);
 });

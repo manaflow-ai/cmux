@@ -6645,6 +6645,8 @@ function AcpmuxPane() {
           accepted?: () => void,
           steer = false,
           promptId?: string,
+          // Onboarding's seeded first task: no key or click of the person's sent it.
+          seeded = false,
         ) => {
           // The reader sent it: the transcript goes to its latest message now, even scrolled up.
           setSends((count) => count + 1);
@@ -6680,7 +6682,7 @@ function AcpmuxPane() {
           };
           // A harness switch holds the prompt in its own row until its session is ready, and
           // hands it back to the composer when the switch fails.
-          const held = harnessSwitch.send(text, attachments, () => promptLanded.current(), promptId);
+          const held = harnessSwitch.send(text, attachments, () => promptLanded.current(), promptId, !seeded);
           if (held) {
             accepted?.();
             return held.catch((error: unknown) =>
@@ -7186,8 +7188,8 @@ function AcpmuxPane() {
         // that fails hands it back to the composer.
         if (harness && prompt) {
           void harnessSwitch.switchTo(harness, host.cwd);
-          void send(prompt, [], undefined, false, ticket?.promptId).catch(() => undefined);
-        } else if (prompt) void send(prompt, [], undefined, false, ticket?.promptId).catch(() => setDraft(prompt));
+          void send(prompt, [], undefined, false, ticket?.promptId, true).catch(() => undefined);
+        } else if (prompt) void send(prompt, [], undefined, false, ticket?.promptId, true).catch(() => setDraft(prompt));
         // A new chat seeded with the harness of the chat the person used last (NEW-WORK-INHERITS-CONTEXT)
         // draws it now and starts on it with the first Send; no session opens before that.
         else if (harness && !client.adopted && client.startsOnSend) void harnessSwitch.switchTo(harness, host.cwd);

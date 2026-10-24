@@ -339,11 +339,14 @@ export class HarnessSwitch {
   /// A prompt sent from the composer. Returns undefined when no switch holds it (the caller sends
   /// it as usual), else a promise that settles as the send would.
   /// `promptId`: a seeded prompt's own id (its host ticket is bound to it, cx-k21v gap 4).
+  /// `byPerson`: the person's own Enter or click sent it, so its gesture may become the prompt's
+  /// ticket; a seeded or scripted send takes none.
   send(
     text: string,
     attachments: ComposerAttachment[] = [],
     written?: () => void,
     promptId?: string,
+    byPerson = false,
   ): Promise<unknown> | undefined {
     let intent = this.intent;
     if (!intent) return undefined;
@@ -370,10 +373,12 @@ export class HarnessSwitch {
     if (intent.phase === "trust" && intent.queued.length === 1) this.handlers.holdPrompt?.(id);
     // The first prompt held behind the start keeps this send's gesture as its ticket now: the
     // relay grants a prompt only on a gesture under 30 s old, and a harness can take longer to
-    // start, so the prompt came back "Not sent. Press Retry" (#23031). Not a seeded prompt (its
-    // host ticket stays), not before a start on another machine, which needs this gesture, and not
-    // when this send restarts the switch: its session/new may need the gesture for its folder.
+    // start, so the prompt came back "Not sent. Press Retry" (#23031). Only the person's own send
+    // (a seeded one keeps its host ticket or has no gesture to keep), not before a start on another
+    // machine, which needs this gesture, and not when this send restarts the switch: its
+    // session/new may need the gesture for its folder.
     else if (
+      byPerson &&
       !restarts &&
       intent.queued.length === 1 &&
       promptId === undefined &&
