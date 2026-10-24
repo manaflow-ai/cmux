@@ -1,7 +1,7 @@
 /* The context affordance is one compact control in every composer look. Keep the hit area and glyph
    metrics shared while the surrounding row decides where it sits. The quiet footer used to shrink
-   this same control to 20px, so switching between Claude and Codex changed the affordance's footprint
-   (HQ #3323). */
+   this same control to 20px, so switching between Claude and Codex changed the footer's shared
+   geometry (HQ #3322/#3325). */
 :root {
   --acpmux-context-control-size: 22px;
   --acpmux-context-glyph-size: 12px;

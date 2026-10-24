@@ -1,5 +1,5 @@
 // The context affordance is one compact control in Claude's quiet footer and Codex's inner row
-// (HQ #3323). The fuller breakdown stays in the shared context card and Session Info.
+// (HQ #3322/#3325). The fuller breakdown stays in the shared context card and Session Info.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
