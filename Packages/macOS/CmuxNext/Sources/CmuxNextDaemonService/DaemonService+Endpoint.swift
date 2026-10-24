@@ -29,6 +29,12 @@ extension DaemonService {
         guard let connection else { throw DaemonError.notConnected }
         return try await connection.terminalStreams(device: device)
     }
+
+    /// Where this machine's terminal views attach: a stream on its connection
+    /// (``terminalStreams(device:)``), else a connection of their own (``endpoint()``).
+    public var terminalAttachRoute: TerminalAttachRoute {
+        TerminalAttachRoute(streams: { try await self.terminalStreams(device: $0) }, endpoint: { try await self.endpoint() })
+    }
 }
 
 extension DaemonService {

@@ -139,16 +139,13 @@ public actor TerminalAttachment: TerminalByteChannel {
         events = AsyncStream(unfolding: { await queue.next() }, onCancel: { queue.cancel() })
     }
 
-    /// Attaches a view: as a stream on the connection `streams` gives for
-    /// `device` (``attach(carrier:target:size:claimGeometry:snapshotVersion:localHistory:images:)``),
+    /// Attaches a view: as a stream on the connection `route.streams` gives
+    /// for `device` (``attach(carrier:target:size:claimGeometry:snapshotVersion:localHistory:images:)``),
     /// or, when it gives none (an older daemon, streams turned off), on a
-    /// connection of its own to `endpoint`. The one attach path of an app view.
+    /// connection of its own to `route.endpoint`. The one attach path of an app view.
     ///
     /// - Parameters:
-    ///   - streams: The machine's connection as a stream carrier for a device
-    ///     (`DaemonService.terminalStreams(device:)`), or nil to always open a
-    ///     connection of its own.
-    ///   - endpoint: The daemon socket for a connection of its own.
+    ///   - route: Where the view attaches (`DaemonService.terminalAttachRoute`).
     ///   - target: The terminal to attach.
     ///   - size: The view's grid; the attach is a size report.
     ///   - claimGeometry: Claim canonical geometry after the attach.
@@ -160,8 +157,7 @@ public actor TerminalAttachment: TerminalByteChannel {
     /// - Throws: `DaemonError` when the daemon refuses the attach or the
     ///   connection fails; `CancellationError` when the task is cancelled.
     public static func attach(
-        streams: (@Sendable (TerminalSizingDevice) async throws -> TerminalStreamCarrier?)?,
-        endpoint: @Sendable () async throws -> DaemonEndpoint,
+        route: TerminalAttachRoute,
         target: Target,
         size: CellSize,
         claimGeometry: Bool,
@@ -170,11 +166,11 @@ public actor TerminalAttachment: TerminalByteChannel {
         images: Bool = false,
         device: TerminalSizingDevice
     ) async throws -> TerminalAttachment {
-        if let carrier = try await streams?(device) {
+        if let carrier = try await route.streams?(device) {
             return try await attach(carrier: carrier, target: target, size: size, claimGeometry: claimGeometry,
                                     snapshotVersion: snapshotVersion, localHistory: localHistory, images: images)
         }
-        return try await attach(endpoint: try await endpoint(), target: target, size: size,
+        return try await attach(endpoint: try await route.endpoint(), target: target, size: size,
                                 claimGeometry: claimGeometry, snapshotVersion: snapshotVersion,
                                 localHistory: localHistory, images: images, device: device)
     }

@@ -63,12 +63,10 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     /// `burstTrace`: where the grids this view sends, their echoes and its first output after each echo
     /// go while the burst bench records (`debug.burst`).
     /// `resizes`: the app's grid sender (``ResizeCoordinator``), from its composition root.
-    /// `streams`: the machine's connection as a stream carrier (`DaemonService.terminalStreams(device:)`).
     init(target: Target, resizes: ResizeCoordinator, visible: Bool = true, gate: TerminalTargetGate? = nil,
          creatingInput: CreatingTerminalInput? = nil,
          burstTrace: BurstTrace? = nil, policyBlocked: @escaping @Sendable () -> Bool = { false },
-         streams: (@Sendable (TerminalSizingDevice) async throws -> TerminalStreamCarrier?)? = nil,
-         endpoint: @escaping @Sendable () async throws -> DaemonEndpoint) {
+         route: TerminalAttachRoute) {
         self.resizes = resizes
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.terminal")
         let surface = target.attachment.surface.rawValue
@@ -86,7 +84,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
                 #if DEBUG
                 try await DebugSlowAttach.shared.beforeAttach(surface: String(surface))
                 #endif
-                return try await TerminalAttachment.attach(streams: streams, endpoint: endpoint, target: attachment,
+                return try await TerminalAttachment.attach(route: route, target: attachment,
                                                     size: size, claimGeometry: false,
                                                     snapshotVersion: Self.attachSnapshotVersion,
                                                     localHistory: Self.attachLocalHistory,
