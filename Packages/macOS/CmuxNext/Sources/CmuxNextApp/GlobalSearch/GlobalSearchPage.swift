@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextPalette
 
@@ -131,8 +132,11 @@ enum GlobalSearchStrings {
     static func unreadable(_ count: Int) -> String {
         String(format: text("globalSearch.unreadable", "Terminals not read: %lld"), count)
     }
-    static func matches(_ count: Int) -> String {
-        String(format: text("globalSearch.matchCount", "%lld matches"), count)
+    /// The accessory of a hit with `count` matches (2 or more).
+    static func matches(_ count: Int,
+                        preferredLocalizations: [String] = Bundle.module.preferredLocalizations, locale: Locale = .current) -> String {
+        Bundle.module.localizedString(forKey: "globalSearch.matchCount", value: "%lld matches", table: "GlobalSearch",
+                                      arguments: [.count(count)], preferredLocalizations: preferredLocalizations, locale: locale)
     }
     static func agentName(_ harness: String) -> String {
         harness == "codex" ? "Codex" : "Claude"

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// Strings of the remote desktop pane (Resources/Localizable.xcstrings).
@@ -31,7 +32,11 @@ nonisolated enum RemoteViewStrings {
         }
     }
 
-    static func milliseconds(_ value: Int) -> String { String(format: t("rd.metric.ms", "%lld ms"), value) }
+    static func milliseconds(_ value: Int,
+                             preferredLocalizations: [String] = Bundle.module.preferredLocalizations, locale: Locale = .current) -> String {
+        Bundle.module.localizedString(forKey: "rd.metric.ms", value: "%lld ms", table: nil, arguments: [.count(value)],
+                                      preferredLocalizations: preferredLocalizations, locale: locale)
+    }
     static var statusConnecting: String { t("rd.status.connecting", "connecting") }
     static var statusEnded: String { t("rd.status.ended", "ended") }
 
@@ -62,8 +67,11 @@ nonisolated enum RemoteViewStrings {
     }
 
     static var latencyTitle: String { t("rd.state.latency.title", "View only: high latency") }
-    static func latencyDetail(rtt: Int, path: String, limit: Int) -> String {
-        String(format: t("rd.state.latency.detail", "%1$lld ms, %2$@. Control turns off above %3$lld ms."), rtt, path, limit)
+    static func latencyDetail(rtt: Int, path: String, limit: Int,
+                              preferredLocalizations: [String] = Bundle.module.preferredLocalizations, locale: Locale = .current) -> String {
+        Bundle.module.localizedString(forKey: "rd.state.latency.detail", value: "%1$lld ms, %2$@. Control turns off above %3$lld ms.",
+                                      table: nil, arguments: [.count(rtt), .text(path), .count(limit)],
+                                      preferredLocalizations: preferredLocalizations, locale: locale)
     }
 
     static var developmentOnly: String {
