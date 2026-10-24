@@ -33,8 +33,10 @@ pub(crate) fn spawn(command: &mut Command) -> io::Result<Child> {
     let env = child_env(command);
     let path = resolve(&command.program, command, &env)?;
     let argv0 = command.arg0.clone().unwrap_or_else(|| command.program.clone());
-    let argv: Vec<CString> =
-        std::iter::once(&argv0).chain(&command.args).map(c_string).collect::<io::Result<_>>()?;
+    let argv: Vec<CString> = std::iter::once(&argv0)
+        .chain(&command.args)
+        .map(|arg| c_string(arg))
+        .collect::<io::Result<_>>()?;
     let envp: Vec<CString> = env
         .iter()
         .map(|(key, value)| {

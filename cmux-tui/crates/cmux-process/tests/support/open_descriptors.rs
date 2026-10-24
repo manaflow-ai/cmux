@@ -22,7 +22,7 @@ pub fn open_descriptors(pid: u32) -> io::Result<Vec<i32>> {
         if bytes <= 0 {
             return Err(io::Error::last_os_error());
         }
-        let entry = std::mem::size_of::<libc::proc_fdinfo>();
+        let entry = size_of::<libc::proc_fdinfo>();
         let mut list =
             vec![libc::proc_fdinfo { proc_fd: -1, proc_fdtype: 0 }; bytes as usize / entry + 16];
         // SAFETY: `list` has room for `list.len()` entries.
