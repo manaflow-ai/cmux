@@ -48,7 +48,10 @@ rewrites the json without comparing totals: reviewers compare the definitions):
                           whose type is a key type (UInt8, Int, Bool, a raw pointer; or an integer or
                           Boolean literal). The name is never the test, and a key used from another file
                           counts (keep the key private next to its use). No file is exempt (the
-                          composition root holds instances, not statics). A file-scope func that a
+                          composition root holds instances, not statics); a top-level `let`/`var` of a
+                          main.swift is a module global and counts, the bindings of a top-level
+                          `if`/`guard`/`while` condition list there (`guard let a = x,` then `let b = y
+                          else`) do not. A file-scope func that a
                           `make()` initializer resolves to is written at column 0 (every one in the
                           sources is; an indented one is not in the type table).
   global_mutable_statics  any other stored `static var` or file-scope `var`, or a static or file-scope
@@ -931,6 +934,18 @@ def _key_shaped(code: str, m: re.Match, ann: str | None, types: tuple[str, ...])
     return m.group(5) is not None and bool(re.fullmatch(r"\s*(?:-?\d+|true|false)\s*", _statement(code, m.start(5) + 1)))
 
 
+def _in_condition_list(code_lines: list[str], index: int) -> bool:
+    """Whether the `let`/`var` on line INDEX (0-based, blanked code) continues an `if`/`guard`/`while` condition
+    list: the lines before it end with `,` back to a line that starts with one of those keywords. Swift allows
+    such statements at file scope only in main.swift; there they bind the entry point's locals, not globals."""
+    i = index - 1
+    while i >= 0 and code_lines[i].rstrip().endswith(","):
+        if re.match(r"\s*(?:\}\s*else\s+)?(?:if|guard|while)\b", code_lines[i]):
+            return True
+        i -= 1
+    return False
+
+
 def analyze(path: str, raw: str) -> FileFacts:
     """The per-file facts of PATH with content RAW."""
     code = strip(raw)
@@ -963,8 +978,10 @@ def analyze(path: str, raw: str) -> FileFacts:
                 continue
         elif scopes:
             continue  # a local or an instance property
+        elif _in_condition_list(code_lines, _line_of(code, m.start(2), starts) - 1):
+            continue  # `guard let a = x,\n      let b = y else {`: a binding of main.swift's top-level code
         else:
-            owner = None  # a file-scope global: the same debt as a static
+            owner = None  # a file-scope global (main.swift's too): the same debt as a static
         line = _line_of(code, m.start(2), starts)  # the `let`/`var` line, not an attribute line above it
         if assign is None:
             # `static var x: T?` is stored (nil); without `=` anything else is computed or a requirement
