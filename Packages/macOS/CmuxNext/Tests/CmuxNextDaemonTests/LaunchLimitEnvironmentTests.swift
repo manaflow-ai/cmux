@@ -3,24 +3,11 @@ import CmuxNextCompat
 import Testing
 
 /// `CMUX_TUI_HOST_NOFILE_SOFT` (the open-file limit cmux was launched with) is for cmux-tui
-/// owners only (pl-cef-tab-nofile review 1): a stray copy in the login shell's or the app's own
-/// environment (an app started from a shell that inherited it) must not reach a terminal, where a
-/// cmux-tui started in it would take the stray value as its own launch limit.
+/// owners only (pl-cef-tab-nofile review 1). An inherited copy never reaches this layer: the app
+/// removes it with every inherited `CMUX*` variable at launch (`LaunchIdentity.inheritedKeys`,
+/// CmuxNextControlTests); only the app's `daemonEnvironment` names it, to the owners it starts.
 struct LaunchLimitEnvironmentTests {
     static let key = OpenFileLimit.originalSoftLimitKey
-
-    @Test func aStrayLaunchLimitNeverReachesATerminal() {
-        let stray = ["PATH": "/usr/bin:/bin", Self.key: "256"]
-        #expect(TerminalEnvironment.instance.terminal(login: stray, base: stray)[Self.key] == nil)
-        #expect(TerminalEnvironment.instance.terminal(login: nil, base: stray)[Self.key] == nil)
-    }
-
-    /// The daemon's own base environment drops a stray copy too; only the app's
-    /// `daemonEnvironment` (joined after this filter, `DaemonLauncher.forApp`) gives the daemon one.
-    @Test func aStrayLaunchLimitNeverReachesTheDaemonsBaseEnvironment() {
-        let stray = ["PATH": "/usr/bin:/bin", Self.key: "256"]
-        #expect(TerminalEnvironment.instance.daemon(login: stray, base: stray, overrides: [:])[Self.key] == nil)
-    }
 
     /// The Chief owner keeps the launch limit the app gives it (its brains and their tool shells
     /// get it back) and still drops every build identity.
