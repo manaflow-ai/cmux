@@ -125,6 +125,38 @@ fn notification_deadline(method: &str) -> Option<std::time::Duration> {
     (method != crate::rpc::method::SESSION_CANCEL).then_some(WORK_BACKPRESSURE_WAIT)
 }
 
+enum NotificationAdmission {
+    Accepted,
+    Closed,
+    Dropped,
+}
+
+fn admit_notification(
+    tx: &mpsc::Sender<(String, Value)>,
+    waiter_slots: &Arc<Semaphore>,
+    waits: &mut Vec<tokio::task::JoinHandle<()>>,
+    item: (String, Value),
+) -> NotificationAdmission {
+    waits.retain(|waiter| !waiter.is_finished());
+    match tx.try_send(item) {
+        Ok(()) => NotificationAdmission::Accepted,
+        Err(mpsc::error::TrySendError::Closed(_)) => NotificationAdmission::Closed,
+        Err(mpsc::error::TrySendError::Full(item)) => {
+            let Ok(waiter_slot) = waiter_slots.clone().try_acquire_owned() else {
+                return NotificationAdmission::Dropped;
+            };
+            let tx = tx.clone();
+            waits.push(tokio::spawn(async move {
+                let _waiter_slot = waiter_slot;
+                // Waiters race with direct sends. This does not affect current
+                // handlers: only session/cancel notifications have effects.
+                let _ = tx.send(item).await;
+            }));
+            NotificationAdmission::Accepted
+        }
+    }
+}
+
 fn spawn_notification_worker<F, Fut>(
     mut notifications: mpsc::Receiver<(String, Value)>,
     handler: F,
@@ -1090,47 +1122,33 @@ async fn serve_connection_from(
             Message::Notification { method: m, params } => {
                 let params = params.unwrap_or(Value::Null);
                 if m == method::SESSION_CANCEL {
-                    cancel_waits.retain(|waiter| !waiter.is_finished());
-                    match cancel_tx.try_send((method::SESSION_CANCEL.to_owned(), params)) {
-                        Ok(()) => {}
-                        Err(mpsc::error::TrySendError::Closed(_)) => break,
-                        Err(mpsc::error::TrySendError::Full(params)) => {
-                            if let Ok(waiter_slot) = cancel_waiters.clone().try_acquire_owned() {
-                                let tx = cancel_tx.clone();
-                                cancel_waits.push(tokio::spawn(async move {
-                                    let _waiter_slot = waiter_slot;
-                                    let _ = tx.send(params).await;
-                                }));
-                            } else {
-                                if dropped_notifications.fetch_add(1, Ordering::Relaxed) == 0 {
-                                    tracing::warn!(conn = %conn.id, "dropping notifications after bounded admission waiters are full");
-                                }
+                    match admit_notification(
+                        &cancel_tx,
+                        &cancel_waiters,
+                        &mut cancel_waits,
+                        (method::SESSION_CANCEL.to_owned(), params),
+                    ) {
+                        NotificationAdmission::Accepted => {}
+                        NotificationAdmission::Closed => break,
+                        NotificationAdmission::Dropped => {
+                            if dropped_notifications.fetch_add(1, Ordering::Relaxed) == 0 {
+                                tracing::warn!(conn = %conn.id, "dropping notifications after bounded admission waiters are full");
                             }
                         }
                     }
                     continue;
                 }
-                // Waiter tasks can complete between full-queue attempts. Keep
-                // their handles pruned so a long-lived connection does not
-                // retain finished tasks indefinitely.
-                notification_waits.retain(|waiter| !waiter.is_finished());
-                match notification_tx.try_send((m, params)) {
-                    Ok(()) => {}
-                    Err(mpsc::error::TrySendError::Closed(_)) => break,
-                    Err(mpsc::error::TrySendError::Full(item)) => {
-                        if let Ok(waiter_slot) = notification_waiters.clone().try_acquire_owned() {
-                            let tx = notification_tx.clone();
-                            notification_waits.push(tokio::spawn(async move {
-                                let _waiter_slot = waiter_slot;
-                                // Waiters race with direct sends. This does
-                                // not affect current handlers: only
-                                // session/cancel notifications have effects.
-                                let _ = tx.send(item).await;
-                            }));
-                        } else {
-                            if dropped_notifications.fetch_add(1, Ordering::Relaxed) == 0 {
-                                tracing::warn!(conn = %conn.id, "dropping notifications after bounded admission waiters are full");
-                            }
+                match admit_notification(
+                    &notification_tx,
+                    &notification_waiters,
+                    &mut notification_waits,
+                    (m, params),
+                ) {
+                    NotificationAdmission::Accepted => {}
+                    NotificationAdmission::Closed => break,
+                    NotificationAdmission::Dropped => {
+                        if dropped_notifications.fetch_add(1, Ordering::Relaxed) == 0 {
+                            tracing::warn!(conn = %conn.id, "dropping notifications after bounded admission waiters are full");
                         }
                     }
                 }
