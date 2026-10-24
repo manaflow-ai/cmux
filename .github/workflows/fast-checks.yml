@@ -62,7 +62,9 @@ jobs:
         run: |
           # Keep the sticky disk's Git object store for fetch speed, but never
           # trust metadata written by a prior command or source snapshot.
-          if [[ -d .git ]]; then
+          if [[ -L .git ]]; then
+            rm -f .git
+          elif [[ -d .git ]]; then
             rm -rf .git/hooks .git/logs .git/refs
             rm -f .git/index .git/packed-refs
             cat > .git/config <<'EOF'
