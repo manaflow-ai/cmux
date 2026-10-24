@@ -160,8 +160,8 @@ public final class ChromiumHostSession {
             let sent = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
             var frame = ChromiumHostFrame(.ping, t0: sent)
             frame.seq = id
-            let pong = await withTaskCancellationHandler {
-                await withCheckedContinuation { continuation in
+            let pong: ChromiumHostFrame? = await withTaskCancellationHandler {
+                await withCheckedContinuation { (continuation: CheckedContinuation<ChromiumHostFrame?, Never>) in
                     guard !Task.isCancelled else { return continuation.resume(returning: nil) }
                     pongs[id] = continuation
                     if !send(frame) { pongs.removeValue(forKey: id)?.resume(returning: nil) }
@@ -180,8 +180,8 @@ public final class ChromiumHostSession {
     public func hostInputStats() async -> [String: Int]? {
         seq &+= 1
         let id = seq
-        let reply = await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
+        let reply: ChromiumHostFrame? = await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<ChromiumHostFrame?, Never>) in
                 guard !Task.isCancelled else { return continuation.resume(returning: nil) }
                 statsWaiters[id] = continuation
                 var frame = ChromiumHostFrame(.stats)
@@ -192,8 +192,12 @@ public final class ChromiumHostSession {
             Task { @MainActor [weak self] in self?.resumeStatsWaiter(id) }
         }
         guard let reply else { return nil }
-        return ["events": Int(reply.v[0]), "p50_us": Int(reply.v[1]), "p95_us": Int(reply.v[2]),
-                "p99_us": Int(reply.v[3]), "max_us": Int(reply.v[4]), "refused_frames": Int(reply.v[5])]
+        let v = reply.v
+        let stats: [String: Int] = [
+            "events": Int(v[0]), "p50_us": Int(v[1]), "p95_us": Int(v[2]),
+            "p99_us": Int(v[3]), "max_us": Int(v[4]), "refused_frames": Int(v[5]),
+        ]
+        return stats
     }
 
     /// State for `debug.chromium_host`.
