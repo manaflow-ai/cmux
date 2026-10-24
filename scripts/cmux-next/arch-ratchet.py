@@ -20,7 +20,7 @@ Two rules refuse a push:
    (arch_rules/layer_gate.py): the layer rows hold the total only, and the unit of a layer row's rise that
    a gate refusal answers is not refused again (one refusal, one dated entry per edge). Rows: layer_hard, layer_soft,
    layer_upward, layer_unplaced, stateful_singletons, global_mutable_statics,
-   assume_isolated_outside_adapters, app_broadcast_names, observer_sites. Report only:
+   assume_isolated_outside_adapters, app_broadcast_names, observer_sites, blocking_allow_escapes. Report only:
    assume_isolated_total and app_lines (the app-size rule owns that refusal).
 2. Record: the push raises a ratcheted total in plans/cmux-next/arch-ratchet.json (or deletes the file)
    beyond what the exceptions it newly applies cover, changes or drops an applied exception, or changes
@@ -124,6 +124,8 @@ FIX = {
     "observer_sites": "observe a system notification once per app or window in an adapter that calls only the "
                       "affected subscribers; tell app subscribers directly. A wrapper (MainActorObservation, a "
                       "helper) is still an observer at each use that configures it",
+    "blocking_allow_escapes": "move the blocking call off the main thread (an actor, a detached task) instead of "
+                              "allowing it; an allowance is for a call that must block, with its reason",
 }
 
 
