@@ -17,6 +17,7 @@ import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { WriteLabel, writeCall } from "./WriteLabel";
 import { toolFailure } from "./toolFailure";
 import { failureWord, InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
+import { ToolText } from "./ToolText";
 
 function groupIcon(kind: ToolGroupKind): ReactNode {
   switch (kind) {
@@ -112,7 +113,7 @@ export function ToolGroupRow({
         onClick={fold.toggle}
       >
         <span className="cv-tool__icon">{running ? <Spinner size={16} /> : groupIcon(kind)}</span>
-        <span className="cv-tool__text" data-find-skip>
+        <ToolText working={running} findSkip>
           {write ? (
             <WriteLabel tool={tools[0]!} write={write} t={t} />
           ) : (
@@ -138,7 +139,7 @@ export function ToolGroupRow({
             </span>
           )}
           <InlineFailureCause failure={failure} />
-        </span>
+        </ToolText>
         <ChevronRight
           size={14}
           strokeWidth={1.2}

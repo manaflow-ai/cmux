@@ -12,6 +12,9 @@ import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { ToolText } from "../src/agent-session/acpmux/conversation/ToolText";
 import { readWebThemeBootstrap } from "../dev-server/galleryHost";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
@@ -42,11 +45,13 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
   // The script the app installs at document start in every cmux web view (WebTheme.swift).
   const bootstrap = readWebThemeBootstrap();
 
-  // A running transcript row's working mark (Spinner, WORKING-LOOK) with its words.
+  // A running transcript row's working mark (Spinner, WORKING-LOOK) with its words, as the row
+  // draws them (ToolText: the words and, while it runs, the shimmer's lit layer).
   const working =
     `<div class="cv-tool"><span class="cv-tool__icon"><span class="cv-spinner" data-working>` +
     `<span class="cv-spinner__arc"></span><span class="cv-spinner__dot"></span></span></span>` +
-    `<span class="cv-tool__text">Compacting</span></div>`;
+    renderToStaticMarkup(createElement(ToolText, { working: true, children: "Compacting" })) +
+    `</div>`;
   const paneLoops =
     `<button class="acpmux-mic" data-state="starting">mic</button>` +
     `<span class="acpmux-mp-refresh-spinner"></span><span class="acpmux-harness-spinner"></span>` +
@@ -137,7 +142,12 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
       await p.close();
     }
     expect(looks.breathe).toEqual(["cv-spinner cmux-breathe", "cv-spinner cmux-spin"]);
-    expect(looks.shimmer).toEqual(["cv-spinner cmux-spin", "cv-tool__text cmux-shimmer"]);
+    // The shimmer look sweeps the row's words with the compositor's two loops (ToolText.tsx).
+    expect(looks.shimmer).toEqual([
+      "cv-spinner cmux-spin",
+      "cv-tool__lit cmux-shimmer-lit",
+      "cv-tool__shine cmux-shimmer-band",
+    ]);
     expect(looks.spinner).toEqual(["cv-spinner cmux-spin", "cv-spinner cmux-spin"]);
   });
 

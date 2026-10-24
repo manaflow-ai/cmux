@@ -11,8 +11,7 @@ export const SPINNER_KEYFRAMES = "cmux-spin";
 export const SHARED_LOOP_KEYFRAMES: ReadonlySet<string> = new Set([
   SPINNER_KEYFRAMES,
   "cmux-breathe",
-  "cmux-shimmer",
-  // The Thinking shimmer's two layers (ShimmerText.tsx): one phase keeps the lit words still.
+  // Every shimmer's two layers (ShimmerText.tsx, ToolText.tsx): one phase keeps the lit words still.
   "cmux-shimmer-band",
   "cmux-shimmer-lit",
 ]);

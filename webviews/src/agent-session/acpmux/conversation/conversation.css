@@ -1696,7 +1696,8 @@ pre.cv-math-source {
    app picks, `data-working-look` on the root (Debug Settings `status.working`):
    - breathe (the default, also with no attribute): a dot in the theme accent that breathes once per
      `--cmux-breath-period`;
-   - shimmer: the same dot held still, and a light band crosses the row's words;
+   - shimmer: the same dot held still, and a light band crosses the row's words (ToolText.tsx: a
+     masked band and its lit copy of the words, two transform loops, as the Thinking line's);
    - spinner: the turning ring.
    A loading mark (no `data-working`) is always the ring. Every loop runs on the shared clock
    (ui/spinnerClock.ts), so many rows move as one, and holds still under Reduce Motion and the
@@ -1704,6 +1705,10 @@ pre.cv-math-source {
 .cv-spinner__dot {
   display: none;
   fill: var(--cmux-accent, currentColor);
+}
+/* The shimmer's layers of a running row's words (ToolText.tsx): shown only in that look. */
+.cv-tool__shine {
+  display: none;
 }
 :root:not([data-working-look="spinner"]) .cv-spinner[data-working] .cv-spinner__arc {
   display: none;
@@ -1722,22 +1727,40 @@ pre.cv-math-source {
     .cv-spinner[data-working] {
     animation: cmux-breathe var(--cmux-breath-period, 2.4s) ease-in-out infinite;
   }
+  /* SPINNERS-OFF-MAIN (perf-lead row 23): the words rest in the dim color while a band masked to a
+     soft stripe slides across them and its lit copy of the words slides back by as much, so the lit
+     words hold still under the moving stripe. Transform only: the compositor runs both loops and
+     the page paints nothing per frame (a text-clipped gradient's background-position repainted the
+     row every frame). Marks with their own color (edit counts, a failed count) keep it in both. */
   :root:not([data-status-indicators="static"])[data-working-look="shimmer"]
     .cv-tool:has(> .cv-tool__icon .cv-spinner[data-working])
     .cv-tool__text {
-    background: linear-gradient(100deg, var(--cv-text-dim) 30%, var(--cv-text) 50%, var(--cv-text-dim) 70%) 0 0 /
-      250% 100%;
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-    animation: cmux-shimmer var(--cmux-breath-period, 2.4s) linear infinite;
+    position: relative;
+    color: var(--cv-text-dim);
   }
-  /* Marks with their own color (edit counts, a failed count) keep it inside the band. */
   :root:not([data-status-indicators="static"])[data-working-look="shimmer"]
     .cv-tool:has(> .cv-tool__icon .cv-spinner[data-working])
-    .cv-tool__text
-    :is(.cv-edit-diff__add, .cv-edit-diff__del, .cv-tool__failed) {
-    -webkit-text-fill-color: currentColor;
+    .cv-tool__shine {
+    display: block;
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-mask-image: linear-gradient(100deg, transparent 30%, #000 50%, transparent 70%);
+    mask-image: linear-gradient(100deg, transparent 30%, #000 50%, transparent 70%);
+    animation: cmux-shimmer-band var(--cmux-breath-period, 2.4s) linear infinite;
+  }
+  :root:not([data-status-indicators="static"])[data-working-look="shimmer"]
+    .cv-tool:has(> .cv-tool__icon .cv-spinner[data-working])
+    .cv-tool__lit {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--cv-text);
+    animation: cmux-shimmer-lit var(--cmux-breath-period, 2.4s) linear infinite;
   }
 }
 .cv-tool__icon {

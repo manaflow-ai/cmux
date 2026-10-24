@@ -13,6 +13,7 @@ import { useToolRunLook } from "../toolRunLook";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { useScrollEdges } from "../summary/scrollEdges";
+import { ToolText } from "./ToolText";
 
 /// The summary's glyph: its main kind of work's, with searches and reads both as the magnifier.
 function runIcon(category: ToolRunCategory | undefined): ReactNode {
@@ -73,10 +74,10 @@ export function ToolRun({
         onClick={fold.toggle}
       >
         <span className="cv-tool__icon">{running ? <Spinner size={16} /> : runIcon(pencil ? "edited" : main)}</span>
-        <span className="cv-tool__text" data-find-skip>
+        <ToolText working={running} findSkip>
           {summary}
           {failures > 0 && <span className="cv-tool__failed"> {t("tools.failedCount", { n: failures })}</span>}
-        </span>
+        </ToolText>
         <ChevronRight
           size={14}
           strokeWidth={1.2}
