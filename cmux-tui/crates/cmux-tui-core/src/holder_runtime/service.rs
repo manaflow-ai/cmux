@@ -4,7 +4,8 @@
 //!
 //! One ownership rule holds on every path ([`ownership`]): after any
 //! connect, every terminal the holder runs is claimed by a live terminal of
-//! this daemon, by an entry the startup pass will re-attach, or it is
+//! this daemon, by an entry kept for a re-attach (the startup pass's, or a
+//! terminal this daemon left for the next one at its shutdown), or it is
 //! ended. A spawn or re-attach in flight finishes before a new link decides
 //! ([`HolderService::claimed_link`]), so what it claims is live by then.
 
@@ -35,6 +36,28 @@ struct LinkSlot {
     pending_close: HashMap<u32, u32>,
 }
 
+/// What this daemon claims on the holder, under one lock so a terminal
+/// moves from live to kept at one instant and an ownership pass sees each
+/// one in exactly one place.
+#[derive(Default)]
+struct Owned {
+    /// Terminals this daemon runs on the holder, for a re-adoption after a
+    /// holder crash.
+    live: HashMap<u32, Weak<HolderTerminal>>,
+    /// Terminals kept for a re-attach, by terminal id, each with the
+    /// custody dups of its master and ring: what the holder ran when the
+    /// startup pass first reached it (emptied after that pass,
+    /// [`HolderService::release_unclaimed`]) and the terminals this daemon
+    /// left for the next one at its shutdown. Kept across a reconnect
+    /// (refreshed, or handed to a new holder).
+    reserved: HashMap<[u8; 16], Listed>,
+    /// The channels of the kept entries this daemon left for the next
+    /// daemon ([`HolderService::leave`]): each new link gets their DETACH
+    /// once its ownership pass ran (a pass that saw one still live resumed
+    /// it) and routes them nowhere.
+    left: HashSet<u32>,
+}
+
 /// Starts a holder that serves the socket with the owner token and returns
 /// once it listens. The service's own is [`launch_holder`] (the holder
 /// executable); a test starts its holder its own way.
@@ -53,15 +76,7 @@ pub(crate) struct HolderService {
     /// and acknowledgements use [`Self::open_link`] only.
     connecting: Mutex<()>,
     next_chan: AtomicU32,
-    /// Terminals this daemon runs on the holder, for a re-adoption after a
-    /// holder crash.
-    live: Mutex<HashMap<u32, Weak<HolderTerminal>>>,
-    /// What the holder ran when the startup pass first reached it: the
-    /// terminals a restarted daemon re-attaches, by terminal id. Filled by
-    /// that first connection only, kept across a reconnect (refreshed, or
-    /// handed to a new holder), emptied after the startup pass
-    /// ([`Self::release_unclaimed`]).
-    listed: Mutex<HashMap<[u8; 16], Listed>>,
+    owned: Mutex<Owned>,
     /// Held shared by a spawn or re-attach from the moment it takes the
     /// link until the terminal it claims is live (or it failed), and
     /// exclusively by a new link's ownership pass: that pass never ends or
@@ -70,10 +85,6 @@ pub(crate) struct HolderService {
     /// Another daemon of the session took the holder: this one never
     /// connects again, so the two do not take it from each other in turn.
     superseded: AtomicBool,
-    /// This daemon shuts down and left its terminals to the holder
-    /// (DETACH): it never connects again either, so no new link's
-    /// ownership pass ends a shell it left for the next daemon.
-    leaving: AtomicBool,
 }
 
 impl HolderService {
@@ -106,11 +117,9 @@ impl HolderService {
             link: Mutex::default(),
             connecting: Mutex::new(()),
             next_chan: AtomicU32::new(1),
-            live: Mutex::default(),
-            listed: Mutex::default(),
+            owned: Mutex::default(),
             claims: RwLock::new(()),
             superseded: AtomicBool::new(false),
-            leaving: AtomicBool::new(false),
         })
     }
 
@@ -165,11 +174,6 @@ impl HolderService {
                 "another daemon of this session took the terminal holder",
             ));
         }
-        if self.leaving.load(Ordering::Acquire) {
-            return Err(io::Error::other(
-                "this daemon shuts down and left its terminals to the holder",
-            ));
-        }
         // Spawns and re-attaches in flight on the lost link settle first:
         // each terminal they claim is live before this link decides.
         let _claims = self.claims.write().recover_poison();
@@ -194,25 +198,22 @@ impl HolderService {
     }
 
     /// Apply a new link's ownership pass ([`ownership`]) to what it lists,
-    /// this daemon's live terminals and the startup pass's entries. The
-    /// master dups of what it lists drop here unless an entry keeps them:
-    /// the daemon keeps its own custody copies.
+    /// this daemon's live terminals and its kept entries. The master dups of
+    /// what it lists drop here unless an entry keeps them: the daemon keeps
+    /// its own custody copies.
     fn take_ownership(&self, link: &HolderLink, listed: Vec<Listed>, reserve_new: bool) {
-        let live: HashMap<u32, Arc<HolderTerminal>> = self
+        // One snapshot of both: a terminal that moves from live to kept
+        // meanwhile is in exactly one of them.
+        let owned = self.owned.lock().recover_poison();
+        let live: HashMap<u32, Arc<HolderTerminal>> = owned
             .live
-            .lock()
-            .recover_poison()
             .values()
             .filter_map(Weak::upgrade)
             .map(|terminal| (terminal.chan, terminal))
             .collect();
-        let reserved_by_chan: HashMap<u32, [u8; 16]> = self
-            .listed
-            .lock()
-            .recover_poison()
-            .values()
-            .map(|entry| (entry.chan, entry.id))
-            .collect();
+        let reserved_by_chan: HashMap<u32, [u8; 16]> =
+            owned.reserved.values().map(|entry| (entry.chan, entry.id)).collect();
+        drop(owned);
         let claims = ownership(
             &listed.iter().map(|entry| (entry.chan, entry.id)).collect::<Vec<_>>(),
             &live.values().map(|terminal| (terminal.chan, terminal.id)).collect::<Vec<_>>(),
@@ -236,43 +237,67 @@ impl HolderService {
                 _ => {}
             }
         }
+        // Kept entries for a new holder leave the map while their ADOPTs are
+        // written: no lock of this service is held across a socket write (a
+        // surface's leave takes it under its runtime lock). Nothing else
+        // takes a kept entry meanwhile: a re-attach waits for this pass.
+        let mut handed: Vec<Listed> = {
+            let mut owned = self.owned.lock().recover_poison();
+            claims
+                .iter()
+                .filter(|(_, claim)| *claim == Claim::HandOver)
+                .filter_map(|(chan, _)| reserved_by_chan.get(chan))
+                .filter_map(|id| owned.reserved.remove(id))
+                .collect()
+        };
+        for entry in &mut handed {
+            hand_over(link, entry);
+        }
         let mut listed: HashMap<u32, Listed> =
             listed.into_iter().map(|entry| (entry.chan, entry)).collect();
-        let mut reserved = self.listed.lock().recover_poison();
+        let mut owned = self.owned.lock().recover_poison();
+        for entry in handed {
+            owned.reserved.insert(entry.id, entry);
+        }
         for (chan, claim) in claims {
-            let id = reserved_by_chan.get(&chan);
             match claim {
                 Claim::Refresh => {
-                    if let (Some(id), Some(entry)) = (id, listed.remove(&chan)) {
-                        reserved.insert(*id, entry);
-                    }
-                }
-                Claim::HandOver => {
-                    if let Some(entry) = id.and_then(|id| reserved.get_mut(id)) {
-                        hand_over(link, entry);
+                    if let (Some(id), Some(entry)) =
+                        (reserved_by_chan.get(&chan), listed.remove(&chan))
+                    {
+                        owned.reserved.insert(*id, entry);
                     }
                 }
                 Claim::Reserve => {
                     if let Some(entry) = listed.remove(&chan) {
-                        reserved.entry(entry.id).or_insert(entry);
+                        owned.reserved.entry(entry.id).or_insert(entry);
                     }
                 }
-                Claim::Resume | Claim::Adopt | Claim::Close => {}
+                Claim::Resume | Claim::Adopt | Claim::HandOver | Claim::Close => {}
             }
         }
     }
 
-    /// Make `link` the current link and send the CLOSEs that waited for it.
+    /// Make `link` the current link and send the CLOSEs that waited for it,
+    /// and the DETACH of every terminal left for the next daemon. The link
+    /// is set before the left channels are read, and [`Self::leave`] marks
+    /// its channel before it reads the link, so a leave meanwhile either is
+    /// in this list or sends its DETACH on this link itself.
     fn publish(&self, link: &Arc<HolderLink>) {
         let pending: Vec<(u32, u32)> = {
             let mut slot = self.link.lock().recover_poison();
             slot.link = Some(link.clone());
             slot.pending_close.iter().map(|(chan, grace_ms)| (*chan, *grace_ms)).collect()
         };
+        let left: Vec<u32> = self.owned.lock().recover_poison().left.iter().copied().collect();
         for (chan, grace_ms) in pending {
             if let Err(error) = link.close(chan, grace_ms) {
                 eprintln!("cmux-tui: end holder terminal {chan}: {error}");
             }
+        }
+        for chan in left {
+            link.forget(chan);
+            let _ = link.detach(chan);
         }
     }
 
@@ -318,14 +343,16 @@ impl HolderService {
     ) -> io::Result<Option<Arc<HolderTerminal>>> {
         let (link, _claim) = self.claimed_link()?;
         let (entry, custody) = {
-            let mut reserved = self.listed.lock().recover_poison();
-            let Some(mut entry) = reserved.remove(id) else { return Ok(None) };
+            let mut owned = self.owned.lock().recover_poison();
+            let Some(mut entry) = owned.reserved.remove(id) else { return Ok(None) };
             let Some(custody) = entry.master.take() else {
                 // Never from a listing (it carries the master): left to the
                 // startup pass's release, which ends it.
-                reserved.insert(*id, entry);
+                owned.reserved.insert(*id, entry);
                 return Err(io::Error::other("the holder listed a terminal without its master"));
             };
+            // Live again (a next daemon in this process): no link detaches it.
+            owned.left.remove(&entry.chan);
             (entry, custody)
         };
         // A shell that ended while no daemon ran still re-attaches: its last
@@ -349,7 +376,7 @@ impl HolderService {
     /// daemon reached it.
     pub(crate) fn lists(self: &Arc<Self>, id: &[u8; 16]) -> bool {
         self.link_or_launch(Reach::Startup).is_ok()
-            && self.listed.lock().recover_poison().contains_key(id)
+            && self.owned.lock().recover_poison().reserved.contains_key(id)
     }
 
     /// After the startup pass: end every terminal the holder runs that no
@@ -360,8 +387,11 @@ impl HolderService {
     pub(crate) fn release_unclaimed(self: &Arc<Self>) {
         let link = self.link_or_launch(Reach::Existing);
         let _claims = self.claims.write().recover_poison();
-        let unclaimed: Vec<Listed> =
-            self.listed.lock().recover_poison().drain().map(|(_, entry)| entry).collect();
+        let unclaimed: Vec<Listed> = {
+            let mut owned = self.owned.lock().recover_poison();
+            owned.left.clear();
+            owned.reserved.drain().map(|(_, entry)| entry).collect()
+        };
         // No holder runs: their master dups close here, and with the dead
         // holder's gone the shells hang up.
         let Ok(link) = link else { return };
@@ -412,18 +442,57 @@ impl HolderService {
         link.close(chan, grace_ms)
     }
 
-    /// The daemon leaves `chan` running on the holder for its shutdown.
-    /// Never connects, and from now on never will ([`Self::leaving`]).
-    pub(super) fn detach(&self, chan: u32) {
-        self.leaving.store(true, Ordering::Release);
-        if let Some(link) = self.open_link() {
+    /// The daemon leaves `terminal` running on the holder for the next
+    /// daemon (its shutdown): it stops being live and is kept like a
+    /// startup-pass entry, with dups of its custody master and ring. Every
+    /// other terminal still streams and reconnects as before; a new link's
+    /// pass keeps this one on the same holder and hands it to a new holder
+    /// unattached, never ends it, and the link gets its DETACH. Never waits
+    /// for a connect (a surface calls it under its runtime lock): the move
+    /// takes the one lock of [`Owned`], so a pass sees the terminal live or
+    /// kept, not neither.
+    pub(super) fn leave(&self, terminal: &HolderTerminal) {
+        let chan = terminal.chan;
+        let master = terminal.custody.try_clone();
+        if let Err(error) = &master {
+            // Then only the same holder keeps it for the next daemon.
+            eprintln!("cmux-tui: keep holder terminal {chan} for the next daemon: {error}");
+        }
+        let ring = terminal
+            .ring
+            .lock()
+            .recover_poison()
+            .as_ref()
+            .and_then(|segment| segment.try_clone().ok());
+        let received = terminal.sink.received();
+        let entry = Listed {
+            chan,
+            id: terminal.id,
+            pid: terminal.pid,
+            oldest: received,
+            end: received,
+            exited: false,
+            master: master.ok(),
+            ring,
+        };
+        {
+            let mut owned = self.owned.lock().recover_poison();
+            owned.live.remove(&chan);
+            owned.reserved.insert(terminal.id, entry);
+            owned.left.insert(chan);
+        }
+        // After the mark: a link published meanwhile is the one read here,
+        // or its publish reads the mark ([`Self::publish`]).
+        let link = self.open_link();
+        if let Some(link) = link {
+            link.forget(chan);
             let _ = link.detach(chan);
         }
     }
 
     /// Stop tracking `chan` (its terminal ended or its surface left).
     pub(crate) fn untrack(&self, chan: u32) {
-        self.live.lock().recover_poison().remove(&chan);
+        self.owned.lock().recover_poison().live.remove(&chan);
         let link = {
             let mut slot = self.link.lock().recover_poison();
             slot.pending_close.remove(&chan);
@@ -458,14 +527,14 @@ impl HolderService {
             service: self.clone(),
             replay: Mutex::new(None),
         });
-        self.live.lock().recover_poison().insert(chan, Arc::downgrade(&terminal));
+        self.owned.lock().recover_poison().live.insert(chan, Arc::downgrade(&terminal));
         terminal
     }
 
     /// End every live terminal as lost: no holder can stream it.
     fn lose_all(&self) {
         let live: Vec<_> =
-            self.live.lock().recover_poison().values().filter_map(Weak::upgrade).collect();
+            self.owned.lock().recover_poison().live.values().filter_map(Weak::upgrade).collect();
         for terminal in live {
             terminal.sink.lose();
         }
@@ -493,11 +562,6 @@ impl HolderService {
                         "cmux-tui: the terminal holder could not read this daemon's link \
                          (error code {code}); connecting again"
                     );
-                }
-                if service.leaving.load(Ordering::Acquire) {
-                    // Shutting down: the next daemon re-attaches what this
-                    // one left, from this holder or (if it died) not at all.
-                    return;
                 }
                 // The holder died: start a new one and hand it every master.
                 let _ =

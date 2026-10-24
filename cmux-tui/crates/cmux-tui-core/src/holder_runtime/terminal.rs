@@ -64,13 +64,14 @@ pub(super) const ADOPT_PROLOGUE_MAX_BYTES: usize = 768 * 1024;
 pub(super) const SNAPSHOT_MAX_BYTES: usize = 128 * 1024;
 
 impl HolderTerminal {
-    /// The daemon exits and leaves the shell to the holder: the reader and
-    /// the wait end without recording an end, and the holder hears DETACH
-    /// (the link's end is no strike against the terminal's stream).
+    /// The daemon exits and leaves the shell to the holder for the next
+    /// daemon: the reader and the wait end without recording an end, the
+    /// holder hears DETACH (the link's end is no strike against the
+    /// terminal's stream), and the service keeps it for the next daemon
+    /// across a reconnect or a holder crash ([`HolderService::leave`]).
     pub(crate) fn detach(&self) {
         self.sink.detach();
-        self.service.detach(self.chan);
-        self.service.untrack(self.chan);
+        self.service.leave(self);
     }
 
     /// How to replay the screen for a new holder (the surface sets it).

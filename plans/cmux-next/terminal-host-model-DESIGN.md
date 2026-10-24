@@ -184,6 +184,14 @@ processes and ~2,000 threads fewer.
   Before, only the startup pass's release closed unclaimed terminals: a spawn whose SPAWNED a
   dropped link lost, a timed-out spawn or a failed re-attach left a shell that no daemon owned
   running for ever and kept the holder from its idle exit.
+  Left for the next daemon (holder-core fix review): a terminal the daemon DETACHes at its
+  shutdown moves, under the one lock of the service's claims (live terminals and kept entries),
+  from live to a kept entry with dups of its custody master and ring; each new link's pass keeps
+  it on the same holder and hands it to a new holder unattached, never CLOSEs it, and gets its
+  DETACH after the pass. Every other terminal reconnects as before (before: the first DETACH set
+  a service-wide mode that stopped every reconnect, so the terminals not detached yet stopped
+  streaming and a holder crash during the shutdown lost them). Tests:
+  `holder_runtime/service/tests.rs` against a real holder behind a frame proxy.
 - Holder crash: the daemon still has every master and its parsed state; it starts a new holder
   and ADOPTs every fd. Output written while no holder reads waits in the kernel's PTY buffer (the
   shell blocks, nothing is lost). Exit statuses of shells whose parent died read
