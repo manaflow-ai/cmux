@@ -131,9 +131,14 @@ pub use agent_hooks::{
 };
 pub use browser::{BrowserFailure, TRANSPORT_SAFE_CAPTURE_MEGAPIXELS, normalize_url};
 /// The owner raises its open-file soft limit at start; terminal hosts and
-/// PTY children get the original back (`cmux_pty::open_files`).
+/// PTY children get the original back (`cmux_pty::open_files`): the one it
+/// started with, or the launch limit its parent named in
+/// `LAUNCH_SOFT_LIMIT_ENV`.
 #[cfg(unix)]
-pub use cmux_pty::{OPEN_FILE_LIMIT_CEILING, OpenFileLimit, raise_open_file_limit};
+pub use cmux_pty::{
+    LAUNCH_SOFT_LIMIT_ENV, OPEN_FILE_LIMIT_CEILING, OpenFileLimit, original_open_file_limit,
+    raise_open_file_limit, record_original_open_file_limit,
+};
 pub use event_bus::{MuxEventBroadcaster, MuxEventReceiver};
 pub(crate) use journal_ingress::contention::JournalContention;
 pub use journal_ingress::{FrontendFocusTarget, FrontendJournalEvent};

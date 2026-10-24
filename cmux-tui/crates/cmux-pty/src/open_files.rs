@@ -10,9 +10,22 @@
 //! limit of the environment that launched cmux, and a raised limit is not
 //! inherited by code that uses `select(2)` with descriptors below 1024.
 //! Ghostty does the same for its own children.
+//!
+//! A daemon can start with a limit that is already raised: the cmux app
+//! raises its own before it starts the daemon, and a cmux process that
+//! raised its limit starts a detached owner. Such a parent names the limit
+//! cmux was launched with in [`LAUNCH_SOFT_LIMIT_ENV`]; the daemon records
+//! it ([`record_original_open_file_limit`]) and removes the variable at
+//! start, so every restore path above gives that limit back.
 
 use std::io;
 use std::sync::atomic::{AtomicU64, Ordering};
+
+/// The environment variable that carries the soft `RLIMIT_NOFILE` cmux was
+/// launched with to a cmux process that starts with a raised one: the
+/// daemon, its holder (cmux-holder `NOFILE_SOFT_ENV`, the same name) and its
+/// terminal hosts read it, and no shell ever sees it.
+pub const LAUNCH_SOFT_LIMIT_ENV: &str = "CMUX_TUI_HOST_NOFILE_SOFT";
 
 /// The daemon never asks for more than this many descriptors. It is enough
 /// for far more terminals than one machine can run with real PTYs, and it
@@ -20,8 +33,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// `close_range` run for every spawned terminal.
 pub const OPEN_FILE_LIMIT_CEILING: u64 = 65_536;
 
-/// The soft limit before [`raise_open_file_limit`] changed it, plus one;
-/// zero while it has not changed it.
+/// The soft limit cmux was launched with, plus one: the one
+/// [`record_original_open_file_limit`] recorded, else the one before
+/// [`raise_open_file_limit`] changed it; zero while neither happened.
 static ORIGINAL_SOFT_LIMIT: AtomicU64 = AtomicU64::new(0);
 
 /// The soft limit before and after a raise.
@@ -31,11 +45,27 @@ pub struct OpenFileLimit {
     pub after: u64,
 }
 
+/// Record `soft` as the limit cmux was launched with, for a process that
+/// started with a raised limit (its parent named the launch limit in
+/// [`LAUNCH_SOFT_LIMIT_ENV`]). Call it before [`raise_open_file_limit`]: the
+/// first recorded limit wins, so the raise keeps this one, and
+/// [`original_open_file_limit`] and [`restore_open_file_limit_in_child`]
+/// give children `soft` even when the raise had nothing to change.
+pub fn record_original_open_file_limit(soft: u64) {
+    let _ = ORIGINAL_SOFT_LIMIT.compare_exchange(
+        0,
+        soft.saturating_add(1),
+        Ordering::AcqRel,
+        Ordering::Acquire,
+    );
+}
+
 /// Raise this process's soft `RLIMIT_NOFILE` to `min(hard, ceiling)` (and on
 /// macOS to at most `kern.maxfilesperproc`). It never
 /// lowers the soft limit and never changes the hard limit. The first call
 /// that changes the limit records the original soft limit for
-/// [`restore_open_file_limit_in_child`].
+/// [`restore_open_file_limit_in_child`], unless
+/// [`record_original_open_file_limit`] recorded one first.
 pub fn raise_open_file_limit(ceiling: u64) -> io::Result<OpenFileLimit> {
     let mut limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
     // SAFETY: `limit` is valid writable storage for one rlimit.
