@@ -340,7 +340,9 @@ COMMON_INPUTS = (
 JOB_INPUTS = {
     "swift-test": ("webviews/src/app.ts", "cmux-tui/Cargo.lock", "cmux-tui/crates/cmux-layout-reducer/src/lib.rs"),
     "generated-files": ("webviews/src/app.ts", "scripts/ci/defaults_guard.py", "docs/mdm/index.md"),
-    "release-compile": (),
+    "release-compile": ("LICENSE", "scripts/verify-app-bundle-licenses.sh",
+                        "cmux-tui/build-support/notices", "cmux-tui/rust-toolchain.toml",
+                        "cmux-tui/crates/ghostty-vt-sys/build.rs"),
 }
 # Files no Mac job reads: a base move that touches only these keeps every key.
 OUTSIDE = ("docs/readme.md", "web/app/page.tsx", "cmux-tui/crates/cmux-daemon/src/lib.rs", "plans/other/notes.md",

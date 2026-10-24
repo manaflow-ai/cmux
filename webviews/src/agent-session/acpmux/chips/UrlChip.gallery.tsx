@@ -74,7 +74,12 @@ export default componentEntry<UrlChipProps>({
   ],
   load: () => import("./LinkChips").then((module) => module.UrlChip),
   styles: () =>
-    Promise.all([import("../styles.css"), import("../conversation/conversation.css"), import("./chips.css")]),
+    Promise.all([
+      import("../../shared/styles.css"),
+      import("../styles.css"),
+      import("../conversation/conversation.css"),
+      import("./chips.css"),
+    ]),
   widths: { narrow: 360, normal: 640, wide: 860 },
   variants: {
     globe: { props: { href: "https://example.test/docs/getting-started", children: "example.test/docs" } },
@@ -154,6 +159,32 @@ export default componentEntry<UrlChipProps>({
         fetchedAt: GALLERY_NOW / 1000 - 20,
       }),
       props: { href: PULL_REQUEST, children: "manaflow-ai/cmux#22777" },
+      play: openCard,
+    },
+    // The theme-color pass keeps all three semantic inks visible together: additions, deletions
+    // and the passing/failing check count. The matrix renders this state in dark, light and
+    // colorful terminal themes for before/after review.
+    "pull-request-theme-colors": {
+      chipHost: prHost({
+        pullRequest: pullRequest({
+          title: "cmux NEXT: terminal theme colors carry through status text",
+          review: "approved",
+          mergeable: "mergeable",
+          labels: ["risk:normal", "theme"],
+          checks: { state: "failing", passed: 97, total: 100 },
+          checkList: [{ name: "cmux-next / web lint", state: "failed" }],
+          files: [
+            file("webviews/src/agent-session/acpmux/chips/linkCard.css", 22, 18),
+            file("webviews/src/agent-session/acpmux/conversation/conversation.css", 30, 30),
+            file("webviews/test/agent-status-colors.test.ts", 96, 0),
+          ],
+          additions: 148,
+          deletions: 48,
+          changedFiles: 3,
+        }),
+        fetchedAt: GALLERY_NOW / 1000 - 12,
+      }),
+      props: { href: PULL_REQUEST, children: "manaflow-ai/cmux#theme-colors" },
       play: openCard,
     },
     // A red the base branch already has: the compact ✓/✗ count says how many of the failures are not

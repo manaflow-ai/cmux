@@ -547,6 +547,19 @@
             }
           },
           "description": "Every live Chief, the default first, then in creation order."
+        },
+        "deleted": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            }
+          },
+          "description": "The ids of deleted Chiefs (their tombstones), in deletion order, so a client hides their conversations."
         }
       },
       "extra": false

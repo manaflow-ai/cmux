@@ -37,7 +37,10 @@ class FakeApp:
 
     def action(self, name, args=None, target=None):
         if name == "closeWorkspace":
-            self.workspaces.remove(args["workspace"])
+            # The app action now carries the workspace id in its typed target
+            # (`workspace:<id>`); keep the fixture on that public invocation
+            # shape so cleanup exercises the same path as the real gate.
+            self.workspaces.remove(target.split(":", 1)[1])
 
     def workspace_ids(self):
         return list(self.workspaces)

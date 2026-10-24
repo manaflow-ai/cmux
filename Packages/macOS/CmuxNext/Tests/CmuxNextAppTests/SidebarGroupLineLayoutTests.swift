@@ -61,13 +61,14 @@ import Testing
         #expect(inset + SidebarStyle.groupBarWidth == SidebarStyle.rowCornerRadius, "the line's right edge is off the corner arc's end")
     }
 
-    @Test func theTopCutOnlyTapersTheRailLeavingTheHeader() {
-        let path = SidebarGroupLineShape.topTaper(railWidth: 2, flareWidth: 6, flareHeight: 6, height: 20)
-        #expect(path.contains(CGPoint(x: 0.1, y: 0.1)), "the rail's left edge stays straight")
-        #expect(path.contains(CGPoint(x: 5.5, y: 0.5)), "the right side visibly flares into the header")
-        #expect(!path.contains(CGPoint(x: 3.5, y: 5.5)), "the right side tapers back to the rail")
-        #expect(path.contains(CGPoint(x: 1.9, y: 7)), "the rail reaches full width below the taper")
-        #expect(path.contains(CGPoint(x: 1.9, y: 19.9)), "the rail's bottom remains square")
+    @Test func theRailRoundsOnlyItsRightCorners() {
+        let path = SidebarGroupLineShape.line(width: 2, height: 20)
+        #expect(path.contains(CGPoint(x: 0.1, y: 0.1)), "the left edge stays straight at the top")
+        #expect(path.contains(CGPoint(x: 0.1, y: 19.9)), "the left edge stays straight at the bottom")
+        #expect(!path.contains(CGPoint(x: 1.9, y: 0.1)), "the top-right corner rounds inward")
+        #expect(path.contains(CGPoint(x: 1.9, y: 3)), "the top reaches full width after one radius")
+        #expect(!path.contains(CGPoint(x: 1.9, y: 19.9)), "the bottom-right corner rounds inward")
+        #expect(path.contains(CGPoint(x: 1.9, y: 17)), "the bottom reaches full width before one radius")
     }
 
     @Test @MainActor func theCutMaskRetainsCoverageWhenARailShrinks() {
@@ -93,13 +94,13 @@ import Testing
             let header = try #require(list.rowViews[.group(Self.group)] as? GroupHeaderRowView)
             let loose = try #require(list.rowViews[.workspace(Self.looseID)])
             let line = try #require(list.groupLineViews.shown[Self.group]?.frame, "\(layout): the open group has no line")
-            let view = try #require(GroupPaletteDefaultTests.views(GroupLineView.self, in: sidebar).first { $0.logicalFrame == line })
+            let view = try #require(GroupPaletteDefaultTests.views(GroupLineView.self, in: sidebar).first { $0.frame == line })
             let head = header.frame
             #expect(line.width == 2, "\(layout): the line is \(line.width) pt")
             view.layoutSubtreeIfNeeded()
             #expect(view.layer?.cornerRadius == 0 && view.layer?.masksToBounds == true && view.railShape.path != nil,
                     "\(layout): the line has the clipped Chrome corner cut")
-            #expect(view.railShape.frame.width == 6 && view.railShape.frame.height >= 4096,
+            #expect(view.railShape.frame.width == 2 && view.railShape.frame.height >= 4096,
                     "\(layout): the cut shape covers a rail during its bounds spring")
 
             #expect(line.minX == loose.frame.minX - SidebarStyle.groupRailReach, "\(layout): the line left the rail, at \(line.minX)")

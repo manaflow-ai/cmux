@@ -308,9 +308,9 @@ test("the glyph follows state and the card names that state in its status row", 
   const styles = readFileSync(path.join(import.meta.dir, "../src/agent-session/acpmux/chips/linkCard.css"), "utf8");
   const colour = (state: string) =>
     new RegExp(`\\.acpmux-pr-card__glyph\\[data-state=${state}\\]\\{color:([^}]*)\\}`).exec(styles)?.[1];
-  expect(colour("open")).toContain("--agent-success");
-  expect(colour("merged")).toContain("--agent-ansi-5");
-  expect(colour("closed")).toContain("--agent-danger");
+  expect(colour("open")).toContain("--agent-status-success");
+  expect(colour("merged")).toContain("--agent-status-merged");
+  expect(colour("closed")).toContain("--agent-status-failure");
   expect(styles).toContain(".acpmux-pr-card__state");
 });
 

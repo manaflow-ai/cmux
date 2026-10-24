@@ -266,6 +266,44 @@ pub fn sibling_device_ids(app_support: &Path, own: &str, machine_id: &str) -> Ve
     ids
 }
 
+/// The other builds a registration names: [`sibling_device_ids`], or none
+/// when the machine id is an override. An override (a hidden test rig) says
+/// this build is its own computer; claiming this Mac's folders as its
+/// siblings would make the backend give its id to every same-owner record
+/// that has none yet (old builds, other rigs) and fold them into it for good.
+pub fn registration_siblings(app_support: &Path, own: &str, machine_id: &str, overridden: bool) -> Vec<String> {
+    if overridden {
+        return Vec::new();
+    }
+    sibling_device_ids(app_support, own, machine_id)
+}
+
+/// [`HostConfig::machine`] on the fields it reads: the machine id to register
+/// (`id`, nil when the host has none), whether it is an override, this
+/// build's state folder (its marker) and the folders its siblings live in.
+pub fn registration_machine(
+    id: Option<String>,
+    overridden: bool,
+    state_dir: &Path,
+    app_support: &Path,
+    device_id: &str,
+) -> (Option<String>, Vec<String>) {
+    let Some(id) = id else {
+        tracing::info!("no machine id on this host: the phone lists this build as its own Mac");
+        return (None, Vec::new());
+    };
+    let marker = state_dir.join(MACHINE_MARKER);
+    // An override (tests, the rig) is not this computer's id: never written as its marker.
+    if !overridden
+        && std::fs::read_to_string(&marker).ok().as_deref() != Some(id.as_str())
+        && let Err(error) = std::fs::create_dir_all(state_dir).and_then(|()| std::fs::write(&marker, &id))
+    {
+        tracing::warn!("could not write the machine marker: {error}");
+    }
+    let siblings = registration_siblings(app_support, device_id, &id, overridden);
+    (Some(id), siblings)
+}
+
 /// `~/Library/Application Support` (`CMUX_MOBILE_APP_SUPPORT_DIR` in tests).
 pub fn app_support_dir() -> PathBuf {
     env("CMUX_MOBILE_APP_SUPPORT_DIR")
@@ -283,20 +321,13 @@ impl HostConfig {
     /// other builds' device ids, after writing this build's marker. Nothing
     /// without a machine id (logged once per registration).
     pub fn machine(&self, owner: &str) -> (Option<String>, Vec<String>) {
-        let Some(id) = self.machine_id(owner) else {
-            tracing::info!("no machine id on this host: the phone lists this build as its own Mac");
-            return (None, Vec::new());
-        };
-        let marker = self.state_dir.join(MACHINE_MARKER);
-        // An override (tests, the rig) is not this computer's id: never written as its marker.
-        if self.machine_id_override.is_none()
-            && std::fs::read_to_string(&marker).ok().as_deref() != Some(id.as_str())
-            && let Err(error) = std::fs::create_dir_all(&self.state_dir).and_then(|()| std::fs::write(&marker, &id))
-        {
-            tracing::warn!("could not write the machine marker: {error}");
-        }
-        let siblings = sibling_device_ids(&self.app_support, &self.device_id, &id);
-        (Some(id), siblings)
+        registration_machine(
+            self.machine_id(owner),
+            self.machine_id_override.is_some(),
+            &self.state_dir,
+            &self.app_support,
+            &self.device_id,
+        )
     }
 
     /// Reads the environment. `supplied` (supervised mode) replaces the token

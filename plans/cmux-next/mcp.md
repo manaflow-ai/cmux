@@ -1,5 +1,9 @@
 # cmux next: the MCP server (`cmux mcp`)
 
+How Chiefs get MCP servers (tool packs, `.mcp.json` and codex config per Chief) is in
+[chief-toolpacks-DESIGN.md](chief-toolpacks-DESIGN.md) section 6; this file stays the contract of
+`cmux mcp serve`.
+
 `cmux mcp serve` gives MCP clients (Claude Code, Codex, any stdio MCP client) the
 same control of cmux that the `cmux` CLI has. It is part of the Rust `cmux` binary
 (cli.md, C2) and lives in `cmux-tui/crates/cmux-tui/src/cli/mcp*`. Phase 1, agreed

@@ -1,0 +1,112 @@
+03:37:07 rig mini-cmux11s-mac-mini: device 20b6e48c-f0ba-4169-a60b-52b887731225, workspace brfz-term (9 workspaces: ['Home', 'brfz-term', 'lr-a', 'New Workspace', 'lr-a', 'lr-a', 'lr-a', 'lr-a'])
+03:37:09 app launched, config default, env ['CMUX_MOBILE_LOG'], drop 0, bg 20.0
+03:37:09 phone tab s67 opens -
+03:37:14 host 03:37:10 link up session_id="16f9c8e1-c8bc-4fd7-980a-342696560161" kind=WireGuard path=Turn phone="07d3d268-ebfe-4601-af11-a32bd5d268cd" video=true timings=offer_received=0.0ms ice_servers_cached=0.0ms video_l
+03:37:14 host 03:37:10 link path changed session_id="16f9c8e1-c8bc-4fd7-980a-342696560161" path=Turn
+03:37:14 host 03:37:10 media session up session_id="90997b2b-5106-405f-9da0-12f39f256c39" link_session="16f9c8e1-c8bc-4fd7-980a-342696560161" path=Direct timings=media_offer_received=0.0ms pc_created=0.3ms media_answer_sent
+03:37:19 host 03:37:19 media session down session_id="8279cba8-79a9-4916-af2f-c5f2a6bfe2a2" link_session="559c67fd-c7a9-49cc-b0cc-3c6206d2228c" reason="failed"
+03:37:25 step open_tab ('A', 'https://en.wikipedia.org/wiki/Cat') at +0.3 min
+03:37:35 host 03:37:33 link down session_id="559c67fd-c7a9-49cc-b0cc-3c6206d2228c" reason="keepalive timed out"
+03:37:47 phone tab new-44d03d19-t1 opens -
+03:38:34 act {"t": 1792813114.99, "utc": "03:38:34", "tab": "A", "act": "open", "name": "A", "url": "https://en.wikipedia.org/wiki/Cat", "load_s": 68.8, "key": "new-44d03d19-t1", "mac_ws": "ws_7d0d28ff2abe757ffc2d672328d9b8b5"}
+03:38:34 step interact (70,) at +1.4 min
+03:38:39 act {"t": 1792813119.0, "utc": "03:38:39", "tab": "A", "act": "back", "rtt": 1.72}
+03:40:04 act {"t": 1792813204.47, "utc": "03:40:04", "tab": "A", "act": "search", "rtt": null, "via": "address-bar", "marker": "brfz001", "type_s": 56.31}
+03:40:05 step long_scroll (12,) at +2.9 min
+03:40:18 act {"t": 1792813218.53, "utc": "03:40:18", "tab": "A", "act": "long-scroll", "rtt": 0.26, "swipes": 15, "seconds": 12.9, "reconnecting": []}
+03:40:18 step interact (60,) at +3.2 min
+03:40:19 act {"t": 1792813219.94, "utc": "03:40:19", "tab": "A", "act": "scroll-down", "rtt": 1.2}
+03:40:20 act {"t": 1792813220.84, "utc": "03:40:20", "tab": "A", "act": "forward", "skipped": "no button"}
+03:40:32 act {"t": 1792813232.07, "utc": "03:40:32", "tab": "A", "act": "back", "rtt": null}
+03:40:44 act {"t": 1792813244.18, "utc": "03:40:44", "tab": "A", "act": "back", "rtt": null}
+03:40:44 FREEZE phone-unresponsive: 2 inputs in a row with no screen change in 8 s (last: back on A)
+03:40:45 captured /Users/cmux/brfreeze/runs/fix-d0fc-default/freeze-01-phone-unresponsive-034044
+03:40:49 act {"t": 1792813249.31, "utc": "03:40:49", "tab": "A", "act": "scroll-up", "rtt": 1.73}
+03:41:01 act {"t": 1792813261.27, "utc": "03:41:01", "tab": "A", "act": "tap", "rtt": null, "at": [146, 374]}
+03:42:26 act {"t": 1792813346.32, "utc": "03:42:26", "tab": "A", "act": "search", "rtt": null, "via": "address-bar", "marker": "brfz002", "type_s": 55.7}
+03:42:26 FREEZE phone-unresponsive: 2 inputs in a row with no screen change in 8 s (last: search on A)
+03:42:27 captured /Users/cmux/brfreeze/runs/fix-d0fc-default/freeze-02-phone-unresponsive-034226
+03:42:29 step open_tab ('B', 'https://news.ycombinator.com') at +5.3 min
+03:42:43 phone tab new-c204dde7-t1 opens -
+03:42:45 host 03:42:43 browser: another tab took the media lane; video returns to the channel
+03:43:11 act {"t": 1792813391.68, "utc": "03:43:11", "tab": "B", "act": "open", "name": "B", "url": "https://news.ycombinator.com", "load_s": 42.2, "key": "new-c204dde7-t1", "mac_ws": "ws_14f0d8814144cafad04adb38a7b6b690"}
+03:43:11 step interact (60,) at +6.0 min
+03:43:12 act {"t": 1792813392.93, "utc": "03:43:12", "tab": "B", "act": "scroll-up", "rtt": 1.02}
+03:44:12 act {"t": 1792813452.99, "utc": "03:44:12", "tab": "B", "act": "search", "rtt": null, "via": "address-bar", "marker": "brfz003", "type_s": 31.83}
+03:44:14 step list_idle (45,) at +7.1 min
+03:44:22 act {"t": 1792813462.92, "utc": "03:44:22", "tab": null, "act": "list-idle", "seconds": 45, "left": "B"}
+03:45:07 step switch ('B',) at +8.0 min
+03:45:12 act {"t": 1792813512.22, "utc": "03:45:12", "tab": "B", "act": "switch", "name": "B", "s": 4.3, "page": true}
+03:45:12 step interact (80,) at +8.1 min
+03:45:13 act {"t": 1792813513.42, "utc": "03:45:13", "tab": "B", "act": "forward", "rtt": 0.8}
+03:45:16 act {"t": 1792813516.77, "utc": "03:45:16", "tab": "B", "act": "scroll-up", "rtt": 1.12}
+03:45:19 act {"t": 1792813519.07, "utc": "03:45:19", "tab": "B", "act": "scroll-up", "rtt": 1.02}
+03:45:22 act {"t": 1792813522.09, "utc": "03:45:22", "tab": "B", "act": "scroll-down", "rtt": 1.85}
+03:45:34 act {"t": 1792813534.36, "utc": "03:45:34", "tab": "B", "act": "back", "rtt": null}
+03:45:36 act {"t": 1792813536.99, "utc": "03:45:36", "tab": "B", "act": "scroll-down", "rtt": 1.29}
+03:45:49 act {"t": 1792813549.13, "utc": "03:45:49", "tab": "B", "act": "tap", "rtt": null, "at": [74, 481]}
+03:45:54 act {"t": 1792813554.07, "utc": "03:45:54", "tab": "B", "act": "search", "error": "no address bar or pill"}
+03:46:06 act {"t": 1792813566.06, "utc": "03:46:06", "tab": "B", "act": "back", "rtt": null}
+03:46:06 FREEZE phone-unresponsive: 2 inputs in a row with no screen change in 8 s (last: back on B)
+03:46:07 captured /Users/cmux/brfreeze/runs/fix-d0fc-default/freeze-03-phone-unresponsive-034606
+03:46:18 act {"t": 1792813578.68, "utc": "03:46:18", "tab": "B", "act": "forward", "rtt": null}
+03:46:18 FREEZE phone-unresponsive: 3 inputs in a row with no screen change in 8 s (last: forward on B)
+03:46:22 act {"t": 1792813582.75, "utc": "03:46:22", "tab": "B", "act": "scroll-up", "rtt": 2.25}
+03:46:26 act {"t": 1792813586.2, "utc": "03:46:26", "tab": "B", "act": "forward", "rtt": 1.46}
+03:46:29 act {"t": 1792813589.04, "utc": "03:46:29", "tab": "B", "act": "scroll-down", "rtt": 1.73}
+03:46:32 act {"t": 1792813592.0, "utc": "03:46:32", "tab": "B", "act": "scroll-down", "rtt": 1.16}
+03:46:33 step switch ('A',) at +9.4 min
+03:47:06 act {"t": 1792813626.96, "utc": "03:47:06", "tab": "B", "act": "to-list-retry", "error": "could not get back to the Workspaces list", "labels": [["Application", "cmux INTERNAL", null], ["Button", "Keyboard", "workspace.fb52ff34-0ba6-45b3-b80e-9876731121a1"], ["Button", "Back", "chevron.left"], ["Button", "Page Menu", null], ["Button", "Show toolbar, en.wikipedia.org", null], ["Button", "Reload", null], ["Image", "Refresh", "arrow.clockwise"], ["Button", "Show toolbar, en.wikipedia.org", null], ["Button", "Tabs", "workspace.fb52ff34-0ba6-45b3-b80e-9876731121a1"], ["Image", "Tabs", "square.on.square"]]}
+03:47:45 act {"t": 1792813665.73, "utc": "03:47:45", "tab": "B", "act": "switch-failed", "error": "could not get back to the Workspaces list"}
+03:47:45 step interact (50,) at +10.6 min
+03:47:56 act {"t": 1792813676.1, "utc": "03:47:56", "tab": "B", "act": "tap", "rtt": null, "at": [161, 614]}
+03:48:05 act {"t": 1792813685.8, "utc": "03:48:05", "tab": "B", "act": "scroll-down", "rtt": null}
+03:48:05 FREEZE phone-unresponsive: 2 inputs in a row with no screen change in 8 s (last: scroll-down on B)
+03:48:07 captured /Users/cmux/brfreeze/runs/fix-d0fc-default/freeze-05-phone-unresponsive-034805
+03:48:17 act {"t": 1792813697.27, "utc": "03:48:17", "tab": "B", "act": "scroll-down", "rtt": null}
+03:48:17 FREEZE phone-unresponsive: 3 inputs in a row with no screen change in 8 s (last: scroll-down on B)
+03:48:26 act {"t": 1792813706.77, "utc": "03:48:26", "tab": "B", "act": "scroll-down", "rtt": null}
+03:48:26 FREEZE phone-unresponsive: 4 inputs in a row with no screen change in 8 s (last: scroll-down on B)
+03:48:36 act {"t": 1792813716.02, "utc": "03:48:36", "tab": "B", "act": "scroll-down", "rtt": null}
+03:48:36 FREEZE phone-unresponsive: 5 inputs in a row with no screen change in 8 s (last: scroll-down on B)
+03:48:37 step open_tab ('C', 'https://duckduckgo.com') at +11.5 min
+03:49:11 act {"t": 1792813751.56, "utc": "03:49:11", "tab": "C", "act": "open", "name": "C", "url": "https://duckduckgo.com", "error": "could not get back to the Workspaces list"}
+03:49:11 step interact (50,) at +12.0 min
+03:49:22 act {"t": 1792813762.23, "utc": "03:49:22", "tab": "C", "act": "back", "rtt": null}
+03:49:22 FREEZE phone-unresponsive: 6 inputs in a row with no screen change in 8 s (last: back on C)
+03:49:23 captured /Users/cmux/brfreeze/runs/fix-d0fc-default/freeze-09-phone-unresponsive-034922
+03:49:35 act {"t": 1792813775.28, "utc": "03:49:35", "tab": "C", "act": "back", "rtt": null}
+03:49:35 FREEZE phone-unresponsive: 7 inputs in a row with no screen change in 8 s (last: back on C)
+03:49:46 act {"t": 1792813786.72, "utc": "03:49:46", "tab": "C", "act": "tap", "rtt": null, "at": [187, 538]}
+03:49:46 FREEZE phone-unresponsive: 8 inputs in a row with no screen change in 8 s (last: tap on C)
+03:49:58 act {"t": 1792813798.96, "utc": "03:49:58", "tab": "C", "act": "tap", "rtt": null, "at": [166, 292]}
+03:49:58 FREEZE phone-unresponsive: 9 inputs in a row with no screen change in 8 s (last: tap on C)
+03:50:08 act {"t": 1792813808.8, "utc": "03:50:08", "tab": "C", "act": "scroll-down", "rtt": null}
+03:50:08 FREEZE phone-unresponsive: 10 inputs in a row with no screen change in 8 s (last: scroll-down on C)
+03:50:09 step background (20.0,) at +13.0 min
+03:50:09 act {"t": 1792813809.53, "utc": "03:50:09", "tab": "C", "act": "background", "seconds": 20.0}
+03:50:32 step interact (30,) at +13.4 min
+03:50:40 act {"t": 1792813840.97, "utc": "03:50:40", "tab": "C", "act": "scroll-down", "rtt": null}
+03:50:40 FREEZE phone-unresponsive: 11 inputs in a row with no screen change in 8 s (last: scroll-down on C)
+03:50:42 captured /Users/cmux/brfreeze/runs/fix-d0fc-default/freeze-14-phone-unresponsive-035040
+03:50:47 act {"t": 1792813847.15, "utc": "03:50:47", "tab": "C", "act": "scroll-up", "rtt": 3.92}
+03:50:51 act {"t": 1792813851.62, "utc": "03:50:51", "tab": "C", "act": "scroll-up", "rtt": 2.31}
+03:50:57 act {"t": 1792813857.71, "utc": "03:50:57", "tab": "C", "act": "scroll-down", "rtt": 4.53}
+03:51:04 act {"t": 1792813864.4, "utc": "03:51:04", "tab": "C", "act": "search", "error": "no address bar or pill"}
+03:51:05 step still_idle (125,) at +13.9 min
+03:51:05 act {"t": 1792813865.23, "utc": "03:51:05", "tab": "C", "act": "still-idle", "seconds": 125}
+03:53:11 act {"t": 1792813991.31, "utc": "03:53:11", "tab": "C", "act": "still-idle-end", "reconnecting": []}
+03:53:15 act {"t": 1792813995.23, "utc": "03:53:15", "tab": "C", "act": "scroll-down", "rtt": 3.14}
+03:53:15 step switch ('B',) at +16.1 min
+03:54:00 act {"t": 1792814040.98, "utc": "03:54:00", "tab": "C", "act": "to-list-retry", "error": "could not get back to the Workspaces list", "labels": [["Application", "cmux INTERNAL", null], ["Button", "Keyboard", "workspace.fb52ff34-0ba6-45b3-b80e-9876731121a1"], ["Button", "Back", "chevron.left"], ["Button", "Page Menu", null], ["Button", "Show toolbar, en.wikipedia.org", null], ["Button", "Reload", null], ["Image", "Refresh", "arrow.clockwise"], ["Button", "Show toolbar, en.wikipedia.org", null], ["Button", "Tabs", "workspace.fb52ff34-0ba6-45b3-b80e-9876731121a1"], ["Image", "Tabs", "square.on.square"]]}
+03:54:53 act {"t": 1792814093.59, "utc": "03:54:53", "tab": "C", "act": "switch-failed", "error": "could not get back to the Workspaces list"}
+03:54:53 step interact (35,) at +17.7 min
+03:55:02 act {"t": 1792814102.57, "utc": "03:55:02", "tab": "C", "act": "scroll-down", "rtt": null}
+03:55:14 act {"t": 1792814114.67, "utc": "03:55:14", "tab": "C", "act": "scroll-down", "rtt": null}
+03:55:14 FREEZE phone-unresponsive: 2 inputs in a row with no screen change in 8 s (last: scroll-down on C)
+03:55:16 captured /Users/cmux/brfreeze/runs/fix-d0fc-default/freeze-15-phone-unresponsive-035514
+03:55:18 act {"t": 1792814118.87, "utc": "03:55:18", "tab": "C", "act": "forward", "skipped": "no button"}
+03:55:31 act {"t": 1792814131.13, "utc": "03:55:31", "tab": "C", "act": "tap", "rtt": null, "at": [218, 377]}
+03:55:31 FREEZE phone-unresponsive: 3 inputs in a row with no screen change in 8 s (last: tap on C)
+03:55:32 step switch ('A',) at +18.4 min
+03:56:19 act {"t": 1792814179.4, "utc": "03:56:19", "tab": "C", "act": "to-list-retry", "error": "could not get back to the Workspaces list", "labels": [["Application", "cmux INTERNAL", null], ["Button", "Keyboard", "workspace.fb52ff34-0ba6-45b3-b80e-9876731121a1"], ["Button", "Back", "chevron.left"], ["Button", "Page Menu", null], ["Button", "Show toolbar, en.wikipedia.org", null], ["Button", "Reload", null], ["Image", "Refresh", "arrow.clockwise"], ["Button", "Show toolbar, en.wikipedia.org", null], ["Button", "Tabs", "workspace.fb52ff34-0ba6-45b3-b80e-9876731121a1"], ["Image", "Tabs", "square.on.square"]]}

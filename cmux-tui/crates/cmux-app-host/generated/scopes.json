@@ -1940,6 +1940,7 @@
     "browser.viewer.release",
     "browser.viewer.resize",
     "chief.archive",
+    "chief.delete",
     "client.cell_pixels.set",
     "client.detach",
     "client.get",

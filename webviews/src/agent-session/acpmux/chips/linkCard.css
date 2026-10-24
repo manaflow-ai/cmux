@@ -30,19 +30,19 @@
 .acpmux-pr-card__ref{color:var(--agent-link);font-variant-numeric:tabular-nums;font-weight:500;text-decoration:underline;text-decoration-thickness:1px;text-decoration-color:color-mix(in srgb,currentColor 40%,transparent);text-underline-offset:3px;border-radius:3px}.acpmux-pr-card__ref:hover{text-decoration-color:currentColor}.acpmux-pr-card__ref:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
 /* The state is the pull request glyph's colour, as GitHub draws it: merged uses the theme purple. */
 .acpmux-pr-card__glyph{display:inline-flex;flex:none;color:var(--agent-muted)}
-.acpmux-pr-card__glyph[data-state=open]{color:var(--agent-success,var(--acpmux-add,#3fb950))}
-.acpmux-pr-card__glyph[data-state=merged]{color:var(--agent-ansi-5,#a371f7)}
-.acpmux-pr-card__glyph[data-state=closed]{color:var(--agent-danger)}
+.acpmux-pr-card__glyph[data-state=open]{color:var(--agent-status-success)}
+.acpmux-pr-card__glyph[data-state=merged]{color:var(--agent-status-merged)}
+.acpmux-pr-card__glyph[data-state=closed]{color:var(--agent-status-failure)}
 .acpmux-pr-card__author{min-width:0;overflow-wrap:anywhere}
 .acpmux-pr-card__checks{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 10px;color:var(--agent-muted);font-variant-numeric:tabular-nums}
 .acpmux-pr-card__sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
-.acpmux-pr-card__passed{color:var(--agent-success,var(--acpmux-add,#3fb950))}
-.acpmux-pr-card__failed{color:var(--agent-danger)}
+.acpmux-pr-card__passed{color:var(--agent-status-success)}
+.acpmux-pr-card__failed{color:var(--agent-status-failure)}
 .acpmux-pr-card__pending{color:var(--agent-muted)}
 /* Every red is the base's: the ✗ reads muted, not as this pull request's to fix. */
 .acpmux-pr-card__checks[data-state=failing][data-on-base=all] .acpmux-pr-card__failed{color:var(--agent-muted)}
 /* Secondary pull request context: author, branches, review decision, labels and freshness. */
-.acpmux-pr-card__conflicts{color:var(--agent-danger)}
+.acpmux-pr-card__conflicts{color:var(--agent-status-failure)}
 .acpmux-pr-card__who{display:inline-flex;align-items:center;gap:6px;min-width:0}
 .acpmux-pr-card__monogram{display:inline-flex;flex:none;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:color-mix(in srgb,var(--agent-muted) 22%,transparent);color:var(--agent-text);font-size:var(--text-caption);font-weight:600;line-height:1}
 .acpmux-pr-card__monogram[data-tone="0"]{background:color-mix(in srgb,var(--agent-ansi-1,var(--agent-muted)) 26%,transparent)}
@@ -56,8 +56,8 @@
 .acpmux-pr-card__branch{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-pr-card__review{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;color:var(--agent-muted)}
 .acpmux-pr-card__decision{font-weight:500}
-.acpmux-pr-card__decision[data-review=approved]{color:var(--agent-success,var(--acpmux-add,#3fb950))}
-.acpmux-pr-card__decision[data-review=changes_requested]{color:var(--agent-danger)}
+.acpmux-pr-card__decision[data-review=approved]{color:var(--agent-status-success)}
+.acpmux-pr-card__decision[data-review=changes_requested]{color:var(--agent-status-failure)}
 .acpmux-pr-card__label{padding:0 6px;border:var(--cmux-hairline) solid var(--agent-border);border-radius:4px;font-size:var(--text-caption);line-height:16px}
 .acpmux-pr-card__changes{min-width:0}
 .acpmux-pr-card__counts{display:flex;flex-wrap:wrap;align-items:center;gap:4px 7px;color:var(--agent-muted);font-variant-numeric:tabular-nums}
@@ -67,7 +67,7 @@
 .acpmux-pr-card__kindName{color:var(--agent-muted);font-weight:500}
 .acpmux-pr-card__separator{margin-inline:5px;color:var(--agent-border)}
 .acpmux-pr-card__kindPartial{flex-basis:100%;padding-top:2px;color:var(--agent-muted);font-size:var(--text-caption)}
-.acpmux-pr-card__added{color:var(--acpmux-add,var(--agent-success,#3fb950))}
-.acpmux-pr-card__removed{color:var(--acpmux-del,var(--agent-danger))}
-.acpmux-pr-card__warning{padding:0 6px;border-radius:4px;background:color-mix(in srgb,var(--agent-warning,#d29922) 20%,transparent);color:var(--agent-text);font-size:var(--text-caption);line-height:16px}
+.acpmux-pr-card__added{color:var(--agent-diff-add)}
+.acpmux-pr-card__removed{color:var(--agent-diff-del)}
+.acpmux-pr-card__warning{padding:0 6px;border-radius:4px;background:color-mix(in srgb,var(--agent-status-warning) 20%,transparent);color:var(--agent-text);font-size:var(--text-caption);line-height:16px}
 .acpmux-pr-card__age{color:var(--agent-muted);font-size:var(--text-caption)}

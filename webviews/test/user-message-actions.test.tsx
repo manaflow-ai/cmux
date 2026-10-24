@@ -61,7 +61,7 @@ async function draw(row: AcpmuxRow, actions: object) {
   );
 }
 
-test("a read prompt's row is Leo's: check, age, dot, Copy, Retry, Fork, each naming itself; no Pin", async () => {
+test("a read prompt's row is Leo's: check, age, dot, Copy, Edit, Retry, Fork, each naming itself; no Pin", async () => {
   const forked: number[] = [];
   const sent: [string, string][] = [];
   const row: AcpmuxRow = {
@@ -81,8 +81,8 @@ test("a read prompt's row is Leo's: check, age, dot, Copy, Retry, Fork, each nam
     promptTurns: new Map([["user-4", 5]]),
     route: { name: "Claude Code", harness: "claude" },
   });
-  // Leo's row, then cmux's own Edit where the chat can fork before the prompt.
-  expect(labels()).toEqual(["Read by Claude Code", "3 days ago", "·", "Copy", "Retry", "Fork from here", "Edit"]);
+  // Leo's row, then the direct prompt actions: Copy, Edit, Retry and Fork.
+  expect(labels()).toEqual(["Read by Claude Code", "3 days ago", "·", "Copy", "Edit", "Retry", "Fork from here"]);
   expect(host.querySelector(".cv-message-pin")).toBeNull();
   expect(host.querySelector(".cv-user__read")?.getAttribute("data-read")).toBe("true");
   expect(host.querySelector("time.cv-user__time")?.getAttribute("dateTime")).toBe(new Date(row.at).toISOString());

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 1e8ed8d1c9488496f61ce39773888417486f7d9a3ecf0469f4e801cd383fe3bd. */
+/* cmux-tui mux protocol 12, IR cb12b489fcaad8bfa7cd1979fdcc27eaff578f0f3540c961896abdc0c61eeea0. */
 
 
 import type * as T from "./types.js";
@@ -1272,6 +1272,12 @@ export interface GetFrontendProjectionRequest extends CmuxRequestBase {
 export type GetFrontendProjectionResult = T.FrontendProjection;
 
 /** Protocol v12; authority: control. */
+export interface GetHostSizePolicyRequest extends CmuxRequestBase {
+  cmd: "get-host-size-policy";
+  "surface"?: (T.Id) | null;
+}
+
+/** Protocol v12; authority: control. */
 export interface GetSizeStateRequest extends CmuxRequestBase {
   cmd: "get-size-state";
   "surface": T.Id;
@@ -2287,6 +2293,7 @@ export interface SetClientInfoRequest extends CmuxRequestBase {
   "install"?: (string) | null;
   "kind"?: (string) | null;
   "name"?: (string) | null;
+  "remote"?: (boolean) | null;
   "user_id"?: (string) | null;
   "version"?: (string) | null;
 }
@@ -2338,6 +2345,12 @@ export interface SetFrontendBrowserHistoryRequest extends CmuxRequestBase {
   "surface": T.Id;
 }
 export type SetFrontendBrowserHistoryResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
+export interface SetHostSizePolicyRequest extends CmuxRequestBase {
+  cmd: "set-host-size-policy";
+  "policy": T.HostSizePolicyRequest;
+}
 
 /** Protocol v12; authority: control. */
 export interface SetPersonalTerminalRequest extends CmuxRequestBase {
@@ -2983,6 +2996,7 @@ export type CmuxRequest =
   | GetCellPixelsRequest
   | GetFrontendBrowserHistoryRequest
   | GetFrontendProjectionRequest
+  | GetHostSizePolicyRequest
   | GetSizeStateRequest
   | HistorySearchRequest
   | HomeInboxRequest
@@ -3090,6 +3104,7 @@ export type CmuxRequest =
   | SetColumnDockRequest
   | SetDefaultColorsRequest
   | SetFrontendBrowserHistoryRequest
+  | SetHostSizePolicyRequest
   | SetPersonalTerminalRequest
   | SetPersonalWorkspaceRequest
   | SetProfileFollowsRequest
@@ -4102,6 +4117,14 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "get-host-size-policy": {
+    request: GetHostSizePolicyRequest;
+    result: T.GetHostSizePolicyResult;
+    authority: "control";
+    since: 12;
+    capability: "host-size-policy-v1";
+    stream: null;
+  };
   "get-size-state": {
     request: GetSizeStateRequest;
     result: T.GetSizeStateResult;
@@ -4956,6 +4979,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "frontend-browser-history-v1";
+    stream: null;
+  };
+  "set-host-size-policy": {
+    request: SetHostSizePolicyRequest;
+    result: T.SetHostSizePolicyResult;
+    authority: "control";
+    since: 12;
+    capability: "host-size-policy-v1";
     stream: null;
   };
   "set-personal-terminal": {
