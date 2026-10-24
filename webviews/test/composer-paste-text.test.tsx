@@ -256,6 +256,27 @@ test("custom inline clipboard replacement removes selected payloads even with th
   expect(chips(composer).map((chip) => chip.id)).toEqual([original.id]);
 });
 
+test("undoing a custom inline paste at an empty caret drops its cloned payload", async () => {
+  const composer = await openComposer();
+  await paste("", [new File(["a"], "a.txt", { type: "text/plain" })]);
+  const original = chips(composer)[0]!;
+  await act(async () => markdownField().setCaret(Number.MAX_SAFE_INTEGER));
+  const data = {
+    getData: (type: string) =>
+      type === "application/x-cmux-inline-attachments"
+        ? JSON.stringify({ text: "\uFFFC", attachments: [{ ...original, id: "copied-inline-payload" }] })
+        : "",
+  };
+  const event = new dom.window.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "clipboardData", { value: data });
+  await act(async () => field().dispatchEvent(event));
+  await settle();
+  expect(chips(composer)).toHaveLength(2);
+  await act(async () => markdownField().undo());
+  await settle();
+  expect(chips(composer).map((chip) => chip.id)).toEqual([original.id]);
+});
+
 test("reverse decoder completion follows live mark order after the caret moves", async () => {
   const { insertResolvedAttachments } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
   const attachment = (id: string): ComposerAttachment => ({
