@@ -386,6 +386,7 @@ class RuleTests(Fixture):
         self.assertTrue(guardrails.glob_match("A/MotionGate.swift", "A/Motion*.swift"))
         self.assertFalse(guardrails.glob_match("A/Motion/Spring.swift", "A/Motion*.swift"))
         self.assertTrue(guardrails.glob_match("A/B/C/D.swift", "A/**/D.swift"))
+        self.assertTrue(guardrails.glob_match("A/D.swift", "A/**/D.swift"), "`**/` is zero or more folders")
 
     def test_a_moved_line_that_only_gains_an_access_modifier_is_no_new_debt(self):
         self.rebase_on({f"{KIT}/Box.swift": "final class Box: @unchecked Sendable {\n    var x = 0\n}\n"})
