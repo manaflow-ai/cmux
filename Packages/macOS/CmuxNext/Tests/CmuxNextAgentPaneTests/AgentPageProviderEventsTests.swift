@@ -102,10 +102,20 @@ struct AgentPageProviderEventsTests {
 
     @Test func routerResetDropUsesTheCapturedProviderAfterRouterCloses() async throws {
         let provider = AgentPageProvider { _ in nil }
+        // A new subscriber's events wait in the provider until its first flush (a later main-actor
+        // turn); the replayed state is the first thing that flush sends. Publish only after it
+        // went, so the event goes through the router and its drop path is the one under test.
+        provider.replay = { [Self.command("initial")] }
         let router = PageRouter(descriptor: .agent, routes: [PageRoute(prefix: AgentPageOps.namespace, provider: provider)])
         var dropped: (@MainActor () -> Void)?
-        router.sendWithDrop = { _, onDrop in dropped = onDrop }
+        let flushed = CountWaiter(1)
+        router.sendWithDrop = { envelope, onDrop in
+            if envelope["data"]?["value"]?.stringValue == "router-reset" { dropped = onDrop }
+            flushed.add()
+        }
         _ = await router.handle(["t": .string("sub"), "id": .number(1), "stream": .string(AgentPageProvider.hostEvents)])
+        await flushed.wait()
+        provider.replay = nil
         provider.publish(Self.command("router-reset"))
         #expect(dropped != nil)
         router.close()
