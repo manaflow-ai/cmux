@@ -1824,7 +1824,7 @@ class HookTests(Fixture):
     def test_a_broken_guardrails_script_warns_and_lets_the_push_through(self):
         installed = self.repo / ".git" / "cmux-git-hooks" / "cmux-next-checks"
         self.assertTrue(installed.is_symlink(), "the installer swaps a link, so the checks are never missing")
-        (installed / "guardrails.py").write_text("def check(repo, base, head):\n    raise ValueError('boom')\n")
+        (installed / "guardrails.py").write_text("def run_push(repo, ranges, ratchet=None):\n    raise ValueError('boom')\n")
         result = self.push(CMUX_NEXT_CHECKS_SKIP_REASON="fixture: other checks")
         output = result.stdout + result.stderr
         self.assertEqual(result.returncode, 0, output)
