@@ -178,7 +178,7 @@ function PinnedSummary() {
         </div>
       </div>
       <div className="workflow-gallery__pinned-footer">
-        Workflow detail has its own gallery entry; keep chatting below.
+        Compare with the separate workflow-detail proposal, or keep chatting below.
       </div>
     </div>
   );
