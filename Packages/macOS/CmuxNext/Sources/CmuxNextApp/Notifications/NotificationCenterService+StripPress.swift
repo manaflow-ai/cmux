@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDaemon
 import CmuxNextTabs
 
 /// A press on a pane's tab strip reads its pane on the mouse-up, and only when it did not drag.
