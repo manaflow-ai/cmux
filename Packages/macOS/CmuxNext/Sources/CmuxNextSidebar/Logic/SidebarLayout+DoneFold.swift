@@ -63,6 +63,26 @@ nonisolated extension SidebarLayout {
         return kept.count == shown.count ? shown : kept + [(showMoreIndex, shown.count - kept.count)]
     }
 
+    /// Whether a drag of `dragged` unfolds every list: it carries a row the fold would hide or draw below it (marked
+    /// Done, not the active one). Such a row would leave its slot (`displayLayout` slides the dragged rows as one), or
+    /// make or drop a "Done (N)" row the drag's base rows lack, so the drag draws as it did before it kept the folds.
+    /// A drag of rows that never fold keeps them: it moves no fold row and changes no fold's count.
+    static func dragUnfolds(_ dragged: [SidebarWorkspace], options o: SidebarLayoutOptions) -> Bool {
+        guard o.foldsDone, o.filterMatches == nil, o.sessionTree == nil else { return false }
+        return dragged.contains { $0.taskStatus == .done && $0.id != o.activeWorkspaceID }
+    }
+
+    /// The `drawn` entry a drop gap opens before in a list that draws a fold (a drag keeps the folds): the first row
+    /// drawn before the fold whose model index is at or past the gap's, else the fold row. That is where the dropped
+    /// row (never Done) will show: a hidden index between two drawn rows, the list's end, and, with the fold open, an
+    /// index of a Done row drawn below the fold all open the gap among the rows above it. Nil when the list draws no
+    /// fold or the gap is elsewhere (`openGapIfNeeded` places it as before).
+    static func gapEntry(_ drawn: [(index: Int, depth: Int)], gap: DropPosition?, section: SectionID, group: GroupID?, count: Int) -> Int? {
+        guard let gap, gap.section == section, gap.group == group, gap.index <= count, drawn.contains(where: { $0.index < 0 }) else { return nil }
+        // Shown rows come first in model order, then the fold rows and an open fold's Done rows (`foldingDone`).
+        return drawn.first { $0.index < 0 || $0.index >= gap.index }?.index
+    }
+
     /// Appends the row of a `foldingDone` entry (`doneFoldIndex` or `showMoreIndex`) at `y`: one line, as a document
     /// item's row.
     static func appendFold(_ entry: Int, _ id: SidebarDoneFoldID, count: Int, parent: Int?, color: GroupColor?, last: Bool,
