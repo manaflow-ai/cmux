@@ -214,13 +214,6 @@ impl Mux {
         stats.commit_finished(lock_wait, commit_from.elapsed());
         stats.set_phase(crate::diagnostics::WriterPhase::Idle);
         let commits = commits?;
-        let (committed, failed) =
-            commits.iter().fold((0, 0), |(ok, failed), commit| match commit {
-                crate::journal_ingress::JournalBatchReceipt::Effect(Ok(_)) => (ok + 1, failed),
-                crate::journal_ingress::JournalBatchReceipt::Effect(Err(_)) => (ok, failed + 1),
-                _ => (ok, failed),
-            });
-        self.registry_connection.write_path_stats().writer_batch_committed(committed, failed);
         self.publish_journal_event();
         Ok(commits)
     }
