@@ -6,7 +6,8 @@
 //!   (`fromSession`) beside its name, and sends the session the brief with the task id first.
 //! - The lane ends it with one call, `acpmux task done|blocked|failed ID --summary …`
 //!   (`_acpmux/report`): a result `{state, summary, prs, shas, why?, at, by}`, checked here. The
-//!   same call again is a replay: one result, one card.
+//!   same call again is a replay: one result, one card (sent again only if it was not
+//!   delivered: the row's `result.undelivered` says why, and `task ls` shows it).
 //! - The result goes to the giver's chat once, as one prompt with provenance `task_result`
 //!   (`prompt_provenance.rs`): the chat draws it as the lane's card. That card is the lane's
 //!   whole reply; nothing acknowledges it.
@@ -87,7 +88,8 @@ fn is_sha(s: &str) -> bool {
     (7..=40).contains(&s.len()) && s.chars().all(|c| c.is_ascii_hexdigit())
 }
 
-/// Whether results `a` and `b` say the same, whenever and by whoever: a retry of one call.
+/// Whether results `a` and `b` say the same, whenever, by whoever and whether delivered: a
+/// retry of one call.
 pub(crate) fn same_result(a: &Value, b: &Value) -> bool {
     ["state", "summary", "prs", "shas", "why"].iter().all(|key| a.get(key) == b.get(key))
 }
@@ -146,15 +148,19 @@ impl Hub {
         if reporter == Some(to) {
             return;
         }
-        let Ok(giver) = self.resolve(to) else { return };
+        let id = row.get("briefId").and_then(Value::as_str).unwrap_or_default().to_owned();
+        let Ok(giver) = self.resolve(to) else {
+            self.result_undelivered(&id, "the chat that gave it is gone");
+            return;
+        };
         let field = |key: &str| row.get(key).and_then(Value::as_str).unwrap_or_default();
-        let (id, lane, result) = (field("briefId"), field("sessionId"), &row["result"]);
+        let (lane, result) = (field("sessionId"), &row["result"]);
         let lane_name = self.session_name(lane);
         let provenance = crate::prompt_provenance::task_result(
             lane,
             &lane_name,
             &giver.id,
-            id,
+            &id,
             result["state"].as_str().unwrap_or_default(),
         );
         let opts = PromptOptions {
@@ -169,8 +175,15 @@ impl Hub {
         tokio::spawn(async move {
             if let Err(e) = hub.prompt_with(&giver, blocks, "acpmux", true, opts).await {
                 tracing::warn!(session = %giver.id, "task result: {}", e.message);
+                hub.result_undelivered(&id, &e.message);
             }
         });
+    }
+
+    /// Records on task `id` that its result's card did not reach the chat that gave it, and
+    /// why: the result stays in the ledger, and `acpmux task ls` shows it was not delivered.
+    fn result_undelivered(&self, id: &str, why: &str) {
+        self.briefs.update(id, |r| r["result"]["undelivered"] = json!(why));
     }
 }
 

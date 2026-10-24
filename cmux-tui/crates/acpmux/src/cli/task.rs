@@ -145,5 +145,8 @@ fn line(row: &Value) -> String {
     if let Some(summary) = row["result"]["summary"].as_str() {
         text.push_str(&format!("\n            {summary}"));
     }
+    if let Some(why) = row["result"]["undelivered"].as_str() {
+        text.push_str(&format!("\n            not delivered to its chat: {why}"));
+    }
     text
 }

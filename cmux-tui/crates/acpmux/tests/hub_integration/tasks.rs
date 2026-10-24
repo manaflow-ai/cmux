@@ -242,3 +242,58 @@ async fn a_blocked_task_says_why_and_a_task_is_given_only_to_a_session_here() {
         "{text}"
     );
 }
+
+#[tokio::test]
+async fn two_reports_at_once_send_one_card_and_a_card_not_delivered_is_kept_and_sent_again() {
+    let hub = hub();
+    let mut person = Client::open(&hub);
+    let coordinator = person.new_session().await;
+    let lane = person.new_session().await;
+    let mut from_coordinator = Client::in_session(&hub, &coordinator).await;
+
+    // A bad sender name is refused before the task is claimed: no row is left behind.
+    let bad = json!({"sessionId": lane, "title": "x", "idempotencyKey": "k1",
+                     "_meta": {"acpmux": {"fromAgent": "two\nlines"}}});
+    let refused = person.reply("_acpmux/task_new", bad).await;
+    assert!(refused.get("error").is_some(), "{refused}");
+    let all = person.call("_acpmux/tasks", json!({"all": true})).await;
+    assert_eq!(all["tasks"], json!([]), "{all}");
+
+    let given = from_coordinator
+        .call("_acpmux/task_new", json!({"sessionId": lane, "title": "Land it"}))
+        .await;
+    let id = given["task"]["taskId"].as_str().unwrap().to_owned();
+    let done = json!({"briefId": id, "status": "done", "summary": "Landed"});
+    let (mut a, mut b) =
+        (Client::in_session(&hub, &lane).await, Client::in_session(&hub, &lane).await);
+    let (first, second) =
+        tokio::join!(a.call("_acpmux/report", done.clone()), b.call("_acpmux/report", done));
+    assert_eq!(
+        [&first, &second].iter().filter(|r| r["replayed"] == true).count(),
+        1,
+        "{first} {second}"
+    );
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let cards = person.prompts(&coordinator, &format!("task-result-{id}"), 1).await;
+    assert_eq!(cards.len(), 1, "{cards:?}");
+
+    // The chat that gave a task is gone: its result stays, marked not delivered, and the same
+    // call again tries again instead of replaying.
+    let gone = person.new_session().await;
+    let mut from_gone = Client::in_session(&hub, &gone).await;
+    let given =
+        from_gone.call("_acpmux/task_new", json!({"sessionId": lane, "title": "Orphan"})).await;
+    let id = given["task"]["taskId"].as_str().unwrap().to_owned();
+    person.call("session/delete", json!({"sessionId": gone})).await;
+    let done = json!({"briefId": id, "status": "done", "summary": "Done anyway"});
+    a.call("_acpmux/report", done.clone()).await;
+    let row = |listed: &Value| {
+        listed["tasks"].as_array().unwrap().iter().find(|t| t["taskId"] == id.as_str()).cloned()
+    };
+    let listed = person.call("_acpmux/tasks", json!({"all": true})).await;
+    let task = row(&listed).expect("the task");
+    assert_eq!(task["result"]["summary"], "Done anyway", "{task}");
+    assert!(task["result"]["undelivered"].is_string(), "{task}");
+    let again = a.call("_acpmux/report", done).await;
+    assert!(again.get("replayed").is_none(), "{again}");
+}

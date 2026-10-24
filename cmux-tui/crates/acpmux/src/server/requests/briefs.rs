@@ -147,13 +147,7 @@ pub(super) async fn report(
     let by = conn.caller().map(|id| hub.session_name(id)).unwrap_or_else(|| conn.label());
     let result = if ended {
         task_reporter(conn, id, &row)?;
-        let result = tasks::result(&params, status, &by)?;
-        if row["status"] == status && tasks::same_result(&row["result"], &result) {
-            return Ok(
-                json!({"brief":row,"event":crate::hub::dispatch::event("report", &row),"replayed":true}),
-            );
-        }
-        Some(result)
+        Some(tasks::result(&params, status, &by)?)
     } else {
         None
     };
@@ -165,9 +159,20 @@ pub(super) async fn report(
             .cloned()
             .ok_or_else(|| RpcError::invalid_params("summary is required"))?,
     };
+    // Checked under the ledger's lock: of two calls that say the same, one sends the card. The
+    // same call again after its card was not delivered sends it again.
+    let mut replayed = false;
     let row = hub
         .briefs
         .update(id, |r| {
+            if let Some(result) = &result
+                && r["status"] == status
+                && tasks::same_result(&r["result"], result)
+                && r["result"].get("undelivered").is_none()
+            {
+                replayed = true;
+                return;
+            }
             r["status"] = json!(status);
             r["report"] = summary.clone();
             r["reportedAt"] = json!(crate::store::now_ms());
@@ -180,10 +185,14 @@ pub(super) async fn report(
             }
         })
         .ok_or_else(|| RpcError::not_found(format!("no brief {id:?}")))?;
+    let event = crate::hub::dispatch::event("report", &row);
+    if replayed {
+        return Ok(json!({"brief": row, "event": event, "replayed": true}));
+    }
     if result.is_some() {
         hub.send_task_result(&row, conn.caller());
     }
-    Ok(json!({"brief":row,"event":crate::hub::dispatch::event("report", &row)}))
+    Ok(json!({"brief": row, "event": event}))
 }
 
 /// Refused unless the caller may end task `id` (`row`): its own session, the chat that gave it,
@@ -243,11 +252,11 @@ pub(super) async fn task_new(
             break id;
         }
     };
+    let caller = conn.caller();
+    let declared = crate::hub::declared_sender(&params)?;
     if let Some(existing) = hub.briefs.claim(&id, idempotency) {
         return Ok(json!({"task": task_row(hub, &existing), "replayed": true}));
     }
-    let caller = conn.caller();
-    let declared = crate::hub::declared_sender(&params)?;
     let from = caller
         .map(|id| hub.session_name(id))
         .or_else(|| declared.clone())
