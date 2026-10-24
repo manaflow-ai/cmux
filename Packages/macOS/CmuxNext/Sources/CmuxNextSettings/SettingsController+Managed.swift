@@ -1,5 +1,5 @@
 public import CmuxNextWakeups
-import Foundation
+public import Foundation
 
 extension SettingsController {
     /// Re-reads managed preferences and reloads when they changed. The App
