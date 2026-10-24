@@ -2122,10 +2122,17 @@ jobs:
             echo "::error title=Build fleet client missing::$client is not installed on runner $RUNNER_NAME. There is no automatic fallback in phase 1: install the client on that gateway, or clear CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY to run on a runner again."
             exit 127
           fi
-          # A GCE gateway must prove instance-read access before submitting a
-          # job. Non-GCE runners have no metadata endpoint, so the helper skips
-          # this cloud-only check there.
-          if ! scripts/ci/fleet-instance-preflight.sh; then
+          # This gateway deliberately has no checkout. Fetch the small
+          # preflight helper from this exact commit before dispatching; it
+          # skips the cloud-only check on non-GCE runners.
+          preflight="$RUNNER_TEMP/fleet-instance-preflight.sh"
+          if ! curl --fail --silent --show-error --location --connect-timeout 10 --max-time 30 \
+            -o "$preflight" "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/scripts/ci/fleet-instance-preflight.sh"; then
+            echo "::error title=Fleet instance preflight unavailable::Could not load the GCE access preflight before dispatch; no CI job was dispatched."
+            exit 69
+          fi
+          chmod +x "$preflight"
+          if ! "$preflight"; then
             exit 69
           fi
           status=0
