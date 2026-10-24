@@ -308,7 +308,11 @@ extension DaemonStore {
             var failed = false
             do {
                 let (tree, barrier) = try await driver.connection.snapshot()
-                apply(snapshot: tree)
+                // The comparison with the last applied snapshot reads the whole tree: off the main
+                // thread. Main applies only what differs (or everything, when the memo cannot vouch).
+                let memo = snapshotMemo
+                let diff = memo.applied.isEmpty ? nil : await SnapshotDiff.computed(tree, against: memo.applied, revision: memo.revision)
+                apply(snapshot: tree, diff: diff)
                 snapshotBarrier = max(snapshotBarrier, barrier)
                 snapshotCoveredPersonal(through: barrier)
                 advanceAppliedSequence(to: barrier)
