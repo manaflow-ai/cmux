@@ -104,6 +104,7 @@ async function mount(start: {
   sessions?: import("../src/agent-session/acpmux/model").AcpmuxSnapshot["sessions"];
   /// Add harness…: each click is counted.
   onAddAgent?: () => void;
+  onHarnessEnable?: (folder: string, id: string) => void;
 }) {
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
@@ -176,6 +177,7 @@ async function mount(start: {
         }}
         showPlan={false}
         {...(start.onAddAgent ? { onAddAgent: start.onAddAgent } : {})}
+        {...(start.onHarnessEnable ? { onHarnessEnable: start.onHarnessEnable } : {})}
       />
     );
   }
@@ -327,6 +329,34 @@ test("before its first message, a machine profile is absent from the harness rai
   expect(tabs).toContain("Claude Code");
   expect(tabs).toContain("Codex");
   expect(tabs).not.toContain("Build machine");
+});
+
+test("a non-current folder profile keeps its Enable action outside the harness rail", async () => {
+  const enabled: string[] = [];
+  await mount({
+    harness: "codex",
+    extra: [
+      {
+        id: "machine-profile",
+        name: "Build machine",
+        folder: { folder: "/Users/me/app", state: "needs-enable" },
+      },
+    ],
+    onHarnessEnable: (folder, id) => enabled.push(`${folder}:${id}`),
+  });
+  await act(async () => {
+    openFullPicker();
+  });
+  const profile = host.querySelector<HTMLButtonElement>(".acpmux-mp-folder-profiles button");
+  expect(profile?.textContent).toContain("Build machine");
+  expect(host.querySelector(".acpmux-mp-harness[title^='Build machine']")).toBeNull();
+  await act(async () => profile?.click());
+  const enable = [...host.querySelectorAll<HTMLButtonElement>(".acpmux-mp-row")].find(
+    (button) => !button.closest(".acpmux-mp-folder-profiles") && button.textContent?.includes("Enable"),
+  );
+  expect(enable).not.toBeUndefined();
+  await act(async () => enable?.click());
+  expect(enabled).toEqual(["/Users/me/app:machine-profile"]);
 });
 
 // Debug Settings' "Allow switching harness in a started chat" (off by default): on, a started

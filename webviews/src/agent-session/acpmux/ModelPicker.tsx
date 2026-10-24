@@ -862,6 +862,7 @@ export function ModelPicker(props: ModelPickerProps) {
           ? unavailableText
           : undefined;
   const selectedOther = selected !== undefined && !selected.ids.includes(harness ?? "");
+  const folderProfiles = harnesses.filter((entry) => entry.folder);
   // Several harness profiles can draw one brand's mark (Claude Code, Claude Agent, a subrouter
   // route): their tooltips add the profile id, so each tab says which one it starts.
   const markCounts = new Map<string, number>();
@@ -1157,6 +1158,27 @@ export function ModelPicker(props: ModelPickerProps) {
                 className="acpmux-mp-models p-1.5"
                 aria-label={searching ? searchText : starredView ? starredText : (selected?.name ?? modelText)}
               >
+                {!searching && !starredView && folderProfiles.length > 0 && (
+                  <div className="acpmux-mp-folder-profiles mb-1 border-b-[0.5px] border-edge pb-1">
+                    <div className="px-2 py-1 text-detail text-muted">{t("picker.thisFolder")}</div>
+                    {folderProfiles.map((entry) => (
+                      <button
+                        type="button"
+                        key={`folder-profile:${entry.id}`}
+                        className={`acpmux-mp-row ${modelRow} ${rowFill(selectedHarness === entry.id)}`}
+                        onClick={() => {
+                          setSelectedHarness(entry.id);
+                          setOlderOpen(false);
+                          setActive(0);
+                          setAddChosen(false);
+                        }}
+                      >
+                        <span className="acpmux-menu-label flex-1 truncate">{entry.name}</span>
+                        {folderNote(entry) && <span className="acpmux-quick-value">{folderNote(entry)}</span>}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 {selected && !searching && !starredView && loginFor(selected) !== undefined ? (
                   <>
                     <div className={emptyNote}>{t("harness.signedOut", { agent: selected.name })}</div>
