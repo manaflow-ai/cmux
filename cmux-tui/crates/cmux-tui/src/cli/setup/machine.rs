@@ -61,6 +61,10 @@ struct Request {
     /// `--name` was given, so only a peer of that name matches.
     named: bool,
     dry_run: bool,
+    /// Resolve one safe Tailscale candidate instead of requiring a target.
+    auto: bool,
+    /// The candidate row selected by auto-detection, included in the report.
+    detection: Option<Value>,
 }
 
 /// What a change would do.
@@ -77,9 +81,20 @@ struct Peers {
 }
 
 pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
-    let request = parse(args)?;
+    let mut request = parse(args)?;
     crate::acp::configure_home();
     let peers = peers()?;
+    if request.auto {
+        let (target, candidate) = match detect_target() {
+            Ok(pick) => pick,
+            Err(outcome) => return Ok(outcome),
+        };
+        request.target = target;
+        request.detection = Some(candidate);
+        if !request.named {
+            request.name = default_name(&request.target);
+        }
+    }
     let found = find(&peers.list, &request);
     if !request.named
         && found.is_none()
@@ -98,6 +113,8 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
         "dry_run": request.dry_run,
         "target": request.target,
         "name": name,
+        "auto": request.auto,
+        "detection": request.detection.clone().unwrap_or(Value::Null),
         "daemon": if peers.daemon { "running" } else { "not_running" },
         "before": found.map(summary),
         "ssh": Value::Null,
@@ -248,10 +265,12 @@ fn parse(args: &[String]) -> Result<Request, Refusal> {
     let mut target = None;
     let mut name = None;
     let mut dry_run = false;
+    let mut auto = false;
     let mut args = args.iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--dry-run" => dry_run = true,
+            "--auto" => auto = true,
             "--name" => {
                 let value =
                     args.next().filter(|value| !value.starts_with('-')).ok_or_else(|| {
@@ -272,9 +291,30 @@ fn parse(args: &[String]) -> Result<Request, Refusal> {
             }
         }
     }
-    let target = target.ok_or_else(|| {
-        Refusal::Usage("cmux: setup machine: give the ssh target (host or user@host)".into())
-    })?;
+    if auto && target.is_some() {
+        return Err(Refusal::Usage(
+            "cmux: setup machine: --auto cannot be combined with an ssh target".into(),
+        ));
+    }
+    if !auto && target.is_none() {
+        return Err(Refusal::Usage(
+            "cmux: setup machine: give the ssh target (host or user@host), or use --auto".into(),
+        ));
+    }
+    let target = target.unwrap_or_default();
+    if auto {
+        let named = name.is_some();
+        let name = name.unwrap_or_default();
+        if named
+            && (name.is_empty()
+                || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b)))
+        {
+            return Err(Refusal::Usage(format!(
+                "cmux: setup machine: the peer name {name:?} must be letters, digits, '.', '_' or '-'",
+            )));
+        }
+        return Ok(Request { target, name, named, dry_run, auto, detection: None });
+    }
     // Checked like a peer url, so the target is never an ssh option.
     match ssh_target(&format!("ssh://{target}")) {
         Ok(parsed) if parsed.destination == target => {}
@@ -296,13 +336,130 @@ fn parse(args: &[String]) -> Result<Request, Refusal> {
             "cmux: setup machine: the peer name {name:?} must be letters, digits, '.', '_' or '-'"
         )));
     }
-    Ok(Request { target, name, named, dry_run })
+    Ok(Request { target, name, named, dry_run, auto, detection: None })
 }
 
 /// The name `acp host setup` gives a peer without `--name`.
 fn default_name(target: &str) -> String {
     let host = target.rsplit('@').next().unwrap_or(target);
     host.split('.').next().unwrap_or(host).to_owned()
+}
+
+/// Ask acpmux for its Tailscale candidates and choose only an online,
+/// key-probed machine owned by this login. Auto-detection never guesses from
+/// a shared/tagged/offline peer, and never chooses between two machines.
+fn detect_target() -> Result<(String, Value), Outcome> {
+    let exe = std::env::current_exe().map_err(|error| {
+        auto_failed(format!("cannot locate cmux for candidate detection: {error}"))
+    })?;
+    let output = Command::new(exe)
+        .args(["acp", "host", "candidates", "--probe", "--json"])
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|error| auto_failed(format!("cannot run candidate detection: {error}")))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(auto_failed(format!(
+            "acpmux could not list machines{}",
+            stderr.lines().find(|line| !line.trim().is_empty()).map_or_else(
+                || ". Start acpmux and try again.".to_owned(),
+                |line| format!(": {line}"),
+            )
+        )));
+    }
+    let reply: Value = serde_json::from_slice(&output.stdout).map_err(|error| {
+        auto_failed(format!("candidate detection returned invalid JSON: {error}"))
+    })?;
+    let candidates = reply.get("candidates").and_then(Value::as_array).cloned().unwrap_or_default();
+    let eligible = eligible_candidates(&candidates);
+    if eligible.len() != 1 {
+        let rows = candidates.iter().map(candidate_summary).collect::<Vec<_>>();
+        let why = if eligible.is_empty() {
+            "No single owned machine passed the online and key-only ssh checks. Choose a host explicitly or fix ssh, then retry.".to_owned()
+        } else {
+            format!(
+                "{} owned machines passed the checks; choose one explicitly to avoid attaching the wrong host.",
+                eligible.len()
+            )
+        };
+        return Err(auto_choice(why, rows));
+    }
+    let candidate = eligible[0];
+    let target = candidate
+        .get("dns_name")
+        .and_then(Value::as_str)
+        .filter(|name| !name.is_empty())
+        .or_else(|| candidate.get("ip").and_then(Value::as_str))
+        .ok_or_else(|| auto_choice(
+            "The detected machine had no dialable DNS name or address; choose an ssh target explicitly.".to_owned(),
+            vec![candidate_summary(candidate)],
+        ))?;
+    let target = target.trim_end_matches('.').to_owned();
+    Ok((target, candidate_summary(candidate)))
+}
+
+fn eligible_candidates(candidates: &[Value]) -> Vec<&Value> {
+    candidates
+        .iter()
+        .filter(|candidate| {
+            candidate.get("online").and_then(Value::as_bool) == Some(true)
+                && candidate.get("mine").and_then(Value::as_bool) == Some(true)
+                && candidate.get("already_peer").and_then(Value::as_bool) != Some(true)
+                && candidate.get("ssh_ok").and_then(Value::as_bool) == Some(true)
+                && matches!(
+                    candidate.get("os").and_then(Value::as_str),
+                    Some("macOS" | "linux" | "Linux")
+                )
+        })
+        .collect()
+}
+
+fn candidate_summary(candidate: &Value) -> Value {
+    json!({
+        "name": candidate.get("name"),
+        "target": candidate.get("dns_name").and_then(Value::as_str).filter(|s| !s.is_empty()).or_else(|| candidate.get("ip").and_then(Value::as_str)),
+        "os": candidate.get("os"),
+        "online": candidate.get("online"),
+        "mine": candidate.get("mine"),
+        "ssh_ok": candidate.get("ssh_ok"),
+        "already_peer": candidate.get("already_peer"),
+    })
+}
+
+fn auto_choice(text: String, candidates: Vec<Value>) -> Outcome {
+    Outcome {
+        report: json!({
+            "schema_version": 1,
+            "task": TASK,
+            "state": "needs_user",
+            "dry_run": false,
+            "auto": true,
+            "target": Value::Null,
+            "name": Value::Null,
+            "detection": {"candidates": candidates},
+            "user_action": {"kind": "choose_machine", "text": text, "candidates": candidates},
+            "undo": Value::Null,
+        }),
+        failed: false,
+    }
+}
+
+fn auto_failed(text: String) -> Outcome {
+    Outcome {
+        report: json!({
+            "schema_version": 1,
+            "task": TASK,
+            "state": "needs_user",
+            "dry_run": false,
+            "auto": true,
+            "target": Value::Null,
+            "name": Value::Null,
+            "detection": Value::Null,
+            "user_action": {"kind": "candidate_detection", "text": text},
+            "undo": Value::Null,
+        }),
+        failed: false,
+    }
 }
 
 /// The peers from the running daemon, which knows which are connected;
@@ -534,6 +691,35 @@ fn after(result: &Value, name: &str) -> Option<Value> {
         .iter()
         .find(|peer| peer.get("name").and_then(Value::as_str) == Some(name))
         .cloned()
+}
+
+#[cfg(test)]
+mod auto_detection_tests {
+    use super::eligible_candidates;
+    use serde_json::json;
+
+    #[test]
+    fn auto_detection_only_accepts_one_owned_probed_online_host() {
+        let rows = vec![
+            json!({"name":"mine", "os":"linux", "online":true, "mine":true, "ssh_ok":true, "already_peer":false}),
+            json!({"name":"shared", "os":"linux", "online":true, "mine":false, "ssh_ok":true, "already_peer":false}),
+            json!({"name":"stale", "os":"linux", "online":false, "mine":true, "ssh_ok":true, "already_peer":false}),
+            json!({"name":"used", "os":"macOS", "online":true, "mine":true, "ssh_ok":true, "already_peer":true}),
+            json!({"name":"phone", "os":"iOS", "online":true, "mine":true, "ssh_ok":true, "already_peer":false}),
+        ];
+        let picked = eligible_candidates(&rows);
+        assert_eq!(picked.len(), 1);
+        assert_eq!(picked[0]["name"], "mine");
+    }
+
+    #[test]
+    fn auto_detection_requires_explicit_choice_when_two_hosts_pass() {
+        let rows = vec![
+            json!({"name":"one", "os":"linux", "online":true, "mine":true, "ssh_ok":true}),
+            json!({"name":"two", "os":"macOS", "online":true, "mine":true, "ssh_ok":true}),
+        ];
+        assert_eq!(eligible_candidates(&rows).len(), 2);
+    }
 }
 
 /// The acpmux version the machine reported: setup's `remoteVersion`, or the
