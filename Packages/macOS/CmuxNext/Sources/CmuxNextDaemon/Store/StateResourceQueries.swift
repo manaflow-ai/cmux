@@ -1,11 +1,10 @@
-import CmuxNextCompat
 import Foundation
-import Observation
 
 /// Read-only queries over a store's state resources and its applied event
 /// sequence (`DaemonStore` conforms): whether the daemon serves the v2 state
-/// operations, the public ids they take, and event-driven waits for the
-/// mirror to catch up. Kept apart from the store's apply paths.
+/// operations and the public ids they take. Kept apart from the store's
+/// apply paths (the waits for the mirror to catch up are the store's own:
+/// ``DaemonStore/appliedThrough(_:since:)``, ``DaemonStore/sessionStateResolved()``).
 @MainActor
 public protocol StateResourceQueries: AnyObject {
     var identity: DaemonIdentity? { get }
@@ -46,15 +45,5 @@ extension StateResourceQueries {
     /// The workspace whose public id is `id`.
     public func workspace(resourceID id: ResourceID) -> WorkspaceModel? {
         workspaces.first { $0.resourceID == id }
-    }
-
-    /// Returns once the state resources' first snapshot arrived, or this
-    /// daemon serves none (`SessionStateStore.known`), or the connection changed.
-    public func sessionStateResolved() async {
-        guard !session.known else { return }
-        let state = connectionState
-        for await done in ObservationStream({ self.session.known || self.connectionState != state }) where done {
-            return
-        }
     }
 }

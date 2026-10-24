@@ -35,12 +35,51 @@ public final class SessionStateStore {
     /// since batches during the gap were lost.
     @ObservationIgnored public var onSidebarResync: (@MainActor () -> Void)?
 
+    /// Waits for ``known`` (``resolved()``), by id (a cancelled wait removes its own).
+    @ObservationIgnored var resolveWaiters: [UInt64: CheckedContinuation<Bool, Never>] = [:]
+    @ObservationIgnored private var resolveWaiterSerial: UInt64 = 0
+
     public init() {}
 
     /// A new connection: known at once when its daemon serves no state
     /// resources, else once the stream's snapshot (or its end) arrives.
     func connected(servesStateResources: Bool) {
         known = !servesStateResources
+    }
+
+    /// Waits until ``known`` and says whether it came: true once the state resources' first snapshot (or the
+    /// stream's end) arrived, or the daemon serves none; false when the connection changed first (every
+    /// ``DaemonConnectionChange`` ends the wait, so it never outlives its connection: a run ended by `close()`
+    /// or marked failed included) or the task was cancelled. Event-driven: one waiter, no observation loop.
+    func resolved() async -> Bool {
+        if known { return true }
+        guard !Task.isCancelled else { return false }
+        resolveWaiterSerial += 1
+        let id = resolveWaiterSerial
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
+                self.resolveWaiters[id] = done
+            }
+        } onCancel: {
+            // task-owner: one hop to the main actor to end this cancelled wait, not resolved
+            Task { @MainActor [weak self] in self?.resolveWaiters.removeValue(forKey: id)?.resume(returning: false) }
+        }
+    }
+
+    /// The connection changed: every ``resolved()`` wait ends, not resolved (the next connection resolves anew).
+    func connectionChanged() { resumeResolveWaiters(false) }
+
+    /// ``known`` turned true: every ``resolved()`` wait ends, resolved.
+    private func becameKnown() {
+        known = true
+        resumeResolveWaiters(true)
+    }
+
+    private func resumeResolveWaiters(_ resolved: Bool) {
+        guard !resolveWaiters.isEmpty else { return }
+        let waiting = resolveWaiters.values
+        resolveWaiters.removeAll()
+        for waiter in waiting { waiter.resume(returning: resolved) }
     }
 
     /// Applies one `session.events` item to the mirror and lays what it
@@ -50,7 +89,7 @@ public final class SessionStateStore {
         switch item {
         case .snapshot(let snapshot):
             if mirror != snapshot { mirror = snapshot }
-            if !known { known = true }
+            if !known { becameKnown() }
             publishClosed()
             stashChanges &+= 1
             onSidebarResync?()
@@ -68,7 +107,7 @@ public final class SessionStateStore {
         case .ended:
             // The reopened stream's snapshot replaces the mirror; a stream
             // that could not open leaves no snapshot to wait for.
-            if !known { known = true }
+            if !known { becameKnown() }
         }
     }
 

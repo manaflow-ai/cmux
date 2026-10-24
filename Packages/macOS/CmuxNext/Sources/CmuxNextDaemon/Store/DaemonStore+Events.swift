@@ -108,7 +108,7 @@ extension DaemonStore {
         case .connected(let identity, _):
             return DaemonConnectionChange.connected(identity, envelope).apply(to: self)
         case .disconnected(let reason):
-            return DaemonConnectionChange.disconnected(reason).apply(to: self)
+            return DaemonConnectionChange.disconnected(reason, envelope).apply(to: self)
         case .daemonShutdown:
             return DaemonConnectionChange.shutdown.apply(to: self)
 

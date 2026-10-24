@@ -366,6 +366,8 @@ extension DaemonStore {
         guard let delay = resyncPacer.failed() else {
             logger.error("resync retries spent; the next daemon event resyncs")
             needsResync = true
+            // Until then the store reaches no newer sequence: a wait for one ends now, not held.
+            endStalledAppliedWaits()
             return
         }
         let timer = DemandTimer(owner: "DaemonStore.resync", clock: resyncClock)
