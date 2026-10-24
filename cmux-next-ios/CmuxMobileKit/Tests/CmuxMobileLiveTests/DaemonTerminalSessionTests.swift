@@ -320,12 +320,14 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         let session = DaemonTerminalSession(surface: 7) {
             DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
         }
-        session.tailProbeDelay = .milliseconds(30)
+        session.tailProbeDelay = .seconds(60)
         session.start { _ in }
         try await waitUntil { session.isAttached }
         session.send(Data("a".utf8))
         try await waitUntil { daemon.recorded.contains { $0["cmd"] as? String == "send" } }
-        try await Task.sleep(for: .milliseconds(150))
+        // Answered: the probe armed at the write is gone.
+        try await waitUntil { session.inputsInFlight == 0 }
+        #expect(!session.tailProbeArmed)
         #expect(!daemon.recorded.contains { $0["cmd"] as? String == "ping" })
     }
 
@@ -340,14 +342,44 @@ final class FakeTerminalDaemon: @unchecked Sendable {
             DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
         }
         session.tailProbeDelay = .seconds(60)
+        session.now = { 1000 }  // a frozen clock: no send ages past the stall limit
         session.start { _ in }
         try await waitUntil { session.isAttached }
         let sends = { daemon.recorded.filter { $0["cmd"] as? String == "send" }.count }
-        for n in 1...32 {
+        let cap = DaemonTerminalSession.maxInputInFlight
+        #expect(cap >= 32)
+        for n in 1...cap {
             session.send(Data("x".utf8))
             try await waitUntil { sends() == n }
         }
-        #expect(sends() == 32)
+        // The cap still holds: the next one waits for an answer.
+        session.send(Data("y".utf8))
+        for _ in 0..<10 where sends() <= cap { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(sends() == cap)
+    }
+
+    /// Review: a stalled link (the oldest unanswered send older than
+    /// `inputStallLimit`) holds new keys instead of writing them to arrive
+    /// late; they go once the stall clears.
+    @Test func aStalledLinkHoldsNewKeys() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.unansweredSends = true
+        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let session = DaemonTerminalSession(surface: 7) {
+            DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
+        }
+        var clock: TimeInterval = 1000
+        session.now = { clock }
+        session.tailProbeDelay = .seconds(60)
+        session.start { _ in }
+        try await waitUntil { session.isAttached }
+        let sends = { daemon.recorded.filter { $0["cmd"] as? String == "send" }.count }
+        session.send(Data("a".utf8))
+        try await waitUntil { sends() == 1 }
+        clock += session.inputStallLimit + 0.1
+        session.send(Data("b".utf8))
+        for _ in 0..<10 where sends() <= 1 { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(sends() == 1)
     }
 
     /// TUI fast scroll: what one main-queue turn queues (a scroll frame's
