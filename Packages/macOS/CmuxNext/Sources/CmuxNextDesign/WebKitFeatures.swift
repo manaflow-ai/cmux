@@ -50,10 +50,12 @@ private let webKitFeaturesByKey: [String: NSObject] = {
 
 /// WebKit's page render rate (one path for browser tabs, React pages and
 /// the agent pane). WebKit renders near 60 fps by default; full rate follows
-/// the display (120 Hz on ProMotion). Browser tabs and cmux pages are made at
-/// full rate and keep it: in Low Power Mode WebKit halves every page's rate by
-/// itself, live (its LowPowerMode throttling reason). Only the agent pane
-/// changes its own rate later (its adaptive and debug `capped` rates).
+/// the display (120 Hz on ProMotion). Every page is made at its rate and keeps
+/// it (browser tabs, cmux pages and the agent pane, whose debug `capped` rate is
+/// also chosen at creation): WebKit does not apply a live write of the
+/// preference to a page on screen (cmux20, macOS 27, 120 Hz), and in Low Power
+/// Mode it halves every page's rate by itself, live (its LowPowerMode
+/// throttling reason).
 public struct WebKitRenderRate {
     public init() {}
     /// WebKit's feature that renders a page at the display-rate divisor nearest 60 fps.

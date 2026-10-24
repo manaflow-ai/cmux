@@ -16,8 +16,6 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .persistSession: "persistSession"
         case .missingChat: "missingChat"
         case .unsentDraft: "unsentDraft"
-        case .framePacing: "framePacing"
-        case .renderRate: "renderRate"
         case .openTab: "openTab"
         case .typeAhead: "typeAhead"
         case .runAttach: "runAttach"

@@ -125,16 +125,16 @@ public final class AgentPaneView: NSView {
     /// - Parameters:
     ///   - model: Answers the page's host requests.
     ///   - source: The page to load; nil loads ``bundledPage``.
-    ///   - renderRate: How fast the page renders. Adaptive starts at the
-    ///     display's full rate and caps it while scrolls miss frames, as they
-    ///     do on a loaded machine (#16471).
+    ///   - renderRate: How fast the page renders, fixed for the page's life: the display's full
+    ///     rate by default, as every cmux page and browser tab (in Low Power Mode WebKit halves it
+    ///     by itself).
     ///   - pageHost: Host the page on the shared page host (``PageWebView``) instead of this
     ///     view's own WebKit host. Only a bundled page can move; a dev-server page stays.
     ///   - chromium: Makes the page host's Chromium view when the chat shows in Chromium (the app's
     ///     ``PageWebView/chromiumHosting`` by default; tests pass a fake).
     ///   - openPanel: The app's made-ahead open panel (`AppServices.openPanel`) for Add Files, Attach and a page's
     ///     file input, warmed when the pane reaches a window; nil (tests) shows no file picker and warms none.
-    public init?(model: AgentPaneModel, source: AgentPaneSource? = nil, renderRate: AgentPaneRenderRate = .capped,
+    public init?(model: AgentPaneModel, source: AgentPaneSource? = nil, renderRate: AgentPaneRenderRate = .full,
                  pageHost: Bool = false, chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting,
                  openPanel: MadeAheadOpenPanel? = nil) {
         guard let source = source ?? Self.bundledPage.map({ AgentPaneSource.bundled($0) }) else { return nil }
@@ -170,9 +170,7 @@ public final class AgentPaneView: NSView {
             // user-installed fonts again for each new page (registerUserInstalledFonts, about
             // 25 ms of the 30 ms main-thread page build, R81 trace); a shared pool lists them once.
             configuration.processPool = Self.processPool
-            if renderRate != .capped {
-                WebKitRenderRate.apply(fullRate: true, to: configuration.preferences)
-            }
+            WebKitRenderRate.apply(fullRate: renderRate == .full, to: configuration.preferences)
             source.register(on: configuration)
             // The shared web theme (`window.cmuxTheme`, `--cmux-*`): the page
             // background is the one surface token, or clear over a see-through
@@ -236,11 +234,6 @@ public final class AgentPaneView: NSView {
         model.onChooseAttachments = { [weak self] in
             guard let self, let openPanel else { return [] }
             return await AgentPaneFilePicker(openPanel: openPanel).pickAttachments(window: window)
-        }
-        model.onFramePacing = { [weak self] _ in self?.framePacingSettings() ?? [:] }
-        model.onRenderRate = { [weak self] full in
-            guard let self, self.renderRate == .adaptive else { return }
-            self.rendersAtFullRate = full
         }
         model.onDictation = { [weak self] command in self?.dictation.handle(command) }
         // A frame that grants needs a real gesture in this pane; page script cannot make one.
@@ -353,19 +346,8 @@ public final class AgentPaneView: NSView {
         redraw.laidOut(self)
     }
 
+    /// How fast the page renders: set when the page is made, never changed live.
     public let renderRate: AgentPaneRenderRate
-    /// The display's refresh rate when the pane has no window screen to ask
-    /// (tests set it).
-    var displayFramesPerSecond: () -> Int = { NSScreen.main?.maximumFramesPerSecond ?? 60 }
-
-    /// The re-apply of the last rate change, while it runs.
-    var rateReapply: Task<Void, Never>?
-    /// An image of the page as shown; nil skips the re-apply (tests set it).
-    lazy var snapshotPage: () async -> NSImage? = { [weak self] in
-        await self?.pageSnapshot()
-    }
-    /// Times the re-apply's steps (tests set it).
-    var clock: any Clock<Duration> = ContinuousClock()
 
     /// Toggle Dictation (the shortcut, palette or menu). From a key press,
     /// holding the key past a moment makes it push-to-talk: dictation stops
@@ -385,7 +367,6 @@ public final class AgentPaneView: NSView {
     /// Stops the page (and its WebSocket) for good; call when the tab closes.
     public func close() {
         popupHostStorage?.hide()
-        rateReapply?.cancel()
         motionObservation?.cancel()
         motionObservation = nil
         iconFamilyObservation?.cancel()

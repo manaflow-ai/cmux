@@ -22,11 +22,6 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// A new chat's typed text before it has a session (`chat.unsentDraft`, cx-z5vd): the App
     /// keeps it with the tab, so a relaunch opens the chat with it.
     case unsentDraft(String)
-    /// A settled transcript scroll's frame intervals in milliseconds, at
-    /// most ``maximumPacingFrames``; returns the native display interval and rate mode.
-    case framePacing([Double])
-    /// Applies the page's adaptive rate decision; fixed-rate panes ignore it.
-    case renderRate(Bool)
     /// The new tab page chose a terminal or browser: replace the tab with
     /// one, running or opening `text` (a command, a URL or a search), a
     /// terminal in `cwd` when the page picked a folder.
@@ -294,7 +289,6 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
         }
     }
 
-    public static let maximumPacingFrames = 640
     /// Longest `tab.open` text kept; a command or address is far shorter.
     public static let maximumOpenTabText = 8192
     /// The page keeps about 2M characters of wire log; JSON escaping and

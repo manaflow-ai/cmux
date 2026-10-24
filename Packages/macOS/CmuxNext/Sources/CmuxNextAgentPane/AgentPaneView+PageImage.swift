@@ -4,6 +4,6 @@ extension AgentPaneView {
     /// An image of the page as shown (the next launch draws it until this
     /// page paints again).
     public func pageImage() async -> NSImage? {
-        await snapshotPage().map { PageImageBackground.fill($0, AgentPaneTheme.underPageColor(themeTokens, surface: surfaceKind)) }
+        await pageSnapshot().map { PageImageBackground.fill($0, AgentPaneTheme.underPageColor(themeTokens, surface: surfaceKind)) }
     }
 }
