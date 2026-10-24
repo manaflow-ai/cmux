@@ -925,7 +925,8 @@ body[data-status-only="true"] #files-motion-curtain {
   align-items: center;
   gap: 7px;
   height: 28px;
-  margin: 4px 8px 1px;
+  /* A little room under the filter before the first file row. */
+  margin: var(--ds-space-1) var(--ds-space-2) var(--ds-space-2);
   padding: 0 4px 0 10px;
   border: 1px solid var(--cmux-diff-rim);
   border-radius: 9px;
