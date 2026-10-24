@@ -76,6 +76,12 @@ import PackageDescription
 // draw happens only after a quiet refresh interval (busy terminals no longer
 // draw twice per interval); a fresh frame publishes only while a present is
 // armed and in its own size generation; a reveal arms it.
+// Since f3de4f4..723c4ab (PRs 52, 53 and the kitty ports): a wheel scroll
+// never waits on the main thread for the terminal lock held by output
+// parsing (it goes to the termio thread, applied in the mode the terminal
+// has then); ghostty_surface_fit_grid gives the grid a size will fit without
+// resizing; the grid metrics say whether the alternate screen is active;
+// kitty graphics follow upstream #14811 and #14812.
 //
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
@@ -100,8 +106,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-b42d1690ee4f8ffab0c1688fcc340a749e778f5b-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "69a3e6fef1af1872d5d47327ed76b456a87207e5cb54e5b1c896f6ae20270f3d"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-723c4ab93e70c6be896bd9b6d0ad42f2a5fbfedc-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "9cf0bdc5f8ef77adfa28ff2fdcd373c4ee8aac9021b228746b043931ac741052"
         ),
     ]
 )
