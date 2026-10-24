@@ -64,7 +64,7 @@ final class ChiefPetMascotCell: NSButton {
     let id: String
     /// The character's name (the Settings page's title for it): VoiceOver's label and the tooltip.
     let name: String
-    private lazy var hover = ChromeHover(self, behindContent: true)
+    private(set) lazy var hover = ChromeHover(self, behindContent: true)
 
     /// Set again after every click: a push-on-push-off click flips `state` itself, so a click on
     /// the checked character must put it back on.
