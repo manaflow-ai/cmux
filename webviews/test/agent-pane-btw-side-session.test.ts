@@ -206,15 +206,15 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
     return `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${session}`;
   }
 
-  /// Opens `session` with Debug Settings' Side sessions (/btw) on or off (the `sideSessions` of
+  /// Opens `session` with an optional explicit Side sessions (/btw) value (the `sideSessions` of
   /// the header state the app answers `pane.tabState` with), recording what the page asks the app to open
-  /// (`chat.sideChat`) on top of the dev host.
-  async function openChat(session: string, gate: boolean): Promise<Page> {
+  /// (`chat.sideChat`) on top of the dev host. Omitting it exercises the shipped default.
+  async function openChat(session: string, gate?: boolean): Promise<Page> {
     btws.length = 0;
     prompts.length = 0;
     cancels.length = 0;
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
-    await page.addInitScript((gate: boolean) => {
+    await page.addInitScript((gate: boolean | undefined) => {
       const sideChats: unknown[] = [];
       const handlers: Record<string, unknown> = {};
       let host: { postMessage(message: unknown): Promise<unknown> } | undefined;
@@ -226,7 +226,11 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
             postMessage(message: { t?: string; id?: number; op?: string; params?: unknown }) {
               // The chat's header state carries Debug Settings' Side sessions (/btw) toggle.
               if (message?.t === "call" && message.op === "cmux.agent.pane.tabState")
-                return Promise.resolve({ t: "ok", id: message.id, value: { sideSessions: gate, version: 1 } });
+                return Promise.resolve({
+                  t: "ok",
+                  id: message.id,
+                  value: { ...(gate === undefined ? {} : { sideSessions: gate }), version: 1 },
+                });
               if (message?.t === "call" && message.op === "cmux.agent.chat.sideChat") {
                 sideChats.push(message.params);
                 // A test sets `refuseSideChat`: the app does not open the side session.
@@ -266,6 +270,15 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
   }
 
   describe("btw side session", () => {
+    test("the shipped default offers /btw while the turn is running", async () => {
+      const page = await openChat(MAIN);
+      await type(page, `/btw ${QUESTION}`);
+      await page.waitForFunction(() => (window as unknown as { sideChats: unknown[] }).sideChats.length > 0);
+      expect(btws).toEqual([{ sessionId: MAIN, question: QUESTION }]);
+      expect(prompts).toEqual([]);
+      await page.close();
+    });
+
     test("/btw mid-turn starts a side session, opens it beside the chat, and the turn keeps streaming", async () => {
       const page = await openChat(MAIN, true);
       await type(page, `/btw ${QUESTION}`);
