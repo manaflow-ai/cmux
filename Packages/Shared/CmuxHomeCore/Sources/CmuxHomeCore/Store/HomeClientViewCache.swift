@@ -2,16 +2,18 @@ import Foundation
 
 /// Owns the client view state the Home cache keeps (drafts and scroll
 /// anchors: never synced, never sent) and the coalesced writes of the
-/// `HomeCache` snapshot. HomeStore owns one; the owner state that goes into
-/// each snapshot (mirror, intent log, me) comes from `ownerSnapshot`.
+/// `HomeCache`. HomeStore owns one; the owner state that goes into each
+/// write (mirror, intent log, me) comes from `ownerState`.
 ///
-/// A write is scheduled only by a change to what the snapshot holds: a draft,
+/// A write is scheduled only by a change to what the cache holds: a draft,
 /// an attachment list or a scroll anchor here (equal values are no change),
 /// and the store's mirror and log through `scheduleWrite()` when their cache
 /// change counts moved. Owner events that change nothing the cache holds
 /// (typing, a connection change, an owner recovery) schedule nothing, wake
-/// nothing and build no snapshot, so disk writes follow new information
-/// (speed-of-sound-DESIGN.md 3.5). No copy of the written snapshot is kept.
+/// nothing and build nothing, so disk writes follow new information
+/// (speed-of-sound-DESIGN.md 3.5). A write costs the main actor only the
+/// copy-on-write copies of a `HomeCacheState`; the `HomeCache` actor encodes
+/// it and rewrites only the files that changed.
 @MainActor
 final class HomeClientViewCache {
     /// The client's durable copy, nil for none.
@@ -20,7 +22,7 @@ final class HomeClientViewCache {
     let writeDelay: Duration
     private let clock: any Clock<Duration>
     /// The owner's state as the mirror has it, without the client's own state.
-    var ownerSnapshot: @MainActor () -> HomeCacheSnapshot = { HomeCacheSnapshot() }
+    var ownerState: @MainActor () -> HomeCacheState = { HomeCacheState() }
 
     private(set) var drafts: [ConversationID: String] = [:]
     private(set) var draftAttachments: [ConversationID: [HomeCachedDraftAttachment]] = [:]
@@ -29,6 +31,8 @@ final class HomeClientViewCache {
     private var writesSuppressed = false
     /// Something changed since the last successful write (or the restore).
     private var dirty = false
+    /// Numbers each state handed to the cache, so a late older write never replaces a newer one.
+    private var sequence: UInt64 = 0
     /// A coalesced write is waiting for its delay.
     var hasPendingWrite: Bool { pendingWrite != nil }
 
@@ -72,41 +76,45 @@ final class HomeClientViewCache {
         body()
     }
 
-    /// Notes a change to what the snapshot holds and writes the cache soon
+    /// Notes a change to what the cache holds and writes it soon
     /// (coalesced), or at once with no delay. Call it only for a real change.
     func scheduleWrite() {
         guard cache != nil, !writesSuppressed else { return }
         dirty = true
-        guard writeDelay > .zero else { return write() }
+        guard writeDelay > .zero else { return flush() }
         guard pendingWrite == nil else { return }
         let clock = clock
         let delay = writeDelay
         // task-owner: one coalesced cache write; cancelled by flush, which writes at once
         pendingWrite = Task { [weak self] in
             do { try await clock.sleep(for: delay) } catch { return }
-            self?.pendingWrite = nil
-            self?.write()
+            guard let self else { return }
+            self.pendingWrite = nil
+            guard let cache = self.cache, let taken = self.takeState() else { return }
+            // Encoded and written on the cache's actor; this actor only made the copies.
+            let wrote = await cache.write(taken.state, sequence: taken.sequence)
+            if !wrote { self.dirty = true }
         }
     }
 
-    /// Writes the coalesced batch now (app quit, stop); nothing when nothing changed.
+    /// Writes the coalesced batch now and waits for it (app quit, stop); nothing when nothing changed.
     func flush() {
         pendingWrite?.cancel()
         pendingWrite = nil
-        write()
+        guard let cache, let taken = takeState() else { return }
+        if !cache.writeAndWait(taken.state, sequence: taken.sequence) { dirty = true }
     }
 
-    private func write() {
-        guard let cache, dirty else { return }
-        var snapshot = ownerSnapshot()
-        snapshot.drafts = drafts
-        snapshot.draftAttachments = draftAttachments.isEmpty ? nil : draftAttachments
-        snapshot.scroll = scrollAnchors
-        do {
-            try cache.save(snapshot)
-            dirty = false
-        } catch {
-            // Still dirty: the next change or the flush at quit writes again.
-        }
+    /// The state to write and its number, nil when nothing changed; clears `dirty` (a failed
+    /// write sets it again).
+    private func takeState() -> (state: HomeCacheState, sequence: UInt64)? {
+        guard dirty else { return nil }
+        dirty = false
+        var state = ownerState()
+        state.drafts = drafts
+        state.draftAttachments = draftAttachments
+        state.scroll = scrollAnchors
+        sequence &+= 1
+        return (state, sequence)
     }
 }
