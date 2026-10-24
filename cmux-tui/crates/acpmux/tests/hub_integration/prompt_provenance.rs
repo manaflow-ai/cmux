@@ -507,6 +507,42 @@ async fn a_prompt_that_names_its_sender_records_it_as_that_agents_message() {
     }
 }
 
+/// The person's own `acpmux send` from a terminal names the machine it ran on: the recorded client
+/// says it, so the pane shows "via CLI on big-red" under their prompt (Leo, 2026-10-24). An agent's
+/// message names its sender instead, and a value that is no host name is dropped.
+#[tokio::test]
+async fn the_persons_own_cli_send_records_the_machine_it_ran_on() {
+    let hub = hub();
+    let mut person = Client::open(&hub);
+    let receiver = person.new_session(json!({"harness": "fake"})).await;
+    let sent = |id: &str, host: &str, from: Option<&str>| {
+        let mut p = prompt(&receiver, id, "ship it", None);
+        p["_meta"]["acpmux"]["cliHost"] = json!(host);
+        if let Some(from) = from {
+            p["_meta"]["acpmux"]["fromAgent"] = json!(from);
+        }
+        p
+    };
+    for (origin, params) in [
+        (Origin::Local, sent("p-cli", "big-red", None)),
+        (Origin::Peer, sent("p-peer", "big-red", None)),
+        (Origin::Local, sent("p-agent", "huge-blue", Some("codex-lane"))),
+        (Origin::Local, sent("p-odd", "big red\nX", None)),
+    ] {
+        let mut c = Client::open_as(&hub, origin);
+        c.call("session/prompt", params).await;
+    }
+    let client = |m: &Value| m["client"].as_str().unwrap().to_owned();
+    let cli = client(&person.user_message(&receiver, "p-cli").await);
+    assert!(cli.ends_with("@big-red"), "{cli}");
+    let peer = client(&person.user_message(&receiver, "p-peer").await);
+    assert!(peer.ends_with("@big-red"), "{peer}");
+    for id in ["p-agent", "p-odd"] {
+        let other = client(&person.user_message(&receiver, id).await);
+        assert!(!other.contains('@'), "{id}: {other}");
+    }
+}
+
 // A steer names its pasted blocks (`_meta.cmux.pasted`) as a prompt does: UTF-16 ranges of its
 // text.
 #[tokio::test]

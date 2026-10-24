@@ -208,6 +208,9 @@ export type AcpmuxRow = {
   /// Who sent a prompt that the reader did not type here: `chief` for the Chief's task, tell,
   /// steer or restart message to a subagent (its `user_message` promptId `optchat-<kind>:…`).
   from?: "chief";
+  /// The machine the person's own `acpmux send` ran on (acpmux records it on the client, as
+  /// `acpmux-cli#…@big-red`): "via CLI on big-red" under their prompt.
+  viaCli?: string;
   /// The originating prompt row, so Retry can restore image/PDF attachments.
   retryRowId?: string;
   /// A turn footer's answer row (turns.ts), whose right-click menu the footer's More opens.

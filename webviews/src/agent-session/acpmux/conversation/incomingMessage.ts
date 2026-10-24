@@ -98,6 +98,12 @@ export function unsigned(text: string, name: string): string {
   return signed && namesSender(signed.name, [name]) ? signed.text : text;
 }
 
+/// The machine the person's own `acpmux send` ran on, from the client acpmux recorded
+/// (`acpmux-cli#…@big-red`, or `acpmux-peer#…@big-red` when it came through a peer, server/requests.rs).
+export function cliHost(client: unknown): string | undefined {
+  return /^acpmux-(?:cli|peer|outbox)#[^@\s]*@([A-Za-z0-9._-]{1,64})$/.exec(String(client ?? ""))?.[1];
+}
+
 /// What a `user_message` is when not the person's own as recorded, or undefined when it is.
 export function incomingPrompt(
   text: string,

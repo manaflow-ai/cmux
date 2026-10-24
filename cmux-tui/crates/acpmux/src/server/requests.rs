@@ -1084,7 +1084,16 @@ async fn dispatch_request(
             };
             let agent_message = opts.provenance.is_some();
             super::agent_messages::person_prompt(hub, conn, &s, agent_message).await;
-            hub.prompt_with(&s, blocks, &conn.label(), steer, opts).await
+            // The person's own `acpmux send` names the machine it ran on (`cli/sender.rs`): the
+            // recorded client says it (`acpmux-cli#…@big-red`), and the transcript shows "via CLI on
+            // big-red" under their prompt. An agent's message names its sender instead.
+            let host = crate::prompt_provenance::cli_host(&params)
+                .filter(|_| !agent_message && opts.agent.is_none());
+            let client = match host {
+                Some(host) => format!("{}@{host}", conn.label()),
+                None => conn.label(),
+            };
+            hub.prompt_with(&s, blocks, &client, steer, opts).await
         }
         // ACP defines cancel as a notification; a client that sends it as a
         // request gets an empty result instead of a request forwarded to
