@@ -372,6 +372,7 @@ impl HostShared {
                 let master = self.master.lock().recover_poison();
                 crate::pty_input_room::admits(&**master, payload)
             };
+            cmux_flow_trace::hop("host.pty.write", 0, || self.terminal_id.to_hex());
             !admitted || writer.write_all(payload).and_then(|()| writer.flush()).is_ok()
         };
         // Interactive input has always been best-effort. Only a nonzero
