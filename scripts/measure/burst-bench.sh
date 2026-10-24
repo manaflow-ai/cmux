@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Fleet entry for the burst bench (PL-burst): builds a tagged cmux-next app at this checkout, then runs
 # scripts/cmux-next/burst-bench.py against it: bursts of Cmd-W, Cmd-D, Cmd-Shift-D, mixed, held Cmd-W and
-# Cmd-Shift-L through the real key path, light and STRESS; per press input-to-commit p50/p95/p99/max, lost
-# presses, frames, and key -> PTY grid / first TUI output. Runs alone on the worker because it launches an app:
+# Cmd-Shift-L through the real key path, light and STRESS (a new app per phase); per press input to next commit
+# p50/p95/p99/max, each press's fate (performed, swallowed by the close guard, cancelled, refused, lost), Chromium
+# and STRESS shape validity, frames, and key -> PTY grid / first TUI output (`debug.burst`, so a Debug or
+# --config=bench build). Runs alone on the worker because it launches an app:
 #   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/burst-bench.sh --ref <sha> \
 #     [--label macos-26] [--arg=--vdisplay=120] [--arg=--no-stress] [--arg=--presses=20] --artifact burst-bench.json
 # --vdisplay=HZ runs the bench on a virtual main display at HZ (split-spring.sh's helper, 1920 x 1200: STRESS
