@@ -24,12 +24,15 @@ use crate::Mux;
 use crate::SurfaceId;
 use crate::stream_interrupt::InterruptSet;
 use crate::stream_interrupt::StreamInterrupt;
+use std::collections::BTreeSet;
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::Condvar;
 use std::sync::Mutex;
 use std::sync::OnceLock;
+use std::sync::Weak;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::thread::JoinHandle;
@@ -40,6 +43,64 @@ pub(super) struct PendingSurfaceRequest {
     pub(super) request: Request,
     pub(super) retained_bytes: usize,
     pub(super) _bytes_permit: ServerSurfaceBytesPermit,
+    /// The request's place in its surface's order across the connection's
+    /// lanes, held until the request finished (see [`SurfaceOrder`]).
+    pub(super) order: Option<OrderTicket>,
+}
+
+/// Which lane a request runs on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum OrderLane {
+    Control,
+    Stream,
+}
+
+/// The requests of one surface that have not finished, by lane, as their
+/// arrival numbers on the connection. Requests of one surface keep their wire
+/// order across the control lane and the client streams' lanes (as on one
+/// serial connection): a stream request waits for the surface's earlier
+/// control requests (a clear-history barrier, a close, a read), and a control
+/// request is held behind the surface's earlier stream requests (the input a
+/// clear-history must follow). Requests of different surfaces never wait for
+/// each other.
+#[derive(Default)]
+pub(super) struct SurfaceOrder {
+    pub(super) control: BTreeSet<u64>,
+    pub(super) streams: BTreeSet<u64>,
+}
+
+/// A request's entry in its surface's [`SurfaceOrder`]; dropping it (the
+/// request finished, or was dropped unrun) removes the entry and wakes the
+/// requests waiting on it. Never dropped under the scheduler's state lock.
+pub(super) struct OrderTicket {
+    scheduler: Weak<ConnectionSurfaceScheduler>,
+    surface: SurfaceId,
+    arrival: u64,
+    lane: OrderLane,
+}
+
+impl OrderTicket {
+    pub(super) fn arrival(&self) -> u64 {
+        self.arrival
+    }
+}
+
+impl Drop for OrderTicket {
+    fn drop(&mut self) {
+        let Some(scheduler) = self.scheduler.upgrade() else { return };
+        let mut state = scheduler.state.lock().recover_poison();
+        if let Some(order) = state.surface_orders.get_mut(&self.surface) {
+            match self.lane {
+                OrderLane::Control => order.control.remove(&self.arrival),
+                OrderLane::Stream => order.streams.remove(&self.arrival),
+            };
+            if order.control.is_empty() && order.streams.is_empty() {
+                state.surface_orders.remove(&self.surface);
+            }
+        }
+        drop(state);
+        scheduler.changed.notify_all();
+    }
 }
 
 #[derive(Default)]
@@ -52,6 +113,24 @@ pub(super) struct ConnectionSurfaceState {
     pub(super) dispatcher_started: bool,
     pub(super) dispatcher_done: bool,
     pub(super) closed: bool,
+    /// The next request's arrival number on the connection (both lanes).
+    pub(super) next_arrival: u64,
+    /// The unfinished requests of each surface, by lane.
+    pub(super) surface_orders: HashMap<SurfaceId, SurfaceOrder>,
+}
+
+impl ConnectionSurfaceState {
+    /// Whether `surface` has an unfinished request on `lane` that arrived
+    /// before `arrival`.
+    pub(super) fn earlier_on(&self, surface: SurfaceId, lane: OrderLane, arrival: u64) -> bool {
+        self.surface_orders.get(&surface).is_some_and(|order| {
+            let set = match lane {
+                OrderLane::Control => &order.control,
+                OrderLane::Stream => &order.streams,
+            };
+            set.first().is_some_and(|first| *first < arrival)
+        })
+    }
 }
 
 /// Set when a connection's request scheduler closes. Request handlers that
@@ -185,10 +264,13 @@ impl ConnectionSurfaceScheduler {
         let start_dispatcher = !state.dispatcher_started;
         state.dispatcher_started = true;
         state.queued_bytes = state.queued_bytes.saturating_add(retained_bytes);
+        let order =
+            self.take_order_ticket(&mut state, queued.cmd.ordering_surface(), OrderLane::Control);
         state.requests.push_back(PendingSurfaceRequest {
             request: queued,
             retained_bytes,
             _bytes_permit: bytes_permit,
+            order,
         });
         self.changed.notify_all();
         drop(state);
@@ -243,6 +325,11 @@ impl ConnectionSurfaceScheduler {
                     // The scheduler outlives its lanes (it owns them); a gone
                     // one means the connection ended.
                     let Some(scheduler) = scheduler.upgrade() else { return false };
+                    if let Some(ticket) = &pending.order
+                        && !scheduler.wait_for_earlier_control(ticket)
+                    {
+                        return false;
+                    }
                     let keep_open = run_pending_request(&scheduler, &mux, client, pending, &writer);
                     if !keep_open {
                         // As on the control lane: a request that ends the
@@ -253,8 +340,15 @@ impl ConnectionSurfaceScheduler {
                 },
             )
         });
+        let order = {
+            let mut state = self.state.lock().recover_poison();
+            if state.closed {
+                return false;
+            }
+            self.take_order_ticket(&mut state, request.cmd.ordering_surface(), OrderLane::Stream)
+        };
         let pending =
-            PendingSurfaceRequest { request, retained_bytes, _bytes_permit: bytes_permit };
+            PendingSurfaceRequest { request, retained_bytes, _bytes_permit: bytes_permit, order };
         match lanes.submit(stream, pending, retained_bytes) {
             Ok(()) => true,
             Err(LaneRefusal::Closed) => false,
@@ -273,6 +367,43 @@ impl ConnectionSurfaceScheduler {
         }
     }
 
+    /// The request's arrival number and its entry in `surface`'s order, for a
+    /// request that orders by a surface. Caller holds the state lock.
+    pub(super) fn take_order_ticket(
+        self: &Arc<Self>,
+        state: &mut ConnectionSurfaceState,
+        surface: Option<SurfaceId>,
+        lane: OrderLane,
+    ) -> Option<OrderTicket> {
+        let surface = surface?;
+        let arrival = state.next_arrival;
+        state.next_arrival += 1;
+        let order = state.surface_orders.entry(surface).or_default();
+        match lane {
+            OrderLane::Control => order.control.insert(arrival),
+            OrderLane::Stream => order.streams.insert(arrival),
+        };
+        Some(OrderTicket { scheduler: Arc::downgrade(self), surface, arrival, lane })
+    }
+
+    /// Blocks a stream lane's worker until the surface's earlier control
+    /// requests finished (a clear-history, a close, a read issued before this
+    /// request). False when the connection closed meanwhile. Never runs on the
+    /// reader thread: lane workers only.
+    pub(super) fn wait_for_earlier_control(&self, ticket: &OrderTicket) -> bool {
+        let mut state = self.state.lock().recover_poison();
+        loop {
+            // A closed connection runs nothing more; a finishing one drains.
+            if self.cancelled.is_cancelled() {
+                return false;
+            }
+            if !state.earlier_on(ticket.surface, OrderLane::Control, ticket.arrival) {
+                return true;
+            }
+            state = self.changed.wait(state).recover_poison();
+        }
+    }
+
     pub(super) fn start_dispatcher(
         self: &Arc<Self>,
         mux: Arc<Mux>,
@@ -287,13 +418,24 @@ impl ConnectionSurfaceScheduler {
         Ok(())
     }
 
+    /// The next control request to run. A request waits while its surface has
+    /// a clear-history running or an earlier unfinished stream request (the
+    /// cross-lane order, [`SurfaceOrder`]); only requests that may overtake a
+    /// barrier run past a waiting one.
     pub(super) fn next_runnable_index(state: &ConnectionSurfaceState) -> Option<usize> {
-        if state.active_clear_surfaces.is_empty() {
+        let waits_for_streams = |pending: &PendingSurfaceRequest| {
+            pending.order.as_ref().is_some_and(|ticket| {
+                state.earlier_on(ticket.surface, OrderLane::Stream, ticket.arrival)
+            })
+        };
+        if state.active_clear_surfaces.is_empty()
+            && state.requests.front().is_none_or(|head| !waits_for_streams(head))
+        {
             return (!state.requests.is_empty()).then_some(0);
         }
         for (index, pending) in state.requests.iter().enumerate() {
             let surface = pending.request.cmd.ordering_surface()?;
-            if state.active_clear_surfaces.contains(&surface) {
+            if state.active_clear_surfaces.contains(&surface) || waits_for_streams(pending) {
                 continue;
             }
             if pending.request.cmd.can_overtake_clear_barrier() {
@@ -352,7 +494,8 @@ impl ConnectionSurfaceScheduler {
         }
         let mut state = self.state.lock().recover_poison();
         state.closed = true;
-        state.requests.clear();
+        // Dropped after the lock: their order tickets take it.
+        let dropped = std::mem::take(&mut state.requests);
         state.queued_bytes = 0;
         let dispatcher_never_started = !state.dispatcher_started;
         if dispatcher_never_started {
@@ -360,6 +503,7 @@ impl ConnectionSurfaceScheduler {
         }
         self.changed.notify_all();
         drop(state);
+        drop(dropped);
         if dispatcher_never_started {
             self.connection_permit.lock().recover_poison().take();
         }
@@ -453,7 +597,9 @@ pub(super) fn run_pending_request(
     pending: PendingSurfaceRequest,
     writer: &MessageWriter,
 ) -> bool {
-    let PendingSurfaceRequest { request, _bytes_permit, .. } = pending;
+    // The ticket lives until the request finished: later requests of its
+    // surface on the other lane wait for that.
+    let PendingSurfaceRequest { request, _bytes_permit, order: _order, .. } = pending;
     handle_request_with_cancellation(mux, client, request, writer, Some(&scheduler.cancelled))
 }
 

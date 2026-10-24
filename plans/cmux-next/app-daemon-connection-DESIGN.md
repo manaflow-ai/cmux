@@ -169,6 +169,15 @@ Client to daemon (requests), per stream lane:
   the control lane (the existing dispatcher, unchanged order). Lanes are independent FIFOs, exactly the
   ordering domains that separate connections gave: requests of one view stay in order, views and the
   control plane do not wait for each other.
+- Cross-lane order (lead review, required): a surface's requests keep their wire order across lanes, as
+  on one serial connection. Each request that names a surface gets an arrival number and a ticket in that
+  surface's order (`connection_scheduler.rs` `SurfaceOrder`); a stream request waits for the surface's
+  earlier unfinished control requests, and a control request is held behind the surface's earlier
+  unfinished stream requests. That covers every order that matters: clear-history after the input sent
+  before it and before the input sent after it; close-surface after the view's pending writes; a read
+  after the writes it should see. Output is not a request (it is ordered by the stream itself), and a
+  detach or cancel runs on its stream's lane, so its `stream-end` follows the stream's queued frames.
+  Different surfaces never wait for each other, so a key for terminal A still never waits for terminal B.
 - Lane workers: a per-connection pool of threads that park on a condvar when no lane is runnable (no timer,
   no polling, D6). A lane runs on at most one worker at a time. A worker is spawned only when a lane becomes
   runnable and every worker is busy, so the thread count is the high-water of concurrently busy lanes
