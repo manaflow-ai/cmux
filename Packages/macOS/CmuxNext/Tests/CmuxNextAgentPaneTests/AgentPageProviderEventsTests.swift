@@ -206,10 +206,10 @@ struct AgentPageProviderEventsTests {
 
     @Test func pendingFanoutCancelAndFlushDoesNotLeaveBufferedCopy() async throws {
         let provider = AgentPageProvider { _ in nil }
-        provider.replay = { Array(repeating: Self.command("hold"), count: 8_192) }
+        provider.replay = { Array(repeating: Self.command("hold"), count: 129) }
         let first = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null, context: Self.context) { _ in }
         provider.replay = {
-            _ = provider.publish(Self.command("fanout"))
+            #expect(provider.publish(Self.command("fanout")))
             return [Self.command("second")]
         }
         let secondPage = Received()
