@@ -512,12 +512,25 @@ fn fold_word(head: &mut String, word: &mut String, chars: &mut usize) {
     word.clear();
 }
 
-/// A digest of a Workflow call's `args`: the first 16 bytes of the SHA-256 of their JSON, as hex.
-/// It says whether two runs had the same args and nothing of what they hold. None for null args.
+/// A digest of a Workflow call's `args`: the first 16 bytes of an HMAC-SHA-256 of their JSON under
+/// a key this daemon draws at random once (`ARGS_KEY`), as hex. Two runs with the same args on this
+/// daemon have the same digest; nothing outside it can test a guess at the args against it. None
+/// for null args, or when the OS gives no randomness.
 fn args_digest(args: &Value) -> Option<String> {
-    let hex = crate::sha256::sha256_hex(args.to_string().as_bytes());
-    (!args.is_null()).then(|| hex.chars().take(32).collect())
+    if args.is_null() {
+        return None;
+    }
+    let key = ARGS_KEY.get_or_init(|| {
+        let mut key = [0u8; 32];
+        getrandom::fill(&mut key).ok().map(|()| key)
+    });
+    let mac =
+        cmux_local_auth::frontend_proof::hmac_sha256(key.as_ref()?, args.to_string().as_bytes());
+    Some(cmux_local_auth::frontend_proof::hex(mac.get(..16)?))
 }
+
+/// The key of `args_digest`, drawn once per daemon process; None when the OS gave no randomness.
+static ARGS_KEY: std::sync::OnceLock<Option<[u8; 32]>> = std::sync::OnceLock::new();
 
 /// Claude's answer to a `stop-<id>` control request as the reply to request `<id>`.
 pub(super) fn stop_reply(acp: &str, ok: bool, resp: &Value) -> Message {

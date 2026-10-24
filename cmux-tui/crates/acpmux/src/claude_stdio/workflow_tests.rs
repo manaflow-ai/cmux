@@ -75,7 +75,7 @@ async fn a_workflow_runs_as_a_background_subagent_with_its_progress() {
         named[0]["scriptPath"],
         "/home/me/.claude/projects/-w/s1/workflows/scripts/probe-wf_4fe.js"
     );
-    assert_eq!(named[0]["argsDigest"], json!(digest_of(&json!({"pr": 24789}))));
+    assert_eq!(named[0]["argsDigest"], digest_of(&json!({"pr": 24789})).await);
     assert!(named[0].get("args").is_none(), "args never go out");
 
     let started = json!({"type": "system", "subtype": "task_started", "task_id": "wx2", "tool_use_id": "toolu_w",
@@ -276,7 +276,7 @@ async fn a_workflow_ends_with_its_final_usage_and_every_agent() {
         last["scriptPath"],
         "/home/me/.claude/projects/-w/s1/workflows/scripts/probe-wf_4fe.js"
     );
-    assert_eq!(last["argsDigest"], json!(digest_of(&json!({"pr": 24789}))));
+    assert_eq!(last["argsDigest"], digest_of(&json!({"pr": 24789})).await);
     assert!(last.get("args").is_none(), "args never go out");
     assert_eq!(last["phases"], json!([{"index": 1, "title": "Review"}]));
     assert_eq!(
@@ -371,9 +371,16 @@ async fn a_preview_never_shows_part_of_a_secret() {
     assert!(agent.get("prompt").is_none_or(|p| !p.to_string().contains("Q7ZJ")), "{agent}");
 }
 
-/// The 32-hex digest a launch sends for `args`.
-fn digest_of(args: &Value) -> String {
-    crate::sha256::sha256_hex(args.to_string().as_bytes()).chars().take(32).collect()
+/// The digest a launch sends for `args`, read from a launch of a Workflow call with them.
+async fn digest_of(args: &Value) -> Value {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    t.inbound(
+        &json!({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_d",
+        "name": "Workflow", "input": {"scriptPath": "/tmp/wf.js", "args": args}}]}}),
+    )
+    .await;
+    let out = updates(&t.inbound(&launched("toolu_d", "/nonexistent")).await);
+    of_kind(&out, "subagent_progress")[0]["argsDigest"].clone()
 }
 
 /// A workflow's args never go to a pane, whatever they hold (an env map, a base64 blob, a key named
@@ -391,10 +398,17 @@ async fn a_workflows_args_go_out_only_as_a_digest() {
     for args in [json!({"pr": 7}), json!({"env": {"FOO": "s3cr3t"}}), json!({"blob": "c2VjcmV0"})] {
         let update = launch(args.clone()).await;
         assert!(update.get("args").is_none(), "{update}");
-        assert_eq!(update["argsDigest"], json!(digest_of(&args)));
+        assert_eq!(update["argsDigest"], digest_of(&args).await);
+        assert_eq!(update["argsDigest"].as_str().map(str::len), Some(32));
         assert!(!update.to_string().contains("s3cr3t") && !update.to_string().contains("c2VjcmV0"));
     }
-    assert_ne!(digest_of(&json!({"pr": 7})), digest_of(&json!({"pr": 8})));
+    assert_ne!(digest_of(&json!({"pr": 7})).await, digest_of(&json!({"pr": 8})).await);
+    // Keyed by this daemon: not the plain SHA-256 a guess could be tested against.
+    let plain: String = crate::sha256::sha256_hex(json!({"pr": 7}).to_string().as_bytes())
+        .chars()
+        .take(32)
+        .collect();
+    assert_ne!(digest_of(&json!({"pr": 7})).await, json!(plain));
     // No args, no digest.
     let t = Translator::new("acp-1".into(), "default", "haiku", "default");
     t.inbound(
