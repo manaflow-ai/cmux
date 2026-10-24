@@ -1483,21 +1483,128 @@ class HookTests(Fixture):
             os.utime(path, (then, then))
         return path
 
-    def test_two_installs_at_once_both_finish_and_remove_the_leftovers_once(self):
-        # post-merge runs the installer in every worktree that pulls a hook change, so two can run together. A
-        # killed install's half-removed tree and a pre-lock copy are removed by one of them; both finish.
+    def test_an_install_waits_for_one_that_is_removing_a_leftover_and_both_finish(self):
+        # post-merge runs the installer in every worktree that pulls a hook change, so two can run together. Install
+        # A is stopped inside its cleanup, at the start of its removal of a killed install's half-removed tree, while
+        # install B starts. B waits for A (and names A's pid) instead of removing that tree too; then both finish
+        # and the leftovers are gone. Without the install lock B removes the tree and A's removal fails.
         hooks = self.repo / ".git" / "cmux-git-hooks"
-        killed = self.leftover("cmux-next-checks.deleting.1.cmux-next-checks.v1.1", 3000, in_use=True)
-        legacy = self.leftover("cmux-next-checks.v2.2", 3000, in_use=False, age_seconds=3600)
+        killed = self.leftover("cmux-next-checks.deleting.1.cmux-next-checks.v1.1", 3, in_use=True)
+        legacy = self.leftover("cmux-next-checks.v2.2", 3, in_use=False, age_seconds=3600)
         (hooks / "python3-path").unlink()
-        installs = [subprocess.Popen(["bash", "scripts/install-git-hooks.sh"], cwd=self.repo, env=self.env, text=True,
-                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE) for _ in range(2)]
-        results = [(p.returncode, err) for p in installs for _, err in [p.communicate(timeout=300)]]
-        self.assertEqual([code for code, _ in results], [0, 0], results)
+        reached, release = self.root / "reached.fifo", self.root / "release.fifo"
+        os.mkfifo(reached)
+        os.mkfifo(release)
+        real = os.path.realpath(shutil.which("python3", path=self.env.get("PATH")))
+        prelude = (
+            "import shutil\n"
+            "_rmtree, _stopped = shutil.rmtree, []\n"
+            "def _stop_once(path, *args, **kwargs):\n"
+            "    if not _stopped:\n"
+            "        _stopped.append(path)\n"
+            f"        with open({str(reached)!r}, 'w') as signal:\n"
+            "            signal.write(path)\n"
+            f"        with open({str(release)!r}) as go:\n"
+            "            go.read()\n"
+            "    return _rmtree(path, *args, **kwargs)\n"
+            "shutil.rmtree = _stop_once\n")
+        stub = self.root / "python-stub"
+        stub.mkdir()
+        (stub / "python3").write_text(
+            f"#!{real} -I\n"
+            "# Stops install A's cleanup (the script it reads from stdin) at its first tree removal.\n"
+            "import os, sys\n"
+            "args = sys.argv[1:]\n"
+            "if args[:2] == ['-I', '-']:\n"
+            f"    args = ['-I', '-c', {prelude!r} + sys.stdin.read(), *args[2:]]\n"
+            f"os.execv({real!r}, [{real!r}, *args])\n")
+        (stub / "python3").chmod(0o755)
+        first = subprocess.Popen(["bash", "scripts/install-git-hooks.sh"], cwd=self.repo, text=True,
+                                 env={**self.env, "PATH": f"{stub}:{self.env['PATH']}"},
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        signal = {}
+        waiter = threading.Thread(target=lambda: signal.setdefault("text", reached.read_text()))
+        waiter.start()
+        waiter.join(120)
+        if waiter.is_alive():
+            first.kill()
+            with open(reached, "w"):
+                pass  # unblocks the waiter
+            self.fail(f"install A never removed a tree: {first.communicate()}")
+        self.assertEqual(os.path.realpath(signal["text"]), os.path.realpath(killed))
+        second = subprocess.Popen(["bash", "scripts/install-git-hooks.sh"], cwd=self.repo, env=self.env, text=True,
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        said, heard = [], threading.Event()
+
+        def listen():
+            for line in second.stderr:
+                said.append(line)
+                if "waiting for it to finish" in line:
+                    heard.set()
+            heard.set()  # B is done (the end of its output) without saying it waits
+
+        reader = threading.Thread(target=listen)
+        reader.start()
+        try:
+            # A bound only for a failure: an install that waits without a word would leave this test hanging.
+            self.assertTrue(heard.wait(120), "install B neither said it waits nor finished")
+            self.assertTrue(killed.exists(), f"install B removed the tree install A is removing: {''.join(said)}")
+            self.assertIn(f"(pid {first.pid}); waiting for it to finish", "".join(said))
+            self.assertIsNone(second.poll(), "install B finished while install A held the lock")
+        finally:
+            with open(release, "w") as go:
+                go.write("go\n")
+            _, err = first.communicate(timeout=300)
+            second.wait(timeout=300)
+            reader.join(300)
+            second.stderr.close()
+        self.assertEqual(first.returncode, 0, err)
+        self.assertEqual(second.returncode, 0, "".join(said))
         self.assertTrue((hooks / "python3-path").is_file())
         self.assertFalse(killed.exists())
         self.assertFalse(legacy.exists())
-        self.assertTrue((hooks / "cmux-next-checks" / "guardrails.py").is_file())
+        current = (hooks / "cmux-next-checks").resolve()
+        self.assertTrue((current / "guardrails.py").is_file())
+        self.assertTrue((current / ".in-use").is_file())
+
+    def test_a_process_an_install_leaves_running_does_not_hold_the_install_lock(self):
+        # With core.fsmonitor=true, an index read (`git ls-files`) starts `git fsmonitor--daemon run --detach`,
+        # which keeps every fd it inherits and outlives the install. A lock fd it inherits would make every later
+        # install (post-merge runs one on each pull of feat-cmux-next) wait forever. A stub git that detaches a
+        # process the same way stands in for the daemon (the builtin one runs on macOS and Windows only).
+        hooks = self.repo / ".git" / "cmux-git-hooks"
+        pidfile = self.root / "detached.pid"
+        real = os.path.realpath(shutil.which("git", path=self.env.get("PATH")))
+        stub = self.root / "git-stub"
+        stub.mkdir()
+        (stub / "git").write_text(
+            "#!/bin/bash\n"
+            f'if [[ "$1" == ls-files && ! -e "{pidfile}" ]]; then\n'
+            "    sleep 600 </dev/null >/dev/null 2>&1 &\n"
+            f'    echo $! > "{pidfile}"\n'
+            "fi\n"
+            f'exec "{real}" "$@"\n')
+        (stub / "git").chmod(0o755)
+        first = subprocess.run(["bash", "scripts/install-git-hooks.sh"], cwd=self.repo, text=True, capture_output=True,
+                               env={**self.env, "PATH": f"{stub}:{self.env['PATH']}"}, timeout=300)
+        detached = int(pidfile.read_text())
+
+        def stop():
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(detached, 9)
+
+        self.addCleanup(stop)
+        self.assertEqual(first.returncode, 0, first.stderr)
+        os.kill(detached, 0)  # the stand-in daemon outlived the install
+        lock = os.open(hooks / "install.lock", os.O_RDONLY)
+        try:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                self.fail("a process the install left running holds the install lock")
+        finally:
+            os.close(lock)
+        self.install()
 
     def test_an_install_that_overlaps_another_links_a_copy_with_its_lock_file(self):
         # Install A is stopped where it first takes a lock (a python3 start, 30-80 ms, in a real run) while install B
