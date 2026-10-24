@@ -207,9 +207,10 @@ public final class HomeStore {
         }
     }
 
-    /// Ends this store (sign-out, account switch). Every later op is refused.
+    /// Ends this store (sign-out, account switch). Every later op is refused. Its last cache
+    /// write starts here and ends on the cache's actor; await ``flushCache()`` to wait for it.
     public func stop() {
-        viewCache.flush()
+        viewCache.writeNow()
         stopped = true
         eventTask?.cancel()
         eventTask = nil

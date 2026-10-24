@@ -26,16 +26,18 @@ import Testing
         return [inode.stringValue, String(modified.timeIntervalSinceReferenceDate)]
     }
 
-    @Test func anUnchangedSnapshotIsNotWrittenAgain() throws {
+    @Test func anUnchangedSnapshotIsNotWrittenAgain() async throws {
         let cache = Self.cache()
         let view = HomeClientViewCache(cache: cache, writeDelay: .zero, clock: ContinuousClock())
         view.ownerState = { HomeCacheState() }
         view.setDraft("hello", for: Self.austin)
+        await view.flush()
         let written = try Self.identity(cache)
         for _ in 0..<5 { view.setDraft("hello", for: Self.austin) }
-        view.flush()
+        await view.flush()
         #expect(try Self.identity(cache) == written, "the same snapshot was written again")
         view.setDraft("hello again", for: Self.austin)
+        await view.flush()
         #expect(try Self.identity(cache) != written, "a changed draft is written")
         #expect(try #require(cache.load()).drafts == [Self.austin: "hello again"])
     }
@@ -55,7 +57,7 @@ import Testing
                                           updatedAt: Date(timeIntervalSince1970: 0), pinRank: nil)
         store.handle(.inbox(InboxSnapshot(me: me, conversations: [summary], rev: 1)))
         #expect(store.viewCache.hasPendingWrite, "a new inbox is new information")
-        store.flushCache()
+        await store.flushCache()
         #expect(!store.viewCache.hasPendingWrite)
 
         store.handle(.connection(.online))
@@ -71,20 +73,22 @@ import Testing
 
         store.handle(.inbox(InboxSnapshot(me: me, conversations: [], rev: 2)))
         #expect(store.viewCache.hasPendingWrite, "a conversation that left the inbox is new information")
-        store.flushCache()
+        await store.flushCache()
     }
 
-    @Test func ephemeralOwnerEventsRewriteNothing() throws {
+    @Test func ephemeralOwnerEventsRewriteNothing() async throws {
         let cache = Self.cache()
         let store = HomeStore(source: MockHomeSource(options: .immediate), cache: cache, cacheWriteDelay: .zero)
         store.handle(.connection(.online))
         store.setDraft("kept", for: Self.austin)
+        await store.flushCache()
         let written = try Self.identity(cache)
         for _ in 0..<20 {
             store.handle(.typing(Self.austin, Self.chief, on: true))
             store.handle(.typing(Self.austin, Self.chief, on: false))
             store.handle(.ownerRecovered)
         }
+        await store.flushCache()
         #expect(try Self.identity(cache) == written, "typing frames and owner recoveries rewrote the cache")
         #expect(try #require(cache.load()).drafts == [Self.austin: "kept"])
     }
