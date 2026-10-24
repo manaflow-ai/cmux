@@ -45,6 +45,7 @@ pub mod log;
 pub mod mcp;
 pub mod membership;
 pub mod memory_cli;
+pub mod memory_sync;
 pub mod migrate;
 pub mod migrate_cloud;
 pub mod migrate_reach;
