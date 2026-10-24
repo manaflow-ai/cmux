@@ -8,6 +8,11 @@ import CmuxNextCompat
 /// every quit is `.powerOff`, which never asks.
 @MainActor
 final class QuitOriginTracker {
+    // cx-t7hu: nonisolated, so a release (inside an action's task-local scope, or off the main
+    // thread) runs no runtime hop; an implicit deinit is isolated in this target. Its stored
+    // self-ending handles end on the releasing thread.
+    nonisolated deinit {}
+
     private var pending: QuitOrigin?
     private(set) var isPoweringOff = false
     private var powerOff: MainActorObservation?

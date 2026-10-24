@@ -22,6 +22,11 @@ import CmuxNextCompat
 /// go to the page, which routes them to the open popup.
 @MainActor
 public final class RemoteBrowserSurfaces {
+    // cx-t7hu: nonisolated, so a release (inside an action's task-local scope, or off the main
+    // thread) runs no runtime hop; an implicit deinit is isolated in this target. Its stored
+    // self-ending handles end on the releasing thread.
+    nonisolated deinit {}
+
     private let page: RemoteBrowserContentView
     private let source: @MainActor (UInt16) -> any RemoteViewStreamSource
     private let send: @MainActor (RemoteRdJSON, Bool) -> Void

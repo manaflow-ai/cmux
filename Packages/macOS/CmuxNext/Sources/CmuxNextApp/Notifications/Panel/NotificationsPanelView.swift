@@ -47,6 +47,11 @@ final class NotificationsPanel: ActiveAppKeyPanel {
 /// never a solid fill (Leo 2026-10-21: "STOP DOING SOLID. WE HAVE GLASS, SO
 /// JUST USE GLASS."), without another inset card or border around the content.
 final class NotificationsPanelView: NSView {
+    // cx-t7hu: nonisolated, so a release (inside an action's task-local scope, or off the main
+    // thread) runs no runtime hop; an implicit deinit is isolated in this target. Its stored
+    // self-ending handles end on the releasing thread.
+    nonisolated deinit {}
+
     static let width: CGFloat = 380
     static let maxListHeight: CGFloat = 440
     /// The rows' width: the surface less its inset on each side.

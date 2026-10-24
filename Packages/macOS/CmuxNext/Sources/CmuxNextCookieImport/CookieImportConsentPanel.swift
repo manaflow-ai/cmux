@@ -14,6 +14,11 @@ import CmuxNextCompat
 /// the time limit answer Deny.
 @MainActor
 final class CookieImportConsentPanel {
+    // cx-t7hu: nonisolated, so a release (inside an action's task-local scope, or off the main
+    // thread) runs no runtime hop; an implicit deinit is isolated in this target. Its stored
+    // self-ending handles end on the releasing thread.
+    nonisolated deinit {}
+
     static let accessibilityID = "app.cookieImportConsent"
     /// How long the panel waits for an answer before it denies.
     static let limit: Duration = .seconds(180)

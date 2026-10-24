@@ -27,6 +27,11 @@ import CmuxNextDesign
 /// - Escape stops a load and never closes the window
 ///   (`IDC_CLOSE_FIND_OR_STOP`); Cmd-W and `window.close()` close it.
 public final class BrowserPopupWindow: NSWindow {
+    // cx-t7hu: nonisolated, so a release (inside an action's task-local scope, or off the main
+    // thread) runs no runtime hop; an implicit deinit is isolated in this target. Its stored
+    // self-ending handles end on the releasing thread.
+    nonisolated deinit {}
+
     /// The toolbar under the title bar: the location bar, with the 1 pt
     /// separator to the page inside it so the page gets the size it asked for.
     static let toolbarHeight: CGFloat = 34

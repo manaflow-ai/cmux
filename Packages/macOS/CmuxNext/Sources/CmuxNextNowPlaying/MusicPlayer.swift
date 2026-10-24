@@ -18,6 +18,11 @@ import CmuxNextCompat
 /// name; a stream shows its file name and no scrubber. The `AVPlayer` exists once something plays.
 @Observable
 public final class MusicPlayer: NowPlayingSource {
+    // cx-t7hu: nonisolated, so a release (inside an action's task-local scope, or off the main
+    // thread) runs no runtime hop; an implicit deinit is isolated in this target. Its stored
+    // self-ending handles end on the releasing thread.
+    nonisolated deinit {}
+
     /// The songs and streams queued, in play order.
     public private(set) var queue: [URL] = []
     /// The one playing (or paused) in `queue`.
