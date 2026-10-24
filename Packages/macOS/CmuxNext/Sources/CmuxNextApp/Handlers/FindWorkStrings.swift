@@ -15,12 +15,12 @@ struct FindWorkStrings {
     /// The bundle of this module's catalogs, so a test can read one language's table (`fr.lproj`).
     static var bundle: Bundle { .module }
 
-    /// "3 unread": the accessory of a workspace that needs attention. `bundle` and `locale`
-    /// default to this module's catalog in the user's language; a test passes one language's
-    /// table and its locale.
+    /// "3 unread": the accessory of a workspace that needs attention. The key is a plural
+    /// variation, so the lookup picks the form for `count` ("1 non lu", "2 non lus"). `bundle` and
+    /// `locale` default to this module's catalog in the user's language; a test passes one
+    /// language's table and its locale.
     static func unread(_ count: Int, bundle: Bundle = .module, locale: Locale = .current) -> String {
-        String(format: String(localized: "handlers.findWork.unread", defaultValue: "%lld unread", table: "MiscHandlers",
-                              bundle: bundle, locale: locale),
-               locale: locale, count)
+        String(localized: "handlers.findWork.unread", defaultValue: "\(count) unread", table: "MiscHandlers",
+               bundle: bundle, locale: locale)
     }
 }
