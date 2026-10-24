@@ -8,6 +8,12 @@ import CmuxNextCompat
 /// (reset); ``cancel()`` drops it. The clock is injected so tests do not
 /// wait. Each fire records one wakeup in the ledger under `owner`.
 /// ``settled()`` waits until the newest deadline has run out or was dropped.
+///
+/// A fire is claimed on its action's own isolation (the actor the action is
+/// isolated to, for example the main actor), in the same turn that runs the
+/// action. So a ``schedule(after:_:)`` or ``cancel()`` that the actor makes
+/// before that turn always wins, also when the deadline passed while the actor
+/// was busy: the replaced action never runs and is not counted.
 public final class DemandTimer: Sendable {
     public let owner: String
     private let clock: any Clock<Duration>
@@ -39,17 +45,16 @@ public final class DemandTimer: Sendable {
     /// Runs `action` once after `delay`, replacing any pending deadline.
     public func schedule(after delay: Duration, _ action: @escaping @isolated(any) @Sendable () async -> Void) {
         let clock = clock
+        let timer = WeakDemandTimer(self)
         state.withLock { state in
             // A fire already claimed runs to its end; only a pending deadline is replaced.
             if state.pending { state.task?.cancel() }
             state.generation &+= 1
             state.pending = true
             let generation = state.generation
-            state.task = Task { [weak self] in
+            state.task = Task {
                 do { try await clock.sleep(for: delay) } catch { return }
-                guard let self, self.take(generation) else { return }
-                self.ledger.record(self.owner, reason: "deadline")
-                await action()
+                await DemandTimer.fire(timer, generation: generation, action: action, isolation: action.isolation)
             }
         }
     }
@@ -80,6 +85,25 @@ public final class DemandTimer: Sendable {
         await task?.value
     }
 
+    /// Claims the fire for `generation` and runs `action`, both on `isolation`: the action's own
+    /// actor (SE-0431), or the cooperative pool for a nonisolated action.
+    ///
+    /// Claiming on the pool and then hopping to the actor left a window: a `schedule` or `cancel`
+    /// the actor made after the claim and before its turn could not stop the stale action. Here
+    /// the claim and the action share one turn: calling `action` from its own isolation runs it
+    /// inline, with no second hop, so nothing else runs on the actor between the two. `timer` is
+    /// weak until then: a timer its owner dropped meanwhile was deinited, which dropped the fire.
+    private static func fire(
+        _ timer: WeakDemandTimer,
+        generation: UInt64,
+        action: @isolated(any) @Sendable () async -> Void,
+        isolation: isolated (any Actor)?
+    ) async {
+        guard let timer = timer.value, timer.take(generation) else { return }
+        timer.ledger.record(timer.owner, reason: "deadline")
+        await action()
+    }
+
     /// Claims the fire for `generation`; false when it was reset or cancelled.
     private func take(_ generation: UInt64) -> Bool {
         state.withLock { state in
@@ -88,4 +112,11 @@ public final class DemandTimer: Sendable {
             return true
         }
     }
+}
+
+/// A deadline task's weak reference to its timer, which it resolves only on the action's actor.
+private struct WeakDemandTimer: Sendable {
+    weak var value: DemandTimer?
+
+    init(_ value: DemandTimer) { self.value = value }
 }
