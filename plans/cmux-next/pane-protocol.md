@@ -41,6 +41,9 @@ must not have; and acpmux already works as a direct data-plane provider today.
     answer is `ok` with `{"sub":<u64>}`; events are `{"t":"ev","sub":<u64>,"seq":<u64>,"data":{...}}`;
     `{"t":"unsub","sub":<u64>}`.
   - cancel: `{"t":"cancel","id":<u64>}`.
+  - booted (page to host, no reply): `{"t":"booted"}`, once per document, when it loaded, its
+    first screen's data is in and it is not a parked spare (webviews `pageClient.ts`). Until then
+    the host never freezes the page (a hidden cmux page freezes after a grace, perf-lead.md F3).
   - release a handle: `{"t":"release","handle":"<id>"}`.
   - byte stream: `{"t":"open","stream":<u32>,"op":...}` then binary frames
     `[u32 stream id BE][u32 credit or 0][payload]`; flow control is credit based

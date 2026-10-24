@@ -40,7 +40,8 @@ final class AgentActivityPageProvider: PageProvider {
         let id = UUID()
         listeners[id] = onEvent
         onEvent(Self.json(requests.state()))
-        return PageSubscription { [weak self] in self?.listeners[id] = nil }
+        // Each event is the whole state.
+        return PageSubscription(freezing: .newest) { [weak self] in self?.listeners[id] = nil }
     }
 
     private func schedulePush() {

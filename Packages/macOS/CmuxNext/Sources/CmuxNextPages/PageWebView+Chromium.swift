@@ -54,8 +54,11 @@ extension PageWebView {
 
     // MARK: Engine-neutral document calls
 
-    /// Runs `script` in the page's main frame in whichever engine shows it.
+    /// Runs `script` in the page's main frame in whichever engine shows it. A script a host sends
+    /// is work the page must do now: a frozen Chromium page thaws first, and an unseen one's grace
+    /// starts again.
     func evaluateInPage(_ script: String) {
+        if let chromiumSession { wake(chromiumSession) }
         scriptTarget.evaluate(script)
     }
 
@@ -136,21 +139,16 @@ extension PageWebView {
         #endif
         bridge.install { [weak self] message in await self?.receive(message) }
         bridge.onMessage = { [weak self] name, body in self?.chromiumMessage(name, body: body) }
-        bridge.onFirstMessage = { [weak self, weak session] in
-            guard let session else { return }
-            session.deadline.cancel()
-            session.reachedHost = true
-            // A page that hid while it booted may freeze from now on: its grace starts here.
-            if let self, self.chromiumSession === session, session.isHidden { session.freezePolicy?.hiddenPageWoke(self) }
-        }
-        // Pushes and replies thaw a frozen page first (PageWebView+ChromiumCost.swift).
+        bridge.onFirstMessage = { [weak session] in session?.deadline.cancel() }
+        // Nothing the host sends may wait in a frozen renderer: the router holds its streams' events
+        // and the state scripts wait for the thaw, so a script or a reply that still comes thaws it.
         bridge.willSend = { [weak self, weak session] in
-            guard let self, let session, self.chromiumSession === session else { return }
+            guard let self, let session, session.frozen, self.chromiumSession === session else { return }
             self.wake(session)
         }
-        inputReadiness.editor = { [weak self, weak page] edit, expectedEpoch in
-            guard let page else { return false }
-            return await Self.apply(edit, token: self?.inputReadiness.editToken, expectedEpoch: expectedEpoch, in: page)
+        inputReadiness.editor = { [weak self] edit, expectedEpoch in
+            guard let self, let page = self.awakeChromiumPage else { return false }
+            return await Self.apply(edit, token: self.inputReadiness.editToken, expectedEpoch: expectedEpoch, in: page)
         }
         chromiumSession = session
         scriptTarget.bridge = bridge
@@ -161,7 +159,7 @@ extension PageWebView {
         page.contentView.autoresizingMask = [.width, .height]
         addSubview(page.contentView)
         applyNativeRects()
-        showChromium(session, isShownForChromium)
+        showChromium(session)
         #if DEBUG
         traceMark(.navigationStart)
         #endif
@@ -181,9 +179,7 @@ extension PageWebView {
         chromiumStart?.cancel()
         chromiumStart = nil
         logger.error("page \(self.descriptor.id, privacy: .public) reopens in WebKit: \(detail, privacy: .public)")
-        chromiumSession?.freezePolicy?.pageIsNoLongerHidden(self)
-        chromiumSession?.end()
-        chromiumSession = nil
+        endChromiumSession()
         chromiumUserEventUptime = nil
         chromiumDragFile = nil
         inputReadiness.editor = nil
@@ -200,10 +196,18 @@ extension PageWebView {
         chromiumAwaitingShow = nil
         chromiumStart?.cancel()
         chromiumStart = nil
-        chromiumSession?.freezePolicy?.pageIsNoLongerHidden(self)
-        chromiumSession?.end()
-        chromiumSession = nil
+        endChromiumSession()
         inputReadiness.editor = nil
+    }
+
+    /// Ends the Chromium page: it leaves the freeze policy, and an owner that held its own pushes
+    /// for a frozen page sends them again (the router's held events go with its reset or close).
+    private func endChromiumSession() {
+        guard let session = chromiumSession else { return }
+        session.freezePolicy?.pageIsNoLongerHidden(self)
+        session.end()
+        chromiumSession = nil
+        if session.frozen { onChromiumFrozenChange?(false) }
     }
 
     // MARK: Events
@@ -225,6 +229,8 @@ extension PageWebView {
                 return
             }
             chromiumSession.bridge.rebind()
+            // A new document starts again: it may freeze once it says it booted.
+            chromiumSession.booted = false
             documentCommitted()
         case .finished:
             documentFinished()

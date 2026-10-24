@@ -226,10 +226,12 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         case kind.op("changes"):
             let id = UUID()
             changeListeners[id] = onEvent
-            return PageSubscription { [weak self] in self?.changeListeners[id] = nil }
+            // Disk changes the page applies one by one.
+            return PageSubscription(freezing: .every) { [weak self] in self?.changeListeners[id] = nil }
         case kind.op("look"):
             let stop = host.listenLook(onEvent)
-            return PageSubscription { stop() }
+            // Part of the look each time (the rest stays): each one counts.
+            return PageSubscription(freezing: .every) { stop() }
         default:
             throw PageError.unknownOp(stream)
         }
