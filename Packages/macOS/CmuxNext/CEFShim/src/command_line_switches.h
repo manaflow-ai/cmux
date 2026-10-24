@@ -47,4 +47,29 @@ inline std::string MergeFeatureList(std::string_view existing, std::string_view 
   return result;
 }
 
+// The app's own Safe Storage keychain item (fork API 25,
+// cmux_set_keychain_item): service "cmux Safe Storage", account the bundle
+// identifier, so each cmux channel (com.cmuxterm.app, .nightly,
+// .nightly.cmux-next) owns its item and is never asked for another channel's.
+// The bundle identifier, not the (localizable, renamed before) bundle name:
+// it also names the profile folder, so the item changes only when the data
+// it encrypts moves too. Empty when Chromium reads no keychain
+// (use-mock-keychain) or the bundle has no identifier; Chromium then keeps
+// its own default item.
+struct SafeStorageItem {
+  std::string service;
+  std::string account;
+};
+
+inline SafeStorageItem SafeStorageItemFor(std::string_view bundle_identifier,
+                                          const std::vector<std::string>& switches) {
+  for (const std::string& entry : switches) {
+    if (entry == "use-mock-keychain") return {};
+  }
+  while (!bundle_identifier.empty() && bundle_identifier.front() == ' ') bundle_identifier.remove_prefix(1);
+  while (!bundle_identifier.empty() && bundle_identifier.back() == ' ') bundle_identifier.remove_suffix(1);
+  if (bundle_identifier.empty()) return {};
+  return {"cmux Safe Storage", std::string(bundle_identifier)};
+}
+
 }  // namespace cmux_shim

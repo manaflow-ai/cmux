@@ -12,6 +12,7 @@
 #include "include/cef_application_mac.h"
 #include "include/cef_parser.h"
 #include "include/wrapper/cef_library_loader.h"
+#include "command_line_switches.h"
 #include "shim_internal.h"
 
 namespace cmux_shim {
@@ -316,6 +317,7 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(popup_window_bounds, "cmux_popup_window_bounds");
   CMUX_BIND(popup_window_attach, "cmux_popup_window_attach");
   CMUX_BIND(devtools_inspected_bounds, "cmux_devtools_inspected_bounds");
+  CMUX_BIND(set_keychain_item, "cmux_set_keychain_item");
   CMUX_BIND(side_panel_watch, "cmux_side_panel_watch");
   CMUX_BIND(side_panel_state, "cmux_side_panel_state");
   CMUX_BIND(side_panel_press, "cmux_side_panel_press");
@@ -463,6 +465,21 @@ int cmux_shim_initialize(const char* framework_dir, const char* main_bundle_path
   std::vector<std::string> switches;
   for (const char* const* it = switch_list; it && *it; ++it) {
     switches.emplace_back(*it);
+  }
+  // Chromium's cookie and password key: the app's own keychain item, not the
+  // "Chromium Safe Storage" item every channel shared. That item trusts only
+  // the app that created it, so the other channels asked for it on every
+  // launch, and a cancelled prompt signed the person out of every site. The
+  // fork copies the shared item's key on first use, so cookies stay readable.
+  if (fork_api().set_keychain_item) {
+    NSString* bundle_path = main_bundle_path && *main_bundle_path ? @(main_bundle_path) : nil;
+    NSBundle* bundle = bundle_path ? [NSBundle bundleWithPath:bundle_path] : [NSBundle mainBundle];
+    NSString* identifier = bundle.bundleIdentifier;
+    const cmux_shim::SafeStorageItem item =
+        cmux_shim::SafeStorageItemFor(identifier.length ? identifier.UTF8String : "", switches);
+    if (!item.service.empty()) {
+      fork_api().set_keychain_item(item.service.c_str(), item.account.c_str());
+    }
   }
   CefMainArgs args(0, nullptr);
   if (!CefInitialize(args, settings, MakeApp(std::move(switches)), nullptr)) {
