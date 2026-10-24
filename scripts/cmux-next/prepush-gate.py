@@ -118,6 +118,8 @@ SCANNERS = (
     ("No literal state roots (per-build isolation S7, cx-is1kf.8)", ["/bin/bash", "{s}/check-state-roots.sh", "{root}"], SCOPES),
     ("No process scanning (holders register themselves, plans/cmux-next/pty-holder.md 4)",
      ["python3", "-I", "{s}/check-no-process-scan.py", "{root}"], SCOPES),
+    ("No raw spawns in the daemon (cmux_process, reviews of pl-holder-11)",
+     ["python3", "-I", "{s}/check-no-raw-spawn.py", "{root}"], ("cmux-tui/", "scripts/cmux-next/raw-spawn-baseline.tsv")),
     ("No Swift CLI (the cmux CLI is Rust, plans/cmux-next/cli.md)", ["/bin/bash", "{s}/check-no-swift-cli.sh", "{root}"], (PKG + "/",)),
     ("No Swift closed history (the daemon owns it, plans/cmux-next/reopen-closed.md 9)",
      ["/bin/bash", "{s}/check-no-swift-closed-history.sh", "{root}"], (PKG + "/",)),

@@ -2,11 +2,11 @@
 //! terminals on it, and hand every live terminal to a new holder after a
 //! holder crash.
 
+use cmux_process::Stdio;
 use std::collections::HashMap;
 use std::io::{self, Write};
 use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
@@ -436,7 +436,7 @@ impl HolderService {
     /// (`cmux-tui-host __holder`).
     fn launch(&self) -> io::Result<()> {
         let configure =
-            |command: &mut std::process::Command| {
+            |command: &mut cmux_process::Command| {
                 command
                     .arg("--socket")
                     .arg(&self.socket)
@@ -458,8 +458,7 @@ impl HolderService {
         if !self.standalone_failed.load(Ordering::Acquire)
             && let Some(path) = standalone_holder()
         {
-            use std::os::unix::process::CommandExt;
-            let mut command = std::process::Command::new(&path);
+            let mut command = cmux_process::Command::new(&path);
             command.arg0(crate::host_exe::HOLDER_NAME);
             configure(&mut command);
             let started = command.spawn().and_then(|child| self.handshake(child));
@@ -485,7 +484,7 @@ impl HolderService {
                 }
             }
         }
-        let child = crate::host_exe::spawn_host(|command| {
+        let child = crate::host_exe::spawn_host_isolated(|command| {
             command.arg("__holder");
             configure(command);
         })?;
@@ -496,7 +495,7 @@ impl HolderService {
     /// holder that answers anything else, or nothing in time, is killed and
     /// reaped; one that is ready is reaped whenever it exits while this
     /// daemon runs.
-    fn handshake(&self, mut child: std::process::Child) -> io::Result<()> {
+    fn handshake(&self, mut child: cmux_process::Child) -> io::Result<()> {
         match first_line(&mut child, &self.token) {
             Ok(line) if line.trim() == "ready" => {}
             answer => {
@@ -522,7 +521,7 @@ impl HolderService {
 /// [`cmux_holder::client::READY_TIMEOUT`]: a holder that hangs before it
 /// (and does not exit) must not hold the `connecting` lock, and with it
 /// every terminal create and holder restart, for ever.
-fn first_line(child: &mut std::process::Child, token: &[u8; 32]) -> io::Result<String> {
+fn first_line(child: &mut cmux_process::Child, token: &[u8; 32]) -> io::Result<String> {
     let hex: String = token.iter().map(|byte| format!("{byte:02x}")).collect();
     let mut stdin = child.stdin.take().ok_or_else(|| io::Error::other("no holder stdin"))?;
     stdin.write_all(format!("{hex}\n").as_bytes())?;

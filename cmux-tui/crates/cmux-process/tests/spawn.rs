@@ -67,6 +67,37 @@ mod daemon_spawn {
         assert_eq!(output.stdout, b"x\n");
     }
 
+    /// A program name is looked up as std does (finding 4 of PL-daemon's
+    /// review): in the `PATH` the builder gives the child, and after an
+    /// `env_clear` that sets none, in this process's `PATH`.
+    #[test]
+    fn a_program_name_is_found_in_the_childs_path_as_std_finds_it() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-process-path-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir(&dir).unwrap();
+        let probe = dir.join("cmux-process-path-probe");
+        std::fs::write(&probe, "#!/bin/sh\necho found-in-child-path\n").unwrap();
+        std::fs::set_permissions(&probe, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let output =
+            Command::new("cmux-process-path-probe").env_clear().env("PATH", &dir).output().unwrap();
+        assert_eq!(output.stdout, b"found-in-child-path\n");
+        let output = Command::new("cmux-process-path-probe").env("PATH", &dir).output().unwrap();
+        assert_eq!(output.stdout, b"found-in-child-path\n");
+        // Not in this process's PATH: only the child's PATH finds it.
+        assert!(Command::new("cmux-process-path-probe").spawn().is_err());
+        // env_clear with no PATH: this process's PATH finds `sh`.
+        let output =
+            Command::new("sh").env_clear().args(["-c", "echo via-parent-path"]).output().unwrap();
+        assert_eq!(output.stdout, b"via-parent-path\n");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn the_child_runs_in_its_working_directory() {
         let dir = std::fs::canonicalize(std::env::temp_dir()).unwrap();

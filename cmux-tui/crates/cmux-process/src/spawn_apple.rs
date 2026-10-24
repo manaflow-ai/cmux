@@ -31,7 +31,7 @@ unsafe extern "C" {
 /// Spawn `command`; its streams and inherited descriptors are used up.
 pub(crate) fn spawn(command: &mut Command) -> io::Result<Child> {
     let env = child_env(command);
-    let path = resolve(&command.program, &env)?;
+    let path = resolve(&command.program, command, &env)?;
     let argv0 = command.arg0.clone().unwrap_or_else(|| command.program.clone());
     let argv: Vec<CString> =
         std::iter::once(&argv0).chain(&command.args).map(c_string).collect::<io::Result<_>>()?;
@@ -70,13 +70,16 @@ pub(crate) fn spawn(command: &mut Command) -> io::Result<Child> {
     for (fd, at) in command.inherit.drain(..) {
         plan.push((Source::Fd(fd), at));
     }
-    // A source whose number is another action's target would be replaced
-    // before its own dup2: move it above every target first.
+    // Every descriptor source is moved above all targets first: one whose
+    // number is another action's target would be replaced before its own
+    // dup2, and one already at its target cannot be passed by dup2 (onto
+    // itself, dup2 does not clear close-on-exec on macOS, and
+    // CLOEXEC_DEFAULT then closes it). Each dup2 thus has distinct numbers
+    // and always gives the child a copy without close-on-exec.
     let targets: BTreeSet<RawFd> = plan.iter().map(|(_, target)| *target).collect();
     let floor = targets.iter().max().map_or(3, |max| max + 1);
-    for (source, target) in &mut plan {
+    for (source, _) in &mut plan {
         if let Source::Fd(fd) = source
-            && fd.as_raw_fd() != *target
             && targets.contains(&fd.as_raw_fd())
         {
             *source = Source::Fd(dup_above(fd, floor)?);
@@ -114,11 +117,6 @@ pub(crate) fn spawn(command: &mut Command) -> io::Result<Child> {
                     0,
                 ),
                 Source::Same => posix_spawn_file_actions_addinherit_np(&mut setup.actions, *target),
-                // dup2 onto itself keeps close-on-exec, which
-                // CLOEXEC_DEFAULT turns into a close: inherit it instead.
-                Source::Fd(fd) if fd.as_raw_fd() == *target => {
-                    posix_spawn_file_actions_addinherit_np(&mut setup.actions, *target)
-                }
                 Source::Fd(fd) => libc::posix_spawn_file_actions_adddup2(
                     &mut setup.actions,
                     fd.as_raw_fd(),
@@ -216,15 +214,23 @@ fn child_env(command: &Command) -> Vec<(OsString, OsString)> {
 }
 
 /// The program's path: as given when it holds a `/`, else the first
-/// executable file of that name in the child's `PATH` (as std and execvp).
-fn resolve(program: &OsStr, env: &[(OsString, OsString)]) -> io::Result<PathBuf> {
+/// executable file of that name in a `PATH`, as std: the child's when the
+/// builder set or removed `PATH` or kept this process's environment, else
+/// (an `env_clear` that set no `PATH`) this process's; the system default
+/// when neither has one.
+fn resolve(
+    program: &OsStr,
+    command: &Command,
+    env: &[(OsString, OsString)],
+) -> io::Result<PathBuf> {
     if program.as_bytes().contains(&b'/') {
         return Ok(PathBuf::from(program));
     }
-    let path = env.iter().find(|(key, _)| key == "PATH").map_or_else(
-        || OsString::from("/usr/bin:/bin:/usr/sbin:/sbin"),
-        |(_, value)| value.clone(),
-    );
+    let child_path = env.iter().find(|(key, _)| key == "PATH").map(|(_, value)| value.clone());
+    let path_was_set = command.env.keys().any(|key| key == "PATH");
+    let path =
+        if path_was_set || !command.env_clear { child_path } else { std::env::var_os("PATH") }
+            .unwrap_or_else(|| OsString::from("/usr/bin:/bin:/usr/sbin:/sbin"));
     for dir in std::env::split_paths(&path) {
         let dir = if dir.as_os_str().is_empty() { PathBuf::from(".") } else { dir };
         let candidate = dir.join(program);
@@ -278,4 +284,75 @@ fn c_string(value: &OsStr) -> io::Result<CString> {
 
 fn check(code: libc::c_int) -> io::Result<()> {
     if code == 0 { Ok(()) } else { Err(io::Error::from_raw_os_error(code)) }
+}
+
+#[cfg(test)]
+mod daemon_spawn {
+    use std::io::Read;
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+
+    use crate::Command;
+
+    /// A descriptor that already sits at the number the child should get it
+    /// at, close-on-exec (as every descriptor the daemon owns is), still
+    /// reaches the child (finding 2 of PL-daemon's review: `adddup2(fd, fd)`
+    /// keeps close-on-exec on macOS, and CLOEXEC_DEFAULT then closes it).
+    #[test]
+    fn a_descriptor_already_at_its_target_number_reaches_the_child() {
+        const AT: i32 = 777;
+        let mut fds = [0; 2];
+        // SAFETY: pipe fills two descriptors.
+        assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
+        // SAFETY: two new descriptors the test owns.
+        let (read, write) = unsafe { (OwnedFd::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) };
+        // SAFETY: dup2 onto a number no other test uses; F_SETFD on it.
+        let at = unsafe {
+            assert_eq!(libc::dup2(write.as_raw_fd(), AT), AT);
+            assert_eq!(libc::fcntl(AT, libc::F_SETFD, libc::FD_CLOEXEC), 0);
+            OwnedFd::from_raw_fd(AT)
+        };
+        drop(write);
+        let mut command = Command::new("/bin/sh");
+        command.args(["-c", "echo at-777 >&777"]);
+        // Placed directly: `inherit_fd` would duplicate it to another number.
+        command.inherit.push((at, AT));
+        let mut child = command.spawn().unwrap();
+        drop(command);
+        assert!(child.wait().unwrap().success(), "the child could not write to 777");
+        let mut got = String::new();
+        std::fs::File::from(read).read_to_string(&mut got).unwrap();
+        assert_eq!(got, "at-777\n");
+    }
+
+    /// A child that exited before `wait_timeout` registered its kqueue event
+    /// (a zombie: `EV_ADD` fails with ESRCH) is seen at once and reaped, not
+    /// waited on until the limit (finding 1 of PL-daemon's review).
+    #[test]
+    fn a_child_that_exited_before_the_registration_is_seen_at_once() {
+        let mut child = Command::new("/usr/bin/true").spawn().unwrap();
+        let pid = child.id() as libc::pid_t;
+        // Block until it exited, without reaping it (WNOWAIT): a zombie.
+        // SAFETY: zeroed siginfo is valid output storage for waitid.
+        let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+        // SAFETY: waitid writes one siginfo for this child.
+        assert_eq!(
+            unsafe {
+                libc::waitid(
+                    libc::P_PID,
+                    pid as libc::id_t,
+                    &mut info,
+                    libc::WEXITED | libc::WNOWAIT,
+                )
+            },
+            0
+        );
+        let started = std::time::Instant::now();
+        crate::child::exit_event_within(pid, std::time::Duration::from_secs(30)).unwrap();
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "waited {:?} for a child that had exited",
+            started.elapsed()
+        );
+        assert!(child.try_wait().unwrap().expect("reaped after the event").success());
+    }
 }

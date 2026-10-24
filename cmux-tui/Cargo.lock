@@ -1660,6 +1660,7 @@ dependencies = [
  "cmux-layout-reducer",
  "cmux-link",
  "cmux-local-auth",
+ "cmux-process",
  "cmux-pty",
  "cmux-remote-protocol",
  "cmux-sdk",
@@ -1754,6 +1755,7 @@ name = "cmux-tui-platform"
 version = "0.1.0"
 dependencies = [
  "cmux-link",
+ "cmux-process",
  "cmux-pty",
  "cmux-sdk",
  "cmux-unix-socket",
