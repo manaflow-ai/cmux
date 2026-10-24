@@ -17,7 +17,7 @@
     "CmuxNextWorkspaceNaming": {"layer": "core"},
 
     "CmuxNextDaemon": {"layer": "service"},
-    "CmuxNextDaemonService": {"layer": "service", "plan": "drop AgentPane, Apps, Bridge: lift the shared types to Core or a protocol seam (Layout dropped; RefusalStrings.direction(_:) returns here when LayoutDirection is core)"},
+    "CmuxNextDaemonService": {"layer": "service", "plan": "drop AgentPane, Apps, Bridge: lift the shared types to Core or a protocol seam (Layout dropped: LayoutDirection is core, in Compat)"},
     "CmuxNextCloud": {"layer": "service"},
     "CmuxNextRemote": {"layer": "service"},
     "CmuxNextCodeRouter": {"layer": "service"},

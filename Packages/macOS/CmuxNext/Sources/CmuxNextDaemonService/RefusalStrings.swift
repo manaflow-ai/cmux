@@ -1,3 +1,4 @@
+public import CmuxNextCompat
 import CmuxNextDaemon
 public import Foundation
 
@@ -19,6 +20,16 @@ public nonisolated enum RefusalStrings {
 
     public static func format(_ key: StaticString, _ value: String.LocalizationValue, _ arguments: any CVarArg...) -> String {
         String(format: text(key, value), arguments: arguments)
+    }
+
+    /// A direction word for "no pane left of ..." style reasons.
+    public static func direction(_ direction: LayoutDirection) -> String {
+        switch direction {
+        case .left: directionLeft
+        case .right: directionRight
+        case .up: directionUp
+        case .down: directionDown
+        }
     }
 
     /// A move between an incognito window and a normal one.
@@ -70,12 +81,10 @@ public nonisolated enum RefusalStrings {
     public static var proxiedTabStaysInChromium: String {
         text("handlers.refusal.proxiedTabStaysInChromium", "This tab shows a cloud machine's localhost through its proxy, so it stays in Chromium.")
     }
-    /// The direction words of "no pane left of ..." style reasons; the App picks one per
-    /// `LayoutDirection` (`RefusalStrings.direction(_:)`, where CmuxNextLayout is visible).
-    package static var directionLeft: String { text("handlers.refusal.directionLeft", "left") }
-    package static var directionRight: String { text("handlers.refusal.directionRight", "right") }
-    package static var directionUp: String { text("handlers.refusal.directionUp", "up") }
-    package static var directionDown: String { text("handlers.refusal.directionDown", "down") }
+    private static var directionLeft: String { text("handlers.refusal.directionLeft", "left") }
+    private static var directionRight: String { text("handlers.refusal.directionRight", "right") }
+    private static var directionUp: String { text("handlers.refusal.directionUp", "up") }
+    private static var directionDown: String { text("handlers.refusal.directionDown", "down") }
     /// Why an action that needs the local daemon's `capability` is off. The
     /// bundled daemon is built from this tree and serves every capability in
     /// `DaemonCapabilities.required` and `optional` (check-daemon-capabilities.sh),
