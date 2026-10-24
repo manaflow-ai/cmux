@@ -40,7 +40,7 @@ final class CmuxPageFreezing: PageFreezePolicy {
 
     /// - Parameter clock: The one time source: the hidden times and the deadline (tests pass a clock
     ///   whose time they step and whose sleeps they end).
-    init<C: Clock>(clock: C) where C.Instant == ContinuousClock.Instant, C.Duration == Swift.Duration {
+    init<C: Clock>(clock: C) where C.Instant == ContinuousClock.Instant {
         deadline = DemandTimer(owner: "CmuxPageFreeze", clock: clock)
         now = { clock.now }
     }

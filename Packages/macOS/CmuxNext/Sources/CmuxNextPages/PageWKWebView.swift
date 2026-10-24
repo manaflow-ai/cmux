@@ -53,7 +53,7 @@ final class PageWKWebView: WKWebView {
 
     /// Loads, reloads and host scripts sent to this view (``noteDocumentRequest()``). A view that has
     /// taken none started no web content process: what a Chromium page's unused WebKit view must
-    /// keep (`debug.surfaces`, tests).
+    /// keep (the tests' seam; no SPI process lookup, no waiting).
     private(set) var documentRequests = 0
 
     /// A load, a reload or a host script (``WebKitPageHostBridge/evaluate(_:)``) was sent to the view.
@@ -61,11 +61,13 @@ final class PageWKWebView: WKWebView {
         documentRequests += 1
     }
 
+    @discardableResult
     override func load(_ request: URLRequest) -> WKNavigation? {
         noteDocumentRequest()
         return super.load(request)
     }
 
+    @discardableResult
     override func reload() -> WKNavigation? {
         noteDocumentRequest()
         return super.reload()
