@@ -1,7 +1,7 @@
 /// One frame of the wire between cmux and the Chromium host app (prototype
 /// behind `browserHost.helperPrototype`; plans/cmux-next/cef-helper-app-DESIGN.md).
 ///
-/// The C++ side is `CEFShim/src/chromium_host_wire.h`: a 64-byte
+/// The C++ side is `ChromiumHost/src/chromium_host_wire.h`: a 64-byte
 /// little-endian header and `payload` bytes after it. Both sides check the
 /// same golden frame (`ChromiumHostFrameTests`, `chromium_host_wire_test.cpp`).
 /// Field meanings by kind are listed in the header.

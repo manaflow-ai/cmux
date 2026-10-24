@@ -39,7 +39,7 @@ cmux (app)                          <App> Chromium Host.app (new)              C
 - The host is a small app in `Contents/Frameworks/<Product> Chromium Host.app` with `LSUIElement`, its own bundle id
   (`<app id>.chromium-host`) and `NSPrincipalClass ChromiumHostApplication` (the `CefAppProtocol` app). It loads the
   app's CEF framework from `Contents/Frameworks` with `cef_load_library` while it has one thread, so no zone race.
-  It uses the same five helper apps as today (`browser_subprocess_path`). Prototype: `shim/browser_host_main.mm`,
+  It uses the same five helper apps as today (`browser_subprocess_path`). Prototype: `Packages/macOS/CmuxNext/ChromiumHost/src/browser_host_main.mm`,
   bundled by `scripts/cmux-next/embed-cef.sh` (Debug only).
 - cmux no longer maps the framework. The shim becomes a client library of the wire (Swift, no CEF).
 - One host for every profile, as Chrome has one browser process. A host crash then reloads every Chromium page. One
@@ -70,7 +70,7 @@ cmux (app)                          <App> Chromium Host.app (new)              C
 
 Two channels per host:
 
-1. **Input and geometry: two stream socket pairs (one per direction), fixed 64-byte frames** (`shim/chromium_host_wire.h`,
+1. **Input and geometry: two stream socket pairs (one per direction), fixed 64-byte frames** (`ChromiumHost/src/chromium_host_wire.h`,
    `S/ChromiumHost/ChromiumHostFrame.swift`, one golden frame tested on both sides). cmux writes non-blocking from the
    main thread (one `write` on an `O_NONBLOCK` descriptor, a few us) and reads on a thread of its own, blocking on the
    other pair (macOS ignores `MSG_DONTWAIT` on Unix sockets, and file status flags are shared by every descriptor of
@@ -135,8 +135,10 @@ daemon talks CDP to the host through `--remote-debugging-pipe`), crash reports (
 
 ## 4. Prototype (behind `browserHost.helperPrototype`, default off; the host app is in Debug builds only)
 
-- Host: `shim/browser_host_main.mm` (built by `scripts/cmux-next/build-cef-shim.sh` as `cmux-chromium-host`, bundled by
-  `embed-cef.sh` as `<Product> Chromium Host.app`, Debug only, signed by `sign-cef.sh`). One Chrome-style page per host.
+- Host: `Packages/macOS/CmuxNext/ChromiumHost/src/browser_host_main.mm` (built by `scripts/cmux-next/build-chromium-host.sh`
+  as `cmux-chromium-host` against the shim build's wrapper, with a cache key of its own, so a host edit changes neither the
+  shim's key nor the Chromium runtime pack's; bundled by `embed-cef.sh` as `<Product> Chromium Host.app`, Debug only,
+  signed by `sign-cef.sh`). One Chrome-style page per host.
   Its parent view sits in a transparent, click-through, floating window of the host at the pane's screen rect; its
   `-cmuxOcclusionRects` covers the page, so the fork's tracker never lets the page window take the mouse. It calls
   `cmux_browser_set_layer_hosting` (API 26) and sends the context id. It refuses forks below API 26.
@@ -151,7 +153,7 @@ daemon talks CDP to the host through `--remote-debugging-pipe`), crash reports (
 - Forwarded: mouse (move, down, up, exit, buttons, click count), wheel (pixel deltas), keys (down, up, flags changed,
   character and unmodified character), focus, Edit menu (copy, cut, paste, select all, undo, redo). Not forwarded: IME,
   cursor, accessibility, drag and drop, Chromium's bubbles and popups (section 3.3 rows with a fork patch).
-- Tests: `ChromiumHostFrameTests` (golden frame, also `scripts/cmux-next/test-chromium-host-wire-cpp.sh`),
+- Tests: `ChromiumHostFrameTests` (golden frame, also `scripts/cmux-next/tests/chromium-host-wire.test.sh`; neither runs in CI),
   `ChromiumHostProcessTests` (a real child process: round trip, SIGKILL reported with its signal, the pid not reused
   before reap, a host that stops reading ends the connection without blocking the sender; this test found that macOS
   ignores `MSG_DONTWAIT` on Unix sockets), `ChromiumHostSessionTests` (a host that ends restarts
