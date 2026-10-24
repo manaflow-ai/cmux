@@ -206,7 +206,7 @@ def main():  # noqa: C901 - one live scenario
             # onboarding flake, journey.s_choose_space): relaunch and take it again.
             log("setup failed once; relaunching the app and retrying choose_space")
             sim.launch(BUNDLE)
-            steps = j.run(only={"choose_space", "mac_discovered"})
+            steps = j.run(only={"choose_space", "mac_discovered"})[-2:]  # run() returns every step so far
             log(f"setup retry: {[(s['id'], s['status']) for s in steps]}")
         if any(st["status"] != "pass" for st in steps):
             raise RuntimeError(f"setup failed: {steps}")
