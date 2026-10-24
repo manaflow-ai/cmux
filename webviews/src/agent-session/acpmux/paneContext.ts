@@ -57,8 +57,17 @@ export function workingURLs(rows: AcpmuxRow[], limit = 20): string[] {
     .slice(0, limit);
 }
 
-/** The selected session's cwd and the transcript's working URLs. */
-export function paneContext(snapshot: Pick<AcpmuxSnapshot, "rows" | "sessions" | "sessionId">): PaneContext {
-  const cwd = snapshot.sessions.find((session) => session.sessionId === snapshot.sessionId)?.cwd;
+/**
+ * The folder the tab shows and the transcript's working URLs (#22225): the New Tab page's chip
+ * folder (`shown`), else the selected session's cwd, else the project picked before the chat's
+ * first send (`draft`).
+ */
+export function paneContext(
+  snapshot: Pick<AcpmuxSnapshot, "rows" | "sessions" | "sessionId">,
+  folders: { shown?: string | null; draft?: string } | string = {},
+): PaneContext {
+  // Keep the earlier draft-only call shape usable for pages that do not expose a shown chip.
+  const { shown, draft } = typeof folders === "string" ? { shown: undefined, draft: folders } : folders;
+  const cwd = shown || snapshot.sessions.find((session) => session.sessionId === snapshot.sessionId)?.cwd || draft;
   return { ...(cwd ? { cwd } : {}), urls: workingURLs(snapshot.rows) };
 }

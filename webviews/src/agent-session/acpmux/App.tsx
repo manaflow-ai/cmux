@@ -5829,6 +5829,8 @@ function AcpmuxPane() {
   const rowsRef = useRef<readonly AcpmuxRow[]>([]);
   /// The newest snapshot, for host requests that read it (pane.context).
   const snapshotRef = useRef<AcpmuxSnapshot | undefined>(undefined);
+  /// The shown New Tab page's project, for pane.context (#22225); undefined while no page shows.
+  const newTabFolder = useRef<string | undefined>(undefined);
   /// The chat menu shows New side chat: the right-click menu then opens one from any turn that forks.
   const opensSideChat = useRef(false);
   const archiveChatRef = useRef<(() => void) | undefined>(undefined);
@@ -6979,7 +6981,16 @@ function AcpmuxPane() {
                   : Promise.reject(new Error(translate("header.prMergeFailed")))
                 : client.gitPullRequest(),
           // What the agent works on, for a terminal or browser opened from this chat (#16620).
-          "pane.context": async () => (snapshotRef.current ? paneContext(snapshotRef.current) : { urls: [] }),
+          // A folder picked before the first send, or on the New Tab page, counts too (#22225).
+          "pane.context": async () => {
+            const current = snapshotRef.current;
+            if (!current) return { urls: [] };
+            const remote = Boolean(current.summary?.peer) || current.summary?.hostKind === "cloud";
+            return paneContext(current, {
+              shown: remote ? undefined : newTabFolder.current,
+              draft: remote ? undefined : quickCwd.current,
+            });
+          },
           // What this page holds that acpmux does not, kept by the host when a hidden chat's page
           // lets go and handed back with the next page's handshake (`wake`).
           // The transcript's place: an anchor, at its latest message, or left out when unknown
@@ -8722,6 +8733,7 @@ function AcpmuxPane() {
             />
           ) : showNewTab && shownTemplate(newTab) !== "classic" ? (
             <NewTabScreen
+              folderRef={newTabFolder}
               onCommands={(harness, cwd) => {
                 void callNative("chat.new", { harness, ...(cwd ? { cwd } : {}), deferred: true }).catch(
                   () => undefined,
@@ -8798,6 +8810,7 @@ function AcpmuxPane() {
             />
           ) : showNewTab ? (
             <NewTabPage
+              folderRef={newTabFolder}
               key={newTabGeneration}
               snapshot={newTabSnapshot}
               hotkeys={newTab.hotkeys}
