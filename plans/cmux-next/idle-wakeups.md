@@ -81,6 +81,7 @@ Status: **fixed** (this work), **ok** (event-driven, one-shot, or stops itself),
 | CEFMessagePump | Browser | CEF schedule + fixed fallback | never | **30 Hz / 1 Hz forever** | fixed by the pump agent (23289d1437c): demand-driven. With fork API 7 (cef cmux.7) it wakes only when CEF asks (`SafetyNet.none`); older pins keep a finite one-shot follow-up chain (CEFPumpTimer.swift, wakeup-allow) |
 | CEFReplyWaiters, CEF shutdown timeout | Browser | DevTools call / quit | reply | one-shot | reviewed |
 | Hover card, click-and-hold, double-click, spring-load, record write-back | Tabs, Sidebar, App | UI event | fires once / cancelled | one-shot, injected sleep | reviewed |
+| ThinScroller rest fade-out (sidebar, cards, Priority view, terminal) | Design | a user scroll step or the end of a knob drag | fires once; the next scroll replaces it | was a hand-rolled injected sleep that check-concurrency refused and `debug.wakeups` never counted | fixed: DemandTimer `thinScroller.rest` on the injected clock and ledger (guard ThinScrollerFadeTests.eachFadeOutIsOneWakeupInTheLedger; red/green: see section 8) |
 | Agent pane render-rate re-apply | AgentPane | rate change (after a settled scroll) | fires twice, then stops | one-shot, injected sleep | reviewed |
 | GhosttyRuntime wakeup_cb | Terminal | libghostty | per tick | coalesced by an atomic flag | ok |
 | ~25 `for await` over `Observations` | App | model change | owner deinit | no self-writes found; Observations does not dedupe equal writes | ok; `assignIfChanged` for writers |

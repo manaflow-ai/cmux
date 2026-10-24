@@ -65,11 +65,10 @@ public final class ThinScroller: NSScroller {
     /// its own schedule, so the knob is a view of its own whose fade and width this scroller owns.
     let restingKnob = ThinScrollerKnobView()
     private(set) var presence = ThinScrollerPresence()
-    private let clock: any Clock<Duration>
-    /// Where the rest delay's wakeups are counted (not used yet).
-    private let ledger: WakeupLedger
-    /// The pending fade-out after the last scroll; the next scroll cancels it.
-    private(set) var restTask: Task<Void, Never>?
+    /// The fade-out after the last scroll: one deadline of the shared wakeup primitive, which the
+    /// next scroll replaces, also when the delay ran out while main was busy (DemandTimer claims
+    /// the fire on the main actor; plans/cmux-next/idle-wakeups.md).
+    private let restTimer: DemandTimer
     private var proximity: ThinScrollerProximity?
     private var drawnExpanded = false
 
@@ -84,8 +83,7 @@ public final class ThinScroller: NSScroller {
     ///   - clock: The clock of ``restDelay``; tests pass a manual clock.
     ///   - ledger: Where each rest-delay wakeup is counted (`debug.wakeups`); tests pass their own.
     public init(frame frameRect: NSRect, clock: any Clock<Duration>, ledger: WakeupLedger = .shared) {
-        self.clock = clock
-        self.ledger = ledger
+        restTimer = DemandTimer(owner: ThinScroller.restWakeupOwner, clock: clock, ledger: ledger)
         super.init(frame: frameRect)
         restingKnob.wantsLayer = true
         addSubview(restingKnob)
@@ -202,24 +200,23 @@ public final class ThinScroller: NSScroller {
         placeKnob(animated: true)
     }
 
+    /// Starts the rest delay over after a scroll step or the end of a knob drag; nothing pends
+    /// when no scroll showed the knob.
     private func armRest() {
-        restTask?.cancel()
-        restTask = nil
-        guard presence.scrolledRecently else { return }
-        let clock = clock
-        // A bounded, cancellable delay that is the intended behavior (the knob's rest time after
-        // the last scroll step); the next scroll cancels it. Its clock is injected.
-        restTask = Task { [weak self] in
-            do { try await clock.sleep(for: Self.restDelay) } catch { return }
+        guard presence.scrolledRecently else {
+            restTimer.cancel()
+            return
+        }
+        restTimer.schedule(after: Self.restDelay) { @MainActor [weak self] in
             self?.update { $0.rested() }
         }
     }
 
     /// Waits until the rest delay armed last has settled: the knob took its rest state, or the
-    /// delay was dropped. Tests await it after they advance the clock; a dropped delay ends the
-    /// wait too, so a regression fails on the test's expectation instead of hanging it.
+    /// deadline was dropped. Tests await it after they advance the clock; a dropped deadline ends
+    /// the wait too, so a regression fails on the test's expectation instead of hanging it.
     func restSettled() async {
-        await restTask?.value
+        await restTimer.settled()
     }
 
     private func placeKnob(animated: Bool) {
