@@ -27,6 +27,9 @@ final class PageChromiumSession {
     /// A theme, scale, attribute or glass script was skipped while frozen: the thaw sends the
     /// document's state again.
     var stateStale = false
+    /// The host state scripts sent while frozen (``PageWebView/evaluateHostState(_:key:)``): the
+    /// newest of each key, in the order of their newest. They run at the thaw.
+    private var heldStateScripts: [(key: String, script: String)] = []
 
     init(page: any PageChromiumPage, bridge: ChromiumPageHostBridge, clock: any Clock<Duration>,
          hosting: any PageChromiumHosting) {
@@ -80,6 +83,18 @@ final class PageChromiumSession {
         page.setFrozen(false)
         setShown(shown)
         return true
+    }
+
+    /// Keeps `script` for the thaw in place of the one held for `key`.
+    func holdStateScript(_ script: String, key: String) {
+        heldStateScripts.removeAll { $0.key == key }
+        heldStateScripts.append((key, script))
+    }
+
+    /// The held state scripts, in order, and none held from now on.
+    func takeHeldStateScripts() -> [String] {
+        defer { heldStateScripts.removeAll() }
+        return heldStateScripts.map(\.script)
     }
 
     /// Stops the bridge and closes the page. Idempotent.
