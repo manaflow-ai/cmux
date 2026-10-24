@@ -125,7 +125,7 @@ def main():
     app = BenchApp(opts.app, out=opts.out, env={"CMUX_NEXT_DEBUG_TUNABLES_FILE": tunables})
     ok = True
     try:
-        app.launch(settle=3)
+        app.launch()
         rpc = app.rpc
         RESULT["refresh_hz"] = main_display_hz()
         cef = rpc("debug.cef") or {}

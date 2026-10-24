@@ -63,10 +63,10 @@ public final class WebKitEngine: BrowserEngine {
     /// its one made-ahead panel (`AppServices.openPanel`), which agent composer pages share, so
     /// a browser tab's file input gets the panel made ahead when one is, and its dead-panel guard.
     ///
-    /// Not the final shape: an engine the App does not set keeps a private panel that nothing
-    /// warms and nothing reports, so a lost wiring is silent. It becomes a required `init`
-    /// parameter passed from the composition root through `TabContentCache` (routed to its
-    /// owners; perf-lead.md row 25).
+    /// Interim; replaced by a required init parameter; owner PL-cef-tab (cmux-b6), lands right
+    /// after this. Until then an engine the App does not set keeps a private panel that nothing
+    /// warms and nothing reports, so a lost wiring is silent; the required parameter passes the
+    /// panel from the composition root through `TabContentCache` (perf-lead.md row 25).
     public var fileInput: any WebFileInputAnswering = MadeAheadOpenPanel()
 
     public init(
