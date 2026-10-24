@@ -401,10 +401,9 @@ test("keys another action has: the recorder says who has them and offers Overwri
   const choices = () => recorder()?.querySelector<HTMLElement>(".keys-recorder-choices");
   const sets = () => provider.calls.filter(({ op }) => op === KeybindingOps.set);
 
-  // Only real conflicts count: Show History's ⇧⌘P runs in the browser only, so the palette's
-  // ⇧⌘P still runs everywhere else, and neither shows a conflict.
-  expect(row("Open Command Palette")?.querySelector(".keys-conflict")).toBeNull();
-  expect(row("Show History")?.querySelector(".keys-conflict")).toBeNull();
+  // Show History's ⇧⌘P runs in the browser only, and there it takes the palette's ⇧⌘P: a conflict.
+  expect(row("Open Command Palette")?.querySelector(".keys-conflict")).toBeTruthy();
+  expect(row("Show History")?.querySelector(".keys-conflict")).toBeTruthy();
 
   // Keys that would take the palette's and History's: nothing is saved; the recorder says
   // "Already used by" them, its keys red under a red light, "Overwrite it or record a new shortcut".

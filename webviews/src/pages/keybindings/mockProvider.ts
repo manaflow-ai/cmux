@@ -326,7 +326,7 @@ export class MockKeybindingsProvider implements PageClient {
       conflicts: [],
       ...(!row.removed && this.heldElsewhere.has(row.command) ? { heldElsewhere: true } : {}),
     }));
-    // As the app: the later entry wins, and a pair conflicts when the earlier one never runs.
+    // As the app: two actions whose `when` can hold at once, one of them not a shipped default.
     for (const a of bindings) {
       if (a.removed || a.unset) continue;
       a.conflicts = bindings
@@ -338,7 +338,7 @@ export class MockKeybindingsProvider implements PageClient {
             !b.removed &&
             !b.unset &&
             normalized(b.key) === normalized(a.key) &&
-            (b.id > a.id ? whenImplies(a.when, b.when) : whenImplies(b.when, a.when)),
+            whenOverlaps(a.when, b.when),
         )
         .map((b) => b.id);
     }
@@ -367,7 +367,7 @@ export class MockKeybindingsProvider implements PageClient {
           !b.unset &&
           b.command !== params.command &&
           normalized(b.key) === normalized(params.key) &&
-          whenImplies(b.when, params.when ?? null),
+          whenOverlaps(b.when, params.when ?? null),
       ),
     };
   }
@@ -385,11 +385,10 @@ export class MockKeybindingsProvider implements PageClient {
   }
 }
 
-/** Whether `a` holding means `b` holds, read over `&&` terms (the app's `WhenClause.implies`). */
-function whenImplies(a: string | null, b: string | null): boolean {
-  if (b === null) return true;
-  const terms = new Set((a ?? "").split("&&").map((term) => term.trim()));
-  return b.split("&&").every((term) => terms.has(term.trim()));
+/** Whether two `when` texts can hold at once (the app's `WhenClause.canOverlap`, read simply: no
+ *  condition on either side, or the same one). */
+function whenOverlaps(a: string | null, b: string | null): boolean {
+  return a === null || b === null || a === b;
 }
 
 /** The held modifiers of a key event as glyphs (⌃⌥⇧⌘), for the dev loop's stand-in dispatcher. */

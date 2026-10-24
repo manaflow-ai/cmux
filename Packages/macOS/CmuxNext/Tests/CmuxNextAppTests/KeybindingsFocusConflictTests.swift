@@ -3,12 +3,11 @@ import CmuxNextActions
 import CmuxNextSettings
 import Testing
 
-/// A conflict badge on the Keyboard Shortcuts page counts only bindings where one never runs
-/// because of the other (dogfood run 7, cx-gesnr; Lucas 2026-10-24). The later entry wins, so
-/// the pair conflicts when the earlier one's `when` holding means the later one's holds. Cmd-0 is
-/// Actual Size in each surface (the browser, an agent chat, markdown, the code editor, the
-/// canvas) and the terminal's font size: every one still runs in its own context, so none of
-/// them conflicts. A user's Cmd-0 with no condition takes the key from every one of them.
+/// A conflict on the Keyboard Shortcuts page is two actions on the same keys whose `when` can
+/// hold at the same time, one of them made by someone (dogfood run 7, cx-gesnr; Lucas
+/// 2026-10-24): where both hold, the later one takes the key. Shipped defaults share keys by
+/// design (Cmd-0 is Actual Size in each surface, the Chrome tab keys): an untouched table shows
+/// none. A user's browser-only Cmd-T still takes New Tab's Cmd-T in the browser: a conflict.
 @MainActor @Suite struct KeybindingsFocusConflictTests {
     static func rows(_ registry: ActionRegistry) -> [JSONValue] {
         guard case .object(let page) = KeybindingReports.pageList([:], registry: registry),
@@ -54,20 +53,6 @@ import Testing
         }
     }
 
-    /// A later binding takes an earlier one's keys when the earlier `when` holding means the later
-    /// one's holds, read over `&&` and `||` (code review: an `||` that covers it was missed).
-    @Test func implicationReadsAndAndOr() throws {
-        let browser = try WhenClause.parse("browserFocused")
-        #expect(WhenClause.implies(browser, try WhenClause.parse("browserFocused || terminalFocused")))
-        #expect(!WhenClause.implies(try WhenClause.parse("browserFocused || terminalFocused"), browser))
-        #expect(WhenClause.implies(try WhenClause.parse("browserFocused && !dialogOpen"), browser))
-        #expect(!WhenClause.implies(browser, try WhenClause.parse("browserFocused && !dialogOpen")))
-        #expect(WhenClause.implies(try WhenClause.parse("browserFocused || markdownFocused"),
-                                   try WhenClause.parse("markdownFocused || browserFocused")))
-        #expect(WhenClause.implies(browser, nil))
-        #expect(!WhenClause.implies(nil, browser))
-    }
-
     /// One action on the same keys twice (its cmux default and its Ghostty default keybind, as
     /// Focus Left on Cmd-Opt-Left) runs either way: never its own conflict.
     @Test func noActionConflictsWithItself() {
@@ -100,12 +85,27 @@ import Testing
             return
         }
         #expect(Set(taken.compactMap { Self.field($0, "command")?.stringValue }).isSuperset(of: Self.actualSizes))
-        guard case .array(let none)? = Self.field(KeybindingReports.conflicts(
-            ["command": "browserZoomReset", "key": "cmd+0"], when: try? WhenClause.parse("browserFocused"),
-            registry: before), "bindings") else {
+    }
+
+    /// Actual Size runs in a focused browser; on Cmd-T it would take New Tab's key there, so it
+    /// conflicts, although New Tab still runs everywhere else (Lucas 2026-10-24).
+    @Test func aBrowserOnlyCmdTTakesNewTabsKeyInTheBrowser() throws {
+        let registry = ActionRegistry.standard()
+        guard case .array(let taken)? = Self.field(KeybindingReports.conflicts(
+            ["command": "browserZoomReset", "key": "cmd+t"], when: try WhenClause.parse("browserFocused"),
+            registry: registry), "bindings") else {
             Issue.record("no conflicts reply")
             return
         }
-        #expect(none.isEmpty, "Actual Size in the browser takes Cmd-0 from \(none)")
+        let commands = Set(taken.compactMap { Self.field($0, "command")?.stringValue })
+        #expect(!commands.isDisjoint(with: ["newSurface", "newTab.default", "newTab"]), "Cmd-T takes: \(commands)")
+        // A focused terminal and a focused browser never hold together: no conflict there.
+        guard case .array(let none)? = Self.field(KeybindingReports.conflicts(
+            ["command": "terminal.resetFontSize", "key": "cmd+0"], when: try WhenClause.parse("terminalFocused"),
+            registry: registry), "bindings") else {
+            Issue.record("no conflicts reply")
+            return
+        }
+        #expect(!none.contains { Self.field($0, "command")?.stringValue == "browserZoomReset" })
     }
 }

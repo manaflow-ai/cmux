@@ -99,13 +99,10 @@ enum KeybindingReports {
         return .object(object)
     }
 
-    /// `cmux.keybindings.conflicts` `{command, key, when?}`: the entries new
-    /// keys for `command` would take from other actions, or lose to, before
-    /// they are saved. A new user entry comes after every default, app and
-    /// Ghostty entry, so it takes the keys from each one whose `when` holding
-    /// means its own holds. Against another user entry the order depends on
-    /// the file each lands in (keybindings.json comes after cmux.json), so
-    /// either direction counts.
+    /// `cmux.keybindings.conflicts` `{command, key, when?}`: the other
+    /// actions' entries new keys for `command` would share a context with,
+    /// before they are saved: where both hold, one takes the key from the
+    /// other (a browser-only Cmd-T takes New Tab's in the browser).
     /// `when` is the condition the write would carry (`KeybindingPageWrites.savedWhen`).
     static func conflicts(_ params: [String: JSONValue], when: WhenClause?, registry: ActionRegistry) -> JSONValue {
         let command = registry.canonicalID(for: ActionID(rawValue: params["command"]?.stringValue ?? ""))
@@ -118,9 +115,7 @@ enum KeybindingReports {
             // The user's Ghostty config is read-only here, and in a terminal cmux's action runs
             // first (`ShortcutNote.ghosttyKeybind`): never one to take keys from.
             guard entry.keys == keys, entry.command != command, !entry.source.isGhostty else { return false }
-            let conflicts = WhenClause.implies(entry.when, when)
-                || (entry.source == .user && WhenClause.implies(when, entry.when))
-            return conflicts && seen.insert(entry).inserted
+            return WhenClause.canOverlap(entry.when, when) && seen.insert(entry).inserted
         }.map { index -> JSONValue in
             guard case .object(var object) = json(entries[index], registry: registry) else { return .null }
             object["id"] = JSONValue(index)
@@ -164,12 +159,11 @@ enum KeybindingReports {
     /// wins), optionally filtered by `query` (title, command id or key text,
     /// case-insensitive), `command` and `source`. Each entry has an `id`
     /// (its position in the table) and `conflicts`: the ids of the other
-    /// entries on the same keys where one never runs because of the other
-    /// (the later entry wins, and the earlier one's `when` holding means the
-    /// later one's holds), one of them made by someone (a user, app or
-    /// Ghostty config entry: shipped defaults share keys by design). Bindings
-    /// in separate contexts (a focused browser, the code editor) or a later,
-    /// narrower one never conflict.
+    /// actions' entries on the same keys whose `when` can hold at the same
+    /// time (where both hold, the later one takes the key), one of them made
+    /// by someone (a user, app or Ghostty config entry: shipped defaults share
+    /// keys by design). Bindings in contexts that exclude each other (a
+    /// focused browser, a focused terminal) never conflict.
     /// `shows` leaves entries out by their position (``pageList(_:registry:)``).
     static func list(_ params: [String: JSONValue], registry: ActionRegistry, shows: (Int) -> Bool = { _ in true }) -> JSONValue {
         let query = params["query"]?.stringValue?.lowercased() ?? ""
@@ -198,9 +192,8 @@ enum KeybindingReports {
                 // goes. A conflict has a binding someone made (the user's, an app's, Ghostty's config).
                 let shipped: [KeyBinding.Source] = [.default, .ghosttyFallback]
                 if shipped.contains(entry.source), shipped.contains(entries[other].source) { return false }
-                // The later entry wins; the pair conflicts when the earlier one can never run.
-                let (winner, loser) = other > index ? (entries[other], entry) : (entry, entries[other])
-                return WhenClause.implies(loser.when, winner.when)
+                // Both can hold at once: where they do, the later one takes the key from the other.
+                return WhenClause.canOverlap(entries[other].when, entry.when)
             }
             object["conflicts"] = .array(conflicts.map { JSONValue($0) })
             return .object(object)
