@@ -677,19 +677,26 @@ def guardrails(repo: Path, ranges: list[tuple[str, str]], trusted_scripts: Path 
             if trusted_scripts:
                 log("prepush-gate: guardrails.py is not installed; rerun scripts/install-git-hooks.sh")
             return False
-        refused = False
-        check = getattr(module, "check_push", module.check)
-        for base, head in ranges:
-            refusals, warnings = check(repo, base, head)
-            text, refuse = module.format_report(refusals, warnings)
-            if text:
-                print(text)
-            refused = refused or refuse
-        return refused
-    except (Exception, SystemExit) as error:  # SystemExit: guardrails.git() exits on a failed git call
-        log(f"prepush-gate: WARNING: guardrails.py failed ({type(error).__name__}: {error}); not applied to "
+        check = module.check_push if hasattr(module, "check_push") else module.check
+    except (Exception, SystemExit) as error:
+        log(f"prepush-gate: WARNING: guardrails.py failed to load ({type(error).__name__}: {error}); not applied to "
             "this push. Tell the Performance Lead (PL-guardrails) with this line.")
         return False
+    refused = False
+    for base, head in ranges:
+        # Fail open per range: a range the checker could not judge goes through; one it judged keeps its answer.
+        try:
+            refusals, warnings = check(repo, base, head)
+            text, refuse = module.format_report(refusals, warnings)
+        except (Exception, SystemExit) as error:  # SystemExit: guardrails.git() exits on a failed git call
+            log(f"prepush-gate: WARNING: guardrails.py failed ({type(error).__name__}: {error}) on "
+                f"{base[:11]}..{head[:11]}; not applied to that range. Tell the Performance Lead (PL-guardrails) "
+                "with this line.")
+            continue
+        if text:
+            print(text)
+        refused = refused or refuse
+    return refused
 
 
 class ArchRatchet:
