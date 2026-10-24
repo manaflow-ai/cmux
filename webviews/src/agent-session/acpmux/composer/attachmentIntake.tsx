@@ -117,7 +117,7 @@ export function appendAttachments(
 export type PendingAttachment = { id: string; name: string; image: boolean; scope?: string; failed?: string };
 
 /// What Retry needs of a pending chip: its file and how it came in.
-type PendingSource = { file: File; uploads: boolean; kind?: DroppedKind };
+type PendingSource = { file: File; uploads: boolean };
 
 /// The prompt's staged attachments: what a paste on the composer's field or a file drop anywhere on
 /// the page adds (the document-level drop contract, attachments.ts), with the note a refusal leaves.
@@ -145,6 +145,10 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// Each pending chip's file, for Retry; a chip cancelled by its × is gone from here, so what its
   /// read makes later is dropped.
   const sources = useRef(new Map<string, PendingSource>());
+  /// Each intake chip's place in paste order (its gesture, then its file), so a chip ready first
+  /// still lands where it was pasted, across batches too.
+  const places = useRef(new Map<string, number>());
+  const gestures = useRef(0);
   const scope = options.scope;
   const lastScope = useRef(scope);
   // Before paint: a carried placeholder never leaves the strip for a frame.
@@ -170,9 +174,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       image: isImageFile(file),
       scope: batch.scope,
     }));
-    shown.forEach((chip, index) =>
-      sources.current.set(chip.id, { file: files[index]!, uploads, ...(kind ? { kind } : {}) }),
-    );
+    shown.forEach((chip, index) => sources.current.set(chip.id, { file: files[index]!, uploads }));
+    const gesture = (gestures.current += 1);
     batches.current.add(batch);
     setPending((chips) => [...chips, ...shown]);
     const paths = current.localPaths;
@@ -195,11 +198,11 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         if (batch.scope !== undefined) now.elsewhere?.(batch.scope, [attachment]);
         return;
       }
-      // In the batch's own order, whichever file was ready first: before the first chip of a later
-      // file of the batch already staged.
+      // In paste order, whichever file was ready first: before the first staged chip pasted after it.
+      const place = gesture * 100_000 + index;
+      places.current.set(attachment.id, place);
       setAttachments((staged) => {
-        const later = new Set(made.slice(index + 1).filter(Boolean));
-        const at = staged.findIndex((chip) => later.has(chip.id));
+        const at = staged.findIndex((chip) => (places.current.get(chip.id) ?? -1) > place);
         if (at < 0 || staged.some((chip) => chip.id === attachment.id)) return appendAttachments(staged, [attachment]);
         return [...staged.slice(0, at), attachment, ...staged.slice(at)];
       });
@@ -249,7 +252,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     const source = sources.current.get(id);
     if (!source) return;
     cancel(id);
-    void attach([source.file], source.uploads, source.kind);
+    // Without the paste's kind: the host's record of where its files are was for that gesture only.
+    void attach([source.file], source.uploads);
   });
   useEffect(() => {
     const paste = (event: ClipboardEvent) => {
