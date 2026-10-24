@@ -14,6 +14,7 @@ import CmuxNextDesign
 import CmuxNextMobileHost
 import CmuxNextDaemon
 import CmuxNextFeed
+import CmuxNextFiles
 import CmuxNextHomeEngine
 import CmuxNextIcons
 import CmuxNextPalette
@@ -70,6 +71,9 @@ final class AppServices {
     var showJumpWindow: @MainActor (NSWindow, WindowActivation.Intent) -> Void = { WindowActivation.show($0, $1) }
     /// The app's key window. Tests and `debug.key` replace it: a window only becomes key in a running, active app.
     var keyWindowSource: @MainActor () -> NSWindow? = { NSApp.keyWindow }
+    /// Lists the screenshot folder for Paste Last Screenshot (off the main actor). Tests replace it
+    /// to see where the listing runs without reading the person's Desktop.
+    var screenshotLister: any DirectoryListing = DirectoryLister()
     /// Restart CLI Listener: binds the control socket again. Set once the
     /// app's control socket starts; nil while it has none (tests, socket off).
     var restartControlListener: (@MainActor () throws -> Void)?
