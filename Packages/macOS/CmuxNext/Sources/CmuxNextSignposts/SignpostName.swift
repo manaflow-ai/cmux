@@ -5,7 +5,7 @@
 /// strings. Add a case here, with what its interval spans, before a call site uses it. The cases
 /// are the catalog: `allCases` is the list tests and readers enumerate, so no second list exists.
 ///
-/// Only ``actionPerform``, ``actionCommit`` and ``actionGate`` have an emitter today. The other cases are
+/// ``actionPerform``, ``actionCommit``, ``actionGate`` and ``keyToFrame`` have an emitter today. The other cases are
 /// **reserved**: the lane named on each adds the emitter (plans/cmux-next/architecture-refactor-DESIGN.md
 /// section 7). Until then no build records them, and no bench or report may quote them.
 ///
@@ -43,9 +43,12 @@ public nonisolated enum SignpostName: Sendable, Hashable, CaseIterable, CustomSt
     /// Reserved. A whole motion: the structural change to the spring at rest.
     case motionRun
 
-    // MARK: key (reserved: PL-typing)
+    // MARK: key (PL-typing)
 
-    /// Reserved. A key event received by the app to the committed frame that shows its effect.
+    /// A key-down the app dispatches to the end of the Core Animation commit that ends that turn (the app's
+    /// `KeyFrameSignpost`, from `CmuxApplication.sendEvent`). Message: `target=<view|terminal> age_ms=<age>`,
+    /// the key's age when its dispatch began (its wait in the event queue). For a text view the commit shows
+    /// the typed character; for a terminal it is the key's main-thread share, and the echo comes later.
     case keyToFrame
 
     // MARK: switch (reserved: PL-switch, SwitchFrameTimer)

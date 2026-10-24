@@ -66,13 +66,13 @@ public final class ActionRegistry {
     /// conflicts are the shipped ones.
     @ObservationIgnored public var includesWorkspaceTabKeys: @MainActor () -> Bool = { false }
     /// True while AppKit dispatches a key-down (a menu key equivalent), not
-    /// a click in an open menu. The App installs it from `CmuxApplication.dispatchingEvent`, as
+    /// a click in an open menu. The App installs it from its input dispatch context (`InputDispatchContext`), as
     /// ``dispatchingInputEvent``: `NSApp.currentEvent` keeps the last key after its dispatch, so a
     /// socket or CLI run after a key press would pass for one. False (the default) outside the App;
     /// replaceable in tests.
     @ObservationIgnored public var isDispatchingKeyDown: @MainActor () -> Bool = { false }
     /// The OS input event AppKit is dispatching now (inside `NSApplication.sendEvent`), nil
-    /// between dispatches. The App installs it (`CmuxApplication.dispatchingEvent`); the action
+    /// between dispatches. The App installs it (`InputDispatchContext`: `sendEvent`'s event and the key router's own); the action
     /// signposts read it for a `user` run's `input_age_ms`. Nil (the default) records -1.
     @ObservationIgnored public var dispatchingInputEvent: @MainActor () -> NSEvent? = { nil }
     /// Times each run that does work (``ActionRunTiming``; `action.perform` / `action.commit`), and
