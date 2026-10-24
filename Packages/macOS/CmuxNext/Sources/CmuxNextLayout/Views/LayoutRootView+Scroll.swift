@@ -244,8 +244,16 @@ extension LayoutRootView: ScrollGestureOwning {
 
     /// ``handleScroll(_:locationInWindow:)`` for the event monitor; returns the event when it goes
     /// on, nil when consumed. `fromPageWindow`: the event came from a page window over a pane
-    /// (``scrollOrigin(of:at:in:)``).
+    /// (``scrollOrigin(of:at:in:)``). A consumed event is reported once (``onScrollTaken``).
     func handleScrollEvent(_ event: NSEvent, at locationInWindow: NSPoint, fromPageWindow: Bool) -> NSEvent? {
+        let routed = routeScrollEvent(event, at: locationInWindow, fromPageWindow: fromPageWindow)
+        if routed == nil { onScrollTaken?() }
+        return routed
+    }
+
+    /// The routing of ``handleScrollEvent(_:at:fromPageWindow:)``: the event when it goes on, nil when the
+    /// layout consumed it.
+    private func routeScrollEvent(_ event: NSEvent, at locationInWindow: NSPoint, fromPageWindow: Bool) -> NSEvent? {
         let decides = decidesGestureOwner(event, at: locationInWindow)
         if let consumed = handleCanvasScroll(event, at: locationInWindow, decides: decides, fromPageWindow: fromPageWindow) {
             return consumed ? nil : event
