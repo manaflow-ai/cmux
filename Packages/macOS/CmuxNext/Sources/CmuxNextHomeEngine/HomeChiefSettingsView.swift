@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextWakeups
 import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -37,6 +38,8 @@ public final class HomeChiefSettingsView: NSView {
     static let pickerWidth: CGFloat = 188
     /// The shown Chief's mux home (its avatar, traces, the brain line); `use` moves it.
     var muxHome: URL
+    /// The blocking-work lanes of this view's own picture store (a cloud Chief's files).
+    private let work: BackgroundWork
     let avatarButton = HomeChiefAvatarButton(size: avatarSize)
     let nameField = ThemedTextField(string: "")
     /// The title the field last showed or sent, so leaving it unchanged renames nothing.
@@ -137,9 +140,13 @@ public final class HomeChiefSettingsView: NSView {
         harnesses(routeConfigured: routeConfigured, listed: listed).map { ($0, ChiefBackend.title(for: $0)) }
     }
 
-    public init(muxHome: URL, source: any HomeChiefEngineSource) {
+    /// - Parameter work: the blocking-work lanes a picture change of a cloud Chief runs on: the app passes
+    ///   its one instance (AppServices); tests and previews get lanes of their own.
+    public init(muxHome: URL, source: any HomeChiefEngineSource,
+                work: BackgroundWork = BackgroundWork(label: "com.cmuxterm.next.work.chief-settings")) {
         self.muxHome = muxHome
         self.source = source
+        self.work = work
         super.init(frame: NSRect(x: 0, y: 0, width: Self.width, height: 0))
         translatesAutoresizingMaskIntoConstraints = false
         setAccessibilityRole(.group)
@@ -359,7 +366,7 @@ public final class HomeChiefSettingsView: NSView {
     /// next open).
     @discardableResult
     func usePicture(_ source: URL?) -> Task<Void, Never> {
-        let store = pictureStore ?? (avatars: HomeChiefAvatars(muxHome: muxHome), chief: HomeChiefAvatars.defaultChief)
+        let store = pictureStore ?? (avatars: HomeChiefAvatars(muxHome: muxHome, work: work), chief: HomeChiefAvatars.defaultChief)
         changeFailed = false
         // task-owner: one picture write (registry or files), then the header reads it
         return Task { [weak self] in
