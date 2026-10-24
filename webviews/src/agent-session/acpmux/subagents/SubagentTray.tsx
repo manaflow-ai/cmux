@@ -40,12 +40,15 @@ import { STATUS_LABEL, type SubagentStatus, subagentStatus, subagentStatusLabel 
 import { AgentLine } from "./AgentLine";
 import { BackgroundTaskTail } from "./BackgroundTaskTail";
 import { elapsed, StopButton, useNow } from "./SubagentGroup";
-import { itemStart, type TrayItem } from "./runningTray";
+import { arrivalKey, itemStart, type TrayItem } from "./runningTray";
 import type { StartedSession } from "../started/startedSessions";
 import type { SubagentTrayPlacement } from "./subagentTrayPlacement";
 
 /// Lines the tray shows under its header without a click.
 export const TRAY_OPEN_MAX = 3;
+
+const itemKey = (item: TrayItem): string =>
+  item.kind === "command" ? `command:${arrivalKey(item.command)}` : `${item.kind}:${item.id}`;
 
 /// Memoized: App.tsx keeps its props the same while text streams.
 export const SubagentTray = memo(function SubagentTray({
@@ -108,9 +111,9 @@ export const SubagentTray = memo(function SubagentTray({
   // Keep live and ended cards in one keyed child list. When a task completes, its card moves
   // between groups without remounting, so keyboard focus and the open affordance stay put.
   const cards = [
-    ...items.map((item) => <li key={`${item.kind}:${item.id}`}>{line(item)}</li>),
+    ...items.map((item) => <li key={itemKey(item)}>{line(item)}</li>),
     ...finished.slice(0, showFinished ? finished.length : TRAY_OPEN_MAX).map((item) => (
-      <li key={`${item.kind}:${item.id}`} data-finished="">
+      <li key={itemKey(item)} data-finished="">
         {line(item)}
       </li>
     )),
@@ -168,63 +171,75 @@ export const SubagentTray = memo(function SubagentTray({
   );
 
   function line(item: TrayItem) {
-    return item.kind === "agent" ? (
-      <AgentLine
-        name={item.agent.name}
-        detail={item.agent.action ?? item.agent.kind}
-        status={subagentStatus(item.agent, waiting)}
-        state={t(subagentStatusLabel(item.agent, waiting))}
-        time={formatDuration(elapsed(item.agent, now))}
-        depth={item.depth}
-        title={item.agent.task}
-        label={t("subagents.open", { name: item.agent.name })}
-        kind={t("tray.kind.subagent")}
-        chevron
-        onOpen={() => onOpen(item.agent.id)}
-        after={stop && item.agent.state === "running" && <StopButton agent={item.agent} stop={stop} />}
-      />
-    ) : item.kind === "command" ? (
-      <>
+    if (item.kind === "agent")
+      return (
         <AgentLine
-          name={commandLabel(item.command)}
-          title={item.command.command}
-          kind={t("tray.kind.command")}
+          name={item.agent.name}
+          detail={item.agent.action ?? item.agent.kind}
+          status={subagentStatus(item.agent, waiting)}
+          state={t(subagentStatusLabel(item.agent, waiting))}
+          time={formatDuration(elapsed(item.agent, now))}
+          depth={item.depth}
+          title={item.agent.task}
+          label={t("subagents.open", { name: item.agent.name })}
+          kind={t("tray.kind.subagent")}
           chevron
-          icon="terminal"
-          working
-          status="running"
-          state={t("subagents.state.running")}
-          expanded={openCommands.has(item.id)}
-          time={
-            item.command.startedAt === undefined ? undefined : formatDuration(Math.max(0, now - item.command.startedAt))
-          }
-          onOpen={() =>
-            setOpenCommands((current) => {
-              const next = new Set(current);
-              if (next.has(item.id)) next.delete(item.id);
-              else next.add(item.id);
-              return next;
-            })
-          }
-          after={
-            stopProcess &&
-            item.command.processId && (
-              <ProcessStopButton
-                id={item.command.processId}
-                name={item.command.command}
-                label={t("tray.stopCommand")}
-                stop={stopProcess}
-              />
-            )
-          }
+          onOpen={() => onOpen(item.agent.id)}
+          after={stop && item.agent.state === "running" && <StopButton agent={item.agent} stop={stop} />}
         />
-        <BackgroundTaskTail
-          command={item.command}
-          open={openCommands.has(item.id)}
-          onOpenTerminal={canOpenTerminal && onOpenCommand ? () => onOpenCommand(item.command) : undefined}
-        />
-      </>
-    ) : (
+      );
+    if (item.kind === "command") {
+      const key = itemKey(item);
+      return (
+        <>
+          <AgentLine
+            name={commandLabel(item.command)}
+            title={item.command.command}
+            kind={t("tray.kind.command")}
+            chevron
+            icon="terminal"
+            working
+            status="running"
+            state={t("subagents.state.running")}
+            expanded={openCommands.has(key)}
+            time={
+              item.command.startedAt === undefined
+                ? undefined
+                : formatDuration(Math.max(0, now - item.command.startedAt))
+            }
+            onOpen={() =>
+              setOpenCommands((current) => {
+                const next = new Set(current);
+                if (next.has(key)) next.delete(key);
+                else next.add(key);
+                return next;
+              })
+            }
+            after={
+              stopProcess &&
+              item.command.processId && (
+                <ProcessStopButton
+                  id={item.command.processId}
+                  name={item.command.command}
+                  label={t("tray.stopCommand")}
+                  stop={stopProcess}
+                />
+              )
+            }
+          />
+          <BackgroundTaskTail
+            command={item.command}
+            open={openCommands.has(key) && canOpenTerminal}
+            onOpenTerminal={
+              canOpenTerminal && onOpenCommand && item.command.toolCallId
+                ? () => onOpenCommand(item.command)
+                : undefined
+            }
+          />
+        </>
+      );
+    }
+    return (
       <AgentLine
         name={item.session.title}
         detail={item.session.doing}

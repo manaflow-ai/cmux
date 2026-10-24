@@ -50,11 +50,9 @@ function processFor(
   // The newest one: an adapter that numbers calls per process can reuse an id (cx-jzhka).
   for (let index = list.length - 1; index >= 0; index -= 1) {
     const raw = (list[index] ?? {}) as Record<string, unknown>;
-    if (
-      (toolCallId === undefined || raw.toolCallId !== toolCallId) &&
-      (processId === undefined || raw.id !== processId)
-    )
-      continue;
+    const matches =
+      processId !== undefined ? raw.id === processId : toolCallId !== undefined && raw.toolCallId === toolCallId;
+    if (!matches) continue;
     if (typeof raw.id !== "string" || !raw.id) continue;
     return {
       id: raw.id,
