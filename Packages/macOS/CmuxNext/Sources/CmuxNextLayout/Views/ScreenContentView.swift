@@ -110,7 +110,7 @@ final class ScreenContentView: NSView {
         guard changed else { return }
         // A hidden screen (another of the workspace's screens shows) lays out once, when it shows:
         // each live-resize tick re-ran its full geometry, pane and divider reconcile.
-        if isHidden { needsReconcileOnShow = true } else { reconcileAndScroll() }
+        if isHidden { needsReconcileOnShow = true } else { reconcileAndScroll(keepsMotion: hasMotion && window?.inLiveResize != true) }
     }
 
     /// Resized while hidden: reconcile when it shows.
@@ -142,11 +142,11 @@ final class ScreenContentView: NSView {
         reconcileAndScroll()
     }
 
-    /// A window resize: frames snap, and the scroll keeps the focused column
-    /// in place on screen, then fits it (L7).
-    fileprivate func reconcileAndScroll() {
-        reconcile(animated: false)
-        syncScroll(focused: lastFocused, source: .programmatic, mode: context.model.centerFocusedColumn, animated: false)
+    /// A window resize: frames snap (or, `keepsMotion`, a running spring retargets), and the scroll keeps the
+    /// focused column in place on screen, then fits it (L7).
+    fileprivate func reconcileAndScroll(keepsMotion: Bool = false) {
+        reconcile(animated: keepsMotion)
+        syncScroll(focused: lastFocused, source: .programmatic, mode: context.model.centerFocusedColumn, animated: keepsMotion)
     }
 
     // MARK: Model updates
