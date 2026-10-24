@@ -15,7 +15,7 @@ priority class, under a per-frame budget (Chrome's UI thread: USER_BLOCKING, USE
 
 | Class | What | Budget per frame | Yields to pending input |
 |---|---|---|---|
-| input | a person's input; injected stand-ins (`debug.key`, `debug.view_key`) run on the next main run loop turn, ahead of queued requests | none | - |
+| input | a person's input; injected stand-ins (`debug.key`, `debug.view_key`) at the head of their connection run on the next main run loop turn, ahead of other connections' queued requests (never ahead of their own connection's) | none | - |
 | frame | springs, autoscroll, frame probes, terminal frame holds (`FrameClient` default) | none | no |
 | visible | daemon store batches, sidebar row patches, content presentation (`FrameBatcher` default) | 2.5 ms | yes |
 | automation | control-socket requests (CLI, MCP, agents): the work queue and the control batcher | 1 ms | yes |
@@ -25,34 +25,54 @@ Why 4 ms in total: the target is no main-thread stall over 8 ms (key to frame p9
 holds the person's input dispatch (under 2 ms a key), the scheduled tasks, and the commit of what they changed; 4 ms
 of scheduled work leaves at least 4 ms for input and commit. The split puts the person's visible updates first.
 
+The budget protects a pending input and the frame, nothing else. The per-class shares hold only while a key or a
+click is pending. With none pending, a class past its share uses the frame time the others left, up to the 4 ms in
+all (idle-time scheduling, Chrome's idle tasks); input is checked before every task, so a key that arrives stops the
+batch at the next task. A CLI storm on an idle main thread so drains at the 4 ms a frame the control queue had
+before the split, not at its 1 ms share.
+
 Progress rules, so every change still shows within one frame of being due: the first task of a class in a frame
 always runs; a class that yielded to input in one frame does not yield in the next. This is batching to the display
 cadence, not a throttle: work over budget runs on the next frame, never later.
 
 ## Pieces
 
-- `MainFrameBudget` (one per app, owned by `FrameScheduler.app`, shared by every window scheduler): `mayRun(class)`,
-  `run(class, owner:)` (nested tasks are charged as themselves), `beginFrame` at each display tick, stats for
-  `debug.main_budget`.
-- `FrameScheduler.deliver`: frame clients first, then budgeted clients in class order while their class may run; a
-  held client stays active and ticks next frame.
-- `FrameBatcher(owner:workClass:)`: drains its queued work one budgeted task at a time and keeps the rest, in order.
-- `MainActorWorkQueue`: requests are automation tasks under the shared budget; injected input has its own FIFO,
-  runs on the next run loop turn and makes every budgeted class yield while it waits (`MainTaskBoard` count).
+- `MainWorkScheduler` (one per app, built by `AppDelegate`, the composition root, and passed by init to the control
+  socket, `AppServices`, every `DaemonService` and the watchdog; no shared instance): the `MainFrameBudget` and the
+  one display link budgeted batches tick on, so the budget's window opens once per real frame (never once per tick
+  of each window's link). Budgeted clients and queues take it in their init and never fall back to another
+  scheduler.
+- `MainFrameBudget`: `mayRun(class)`, `run(class, owner:)` (nested tasks are charged as themselves; the owner is a
+  `MainTaskOwner` interned on the board when the queue or method is built, so a task start takes no lock),
+  `beginFrame` at each tick, stats for `debug.main_budget` (`idle_tasks`: tasks run on idle time past the share).
+- `FrameScheduler.deliver`: frame clients first, then (on the budgeted scheduler) budgeted clients in class order
+  while their class may run, the client that ran least recently first (round-robin, so one saturating client never
+  starves the others of its class); a held client stays active and ticks next frame.
+- `FrameBatchQueue` / `FrameBatcher`: a frame queue runs all its work every frame as plain calls (no per-item task
+  bookkeeping); a budgeted one drains one task at a time and keeps the rest, in order.
+- `MainActorWorkQueue`: requests are automation tasks under the shared budget, FIFO within a connection (injected
+  input included). An injected key at the head of its connection runs on the next run loop turn, ahead of other
+  connections, and makes every budgeted class yield while it waits (`MainTaskBoard` count); each input turn runs
+  only the input queued before it, and input counts in the per-connection limit.
 - `DaemonStore.drain`: applies a batch in slices of 32 events while the visible class may run; the rest goes back
   to the front of `EventInbox`. The inbox coalesces whole-value surface events (title, size, scroll, agent status,
   agent presence): the newest per surface replaces an older one in the buffer. Workspace, screen, pane and tab
   deltas carry consecutive revisions and are never coalesced.
-- Pending input (`SessionInputPending`): the window server's time of the last key-down or mouse-button event against
+- Pending input (`SessionInputPending`, behind the `SessionInputEvents` seam; `WindowServerInputEvents` in the app,
+  a fake in SessionInputPendingTests): the window server's time of the last key-down or mouse-button event against
   the last such event AppKit dispatched in this app (a local monitor). Mouse moves and scroll are left out (they
   stream and would starve batches); an undispatched event stops counting after two 60 Hz frames.
 - Watchdog (`MainThreadWatchdog.attach(board:)`): every stall record names the scheduled task its sample caught
-  (`task_owner`, `task_class`, `task_budget_ms`, `task_started_ms`); DEBUG and bench launches also record each task
-  that ran past its class budget, with a stack sampled when it crossed the budget (`debug.hangs` `over_budget`).
+  (`task_owner`, `task_class`, `task_budget_ms`, `task_started_ms`). Only the explicit task diagnostics mode
+  (`CMUX_NEXT_MAIN_TASK_DIAGNOSTICS=1`) also records each task that ran past its class budget, with a stack sampled
+  when it crossed the budget (`debug.hangs` `over_budget`): it wakes the watchdog per task and suspends the main
+  thread per over-budget task, so it perturbs bench numbers and is never on for a measured run.
   Signposts `stall.main_task` (every task; not mirrored to MetricKit) and `stall.over_budget`.
 
 ## Proof
 
-`scripts/cmux-next/sidebar-churn-typing.py` (terminal typing idle and while a CLI storm reorders the sidebar and
-changes statuses) and `bench_cli_storm.py`, light and STRESS, on a GUI host that passes `bench_launch.py check`.
+`scripts/cmux-next/sidebar-churn-typing.py --input real` (terminal typing with real HID-tap keys, idle and while a
+CLI storm reorders the sidebar and changes statuses; `debug.key` does not take a person's path and is never quoted
+as key latency) and `bench_cli_storm.py` (throughput before/after), light and STRESS, on a GUI host with the input
+grant that passes `bench_launch.py check`.
 Guard: churn-phase key to frame p95 < 8 ms and max main-thread stall < 8 ms. Results: perf-lead.md section 5.
