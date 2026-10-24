@@ -13,6 +13,7 @@ use cmux_local_auth::{ListenerPolicy, Refusal};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use std::collections::HashMap;
+use std::future::Future;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
@@ -20,7 +21,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 #[cfg(unix)]
 use tokio::net::UnixListener;
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{Semaphore, broadcast, mpsc};
 /// Windows: the daemon socket is `cmux::local_socket` (AF_UNIX with its
 /// same-user checks), in `windows_socket.rs`.
 #[cfg(windows)]
@@ -86,6 +87,56 @@ pub struct Conn {
     ephemeral: StdMutex<Option<Vec<String>>>,
     /// The media files it opened (`hub/media_read.rs`), closed when it closes.
     media: crate::hub::media_handles::Handles,
+}
+
+// Bound only request handlers that do finite work on behalf of the connection.
+// A prompt or wait can remain open for an entire agent turn, so counting it
+// here would make unrelated prompts fail after an arbitrary burst of work.
+const REQUEST_WORK_LIMIT: usize = 64;
+const NOTIFICATION_QUEUE_LIMIT: usize = 16;
+const NOTIFICATION_WORK_LIMIT: usize = 16;
+
+fn request_uses_work_budget(method: &str) -> bool {
+    !matches!(
+        method,
+        method::SESSION_NEW
+            | method::SESSION_LOAD
+            | method::SESSION_RESUME
+            | method::SESSION_FORK
+            | method::SESSION_PROMPT
+            | method::MUX_ATTACH
+            | method::MUX_WAIT
+    )
+}
+
+fn try_request_slot(
+    slots: &Arc<Semaphore>,
+    method: &str,
+) -> Result<Option<tokio::sync::OwnedSemaphorePermit>, ()> {
+    if !request_uses_work_budget(method) {
+        return Ok(None);
+    }
+    slots.clone().try_acquire_owned().map(Some).map_err(|_| ())
+}
+
+fn spawn_notification_worker<F, Fut>(
+    mut rx: mpsc::Receiver<(String, Value)>,
+    handler: F,
+) -> tokio::task::JoinHandle<()>
+where
+    F: Fn(String, Value) -> Fut + Clone + Send + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
+{
+    tokio::spawn(async move {
+        let mut handlers = tokio::task::JoinSet::new();
+        while let Some((method, params)) = rx.recv().await {
+            handlers.spawn(handler.clone()(method, params));
+            if handlers.len() >= NOTIFICATION_WORK_LIMIT {
+                let _ = handlers.join_next().await;
+            }
+        }
+        while handlers.join_next().await.is_some() {}
+    })
 }
 
 impl Conn {
@@ -957,6 +1008,18 @@ async fn serve_connection_from(
     tracing::debug!(conn = %conn.id, "client connected");
 
     let fan = fanout::start(hub.clone(), conn.clone());
+    let request_slots = Arc::new(Semaphore::new(REQUEST_WORK_LIMIT));
+    let (notification_tx, notification_rx) =
+        mpsc::channel::<(String, Value)>(NOTIFICATION_QUEUE_LIMIT);
+    let notification_worker = spawn_notification_worker(notification_rx, {
+        let hub = hub.clone();
+        let conn = conn.clone();
+        move |method, params| {
+            let hub = hub.clone();
+            let conn = conn.clone();
+            async move { handle_notification(&hub, &conn, &method, params).await }
+        }
+    });
 
     while let Some(line) = inbound.recv().await {
         if line.trim().is_empty() {
@@ -971,12 +1034,25 @@ async fn serve_connection_from(
         };
         match msg {
             Message::Request { id, method: m, mut params } => {
+                let slot = match try_request_slot(&request_slots, &m) {
+                    Ok(slot) => slot,
+                    Err(()) => {
+                        let error = RpcError::new(-32000, "connection request limit reached")
+                            .with_data(json!({
+                                "reason": "connection.busy",
+                                "retryable": true,
+                            }));
+                        conn.send(&Message::err(id, error));
+                        continue;
+                    }
+                };
                 // In order, before the request is spawned: a later request
                 // on this connection sees the person decided.
                 conn.bind_person(&hub, &m, &mut params);
                 let hub = hub.clone();
                 let conn = conn.clone();
                 tokio::spawn(async move {
+                    let _slot = slot;
                     let result = chats::route(&hub, &conn, &m, params.unwrap_or(Value::Null)).await;
                     conn.send(&match result {
                         Ok(v) => Message::ok(id, v),
@@ -987,11 +1063,12 @@ async fn serve_connection_from(
             // A read-only machine's notifications (a cancel) change nothing.
             Message::Notification { .. } if conn.auth == ConnAuth::ReadOnlyDevice => {}
             Message::Notification { method: m, params } => {
-                let hub = hub.clone();
-                let conn = conn.clone();
-                tokio::spawn(async move {
-                    handle_notification(&hub, &conn, &m, params.unwrap_or(Value::Null)).await;
-                });
+                // The send waits instead of dropping when the bounded queue is
+                // full. The reader has already accepted this frame, so it must
+                // be delivered before cleanup can finish.
+                if notification_tx.send((m, params.unwrap_or(Value::Null))).await.is_err() {
+                    break;
+                }
             }
             Message::Response { .. } => {
                 // acpmux sends no requests to clients today (permission goes
@@ -999,6 +1076,10 @@ async fn serve_connection_from(
             }
         }
     }
+    // Closing the queue lets its worker drain every notification that was
+    // accepted before the input channel closed, including a final cancel.
+    drop(notification_tx);
+    let _ = notification_worker.await;
     fan.abort();
     conn.media.close_all();
     view::release_all(&hub, &conn);
@@ -1209,6 +1290,58 @@ mod wait;
 #[cfg(windows)]
 mod windows_socket;
 use requests::handle_notification;
+
+#[cfg(test)]
+mod request_admission_tests {
+    use super::{REQUEST_WORK_LIMIT, request_uses_work_budget, try_request_slot};
+    use std::sync::Arc;
+    use tokio::sync::Semaphore;
+
+    #[test]
+    fn long_running_requests_do_not_consume_short_work_budget() {
+        assert!(!request_uses_work_budget(crate::rpc::method::SESSION_PROMPT));
+        assert!(!request_uses_work_budget(crate::rpc::method::MUX_WAIT));
+        assert!(!request_uses_work_budget(crate::rpc::method::SESSION_LOAD));
+        assert!(request_uses_work_budget("_acpmux/unknown"));
+
+        let slots = Semaphore::new(REQUEST_WORK_LIMIT);
+        let _holds: Vec<_> = (0..REQUEST_WORK_LIMIT)
+            .map(|_| slots.try_acquire().expect("short work slot"))
+            .collect();
+        assert!(slots.try_acquire().is_err());
+
+        // Open prompts and waits are admitted independently of the finite
+        // handler budget, so a connection can keep more than 64 turns open.
+        let slots = Arc::new(Semaphore::new(REQUEST_WORK_LIMIT));
+        for _ in 0..(REQUEST_WORK_LIMIT + 1) {
+            assert!(
+                try_request_slot(&slots, crate::rpc::method::SESSION_PROMPT).unwrap().is_none()
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn accepted_notification_is_drained_after_input_disconnects() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use tokio::sync::mpsc;
+
+        let (tx, rx) = mpsc::channel(1);
+        let handled = Arc::new(AtomicUsize::new(0));
+        let worker = super::spawn_notification_worker(rx, {
+            let handled = handled.clone();
+            move |_method, _params| {
+                let handled = handled.clone();
+                async move {
+                    handled.fetch_add(1, Ordering::SeqCst);
+                }
+            }
+        });
+        tx.send(("session/cancel".to_owned(), serde_json::json!({}))).await.unwrap();
+        drop(tx);
+        worker.await.unwrap();
+        assert_eq!(handled.load(Ordering::SeqCst), 1);
+    }
+}
 
 #[cfg(test)]
 mod nodelay_tests {
