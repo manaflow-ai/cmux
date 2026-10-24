@@ -212,9 +212,9 @@ const STARRED = "\u0000starred";
 
 /// The compact menu's rail, one tab per harness (Leo 2026-10-22: "the harnes picker exists but it's
 /// ass and it's not per-account available"): profiles that draw one brand's mark (Claude Code,
-/// claude-sr2, a folder's Claude profile) are that harness's accounts, listed under its Account
-/// row, never tabs of their own. A tab is the account the chat runs, else its first signed-in one,
-/// named as the harness's first profile ("Claude Code"). Unbranded profiles keep their own tabs.
+/// claude-sr2) are that harness's accounts, listed under its Account row, never tabs of their own.
+/// Folder profiles are machine choices and stay out of this rail. A tab is the account the chat runs,
+/// else its first signed-in one, named as the harness's first profile ("Claude Code").
 /// `profiles` are the installed profiles each tab's catalog entry folded into one (pickerProfiles.ts,
 /// by tab id): `claude` and `claude-sr` are one Claude Code there, and both its accounts here.
 function railByHarness(
@@ -368,14 +368,17 @@ export function ModelPicker(props: ModelPickerProps) {
   );
   const harnessFixed = props.harnessFixed === true && ownHarness.length > 0;
   const harnesses = harnessFixed ? ownHarness : allHarnesses;
+  // Folder profiles remain available for the current machine's models and trust/enable state, but
+  // they are not harness choices and never become tabs in the picker rail.
+  const railHarnesses = useMemo(() => harnesses.filter((entry) => !entry.folder), [harnesses]);
   // A started chat offers no other harness, so it has no Add harness… row either.
   const onAddAgent = harnessFixed ? undefined : props.onAddAgent;
   const navigableHarnesses = useMemo(
     () =>
-      harnesses
+      railHarnesses
         .map((entry, index) => ({ entry, index }))
         .filter(({ entry }) => entry.pickable && !blockedProfile(entry)),
-    [harnesses],
+    [railHarnesses],
   );
   const current = harnesses.find((entry) => entry.ids.includes(harness ?? "")) ?? harnesses[0];
   // The rail's first tab lists the starred models of every harness; each row keeps its harness.
@@ -489,7 +492,7 @@ export function ModelPicker(props: ModelPickerProps) {
     setActiveHarness(
       Math.max(
         0,
-        harnesses.findIndex((entry) => entry.ids.includes(harness ?? "")),
+        railHarnesses.findIndex((entry) => entry.ids.includes(harness ?? "")),
       ),
     );
     setQuery("");
@@ -508,7 +511,7 @@ export function ModelPicker(props: ModelPickerProps) {
     setOpen(true);
     if (open) search.current?.focus();
     else trigger.current?.focus();
-  }, [current, harness, harnesses, open, props.model]);
+  }, [current, harness, open, props.model, railHarnesses]);
   const showRef = useRef(show);
   showRef.current = show;
   const toggle = open ? (_next: boolean) => close() : setOpen;
@@ -616,7 +619,7 @@ export function ModelPicker(props: ModelPickerProps) {
     });
     // A started chat that forks lists every harness, as a New Tab does; its own stays the chat's.
     const startable = (fork ? allHarnesses : harnesses).filter(
-      (entry) => entry.pickable && !blockedProfile(entry) && entry.folder?.state !== "needs-enable",
+      (entry) => !entry.folder && entry.pickable && !blockedProfile(entry),
     );
     const list: QuickFamily[] = [];
     const starred = startable
@@ -769,7 +772,7 @@ export function ModelPicker(props: ModelPickerProps) {
       showTab(STARRED, -1);
       focusRail(-1);
     } else {
-      showTab(harnesses[next]?.id, next);
+      showTab(railHarnesses[next]?.id, next);
       focusRail(next);
     }
   };
@@ -857,7 +860,6 @@ export function ModelPicker(props: ModelPickerProps) {
           ? unavailableText
           : undefined;
   const selectedOther = selected !== undefined && !selected.ids.includes(harness ?? "");
-  const firstProfile = harnesses.findIndex((entry) => entry.folder);
   // Several harness profiles can draw one brand's mark (Claude Code, Claude Agent, a subrouter
   // route): their tooltips add the profile id, so each tab says which one it starts.
   const markCounts = new Map<string, number>();
@@ -1043,7 +1045,7 @@ export function ModelPicker(props: ModelPickerProps) {
                   selected={starredView}
                   active={starredView}
                   keyboard={(event) => {
-                    if (!harnesses.length) return;
+                    if (!railHarnesses.length) return;
                     if (event.key === "ArrowDown") {
                       event.preventDefault();
                       moveRail(-1, 1);
@@ -1059,14 +1061,7 @@ export function ModelPicker(props: ModelPickerProps) {
                 >
                   <StarGlyph filled={false} size={15} />
                 </PickerOption>
-                {harnesses.map((entry, index) => [
-                  index === firstProfile && (
-                    <hr
-                      key="folder-section"
-                      className="my-0.5 h-0 w-5 flex-none border-0 border-t-[0.5px] border-edge"
-                      aria-label={t("picker.thisFolder")}
-                    />
-                  ),
+                {railHarnesses.map((entry, index) => [
                   <PickerOption
                     type="button"
                     key={entry.folder ? `folder:${entry.id}` : entry.name}

@@ -90,7 +90,14 @@ type Sent = { method: "model" | "effort" | "route"; value: string | null };
 /// chat bound to `active`.
 async function mount(
   listed: unknown,
-  options: { fast?: boolean; refuse?: boolean; turnCount?: number; model?: string; effort?: string } = {},
+  options: {
+    fast?: boolean;
+    refuse?: boolean;
+    turnCount?: number;
+    model?: string;
+    effort?: string;
+    folderProfile?: boolean;
+  } = {},
 ) {
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
@@ -99,12 +106,24 @@ async function mount(
   const { BUNDLED_MODEL_CATALOG } = await import("../src/agent-session/acpmux/modelCatalogData");
   const { ChatAccountsContext, readChatAccounts } = await import("../src/agent-session/acpmux/chatAccounts");
   type Snapshot = import("../src/agent-session/acpmux/model").AcpmuxSnapshot;
-  const acpmux: Snapshot["catalog"] = BUNDLED_MODEL_CATALOG.harnesses.map((harness) => ({
-    id: harness.id,
-    name: harness.name,
-    family: harness.families[0],
-    models: harness.models.map((model) => ({ id: model.id, name: model.name })),
-  })) as Snapshot["catalog"];
+  const acpmux: Snapshot["catalog"] = [
+    ...BUNDLED_MODEL_CATALOG.harnesses.map((harness) => ({
+      id: harness.id,
+      name: harness.name,
+      family: harness.families[0],
+      models: harness.models.map((model) => ({ id: model.id, name: model.name })),
+    })),
+    ...(options.folderProfile
+      ? [
+          {
+            id: "machine-profile",
+            name: "Build machine",
+            folder: { folder: "/Users/me/app", state: "enabled" as const },
+            models: [{ id: "machine-model", name: "Machine model" }],
+          },
+        ]
+      : []),
+  ] as Snapshot["catalog"];
   const sent: Sent[] = [];
   const asked: string[] = [];
   const added: string[] = [];
@@ -347,6 +366,15 @@ test("without a starred model the rail starts at the harnesses", async () => {
   await mount({ routes: [] });
   await open();
   expect(railTabs()[0]?.getAttribute("aria-label")).toBe("Claude Code");
+});
+
+test("machine profiles stay out of the harness rail", async () => {
+  await mount({ routes: [] }, { folderProfile: true });
+  await open();
+  const labels = railTabs().map((tab) => tab.getAttribute("aria-label"));
+  expect(labels).toContain("Claude Code");
+  expect(labels).toContain("Codex");
+  expect(labels).not.toContain("Build machine");
 });
 
 test("More models is a submenu: the harness's other models, then Add harness…", async () => {

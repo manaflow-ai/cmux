@@ -353,8 +353,8 @@ export default componentEntry<GalleryProps>({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mp-login") !== null);
       },
     },
-    // A folder profile whose icon names no brand: the chip draws no mark (never a placeholder
-    // square), and its rail tab its initial.
+    // A folder profile is a machine choice, not a harness: it remains the selected model source,
+    // while the rail contains only Claude/Codex harnesses.
     "profile-without-mark": {
       props: {
         ...base,
@@ -374,6 +374,11 @@ export default componentEntry<GalleryProps>({
       },
       play: async (ctx) => {
         await ctx.click({ role: "button", name: "Model" });
+        await ctx.waitFor(() =>
+          [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-mp-harness")].every(
+            (tab) => tab.getAttribute("title")?.split(" · ")[0] !== "Vercel AI Gateway",
+          ),
+        );
       },
     },
   },
