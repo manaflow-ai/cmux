@@ -162,7 +162,8 @@ pub(crate) unsafe fn take_agent_caller_env() {
 /// daemon-local PTY and Chief brain it starts keeps the raised limit. Removed
 /// so no shell, hook or plugin inherits the variable; the holder and the
 /// terminal hosts get it from `original_open_file_limit` at spawn. A value
-/// that is not a number is dropped as well.
+/// that cannot be a launch limit ([`launch_limit`]) is dropped with one
+/// stderr line, so it never changes what the children get.
 ///
 /// # Safety
 ///
@@ -170,10 +171,42 @@ pub(crate) unsafe fn take_agent_caller_env() {
 #[cfg(unix)]
 pub(crate) unsafe fn take_launch_open_file_limit() {
     let name = cmux_tui_core::LAUNCH_SOFT_LIMIT_ENV;
-    let launch = std::env::var(name).ok().and_then(|value| value.trim().parse::<u64>().ok());
+    let Some(value) = std::env::var_os(name) else {
+        return;
+    };
     // SAFETY: forwarded from this function's own contract (see # Safety).
     unsafe { std::env::remove_var(name) };
-    if let Some(soft) = launch {
-        cmux_tui_core::record_original_open_file_limit(soft);
+    let value = value.to_string_lossy();
+    match launch_limit(&value, current_soft_open_file_limit()) {
+        Ok(soft) => cmux_tui_core::record_original_open_file_limit(soft),
+        Err(reason) => eprintln!("cmux-tui: ignored {name}={value:?}: {reason}"),
     }
+}
+
+/// The launch limit `value` names, when it can be one: a number from 1 to
+/// `current`, this process's soft limit at start. A launch limit restores
+/// what the parent raised, so it is never above the limit this process
+/// started with; 0 would leave every child unable to open its own binary.
+#[cfg(unix)]
+fn launch_limit(value: &str, current: std::io::Result<u64>) -> Result<u64, String> {
+    let soft = value.trim().parse::<u64>().map_err(|_| "not a number".to_owned())?;
+    if soft == 0 {
+        return Err("a soft limit of 0".to_owned());
+    }
+    let current = current.map_err(|error| format!("getrlimit: {error}"))?;
+    if soft > current {
+        return Err(format!("above this process's soft limit {current}"));
+    }
+    Ok(soft)
+}
+
+/// This process's soft `RLIMIT_NOFILE`.
+#[cfg(unix)]
+fn current_soft_open_file_limit() -> std::io::Result<u64> {
+    let mut limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+    // SAFETY: `limit` is valid writable storage for one rlimit.
+    if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &raw mut limit) } != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(limit.rlim_cur)
 }
