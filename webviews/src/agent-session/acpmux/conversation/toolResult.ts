@@ -402,7 +402,7 @@ const imagesCache = new Map<string, string[]>();
 /// true)` leaves out of its text (which `clean` never changes). Kept for the last few outputs, so a
 /// transcript re-render parses nothing again.
 export function envelopeImages(output: string | undefined): string[] {
-  if (!output || !output.includes("image")) return [];
+  if (!output) return [];
   const known = imagesCache.get(output);
   if (known) return known;
   const images = read(output, identity, true).images;
