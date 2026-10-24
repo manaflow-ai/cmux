@@ -24,6 +24,7 @@
     "CmuxNextMobile": {"layer": "service"},
     "CmuxNextMobileHost": {"layer": "service", "plan": "drop Design, Pages, AgentPane, RemoteBrowser"},
     "CmuxNextBrowserImport": {"layer": "service"},
+    "CmuxNextBrowserTabs": {"layer": "ui", "mixes": ["domain"], "plan": "domain once CEFUnavailableReason and BrowserProtectedMedia move to BrowserCore (C1): then depend on BrowserCore, not Browser"},
     "CmuxNextDictation": {"layer": "service"},
     "CmuxNextErrorJournal": {"layer": "service"},
     "CmuxNextCrashReporting": {"layer": "service"},
