@@ -227,6 +227,7 @@ final class MarkdownLiveShareServer {
 
 /// The main-queue proof of ``MarkdownLiveShareServer``'s Network callbacks: it starts the listener and
 /// every connection on the main queue itself, so each handler it installs runs on the main actor.
+// app-type-allow: this server's private main-queue seam; MainQueueConnection's fileprivate init keeps the proof in this file
 private struct MainQueueNetworkEvents {
     /// Installs the listener's state and new-connection handlers, then starts it on the main queue.
     func start(_ listener: NWListener, state: @escaping @MainActor (NWListener.State) -> Void, connection: @escaping @MainActor (NWConnection) -> Void) {
@@ -251,8 +252,8 @@ private struct MainQueueNetworkEvents {
     /// bytes, whether the peer finished, and the error.
     func receive(_ started: MainQueueConnection, maximumLength: Int, _ handler: @escaping @MainActor (Data?, Bool, NWError?) -> Void) {
         started.connection.receive(minimumIncompleteLength: 1, maximumLength: maximumLength) { data, _, done, error in
-            // main-proof: only start(_:state:) makes a MainQueueConnection, after connection.start(queue: .main),
-            // so Network calls this on the main queue.
+            // Only start(_:state:) makes a MainQueueConnection, and it calls connection.start(queue: .main) first.
+            // main-proof: so Network calls this handler on the main queue.
             MainActor.assumeIsolated { handler(data, done, error) }
         }
     }

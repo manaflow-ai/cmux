@@ -28,7 +28,8 @@ struct EmptyWorkspaceRepairReleaseTests {
         } else {
             handoff.repair = nil
         }
-        #expect(tasks.allSatisfy(\.isCancelled), "releasing the repair left an observation running")
+        let allCancelled = tasks.allSatisfy { $0.isCancelled }
+        #expect(allCancelled, "releasing the repair left an observation running")
     }
 
     /// Drops the handoff's repair, its last reference, on a new thread and resumes once it is gone.
