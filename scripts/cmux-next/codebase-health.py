@@ -3,7 +3,8 @@
 
 Counts code (comments stripped) in Packages/macOS/CmuxNext/Sources: singletons, MainActor.assumeIsolated,
 @unchecked Sendable, nonisolated(unsafe), raw locks, sleeps, main-queue hops, NotificationCenter
-broadcast names and their observers, NSHostingView, #if DEBUG, plus target sizes, the Package.swift
+broadcast names and their observers (a `MainActorObservation(` wrapper site is an observer too),
+NSHostingView, #if DEBUG, plus target sizes, the Package.swift
 target graph checked against the 5-layer rule (CLAUDE.md "Refactor architecture"), docs sprawl with
 stale references, and script and workflow counts. Reads the working tree's tracked files only.
 
@@ -15,18 +16,26 @@ from __future__ import annotations
 import argparse
 import collections
 import datetime
+import importlib.util
 import json
+import os
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
+from typing import NamedTuple
 
 PKG = "Packages/macOS/CmuxNext"
 SOURCES = PKG + "/Sources/"
 APP = "CmuxNextApp"
 OUT = "plans/cmux-next/codebase-health.md"
+UPSTREAM = "origin/feat-cmux-next"
+# What the report reads besides the app sources: every Swift file (section 6), the plans, the scripts, the workflows.
+MEASURED = ("*.swift", "plans/cmux-next/", "scripts/cmux-next/", ".github/workflows/", f":(exclude){OUT}")
 BENCHES = "scripts/cmux-next/perf-hot-benches.json"
 PERF_HOT_ID = re.compile(r"//\s*perf-hot:\s*\S+\s+([\w-]+)")
+
 
 # (id, title, pattern on comment-stripped code, waiver marker or None, note)
 CATEGORIES = (
@@ -46,8 +55,9 @@ CATEGORIES = (
     ("clock_sleep", "clock sleeps `.sleep(for:/until:)`", r"\.sleep\((for|until):", r"wakeup-allow:", "as above"),
     ("main_async", "`DispatchQueue.main.async`", r"\bDispatchQueue\.main\.async\b", None, "use @MainActor and await"),
     ("async_after", "`asyncAfter`", r"\basyncAfter\(", None, "banned (check-concurrency.sh); an injected Clock"),
-    ("observers", "NotificationCenter observers", r"\.addObserver\(|\.notifications\(named:|\.publisher\(for:", None,
-     "each one wakes on every post of its name"),
+    ("observers", "NotificationCenter observers (`MainActorObservation(` wrapper sites included)",
+     r"\.addObserver\(|\.notifications\(named:|\.publisher\(for:|\bMainActorObservation\(", None,
+     "each one wakes on every post of its name; the wrapper is still an observer"),
     ("notification_names", "custom `Notification.Name` declarations", r"\b(NS)?Notification\.Name\(\s*\"", None,
      "a broadcast signal: every observer reacts, O(all)"),
     ("hosting_view", "`NSHostingView` / `NSHostingController`", r"\bNSHosting(View|Controller)\b", None,
@@ -143,8 +153,32 @@ def scan(repo: Path) -> dict:
 
 
 VIEW_CLASS = re.compile(r"\bclass\s+\w+\s*:\s*[^{]*\bNS\w*(View|Window|Panel)\b")
-OBSERVE = re.compile(r"addObserver|notifications\(named|publisher\(for")
+OBSERVE = re.compile(r"addObserver|notifications\(named|publisher\(for|\bMainActorObservation\(")
 OBSERVED_NAME = re.compile(r"(?:forName|named|for):\s*([\w.]+)")
+# CmuxNextCompat's main-actor NotificationCenter observer: the name is its first, unlabeled argument, and it
+# observes every sender unless the call passes `object:`.
+WRAPPED = re.compile(r"\bMainActorObservation\(\s*([\w.]+)")
+
+
+def observed_name(lines: list[str]) -> str:
+    """The notification name the registration on LINES[0] observes (its arguments may continue on the next
+    lines); "?" when unreadable."""
+    pattern = WRAPPED if "MainActorObservation(" in lines[0] else OBSERVED_NAME
+    m = pattern.search(" ".join(lines))
+    return m.group(1).split(".")[-1] if m else "?"
+
+
+def observes_every_sender(code: list[str], index: int) -> bool:
+    """Whether the registration that names a notification on CODE[INDEX] observes every sender: `object: nil`
+    near it, or a wrapper call (on that line or up to two above) without `object:` before its handler."""
+    if re.search(r"object:\s*nil", " ".join(code[max(0, index - 2):index + 3])):
+        return True
+    start = next((i for i in range(index, max(-1, index - 3), -1) if "MainActorObservation(" in code[i]), None)
+    if start is None:
+        return False
+    call = " ".join(code[start:index + 3])
+    call = call[call.index("MainActorObservation("):].split("{", 1)[0]
+    return "object:" not in call
 
 
 def notification_report(texts: dict[str, list[str]]) -> tuple[list, list]:
@@ -169,8 +203,7 @@ def notification_report(texts: dict[str, list[str]]) -> tuple[list, list]:
         for index, line in enumerate(code):
             window = " ".join(code[max(0, index - 2):index + 3])
             if OBSERVE.search(line):
-                m = OBSERVED_NAME.search(" ".join(code[index:index + 3]))
-                key = m.group(1).split(".")[-1] if m else "?"
+                key = observed_name(code[index:index + 3])
                 entry = observed.setdefault(key, [0, []])
                 entry[0] += 1
                 if is_view[path] and path not in entry[1]:
@@ -181,7 +214,7 @@ def notification_report(texts: dict[str, list[str]]) -> tuple[list, list]:
                 row = stats[m.group(1)]
                 if OBSERVE.search(window) and "post(" not in line:
                     row[0] += 1
-                    if re.search(r"object:\s*nil", window):
+                    if observes_every_sender(code, index):
                         row[1] += 1
                     if is_view[path] and path not in row[3]:
                         row[3].append(path)
@@ -327,24 +360,159 @@ def file_list(counter: collections.Counter, limit: int | None = None) -> str:
     return text
 
 
-def perf_hot_coverage(repo: Path, texts: dict[str, list[str]]) -> list[tuple[str, str, list[str]]]:
-    """(path id, owner, files with its `// perf-hot:` marker) per id in perf-hot-benches.json, in its order."""
-    try:
-        paths = json.loads((repo / BENCHES).read_text(encoding="utf-8")).get("paths", {})
-    except (OSError, ValueError):
-        paths = {}
-    marked: dict[str, set[str]] = collections.defaultdict(set)
-    for path, lines in texts.items():
-        for line in lines:
-            match = PERF_HOT_ID.search(line)
-            if match:
-                marked[match.group(1)].add(path[len(SOURCES):])
-    return [(pid, entry.get("owner", "?"), sorted(marked.get(pid, ()))) for pid, entry in paths.items()]
+class Marker(NamedTuple):
+    """One `// perf-hot: <budget> <path-id>` marker: the file, its 1-based line and its path id."""
+    path: str
+    line: int
+    pid: str
+
+
+def perf_hot_markers(repo: Path) -> list[Marker]:
+    """Every `// perf-hot:` marker with a path id in the working tree's tracked Swift.
+
+    Reads every tracked Swift file in the repository (markers live in shared packages too, e.g.
+    Packages/Shared/CmuxMessagesLab), not only the app sources the debt counts cover.
+    """
+    # git grep exits 1 when nothing matches: no marker anywhere is a result, not an error.
+    found = subprocess.run(["git", "-C", str(repo), "grep", "-I", "-z", "-n", "-F", "perf-hot:", "--", "*.swift"],
+                           capture_output=True, text=True)
+    if found.returncode not in (0, 1):
+        raise SystemExit(f"codebase-health: git grep failed: {found.stderr.strip()}")
+    markers = []
+    for record in found.stdout.splitlines():
+        path, _, rest = record.partition("\0")
+        number, _, line = rest.partition("\0")
+        match = PERF_HOT_ID.search(line)
+        if match:
+            markers.append(Marker(path, int(number), match.group(1)))
+    return markers
+
+
+def load_guardrails():
+    """The pre-push hook's own module (guardrails.py next to this file): section 6 asks it, never a copy of it."""
+    spec = importlib.util.spec_from_file_location("cmux_next_guardrails_for_health",
+                                                  Path(__file__).resolve().parent / "guardrails.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module  # its dataclasses resolve their module by name
+    spec.loader.exec_module(module)
+    return module
+
+
+# guardrails.perf_hot_warnings' line for an edited marked declaration: `<path>:<line>: changes perf-hot ... (budget
+# <budget>, <path-id>...`.
+HOOK_WARNING = re.compile(r"^(?P<path>[^:]+):(?P<line>\d+): changes perf-hot .*\(budget [^,]+, (?P<pid>[\w-]+)")
+
+
+def git_env(repo: Path, env: dict[str, str], *args: str, stdin: str | None = None) -> str:
+    return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True, input=stdin,
+                          env={**os.environ, **env}).stdout
+
+
+def hook_warnings_for_edits(repo: Path, guardrails, texts: dict[str, str]) -> list[tuple[str, int, str]]:
+    """(path, declaration line, path id) per perf-hot warning `guardrails.check` gives a push over HEAD that edits
+    every line of each file in TEXTS (path: its working-tree text).
+
+    The hook itself decides, with its own diff scope and declaration parser. The edited tree goes to a throwaway
+    object directory that borrows the repository's objects, so the report writes nothing into the repository.
+    """
+    objects = git(repo, "rev-parse", "--path-format=absolute", "--git-path", "objects").strip()
+    paths = sorted(texts)
+    with tempfile.TemporaryDirectory(prefix="codebase-health-") as tmp:
+        os.mkdir(os.path.join(tmp, "objects"))
+        env = {"GIT_OBJECT_DIRECTORY": os.path.join(tmp, "objects"), "GIT_ALTERNATE_OBJECT_DIRECTORIES": objects}
+        indexed = {**env, "GIT_INDEX_FILE": os.path.join(tmp, "index")}
+        git_env(repo, indexed, "read-tree", "HEAD")
+        modes = {}
+        for entry in git_env(repo, indexed, "ls-files", "-s", "-z", "--", *paths).split("\0"):
+            if entry:
+                meta, _, path = entry.partition("\t")
+                modes[path] = meta.split()[0]
+        edited = []
+        for number, path in enumerate(paths):
+            copy = os.path.join(tmp, f"{number}.swift")
+            # A trailing space on every line: the same code, every line touched.
+            Path(copy).write_text("\n".join(line + " " for line in texts[path].split("\n")), encoding="utf-8")
+            edited.append(copy)
+        oids = git_env(repo, env, "hash-object", "-w", "--no-filters", "--stdin-paths", stdin="\n".join(edited) + "\n").split()
+        git_env(repo, indexed, "update-index", "--add", "--index-info",
+                stdin="".join(f"{modes.get(path, '100644')} {oid}\t{path}\n" for path, oid in zip(paths, oids)))
+        tree = git_env(repo, indexed, "write-tree").strip()
+        saved = {key: os.environ.get(key) for key in env}
+        os.environ.update(env)  # guardrails' git processes read the edited tree from the throwaway objects
+        try:
+            _, warnings = guardrails.check(repo, "HEAD", tree)
+        finally:
+            for key, value in saved.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+    found = []
+    for kind, text in warnings:
+        if kind == "guardrails" and (text.startswith("perf-hot ") or "could not read this push's diff" in text):
+            raise SystemExit(f"codebase-health: guardrails could not judge the perf-hot markers: {text}")
+        if kind != "perf-hot":
+            continue
+        match = HOOK_WARNING.match(text)
+        if not match:  # never guess: a reworded warning must not read as "no marker warns"
+            raise SystemExit(f"codebase-health: cannot read guardrails' perf-hot warning (reworded?): {text}")
+        found.append((match.group("path"), int(match.group("line")), match.group("pid")))
+    return found
+
+
+def hook_view(repo: Path, markers: list[Marker]) -> dict[Marker, str]:
+    """Per marker, what the pre-push hook does when a push edits its function: "warns"; "outside" (the hook's
+    parser finds the declaration, but the hook never diffs the file); or "unparsed" (the hook's parser finds no
+    declaration for the marker, e.g. a trailing marker on the last line of a multi-line signature)."""
+    if not markers:
+        return {}
+    guardrails = load_guardrails()
+    in_file: dict[str, list[Marker]] = collections.defaultdict(list)
+    for marker in markers:
+        in_file[marker.path].append(marker)
+    texts = {path: (repo / path).read_text(encoding="utf-8", errors="replace") for path in in_file}
+
+    def owner(path: str, first: int, pid: str) -> Marker | None:
+        # A declaration's marker is the nearest one of its id at or above it (on its line, or in the comment above).
+        return max((m for m in in_file[path] if m.pid == pid and m.line <= first), key=lambda m: m.line, default=None)
+
+    parsed = {owner(path, span[0], span[4]) for path, text in texts.items()
+              for span in guardrails.function_spans(text.split("\n"))}
+    warned = {owner(path, line, pid) for path, line, pid in hook_warnings_for_edits(repo, guardrails, texts)}
+    return {m: "warns" if m in warned else "outside" if m in parsed else "unparsed" for m in markers}
+
+
+NO_WARNING = {
+    "outside": "outside the pre-push hook's diff scope: no warning",
+    "unparsed": "not on a declaration line the hook parses (a multi-line signature's last line?): no warning",
+}
+
+
+def marker_text(marker: Marker, state: str) -> str:
+    """MARKER as section 6 prints it: path (short under the app sources) and line, flagged when it never warns."""
+    shown = marker.path[len(SOURCES):] if marker.path.startswith(SOURCES) else marker.path
+    flag = NO_WARNING.get(state)
+    return f"{shown}:{marker.line}" + (f" ({flag})" if flag else "")
+
+
+def measured_at(repo: Path) -> str:
+    """Where the numbers come from, by a sha that survives a rebase: the merge base with origin/feat-cmux-next,
+    plus the measured files the working tree changes over it (the local commits and edits a rebase rewrites)."""
+    head = git(repo, "rev-parse", "--short=11", "HEAD").strip()
+    found = subprocess.run(["git", "-C", str(repo), "merge-base", "HEAD", UPSTREAM], capture_output=True, text=True)
+    if found.returncode != 0:
+        return f"at `{head}` (this repository has no `{UPSTREAM}`)"
+    base = found.stdout.strip()
+    changed = [p for p in git(repo, "diff", "--name-only", "--no-renames", base, "--", *MEASURED).split("\n") if p]
+    short = git(repo, "rev-parse", "--short=11", base).strip()
+    if not changed:
+        return f"at feat-cmux-next `{short}`"
+    listed = ", ".join(f"`{p}`" for p in changed[:4]) + (f" and {len(changed) - 4} more" if len(changed) > 4 else "")
+    return f"at feat-cmux-next `{short}` plus this tree's changes to {listed}"
 
 
 def report(repo: Path) -> str:
     data = scan(repo)
-    head = git(repo, "rev-parse", "--short=11", "HEAD").strip()
     total_lines = sum(data["lines"].values())
     pkg_lines = 0
     for path in tracked(repo, PKG + "/"):
@@ -371,9 +539,10 @@ def report(repo: Path) -> str:
     w = out.append
     w("# cmux-next codebase health (measured)")
     w("")
-    w(f"Measured {datetime.date.today().isoformat()} at feat-cmux-next `{head}` by "
+    w(f"Measured {datetime.date.today().isoformat()} {measured_at(repo)} by "
       "`scripts/cmux-next/codebase-health.py --write` (rerun it to refresh; do not edit numbers by hand).")
-    w("Scope: tracked Swift in `Packages/macOS/CmuxNext/Sources`, comments stripped. The pre-push guardrails")
+    w("Scope: tracked Swift in `Packages/macOS/CmuxNext/Sources`, comments stripped (section 6's perf-hot markers:")
+    w("every tracked Swift file). The pre-push guardrails")
     w("(`scripts/cmux-next/guardrails.py`, run by `prepush-gate.py`) refuse NEW instances of the ratcheted rows;")
     w("the debt below never blocks a push. Owners: [OWNERS.md](OWNERS.md). Guardrail rules: section 6.")
     w("")
@@ -503,11 +672,34 @@ def report(repo: Path) -> str:
     w("It also warns (never refuses) when a push changes a `// perf-hot:` function (names the bench,")
     w("`scripts/cmux-next/perf-hot-benches.json`) or an area in [OWNERS.md](OWNERS.md).")
     w("")
-    w("Perf-hot markers per path id. An id with no marker never warns: its owner marks the hot function")
-    w("(a trailing `// perf-hot: <budget> <path-id>` on the declaration line adds no line).")
+    try:
+        known = json.loads((repo / BENCHES).read_text(encoding="utf-8")).get("paths", {})
+    except (OSError, ValueError):
+        known = {}
+    markers = perf_hot_markers(repo)
+    states = hook_view(repo, markers)
+    per_id: dict[str, list[Marker]] = collections.defaultdict(list)
+    for marker in markers:
+        per_id[marker.pid].append(marker)
+    marked = [pid for pid in known if per_id.get(pid)]
+    warning = [pid for pid in known if any(states[m] == "warns" for m in per_id.get(pid, ()))]
+    silent = [m for m in markers if states[m] != "warns"]
+    w("Perf-hot markers per path id, from every tracked Swift file. An id with no marker never warns: its owner")
+    w("marks the hot function (a trailing `// perf-hot: <budget> <path-id>` on the line that has `func`, `init` or")
+    w("`var` adds no line; or a comment line right above the declaration). Whether a marker warns is what")
+    w("`guardrails.check` itself reports for a push that edits every line of the marked files (its own diff scope and")
+    w("declaration parser, not a copy), so a marker outside the hook's diff scope, or on a line the hook does not")
+    w("read as a declaration, is flagged: an edit of that function warns nobody.")
     w("")
-    for pid, owner, files in perf_hot_coverage(repo, data["texts"]):
-        w(f"- `{pid}`: " + (", ".join(files) if files else f"**no marker** (owner {owner})"))
+    w(f"Marked: {len(marked)} of {len(known)} path ids ({len(markers)} markers); {len(warning)} of {len(known)} "
+      f"warn at push; {len(silent)} of {len(markers)} markers never warn.")
+    w("")
+    for pid, entry in known.items():
+        listed = ", ".join(marker_text(m, states[m]) for m in per_id.get(pid, ()))
+        w(f"- `{pid}`: " + (listed or f"**no marker** (owner {entry.get('owner', '?')})"))
+    for pid in sorted(set(per_id) - set(known)):
+        listed = ", ".join(marker_text(m, states[m]) for m in per_id[pid])
+        w(f"- `{pid}`: {listed} (**unknown id**: not in `{BENCHES}`)")
     w("")
     return "\n".join(out) + "\n"
 
