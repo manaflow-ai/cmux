@@ -10,6 +10,7 @@ extension WindowController {
     @discardableResult
     func showTopPage(_ route: TopPageRoute) -> Bool {
         guard let view = topPages.view(for: route, in: self) else { return false }
+        defer { didShowContent() }
         if root.content === view { return true }
         parkContentForPage()
         root.show(view)

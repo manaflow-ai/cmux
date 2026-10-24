@@ -3,7 +3,7 @@ import CmuxNextCompat
 /// When the launch drops the panes' last frames no pane took (the app's `LaunchFiles.release`, each
 /// ``SavedFrameDirectory/release()``), at one launch
 /// end that always comes: once each of this Mac's restored windows that has a workspace to show
-/// installed its first content (then every pane they show presented its selection,
+/// showed its first content, a workspace, a top page or a creation view (then every pane they show presented its selection,
 /// `ContentPresentationScheduler.whenIdle`, which `release` waits for), or when the local daemon is
 /// unavailable, before or after the restore. A window with nothing to show (the launch window whose
 /// workspace the daemon failed to create keeps the startup state) never holds them, and one that
@@ -15,7 +15,7 @@ import CmuxNextCompat
 ///     presentation.whenIdle { launchFiles.release() }
 /// }
 /// release.restoreEnded(windows)   // the restore's windows
-/// release.windowDone(id)          // a window installed its first content, or closed
+/// release.windowDone(id)          // a window showed its first content, or closed
 /// ```
 @MainActor
 public final class LaunchFrameRelease {
@@ -23,11 +23,12 @@ public final class LaunchFrameRelease {
     public struct Window: Equatable, Sendable {
         /// The window's id.
         public let id: String
-        /// It installed workspace content already.
+        /// It shows its first content already: a workspace, a top page or a creation view (not
+        /// a connecting state).
         public let showsContent: Bool
         /// It shows this Mac's workspaces (another machine's may never answer).
         public let isLocal: Bool
-        /// One of its workspaces is mirrored, so it will install content.
+        /// One of its workspaces is mirrored, so it will show content.
         public let hasWorkspaceToShow: Bool
 
         /// A window as the restore left it.
@@ -67,7 +68,8 @@ public final class LaunchFrameRelease {
         releaseWhenShown()
     }
 
-    /// Window `id` installed its first content, or closed.
+    /// Window `id` showed its first content of any kind (a workspace, a top page, a creation view),
+    /// or closed.
     public func windowDone(_ id: String) {
         if awaiting?.remove(id) != nil { releaseWhenShown() }
     }
