@@ -77,8 +77,10 @@ public final class DaemonStore: StateResourceQueries {
     /// The last ``AppliedWaiter/id`` handed out (a cancelled wait removes its own).
     @ObservationIgnored var appliedWaiterSerial: UInt64 = 0
     /// The connection ended (a disconnect applied, it was marked failed, or
-    /// its run finished): every waiter runs at the next flush.
-    @ObservationIgnored var drainAppliedWaiters = false
+    /// its run finished): at the next flush every waiter runs except one for a
+    /// sequence past this bound (the next link's, after a drop the stream
+    /// reported at its link's last sequence). Nil while no end is pending.
+    @ObservationIgnored var appliedWaitsEndThrough: UInt64?
     struct AppliedWaiter {
         var id: UInt64
         /// The echo it waits for; nil for a wait on `sequence` alone.
