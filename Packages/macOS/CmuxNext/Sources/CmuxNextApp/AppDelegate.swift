@@ -336,6 +336,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 DebugNowPlaying.register(on: control.service?.router, services: services)
                 DebugDownloads.register(on: control.service?.router, services: services)
                 DebugCEFDevToolsLayout.register(on: control.service?.router, services: services)
+                #if DEBUG
+                // The Chromium host app prototype (browserHost.helperPrototype; cef-helper-app-DESIGN.md).
+                let chromiumHost = ChromiumHostPrototype { ChromiumHostPrototype.bundledConfiguration() }
+                control.service?.router.register([
+                    .mainActor("debug.chromium_host") { [weak services] call in
+                        let controller = services?.windows.controllers.first
+                        let pane = (call.params["pane"]?.stringValue ?? controller?.focus.state.pane).flatMap { controller?.content?.paneController(key: $0) }
+                        let fields = chromiumHost.handle(op: call.params["op"]?.stringValue, url: call.params["url"]?.stringValue,
+                                                         over: pane?.view.contentHost, focus: call.params["focus"]?.boolValue != false)
+                        return .value(JSONValue(foundation: fields) ?? .null)
+                    },
+                    .async("debug.chromium_host.measure") { call in
+                        guard let fields = await chromiumHost.measure(op: call.params["op"]?.stringValue, count: call.params["count"]?.intValue)
+                        else { return ["error": "no running Chromium host"] }
+                        return .object(fields.mapValues(JSONValue.number))
+                    }.withDeadline(.fixed(.seconds(60))),
+                ])
+                #endif
                 DebugBrowserExternal.register(on: control.service?.router, services: services)
                 DebugCloudMove.register(on: control.service?.router, services: services)
                 DebugTerminalLinks.register(on: control.service?.router, services: services)
