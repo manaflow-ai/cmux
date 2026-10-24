@@ -71,6 +71,9 @@ pub const CAPABILITIES: &[Capability] = &[
             method::MUX_SECRET_SUBMIT,
         ],
     },
+    // Metadata-only paths for a focused chat's config and state files. The
+    // daemon serves this surface on its local Unix socket only.
+    Capability { id: "session-files-v1", wire: &[method::MUX_SESSION_FILES] },
     // Edit or remove a queued prompt, and send a steer now (`hub/queue_edit.rs`).
     Capability { id: "queue-edit-v1", wire: &[method::MUX_QUEUE_EDIT, method::MUX_QUEUE_REMOVE] },
     // One answer for a group of permission asks, and revoking a chat's grants.
