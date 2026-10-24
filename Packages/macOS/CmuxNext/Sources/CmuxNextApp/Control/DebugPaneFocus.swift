@@ -47,7 +47,8 @@ enum DebugPaneFocus {
     static func began(_ coordinator: FocusCoordinator) {
         if signposter.isEnabled, interval == nil { interval = signposter.beginInterval("move") }
         guard timer.isRecording, !timer.isWaiting(ObjectIdentifier(coordinator)) else { return }
-        let event = (NSApp as? CmuxApplication)?.isHandlingSendEvent() == true ? NSApp.currentEvent : nil
+        // The event being dispatched now (InputDispatchContext), never NSApp.currentEvent (the last one dequeued).
+        let event = (NSApp as? CmuxApplication)?.inputDispatch?.event
         timer.began(ObjectIdentifier(coordinator), inputTimestamp: event?.timestamp)
     }
 
