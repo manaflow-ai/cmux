@@ -117,7 +117,7 @@ export function appendAttachments(
 export type PendingAttachment = { id: string; name: string; image: boolean; scope?: string; failed?: string };
 
 /// What Retry needs of a pending chip: its file and how it came in.
-type PendingSource = { file: File; uploads: boolean };
+type PendingSource = { file: File; uploads: boolean; kind?: DroppedKind };
 
 /// The prompt's staged attachments: what a paste on the composer's field or a file drop anywhere on
 /// the page adds (the document-level drop contract, attachments.ts), with the note a refusal leaves.
@@ -170,7 +170,9 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       image: isImageFile(file),
       scope: batch.scope,
     }));
-    shown.forEach((chip, index) => sources.current.set(chip.id, { file: files[index]!, uploads }));
+    shown.forEach((chip, index) =>
+      sources.current.set(chip.id, { file: files[index]!, uploads, ...(kind ? { kind } : {}) }),
+    );
     batches.current.add(batch);
     setPending((chips) => [...chips, ...shown]);
     const paths = current.localPaths;
@@ -193,7 +195,14 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         if (batch.scope !== undefined) now.elsewhere?.(batch.scope, [attachment]);
         return;
       }
-      setAttachments((staged) => appendAttachments(staged, [attachment]));
+      // In the batch's own order, whichever file was ready first: before the first chip of a later
+      // file of the batch already staged.
+      setAttachments((staged) => {
+        const later = new Set(made.slice(index + 1).filter(Boolean));
+        const at = staged.findIndex((chip) => later.has(chip.id));
+        if (at < 0 || staged.some((chip) => chip.id === attachment.id)) return appendAttachments(staged, [attachment]);
+        return [...staged.slice(0, at), attachment, ...staged.slice(at)];
+      });
     };
     const failed = (index: number, error: IntakeError) => {
       const id = shown[index]!.id;
@@ -209,6 +218,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
           allowImages: current.allowImages,
           ...(kind && paths ? { localPaths: (batch: File[]) => paths(kind, batch) } : {}),
           ...(uploads && current.upload ? { upload: current.upload } : {}),
+          cancelled: (index) => !sources.current.has(shown[index]!.id) && !made[index],
         },
         {
           ready,
@@ -239,7 +249,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     const source = sources.current.get(id);
     if (!source) return;
     cancel(id);
-    void attach([source.file], source.uploads);
+    void attach([source.file], source.uploads, source.kind);
   });
   useEffect(() => {
     const paste = (event: ClipboardEvent) => {

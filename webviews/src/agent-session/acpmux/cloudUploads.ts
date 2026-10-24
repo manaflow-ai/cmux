@@ -19,10 +19,18 @@ export const UPLOAD_TIMED_OUT = "The upload timed out: the app did not answer.";
 export function callWithin(call: Call, ms = UPLOAD_STEP_DEADLINE_MS): Call {
   return (method, params) =>
     new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error(UPLOAD_TIMED_OUT)), ms);
+      let late = false;
+      const timer = setTimeout(() => {
+        late = true;
+        reject(new Error(UPLOAD_TIMED_OUT));
+      }, ms);
       call(method, params).then(
         (value) => {
           clearTimeout(timer);
+          // An upload the host started after the page gave up on it: the host drops its stage.
+          const token = (value as { token?: unknown } | null)?.token;
+          if (late && method === "chat.upload.begin" && typeof token === "string")
+            void call("chat.upload.cancel", { token }).catch(() => undefined);
           resolve(value);
         },
         (error: unknown) => {
