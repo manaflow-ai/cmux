@@ -111,11 +111,6 @@ pub(crate) fn note_state_lock(acquired: bool) {
     });
 }
 
-/// True while the current thread holds the mux state lock.
-pub(crate) fn current_thread_holds_state() -> bool {
-    STATE_HOLDS.with(Cell::get) > 0
-}
-
 /// Marks the current thread as the journal writer until dropped. It also
 /// holds lock rank `JournalWriter`, so in debug and test builds a registry
 /// lock on this thread panics in the lock-rank checker on every path.
@@ -219,13 +214,6 @@ impl RegistryConnection {
 
     pub(crate) fn write_path_stats(&self) -> &crate::diagnostics::WritePathStats {
         &self.write_path_stats
-    }
-
-    /// True while this thread holds the connection lock (a pin or a guard).
-    /// A thread that holds it must not wait for a journal writer receipt:
-    /// the writer needs this lock to commit.
-    pub(crate) fn is_held_by_current_thread(&self) -> bool {
-        self.connection.is_owned_by_current_thread()
     }
 
     /// Request-side lock order checks: never on the journal writer thread
