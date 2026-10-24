@@ -532,15 +532,13 @@ export default agentPaneEntry({
       note: "Full access keeps its name in the bar: a mode that is not the default always says what it is.",
       snapshot: footerChat("full-access"),
     },
-    // Leo 2026-10-21: "why is there no harness at the left" (ComposerHarness.tsx). The quiet row
-    // starts with the harness, its mark and name, before the mode, as Claude Code's footer starts
-    // with its project. test/composer-footer-harness.test.ts measures these.
+    // Leo 2026-10-24: the harness belongs in the model picker's rail, not in the quiet footer row.
     "footer-harness": {
-      note: "A started Claude chat: the quiet row starts with Claude Code's mark and name, then the mode. The harness is fixed once a chat has a message, so the item is quiet text with no pill on hover.",
+      note: "A started Claude chat: the quiet row contains only mode and model controls; the harness is chosen from the model picker rail.",
       snapshot: footerChat("full-access"),
     },
     "footer-harness-codex": {
-      note: "A started Codex chat: the quiet row starts with Codex's mark and name.",
+      note: "A started Codex chat: the quiet row contains no bottom-left harness label.",
       snapshot: withSummary(chat(finished, { harness: "codex", model: "gpt-6-astra", title: "Codex chat" }), {
         modes: {
           currentModeId: "full-access",
@@ -552,13 +550,13 @@ export default agentPaneEntry({
       }),
     },
     "footer-harness-new-chat": {
-      note: "Play: a new chat can still switch harness, so the harness item takes the soft pill on hover and a click opens the model button's menu, whose rail switches harness.",
+      note: "Play: a new chat keeps the harness choice in the model picker; the footer has no harness item.",
       ready: { newSession: true, cwd: CWD },
       snapshot: noChat([session({ sessionId: "older", title: "An older chat" })], {
         summary: { sessionId: "", cwd: CWD, harness: "claude", model: "claude-opus-5-5", effort: "high" },
       }),
       play: async (ctx) => {
-        const item = { selector: ".acpmux-composer-foot .acpmux-foot-harness button" };
+        const item = { selector: ".acpmux-composer-foot .acpmux-model .acpmux-picker-button" };
         await ctx.waitFor(() => ctx.document.querySelector(item.selector));
         await ctx.click(item);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-menu"));

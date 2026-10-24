@@ -1,6 +1,6 @@
 import React, { createContext } from "react";
 
-/// True inside the quiet row: what draws only there (ComposerHarness.tsx) renders nothing elsewhere.
+/// True inside the quiet row: controls rendered here stay in the footer and never move into the box.
 export const InQuietRow = createContext(false);
 
 // The quiet row under a composer box, as Claude Code draws it (Leo 2026-10-19: "stick it to the
