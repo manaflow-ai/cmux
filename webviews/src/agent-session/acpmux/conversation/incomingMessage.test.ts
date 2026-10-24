@@ -3,7 +3,7 @@
 // the prompt's text (an adopted Claude session's history, `client: "adopt"`). incomingMessage.ts
 // reads them.
 import { expect, test } from "bun:test";
-import { incomingPrompt, messagePreview, unsigned } from "./incomingMessage";
+import { cliHost, incomingPrompt, messagePreview, unsigned } from "./incomingMessage";
 
 const adopted = { client: "adopt" };
 
@@ -64,6 +64,17 @@ test("a report whose sender acpmux recorded by name is that agent's, from the ma
   });
   // The same record with no sender is the person's.
   expect(incomingPrompt("#24927 merged.", { client: "acpmux-peer#01a16e" })).toBeUndefined();
+});
+
+test("the person's own acpmux send names the machine it ran on, here or through a peer", () => {
+  expect(cliHost("acpmux-cli#01a2f3@big-red")).toBe("big-red");
+  expect(cliHost("acpmux-peer#01a16e@big-red")).toBe("big-red");
+  expect(cliHost("acpmux-outbox#01a16e@huge-blue")).toBe("huge-blue");
+  for (const client of ["acpmux-cli#01a2f3", "cmux-react-agent-pane#01a16f@x", "acpmux-cli#a@b c", undefined, 3]) {
+    expect(cliHost(client)).toBeUndefined();
+  }
+  // The person's own words: no card.
+  expect(incomingPrompt("ship it", { client: "acpmux-cli#01a2f3@big-red" })).toBeUndefined();
 });
 
 test("only a chat's address opens; a terminal agent or a person at a shell does not", () => {

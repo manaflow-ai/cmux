@@ -156,6 +156,15 @@ pub fn named_sender(name: &str, to: &str) -> Value {
     json!({"kind": "agent_message", "from": NAMED_SENDER, "fromName": name, "to": to})
 }
 
+/// The machine a person's own `acpmux send` ran on (`_meta.acpmux.cliHost`, `cli/sender.rs`), when
+/// it reads as a host name: 1 to 64 letters, digits, `.`, `-` or `_`.
+pub fn cli_host(params: &Value) -> Option<&str> {
+    let host = params.pointer("/_meta/acpmux/cliHost")?.as_str()?;
+    let fits = (1..=MAX_NAME_CHARS).contains(&host.len())
+        && host.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'));
+    fits.then_some(host)
+}
+
 /// `record` with `_meta.provenance` when the prompt has one (a `user_message` or `queued`).
 pub fn marked(mut record: Value, provenance: Option<&Value>) -> Value {
     if let (Some(p), Some(fields)) = (provenance, record.as_object_mut()) {
