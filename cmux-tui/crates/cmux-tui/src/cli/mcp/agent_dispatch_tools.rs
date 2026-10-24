@@ -419,13 +419,13 @@ fn combine_model(
                 })
         })
         .transpose()?;
-    if harness.is_some() || model.is_some() {
-        let selector = match (harness, model) {
-            (Some(harness), Some(model)) => format!("{harness}/{model}"),
-            (Some(harness), None) => harness.to_owned(),
-            (None, Some(model)) => model.to_owned(),
-            (None, None) => unreachable!("checked above"),
-        };
+    let selector = match (harness, model) {
+        (Some(harness), Some(model)) => Some(format!("{harness}/{model}")),
+        (Some(harness), None) => Some(harness.to_owned()),
+        (None, Some(model)) => Some(model.to_owned()),
+        (None, None) => None,
+    };
+    if let Some(selector) = selector {
         output.insert("model".into(), Value::String(selector));
     }
     Ok(())
