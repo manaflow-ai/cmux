@@ -48,6 +48,20 @@ pub(super) struct PendingSurfaceRequest {
     pub(super) order: Option<OrderTicket>,
 }
 
+/// What a request orders by across the connection's lanes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum RequestOrder {
+    /// The requests of one surface keep their wire order across the lanes
+    /// ([`SurfaceOrder`]).
+    Surface(SurfaceId),
+    /// A connection-wide control request a later stream request may depend on
+    /// (`set-client-info`, which records the capabilities and sizing an attach
+    /// needs): every stream request sent after it waits until it is accepted.
+    Barrier,
+    /// No order outside its own lane.
+    Unordered,
+}
+
 /// Which lane a request runs on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum OrderLane {
@@ -150,23 +164,24 @@ pub(super) struct ConnectionSurfaceState {
     pub(super) next_arrival: u64,
     /// The unfinished requests of each surface, by lane.
     pub(super) surface_orders: HashMap<SurfaceId, SurfaceOrder>,
-    /// Control requests that name no surface and are not accepted yet
-    /// (`set-client-info`, `identify`, a create): connection-wide barriers.
-    /// A stream request waits until every earlier one is accepted, as on one
-    /// serial connection (the capability a later attach needs is recorded by
-    /// the `set-client-info` sent before it).
+    /// The [`RequestOrder::Barrier`] control requests (`set-client-info`) not
+    /// accepted yet. A stream request waits until every earlier one is
+    /// accepted, as on one serial connection (the capability a later attach
+    /// needs is recorded by the `set-client-info` sent before it). Other
+    /// control requests of no surface are no barrier: a stream's input never
+    /// waits for an unrelated workspace or tab operation.
     pub(super) connection_barriers: BTreeSet<u64>,
 }
 
 impl ConnectionSurfaceState {
-    /// Whether `surface` has an unfinished request on `lane` that arrived
-    /// before `arrival`.
     /// Whether a connection-wide control request that arrived before
     /// `arrival` is not accepted yet.
     pub(super) fn earlier_barrier(&self, arrival: u64) -> bool {
         self.connection_barriers.first().is_some_and(|first| *first < arrival)
     }
 
+    /// Whether `surface` has an unfinished request on `lane` that arrived
+    /// before `arrival`.
     pub(super) fn earlier_on(&self, surface: SurfaceId, lane: OrderLane, arrival: u64) -> bool {
         self.surface_orders.get(&surface).is_some_and(|order| {
             let set = match lane {
@@ -310,7 +325,7 @@ impl ConnectionSurfaceScheduler {
         state.dispatcher_started = true;
         state.queued_bytes = state.queued_bytes.saturating_add(retained_bytes);
         let order =
-            self.take_order_ticket(&mut state, queued.cmd.ordering_surface(), OrderLane::Control);
+            self.take_order_ticket(&mut state, queued.cmd.request_order(), OrderLane::Control);
         state.requests.push_back(PendingSurfaceRequest {
             request: queued,
             retained_bytes,
@@ -390,7 +405,7 @@ impl ConnectionSurfaceScheduler {
             if state.closed {
                 return false;
             }
-            self.take_order_ticket(&mut state, request.cmd.ordering_surface(), OrderLane::Stream)
+            self.take_order_ticket(&mut state, request.cmd.request_order(), OrderLane::Stream)
         };
         let pending =
             PendingSurfaceRequest { request, retained_bytes, _bytes_permit: bytes_permit, order };
@@ -412,32 +427,34 @@ impl ConnectionSurfaceScheduler {
         }
     }
 
-    /// The request's arrival number and its entry in `surface`'s order, for a
-    /// request that orders by a surface. Caller holds the state lock.
+    /// The request's arrival number and its entry in its surface's order or
+    /// the connection's barriers ([`RequestOrder`]). Caller holds the state
+    /// lock.
     pub(super) fn take_order_ticket(
         self: &Arc<Self>,
         state: &mut ConnectionSurfaceState,
-        surface: Option<SurfaceId>,
+        order: RequestOrder,
         lane: OrderLane,
     ) -> Option<OrderTicket> {
         let arrival = state.next_arrival;
         state.next_arrival += 1;
-        match (surface, lane) {
-            (Some(surface), _) => {
-                let order = state.surface_orders.entry(surface).or_default();
+        let surface = match order {
+            RequestOrder::Surface(surface) => {
+                let entry = state.surface_orders.entry(surface).or_default();
                 match lane {
-                    OrderLane::Control => order.control.insert(arrival),
-                    OrderLane::Stream => order.streams.insert(arrival),
+                    OrderLane::Control => entry.control.insert(arrival),
+                    OrderLane::Stream => entry.streams.insert(arrival),
                 };
+                Some(surface)
             }
-            // A control request with no surface is a connection-wide barrier.
-            (None, OrderLane::Control) => {
+            // Only a control request can be a barrier; a stream request of no
+            // surface (cancel-stream) orders only within its own lane.
+            RequestOrder::Barrier if lane == OrderLane::Control => {
                 state.connection_barriers.insert(arrival);
+                None
             }
-            // A stream request with no surface (cancel-stream) orders only
-            // within its own lane.
-            (None, OrderLane::Stream) => {}
-        }
+            RequestOrder::Barrier | RequestOrder::Unordered => None,
+        };
         Some(OrderTicket { scheduler: Arc::downgrade(self), surface, arrival, lane })
     }
 
@@ -477,9 +494,13 @@ impl ConnectionSurfaceScheduler {
     }
 
     /// The next control request to run. A request waits while its surface has
-    /// a clear-history running or an earlier unfinished stream request (the
-    /// cross-lane order, [`SurfaceOrder`]); only requests that may overtake a
-    /// barrier run past a waiting one.
+    /// a clear-history running or an earlier unaccepted stream request (the
+    /// cross-lane order, [`SurfaceOrder`]). A request waiting for its surface's
+    /// stream input holds back only the later requests of that surface: the
+    /// other surfaces' requests, and those of no surface, run past it (one
+    /// terminal whose program stopped reading its input never stops the
+    /// connection's control lane). While a clear-history runs, only requests
+    /// that may overtake a clear barrier run.
     pub(super) fn next_runnable_index(state: &ConnectionSurfaceState) -> Option<usize> {
         let waits_for_streams = |pending: &PendingSurfaceRequest| {
             pending.order.as_ref().is_some_and(|ticket| {
@@ -488,20 +509,30 @@ impl ConnectionSurfaceScheduler {
                 })
             })
         };
-        if state.active_clear_surfaces.is_empty()
-            && state.requests.front().is_none_or(|head| !waits_for_streams(head))
-        {
-            return (!state.requests.is_empty()).then_some(0);
-        }
+        let clear_running = !state.active_clear_surfaces.is_empty();
+        // The surfaces whose earlier request waits for its stream input; at
+        // most one entry per such surface, so the scan stays short.
+        let mut held: Vec<SurfaceId> = Vec::new();
         for (index, pending) in state.requests.iter().enumerate() {
-            let surface = pending.request.cmd.ordering_surface()?;
-            if state.active_clear_surfaces.contains(&surface) || waits_for_streams(pending) {
-                continue;
+            let surface = pending.request.cmd.ordering_surface();
+            if let Some(surface) = surface {
+                if held.contains(&surface) {
+                    continue;
+                }
+                if waits_for_streams(pending) {
+                    held.push(surface);
+                    continue;
+                }
+                if state.active_clear_surfaces.contains(&surface) {
+                    continue;
+                }
             }
-            if pending.request.cmd.can_overtake_clear_barrier() {
-                return Some(index);
+            if clear_running
+                && (surface.is_none() || !pending.request.cmd.can_overtake_clear_barrier())
+            {
+                return None;
             }
-            return None;
+            return Some(index);
         }
         None
     }
