@@ -92,7 +92,7 @@ public final class RemoteMachinesSidebar {
         let lanes = lanes
         // task-owner: this instance; event-driven (Observation), at most one rebuild per refreshInterval
         laneWatch = Task { [weak self] in
-            for await _ in ObservationStream({ _ = lanes.lanes }) {
+            for await _ in ObservationStream({ _ = lanes.lanes; _ = SidebarTunables.laneFixture.value }) {
                 guard let self else { return }
                 rebuild()
                 try? await Task.sleep(for: Self.refreshInterval)
@@ -123,7 +123,9 @@ public final class RemoteMachinesSidebar {
     /// The rows now, every group in order. Read inside an observation scope, so a group, fold or
     /// page change re-yields.
     public func rows() -> [SidebarTransientItem] {
-        Self.rows(machines: machines, expanded: expanded, pages: pages, displayName: { [host] in host?.displayName($0) })
+        // A capture shows the first sample machine unfolded until a click folds or unfolds one.
+        let shown = SidebarTunables.laneFixture.value && expanded.isEmpty && pages.isEmpty ? ["huge-blue"] : expanded
+        return Self.rows(machines: machines, expanded: shown, pages: pages, displayName: { [host] in host?.displayName($0) })
     }
 
     /// Runs a click on one of the rows; false for any other item. A header folds or unfolds its
@@ -144,8 +146,26 @@ public final class RemoteMachinesSidebar {
     }
 
     private func rebuild() {
-        let next = Self.machines(lanes: lanes.lanes.values, peers: peers)
+        // Captures run no peers: the sample machines stand in (`sidebar.laneFixture`, Debug, off).
+        let next = SidebarTunables.laneFixture.value ? Self.machines(lanes: Self.fixtureLanes, peers: Self.fixturePeers)
+            : Self.machines(lanes: lanes.lanes.values, peers: peers)
         if machines != next { machines = next }
+    }
+
+    /// Three machines for captures: two reachable with chats in each state, one offline.
+    static let fixturePeers = [AcpmuxPeerList.Peer(name: "huge-blue", connected: true), AcpmuxPeerList.Peer(name: "cmux16", connected: true),
+                               AcpmuxPeerList.Peer(name: "big-red", connected: false)]
+    static var fixtureLanes: [AgentActivityLane] {
+        let chats: [(String, String, AgentActivityLane.State, String)] = [
+            ("huge-blue", "nx-sidebar", .working, "Sidebar rows keep their place"), ("huge-blue", "cx-rev-241", .input, "Review the peer list"),
+            ("huge-blue", "cl-rev-242", .idle, "Land the composer fix"), ("cmux16", "fleet-cache", .working, "Prune DerivedData on the minis"),
+            ("cmux16", "nightly", .idle, "Nightly 1.0.312 published"),
+        ]
+        return chats.enumerated().map { i, chat in
+            AgentActivityLane(id: "fixture-remote:\(chat.0)/\(chat.1)", name: "\(chat.0)/\(chat.1)", title: chat.3, peer: chat.0, parent: nil,
+                              state: chat.2, since: Date(timeIntervalSince1970: TimeInterval(1_000 - i)), error: nil,
+                              harness: i.isMultiple(of: 2) ? "claude" : "codex")
+        }
     }
 
     // MARK: - Model
