@@ -1402,7 +1402,7 @@ mod tests {
         std::fs::create_dir(&dir).unwrap();
         let listener = UnixListener::bind(dir.join("h.sock")).unwrap();
         let mut holder = Holder::new(listener, [7; 32]).unwrap();
-        let request = crate::SpawnRequest {
+        let request = SpawnRequest {
             id: [1; 16],
             cols: 80,
             rows: 24,
