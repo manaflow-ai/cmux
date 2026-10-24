@@ -2,11 +2,11 @@
 //
 // A Claude-style dynamic workflow board for capture review. It is intentionally a gallery-only
 // surface: the pause, stop and save controls update local labels and never touch an acpmux session.
-import { useState } from "react";
+import { useState, type KeyboardEvent } from "react";
 import { componentEntry, type ComponentVariant } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 
-type Surface = "inline-latest" | "pinned-summary";
+type Surface = "inline-latest" | "pinned-summary" | "detail-sheet";
 type Mode = "light" | "dark";
 type WorkflowState = "Running" | "Paused" | "Stopped" | "Saved";
 
@@ -40,12 +40,24 @@ const WORKFLOW = {
   ] satisfies Phase[],
 };
 
-const SELECTED_AGENTS = [
-  { name: "release-notes-17", task: "Compare highlights with the changelog", state: "done", model: "Opus 4.1" },
-  { name: "release-notes-18", task: "Rewrite the migration note", state: "running", model: "Opus 4.1" },
-  { name: "release-notes-19", task: "Check links and headings", state: "running", model: "Sonnet 4.5" },
-  { name: "release-notes-20", task: "Check locale parity", state: "queued", model: "Haiku 4.5" },
-];
+const AGENT_TASKS = [
+  { task: "Compare highlights with the changelog", state: "done" },
+  { task: "Rewrite the migration note", state: "running" },
+  { task: "Check links and headings", state: "running" },
+  { task: "Check locale parity", state: "queued" },
+] as const;
+
+function agentsFor(phase: Phase) {
+  const doneCount =
+    phase.total === 0 ? 0 : Math.min(AGENT_TASKS.length, Math.floor((phase.done / phase.total) * AGENT_TASKS.length));
+  const runningIndex = phase.done > 0 && phase.done < phase.total ? doneCount : -1;
+  return AGENT_TASKS.map((agent, index) => ({
+    name: `${phase.id}-${17 + index}`,
+    task: agent.task,
+    state: index < doneCount ? "done" : index === runningIndex ? "running" : "queued",
+    model: phase.model.replace("Claude ", ""),
+  }));
+}
 
 function ProgressSparkline() {
   const points = WORKFLOW.sparkline.map((value, index) => `${index * 10},${42 - value}`).join(" ");
@@ -62,20 +74,27 @@ function ProgressSparkline() {
   );
 }
 
-function WorkflowControls() {
-  const [state, setState] = useState<WorkflowState>("Running");
+function WorkflowControls({
+  state,
+  onStateChange,
+  announce = true,
+}: {
+  state: WorkflowState;
+  onStateChange: (state: WorkflowState) => void;
+  announce?: boolean;
+}) {
   return (
     <div className="workflow-gallery__controls" data-workflow-state={state.toLowerCase()}>
-      <span className="workflow-gallery__state" aria-live="polite">
+      <span className="workflow-gallery__state" aria-live={announce ? "polite" : undefined}>
         {state}
       </span>
-      <button type="button" onClick={() => setState("Paused")} aria-label="Pause workflow">
+      <button type="button" onClick={() => onStateChange("Paused")} aria-label="Pause workflow">
         Pause
       </button>
-      <button type="button" onClick={() => setState("Stopped")} aria-label="Stop workflow">
+      <button type="button" onClick={() => onStateChange("Stopped")} aria-label="Stop workflow">
         Stop
       </button>
-      <button type="button" onClick={() => setState("Saved")} aria-label="Save workflow">
+      <button type="button" onClick={() => onStateChange("Saved")} aria-label="Save workflow">
         Save
       </button>
     </div>
@@ -83,6 +102,7 @@ function WorkflowControls() {
 }
 
 function WorkflowSummary({ compact = false }: { compact?: boolean }) {
+  const [state, setState] = useState<WorkflowState>("Running");
   return (
     <div
       className={`workflow-gallery__summary${compact ? " workflow-gallery__summary--compact" : ""}`}
@@ -132,7 +152,7 @@ function WorkflowSummary({ compact = false }: { compact?: boolean }) {
           </span>
         ))}
       </div>
-      {!compact && <WorkflowControls />}
+      {!compact && <WorkflowControls state={state} onStateChange={setState} />}
     </div>
   );
 }
@@ -184,14 +204,167 @@ function PinnedSummary() {
   );
 }
 
+function PhaseList({ selected, onSelect }: { selected: string; onSelect: (id: string) => void }) {
+  return (
+    <nav className="workflow-gallery__phases" aria-label="Workflow phases">
+      <span className="workflow-gallery__kicker">Phases</span>
+      {WORKFLOW.phases.map((phase) => (
+        <button
+          type="button"
+          key={phase.id}
+          data-phase={phase.id}
+          className={selected === phase.id ? "is-selected" : undefined}
+          aria-pressed={selected === phase.id}
+          onClick={() => onSelect(phase.id)}
+        >
+          <span>
+            <strong>{phase.name}</strong>
+            <small>{phase.model}</small>
+          </span>
+          <b>
+            {phase.done}/{phase.total}
+          </b>
+        </button>
+      ))}
+    </nav>
+  );
+}
+
+function SelectedPhase({
+  phase,
+  state,
+  onStateChange,
+}: {
+  phase: Phase;
+  state: WorkflowState;
+  onStateChange: (state: WorkflowState) => void;
+}) {
+  return (
+    <section className="workflow-gallery__selected-phase" data-selected-phase={phase.id}>
+      <div className="workflow-gallery__selected-head">
+        <div>
+          <span className="workflow-gallery__kicker">Selected phase</span>
+          <h2>{phase.name}</h2>
+          <p>
+            {phase.done} of {phase.total} agents done · {phase.elapsed} elapsed · {phase.model}
+          </p>
+        </div>
+        <span className="workflow-gallery__phase-badge">{Math.round((phase.done / phase.total) * 100)}%</span>
+      </div>
+      <div className="workflow-gallery__agents">
+        {agentsFor(phase).map((agent) => (
+          <div className="workflow-gallery__agent" data-agent-state={agent.state} key={agent.name}>
+            <span className="workflow-gallery__agent-mark" aria-hidden="true" />
+            <span>
+              <strong>{agent.name}</strong>
+              <small>{agent.task}</small>
+            </span>
+            <span className="workflow-gallery__agent-model">{agent.model}</span>
+            <span className="workflow-gallery__agent-state">{agent.state}</span>
+          </div>
+        ))}
+      </div>
+      <WorkflowControls state={state} onStateChange={onStateChange} announce={false} />
+    </section>
+  );
+}
+
+function DetailSheet() {
+  const [selected, setSelected] = useState("implement");
+  const [tab, setTab] = useState<"workflow" | "transcript">("workflow");
+  const [workflowState, setWorkflowState] = useState<WorkflowState>("Running");
+  const selectTab = (next: "workflow" | "transcript") => {
+    setTab(next);
+    document.getElementById(`workflow-${next}-tab`)?.focus();
+  };
+  const onTabKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const order = ["workflow", "transcript"] as const;
+    const current = order.indexOf(tab);
+    const direction = getComputedStyle(event.currentTarget).direction === "rtl" ? -1 : 1;
+    let next = current;
+    if (event.key === "Home") next = 0;
+    else if (event.key === "End") next = order.length - 1;
+    else if (event.key === "ArrowRight") next = (current + direction + order.length) % order.length;
+    else if (event.key === "ArrowLeft") next = (current - direction + order.length) % order.length;
+    else return;
+    event.preventDefault();
+    selectTab(order[next]!);
+  };
+  const phase = WORKFLOW.phases.find((candidate) => candidate.id === selected) ?? WORKFLOW.phases[1]!;
+  return (
+    <div className="workflow-gallery__sheet" data-workflow-surface="detail-sheet">
+      <header className="workflow-gallery__sheet-header">
+        <div>
+          <span className="workflow-gallery__kicker">Workflow detail</span>
+          <h2>{WORKFLOW.title}</h2>
+        </div>
+        <WorkflowControls state={workflowState} onStateChange={setWorkflowState} />
+      </header>
+      <div className="workflow-gallery__tabs" role="tablist" aria-label="Workflow detail tabs" onKeyDown={onTabKeyDown}>
+        <button
+          id="workflow-workflow-tab"
+          type="button"
+          role="tab"
+          aria-selected={tab === "workflow"}
+          aria-controls="workflow-workflow-panel"
+          tabIndex={tab === "workflow" ? 0 : -1}
+          onClick={() => selectTab("workflow")}
+        >
+          Workflow
+        </button>
+        <button
+          id="workflow-transcript-tab"
+          type="button"
+          role="tab"
+          aria-selected={tab === "transcript"}
+          aria-controls="workflow-transcript-panel"
+          tabIndex={tab === "transcript" ? 0 : -1}
+          onClick={() => selectTab("transcript")}
+        >
+          Transcript
+        </button>
+      </div>
+      <div
+        id="workflow-workflow-panel"
+        className="workflow-gallery__detail-grid"
+        role="tabpanel"
+        aria-labelledby="workflow-workflow-tab"
+        tabIndex={0}
+        hidden={tab !== "workflow"}
+      >
+        <PhaseList selected={selected} onSelect={setSelected} />
+        <SelectedPhase phase={phase} state={workflowState} onStateChange={setWorkflowState} />
+      </div>
+      <div
+        id="workflow-transcript-panel"
+        className="workflow-gallery__transcript-tab"
+        role="tabpanel"
+        aria-labelledby="workflow-transcript-tab"
+        tabIndex={0}
+        hidden={tab !== "transcript"}
+      >
+        <span className="workflow-gallery__kicker">Latest activity</span>
+        <p>37 agents finished their pass. 64 remain in Implement, Review and Integrate.</p>
+        <WorkflowSummary compact />
+      </div>
+    </div>
+  );
+}
+
 function DynamicWorkflowGallery({ surface, mode }: Props) {
   return (
     <div className="workflow-gallery" data-workflow-gallery data-mode={mode}>
       {surface === "inline-latest" && <InlineLatest />}
       {surface === "pinned-summary" && <PinnedSummary />}
+      {surface === "detail-sheet" && <DetailSheet />}
     </div>
   );
 }
+
+const inspectPhase: Play = async (ctx) => {
+  await ctx.click({ selector: '[data-phase="review"]' });
+  await ctx.waitFor(() => ctx.document.querySelector('[data-selected-phase="review"]'));
+};
 
 const paired = (surface: Surface, note: string, play?: Play): Record<string, ComponentVariant<Props>> => ({
   [`${surface}-light`]: {
@@ -226,6 +399,11 @@ export default componentEntry<Props>({
     ...paired(
       "pinned-summary",
       "A pinned summary row stays visible above the transcript and exposes the same warning, progress and pause/stop/save affordances.",
+    ),
+    ...paired(
+      "detail-sheet",
+      "A detail sheet/tab puts phases on the left and selected-phase agents on the right, including per-phase counts, models, elapsed time and controls.",
+      inspectPhase,
     ),
   },
 });
