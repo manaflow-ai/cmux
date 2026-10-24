@@ -37,6 +37,11 @@ public final class StoreStage {
     private var firstHeld: UInt64?
     /// The stage's one deadline (a batch whose commit never comes does not hold the store).
     private var deadline: DemandTimer?
+    /// When the stage commits by itself.
+    private var deadlineAt: ContinuousClock.Instant?
+    /// The stage holds a change of the workspace list's order (a workspace move, add or close, or a
+    /// move or group intent): every later order event waits too, since list indexes do not commute.
+    private var holdsList = false
     public private(set) var isOpen = true
 
     init(store: DaemonStore) {
@@ -48,6 +53,9 @@ public final class StoreStage {
     func join(scope: DaemonCommandScope?, until deadline: ContinuousClock.Instant, clock: any Clock<Duration>) {
         participants += 1
         if let scope { scopes.insert(ObjectIdentifier(scope)) }
+        // The earliest deadline holds: a batch that joins later never keeps the stage open longer.
+        guard deadlineAt.map({ deadline < $0 }) ?? true else { return }
+        deadlineAt = deadline
         let timer = self.deadline ?? DemandTimer(owner: "StoreStage.deadline", clock: clock)
         self.deadline = timer
         timer.schedule(after: max(deadline - .now, .zero)) { @MainActor [weak self] in self?.commit(all: true) }
@@ -91,6 +99,7 @@ public final class StoreStage {
               let reached = store.stageWorkspaces(of: intent), !reached.isEmpty else { return false }
         workspaces.formUnion(reached)
         transactions.insert(transaction)
+        if Self.changesListOrder(intent) { holdsList = true }
         return true
     }
 
@@ -106,15 +115,42 @@ public final class StoreStage {
         for envelope in batch {
             let reach = store.stageReach(of: envelope.event) ?? []
             let echoesHeld = envelope.event.clientTransactionID.map(transactions.contains) ?? false
-            guard echoesHeld || !reach.isDisjoint(with: workspaces) else {
+            let listOrder = Self.changesListOrder(envelope.event)
+            guard echoesHeld || !reach.isDisjoint(with: workspaces) || (listOrder && holdsList) else {
                 now.append(envelope)
                 continue
             }
             workspaces.formUnion(reach)
+            if listOrder { holdsList = true }
             events.append(envelope)
             firstHeld = firstHeld.map { min($0, envelope.sequence) } ?? envelope.sequence
         }
         return now
+    }
+
+    /// Whether a waiter for `sequence` (or for `transaction`'s echo) needs an event the stage holds:
+    /// the store then commits the stage first, so a read-your-writes wait never waits on a script.
+    func holds(through sequence: UInt64?, echo transaction: ClientTransactionID? = nil) -> Bool {
+        guard isOpen else { return false }
+        if let sequence, let firstHeld, sequence >= firstHeld { return true }
+        guard let transaction else { return false }
+        return events.contains { $0.event.clientTransactionID == transaction }
+    }
+
+    /// Whether `intent` changes the workspace list's order (a move, a group change).
+    static func changesListOrder(_ intent: Intent) -> Bool {
+        switch intent {
+        case .moveWorkspace, .placeWorkspace, .setWorkspaceGroup: true
+        default: false
+        }
+    }
+
+    /// Whether `event` changes the workspace list's order (it carries a list index).
+    static func changesListOrder(_ event: DaemonEvent) -> Bool {
+        switch event {
+        case .workspaceAdded, .workspaceClosed, .workspaceMoved: true
+        default: false
+        }
     }
 
     /// `sequence`, but below the first event the stage holds.
