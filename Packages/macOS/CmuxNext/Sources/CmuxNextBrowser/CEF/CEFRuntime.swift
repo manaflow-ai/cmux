@@ -73,6 +73,10 @@ final class CEFRuntime {
     private(set) lazy var extensionPrompts = CEFExtensionPrompts(runtime: self)
     /// chrome.omnibox keyword sessions (fork API 12).
     let omniboxKeywords = CEFOmniboxKeywords()
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The new Chromium tab bench's marks (`CEFBenchMarks`, DEBUG builds).
+    let benchMarks = CEFBenchMarks()
+    #endif
     var nextRequest: Int32 = 1
     /// In-process DevTools calls waiting for their result (with deadlines).
     let devToolsCalls = CEFReplyWaiters<CEFDevToolsKey, String>()

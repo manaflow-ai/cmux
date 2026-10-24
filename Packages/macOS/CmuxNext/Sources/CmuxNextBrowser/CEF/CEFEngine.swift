@@ -149,6 +149,11 @@ public final class CEFEngine: BrowserEngine {
         CEFSpareWindow.shared.prepare(runtime: .shared)
     }
 
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The new Chromium tab bench's recorder (`debug.new_tab bench_browser`).
+    public var benchMarks: CEFBenchMarks { CEFRuntime.shared.benchMarks }
+    #endif
+
     /// Returns once the framework load that `preload` started ended (at once
     /// when none runs).
     public func libraryLoadEnded() async {
