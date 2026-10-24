@@ -144,6 +144,41 @@ import Testing
         #expect(watch.checks.load(ordering: .relaxed) == settled, "writes in /tmp woke the link's watch")
     }
 
+    /// The other side of yielding: the app whose live socket held the link's path quits (its
+    /// socket file left behind, as `nc` leaves it, or removed). A yielding watch watched nothing
+    /// for the rest of the run, so the link CLI clients use was never made. The watch follows the
+    /// listener's process instead of /tmp: its exit takes the path back.
+    @Test func aLinkPathHeldByAnotherLiveSocketIsTakenBackWhenItsListenerEnds() async throws {
+        let path = "/tmp/cspw-\(UUID().uuidString.prefix(8).lowercased()).sock"
+        defer { unlink(path) }
+        let holder = Process()
+        holder.executableURL = URL(fileURLWithPath: "/usr/bin/nc")
+        holder.arguments = ["-lkU", path]  // -k: a probe's connection does not end it
+        holder.standardOutput = FileHandle.nullDevice
+        holder.standardError = FileHandle.nullDevice
+        try holder.run()
+        defer { if holder.isRunning { holder.terminate() } }
+        let listening = try await eventually {
+            if case .accepted = ControlSocketServer.probe(path) { return true }
+            return false
+        }
+        try #require(listening, "nc did not listen at \(path)")
+        let queue = DispatchQueue(label: "test.path-watch")
+        let restores = RestoreCount()
+        let watch = ControlSocketPathWatch(path: path, queue: queue, yieldsToHeldPath: true) {
+            restores.value.add(1, ordering: .relaxed)
+            return true
+        }
+        watch.start()
+        defer { watch.stop() }
+        queue.sync {}
+        #expect(restores.value.load(ordering: .relaxed) == 0, "a live socket's path was taken")
+        holder.terminate()
+        holder.waitUntilExit()
+        #expect(try await eventually { restores.value.load(ordering: .relaxed) > 0 },
+                "the path was never taken back after the socket's listener ended")
+    }
+
     /// This app's own socket at a socket-path override in /tmp keeps its directory watch (the
     /// hq#1870 cleaner case): deleted, it is noticed.
     @Test func anOwnSocketInTmpIsStillPutBackWhenDeleted() async throws {
