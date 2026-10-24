@@ -102,8 +102,9 @@ import Testing
         #expect(try await eventually { restores.value.load(ordering: .relaxed) > restoresAtStart }, "the entry's removal was not noticed")
     }
 
-    /// A listening Unix socket at `path` (another app's live socket); its descriptor.
-    func liveSocket(at path: String) throws -> Int32 {
+    /// A listening Unix socket at `path` (another app's live socket); its descriptor. Not
+    /// `listening`: only bound.
+    func liveSocket(at path: String, listening: Bool = true) throws -> Int32 {
         let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
         try #require(descriptor >= 0)
         var address = sockaddr_un()
@@ -116,8 +117,61 @@ import Testing
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
         }
         try #require(bound == 0)
-        try #require(listen(descriptor, 1) == 0)
+        if listening { try #require(listen(descriptor, 1) == 0) }
         return descriptor
+    }
+
+    /// `LOCAL_PEERPID` names a socket's last user, not a live listener: here a child that called
+    /// listen() and exited, while this process keeps the descriptor (as a process that inherited
+    /// it keeps another app's socket accepting). The yielding watch followed that dead pid, its
+    /// "ended before armed" check ran the restore at once, and the restore's watch() probed the
+    /// same socket and followed the same pid again: watch, follow, restore, watch, until the
+    /// listen backlog filled (in an app whose holder accepts: until the stack overflowed), one
+    /// connection to the other app's socket per round. A pid that is not a live process now
+    /// identifies no holder: the watch keeps the directory watch, the restore never runs against
+    /// the live socket, and each /tmp event is one bounded check.
+    @Test func aLiveSocketNamingAnExitedPidSettlesOnTheDirectoryWatch() async throws {
+        let path = "/tmp/cspw-\(UUID().uuidString.prefix(8).lowercased()).sock"
+        let descriptor = try liveSocket(at: path, listening: false)
+        defer { close(descriptor); unlink(path) }
+        // Swift marks fork() unavailable; the child only calls listen() and _exit(), both
+        // async-signal-safe, so a fork from this multithreaded process is sound.
+        let symbol = try #require(dlsym(UnsafeMutableRawPointer(bitPattern: -2), "fork"))  // RTLD_DEFAULT
+        let forkCall = unsafeBitCast(symbol, to: (@convention(c) () -> pid_t).self)
+        let child = forkCall()
+        if child == 0 {
+            _ = listen(descriptor, 64)
+            _exit(0)
+        }
+        try #require(child > 0)
+        var status: Int32 = 0
+        try #require(waitpid(child, &status, 0) == child)  // reaped: kill(child, 0) is ESRCH
+        try #require(ControlSocketServer.probe(path) == .accepted(listener: child),
+                     "the socket does not name the exited child that listened")
+
+        let queue = DispatchQueue(label: "test.path-watch")
+        let restores = RestoreCount()
+        let watch = ControlSocketPathWatch(path: path, queue: queue, yieldsToHeldPath: true) {
+            restores.value.add(1, ordering: .relaxed)
+            return true
+        }
+        watch.start()
+        defer { watch.stop() }
+        queue.sync {}
+        #expect(restores.value.load(ordering: .relaxed) == 0, "the watch followed the exited pid and ran the restore on a live socket")
+        #expect(watch.checks.load(ordering: .relaxed) == 0)
+
+        // On the directory watch (the documented fallback): writes in /tmp are noticed, each with
+        // a bounded check, and none of them runs the restore while the live socket holds the path.
+        let settled = watch.checks.load(ordering: .relaxed)
+        let other = "/tmp/cspw-other-\(UUID().uuidString.prefix(8).lowercased())"
+        let file = open(other, O_CREAT | O_WRONLY | O_EXCL, 0o600)
+        try #require(file >= 0)
+        close(file)
+        unlink(other)
+        #expect(try await eventually { watch.checks.load(ordering: .relaxed) > settled }, "the watch is not on /tmp")
+        queue.sync {}
+        #expect(restores.value.load(ordering: .relaxed) == 0, "a /tmp event ran the restore on a live socket")
     }
 
     /// A classic cmux of the same channel or tag holds the /tmp compatibility link's path with its
