@@ -781,9 +781,10 @@ class RelaunchTests(unittest.TestCase):
                 raise RuntimeError("focus never reached pane pane_7")
             return {"session": "light", "kind": "action", "id": action["id"], "errors": [], "frames": {"missed": 0}, "check": "ok"}
 
+        # The failed builder step left another layout: the session is unfit, so it relaunches.
         with mock.patch.object(sweep, "build", lambda: None), mock.patch.object(sweep, "check_validity", lambda: next(launches)), \
                 mock.patch.object(sweep, "frames_during", lambda body, settle=0.4: {"frames": {}}), \
-                mock.patch.object(sweep, "run_action", run_action), \
+                mock.patch.object(sweep, "run_action", run_action), mock.patch.object(sweep, "restored", lambda: False), \
                 mock.patch.object(sweep_mod, "rpc", lambda method, params=None, timeout=60: {"pong": True}), \
                 mock.patch.object(sweep_mod.opts, "no_interactions", True):
             sweep.run([{"id": "first"}, {"id": "second"}])
@@ -845,6 +846,52 @@ class HarnessFrameTests(unittest.TestCase):
             frames = sweep_mod.harness_frames(error)
         self.assertTrue(frames[-1].startswith("test_every_action_sweep.py:"), frames)
         self.assertTrue(frames[-1].endswith(" builder_step"), frames)
+
+
+class HarnessRelaunchTests(unittest.TestCase):
+    """A harness row relaunches only when it left the session unfit (review 2: a relaunch per harness row cost the
+    fleet ~10 min each in STRESS)."""
+
+    def sweep(self, restored, chromium_ok):
+        sweep = sweep_mod.Sweep.__new__(sweep_mod.Sweep)
+        sweep.session = "light"
+        sweep.restored = lambda: restored
+        sweep.check_validity = lambda: {"chromium_ok": chromium_ok, "cef_flags": [] if chromium_ok else ["fallback 1"]}
+        sweep.check_stress_shape = lambda: None
+        return sweep
+
+    def test_an_intact_session_is_fit(self):
+        self.assertIsNone(self.sweep(True, True).unfit())
+
+    def test_a_changed_layout_or_lost_chromium_is_unfit(self):
+        self.assertEqual(self.sweep(False, True).unfit(), "a layout other than the base")
+        self.assertIn("fallback 1", self.sweep(True, False).unfit())
+
+
+class HarnessRowWithoutRelaunchTests(unittest.TestCase):
+    def test_a_harness_row_on_an_intact_session_does_not_relaunch(self):
+        relaunches = []
+
+        class App:
+            process = None
+
+            def relaunch(self):
+                relaunches.append(1)
+
+        sweep = sweep_mod.Sweep(App(), "light", stress_mod)
+
+        def run_action(action):
+            raise RuntimeError("a builder step timed out after the input")
+
+        with mock.patch.object(sweep, "build", lambda: None), \
+                mock.patch.object(sweep, "check_validity", lambda: {"chromium_ok": True, "cef_flags": []}), \
+                mock.patch.object(sweep, "frames_during", lambda body, settle=0.4: {"frames": {}}), \
+                mock.patch.object(sweep, "run_action", run_action), mock.patch.object(sweep, "restored", lambda: True), \
+                mock.patch.object(sweep_mod, "rpc", lambda method, params=None, timeout=60: {"pong": True}), \
+                mock.patch.object(sweep_mod.opts, "no_interactions", True):
+            sweep.run([{"id": "first"}, {"id": "second"}])
+        self.assertEqual(relaunches, [])
+        self.assertEqual([r["after_harness"] for r in sweep.rows], ["the session is intact; no relaunch"] * 2)
 
 
 class FailedSessionTests(unittest.TestCase):
