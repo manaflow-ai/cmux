@@ -17,7 +17,10 @@ extension HomeService {
     func primeHomeList() {
         guard !homeListPrimed else { return }
         homeListPrimed = true
+        // #17587's launch guard: both caches are read and decoded on the main thread here.
+        DebugTimings.markLaunch("launch_read_on_main.home_cache")
         homeStore.primeFromCache()
+        DebugTimings.markLaunch("launch_read_on_main.home_list")
         guard let last = sidebarLaunch.load(account: pinAccount) else { return }
         last.seed([homeInbox, homeCloudInbox])
         directory.seedLaunch(last)

@@ -21,6 +21,8 @@ extension DaemonService {
         guard let path = launchSnapshotLocation.path(session: session)
             ?? LaunchSnapshotLocation.find(session: session, in: stateDirectory) else { return }
         let snapshot: LaunchSnapshot
+        // #17587's launch guard: this read and decode run on the main thread, inside applicationDidFinishLaunching.
+        Self.launchMark("launch_read_on_main.launch_snapshot")
         do { snapshot = try LaunchSnapshot.load(path: path, session: session) } catch {
             logger.error("launch snapshot skipped: \(String(describing: error), privacy: .public)")
             return
