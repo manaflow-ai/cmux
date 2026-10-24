@@ -3,8 +3,11 @@
 // track by O(1) lookups and wake on the store's tab-list revision, never by building the set of
 // every tab of every workspace on each change: a script that moves panes or adds columns in 50
 // workspaces then costs each watcher its own tabs, not the session (CLAUDE.md "Go past Chrome
-// where cmux is scripted").
-extension DaemonStore {
+// where cmux is scripted"). GoneTabWatch holds only the ``LiveTabListing`` seam, so for it this
+// holds by type. Not yet for InternalPageTabStore's pane check: it still builds the set of every
+// pane on each tree change (no pane-by-public-id lookup or pane-list revision here yet; open item,
+// plans/cmux-next/perf-lead.md section 2 row 29).
+extension DaemonStore: LiveTabListing {
     /// The tab-list revision while the store is connected with a loaded tree, else nil: what a
     /// gone-tab watcher observes. It changes when a tab comes, goes or moves, or a pane comes or goes (``tabListRevision``).
     public var liveTabListRevision: UInt64? {
