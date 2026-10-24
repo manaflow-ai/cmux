@@ -1,4 +1,5 @@
 import CmuxNextBridge
+import CmuxNextCompat
 import Foundation
 import CmuxNextSettings
 
