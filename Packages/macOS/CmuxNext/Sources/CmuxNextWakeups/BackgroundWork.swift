@@ -1,3 +1,8 @@
+// Weak: `withTaskPriorityEscalationHandler` (macOS 26) inlines a call to swift_task_addPriorityEscalationHandler,
+// which a plain import links strongly even behind `#available(macOS 26.0, *)`, and dyld then refused to
+// launch the app on macOS 14 and 15 (os-matrix smoke, 15.7.7, build b4379c97e9d0). Weak, the call stays on 26 and
+// the symbol may be missing below it.
+@_weakLinked import _Concurrency
 import CmuxNextCompat
 import Darwin
 import Dispatch
