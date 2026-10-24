@@ -668,6 +668,7 @@ export function ModelPicker(props: ModelPickerProps) {
     allHarnesses,
     harnesses,
     current?.id,
+    current?.folder,
     loginFor,
     favorites,
     starredText,
