@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextFeed
+import CmuxNextWakeups
 import Foundation
 
 /// The app's feed (plans/cmux-next/feed.md): one `FeedModel` mirroring the
@@ -205,7 +206,8 @@ final class FeedService {
         let client = reportsClient
         reportsTask = Task { [weak self] in
             guard let self else { return }
-            // wakeup-allow: mailbox wait is event-driven and ends on cancellation.
+            var backoff = Backoff(initial: .milliseconds(250), maximum: .seconds(30))
+            // wakeup-allow: each pass is one event-driven mailbox wait (acpmux answers on new mail or its 30 s wait end)
             while !Task.isCancelled {
                 do {
                     let page = try await client.wait(
@@ -213,15 +215,20 @@ final class FeedService {
                         recipient: reportsRecipient,
                         after: self.reportsCursor
                     )
+                    backoff.reset()
                     applyReports(page)
                 } catch is CancellationError {
                     return
                 } catch {
-                    // The daemon may not be running yet or may be handing off.
-                    // Retry with a bounded delay; the next mailbox wait remains
-                    // the normal event-driven path.
-                    // wakeup-allow: one-shot retry backoff after a failed mailbox request.
-                    try? await ContinuousClock().sleep(for: .seconds(5))
+                    // acpmux is not running yet: wait for its socket to appear (a file-system event).
+                    // It runs but refused (handing off): retry after a real failure, spaced by Backoff.
+                    if !FileManager.default.fileExists(atPath: socketPath) {
+                        // concurrency-allow: an async wait for one file-system event, not a blocking wait.
+                        await PathAppearance().wait(for: socketPath)
+                    } else {
+                        // concurrency-allow: Backoff.wait is an async sleep after a failure, not a blocking wait.
+                        do { try await backoff.wait(owner: "feed.reports.retry") } catch { return }
+                    }
                 }
             }
         }
