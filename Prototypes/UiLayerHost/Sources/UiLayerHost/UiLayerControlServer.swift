@@ -7,7 +7,7 @@ import Foundation
 final class UiLayerControlServer: @unchecked Sendable {
     private let socketPath: String
     private let queue = DispatchQueue(label: "cmux.ui-layer-host.control")
-    private var descriptor = -1
+    private var descriptor: Int32 = -1
 
     init?(socketPath: String?) {
         guard let socketPath, !socketPath.isEmpty else { return nil }
