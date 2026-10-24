@@ -1331,7 +1331,9 @@ let package = Package(
         ),
         .target(
             name: "CmuxNextActions",
-            dependencies: ["CmuxNextSignposts"],
+            // Wakeups: the main-thread task board, where an action run is published as a span so the
+            // watchdog samples a run past its 10 ms budget (ActionBudgetMonitor).
+            dependencies: ["CmuxNextSignposts", "CmuxNextWakeups"],
             resources: [
                 .process("AccountsActions.xcstrings"),
                 .process("ActionCatalog.xcstrings"),

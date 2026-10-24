@@ -1,4 +1,5 @@
 import Darwin
+public import CmuxNextWakeups
 
 /// The always-on per-action budget: every timed action run's perform-to-commit time, keyed by
 /// action id and entrypoint, against the 10 ms budget (plans/cmux-next/zero-latency.md, "Native
@@ -55,6 +56,12 @@ public final class ActionBudgetMonitor {
     /// Interned actions by index; index 0 is "none".
     private var names: [ActionID] = [""]
     private var indices: [ActionID: UInt32] = [:]
+    /// Where a run is published while it runs (the app's main-thread task board): the watchdog samples a
+    /// run past ``budgetNanos`` and records it, with its stack, as an `over_budget` task named by the
+    /// action id. Nil publishes nothing.
+    public let board: MainTaskBoard?
+    /// Each interned action's owner index on ``board``, by monitor index.
+    private var owners: [UInt32] = [0]
     /// Runs before this sequence were handed to the batch reader (or had none to go to).
     private var batchedThrough: UInt64 = 0
     private var batchReader: AsyncStream<[ActionTimingSample]>.Continuation?
@@ -74,7 +81,9 @@ public final class ActionBudgetMonitor {
     ///   - budget: The perform-to-commit budget (``defaultBudget``; tests pass a smaller one).
     ///   - capacity: The runs kept for ``recent(_:)``, rounded up to a power of two, at least 2 (256
     ///     covers the HUD and a socket read after a burst, and makes a batch every 128 runs).
-    public init(budget: Duration = defaultBudget, capacity: Int = 256) {
+    ///   - board: The main-thread task board runs are published on (``board``), or nil.
+    public init(budget: Duration = defaultBudget, capacity: Int = 256, board: MainTaskBoard? = nil) {
+        self.board = board
         let (seconds, attoseconds) = budget.components
         budgetNanos = UInt64(clamping: max(seconds, 0)) &* 1_000_000_000 &+ UInt64(clamping: max(attoseconds, 0) / 1_000_000_000)
         ring = ActionSampleRing(capacity: max(capacity, 2))
@@ -100,9 +109,16 @@ public final class ActionBudgetMonitor {
     ///   - end: ``now()`` at the end of its interval (the commit, for a committed run).
     ///   - inputAgeMilliseconds: The person's input event's age at the start, or -1.
     ///   - outcome: How the interval ended.
+    ///   - span: The run's token from ``beginSpan(_:start:)``, ended here at `end`.
     // perf-hot: 0.2us action-budget
     public func record(_ index: UInt32, _ entrypoint: ActionEntrypoint, start: UInt64, end: UInt64,
-                       inputAgeMilliseconds: Double, outcome: ActionTimingSample.Outcome) {
+                       inputAgeMilliseconds: Double, outcome: ActionTimingSample.Outcome,
+                       span: MainTaskBoard.SpanToken? = nil) {
+        // The span first: an over-budget one gives the watchdog's `over_budget` record (with its
+        // stack) before a reader hears the run below.
+        // A missed commit (idle time) or a nested loop (the person's dwell) is not the run's work, as
+        // for `isOver`: the board ends such a span at its start, so the watchdog records no over-budget task.
+        if let span, let board { board.endSpan(span, nowNanos: outcome == .committed ? end : start) }
         let nanos = end > start ? end - start : 0
         ring.write(ActionRunSlot(index: index, entrypoint: entrypoint, outcome: outcome,
                                  inputAgeMilliseconds: Float(inputAgeMilliseconds), startUptimeNanos: start, nanos: nanos),
@@ -125,7 +141,20 @@ public final class ActionBudgetMonitor {
         let index = UInt32(truncatingIfNeeded: names.count)
         names.append(id)
         indices[id] = index
+        owners.append(board?.internOwner(id.rawValue) ?? 0)
         return index
+    }
+
+    /// Publishes the run of action `index` as the running work on ``board`` from `start`, with the
+    /// budget; nil without a board. Atomics only. Pass the token to ``record(_:_:start:end:inputAgeMilliseconds:outcome:span:)``.
+    ///
+    /// - Parameters:
+    ///   - index: The action's interned index.
+    ///   - start: ``now()`` at the run's start.
+    /// - Returns: The span's token, or nil.
+    public func beginSpan(_ index: UInt32, start: UInt64) -> MainTaskBoard.SpanToken? {
+        guard let board, Int(index) < owners.count else { return nil }
+        return board.beginSpan(.input, owner: owners[Int(index)], budgetNanos: budgetNanos, startNanos: start)
     }
 
     /// The run of `sequence` as a value (its interned action resolved).

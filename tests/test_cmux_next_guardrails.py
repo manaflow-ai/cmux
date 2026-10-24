@@ -92,6 +92,10 @@ CASES = {
                       "import Observation\n@Observable final class Model {\n    var x = 0\n}\n"),
     "generic-class-deinit": ("@MainActor final class Once<T> {\n    var value: T?\n}\n",
                              "@MainActor final class Once<T> {\n    var value: T?\n    nonisolated deinit {}\n}\n"),
+    "action-wait": ("func bind(_ registry: ActionRegistry) {\n"
+                    "    registry.bind(\"renamePane\", invoke: { _ in ctx.send(\"rename-pane\") { try await $0.rename() } })\n}\n",
+                    "func bind(_ registry: ActionRegistry) {\n"
+                    "    registry.bind(\"renamePane\", effect: { _ in daemon.intentEffect(\"rename-pane\", intent) { try await $0.rename() } })\n}\n"),
     "row-store": ("import SwiftUI\nstruct WorkspaceRow: View {\n    let title: String\n"
                   "    @Environment(SidebarStore.self) private var store\n    var body: some View { Text(title) }\n}\n",
                   "import SwiftUI\nstruct WorkspaceRow: View {\n    let title: String\n    let onSelect: () -> Void\n"
@@ -361,6 +365,26 @@ class RuleTests(Fixture):
                    "func fake() {\n    DispatchQueue.main.async { print(1) }\n}\n")
         self.commit("a main hop in a test target")
         self.assertEqual(self.refused(), [])
+
+    def test_every_untyped_bind_shape_and_a_waiting_effect_are_refused_and_the_escape_passes(self):
+        bad = ['registry.bind("a", run: { _ in })', 'registry.bind("a", unavailable: { nil }) { _ in }',
+               'registry.bind("a", handler: { })', 'CloudHandlers.bind("a", registry, reason: r) { invocation in }',
+               'return .waiting(.network, work)', 'return daemon.waitingEffect("x") { _ in }']
+        for line in bad:
+            with self.subTest(line=line):
+                self.git("reset", "--quiet", "--hard", self.base)
+                self.write(f"{KIT}/Added.swift", f"func f() {{\n    {line}\n}}\n")
+                self.commit("adds a waiting handler")
+                self.assertIn("action-wait", [r.id for r, _ in self.check()[0]])
+        good = ['registry.bindEffect("a", effect: { _ in .done })', 'registry.bindUnavailable("a", reason: "x")',
+                'return .waiting(.network, work) // action-wait-allow: the cloud decides the machine',
+                'registry.bindEffect("a", requires: cap, daemon: d, effect: { _ in .done })']
+        for line in good:
+            with self.subTest(line=line):
+                self.git("reset", "--quiet", "--hard", self.base)
+                self.write(f"{KIT}/Added.swift", f"func f() {{\n    {line}\n}}\n")
+                self.commit("adds a typed handler")
+                self.assertNotIn("action-wait", [r.id for r, _ in self.check()[0]])
 
     def test_skip_reason_lets_the_push_through_and_is_printed(self):
         self.write(f"{KIT}/Added.swift", CASES["main-async"][0])

@@ -1456,6 +1456,16 @@ RULES = (
          "// generic-class-allow: <why this class is not main-actor isolated, e.g. its target's default isolation>",
          matcher_rule(Matcher(GENERIC_CLASS, GENERIC_CLASS_ALLOW, implicit_deinit)),
          scope=(SOURCES, TESTS)),
+    Rule("action-wait", "An action handler that can wait: an untyped bind (`invoke:` / `run:` / `handler:` / a trailing closure) "
+         "or a `.waiting` effect",
+         "an untyped handler can start a Task that awaits the daemon before anything shows, and nothing in its type says so: the "
+         "action misses its 10 ms budget and the regression is invisible (plans/cmux-next/zero-latency.md, the budget contract)",
+         "bind with `effect:` and return what the input's turn changed: `.done`, or `daemon.intentEffect(label, intent) { ... }` "
+         "(a store intent shows now; the registry sends, rolls back and reports), or `.applied(ActionConfirmation(...))` with a "
+         "rollback; `.waiting(reason, work)` only when no local stand-in can exist (network, another process)",
+         "// action-wait-allow: <why nothing can show before the reply>",
+         line_rule(r"\.bind\([^\n]*\b(invoke|run|handler):|\.bind\([^\n]*\)\s*\{\s*(\w+|_)?\s*(,\s*\w+)*\s*in\b"
+                   r"|\.waiting\(\.|\bwaitingEffect\(", "action-wait-allow:")),
     Rule("bench-hooks-shipped", "The bench configuration in a shipped build's settings",
          "CMUX_BENCH_HOOKS (reload.sh --config bench) keeps the debug.* control commands in an optimized app for "
          "the fleet benches; in a release, nightly or RC build's settings it would ship them to users",

@@ -1,9 +1,11 @@
 import CmuxNextActions
+import CmuxNextWakeups
+import CoreFoundation
 @testable import CmuxNextControl
 import Testing
 
 /// The off-main half of the per-action budget: the ledger's Release counters, and the Debug log
-/// line's attribution to the watchdog's stall sample that overlaps the run.
+/// line's stack from the watchdog's over_budget record of the run.
 @Suite struct ActionBudgetReporterTests {
     private static let ms: UInt64 = 1_000_000
 
@@ -13,9 +15,10 @@ import Testing
                            inputAgeMilliseconds: age, outcome: .committed)
     }
 
-    private static func stall(_ sequence: UInt64, start: UInt64, ms milliseconds: Int64, kind: HangRecord.Kind = .stall) -> HangRecord {
-        HangRecord(sequence: sequence, kind: kind, startUptimeNanos: start, duration: .milliseconds(milliseconds),
-                   cpu: .milliseconds(milliseconds), addresses: [1, 2, 3])
+    private static func record(_ sequence: UInt64, owner: String, start: UInt64, kind: HangRecord.Kind = .overBudget,
+                               addresses: [UInt] = [1, 2, 3]) -> HangRecord {
+        HangRecord(sequence: sequence, kind: kind, startUptimeNanos: start, duration: .milliseconds(14),
+                   cpu: .milliseconds(14), addresses: addresses, details: ["task_owner": .string(owner)])
     }
 
     private static let frames: @Sendable (HangRecord) -> [HangFrame] = { _ in
@@ -24,26 +27,31 @@ import Testing
          HangFrame(address: 3, image: "cmux", symbol: "SplitHandlers.run()", offset: 12)]
     }
 
-    @Test func theLineNamesTheActionItsTimesAndTheOverlappingStallsAppFrames() {
+    /// The line takes the stack of the watchdog's `over_budget` record of this run: same action
+    /// (`task_owner`) and same start, never another run's or a stall's.
+    @Test func theLineUsesTheRunsOwnOverBudgetRecord() {
+        let start = 100 * Self.ms
         let line = ActionBudgetLogLine(
-            sample: Self.sample("splitRight", start: 100 * Self.ms, ms: 14, age: 2),
-            stalls: [Self.stall(1, start: 10 * Self.ms, ms: 20),  // ended before the run
-                     Self.stall(2, start: 101 * Self.ms, ms: 12, kind: .busy),  // not a stall
-                     Self.stall(3, start: 99 * Self.ms, ms: 14)],
-            threshold: .milliseconds(8), frames: Self.frames, appImage: "cmux")
+            sample: Self.sample("splitRight", start: start, ms: 14, age: 2),
+            records: [Self.record(1, owner: "splitRight", start: start - 1),  // an earlier run
+                      Self.record(2, owner: "splitDown", start: start),  // another action
+                      Self.record(3, owner: "splitRight", start: start, kind: .stall),
+                      Self.record(4, owner: "splitRight", start: start)],
+            sampling: true, frames: Self.frames, appImage: "cmux")
         #expect(line.text.hasPrefix("action over budget: splitRight key 14.0 ms to commit (input 16.0 ms); main: AppKit -[NSView layout] + 4"))
         #expect(line.text.contains("| app: cmux PaneController.split() + 8 < cmux SplitHandlers.run() + 12"))
-        #expect(line.text.contains("watchdog stall 3, 14.0 ms"))
+        #expect(line.text.hasSuffix("(watchdog over_budget 4)"))
     }
 
-    @Test func withNoOverlappingStallTheLineSaysWhy() {
-        let late = ActionBudgetLogLine(sample: Self.sample("newTab", .pointer, ms: 12),
-                                       stalls: [Self.stall(1, start: 200 * Self.ms, ms: 60)],
-                                       threshold: .milliseconds(50), frames: Self.frames, appImage: "cmux")
-        #expect(late.text == "action over budget: newTab pointer 12.0 ms to commit; no main-thread sample: the watchdog samples "
-            + "stalls of 50.0 ms or more (CMUX_NEXT_HANG_THRESHOLD_MS lowers it)")
-        let none = ActionBudgetLogLine(sample: Self.sample("newTab", ms: 12), stalls: [], threshold: nil)
-        #expect(none.text.hasSuffix("; no main-thread sample: no watchdog"))
+    @Test func withoutTheRunsRecordTheLineSaysWhy() {
+        let start = 100 * Self.ms
+        let none = ActionBudgetLogLine(sample: Self.sample("newTab", .pointer, start: start, ms: 12), records: [], sampling: true)
+        #expect(none.text == "action over budget: newTab pointer 12.0 ms to commit; no main-thread sample: the watchdog recorded no over-budget task for this run")
+        let empty = ActionBudgetLogLine(sample: Self.sample("newTab", start: start, ms: 12),
+                                        records: [Self.record(1, owner: "newTab", start: start, addresses: [])], sampling: true)
+        #expect(empty.text.hasSuffix("; no main-thread sample: the run ended before the watchdog sampled it"))
+        let off = ActionBudgetLogLine(sample: Self.sample("newTab", start: start, ms: 12), records: [], sampling: false)
+        #expect(off.text.hasSuffix("; no main-thread sample: this build does not sample over-budget tasks"))
     }
 
     private static let naming = ActionReportNaming(catalog: ["closeTab", "newTab", "splitRight"])
@@ -67,7 +75,10 @@ import Testing
         // 11 ms the sixth (<= 12), 300 ms the last.
         #expect(closeTab.buckets == [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1])
         #expect(closeTab.maxMilliseconds == 300)
-        guard case .object(let fields) = counts.json else { return Issue.record("not an object") }
+        guard case .object(let fields) = counts.json else {
+            Issue.record("not an object")
+            return
+        }
         #expect(Set(fields.keys) == ["action_budget_ms", "action_latency_bucket_edges_ms", "action_runs_total", "action_runs_excluded",
                                      "action_runs_dropped", "action_over_budget_total", "action_latency"])
     }
@@ -84,9 +95,49 @@ import Testing
         #expect(Set(counts.rows.map(\.id)) == ["custom", "extension", "splitRight"])
         #expect(counts.rows.first { $0.id == "custom" }?.count == 2)
         guard case .object(let fields) = counts.json, case .array(let rows)? = fields["action_latency"] else {
-            return Issue.record("no rows")
+            Issue.record("no rows")
+            return
         }
         let text = "\(rows)"
         #expect(!text.contains("jane") && !text.contains("Smith") && !text.contains("privateThing"))
+    }
+}
+
+/// End to end: a registry run that is slow in its own turn is published on the board, the watchdog
+/// records it as an `over_budget` task named by the action, and the Debug line carries that stack.
+@Suite(.serialized, .timeLimit(.minutes(1))) struct ActionBudgetSpanTests {
+    /// Runs the slow action in one main run-loop turn (a performed block), so its commit boundary fires and the
+    /// monitor records it. Synchronous: CFRunLoopRunInMode is unavailable from async contexts.
+    @MainActor
+    private static func runSlowActionTurn(_ registry: ActionRegistry) {
+        CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue) {
+            // main-proof: performed on the main run loop.
+            MainActor.assumeIsolated { _ = registry.perform("test.slow") }
+            CFRunLoopStop(CFRunLoopGetMain())
+        }
+        CFRunLoopWakeUp(CFRunLoopGetMain())
+        CFRunLoopRunInMode(.defaultMode, 30, false)
+    }
+
+    @MainActor
+    @Test func aSlowRegistryRunGetsItsOwnOverBudgetRecordAndLine() async throws {
+        let watchdog = MainThreadWatchdog(configuration: .init(threshold: .milliseconds(50), logStalls: false))
+        let board = MainTaskBoard()
+        watchdog.start()
+        defer { watchdog.stop() }
+        watchdog.attach(board: board, recordTaskBudgets: true)
+        let monitor = ActionBudgetMonitor(budget: .milliseconds(10), board: board)
+        let registry = ActionRegistry(catalog: [], runTiming: SignpostActionRunTiming(monitor: monitor))
+        registry.register(Action(id: "test.slow", title: "Slow") { spinForTestAction(milliseconds: 40) })
+        var slow = monitor.samples(everyRun: false).makeAsyncIterator()
+        Self.runSlowActionTurn(registry)
+        let sample = try #require(await slow.next())
+        #expect(sample.id == "test.slow")
+        let record = try #require(watchdog.overBudget.records().last, "the slow run left no over_budget record")
+        #expect(record.details["task_owner"] == .string("test.slow"))
+        #expect(record.startUptimeNanos == sample.startUptimeNanos)
+        let line = ActionBudgetLogLine(sample: sample, records: watchdog.overBudget.records(), sampling: true)
+        #expect(line.text.contains("watchdog over_budget"), "\(line.text)")
+        #expect(board.running == nil)
     }
 }

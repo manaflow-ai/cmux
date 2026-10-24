@@ -13,7 +13,7 @@ import os
 ///
 /// ```swift
 /// let reporter = ActionBudgetReporter(monitor: services.actionBudget, naming: ActionReportNaming(catalog: ids),
-///                                     stalls: watchdog.log, threshold: watchdog.configuration.threshold, logsRuns: isDebug)
+///                                     overBudget: watchdog.overBudget, sampling: MainThreadWatchdog.recordsTaskBudgets, logsRuns: isDebug)
 /// let fields = await reporter.counts().json
 /// ```
 public final class ActionBudgetReporter: Sendable {
@@ -27,13 +27,13 @@ public final class ActionBudgetReporter: Sendable {
     /// - Parameters:
     ///   - monitor: The per-action budget.
     ///   - naming: The report id of each action (no user text in a report).
-    ///   - stalls: The main-thread watchdog's stall log, for the Debug line's stack; nil without a
-    ///     watchdog.
-    ///   - threshold: The watchdog's stall threshold (a shorter run has no sample).
+    ///   - overBudget: The main-thread watchdog's over-budget records (``MainThreadWatchdog/overBudget``),
+    ///     for the Debug line's stack; nil without a watchdog.
+    ///   - sampling: Whether the watchdog samples over-budget tasks (``MainThreadWatchdog/recordsTaskBudgets``).
     ///   - logsRuns: Write the Debug log line per over-budget run (Debug builds). It keeps the
     ///     real action id: the log stays on this Mac.
     @MainActor
-    public init(monitor: ActionBudgetMonitor, naming: ActionReportNaming, stalls: HangLog?, threshold: Duration?, logsRuns: Bool) {
+    public init(monitor: ActionBudgetMonitor, naming: ActionReportNaming, overBudget: HangLog?, sampling: Bool, logsRuns: Bool) {
         let ledger = ActionBudgetLedger(budgetMilliseconds: Double(monitor.budgetNanos) / 1_000_000, naming: naming)
         self.ledger = ledger
         self.monitor = monitor
@@ -46,13 +46,9 @@ public final class ActionBudgetReporter: Sendable {
             tasks.append(Task.detached(priority: .utility) {
                 let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "action.budget")
                 for await sample in slow {
-                    // The watchdog records the run's stall in the same before-waiting pass as the
-                    // run's commit, after it (its observer's order is last). A main-actor job runs
-                    // only after that pass, so once it returns the stall is in the log: an ordering
-                    // signal, no work on the main thread.
-                    await MainActor.run {}
-                    let line = ActionBudgetLogLine(sample: sample, stalls: stalls?.records() ?? [],
-                                                   threshold: stalls == nil ? nil : threshold)
+                    // The board ended the run's span (and the watchdog wrote its record) before the
+                    // monitor handed the run over, both on the main actor: the record is in the log.
+                    let line = ActionBudgetLogLine(sample: sample, records: overBudget?.records() ?? [], sampling: sampling)
                     logger.notice("\(line.text, privacy: .public)")
                 }
             })

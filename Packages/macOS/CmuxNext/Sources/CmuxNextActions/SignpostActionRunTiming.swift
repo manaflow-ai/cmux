@@ -36,6 +36,7 @@ public struct SignpostActionRunTiming: ActionRunTiming {
         let signposts = signposter.isEnabled
         guard signposts || monitor != nil else { return body() }
         let start = ActionBudgetMonitor.now()
+        let span = monitor?.beginSpan(index, start: start)
         let read = input()
         let message = ActionSignpostMessage(id: id.rawValue, origin: origin.rawValue, inputAgeMilliseconds: read.ageMilliseconds)
         let commit = signposts ? signposter.begin(.actionCommit, message) : nil
@@ -47,7 +48,7 @@ public struct SignpostActionRunTiming: ActionRunTiming {
         wakes.end()
         if nested {
             monitor?.record(index, read.entrypoint, start: start, end: ActionBudgetMonitor.now(),
-                            inputAgeMilliseconds: read.ageMilliseconds, outcome: .nested)
+                            inputAgeMilliseconds: read.ageMilliseconds, outcome: .nested, span: span)
             if let perform { signposter.endSpanningNestedLoop(.actionPerform, perform) }
             if let commit { signposter.endSpanningNestedLoop(.actionCommit, commit) }
             return result
@@ -59,7 +60,7 @@ public struct SignpostActionRunTiming: ActionRunTiming {
             let end = ActionBudgetMonitor.now()
             if let commit { signposter.end(.actionCommit, commit, outcome) }
             monitor?.record(index, read.entrypoint, start: start, end: end, inputAgeMilliseconds: read.ageMilliseconds,
-                            outcome: outcome == .committed ? .committed : .missed)
+                            outcome: outcome == .committed ? .committed : .missed, span: span)
         }
         return result
     }

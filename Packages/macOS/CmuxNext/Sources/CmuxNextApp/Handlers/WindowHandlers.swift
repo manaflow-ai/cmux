@@ -22,7 +22,10 @@ enum WindowHandlers {
         // DEV and NIGHTLY only: the descriptor is `isDebugOnly` (`DevTools`).
         registry.bind("openDebugSettings", run: { invocation in try context.services.debugSettings.show(focus: invocation.allowsViewChange) })
         // DEV and NIGHTLY (`isDebugOnly`): the per-action budget's HUD; it never takes the keys.
-        registry.bind("debug.actionLatencyHUD", run: { _ in context.services.actionLatencyHUD.toggle(over: context.services.windows.active?.window) })
+        registry.bindEffect("debug.actionLatencyHUD", effect: { _ in
+            context.services.actionLatencyHUD.toggle(over: context.services.windows.active?.window)
+            return .done
+        })
         registry.bind("about", run: { _ in
             context.activateApp()
             let credits = AboutPanelCredits(bundle: .main).credits

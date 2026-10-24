@@ -28,6 +28,7 @@ import CmuxNextSidebar
 import CmuxNextTerminal
 import CmuxNextUpdater
 import CmuxNextVSCodeServer
+import CmuxNextWakeups
 import CmuxNextWorkspaceNaming
 import CmuxNextWorkspaceRepair
 import os
@@ -96,8 +97,9 @@ final class AppServices {
     let mobile = MobileHostService(displayName: { await MacName().displayName() })  // phone access; the account layer starts it
     /// iPhone connections for the cmux-next iPhone app (cmux-next-ios, Settings > Mobile).
     let iphone = IPhoneHostService()
-    /// Every action run's perform-to-commit time against the 10 ms budget (always on; zero-latency.md).
-    let actionBudget = ActionBudgetMonitor()
+    /// Every action run's perform-to-commit time against the 10 ms budget (always on; zero-latency.md),
+    /// each run published on the app's main-thread task board so the watchdog samples a slow one.
+    let actionBudget = ActionBudgetMonitor(board: FrameScheduler.app.budget.board)
     /// Every action; timed by the always-on `action.*` signposts and `actionBudget`, in Debug and Release.
     let registry: ActionRegistry
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
