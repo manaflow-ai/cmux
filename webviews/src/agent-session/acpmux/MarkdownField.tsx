@@ -184,6 +184,7 @@ function sameMarkdownFieldProps(previous: MarkdownFieldProps, next: MarkdownFiel
     previous.inlineAttachments === next.inlineAttachments &&
     previous.onInlineAttachmentRemove === next.onInlineAttachmentRemove &&
     previous.onInlineAttachmentRestore === next.onInlineAttachmentRestore &&
+    previous.onInlineAttachmentDiscard === next.onInlineAttachmentDiscard &&
     previous.onInlineAttachmentPaste === next.onInlineAttachmentPaste &&
     previous.onInlinePasteFiles === next.onInlinePasteFiles &&
     previous.onInlineAttachmentExpand === next.onInlineAttachmentExpand &&
@@ -523,6 +524,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     inlineAttachments = [],
     onInlineAttachmentRemove,
     onInlineAttachmentRestore,
+    onInlineAttachmentDiscard,
     onInlineAttachmentPaste,
     onInlinePasteFiles,
     onInlineAttachmentExpand,
