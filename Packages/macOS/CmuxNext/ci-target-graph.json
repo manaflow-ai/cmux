@@ -479,6 +479,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser",
       "targets": [
+        "CmuxNextBrowserCore",
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextIcons",
@@ -505,6 +506,15 @@
       ],
       "packages": [],
       "reads": []
+    },
+    "CmuxNextBrowserCore": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserCore",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
     },
     "CmuxNextBrowserHistory": {
       "kind": "regular",
