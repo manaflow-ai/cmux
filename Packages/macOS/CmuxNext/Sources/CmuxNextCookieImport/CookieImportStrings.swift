@@ -79,7 +79,7 @@ enum CookieImportStrings {
     static var nothingMatched: String { t("cookieImport.error.nothingMatched", "No cookie in that profile matches those sites. Nothing was imported.") }
     static func done(count: Int, browser: String,
                      preferredLocalizations: [String] = Bundle.module.preferredLocalizations, locale: Locale = .current) -> String {
-        Bundle.module.localizedString(forKey: "cookieImport.toast.done", value: "Imported %1$lld cookies from %2$@.", table: "CookieImport",
+        Bundle.module.localizedString(forKey: "cookieImport.toast.done", value: "Cookies imported from %2$@: %1$lld.", table: "CookieImport",
                                       arguments: [.count(count), .text(browser)],
                                       preferredLocalizations: preferredLocalizations, locale: locale)
     }

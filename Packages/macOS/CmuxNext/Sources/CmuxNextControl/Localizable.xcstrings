@@ -395,132 +395,133 @@
       }
     },
     "control.error.requestTooLarge": {
+      "comment": "Socket error for a request line over the limit (%@: the limit in bytes, already written by Foundation in this language with its byte unit, for example \"4,194,304 bytes\"). Do not add a unit next to %@.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Request line exceeds %lld bytes"
+            "value": "Request line exceeds %@"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "يتجاوز سطر الطلب %lld بايت"
+            "value": "يتجاوز سطر الطلب %@"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Linija zahtjeva premašuje %lld bajtova"
+            "value": "Linija zahtjeva premašuje %@"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Anmodningslinjen overstiger %lld bytes"
+            "value": "Anmodningslinjen overstiger %@"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Anfragezeile überschreitet %lld Bytes"
+            "value": "Anfragezeile überschreitet %@"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La línea de solicitud supera los %lld bytes"
+            "value": "La línea de solicitud supera %@"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La ligne de requête dépasse %lld octets"
+            "value": "La ligne de requête dépasse %@"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La riga della richiesta supera %lld byte"
+            "value": "La riga della richiesta supera %@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "リクエスト行が %lld バイトを超えています"
+            "value": "リクエスト行が %@ を超えています"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បន្ទាត់សំណើលើសពី %lld បៃ"
+            "value": "បន្ទាត់សំណើលើសពី %@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "요청 줄이 %lld바이트를 초과했습니다"
+            "value": "요청 줄이 %@을(를) 초과했습니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Forespørselslinjen overskrider %lld byte"
+            "value": "Forespørselslinjen overskrider %@"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wiersz żądania przekracza %lld bajtów"
+            "value": "Wiersz żądania przekracza %@"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "A linha da requisição excede %lld bytes"
+            "value": "A linha da requisição excede %@"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Строка запроса превышает %lld байт"
+            "value": "Строка запроса превышает %@"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "บรรทัดคำขอยาวเกิน %lld ไบต์"
+            "value": "บรรทัดคำขอยาวเกิน %@"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "İstek satırı %lld baytı aşıyor"
+            "value": "İstek satırı %@ sınırını aşıyor"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Рядок запиту перевищує %lld байтів"
+            "value": "Рядок запиту перевищує %@"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dòng yêu cầu vượt quá %lld byte"
+            "value": "Dòng yêu cầu vượt quá %@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "请求行超过 %lld 字节"
+            "value": "请求行超过 %@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "請求行超過 %lld 位元組"
+            "value": "請求行超過 %@"
           }
         }
       }
@@ -4456,90 +4457,91 @@
       }
     },
     "control.error.busy": {
+      "comment": "Socket error when the main-actor work queue is full (%1$lld: queued requests, %2$lld: the queue's limit). Each count follows a label, so no noun has to agree with it; keep that shape.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux is busy (%1$lld queued requests, limit %2$lld); retry later"
+            "value": "cmux is busy (queued requests: %1$lld, limit %2$lld); retry later"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux مشغول (%1$lld طلبات في الانتظار، الحد %2$lld)؛ أعد المحاولة لاحقًا"
+            "value": "cmux مشغول (الطلبات في الانتظار: %1$lld، الحد %2$lld)؛ أعد المحاولة لاحقًا"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux je zauzet (%1$lld zahtjeva u redu, ograničenje %2$lld); pokušajte ponovo kasnije"
+            "value": "cmux je zauzet (zahtjevi u redu: %1$lld, ograničenje %2$lld); pokušajte ponovo kasnije"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux er optaget (%1$lld anmodninger i kø, grænse %2$lld); prøv igen senere"
+            "value": "cmux er optaget (anmodninger i kø: %1$lld, grænse %2$lld); prøv igen senere"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux ist ausgelastet (%1$lld Anfragen in der Warteschlange, Limit %2$lld); versuche es später erneut"
+            "value": "cmux ist ausgelastet (Anfragen in der Warteschlange: %1$lld, Limit %2$lld); versuche es später erneut"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux está ocupado (%1$lld solicitudes en cola, límite %2$lld); inténtalo más tarde"
+            "value": "cmux está ocupado (solicitudes en cola: %1$lld, límite %2$lld); inténtalo más tarde"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux est occupé (%1$lld requêtes en file, limite %2$lld) ; réessayez plus tard"
+            "value": "cmux est occupé (requêtes en file : %1$lld, limite %2$lld) ; réessayez plus tard"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux è occupato (%1$lld richieste in coda, limite %2$lld); riprova più tardi"
+            "value": "cmux è occupato (richieste in coda: %1$lld, limite %2$lld); riprova più tardi"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux はビジー状態です (キュー内のリクエスト %1$lld 件、上限 %2$lld 件)。後でもう一度お試しください"
+            "value": "cmux はビジー状態です (キュー内のリクエスト: %1$lld、上限 %2$lld)。後でもう一度お試しください"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux កំពុងរវល់ (សំណើ %1$lld កំពុងរង់ចាំ កំណត់ %2$lld); សូមព្យាយាមម្តងទៀតពេលក្រោយ"
+            "value": "cmux កំពុងរវល់ (សំណើកំពុងរង់ចាំ៖ %1$lld កំណត់ %2$lld); សូមព្យាយាមម្តងទៀតពេលក្រោយ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux가 바쁩니다 (대기 중인 요청 %1$lld개, 한도 %2$lld개). 나중에 다시 시도하세요"
+            "value": "cmux가 바쁩니다 (대기 중인 요청: %1$lld, 한도 %2$lld). 나중에 다시 시도하세요"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux er opptatt (%1$lld forespørsler i kø, grense %2$lld); prøv igjen senere"
+            "value": "cmux er opptatt (forespørsler i kø: %1$lld, grense %2$lld); prøv igjen senere"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux jest zajęty (%1$lld żądań w kolejce, limit %2$lld); spróbuj ponownie później"
+            "value": "cmux jest zajęty (żądania w kolejce: %1$lld, limit %2$lld); spróbuj ponownie później"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "o cmux está ocupado (%1$lld requisições na fila, limite %2$lld); tente novamente mais tarde"
+            "value": "o cmux está ocupado (requisições na fila: %1$lld, limite %2$lld); tente novamente mais tarde"
           }
         },
         "ru": {
@@ -4551,37 +4553,37 @@
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux ไม่ว่าง (มีคำขอในคิว %1$lld รายการ ขีดจำกัด %2$lld) ลองอีกครั้งภายหลัง"
+            "value": "cmux ไม่ว่าง (คำขอในคิว: %1$lld ขีดจำกัด %2$lld) ลองอีกครั้งภายหลัง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux meşgul (%1$lld istek kuyrukta, sınır %2$lld); daha sonra tekrar deneyin"
+            "value": "cmux meşgul (kuyruktaki istekler: %1$lld, sınır %2$lld); daha sonra tekrar deneyin"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux зайнятий (%1$lld запитів у черзі, ліміт %2$lld); повторіть пізніше"
+            "value": "cmux зайнятий (запитів у черзі: %1$lld, ліміт %2$lld); повторіть пізніше"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux đang bận (%1$lld yêu cầu đang xếp hàng, giới hạn %2$lld); hãy thử lại sau"
+            "value": "cmux đang bận (yêu cầu đang xếp hàng: %1$lld, giới hạn %2$lld); hãy thử lại sau"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux 正忙(%1$lld 个请求在排队,上限 %2$lld);请稍后重试"
+            "value": "cmux 正忙(排队的请求:%1$lld,上限 %2$lld);请稍后重试"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux 正忙(%1$lld 個請求在排隊,上限 %2$lld);請稍後重試"
+            "value": "cmux 正忙(排隊的請求:%1$lld,上限 %2$lld);請稍後重試"
           }
         }
       }
