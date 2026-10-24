@@ -56,6 +56,8 @@
 //!   gesture, but a LocalApp page could send it itself with no gesture: that
 //!   is accepted, since the page can already prompt the agent, and it writes
 //!   at most `MAX_BYTES` owner-only into a fresh folder under `uploads`.
+//! - Web only: no `_acpmux/workflows` (`workflows.remote`): it names the
+//!   daemon's chats and their workflows' args.
 //! - Web only: no `_acpmux/media_open` or `_acpmux/media_range`
 //!   (`mediaRead.remote`). They read a chat's images and videos on this
 //!   machine for the app's pane (`hub/media_read.rs`): the unix socket, the
@@ -347,6 +349,14 @@ pub(super) async fn check(
             "mediaRead.remote: a chat's media is read only for the app or over the local unix socket",
         )
         .with_data(serde_json::json!({"reason": "mediaRead.remote"})));
+    }
+    // The daemon's workflows name its chats and their workflows' args
+    // (`hub/workflow_index.rs`): the app and the unix socket only.
+    if m == method::MUX_WORKFLOWS && control_of(origin, auth, params) == crate::hub::Control::Web {
+        return Err(RpcError::invalid_params(
+            "workflows.remote: the daemon's workflows are listed only for the app or over the local unix socket",
+        )
+        .with_data(serde_json::json!({"reason": "workflows.remote"})));
     }
     // After the folder checks: what the request starts from, and its mode.
     if web {
