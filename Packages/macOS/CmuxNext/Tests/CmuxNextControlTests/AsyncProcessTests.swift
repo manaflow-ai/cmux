@@ -1,5 +1,6 @@
 import CmuxNextWakeups
 import Darwin
+import Dispatch
 import Foundation
 import os
 import Testing
@@ -84,6 +85,41 @@ import Testing
         await child.exit()
     }
 
+    @Test func aStopThatComesDuringOnLaunchSignalsTheChildOnlyAfterItReturns() async throws {
+        // onLaunch holds until the caller's cancel (a stop) has come. The child must not get the stop signal
+        // before onLaunch returns: a watcher it starts must find the child alive.
+        let gate = DispatchSemaphore(value: 0)
+        let returned = OSAllocatedUnfairLock(initialState: false)
+        let exitedFirst = OSAllocatedUnfairLock<Bool?>(initialState: nil)
+        let (launched, launch) = AsyncStream.makeStream(of: Int32.self)
+        let (exited, exitReport) = AsyncStream.makeStream(of: Void.self)
+        let watchers = OSAllocatedUnfairLock<[any DispatchSourceProcess]>(initialState: [])
+        let request = ProcessRequest(URL(fileURLWithPath: "/bin/sleep"), ["600"], onLaunch: { pid in
+            let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: .global(qos: .userInitiated))
+            source.setEventHandler {
+                exitedFirst.withLock { $0 = !returned.withLock { $0 } }
+                source.cancel()
+                exitReport.yield()
+                gate.signal()  // a child killed while onLaunch waits frees it
+            }
+            watchers.withLock { $0.append(source) }
+            source.activate()
+            launch.yield(pid)
+            gate.wait()
+            returned.withLock { $0 = true }
+        })
+        let processes = processes
+        let run = Task { try await processes.run(request) }
+        var iterator = launched.makeAsyncIterator()
+        _ = await iterator.next()
+        run.cancel()
+        await #expect(throws: CancellationError.self) { try await run.value }
+        gate.signal()
+        var exits = exited.makeAsyncIterator()
+        _ = await exits.next()
+        #expect(exitedFirst.withLock { $0 } == false, "the child got the stop signal while onLaunch ran")
+    }
+
     @Test func aStoppedChildThatIgnoresTheStopSignalIsKilledAfterItsGrace() async {
         // `exec`: sleep itself ignores SIGTERM (an ignored signal stays ignored across exec), so only SIGKILL
         // ends it before the suite's limit, and no orphan outlives the test.
@@ -118,8 +154,9 @@ import Testing
     }
 
     @MainActor @Test func aMainActorCallerNeverSpawnsOnTheMainThread() async throws {
-        // AsyncProcess.run is @concurrent: with NonisolatedNonsendingByDefault a plain async function would
-        // run its setup and posix_spawn on the caller's actor, here the main thread.
+        // The spawn runs on the run's own serial queue (ProcessRun), and AsyncProcess.run is @concurrent: with
+        // NonisolatedNonsendingByDefault a plain async function would run its setup on the caller's actor, here
+        // the main thread.
         let onMain = OSAllocatedUnfairLock<Bool?>(initialState: nil)
         let request = ProcessRequest(URL(fileURLWithPath: "/usr/bin/true"), onLaunch: { _ in
             onMain.withLock { $0 = pthread_main_np() != 0 }
@@ -165,12 +202,51 @@ import Testing
         #expect(queue.withLock { $0 } == "com.cmuxterm.next.process.true")
     }
 
-    @Test(arguments: [(WorkPriority.idle, QualityOfService.background), (.bestEffort, .utility),
-                      (.userVisible, .default), (.userBlocking, .userInitiated)])
-    func eachWaiterPriorityHasOneChildQoSAndNeverUserInteractive(priority: WorkPriority, qos: QualityOfService) {
-        // A child's own QoS is not observable from a test without a helper binary (the system python3 is a
-        // shim that spawns the real one at the default QoS), so the mapping AsyncProcess applies is checked.
-        #expect(priority.processQoS == qos)
+    /// The base scheduling priority of `pid`'s first thread, which its QoS sets (background 4, utility 20,
+    /// default 31, userInitiated 37); nil when the kernel does not answer.
+    static func basePriority(of pid: Int32) -> Int32? {
+        var threads = [UInt64](repeating: 0, count: 16)
+        let listed = proc_pidinfo(pid, PROC_PIDLISTTHREADS, 0, &threads, Int32(threads.count * MemoryLayout<UInt64>.size))
+        guard listed >= Int32(MemoryLayout<UInt64>.size) else { return nil }
+        var info = proc_threadinfo()
+        let size = Int32(MemoryLayout<proc_threadinfo>.size)
+        guard proc_pidinfo(pid, PROC_PIDTHREADINFO, threads[0], &info, size) == size else { return nil }
+        return info.pth_priority
+    }
+
+    /// The measured priority of a child that `waiter` awaits with the request's `priority`.
+    func childPriority(waiter: TaskPriority, request priority: WorkPriority?) async throws -> Int32 {
+        let (seen, report) = AsyncStream.makeStream(of: Int32?.self)
+        let request = ProcessRequest(URL(fileURLWithPath: "/bin/sleep"), ["30"], priority: priority,
+                                     onLaunch: { report.yield(Self.basePriority(of: $0)) })
+        let processes = processes
+        let run = Task(priority: waiter) { try await processes.run(request) }
+        var iterator = seen.makeAsyncIterator()
+        let measured = await iterator.next() ?? nil
+        run.cancel()
+        _ = try? await run.value
+        return try #require(measured, "no thread info for the child")
+    }
+
+    @Test func aChildRunsAtItsWaitersPriority() async throws {
+        // Measured on the child itself (its main thread's base priority), not read off the mapping table.
+        let background = try await childPriority(waiter: .background, request: nil)
+        let high = try await childPriority(waiter: .high, request: nil)
+        #expect(background < high, "background waiter's child \(background), high waiter's \(high)")
+        #expect(high < 47, "a child never runs at userInteractive (47): \(high)")
+    }
+
+    @Test func aRequestsOwnPriorityHoldsUnderAHigherWaiter() async throws {
+        // A poll states bestEffort; awaited from a high task (a main-actor poll loop) its child stays below the
+        // child of the same waiter that takes the caller's priority.
+        let poll = try await childPriority(waiter: .high, request: .bestEffort)
+        let caller = try await childPriority(waiter: .high, request: nil)
+        let idle = try await childPriority(waiter: .high, request: .idle)
+        #expect(idle < poll && poll < caller, "idle \(idle), bestEffort \(poll), caller's \(caller)")
+    }
+
+    @Test(arguments: WorkPriority.allCases)
+    func noPriorityMapsAChildToUserInteractive(priority: WorkPriority) {
         #expect(priority.processQoS != .userInteractive)
     }
 }

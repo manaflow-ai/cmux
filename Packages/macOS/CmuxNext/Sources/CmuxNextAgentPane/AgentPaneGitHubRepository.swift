@@ -8,9 +8,15 @@ import CmuxNextWakeups
 public nonisolated struct AgentPaneGitHubRepository {
     public init() {}
 
+    /// The `owner/name` of the GitHub repository `path`'s `origin` names, else nil.
+    ///
+    /// The `git` child runs at ``WorkPriority/userVisible`` whatever the caller's priority: the answer
+    /// only turns issue references on a page into links, and its main-actor callers (a pane's handshake,
+    /// a Markdown page's config) would otherwise run it at the main actor's priority.
     public static func read(at path: String?) async -> String? {
         guard let path, path.hasPrefix("/"), !path.contains("\0") else { return nil }
-        let request = ProcessRequest(URL(fileURLWithPath: "/usr/bin/git"), ["-C", path, "remote", "get-url", "origin"])
+        let request = ProcessRequest(URL(fileURLWithPath: "/usr/bin/git"), ["-C", path, "remote", "get-url", "origin"],
+                                     priority: .userVisible)
         guard let outcome = try? await AsyncProcess().run(request), outcome.succeeded else { return nil }
         return parse(outcome.text)
     }

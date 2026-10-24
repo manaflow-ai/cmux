@@ -50,8 +50,14 @@ public struct ProcessRequest: Sendable {
     /// ignores or traps `SIGTERM` (a hook, a hung credential helper) always ends. Default 2 s: the grace
     /// the Changes view's git runs had for removing `index.lock` before AsyncProcess.
     public var killGrace: Duration
+    /// The priority the child and its output reads run at (``WorkPriority/processQoS``); nil takes the
+    /// caller's (`Task.currentPriority` at ``AsyncProcess/run(_:)``). A set priority is used as is, even when
+    /// a higher-priority task awaits the run: a poll nobody waits for (the GitHub feed) states
+    /// ``WorkPriority/bestEffort`` so its child never competes at the main actor's priority.
+    public var priority: WorkPriority?
     /// Called with the child's pid right after it started, on the thread that started it, before any
-    /// stop can reach it (diagnostics; tests watch the child's exit with it).
+    /// stop can signal it: a stop (timeout, cancel) that comes earlier sends its signal once this returns.
+    /// The child can still exit on its own first (diagnostics; tests watch the child's exit with it).
     public var onLaunch: (@Sendable (Int32) -> Void)?
 
     /// Describes one run.
@@ -67,11 +73,12 @@ public struct ProcessRequest: Sendable {
     ///   - stopSignal: what a timeout or a cancel sends; default `SIGTERM`.
     ///   - onCancel: what a cancel of the awaiting task does; default ``CancelBehavior/stop``.
     ///   - killGrace: how long a stopped child has before SIGKILL; default 2 s.
+    ///   - priority: the child's priority; nil (the default) takes the caller's.
     ///   - onLaunch: called with the child's pid right after it started; default none.
     public init(_ executable: URL, _ arguments: [String] = [], environment: [String: String]? = nil,
                 directory: URL? = nil, input: Data? = nil, errorOutput: ErrorOutput = .discard,
                 timeout: Duration? = nil, stopSignal: Int32 = SIGTERM, onCancel: CancelBehavior = .stop,
-                killGrace: Duration = .seconds(2), onLaunch: (@Sendable (Int32) -> Void)? = nil) {
+                killGrace: Duration = .seconds(2), priority: WorkPriority? = nil, onLaunch: (@Sendable (Int32) -> Void)? = nil) {
         self.executable = executable
         self.arguments = arguments
         self.environment = environment
@@ -82,6 +89,7 @@ public struct ProcessRequest: Sendable {
         self.stopSignal = stopSignal
         self.onCancel = onCancel
         self.killGrace = killGrace
+        self.priority = priority
         self.onLaunch = onLaunch
     }
 }

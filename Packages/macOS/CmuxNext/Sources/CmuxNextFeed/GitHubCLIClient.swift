@@ -1,5 +1,5 @@
 public import Foundation
-import CmuxNextWakeups
+public import CmuxNextWakeups
 
 /// A GitHub API implementation that uses the user's existing `gh` login.
 /// No token is read, copied, or persisted by cmux.
@@ -8,9 +8,16 @@ import CmuxNextWakeups
 /// `gh` spawn, the HTTP parse and the JSON decode of up to 100 items must never run on the main thread.
 public nonisolated struct GitHubCLIClient: GitHubFeedAPI {
     public var executable: String
+    /// The priority of each `gh` child; nil takes the caller's. The feed's poll states
+    /// ``WorkPriority/bestEffort``: it runs from a main-actor task, whose priority a child would take.
+    public var priority: WorkPriority?
 
-    public init(executable: String = "/usr/bin/env") {
+    /// - Parameters:
+    ///   - executable: `gh`, or `/usr/bin/env` to find it on `PATH`.
+    ///   - priority: the priority of each `gh` child; nil (the default) takes the caller's.
+    public init(executable: String = "/usr/bin/env", priority: WorkPriority? = nil) {
         self.executable = executable
+        self.priority = priority
     }
 
     public func notifications(etag: String?) async throws -> GitHubAPIResponse<[GitHubNotification]> {
@@ -41,7 +48,7 @@ public nonisolated struct GitHubCLIClient: GitHubFeedAPI {
     @concurrent private func request<Value: Decodable & Sendable>(
         path: String, fields: [String: String], etag: String?, listKey: String? = nil
     ) async throws -> GitHubAPIResponse<[Value]> {
-        let result = try await Self.run(executable: executable, path: path, fields: fields, etag: etag)
+        let result = try await Self.run(executable: executable, path: path, fields: fields, etag: etag, priority: priority)
         guard result.status != 304 else {
             return GitHubAPIResponse(value: nil, etag: result.etag, notModified: true)
         }
@@ -64,7 +71,7 @@ public nonisolated struct GitHubCLIClient: GitHubFeedAPI {
     }
 
     @concurrent private static func run(
-        executable: String, path: String, fields: [String: String], etag: String?
+        executable: String, path: String, fields: [String: String], etag: String?, priority: WorkPriority?
     ) async throws -> CommandResult {
         let command = ["gh", "api", "--include", "-X", "GET", path]
             + fields.sorted(by: { $0.key < $1.key }).flatMap { ["-f", "\($0.key)=\($0.value)"] }
@@ -74,7 +81,7 @@ public nonisolated struct GitHubCLIClient: GitHubFeedAPI {
         let outcome: ProcessOutcome
         do {
             outcome = try await AsyncProcess().run(ProcessRequest(URL(fileURLWithPath: executable), arguments,
-                                                                  errorOutput: .merge))
+                                                                  errorOutput: .merge, priority: priority))
         } catch ProcessFailure.launch(let message) {
             throw GitHubFeedError.cliUnavailable(message)
         }
