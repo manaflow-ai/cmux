@@ -5,6 +5,7 @@ import { liftInlineImages, withoutMarkdownImages } from "./inlineImages";
 import { isImeKeyEvent } from "../../pages/shared/imeKeys";
 import { activeFormats, applyFormat, type MarkdownFormat } from "./markdownFormat";
 import "./markdownField.css";
+import "./markdownFieldLineGrid.css";
 import { followActionsWidth } from "./composerScrollLane";
 import { MINIMAL_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
 import {

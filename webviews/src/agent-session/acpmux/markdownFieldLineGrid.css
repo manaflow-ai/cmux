@@ -1,0 +1,27 @@
+/* A draft grows and scrolls on whole line boxes. The field's existing padding stays part of its
+   max-height, so the visible cap is eight lines plus the insets rather than a partial ninth line. */
+.acpmux-md-field {
+  box-sizing: border-box;
+  --acpmux-md-line-height: var(--text-title--line-height, 22px);
+  --acpmux-md-pad-top: calc(15px * var(--cmux-interface-scale, 1));
+  --acpmux-md-pad-bottom: calc(8px * var(--cmux-interface-scale, 1));
+  max-height: calc(
+    var(--acpmux-md-line-height) * 8 + var(--acpmux-md-pad-top) + var(--acpmux-md-pad-bottom)
+  );
+  scroll-snap-type: y proximity;
+  scroll-padding-block: var(--acpmux-md-pad-top) var(--acpmux-md-pad-bottom);
+}
+
+/* Claude's inline composer tightens the prompt insets; keep the cap's line grid in step with it. */
+.acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) .acpmux-md-field {
+  --acpmux-md-pad-top: calc(11px * var(--cmux-interface-scale, 1));
+  --acpmux-md-pad-bottom: calc(11px * var(--cmux-interface-scale, 1));
+}
+
+.acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner)
+  > .acpmux-composer-field-menu
+  > .acpmux-attachments
+  ~ .acpmux-composer-field-menu
+  :is(.acpmux-md-field, .acpmux-shell-field) {
+  --acpmux-md-pad-top: var(--acpmux-attach-gap);
+}

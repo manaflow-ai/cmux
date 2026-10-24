@@ -3,30 +3,27 @@
    user formats. Theme tokens only. */
 .acpmux-md-field {
   position: relative;
-  box-sizing: border-box;
   /* Keep long drafts inside the composer. Eight lines matches the reference composer and
      leaves the transcript and location shelf anchored while the draft grows. */
-  --acpmux-md-line-height: var(--text-title--line-height, 22px);
-  --acpmux-md-pad-top: calc(15px * var(--cmux-interface-scale, 1));
-  --acpmux-md-pad-bottom: calc(8px * var(--cmux-interface-scale, 1));
-  max-height: calc(
-    var(--acpmux-md-line-height) * 8 + var(--acpmux-md-pad-top) + var(--acpmux-md-pad-bottom)
-  );
+  max-height: calc(var(--text-body--line-height, 22px) * 8 + var(--cmux-control-height, 23px));
   overflow-y: auto;
-  scroll-snap-type: y proximity;
-  scroll-padding-block: var(--acpmux-md-pad-top) var(--acpmux-md-pad-bottom);
   /* A long draft scrolls in this box alone (Leo 2026-10-20: reaching the top or the bottom must
      not shift anything): no chaining into the transcript, no bounce. */
   overscroll-behavior: contain;
-  padding: var(--acpmux-md-pad-top) calc(16px * var(--cmux-interface-scale, 1)) var(--acpmux-md-pad-bottom);
+  padding: calc(15px * var(--cmux-interface-scale, 1)) calc(16px * var(--cmux-interface-scale, 1)) calc(8px * var(--cmux-interface-scale, 1));
   font-size: var(--text-title, 15px);
   line-height: var(--text-title--line-height, 22px);
   color: var(--agent-text);
 }
-/* The prompt deliberately has no edge mask. A fade over a 22px line box can cut the first or last
-   visible line in half as the field grows or scrolls; whole-line snapping keeps every edge legible.
-   The attachment strip keeps its own horizontal fade. */
+/* A long draft's soft edges (Leo 2026-10-21), the transcript's (.acpmux-scroll, conversation.css):
+   the edge with more draft past it (data-fade-top / data-fade-bottom, MarkdownField.tsx) fades the
+   text out as it scrolls under it. An alpha mask on the scroller itself, never a painted overlay, so
+   the composer's glass shows through; at the start and the end that edge is plain. The overlay
+   scrollbar's narrow lane at the right keeps full ink. Reduce Transparency keeps plain edges. The band
+   (--acpmux-md-fade-band) comes from MarkdownField.tsx, whose caret reveal keeps clear of it. */
 .acpmux-md-field {
+  --acpmux-md-fade-top: 0px;
+  --acpmux-md-fade-bottom: 0px;
   --acpmux-md-scrollbar-lane: 8px;
   /* The minimal scroller's track (scrollers.ts) stops short of the composer's rounded corners. */
   --cmux-minimal-scroller-inset: calc(10px * var(--cmux-interface-scale, 1));
@@ -36,6 +33,59 @@
   /* Its lane is always reserved (scrollers.ts), so it comes out of the right padding: the
      draft keeps the same width, and never rewraps, whether or not it overflows. */
   padding-right: max(0px, calc(16px * var(--cmux-interface-scale, 1) - var(--cmux-scroller-size, 8px)));
+}
+.acpmux-md-field[data-fade-top] {
+  --acpmux-md-fade-top: var(--acpmux-md-fade-band);
+}
+.acpmux-md-field[data-fade-bottom] {
+  --acpmux-md-fade-bottom: var(--acpmux-md-fade-band);
+}
+.acpmux-md-field[data-fade-top],
+.acpmux-md-field[data-fade-bottom] {
+  -webkit-mask-image:
+    linear-gradient(
+      to bottom,
+      transparent,
+      #000 var(--acpmux-md-fade-top),
+      #000 calc(100% - var(--acpmux-md-fade-bottom)),
+      transparent
+    ),
+    linear-gradient(#000, #000);
+  mask-image:
+    linear-gradient(
+      to bottom,
+      transparent,
+      #000 var(--acpmux-md-fade-top),
+      #000 calc(100% - var(--acpmux-md-fade-bottom)),
+      transparent
+    ),
+    linear-gradient(#000, #000);
+  -webkit-mask-size:
+    100% 100%,
+    var(--acpmux-md-scrollbar-lane) 100%;
+  mask-size:
+    100% 100%,
+    var(--acpmux-md-scrollbar-lane) 100%;
+  -webkit-mask-position:
+    0 0,
+    100% 0;
+  mask-position:
+    0 0,
+    100% 0;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+}
+@media (prefers-reduced-transparency: reduce) {
+  .acpmux-md-field[data-fade-top],
+  .acpmux-md-field[data-fade-bottom] {
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+}
+:root[data-reduce-transparency] .acpmux-md-field[data-fade-top],
+:root[data-reduce-transparency] .acpmux-md-field[data-fade-bottom] {
+  -webkit-mask-image: none;
+  mask-image: none;
 }
 .acpmux-md-placeholder {
   position: absolute;
