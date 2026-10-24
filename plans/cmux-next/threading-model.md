@@ -10,7 +10,8 @@ How it is enforced:
   (`FileManager.checked`, `Data(blockingContentsOf:)`,
   `String(blockingContentsOf:)`, `URL.blockingResourceValues`, `FileHandle.blocking*`,
   `blockingRead/Recv/Write/Send`, `DispatchSemaphore/DispatchGroup/NSCondition/DispatchWorkItem.blockingWait`,
-  `DispatchQueue.blockingSync`, `Process.blockingWaitUntilExit`, `blockingXPCSendWithReply`, and a contended
+  `DispatchQueue.blockingSync`, `Process.blockingWaitUntilExit`, `Process.blockingRun` and `blockingPosixSpawn`
+  (a process spawn: screen.close stalled main 807 ms on one, 2026-10-24), `blockingXPCSendWithReply`, and a contended
   `Mutex` wait over 2 ms); code that calls them is checked, and slice (c) moves the raw calls onto them (see
   the next item). On the main thread outside `allowBlocking(<reason>)` a seam call is a violation, recorded once
   per call site (`#fileID:#line`; two seam calls on one line share a site). Debug: one unified-log line per call site
