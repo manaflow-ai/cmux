@@ -2782,6 +2782,9 @@
       if (frame === this._mainFrame) {
         this._mainFrame._id = this._mainFrame._id || p.frameId;
         this._url = p.url;
+        // A new document starts its snapshots over: a diff against another
+        // document's tree says nothing and costs a whole-tree diff.
+        if (p.sameDocument !== true) this._snapshotBaselines = null;
       } else frame._url = p.url;
       this.emit("framenavigated", frame);
     }
