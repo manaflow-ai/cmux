@@ -29,7 +29,7 @@ class SwiftPackagesLinuxCacheTests(unittest.TestCase):
         self.assertIn("${{ steps.key.outputs.week }}", key)
         self.assertIn("${{ steps.key.outputs.toolchain }}", key)
         self.assertIn("${{ matrix.group }}", key)
-        self.assertIn("${{ hashFiles('Packages/**/Package.swift', 'Packages/**/Package.resolved') }}", key)
+        self.assertIn("${{ steps.key.outputs.manifests }}", key)
 
     def test_key_hashes_tracked_manifests_before_generated_build_trees_exist(self):
         steps = load_yaml(WORKFLOW)["jobs"]["packages"]["steps"]
