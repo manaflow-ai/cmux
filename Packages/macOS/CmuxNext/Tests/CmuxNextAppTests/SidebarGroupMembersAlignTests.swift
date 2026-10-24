@@ -108,9 +108,11 @@ import Testing
         let lines = block.subviews.filter { !($0 is SidebarRowView) }
         #expect(members.count == 2 && lines.count == 1, "card holds \(members.count) members and \(lines.count) lines")
         for drawn in lines {
-            #expect(drawn.frame.minX >= 0, "the card clips the line at \(drawn.frame)")
+            let drawnLine = try #require(drawn as? GroupLineView)
+            #expect(drawnLine.logicalFrame.minX >= 0, "the card clips the line at \(drawnLine.logicalFrame)")
             for member in members {
-                #expect(drawn.frame.maxX <= member.frame.minX, "on the card the line \(drawn.frame) runs under \(member.frame)")
+                #expect(drawnLine.logicalFrame.maxX <= member.frame.minX,
+                        "on the card the line \(drawnLine.logicalFrame) runs under \(member.frame)")
             }
         }
     }

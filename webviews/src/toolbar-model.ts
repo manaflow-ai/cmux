@@ -313,10 +313,18 @@ export type PillButton = {
   unavailable?: boolean;
 };
 
+const LAYOUT_ICON = { unified: "unified", split: "split", auto: "auto" } as const satisfies Record<
+  DiffViewerOptions["layout"],
+  IconName
+>;
+const LAYOUT_NEXT_LABEL = {
+  unified: "switchToSplitDiff",
+  split: "switchToAutoLayout",
+  auto: "switchToUnifiedDiff",
+} as const satisfies Record<DiffViewerOptions["layout"], DiffViewerLabelKey>;
+
 export function toolbarPillButtons(state: {
   options: Pick<DiffViewerOptions, "collapsed" | "layout" | "wordWrap">;
-  /** False when the viewer is too narrow for split, which then draws unified. */
-  splitFits?: boolean;
   filesVisible: boolean;
   optionsOpen: boolean;
   findOpen: boolean;
@@ -334,14 +342,11 @@ export function toolbarPillButtons(state: {
       labelKey: options.collapsed ? "expandAllDiffs" : "collapseAllDiffs",
     },
     {
+      // Shows the chosen layout (rows, columns, or the diagonal of auto) and names the next one.
       id: "layout",
       domId: "layout-toggle",
-      // The layout shown: two columns while split, two rows while unified (also when split does
-      // not fit and the diff draws unified). The tooltip names the other one.
-      icon: options.layout === "split" && state.splitFits !== false ? "split" : "unified",
-      ...(state.splitFits === false
-        ? { labelKey: "splitDiffNeedsWiderPane" as const, unavailable: true }
-        : { labelKey: options.layout === "split" ? ("switchToUnifiedDiff" as const) : ("switchToSplitDiff" as const) }),
+      icon: LAYOUT_ICON[options.layout],
+      labelKey: LAYOUT_NEXT_LABEL[options.layout],
     },
     {
       id: "files",

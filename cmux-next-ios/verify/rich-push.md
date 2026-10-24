@@ -11,7 +11,7 @@ PROTOCOL.md "Push notifications (API 0.13.0)". The trust analysis for PR B is
 | --- | --- | --- | --- | --- |
 | Question, one choice, at most 4 options | "<Agent> asks", the question, `<workspace> · <Mac>` | the chat's last lines, the question, option rows, the composer | one per option | the chat, scrolled to the question |
 | Question, multi-select, more than 4 options, several questions or free text | same | option rows (checkboxes for multi-select), Submit, the composer | "Answer…" | the chat |
-| Permission | "<Agent> needs permission", the command or tool title | the last lines and the request | Allow once, Deny (as the Feed: acpmux refuses a lasting grant from a phone, `remote.lasting_grant_refused`) | the chat |
+| Permission | "<Agent> needs permission", the command or tool title | the last lines and the request | Allow once, Deny (as the Feed, `phoneOptions`: acpmux refuses a lasting grant from a phone, `remote.lasting_grant_refused`; a prompt with no single-use Allow keeps its Always allow, and acpmux's refusal says why) | the chat |
 | Finished turn | "<Agent> finished", the last line | the last lines, the composer | Reply (text) | the chat |
 | Error | "<Agent> stopped with an error" | same | Reply (text) | the chat |
 | Chief | "Chief", the reply's first lines | the last messages, the composer | Reply (text) | that Chief's conversation |

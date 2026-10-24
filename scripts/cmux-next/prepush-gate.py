@@ -687,6 +687,49 @@ def guardrails(repo: Path, ranges: list[tuple[str, str]], trusted_scripts: Path 
         return False
 
 
+# The perf cron's unit tests (scripts/cmux-next/perf-cron.py) never run on CI (Lawrence 2026-10-23: no new CI tests;
+# the owner runs them), so the push runs the fast file itself when it changes the cron or its tests. Local only,
+# like the guardrails. The two slower files (test_perf_cron_io.py, 22 s; test_perf_cron_arch_report.py, 82 s:
+# real git clones and subprocesses) are run by hand.
+PERF_CRON_PATHS = ("scripts/cmux-next/perf-cron", "scripts/cmux-next/tests/test_perf_cron")
+PERF_CRON_FILES = ("scripts/cmux-next/perf-cron.py", "scripts/cmux-next/perf-budgets.py", "scripts/cmux-next/perf-budgets.json",
+                   "scripts/cmux-next/perf-profile-split.py", "scripts/cmux-next/tests/test_perf_cron.py",
+                   "scripts/cmux-next/tests/fixtures", "scripts/perf-bench")
+PERF_CRON_TIMEOUT = 60
+
+
+def perf_cron_tests(repo: Path, ranges: list[tuple[str, str]]) -> bool:
+    """Run test_perf_cron.py on each pushed head that changes the perf cron; True when a test fails (refuse).
+
+    It runs the head's own files (git archive), not the checkout's. It fails open: a git error, a missing file at
+    an older head, a broken Python or a run past PERF_CRON_TIMEOUT prints a warning and lets the push through."""
+    refused = False
+    for base, head in ranges:
+        try:
+            # changed_files keeps only the app's source scopes; the cron is under scripts/.
+            names = git(repo, "diff", "--name-only", "--no-renames", "-z", base, head).decode().split("\0")
+            if not any(p.startswith(PERF_CRON_PATHS) for p in names if p):
+                continue
+            with tempfile.TemporaryDirectory(prefix="cmux-prepush-perf-cron-") as tmp:
+                present = [p for p in PERF_CRON_FILES if git(repo, "ls-tree", "--name-only", head, "--", p, check=False).strip()]
+                if "scripts/cmux-next/tests/test_perf_cron.py" not in present:
+                    continue
+                archive = git(repo, "archive", head, "--", *present)
+                subprocess.run(["tar", "-x", "-C", tmp], input=archive, check=True, capture_output=True, timeout=60)
+                done = subprocess.run([sys.executable, "-I", "-m", "unittest", "discover", "-s", "scripts/cmux-next/tests",
+                                       "-p", "test_perf_cron.py"], cwd=tmp, capture_output=True, text=True,
+                                      timeout=PERF_CRON_TIMEOUT)
+        except (Exception, SystemExit) as error:  # SystemExit: git() exits on a failed git call
+            log(f"prepush-gate: WARNING: the perf cron tests did not run ({type(error).__name__}: {error}); not applied "
+                "to this push. Run python3 -I -m unittest discover -s scripts/cmux-next/tests -p 'test_perf_cron*.py'.")
+            continue
+        if done.returncode != 0:
+            tail = "\n".join((done.stderr or done.stdout).splitlines()[-25:])
+            log(f"prepush-gate: the perf cron tests fail at {head[:12]} (scripts/cmux-next/tests/test_perf_cron.py):\n{tail}")
+            refused = True
+    return refused
+
+
 class ArchRatchet:
     """The arch ratchet (arch-ratchet.py) for RANGES, started at once on a thread next to the scanners.
 
@@ -862,13 +905,17 @@ def main(argv: list[str] | None = None) -> int:
         if args.timings:
             log(f"  {time.monotonic() - t0:5.2f}s  guardrails")
         t0 = time.monotonic()
+        guarded = perf_cron_tests(repo, ranges) or guarded
+        if args.timings:
+            log(f"  {time.monotonic() - t0:5.2f}s  perf cron tests")
+        t0 = time.monotonic()
         guarded = arch.finish() or guarded
         if args.timings:
             log(f"  {time.monotonic() - t0:5.2f}s  arch ratchet (the wait left; it ran next to the scanners)")
     elapsed = time.monotonic() - started
     if not found_any:
         if guarded:
-            print(f"prepush-gate: push refused by the guardrails or the arch ratchet ({elapsed:.1f}s)")
+            print(f"prepush-gate: push refused by the guardrails, the arch ratchet or the perf cron tests ({elapsed:.1f}s)")
             return 1
         print(f"prepush-gate: no new violations ({elapsed:.1f}s)")
         return 0
