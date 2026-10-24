@@ -156,6 +156,19 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
 
     // MARK: App control
 
+    /// Takes the view's grid in the caller's turn (`TerminalIO.resizeOnMain`): a final grid goes now
+    /// (`ResizeCoordinator.submitFinal`), any other the next frame.
+    @MainActor func resizeOnMain(cols: Int, rows: Int, final: Bool) -> Bool {
+        guard cols > 0, rows > 0 else { return true }
+        let size = CellSize(cols: cols, rows: rows)
+        if final {
+            ResizeCoordinator.shared.submitFinal(self, size: size)
+        } else {
+            ResizeCoordinator.shared.submit(self, size: size)
+        }
+        return true
+    }
+
     /// Called by `ResizeCoordinator` once the size settled.
     @MainActor func applySettled(_ size: CellSize) {
         driver.resize(size)
