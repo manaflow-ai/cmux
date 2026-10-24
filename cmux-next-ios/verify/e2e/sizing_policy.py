@@ -33,7 +33,7 @@ RUNTIME = "com.apple.CoreSimulator.SimRuntime.iOS-26-5"
 DEVICES = ["com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro",
            "com.apple.CoreSimulator.SimDeviceType.iPhone-16e"]
 # What each program shows on a legible screen.
-MARKERS = {"claude": ["Claude", ">"], "htop": ["PID", "Mem"], "vim": ["szpol-vim-line"]}
+MARKERS = {"claude": ["SIGWINCH", "auto mode"], "htop": ["PID", "Mem"], "vim": ["szpol-vim-line"]}
 
 
 class Probe:
@@ -110,6 +110,7 @@ def main():
     ap.add_argument("--phone-ui-policy", action="store_true", help="set Prefer This Mac once through the phone's Settings")
     ap.add_argument("--out", required=True)
     ap.add_argument("--reuse", action="store_true")
+    ap.add_argument("--mac-device", required=True, help="the rig Mac's cmux-mobile-host device id: other rigs share the dev account")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     logf = open(os.path.join(a.out, "run.log"), "a")
@@ -167,8 +168,27 @@ def main():
             time.sleep(1.0)
         Journey.back_to_list(j)
 
+    def connect_rig(sim):
+        """Taps Connect on the rig Mac's group (other rigs share the dev account) and
+        waits until its workspaces are listed (the group's fold row then goes away)."""
+        fold = f"workspaces.fold.{a.mac_device}"
+        for _ in range(3):
+            els = sim.tree()
+            e = [x for x in sim.find(ident=fold, elements=els) if x.label]
+            if not e or not any(w in (e[0].label or "") for w in ("Connect", "Retry")):
+                return
+            btn = [x for x in els if x.label in ("Connect", "Retry") and abs(x.frame[1] - e[0].frame[1]) < 20]
+            sim.tap_el(btn[0] if btn else e[0])
+            t0 = time.time()
+            while time.time() - t0 < 45:
+                e = [x for x in sim.find(ident=fold) if x.label]
+                if not e or not any(w in (e[0].label or "") for w in ("Not connected", "Can't connect")):
+                    return
+                time.sleep(0.5)
+
     def open_ws(sim, j, ws):
         to_list(sim, j)
+        connect_rig(sim)
         row = sim.wait(prefix=ws, kind="Button", timeout=60)
         if not row:
             raise RuntimeError(f"workspace {ws} not listed")
