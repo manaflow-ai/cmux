@@ -10,8 +10,9 @@ import Testing
 /// - a daemon batch that changes nothing the topology shows (a busy terminal's activity, a status tick in another
 ///   workspace) moves the published sequence, so a CLI read waiting on its write barrier still wakes, but maps no
 ///   topology: each such batch rebuilt it (10 printing terminals in STRESS; perf-lead.md issue 5);
-/// - a model change publishes on the next frame with one frame asked for: it waited for 100 ms after the last
-///   publish (`modelChangeInterval`), asking for a frame on every display frame until then.
+/// - a model change with no reader asks for no frame and builds nothing (it waited for 100 ms after the last publish,
+///   asking for a frame on every display frame until then); a reader that starts waiting gets the held change at
+///   once; while readers wait, changes build at most once per display frame.
 @MainActor @Suite(.serialized)
 struct ControlSnapshotSequenceTests {
     @MainActor final class Executor: ControlActionExecutor {
@@ -84,18 +85,37 @@ struct ControlSnapshotSequenceTests {
         #expect(rig.publisher.sequencePublishes > 0)
     }
 
-    @Test func aModelChangePublishesOnTheNextFrame() async {
+    /// No reader, no work: 100 model changes ask for no frame and build nothing (the store is only marked stale).
+    @Test func modelChangesWithNoReaderAskForNoFrameAndBuildNothing() async {
         let rig = await Self.rig()
         defer { rig.publisher.stop() }
-        func title() -> String? { rig.router.snapshots.current.topology.workspaces.first?.panes.first?.tabs.first?.title }
-        let asked = rig.frames.asked
-        rig.store.apply(.titleChanged(surface: 1, title: "changed"))
-        for _ in 0..<8 { await Task.yield() } // the observation hop that asks for the frame
-        #expect(rig.frames.asked - asked == 1, "\(rig.frames.asked - asked) frames asked for one change (want 1)")
-        rig.frames.fire() // the next display frame
-        #expect(title() == "changed", "the change was not published on the next frame")
+        let (asked, builds) = (rig.frames.asked, rig.publisher.builds)
+        for index in 0..<100 {
+            rig.store.apply(.titleChanged(surface: 1, title: "change \(index)"))
+            await Task.yield()
+        }
         for _ in 0..<8 { await Task.yield() }
-        #expect(rig.frames.isEmpty, "the publisher asked for another frame after publishing (a re-arm)")
-        #expect(rig.frames.asked - asked == 1)
+        #expect(rig.frames.asked == asked, "\(rig.frames.asked - asked) frames asked for 100 changes with no reader (want 0)")
+        #expect(rig.publisher.builds == builds, "\(rig.publisher.builds - builds) builds for 100 changes with no reader (want 0)")
+        #expect(rig.router.snapshots.isStale)
+    }
+
+    /// While a reader keeps waiting (a tab it waits to see), changes build at most once per display frame.
+    @Test func withAWaitingReaderChangesBuildOncePerFrame() async {
+        let rig = await Self.rig()
+        defer { rig.publisher.stop() }
+        let store = rig.router.snapshots
+        let waiter = Task { await store.snapshot(where: { _ in false }, deadline: .now + .seconds(30)) }
+        defer { waiter.cancel() }
+        await Self.settle(rig)
+        let (asked, builds) = (rig.frames.asked, rig.publisher.builds)
+        for index in 0..<10 {
+            rig.store.apply(.titleChanged(surface: 1, title: "frame change \(index)"))
+            await Task.yield()
+        }
+        for _ in 0..<8 { await Task.yield() }
+        #expect(rig.frames.asked - asked == 1, "\(rig.frames.asked - asked) frames asked for 10 changes in one frame (want 1)")
+        rig.frames.fire()
+        #expect(rig.publisher.builds == builds + 1, "\(rig.publisher.builds - builds) builds in one frame (want 1)")
     }
 }
