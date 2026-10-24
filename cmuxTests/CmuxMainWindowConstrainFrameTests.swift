@@ -111,8 +111,8 @@ final class CmuxMainWindowConstrainFrameTests: XCTestCase {
     // {300,884 1000x700}: its bottom 60pt still overlaps the built-in display, but
     // its titlebar (top 64pt) is at y≈1520, far above the built-in's visible top
     // (944) — i.e. off the top of every remaining screen and unreachable. Because
-    // the window is non-movable (isMovable=false) and only draggable via the
-    // titlebar handle, the user cannot pull it back down.
+    // only the titlebar handle initiates user dragging, the user cannot pull the
+    // window back down.
     //
     // AppKit's default constrain pass would clamp this window back onto the
     // built-in display. The #6305 override must NOT veto that clamp here: a frame
