@@ -178,8 +178,10 @@ Client to daemon (requests), per stream lane:
   is registered, so a key after a blocked `wait-for` of its own surface runs at once (the 10 s wait of the
   red guard stays gone on the same surface). The other ordered kinds reply right after their effect, or
   after a bounded write (the clear-history fallback key, an image paste), so for them acceptance and
-  completion are one moment. An `attach-surface` may wait up to 1 s for a hosted resize before its
-  reply; a later control request of that surface waits for it (bounded, kept). That covers every order that matters: clear-history after the input sent
+  completion are one moment. An `attach-surface` is accepted once its view is registered (lease and
+  initial size); only its own reply waits (up to 1 s) for a hosted resize, so a resize or clear of the new
+  pane on the control lane is applied at once (lead review: the Cmd-D early-resize path). No later request
+  needs the attach's resized state: what it changes is in the replay or snapshot the attach takes after. That covers every order that matters: clear-history after the input sent
   before it and before the input sent after it; close-surface after the view's pending writes; a read
   after the writes it should see. Output is not a request (it is ordered by the stream itself), and a
   detach or cancel runs on its stream's lane, so its `stream-end` follows the stream's queued frames.
