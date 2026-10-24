@@ -165,4 +165,38 @@ struct CreateOnPendingStandInTests {
         let ghost = ProvisionalPane()
         await #expect(throws: CreateTargetGone.self) { try await store.daemonTarget(for: ghost.handle) }
     }
+
+    /// The connection ends while a create waits on a pending stand-in: the wait ends (throws) instead of waiting
+    /// forever, so the creates queued after it in that workspace still go (lead check a).
+    @Test func aLostConnectionEndsEveryStandInWait() async throws {
+        let store = Self.store()
+        let split = ProvisionalPane()
+        store.intend(.splitPane(pane: Self.pane, direction: .right, ratio: 0.5, provisional: split), transaction: .generate())
+        let target = Task { try await store.daemonTarget(for: split.handle) }
+        await Task.yield()
+        #expect(store.standInWaiters.count == 1)
+        _ = DaemonConnectionChange.disconnected("test").apply(to: store)
+        let ended = await target.result
+        #expect(store.standInWaiters.isEmpty, "a waiter was left after the connection ended")
+        #expect((try? ended.get()) == nil, "the wait returned a pane after the connection ended")
+        // A create pressed on a daemon pane after the loss is not stopped by the old wait.
+        #expect(try await store.daemonTarget(for: Self.pane) == Self.pane)
+    }
+
+    /// A resync snapshot (not a pane-added event) brings the stand-in's daemon pane, as a new PaneModel: a wait
+    /// keyed on the stand-in still resolves to the daemon's pane (lead check b; PL-burst's version failed here).
+    @Test func aSnapshotThatBringsTheDaemonPaneResolvesTheWait() async throws {
+        let store = Self.store()
+        let split = ProvisionalPane()
+        store.intend(.splitPane(pane: Self.pane, direction: .right, ratio: 0.5, provisional: split), transaction: .generate())
+        let target = Task { try await store.daemonTarget(for: split.handle) }
+        await Task.yield()
+        let daemon = PaneID(rawValue: 9)
+        var tree = Self.base
+        tree.screens[0].panes.append(PaneSnapshot(id: daemon, resourceID: ResourceID(rawValue: split.paneID),
+                                                  tabs: [TabSnapshot(surface: SurfaceID(rawValue: 7))]))
+        tree.screens[0].layout = .split(id: nil, resourceID: nil, direction: .right, ratio: 0.5, a: .leaf(Self.pane), b: .leaf(daemon))
+        store.apply(snapshot: DaemonTree(workspaceRevision: 2, workspaces: [tree]))
+        #expect(try await target.value == daemon)
+    }
 }
