@@ -89,6 +89,17 @@ export function useFold(open: boolean, animates: () => boolean = always): Fold {
     watching.current?.();
     watching.current = undefined;
   };
+  // A theme update can cancel Web Animations while a fold is in flight (for example when the
+  // person turns animations off). Detach handlers before replacing a running animation so a
+  // reversal cannot finish the new fold's state early.
+  const cancelRunning = () => {
+    const animation = running.current;
+    running.current = undefined;
+    if (!animation) return;
+    animation.onfinish = null;
+    animation.oncancel = null;
+    animation.cancel();
+  };
   // The `open` the box was last drawn for: the first render, and a StrictMode re-run, play nothing.
   const played = useRef(open);
   useLayoutEffect(() => {
@@ -100,8 +111,7 @@ export function useFold(open: boolean, animates: () => boolean = always): Fold {
     if (node) pin(node, undefined);
     const ms = animates() ? foldMs(node) : 0;
     if (!node || ms <= 0) {
-      running.current?.cancel();
-      running.current = undefined;
+      cancelRunning();
       setClosing(false);
       return;
     }
@@ -111,7 +121,7 @@ export function useFold(open: boolean, animates: () => boolean = always): Fold {
     const turning = running.current !== undefined;
     const fromHeight = turning || !open ? node.getBoundingClientRect().height : 0;
     const fromOpacity = turning ? Number(styleOf(node)?.opacity ?? 0) || 0 : open ? 0 : 1;
-    running.current?.cancel();
+    cancelRunning();
     const toHeight = open ? node.scrollHeight : 0;
     node.style.overflow = "hidden";
     const animation = node.animate(
@@ -145,19 +155,22 @@ export function useFold(open: boolean, animates: () => boolean = always): Fold {
           { duration: until - now, easing: foldMotion.easing(node) },
         );
         playing.onfinish = null;
+        playing.oncancel = null;
         playing.cancel();
         running.current = rest;
-        rest.onfinish = () => {
+        const settledRest = () => {
           if (running.current !== rest) return;
           running.current = undefined;
           stopWatching();
           node.style.overflow = "";
         };
+        rest.onfinish = settledRest;
+        rest.oncancel = settledRest;
       });
       grows.observe(content);
       watching.current = () => grows.disconnect();
     }
-    animation.onfinish = () => {
+    const settled = () => {
       if (running.current !== animation) return;
       stopWatching();
       running.current = undefined;
@@ -170,12 +183,14 @@ export function useFold(open: boolean, animates: () => boolean = always): Fold {
       pin(node, 0);
       setClosing(false);
     };
+    animation.onfinish = settled;
+    animation.oncancel = settled;
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only a change of `open` plays the fold
   }, [open]);
   useLayoutEffect(
     () => () => {
       stopWatching();
-      running.current?.cancel();
+      cancelRunning();
     },
     [],
   );
