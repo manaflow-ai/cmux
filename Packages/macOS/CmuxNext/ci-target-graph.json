@@ -1010,7 +1010,8 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFocusUI",
       "targets": [
         "CmuxNextActions",
-        "CmuxNextDesign"
+        "CmuxNextDesign",
+        "CmuxNextSignposts"
       ],
       "packages": []
     },
