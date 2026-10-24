@@ -458,6 +458,14 @@ impl HolderService {
                     service.superseded.store(true, Ordering::Release);
                     return;
                 }
+                if let LinkEnd::Fault(code) = end {
+                    // The holder still runs every terminal and counted no
+                    // crash: the next link takes them back as after a drop.
+                    eprintln!(
+                        "cmux-tui: the terminal holder could not read this daemon's link \
+                         (error code {code}); connecting again"
+                    );
+                }
                 // The holder died: start a new one and hand it every master.
                 let _ =
                     std::thread::Builder::new().name("holder-restart".into()).spawn(move || {
