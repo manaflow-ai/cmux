@@ -30,11 +30,14 @@ package struct HibernationPlanner {
         /// The probe kept the page lately (it played or held form input): under pressure it
         /// ranks after the others, so it does not hold up the relief of the rest.
         package var recentlyKept = false
+        /// The page's site may show notifications (its permission is Allow): the timeout keeps it,
+        /// memory pressure does not (Chrome's kNotificationsEnabled, proactive discards only).
+        package var allowsNotifications = false
 
         package init(key: String, hiddenFor: Double, host: String? = nil, isPinned: Bool = false, hasDevTools: Bool = false,
                      isCapturing: Bool = false, canRestore: Bool = true, showsFormSubmission: Bool = false,
                      recentFocusCount: Int = 0, memoryBytes: UInt64? = nil, isDownloading: Bool = false,
-                     hasAgentLease: Bool = false, recentlyKept: Bool = false) {
+                     hasAgentLease: Bool = false, recentlyKept: Bool = false, allowsNotifications: Bool = false) {
             self.key = key
             self.hiddenFor = hiddenFor
             self.host = host
@@ -48,6 +51,7 @@ package struct HibernationPlanner {
             self.isDownloading = isDownloading
             self.hasAgentLease = hasAgentLease
             self.recentlyKept = recentlyKept
+            self.allowsNotifications = allowsNotifications
         }
     }
 
@@ -89,6 +93,8 @@ package struct HibernationPlanner {
         case connectedDevice = "connected_device"
         /// The person moved into a child frame whose fields cannot be read (Chromium's cross-origin frames).
         case unreadableFrame = "unreadable_frame"
+        /// The page's site may show notifications; kept from the timeout, not from memory pressure.
+        case notifications
         /// An agent chat whose agent works or waits on the person (AgentPageHibernation).
         case agentBusy = "agent_busy"
         /// The acpmux turn watch is down, so no chat's turn is known: every chat counts as busy.
@@ -194,6 +200,11 @@ package struct HibernationPlanner {
         for candidate in candidates {
             if let exemption = exemption(candidate, setting: setting) {
                 plan.exemptions[candidate.key] = exemption
+                continue
+            }
+            // Only memory pressure takes a page that may show notifications (Chrome: urgent discards only).
+            if candidate.allowsNotifications, pressure == .normal {
+                plan.exemptions[candidate.key] = .notifications
                 continue
             }
             ranked.append((candidate.key, idleness(candidate, pressure: pressure, timeout: threshold), candidate.hiddenFor,

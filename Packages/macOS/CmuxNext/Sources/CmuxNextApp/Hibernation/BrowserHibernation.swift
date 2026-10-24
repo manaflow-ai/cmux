@@ -512,6 +512,7 @@ final class BrowserHibernation {
         candidate.memoryBytes = memoryBytes[key]
         candidate.isDownloading = isDownloading(key)
         candidate.hasAgentLease = leased.contains(key)
+        candidate.allowsNotifications = (tab as? any BrowserHibernationSource)?.allowsNotifications ?? false
         return candidate
     }
 
