@@ -59,7 +59,7 @@ final class ServerUpdatePresenter {
     }
 
     /// The host lists' `server` (reading it registers the Observation dependencies the page watches).
-    var settingsPageJSON: JSONValue { ServerSettingsPageJSON(report: settingsReport).json }
+    var settingsPageJSON: CmuxNextSettings.JSONValue { ServerSettingsPageJSON(report: settingsReport).json }
 
     /// Re-reads the socket and the Tailscale address (after a handshake).
     private func refreshFacts() async {
