@@ -17,7 +17,7 @@ test("composer focus rims are modality-aware", () => {
 });
 
 test("transcript rows keep pointer focus quiet and keyboard focus visible", () => {
-  expect(transcript).toContain('.acpmux-row[data-transcript-active="true"]:focus-visible');
+  expect(transcript).toContain('[data-focus-ring-enabled="true"] .acpmux-row[data-transcript-active="true"]:focus-visible');
   expect(transcript).toContain(".acpmux-row:focus:not(:focus-visible)");
 });
 
