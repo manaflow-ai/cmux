@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextDesign
 import Foundation
 
@@ -28,7 +29,11 @@ nonisolated enum DebugSettingsStrings {
     static func copiedJSON(_ count: Int) -> String { format("debugSettings.copiedJSON", "Copied changed values as JSON (%lld).", count) }
     static func copiedSwift(_ count: Int) -> String { format("debugSettings.copiedSwift", "Copied Swift defaults (%lld).", count) }
     static func didReset(_ section: String) -> String { format("debugSettings.didReset", "Reset %@.", section) }
-    static func count(_ count: Int) -> String { format("debugSettings.count", "%lld tunables", count) }
+    static func count(_ count: Int,
+                      preferredLocalizations: [String] = Bundle.module.preferredLocalizations, locale: Locale = .current) -> String {
+        Bundle.module.localizedString(forKey: "debugSettings.count", value: "%lld tunables", table: nil, arguments: [.count(count)],
+                                      preferredLocalizations: preferredLocalizations, locale: locale)
+    }
 
     /// A value for display: numbers with their unit, springs as response
     /// and damping, choices and colors by name.

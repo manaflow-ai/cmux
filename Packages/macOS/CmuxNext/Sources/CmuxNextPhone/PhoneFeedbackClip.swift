@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// A finished recording packaged as product feedback: one Markdown message
@@ -21,14 +22,21 @@ public struct PhoneFeedbackClip: Sendable, Hashable {
         return PhoneFeedbackClip(recording, logTail: tail)
     }
 
+    /// The summary's count of recorded inputs and taps.
+    static func inputs(_ inputs: Int, taps: Int,
+                       preferredLocalizations: [String] = Bundle.module.preferredLocalizations, locale: Locale = .current) -> String {
+        Bundle.module.localizedString(forKey: "phone.feedback.inputs", value: "%lld inputs, %lld taps", table: nil,
+                                      arguments: [.count(inputs), .count(taps)], preferredLocalizations: preferredLocalizations,
+                                      locale: locale)
+    }
+
     static func summary(_ recording: PhoneRecording, logTail: PhoneLogTail?) -> String {
         let device = recording.device
         let taps = recording.events.filter { $0.kind == "tap" }.count
         var lines: [String] = []
         let title = String(localized: "phone.feedback.title", defaultValue: "Phone feedback", bundle: .module)
         lines.append("**\(title)**: \(device.name) (\(device.model), \(device.osVersion)) · \(clock(recording.duration)) · "
-            + String(format: String(localized: "phone.feedback.inputs", defaultValue: "%lld inputs, %lld taps", bundle: .module),
-                     Int64(recording.events.count), Int64(taps)))
+            + inputs(recording.events.count, taps: taps))
         let notes = recording.notes.trimmingCharacters(in: .whitespacesAndNewlines)
         if !notes.isEmpty {
             lines.append("")

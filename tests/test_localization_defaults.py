@@ -69,6 +69,21 @@ class LocalizationDefaultsTests(unittest.TestCase):
             "Swift defaultValue [(1, '@')] (Sources/App.swift)"
         ])
 
+    def test_a_sentence_helper_call_is_compared_by_its_value_argument(self):
+        # cmux NEXT's Bundle.localizedString(forKey:value:table:arguments:...) (CmuxNextCompat) takes its
+        # English as `value:`; a catalog en that gained a second %@ must not pass unread.
+        self.fixture.catalog({"home.chief.noReply": ("No reply for %@ (%@).", "%@ (%@) 返信なし。")})
+        self.fixture.swift(
+            'let _ = Bundle.module.localizedString(forKey: "home.chief.noReply", value: "No reply for %@.",\n'
+            '                                      table: "Home", arguments: [.text(minutes)],\n'
+            '                                      preferredLocalizations: languages, locale: locale)\n')
+        errors, compared = self.fixture.check()
+        self.assertEqual(compared, 1)
+        self.assertEqual(errors, [
+            "Resources/Localizable.xcstrings:home.chief.noReply: catalog en placeholders [(1, '@'), (2, '@')] != "
+            "Swift defaultValue [(1, '@')] (Sources/App.swift)"
+        ])
+
     def test_catalog_that_adds_an_argument_is_reported(self):
         self.fixture.catalog({"install.failed": ("failed to install: %@", "インストールできませんでした：%@")})
         self.fixture.swift(swift_call("install.failed", "failed to install"))

@@ -1,4 +1,5 @@
-import Foundation
+import CmuxNextCompat
+public import Foundation
 
 #if DEBUG
 /// User-facing strings of remote tabs (Localizable.xcstrings of this module).
@@ -19,12 +20,15 @@ public nonisolated struct RemoteBrowserStrings {
 
     /// The alert detail for a local host that did not start: a timeout, an
     /// exit before it listened, or a launch error.
-    public static func hostFailure(_ error: any Error) -> String {
+    /// `preferredLocalizations` defaults to the module bundle's (the user's choice); tests pass a fixed list.
+    public static func hostFailure(_ error: any Error, preferredLocalizations: [String]? = nil, locale: Locale = .current) -> String {
         switch error {
         case let LocalRemoteBrowserHost.Failure.timedOut(seconds, log):
-            String(format: String(localized: "remoteBrowser.localHost.timedOut",
-                                  defaultValue: "The host did not get ready within %1$d seconds and was stopped. Its log is at %2$@.",
-                                  bundle: .module), seconds, log.path)
+            Bundle.module.localizedString(forKey: "remoteBrowser.localHost.timedOut",
+                                          value: "The host did not get ready within %1$lld seconds and was stopped. Its log is at %2$@.",
+                                          table: nil, arguments: [.count(seconds), .text(log.path)],
+                                          preferredLocalizations: preferredLocalizations ?? Bundle.module.preferredLocalizations,
+                                          locale: locale)
         case let LocalRemoteBrowserHost.Failure.exitedBeforeListening(log):
             String(format: String(localized: "remoteBrowser.localHost.exited",
                                   defaultValue: "The host stopped before it was ready. Its log is at %@.", bundle: .module), log.path)
