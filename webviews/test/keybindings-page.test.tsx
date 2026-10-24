@@ -153,18 +153,32 @@ test("a click on a row's keys records new ones, and Remove keeps the action list
   expect(provider.recording).toBe(true);
   expect(row("Go to File")?.classList.contains("recording")).toBe(true);
   const recorder = () => doc.querySelector<HTMLElement>(".keys-recorder");
-  expect(recorder()?.querySelector(".keys-recorder-title")?.textContent).toBe("Go to File");
-  const save = () => recorder()?.querySelector<HTMLButtonElement>(".keys-recorder-save");
-  expect(save()?.disabled).toBe(true);
+  const recorderKeys = () => recorder()?.querySelector<HTMLElement>(".keys-recorder-keys");
+  const close = () => recorder()?.querySelector<HTMLButtonElement>(".keys-recorder-button");
+  const writes = () =>
+    provider.calls.filter(({ op }) => op === KeybindingOps.set || op === KeybindingOps.remove).length;
+  // Before a key comes, the recorder shows the row's own keys and how to delete them.
+  expect(recorderKeys()?.textContent).toBe("⌘P");
+  expect(recorder()?.textContent).toContain("⌫");
+  expect(close()?.textContent).toContain("esc");
 
-  // Keys another action has: the recorder names it before anything is saved; Save saves them.
+  // Keys another action has: the recorder names it before anything is saved.
   await act(async () => {
     provider.press("cmd+shift+p");
     await Promise.resolve();
   });
   expect(recorder()?.querySelectorAll(".keys-recorder-cap").length).toBe(3);
   expect(recorder()?.querySelector(".keys-recorder-conflict")?.textContent).toContain("Open Command Palette");
-  await click(save());
+
+  // A click on the keys starts over; Close (as Return) saves the keys recorded.
+  await click(recorderKeys());
+  expect(provider.recording).toBe(true);
+  expect(recorderKeys()?.textContent).toBe("⌘P");
+  await act(async () => {
+    provider.press("cmd+shift+p");
+    await Promise.resolve();
+  });
+  await click(close());
   await act(async () => store.reload());
   expect(provider.recording).toBe(false);
   expect(recorder()).toBeNull();
@@ -176,15 +190,35 @@ test("a click on a row's keys records new ones, and Remove keeps the action list
     idempotency_key: "key",
   });
 
-  // Return in the app's recorder saves too; Cancel ends a recording with no write.
+  // Return in the app's recorder saves too.
   await click(row("Go to File")?.querySelector(".keys-key-button"));
   await record("cmd+j");
   expect(lastSet()).toMatchObject({ command: "palette.files", key: "cmd+j", replaces: { key: "cmd+shift+p" } });
-  const writes = provider.calls.filter(({ op }) => op === KeybindingOps.set).length;
+
+  // With no new keys, Close and a bare Return only close.
+  const before = writes();
   await click(row("Go to File")?.querySelector(".keys-key-button"));
-  await click(recorder()?.querySelector(".keys-recorder-button:not(.keys-recorder-save)"));
+  await click(close());
   expect(provider.recording).toBe(false);
-  expect(provider.calls.filter(({ op }) => op === KeybindingOps.set).length).toBe(writes);
+  await click(row("Go to File")?.querySelector(".keys-key-button"));
+  await act(async () => {
+    provider.press("return");
+    await Promise.resolve();
+  });
+  expect(provider.recording).toBe(false);
+  expect(recorder()).toBeNull();
+  expect(writes()).toBe(before);
+
+  // A bare Delete first removes the row's keys: the action stays, with none.
+  await click(row("New Tab")?.querySelector(".keys-key-button"));
+  await act(async () => {
+    provider.press("delete");
+    await Promise.resolve();
+  });
+  await act(async () => store.reload());
+  const removed = provider.calls.filter(({ op }) => op === KeybindingOps.remove).map(({ params }) => params);
+  expect(removed).toContainEqual({ command: "tab.new", key: "cmd+t", when: null, idempotency_key: "key" });
+  expect(row("New Tab")?.querySelector(".keys-key-button")?.textContent).toBe(strings.t("keybindings.page.notSet"));
 
   // Remove says what it does, and on the action's only key the action stays, with no keys.
   const remove = row("Open Command Palette")?.querySelector(".keys-remove");

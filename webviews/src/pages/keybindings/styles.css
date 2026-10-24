@@ -485,31 +485,56 @@
 }
 
 /* The recorder over a row's keys while it records (KeybindingsPage `Recorder`): the shared popover
-   glass, the action, the keys so far as large caps, a same-keys warning, then Cancel and Save
-   with the keys that press them. Fills are tints over the glass, never opaque. */
+   glass, centered: "Press ⌫ to delete", the keys as large caps (a click starts over), "or click
+   keys to edit further", a same-keys warning, then Close with its keys. Fills are tints over the
+   glass, never opaque. */
 .ui-popup.keys-recorder {
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 8px;
   min-width: 240px;
   max-width: 320px;
   padding: 12px;
+  text-align: center;
 }
 
-.keys-recorder-title {
+.keys-recorder-hint {
   font-size: var(--text-caption);
   color: var(--ui-fg-2);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+}
+
+.keys-recorder-hint-cap {
+  display: inline-block;
+  margin: 0 4px;
+  padding: 0 4px;
+  border-radius: 4px;
+  font: inherit;
+  color: var(--ui-fg);
+  box-shadow: inset 0 0 0 0.5px var(--ui-line);
 }
 
 .keys-recorder-keys {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   min-height: 32px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ui-fg-2);
+  font: inherit;
+}
+
+.keys-recorder-keys:hover {
+  background: var(--ui-hover);
+}
+
+.keys-recorder-keys.recorded {
+  color: var(--ui-fg);
 }
 
 .keys-recorder-stroke {
@@ -528,7 +553,7 @@
   border-radius: 6px;
   font: inherit;
   font-size: var(--text-title);
-  color: var(--ui-fg);
+  color: inherit;
   background: var(--ui-hover);
   box-shadow:
     inset 0 0 0 0.5px var(--ui-line),
@@ -545,8 +570,8 @@
 
 .keys-recorder-actions {
   display: flex;
-  justify-content: flex-end;
-  gap: 8px;
+  justify-content: center;
+  align-self: stretch;
   padding-top: 8px;
   border-top: 0.5px solid var(--ui-line);
 }
@@ -562,14 +587,6 @@
   font-size: var(--text-body);
 }
 
-.keys-recorder-button:hover:not(:disabled) {
+.keys-recorder-button:hover {
   background: var(--ui-hover);
-}
-
-.keys-recorder-save:not(:disabled) {
-  background: var(--ui-selected);
-}
-
-.keys-recorder-button:disabled {
-  color: var(--ui-fg-2);
 }

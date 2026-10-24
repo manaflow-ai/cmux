@@ -14,6 +14,7 @@ import {
   reconcileSelection,
   resettableCommands,
   sortBindings,
+  strokes,
   type KeyFilter,
 } from "./model";
 import {
@@ -242,12 +243,24 @@ export class KeybindingsStore {
     if (this.snapshot.recording) this.endRecording();
   }
 
-  /** The recorder's Save button: the keys recorded so far become the row's keys (as Return). */
-  saveRecording(): void {
+  /** The recorder's Close button, as Return: keys recorded so far become the row's keys; with
+   *  none, it only closes. */
+  closeRecording(): void {
     const recording = this.snapshot.recording;
-    if (recording?.target !== "row" || !recording.key) return;
+    if (recording?.target !== "row") return;
     this.endRecording();
-    this.saveKeys(recording.binding, recording.key);
+    if (recording.key) this.saveKeys(recording.binding, recording.key);
+  }
+
+  /** A click on the recorder's keys: start over from no keys ("edit further"). */
+  async restartRecording(): Promise<void> {
+    const recording = this.snapshot.recording;
+    if (recording?.target !== "row" || !this.client) return;
+    // The recorder stays open: only the app's capture starts over.
+    this.set({ recording: { ...recording, key: "", display: "" } });
+    await this.client.call(KeybindingOps.recordStop, {}).catch(() => undefined);
+    const current = this.snapshot.recording;
+    if (current?.target === "row" && current.row === recording.row) await this.beginRecording(current);
   }
 
   private async beginRecording(recording: Recording): Promise<void> {
@@ -271,6 +284,20 @@ export class KeybindingsStore {
       }
       if (finished) this.endRecording();
       return;
+    }
+    // The recorder's first key: a bare Delete removes the row's keys, a bare Return (the app's
+    // recorder records it as a stroke when no key came first) closes it.
+    if (!recording.key && !event.cancelled && strokes(event.key).length === 1) {
+      const first = strokes(event.key)[0];
+      if (first === "delete" || first === "backspace") {
+        this.endRecording();
+        void this.remove(recording.binding);
+        return;
+      }
+      if (first === "return" || first === "enter") {
+        this.endRecording();
+        return;
+      }
     }
     if (!finished) {
       this.set({ recording: { ...recording, key: event.key, display: event.display } });

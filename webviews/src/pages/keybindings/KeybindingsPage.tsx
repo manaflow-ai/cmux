@@ -2,7 +2,6 @@
 // `KeybindingsStore`; this file only renders it and turns plain keys and clicks into store
 // intents. Cmd/Ctrl chords never reach page handlers; recording goes through the app's dispatcher.
 import { useState, useSyncExternalStore, type KeyboardEvent } from "react";
-import { DialogButton } from "../../ui/DialogButton";
 import { Popover } from "../../ui/Popover";
 import type { Strings } from "../shared/i18n";
 import {
@@ -258,13 +257,37 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
 
 type RowRecording = Extract<Recording, { target: "row" }>;
 
-/** A press on a recorder button keeps focus where it was (the search field): the button unmounts
- *  with the recorder, and focus on it would end on nothing. */
+/** A press in the recorder keeps focus where it was (the search field): its controls unmount
+ *  with it, and focus on one would end on nothing. */
 const keepFocus = (event: { preventDefault(): void }) => event.preventDefault();
 
-/** The recorder over a row's keys while it records: the keys so far as large caps, a warning when
- *  another action has them, and Cancel / Save with the keys that press them (the app's recorder
- *  answers Escape and Return; the buttons are the same intents). Focus stays where it was. */
+/** A string with keycaps in its `%@` / `%N$@` places ("Press ⌫ to delete"). */
+function withKeys(text: string, keys: readonly string[]) {
+  let next = 0;
+  const parts: Array<string | { cap: string }> = [];
+  let last = 0;
+  for (const match of text.matchAll(/%(?:(\d+)\$)?@/g)) {
+    parts.push(text.slice(last, match.index));
+    parts.push({ cap: keys[match[1] ? Number(match[1]) - 1 : next++] ?? "" });
+    last = match.index + match[0].length;
+  }
+  parts.push(text.slice(last));
+  return parts.map((part, index) =>
+    typeof part === "string" ? (
+      part
+    ) : (
+      // oxlint-disable-next-line react/no-array-index-key
+      <kbd key={index} className="keys-recorder-hint-cap">
+        {part.cap}
+      </kbd>
+    ),
+  );
+}
+
+/** The recorder over a row's keys while it records: "Press ⌫ to delete" (a row with keys), the
+ *  keys (its own until a key comes, then the keys so far) as large caps that start over on a
+ *  click, a warning when another action has them, and Close (Escape drops new keys, Return saves
+ *  them). The app's recorder answers the keys; the controls are the same intents. Focus stays. */
 function Recorder({
   anchor,
   binding,
@@ -281,6 +304,7 @@ function Recorder({
   store: KeybindingsStore;
 }) {
   const { t } = strings;
+  const display = recording.display || binding.display;
   const others = sameKeys(bindings, binding, recording.key);
   return (
     <Popover
@@ -294,10 +318,19 @@ function Recorder({
         if (!open) store.stopRecording();
       }}
     >
-      <div className="keys-recorder-title">{binding.title}</div>
-      <div className="keys-recorder-keys" aria-live="polite">
-        {recording.display ? (
-          displayStrokes(recording.display).map((stroke, index) => (
+      {!binding.unset && (
+        <div className="keys-recorder-hint">{withKeys(t("keybindings.page.recorder.delete"), ["⌫"])}</div>
+      )}
+      <button
+        type="button"
+        className={`keys-recorder-keys${recording.display ? " recorded" : ""}`}
+        aria-label={t("keybindings.page.recorder.edit")}
+        aria-live="polite"
+        onMouseDown={keepFocus}
+        onClick={() => void store.restartRecording()}
+      >
+        {display ? (
+          displayStrokes(display).map((stroke, index) => (
             // oxlint-disable-next-line react/no-array-index-key
             <span key={index} className="keys-recorder-stroke">
               {strokeCaps(stroke).map((cap, capIndex) => (
@@ -311,7 +344,8 @@ function Recorder({
         ) : (
           <span className="keys-placeholder">{t("keybindings.page.pressKeys")}</span>
         )}
-      </div>
+      </button>
+      <div className="keys-recorder-hint">{t("keybindings.page.recorder.edit")}</div>
       {others.length > 0 && (
         <output className="keys-recorder-conflict">
           <Icon name="conflict" />
@@ -319,23 +353,15 @@ function Recorder({
         </output>
       )}
       <div className="keys-recorder-actions">
-        <DialogButton
-          dialogKey="escape"
+        <button
+          type="button"
           className="keys-recorder-button"
+          aria-keyshortcuts="Escape Enter"
           onMouseDown={keepFocus}
-          onClick={() => store.stopRecording()}
+          onClick={() => store.closeRecording()}
         >
-          {t("keybindings.page.cancel")}
-        </DialogButton>
-        <DialogButton
-          dialogKey="return"
-          className="keys-recorder-button keys-recorder-save"
-          disabled={!recording.key}
-          onMouseDown={keepFocus}
-          onClick={() => store.saveRecording()}
-        >
-          {t("keybindings.page.save")}
-        </DialogButton>
+          {withKeys(t("keybindings.page.recorder.close"), ["esc", "↩"])}
+        </button>
       </div>
     </Popover>
   );
