@@ -919,6 +919,46 @@ class FixtureTests(unittest.TestCase):
         self.assertFalse(sweep_mod.expected_refusal("history.open", "daemon_error: That history entry is gone"))
 
 
+class CoverageTests(unittest.TestCase):
+    """The derived-coverage check: the action list comes from the live catalog, and an action the sweep cannot set
+    up (no fixture) that the baseline does not list fails a whole-catalog run."""
+
+    def report(self, rows, partial=False):
+        env = dict(ENV, partial=True) if partial else dict(ENV)
+        return {"env": env, "sessions": [session("light", rows), session("stress", [])]}
+
+    def baseline(self, ids):
+        path = os.path.join(OUT, "gaps.json")
+        with open(path, "w") as f:
+            json.dump({"gaps": {i: "x" for i in ids}}, f)
+        return path
+
+    def test_a_new_action_without_a_fixture_fails_and_a_covered_one_is_listed(self):
+        rows = [{"id": "new.action", "skipped": "needs context the sweep does not set up: fooFocused"},
+                {"id": "old.gap", "skipped": "needs a room argument"},
+                {"id": "cloud.thing", "skipped": "uses the Cloud, a remote machine, a phone or computer use"},
+                {"id": "fixed.now", "errors": [], "check": "ok"}]
+        checked = sweep_mod.coverage(self.report(rows), self.baseline(["old.gap", "fixed.now"]))
+        self.assertEqual(list(checked["new"]), ["new.action"])
+        self.assertEqual(checked["closed"], ["fixed.now"])
+        with self.assertRaises(SystemExit) as raised:
+            sweep_mod.fail_on_new_gaps({"coverage": checked})
+        self.assertEqual(raised.exception.code, sweep_mod.NEW_GAP_EXIT)
+        self.assertIn("new.action", sweep_mod.markdown(dict(self.report(rows), coverage=checked)))
+
+    def test_an_action_one_session_ran_is_covered(self):
+        report = {"env": dict(ENV), "sessions": [session("light", [{"id": "a", "errors": [], "check": "ok"}]),
+                                                 session("stress", [{"id": "a", "skipped": "no chromium tab in the base pane"}])]}
+        self.assertEqual(sweep_mod.gaps_of(report), {})
+
+    def test_a_partial_run_gives_no_verdict_and_an_unreadable_baseline_fails_open(self):
+        rows = [{"id": "new.action", "skipped": "needs a room argument"}]
+        self.assertIsNone(sweep_mod.coverage(self.report(rows, partial=True), self.baseline([])))
+        checked = sweep_mod.coverage(self.report(rows), os.path.join(OUT, "missing.json"))
+        self.assertIn("error", checked)
+        sweep_mod.fail_on_new_gaps({"coverage": checked})  # no exit
+
+
 class FailedSessionTests(unittest.TestCase):
     def test_a_session_that_fails_fails_the_run_and_the_report_says_so(self):
         class App:
