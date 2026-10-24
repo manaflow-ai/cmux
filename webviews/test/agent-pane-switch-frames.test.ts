@@ -113,10 +113,16 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
   let daemon: ReturnType<typeof Bun.serve> | undefined;
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
-  const url = (session: string) => {
+  const url = (session?: string, newTab = false) => {
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
-    return `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${session}`;
+    const params = new URLSearchParams({ endpoint, token: "t" });
+    if (session) params.set("session", session);
+    if (newTab) {
+      params.set("new", "");
+      params.set("newtab", "");
+    }
+    return `http://127.0.0.1:${port}/#${params.toString()}`;
   };
   beforeAll(async () => {
     daemon = Bun.serve({
@@ -235,6 +241,53 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
     );
     expect(firstNew).toBeGreaterThanOrEqual(0);
     expect(between).toEqual([]);
+  });
+
+  test("opening an old chat from New Tab does not flash its new-chat hero", async () => {
+    const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    await installPaintedFrames(page);
+    await page.addInitScript(() => {
+      (window as unknown as { __cmuxNewTabContext: unknown }).__cmuxNewTabContext = {
+        kind: "agent",
+        hotkeys: {},
+        layout: "a",
+        home: "/home/dev",
+      };
+    });
+    await page.goto(url(undefined, true));
+    await page.waitForSelector(".acpmux-newtab, .nt-location");
+    await page.locator("textarea.nt-field, input.acpmux-newtab-field").first().fill("Docs");
+    await page.getByText("Docs pass", { exact: true }).waitFor();
+    await page.evaluate(() => {
+      const frames: { at: number; empty: boolean; transcript: boolean }[] = [];
+      (window as unknown as { oldChatFrames: typeof frames }).oldChatFrames = frames;
+      const start = performance.now();
+      window.cmuxAfterPaint(() => {
+        frames.push({
+          at: performance.now() - start,
+          empty: Boolean(document.querySelector(".acpmux-empty")),
+          transcript: document.body.innerText.includes("Docs updated."),
+        });
+        return performance.now() - start < 1200;
+      });
+    });
+    await page.getByText("Docs pass", { exact: true }).click();
+    await page.getByText("Docs updated.", { exact: true }).waitFor();
+    await page.waitForFunction(() => {
+      const frames = (window as unknown as { oldChatFrames: { at: number }[] }).oldChatFrames;
+      return frames.length > 0 && frames.at(-1)!.at >= 1100;
+    });
+    const frames = await page.evaluate(
+      () => (window as unknown as { oldChatFrames: { at: number; empty: boolean; transcript: boolean }[] }).oldChatFrames,
+    );
+    await page.close();
+    const afterOpen = frames.filter((frame) => frame.transcript || frame.empty);
+    const flash = afterOpen.filter((frame) => frame.empty && !frame.transcript);
+    console.log(
+      `old-chat: ${afterOpen.length} post-open frames, ${flash.length} new-chat hero frames` +
+        (flash.length ? ` (first: ${JSON.stringify(flash[0])})` : ""),
+    );
+    expect(flash).toEqual([]);
   });
 
   // Leo 2026-10-20 ("the rendering is just not great on the first frame"): a chat shown for the
