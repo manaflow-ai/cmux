@@ -33,7 +33,7 @@ import Testing
         }
     }
 
-    @Test func aZoomReturnsBeforeTheWindowResizesAndLandsOnTheRunLoop() throws {
+    @Test(.enabled(if: NSScreen.main != nil, "zooming needs a screen: run on a GUI host")) func aZoomReturnsBeforeTheWindowResizesAndLandsOnTheRunLoop() throws {
         let (window, start) = try shownWindow()
         defer { window.close() }
         try #require(!window.isZoomed)
