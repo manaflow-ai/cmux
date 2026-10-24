@@ -51,14 +51,16 @@ afterEach(async () => {
 
 // acpmux answers send_now before the agent reads the steer: its row still says waiting then, as on
 // Leo's row (2026-10-24: "after i clicked send now and it worked it should just disappear").
-async function render(sendResult: boolean) {
-  const container = installDom();
+// Each steer has its own promptId: a Send now that worked is remembered by it for the page's life.
+let steers = 0;
+async function render(sendResult: boolean, row: AcpmuxRow = { ...waiting, steerPromptId: `p-${++steers}` }) {
+  const container = dom?.window.document.getElementById("root") ?? installDom();
   const unsteer = async () => true;
   await act(async () => {
     root = createRoot(container);
     root.render(
       <TurnActionsContext.Provider value={{ unsteer }}>
-        <PendingSteer row={waiting} send={async () => sendResult} />
+        <PendingSteer row={row} send={async () => sendResult} />
       </TurnActionsContext.Provider>,
     );
   });
@@ -85,6 +87,20 @@ test("Send now and the X fade out once Send now worked, while the steer still re
   expect(container.querySelector(".cv-user__pending")).toBeNull();
 });
 
+test("a row drawn again after Send now worked shows no controls while the steer still waits", async () => {
+  const steer: AcpmuxRow = { ...waiting, steerPromptId: "p-scrolled" };
+  const container = await render(true, steer);
+  await act(async () => container.querySelector<HTMLButtonElement>(".cv-user__send-now")!.click());
+  // The transcript dropped the row (scrolled away) and draws it again: acpmux still says waiting.
+  await act(async () => root!.unmount());
+  await render(true, steer);
+  expect(container.querySelector(".cv-user__pending")).toBeNull();
+  // Another steer that waits still shows them.
+  await act(async () => root!.unmount());
+  await render(true);
+  expect(container.querySelector(".cv-user__send-now")).not.toBeNull();
+});
+
 test("Send now remains available when delivery fails", async () => {
   const failed = await render(false);
   jest.useFakeTimers();
@@ -106,11 +122,12 @@ test("Send now and the X fold away when the agent reads the steer first", async 
         </TurnActionsContext.Provider>,
       ),
     );
-  await draw(waiting);
+  const steer: AcpmuxRow = { ...waiting, steerPromptId: "p-read-first" };
+  await draw(steer);
   jest.useFakeTimers();
   await act(async () => container.querySelector<HTMLButtonElement>(".cv-user__send-now")!.click());
   // acpmux's snapshot says the agent read it before Send now's reply came.
-  await draw({ ...waiting, version: 2, steer: "landed" });
+  await draw({ ...steer, version: 2, steer: "landed" });
   expect(container.querySelector(".cv-user__pending--leaving")).not.toBeNull();
   await runFold();
   expect(container.querySelector(".cv-user__pending")).toBeNull();

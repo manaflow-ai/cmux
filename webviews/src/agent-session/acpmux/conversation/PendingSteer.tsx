@@ -49,8 +49,9 @@ export function PendingSteer({
     const timer = setTimeout(() => setLeaving("gone"), foldMs(self.current));
     return () => clearTimeout(timer);
   }, [leaving]);
-  if (!shown || leaving === "gone") return null;
   const promptId = row.steerPromptId;
+  // Sent now before this row was last drawn (the transcript drops rows scrolled away): no controls.
+  if (!shown || leaving === "gone" || (leaving === undefined && promptId && sentNowIds.has(promptId))) return null;
   const busy = sending || leaving !== undefined;
   return (
     <div
@@ -71,7 +72,9 @@ export function PendingSteer({
             void send(promptId, { op: "send_now" })
               .catch(() => false)
               .then((sent) => {
-                if (sent) setSentNow(true);
+                if (!sent) return;
+                sentNowIds.add(promptId);
+                setSentNow(true);
               })
               .finally(() => setSending(false));
           }}
@@ -99,6 +102,10 @@ export function PendingSteer({
     </div>
   );
 }
+
+/// The steers whose Send now worked, by promptId, so a row drawn again while acpmux still says the
+/// steer waits (scrolled away and back) shows no controls. One id per click, for the page's life.
+const sentNowIds = new Set<string>();
 
 /// Whether the chat's X takes a waiting steer back (`_acpmux/steer_withdraw`): only acpmux's Claude
 /// Code adapter does. acpmux's `backgroundsWork` marks a chat that runs it, whatever its family is
