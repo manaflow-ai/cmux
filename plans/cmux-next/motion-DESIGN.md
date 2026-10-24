@@ -168,7 +168,7 @@ except in Home, the cursor and indicators.
 
 ### `overlays`: 52 call sites in 31 files
 
-- `CmuxNextApp/Popups/CornerPanelMotion.swift` (1)
+- `CmuxNextDesign/CornerPanelMotion.swift` (1)
 - `CmuxNextApp/Server/ServerMenuBarController.swift` (1)
 - `CmuxNextBrowser/PageInfo/UI/PageInfoToggle.swift` (2)
 - `CmuxNextBrowser/PageInfo/UI/PageInfoWindows.swift` (1)

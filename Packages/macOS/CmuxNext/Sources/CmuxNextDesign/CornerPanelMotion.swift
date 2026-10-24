@@ -1,5 +1,4 @@
-import AppKit
-import CmuxNextDesign
+package import AppKit
 
 /// Open and close of a panel pinned to its window's top-right corner with no
 /// control under it (the notifications and feed panels, cx-f6i7): it grows
@@ -7,13 +6,15 @@ import CmuxNextDesign
 /// never pops in or vanishes. A reopen during the close continues from what
 /// is on screen. Reduce Motion keeps the fades only.
 @MainActor
-final class CornerPanelMotion {
+package final class CornerPanelMotion {
     private var generation = 0
     /// The panel is fading out: it is on screen but no longer shown.
-    private(set) var isClosing = false
+    package private(set) var isClosing = false
+
+    package init() {}
 
     /// Orders `panel` front at its frame, growing out of its top-right corner.
-    func open(_ panel: NSWindow) {
+    package func open(_ panel: NSWindow) {
         let reopening = isClosing && panel.isVisible
         isClosing = false
         generation += 1
@@ -27,7 +28,7 @@ final class CornerPanelMotion {
 
     /// `panel` changed size while it opens (rows arrived): the scale's pivot is baked into its
     /// transform, so the spring restarts from the scale on screen about the new corner.
-    func resized(_ panel: NSWindow) {
+    package func resized(_ panel: NSWindow) {
         guard !isClosing, let layer = panel.contentView?.layer, layer.animation(forKey: "sublayerTransform") != nil,
               let shown = layer.presentation()?.sublayerTransform else { return }
         Motion.overlays.set(layer, "sublayerTransform", to: NSValue(caTransform3D: CATransform3DIdentity), spring: .popover,
@@ -36,7 +37,7 @@ final class CornerPanelMotion {
 
     /// Fades `panel` out into its top-right corner, then runs `done` (which
     /// orders it out) unless it reopened meanwhile.
-    func close(_ panel: NSWindow, done: @escaping @MainActor () -> Void) {
+    package func close(_ panel: NSWindow, done: @escaping @MainActor () -> Void) {
         isClosing = true
         generation += 1
         let closing = generation
