@@ -1724,7 +1724,7 @@ body[data-loading="true"] #status::before {
 .diff-git-tools {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--ds-space-1);
 }
 /* Commit and Push are glossy chips, like the source, base and jump chips beside them. */
 .diff-git-tools .acpmux-git-tool {
