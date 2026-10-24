@@ -1,13 +1,14 @@
 import CoreGraphics
 import Foundation
 
-/// Safari's address label rules: one short, single-line label per page, and
-/// a width cap so a long label never widens the toolbar.
-public enum TabsKitAddressLabel {
+// Safari's address label rules: one short, single-line label per page, and
+// a width cap so a long label never widens the toolbar.
+
+extension TabsKitAddress {
     /// The capsule label for a page URL, as Safari shows it: the host without
     /// `www.`, a local file's name (`file:` has no host), otherwise the URL
     /// itself (`data:`, `about:`), which the capsule truncates.
-    public static func display(for url: URL) -> String {
+    public static func displayLabel(for url: URL) -> String {
         if url.isFileURL {
             let name = url.lastPathComponent
             return name.isEmpty ? url.path : name
@@ -17,9 +18,7 @@ public enum TabsKitAddressLabel {
         }
         return url.absoluteString
     }
-}
 
-extension TabsKitAddress {
     /// A local file page: the capsule shows the file name beside a document
     /// glyph and truncates in the middle, keeping the extension.
     public var isFile: Bool {

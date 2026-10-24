@@ -202,7 +202,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
             let url = (model?.url ?? tab.url).flatMap { $0.absoluteString == "about:blank" ? nil : $0 }
             // Safari's short label: the host, or a local file's name (a file: URL has no host,
             // and its full path overflowed the collapsed pill).
-            let host = url.map(TabsKitAddressLabel.display(for:)) ?? ""
+            let host = url.map(TabsKitAddress.displayLabel(for:)) ?? ""
             return TabsKitTab(
                 id: tab.id, kind: .web, title: Self.browserTitle(model?.title, fallback: tab.title, url: url, label: host),
                 subtitle: host, systemImage: tab.isPinned ? "pin.fill" : "globe",
@@ -220,7 +220,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
     static func browserTitle(_ pageTitle: String?, fallback: String, url: URL?, label: String) -> String {
         let title = pageTitle.flatMap { $0.isEmpty ? nil : $0 } ?? fallback
         guard let url, !label.isEmpty else { return title }
-        let raw = [url.absoluteString, url.path, url.path.removingPercentEncoding ?? url.path]
+        let raw = [url.absoluteString, url.absoluteString.removingPercentEncoding ?? url.absoluteString, url.path]
         return title.isEmpty || raw.contains(title) ? label : title
     }
 

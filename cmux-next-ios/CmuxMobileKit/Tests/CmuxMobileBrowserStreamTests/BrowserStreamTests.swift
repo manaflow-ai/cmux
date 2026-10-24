@@ -412,3 +412,12 @@ final class SinkBox: @unchecked Sendable {
         #expect(model.field == nil)
     }
 }
+
+/// A file page's short label is its name, never the whole path (PR #24708).
+@Suite struct BrowserDisplayHostTests {
+    @Test func fileURLShowsItsName() {
+        let url = URL(string: "file:///Users/me/worktrees/feat/verify/iphone-link-sequence.html")
+        #expect(StreamedBrowserModel.displayHost(url) == "iphone-link-sequence.html")
+        #expect(StreamedBrowserModel.displayHost(URL(string: "https://www.example.com/a")) == "example.com")
+    }
+}

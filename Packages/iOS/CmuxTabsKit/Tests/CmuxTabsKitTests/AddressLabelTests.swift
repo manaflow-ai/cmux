@@ -6,12 +6,12 @@ import Testing
 struct AddressLabelTests {
     @Test func hostDropsWWWAndPath() {
         let url = URL(string: "https://www.example.com/" + String(repeating: "very-long-segment/", count: 40) + "?q=1")!
-        #expect(TabsKitAddressLabel.display(for: url) == "example.com")
+        #expect(TabsKitAddress.displayLabel(for: url) == "example.com")
     }
 
     @Test func fileURLShowsFileName() {
         let url = URL(string: "file:///Users/azizalbahar/Development/cmuxterm-hq/worktrees/feat-cnx-ios/cnx-ios/verify/iphone-link-sequence.html")!
-        #expect(TabsKitAddressLabel.display(for: url) == "iphone-link-sequence.html")
+        #expect(TabsKitAddress.displayLabel(for: url) == "iphone-link-sequence.html")
         let address = TabsKitAddress.url(display: "iphone-link-sequence.html", editingText: url.absoluteString)
         #expect(address.isFile)
         #expect(!TabsKitAddress.url(display: "example.com", editingText: "https://example.com/a.html").isFile)
@@ -19,7 +19,7 @@ struct AddressLabelTests {
 
     @Test func hostlessURLFallsBackToItself() {
         let url = URL(string: "about:blank")!
-        #expect(TabsKitAddressLabel.display(for: url) == "about:blank")
+        #expect(TabsKitAddress.displayLabel(for: url) == "about:blank")
     }
 
     /// The 402 pt reference phone: the pill never passes the side controls.

@@ -392,8 +392,9 @@ struct TabsToolbar: View {
         let maxW = max(40, r.width - (isPlaceholder ? m.control + 24 : 2 * m.control + 8))
         // Collapsed, the label is drawn at 17 pt and scaled down: its unscaled
         // width is the measured one, capped by the pill.
+        // One point over the measured width, so rounding never adds an ellipsis to a label that fits.
         let collapsedW = CollapsedPill.labelWidth(
-            labelWidth: labelWidth, scale: m.collapsedScale, padding: m.pillPadding,
+            labelWidth: labelWidth + 1, scale: m.collapsedScale, padding: m.pillPadding,
             maxWidth: ToolbarLayout.collapsedMaxWidth(metrics: m, screenWidth: size.width,
                                                       backWidth: m.control + (splitBack ? m.forwardExtra : 0)))
         Button(action: unlessSwiped {
