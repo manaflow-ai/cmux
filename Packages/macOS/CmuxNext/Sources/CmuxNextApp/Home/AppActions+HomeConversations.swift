@@ -7,10 +7,10 @@ import Foundation
 /// The Home page's conversation actions (HomeActionCatalog): one path for
 /// the page's "+" menu, the File menu, the palette, `cmux action run` and
 /// the CLI verbs. Without arguments New Message opens the New Message page
-/// (a draft row and a To: field, as in Messages) and Invite and New Chief
-/// open their sheet on the Home page (the docked Home: a route of its page,
-/// AppActions+HomeDockRoutes); with arguments they run headless and the
-/// caller waits for the owner's answer (`ActionRegistry.track`).
+/// (a draft row and a To: field, as in Messages), New Chief its page tab beside
+/// your work (`NewChiefPage`) and Invite its sheet on the Home page (the docked
+/// Home: a route of its page, AppActions+HomeDockRoutes); with arguments they run
+/// headless and the caller waits for the owner's answer (`ActionRegistry.track`).
 extension AppActions {
     static func bindHomeConversations(_ services: AppServices) {
         let registry = services.registry
@@ -39,6 +39,12 @@ extension AppActions {
         })
         registry.bind("home.newChief", invoke: { invocation in
             guard let name = invocation["name"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else {
+                if NewChiefPage.opensAsPage(sheetToggle: HomeTunables.newChiefSheet.value, classic: services.home.dock.isClassic,
+                                            channels: HomeDockView.Mode.channels.isEnabled,
+                                            holdsTab: NewChiefPage.holdsTab(in: services.windows.active)) {
+                    if !NewChiefPage.open(services, focus: invocation.allowsViewChange) { registry.refuse(RefusalStrings.noWindowOpen) }
+                    return
+                }
                 guard services.home.dock.isClassic else { return openChannelsRoute(HomeDockRoute.newChief, services) { $0.presentNewChief() } }
                 homePage(services)?.presentNewChief()
                 return

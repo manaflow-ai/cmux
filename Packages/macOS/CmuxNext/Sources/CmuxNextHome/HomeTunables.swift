@@ -76,6 +76,13 @@ public nonisolated struct HomeTunables {
         help: "The chat shows the Chief's avatar and name pill on a glass band at its top, as Messages does. Off: no header, and the messages fade out at the top as they scroll away.",
         default: true, code: "HomeTunables.chatHeader")
 
+    /// New Chief… opens its card as a page tab beside your work (`NewChiefPage`; Leo 2026-10-21, "Chief:
+    /// sheet as workspace"). On restores the sheet over Home for one release; remove it after.
+    public static let newChiefSheet = Tunable<Bool>.toggle(
+        "home.newChiefSheet", section, "New Chief opens as a sheet",
+        help: "New Chief… shows its name and engine card as a sheet over Home, as before. Off (the default) opens it as a New Chief tab beside your work, or beside the Chief on Home.",
+        default: false, code: "HomeTunables.newChiefSheet")
+
     /// The avatar-only list with only one conversation in it (`HomeSidebarSplitView`): off by default,
     /// so a lone Chief takes no column and the chat gets the width (visual QA 2026-10-21: one avatar in
     /// an empty band); on keeps the avatar-only column for it.
@@ -87,7 +94,7 @@ public nonisolated struct HomeTunables {
     public static var all: [TunableDescriptor] {
         [flightRecorder.descriptor, flightRecorderCaptures.descriptor, firstRunHero.descriptor, launchIntoHome.descriptor,
          turnProgress.descriptor, richTables.descriptor, voiceInput.descriptor, chatHeader.descriptor,
-         loneConversationRail.descriptor]
+         newChiefSheet.descriptor, loneConversationRail.descriptor]
     }
 }
 

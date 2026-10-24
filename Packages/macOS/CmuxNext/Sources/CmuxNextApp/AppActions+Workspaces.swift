@@ -50,6 +50,8 @@ extension AppActions {
         services.pages.register(HomeChannelsPageTab.make(services))
         // The docked Home's tab (HomeDockTab): the Messages or Channels view (the sidebar's Home or Channels entry).
         services.pages.register(HomeDockTab(services: services))
+        // New Chief… as a page tab beside your work (NewChiefPage), restored after relaunch like the others.
+        NewChiefPage.register(services)
         #if DEBUG
         services.pages.register(DebugHomeNativeFixture(openPanel: services.openPanel))
         #endif
