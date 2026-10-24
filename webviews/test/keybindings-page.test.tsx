@@ -399,7 +399,6 @@ test("keys another action has: the recorder says who has them and offers Overwri
   };
   const recorder = () => doc.querySelector<HTMLElement>(".keys-recorder");
   const choices = () => recorder()?.querySelector<HTMLElement>(".keys-recorder-choices");
-  const conflict = () => recorder()?.querySelector(".keys-recorder-conflict")?.textContent;
   const sets = () => provider.calls.filter(({ op }) => op === KeybindingOps.set);
 
   // Only real conflicts count: Show History's ⇧⌘P runs in the browser only, so the palette's
