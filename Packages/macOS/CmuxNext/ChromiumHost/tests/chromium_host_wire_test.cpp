@@ -59,6 +59,15 @@ int main() {
   cmux_host::Encode(big, too_long);
   Check(!cmux_host::Decode(too_long, &d), "a payload over the limit is refused");
 
+  // The reader stops handing frames to a UI thread that has `limit` waiting.
+  cmux_host::InFlightFrames in_flight(3);
+  Check(in_flight.TryTake() && in_flight.TryTake() && in_flight.TryTake(), "three frames fit a limit of three");
+  Check(!in_flight.TryTake(), "a fourth waiting frame is refused");
+  Check(in_flight.count() == 3, "a refused frame is not counted");
+  in_flight.Done();
+  Check(in_flight.TryTake(), "a frame that ran makes room for one more");
+  Check(!in_flight.TryTake(), "and only one");
+
   if (failures) return 1;
   std::printf("chromium_host_wire_test: ok\n");
   return 0;
