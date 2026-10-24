@@ -1,6 +1,6 @@
-import CmuxNextBridge
 import CmuxNextCompat
 public import CmuxNextDaemon
+import CmuxNextWorkspaceNaming
 
 /// Variant B of workspace auto-naming (`workspaces.autoName.variant` =
 /// `persist`, hq#1957): the first time a default-named workspace of a

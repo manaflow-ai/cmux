@@ -477,7 +477,8 @@
         "CmuxNextIcons",
         "CmuxNextLayout",
         "CmuxNextSidebar",
-        "CmuxNextTabs"
+        "CmuxNextTabs",
+        "CmuxNextWorkspaceNaming"
       ],
       "packages": [
         "CmuxAgentBrands"
@@ -1811,7 +1812,6 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextWorkspaceNaming",
       "targets": [
-        "CmuxNextBridge",
         "CmuxNextCompat",
         "CmuxNextDaemon",
         "CmuxNextDesignTokens"

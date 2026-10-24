@@ -3,7 +3,7 @@ public import CmuxNextDaemon
 /// The name a workspace the user never named takes from its front tab
 /// (hq#1957, `workspaces.autoName`). Pure, so every case is tested; the
 /// sidebar row (`AppServices.sidebarPageFace`) and the one-time rename
-/// (`WorkspaceAutoNamer`) both read it.
+/// (`WorkspaceAutoNamer`, in CmuxNextBridge) both read it.
 ///
 /// A workspace is the user's to name while it has a title or a name the
 /// daemon did not give (`NewWorkspaceName.isDefaultWorkspaceName`): the rule

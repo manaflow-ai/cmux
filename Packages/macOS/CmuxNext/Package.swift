@@ -9,7 +9,8 @@ import PackageDescription
 //
 // Dependency direction (no cycles, no upward imports):
 //   CmuxNextApp -> every feature module
-//   CmuxNextBridge -> Daemon, Layout, Sidebar, Tabs (App-layer mapping, testable)
+//   CmuxNextBridge -> Daemon, Layout, Sidebar, Tabs, WorkspaceNaming (App-layer mapping and the live workspace
+//     auto-name reader and namer, testable)
 //   CmuxNextBrowserCore -> Compat, Wakeups (the browser's engine-neutral values and protocols; Browser re-exports it)
 //   CmuxNextTabs, Sidebar, Layout, Browser -> CmuxNextDesign; Tabs, Sidebar -> CmuxNextIcons; Palette -> Design, Actions
 //   Feature UI modules never import CmuxNextDaemon; the App maps daemon state into their view models.
@@ -77,8 +78,8 @@ import PackageDescription
 //   CmuxNextAgentCursor -> AgentCursorVisibility, CmuxAgentCursor (vendored; agent cursor commands from input events and the layout)
 //   CmuxNextAgentCursorVisibility -> nothing (pure visibility rules for a cursor target: snapshot in,
 //     visible / hidden anchor / not drawn out; no AppKit; the App builds the snapshot from the live models)
-//   CmuxNextWorkspaceNaming -> Bridge, Compat, Daemon, DesignTokens (hq#1957: the name a workspace takes from a moved
-//     tab or its front tab, and the one-time rename; pure rules; the App supplies its pages and the rename command)
+//   CmuxNextWorkspaceNaming -> Compat, Daemon, DesignTokens (hq#1957: the name a workspace takes from a moved
+//     tab or its front tab; pure rules; the live reader and the one-time rename are in Bridge)
 //   CmuxNextAgentActivity -> ComputerUse, Design (Agent activity pane: computer use sessions, timeline, prototype
 //     layouts; a projection of the CUA host, whose server ComputerUse's CuaHelperIdentity checks; no daemon; the
 //     App supplies the source; plans/cmux-next/computer-use.md)
@@ -738,7 +739,7 @@ let package = Package(
         // supplies its browser pages, New Tab pages and the rename command.
         .target(
             name: "CmuxNextWorkspaceNaming",
-            dependencies: ["CmuxNextBridge", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesignTokens"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesignTokens"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
@@ -1205,7 +1206,7 @@ let package = Package(
             name: "CmuxNextBridge",
             dependencies: [
                 "CmuxNextCompat",
-                "CmuxNextDaemon", "CmuxNextLayout", "CmuxNextSidebar", "CmuxNextTabs", "CmuxNextIcons",
+                "CmuxNextDaemon", "CmuxNextWorkspaceNaming", "CmuxNextLayout", "CmuxNextSidebar", "CmuxNextTabs", "CmuxNextIcons",
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
             ],
             swiftSettings: uiSwiftSettings

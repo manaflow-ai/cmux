@@ -97,7 +97,7 @@ row's context menu.
 
 The app half landed first (#21441, #21445):
 
-- `WorkspaceAutoNamer` (`CmuxNextWorkspaceNaming/WorkspaceAutoNamer.swift`)
+- `WorkspaceAutoNamer` (`CmuxNextBridge/WorkspaceNaming/WorkspaceAutoNamer.swift`)
   renames a default-named workspace once, from its front agent chat's title,
   with `source: auto`, the daemon generation and `expected_name_revision`. It
   only writes to a daemon that serves `workspace-name-source-v1`, which no

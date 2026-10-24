@@ -1,5 +1,5 @@
-public import CmuxNextBridge
 public import CmuxNextDaemon
+public import CmuxNextWorkspaceNaming
 public import Foundation
 
 /// Reads what `WorkspaceAutoName` needs from the app's live sources: the
@@ -7,7 +7,9 @@ public import Foundation
 /// observation tracks each source, so the sidebar row and the one-time
 /// rename follow a chat getting its title, a page loading or a terminal's
 /// title changing. The app supplies what only it knows: the setting, its New
-/// Tab pages, its rendered browser pages and `TabMoves.nameInput`.
+/// Tab pages, its rendered browser pages and `TabMoves.nameInput`. Here in
+/// the bridge, beside the live stores it reads (`AgentTurnStateStore`,
+/// `SidebarMapping`); the pure rules stay in CmuxNextWorkspaceNaming.
 @MainActor
 public struct WorkspaceAutoNameReader {
     /// A browser tab's live page, when the app renders it.
