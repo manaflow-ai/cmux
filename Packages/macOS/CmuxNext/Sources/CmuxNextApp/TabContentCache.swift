@@ -240,10 +240,6 @@ final class TabContentCache {
         }
         if let adopted = pageRequests.takeAdoption(for: tab) { return tracked(install(adopted, for: key), tab) }
         // A stand-in's page and chrome come once its first frame (the tab selected on its themed pane) committed.
-        if ProvisionalTab.isProvisional(surface: tab.surface), framedStandIns.insert(key).inserted, pendingBrowsers.insert(key).inserted {
-            afterFrame { [weak self] in if self?.pendingBrowsers.remove(key) != nil { self?.onBrowserReady?(key) } }
-            return nil
-        }
         let url = MachineBrowserPages(cache: self).recordURL(tab) ?? recordURL(tab)
         // A browser tab on a Mac Screen address (dev builds before Mac Screen had its own tab
         // kind, or restored from then): the Mac Screen tab replaces it, waiting for Connect.
