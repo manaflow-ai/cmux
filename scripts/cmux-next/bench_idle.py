@@ -12,19 +12,35 @@ terminal hosts, and each Chromium helper over --measure seconds after
   chromium-hidden  that Chromium tab's workspace is not shown (a new
                    workspace is selected)
   minimized        the window is minimized (action minimizeWindow)
+  app-hidden       cmux is hidden (showHideAllWindows hidden=true, NSApp.hide;
+                   checked through NSRunningApplication): the speed-of-sound
+                   target is 0 main-thread wakeups and 0 bytes written
 
-CPU and wakeups come from proc_pid_rusage (user+system time, package idle
-exits plus interrupt wakeups), sampled at the start and end of each window,
-so the bench itself adds no wakeups to the app. When the build has
+CPU, wakeups and bytes written come from proc_pid_rusage (user+system time,
+package idle exits plus interrupt wakeups, ri_diskio_byteswritten), sampled
+at the start and end of each window, so the bench itself adds no wakeups to
+the app. Main-thread wakeups come from the main-thread watchdog's count of
+main run-loop wakes (`debug.hangs` `main_wakes`, answered off the main
+thread, so reading it wakes nothing); a build without it reports null and
+the app's wakeups stand in for them (an upper bound). When the build has
 `debug.wakeups`, the ledger owners and active frame clients are recorded
 too. Pass criteria (defaults, per process; tune with flags): app and
 daemon < 0.5% CPU and < 5 wakeups/s, each terminal host < 0.2% and < 2/s,
-Chromium helpers < 1% on the static and hidden pages.
+Chromium helpers < 1% on the static and hidden pages; with cmux hidden, the
+app's main thread < 0.05 wakeups/s (fewer than 3 in a 60 s window: nothing
+may repeat) and 0 bytes/s written.
+
+--sample-seconds N (app-hidden only) then runs `sample` on the app for N
+seconds and reports the main thread's run-loop callouts by sample count
+(timer, source, port and main-queue callbacks and the function each one
+called), which names what wakes it; the full sample is kept beside the
+JSON. It runs after the measurement window, so it never counts in it.
 
 Usage:
   scripts/cmux-next/bench-idle.sh <tag> [--app PATH] [--measure 60]
       [--settle 20] [--scenarios terminals,chromium-static,chromium-hidden,minimized]
       [--url URL] [--out DIR] [--label NAME] [--no-fail] [--keep-running]
+      [--max-hidden-main-wakeups 0.05] [--max-hidden-disk-bps 0] [--sample-seconds 0]
 
 Writes artifacts/cmux-next-bench/<sha>-idle-<label>.json; exits 1 when a
 criterion fails (unless --no-fail). Quits the app it launched and ends its
@@ -36,6 +52,7 @@ import argparse
 import ctypes
 import json
 import os
+import re
 import shutil
 import signal
 import socket
@@ -65,14 +82,34 @@ _libc.mach_timebase_info(ctypes.byref(_tb))
 
 
 def usage(pid: int):
-    """(cpu_ns, wakeups, footprint_bytes) or None when the process is gone."""
+    """(cpu_ns, wakeups, footprint_bytes, disk_bytes_written) or None when the process is gone."""
     buf = (ctypes.c_uint64 * 64)()
     if _libproc.proc_pid_rusage(ctypes.c_int(pid), ctypes.c_int(4), ctypes.byref(buf)) != 0:
         return None
     # uuid (2 x u64), user, system, pkg_idle_wkups, interrupt_wkups, pageins,
-    # wired, resident, phys_footprint
+    # wired, resident, phys_footprint, proc_start_abstime, proc_exit_abstime,
+    # child_user, child_system, child_pkg_idle_wkups, child_interrupt_wkups,
+    # child_pageins, child_elapsed_abstime, diskio_bytesread, diskio_byteswritten
     ticks = buf[2] + buf[3]
-    return ticks * _tb.numer // _tb.denom, buf[4] + buf[5], buf[9]
+    return ticks * _tb.numer // _tb.denom, buf[4] + buf[5], buf[9], buf[19]
+
+
+def main_wakes(control):
+    """The app's main run-loop wakes so far (`debug.hangs` main_wakes, answered off the main
+    thread), or None for a build without the count."""
+    try:
+        result = control.call("debug.hangs", {"limit": 0}, timeout=30).get("result") or {}
+    except (OSError, ValueError):
+        return None
+    value = result.get("main_wakes")
+    return int(value) if isinstance(value, (int, float)) else None
+
+
+def app_hidden(pid: int):
+    """NSRunningApplication.hidden for pid (True/False), None when it cannot be read."""
+    script = f'ObjC.import("AppKit"); $.NSRunningApplication.runningApplicationWithProcessIdentifier({pid}).hidden'
+    out = run(["osascript", "-l", "JavaScript", "-e", script]).strip()
+    return {"true": True, "false": False}.get(out)
 
 
 def run(argv, env=None):
@@ -161,10 +198,12 @@ def wait_for_socket(path, limit_s=60):
 
 def measure(app_pid, bundle, seconds, control):
     kinds = classify(app_pid, bundle)
+    main_start = main_wakes(control)
     start = {pid: usage(pid) for pid in kinds}
     t0 = time.monotonic()
     time.sleep(seconds)  # test script: the measurement window itself
     wall = time.monotonic() - t0
+    main_end = main_wakes(control)
     kinds.update({pid: kind for pid, kind in classify(app_pid, bundle).items() if pid not in kinds})
     rows = []
     for pid, kind in sorted(kinds.items(), key=lambda item: item[1]):
@@ -174,12 +213,17 @@ def measure(app_pid, bundle, seconds, control):
             rows.append({"pid": pid, "kind": kind, "partial": True,
                          "note": "appeared during the window" if before is None else "exited during the window"})
             continue
-        rows.append({
+        row = {
             "pid": pid, "kind": kind,
             "cpu_percent": round(100.0 * (after[0] - before[0]) / (wall * 1e9), 3),
             "wakeups_per_s": round((after[1] - before[1]) / wall, 2),
             "footprint_mb": round(after[2] / 1048576, 1),
-        })
+            "disk_write_bps": round((after[3] - before[3]) / wall, 1),
+        }
+        if kind == "app":
+            row["main_wakeups_per_s"] = (round((main_end - main_start) / wall, 3)
+                                         if main_start is not None and main_end is not None else None)
+        rows.append(row)
     diag = {}
     try:
         report = control.call("debug.wakeups", timeout=30).get("result")
@@ -236,7 +280,59 @@ def prepare(scenario, control, args, app_pid, bundle):
         return refused(run_action("newTab"))
     if scenario == "minimized":
         return refused(run_action("minimizeWindow"))
+    if scenario == "app-hidden":
+        reason = refused(run_action("showHideAllWindows", hidden=True))
+        if reason is None and not wait_for(lambda: app_hidden(app_pid) is True, 10):
+            reason = "cmux did not hide (NSRunningApplication.hidden stayed false)"
+        return reason
     return None
+
+
+# Run-loop and dispatch frames between a wake and the code it runs: skipped to name the callee.
+_PLUMBING = ("__CFRUNLOOP_IS_CALLING_OUT_TO_", "__CFRunLoopDo", "_dispatch_main_queue", "_dispatch_client_callout",
+             "_dispatch_call_block_and_release", "_dispatch_continuation_pop", "_dispatch_lane_", "__NSFireTimer",
+             "__CFMachPort", "__NSThreadPerformPerform", "_NSThreadPerformInfo")
+_CALLOUTS = ("__CFRUNLOOP_IS_CALLING_OUT_TO_", "_dispatch_main_queue_callback")
+
+
+def sample_main_thread(app_pid, seconds, path):
+    """Runs `sample` on the app and returns what its main thread ran when it woke, by sample count:
+    [{count, callout, calls}]: the run-loop or main-queue callout and the first frame under it
+    that is not run-loop or dispatch plumbing (the timer's, source's, port's or block's code)."""
+    run(["/usr/bin/sample", str(app_pid), str(int(seconds)), "-mayDie", "-file", path])
+    try:
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            lines = handle.read().splitlines()
+    except OSError:
+        return []
+    frame = re.compile(r"^(\s*[+!:| ]*?)(\d+) (.+?)(?:\s+\(in [^)]*\).*)?$")
+    in_main = False
+    callout = None  # [marker depth, callout name, depth of the frames recorded under it]
+    merged = {}
+    for line in lines:
+        if " Thread_" in line and line.lstrip()[:1].isdigit():
+            in_main = "com.apple.main-thread" in line
+            callout = None
+            continue
+        match = frame.match(line) if in_main else None
+        if not match:
+            continue
+        depth, count, name = len(match.group(1)), int(match.group(2)), match.group(3).strip()
+        if callout and depth <= callout[0]:
+            callout = None
+        if callout is None:
+            if any(marker in name for marker in _CALLOUTS):
+                callout = [depth, name, None]
+            continue
+        if callout[2] is not None and depth > callout[2]:
+            continue  # inside a callee already named
+        if any(marker in name for marker in _PLUMBING):
+            continue
+        callout[2] = depth
+        key = (callout[1], name)
+        merged[key] = merged.get(key, 0) + count
+    return [{"count": count, "callout": name, "calls": calls}
+            for (name, calls), count in sorted(merged.items(), key=lambda kv: -kv[1])[:20]]
 
 
 def criteria(scenario, result, args):
@@ -247,6 +343,14 @@ def criteria(scenario, result, args):
                 failures.append(f"{scenario}: {row['kind']} {row['pid']} {row['note']}")
             continue
         kind, cpu, wake = row["kind"], row["cpu_percent"], row["wakeups_per_s"]
+        if scenario == "app-hidden" and kind == "app":
+            main = row.get("main_wakeups_per_s")
+            # A build without the main-wake count: the app's wakeups bound its main thread's.
+            main, source = (main, "main thread") if main is not None else (wake, "app (no main_wakes count)")
+            if main > args.max_hidden_main_wakeups:
+                failures.append(f"{scenario}: {source} {row['pid']} {main} wakeups/s > {args.max_hidden_main_wakeups}")
+            if row["disk_write_bps"] > args.max_hidden_disk_bps:
+                failures.append(f"{scenario}: app {row['pid']} wrote {row['disk_write_bps']} B/s > {args.max_hidden_disk_bps}")
         if kind in ("app", "daemon"):
             limit_cpu, limit_wake = args.max_cpu, args.max_wakeups
         elif kind == "terminal-host":
@@ -270,7 +374,7 @@ def main():
     parser.add_argument("--sha", default="unknown")
     parser.add_argument("--measure", type=float, default=60)
     parser.add_argument("--settle", type=float, default=20)
-    parser.add_argument("--scenarios", default="terminals,chromium-static,chromium-hidden,minimized")
+    parser.add_argument("--scenarios", default="terminals,chromium-static,chromium-hidden,minimized,app-hidden")
     parser.add_argument("--url", help="page for the Chromium scenarios (default: a static local file)")
     parser.add_argument("--out")
     parser.add_argument("--label", default="run")
@@ -279,6 +383,12 @@ def main():
     parser.add_argument("--max-host-cpu", type=float, default=0.2)
     parser.add_argument("--max-host-wakeups", type=float, default=2)
     parser.add_argument("--max-helper-cpu", type=float, default=1.0)
+    parser.add_argument("--max-hidden-main-wakeups", type=float, default=0.05,
+                        help="app-hidden: most main-thread wakeups/s (default 0.05: fewer than 3 in 60 s)")
+    parser.add_argument("--max-hidden-disk-bps", type=float, default=0,
+                        help="app-hidden: most bytes/s the app writes (default 0)")
+    parser.add_argument("--sample-seconds", type=float, default=0,
+                        help="app-hidden: then sample the app this long and report its main-thread callouts")
     parser.add_argument("--no-fail", action="store_true")
     parser.add_argument("--keep-running", action="store_true")
     parser.add_argument("--env", action="append", default=[], metavar="NAME=VALUE",
@@ -365,6 +475,17 @@ def main():
                 print(f"   ledger: {top}")
             if result.get("active_frame_clients"):
                 print(f"   active frame clients: {result['active_frame_clients']}")
+            for row in result["processes"]:
+                if row.get("kind") == "app" and not row.get("partial"):
+                    print(f"   app main thread {row.get('main_wakeups_per_s')} wakeups/s, wrote {row['disk_write_bps']} B/s")
+            if scenario == "app-hidden" and args.sample_seconds > 0:
+                out_dir = args.out or os.path.join(args.repo_root, "artifacts/cmux-next-bench")
+                os.makedirs(out_dir, exist_ok=True)
+                sample_path = os.path.join(out_dir, f"{args.sha}-idle-{args.label}-app-hidden.sample.txt")
+                callouts = sample_main_thread(app_pid, args.sample_seconds, sample_path)
+                result["main_thread_sample"] = {"seconds": args.sample_seconds, "file": sample_path, "callouts": callouts}
+                for item in callouts[:8]:
+                    print(f"   main {item['count']:>5} {item['callout']} -> {item['calls']}")
     finally:
         if not args.keep_running:
             app.send_signal(signal.SIGTERM)

@@ -134,6 +134,9 @@ public final class MainThreadWatchdog: Sendable {
     private let gapMaxNanos = Atomic<UInt64>(0)
     static let frame120Nanos: UInt64 = 8_333_333
     let mainAsleep = Atomic<Bool>(true)
+    /// Main run-loop wakes (a wait ended) since launch: the idle bench's main-thread wakeups
+    /// (`debug.hangs` `main_wakes`, read off the main thread). One relaxed add per wake.
+    private let mainWakes = Atomic<UInt64>(0)
     /// A decided quit is ending (``endHangAssertions()``).
     private let assertionsEnded = Atomic<Bool>(false)
     let running = Atomic<Bool>(false)
@@ -177,6 +180,10 @@ public final class MainThreadWatchdog: Sendable {
     }
 
     public var isRunning: Bool { running.load(ordering: .relaxed) }
+
+    /// Times the main run loop woke from a wait since the watchdog started; never reset. Read from
+    /// any thread (`debug.hangs` answers off the main thread, so reading it wakes nothing).
+    public var mainRunLoopWakes: UInt64 { mainWakes.load(ordering: .relaxed) }
 
     /// Main-thread work gaps over 16.7 ms since the last reset, and the longest.
     public var longFrameStats: (count: Int, max: Duration) {
@@ -276,6 +283,7 @@ public final class MainThreadWatchdog: Sendable {
         let asleep = activity == .beforeWaiting
         mainAsleep.store(asleep, ordering: .releasing)
         if wasAsleep, !asleep {
+            mainWakes.add(1, ordering: .relaxed)
             busy.noteAwake()
             // The watchdog thread wakes only if this turn is still running when it is due to sample.
             alarm.arm(afterNanos: sampleAfterNanos)

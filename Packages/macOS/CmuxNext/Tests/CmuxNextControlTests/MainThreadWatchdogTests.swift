@@ -67,6 +67,25 @@ import Testing
         #expect(watchdog.log.summary.count == 1)
     }
 
+    /// Each wake of the main run loop counts once (the idle bench's main-thread wakeups,
+    /// `debug.hangs` `main_wakes`): run-loop activities between two sleeps are one wake.
+    @MainActor
+    @Test func eachMainRunLoopWakeCountsOnce() {
+        let clock = ManualUptime()
+        let watchdog = MainThreadWatchdog(configuration: .init(threshold: .milliseconds(50), logStalls: false), uptime: clock.read)
+        #expect(watchdog.mainRunLoopWakes == 0)
+        watchdog.heartbeat(.afterWaiting)
+        watchdog.heartbeat(.beforeTimers)
+        watchdog.heartbeat(.beforeSources)
+        watchdog.heartbeat(.beforeWaiting)
+        #expect(watchdog.mainRunLoopWakes == 1)
+        for _ in 0..<3 {
+            watchdog.heartbeat(.afterWaiting)
+            watchdog.heartbeat(.beforeWaiting)
+        }
+        #expect(watchdog.mainRunLoopWakes == 4)
+    }
+
     /// Each finished stall reaches `onStall` (the lag-spike reporter) once,
     /// with the duration the log holds; time asleep sends nothing.
     @MainActor
