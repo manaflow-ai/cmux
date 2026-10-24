@@ -149,13 +149,27 @@ final class DaemonPageRelay: PageProvider {
             let cancel = try await PageRelayChannel.shared(for: services.machines.local, page: context.page).listen(event: event) { payload in
                 onEvent((try? Self.pageValue(payload)) ?? .object([:]))
             }
-            // The daemon's events, whatever they carry: each one counts.
-            return PageSubscription(freezing: .every, onCancel: cancel)
+            return PageSubscription(freezing: Self.freezing(ofEvent: event), onCancel: cancel)
         } catch is PageRelayChannel.NoSuchEvent {
             throw PageError.unknownOp(stream)
         } catch let error as DaemonError {
             throw Self.pageError(error)
         }
+    }
+
+    /// What each daemon event a page hears (cmux-tui/spec/page-router.json `events`) does while its
+    /// page is frozen, declared with the event, never one rule for all. `history-changed` is a
+    /// notice: the History page reads its list again whatever it carries, so the newest is enough.
+    static let eventFreezing: [String: PageStreamFreezing] = [
+        "history-changed": .newest,
+    ]
+
+    /// The freeze rule of the daemon event `event`: its ``eventFreezing`` entry. An event with no
+    /// entry (a daemon newer than this app) folds into the relay's own gap notice, `{resync: true}`,
+    /// which every relay listener already answers by reading again (``PageRelayChannel``: a
+    /// reconnect or an overflow sends it): a frozen page that missed its events is that gap.
+    static func freezing(ofEvent event: String) -> PageStreamFreezing {
+        eventFreezing[event] ?? .folded { _, _ in ["resync": true] }
     }
 
     /// The v2 idempotency key: the page's own, else its operation id (decision 31), so a resend

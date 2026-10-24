@@ -8,9 +8,10 @@ public final class PageSubscription {
     public let freezing: PageStreamFreezing
 
     /// - Parameters:
-    ///   - freezing: Whether the stream's events replace each other while the page is frozen
-    ///     (``PageStreamFreezing/newest``) or each one counts and thaws it (``PageStreamFreezing/every``).
-    ///     No default: the provider knows what its events mean.
+    ///   - freezing: How the stream's events fold while the page is frozen (``PageStreamFreezing/newest``,
+    ///     ``PageStreamFreezing/members``, ``PageStreamFreezing/folded(_:)``), or that they are the
+    ///     person's input and thaw it (``PageStreamFreezing/input``). No default: the provider knows
+    ///     what its events mean.
     ///   - onCancel: Ends the stream; runs once.
     public init(freezing: PageStreamFreezing, onCancel: @escaping () -> Void) {
         self.freezing = freezing

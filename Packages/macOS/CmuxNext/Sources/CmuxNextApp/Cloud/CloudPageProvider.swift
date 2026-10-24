@@ -21,6 +21,13 @@ final class CloudPageProvider: PageProvider {
     /// The namespace prefix the page calls.
     static let prefix = "cmux.cloud."
     static let watchStream = "cmux.cloud.machine.watch"
+    /// The watch stream while its page is frozen: each event is one machine's whole record
+    /// (`upsert`) or its removal, at a revision, and the page applies a machine's newest event over
+    /// the older ones; so the newest event per machine waits for the thaw, in the order they came
+    /// (their revisions stay in order).
+    nonisolated static let watchFreezing = PageStreamFreezing.newest(by: { event in
+        event["type"]?.stringValue == "removed" ? event["id"]?.stringValue ?? "" : event["machine"]?["id"]?.stringValue ?? ""
+    })
 
     private let op: CloudAppOp
     private let signIn: @MainActor () async -> Bool
@@ -75,8 +82,7 @@ final class CloudPageProvider: PageProvider {
         _ = try await run("cloud.machine.watch", args: .object([:]), key: nil, context: context)
         let id = UUID()
         watchers[id] = onEvent
-        // Machine changes the page merges one by one (by revision).
-        return PageSubscription(freezing: .every) { [weak self] in self?.watchers[id] = nil }
+        return PageSubscription(freezing: Self.watchFreezing) { [weak self] in self?.watchers[id] = nil }
     }
 
     private func run(_ server: String, args: CmuxNextSettings.JSONValue, key: String?,
