@@ -818,6 +818,20 @@ picking one starts the session there. Peers reconnect with backoff, the tunnel i
 one is down its sessions show `unreachable`, and a purge on either side removes the session
 everywhere. Peers are saved in `config.json` under `peers`.
 
+### Owner-side GitHub broker
+
+The optional `_acpmux/github_action` extension lets a lane ask a configured owner peer to run a
+small fixed set of GitHub actions. The lane sends a session id, repository, action and (when
+needed) a branch; it never receives a GitHub token. The owner runs its local `gh` keyring, checks
+the exact session's policy and branch prefixes, and records a redacted `github_broker_action`
+event. The setting is off by default. `src/bin/gh.rs` is the peer's small `gh` shim; unsupported
+commands, merges, administration, settings and secrets fail closed. Start from
+[`docs/github-broker-policy.example.json`](docs/github-broker-policy.example.json), replace the
+placeholder session id, and set `ownerPeer` on the lane daemon only after the owner has reviewed
+the policy. Grants are exact session ids; the template has no wildcard grant. The existing
+launch-wide peer token remains the transport trust boundary, so owner rollout should keep the
+policy narrow until per-peer token identity is configured.
+
 A daemon needs a working harness. launchd, the app, the Chief and a non-login ssh shell start the
 daemon with a bare environment, so every daemon reads the login shell's environment
 (`$SHELL -l -i -c env -0`, no terminal, at most 3 s) and passes on only an allow-list of what its
