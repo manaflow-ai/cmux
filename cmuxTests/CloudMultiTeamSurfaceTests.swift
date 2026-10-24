@@ -181,6 +181,50 @@ struct CloudMultiTeamSurfaceTests {
         await registry.accessDidEnd()
     }
 
+    // https://github.com/manaflow-ai/cmux/issues/21820: a 404 from a status
+    // read made with the wrong team unregistered the machine, which erased the
+    // panes' saved links, and the next save restored them as local shells.
+    @Test(
+        "A restored pane whose status read answers 404 keeps its saved link and reconnects with the selected team",
+        arguments: [nil, "team-a", "team-b"] as [String?]
+    )
+    func restoredPaneSurvivesAmbiguousNotFound(savedTeam: String?) async throws {
+        defer { live.tearDown() }
+        let catalog = SurfaceCatalog(live: live)
+        var ownerSelected = false
+        let registry = CmuxTuiSurfaceProviderRegistry(
+            links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
+            allowsBackgroundWork: { false },
+            listPage: { VMListPage(vms: [], limits: nil) },
+            activeTeamID: { ownerSelected ? "team-owner" : "team-b" },
+            loadMachineStatus: { machineID, teamID in
+                guard teamID == "team-owner" else {
+                    throw VMClientError.httpStatus(404, #"{"error":"vm_not_found"}"#)
+                }
+                return Self.machine(machineID)
+            },
+            refreshProvider: { _, _ in true }
+        )
+        let resource = SurfaceResourceID(machine: .cloud("vm-a"), kind: .terminal, key: "term_a")
+        let workspaceID = live.id()
+        catalog.restore([SurfaceProjectionRecord(panelID: UUID(), resource: resource)], workspaceID: workspaceID)
+        registry.adoptOwnerTeam(savedTeam, forMachineID: "vm-a")
+        registry.start(catalog: catalog)
+
+        #expect(await registry.refresh(force: true))
+        #expect(registry.provider(machineID: "vm-a") == nil)
+        #expect(catalog.pendingRestoredMachineIDs == ["vm-a"])
+        #expect(catalog.projectionRecords(forWorkspace: workspaceID).map(\.resource) == [resource])
+
+        ownerSelected = true
+        await registry.teamScopeDidChange()
+        #expect(await registry.refresh(force: true))
+        let provider = try #require(registry.provider(machineID: "vm-a"))
+        #expect(provider.ownerTeamID == "team-owner")
+        #expect(registry.ownerTeamID(forMachineID: "vm-a") == "team-owner")
+        await registry.accessDidEnd()
+    }
+
     @Test("A permanent 404 shows the access-lost card and stops retrying")
     func permanentAccessLossStopsRetrying() async throws {
         defer { live.tearDown() }
