@@ -6,20 +6,36 @@ import Foundation
 final class CEFExtensionStores {
     unowned let runtime: CEFRuntime
     private var stores: [BrowserProfileID: BrowserExtensionStore] = [:]
+    /// The backend of a new mirror; nil: Chromium's (tests pass their own).
+    private let makeBackend: ((BrowserProfileID) -> any BrowserExtensionBackend)?
     /// Page menu sources by extension id, version and folder: each manifest
     /// is read once per installed version (``withRowIcons(_:profile:)``).
     private var menuSources: [String: BrowserExtensionMenuSource] = [:]
 
-    init(runtime: CEFRuntime) {
+    init(runtime: CEFRuntime, makeBackend: ((BrowserProfileID) -> any BrowserExtensionBackend)? = nil) {
         self.runtime = runtime
+        self.makeBackend = makeBackend
     }
 
-    /// The extension mirror of `profile` (created on first use).
+    /// The extension mirror of `profile` (created on first use, empty).
     func store(for profile: BrowserProfileID) -> BrowserExtensionStore {
         if let store = stores[profile] { return store }
-        let store = BrowserExtensionStore(profile: profile, backend: CEFExtensionBackend(runtime: runtime, profile: profile))
+        let store = BrowserExtensionStore(profile: profile, backend: makeBackend?(profile) ?? CEFExtensionBackend(runtime: runtime, profile: profile))
         stores[profile] = store
         return store
+    }
+
+    /// The mirror of `profile` for a reader (the browser host, Settings, menus), refreshed from
+    /// Chromium on each read.
+    func readyStore(for profile: BrowserProfileID) -> BrowserExtensionStore {
+        let store = store(for: profile)
+        store.refresh()
+        return store
+    }
+
+    /// Refreshes every mirror (tests; an extension event of no known window).
+    func refreshAll() {
+        for store in stores.values { store.refresh() }
     }
 
     func hasStore(for profile: BrowserProfileID) -> Bool { stores[profile] != nil }
