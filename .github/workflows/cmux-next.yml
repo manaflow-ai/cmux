@@ -1120,6 +1120,9 @@ jobs:
     # (scripts/ci/run-checks-concurrently.sh) and the god-file scans faster.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 10
+    permissions:
+      contents: read
+      checks: read
     # Pull requests into feat-cmux-next run the cheap static checks, and so does
     # every feat-cmux-next push: gh-merge-green excuses a PR's red lint only when
     # the base's latest push run prints every finding too, so a base red no longer
