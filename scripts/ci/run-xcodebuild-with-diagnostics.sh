@@ -155,8 +155,8 @@ report_build_errors() {
   errors="$(grep -E '(^|: )(fatal )?error: ' "$log" 2>/dev/null \
     | grep -vE '^[[:space:]]*[|`]' \
     | awk '!seen[$0]++' \
-    | head -n 40 || true)"
-  echo "--- build errors (from $log) ---"
+    | head -n 50 || true)"
+  echo "--- first 50 xcodebuild error lines (from $log) ---"
   if [[ -z "$errors" ]]; then
     echo "no 'error:' line in the xcodebuild output; see the failed commands below and the resource diagnostics"
     report_compiler_crashes "$log"
