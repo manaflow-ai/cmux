@@ -203,3 +203,13 @@ fn the_registry_is_matched_by_canonical_name_everywhere() {
     assert!(registry_lanes(&hosts, "ci-mini").is_some_and(|l| l.is_null()));
     assert!(registry_lanes(&hosts, "stranger").is_none());
 }
+
+#[test]
+fn a_reading_without_live_agents_leaves_the_lane_cap_out_never_counts_zero() {
+    let mut h = health(40.0, 16, 1.0, 300.0, 0);
+    h.as_object_mut().unwrap().remove("liveSessions");
+    // light's cap is 3: with live unknown its room comes from RAM ((40 - 6) / 3 = 11), not 3 - 0.
+    let v = place(&[c("light", h)], Some(&registry()), Work::Agent);
+    assert_eq!(host(&v, "light")["room"], 11.0, "{v:#}");
+    assert_eq!(host(&v, "light")["live"], Value::Null, "{v:#}");
+}

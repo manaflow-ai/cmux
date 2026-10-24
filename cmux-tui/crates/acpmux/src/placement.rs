@@ -171,7 +171,8 @@ struct Weighed {
     local: bool,
     lanes: Lanes,
     room: Option<f64>,
-    live: u64,
+    /// Live agents from the reading; `None` when it has none (unknown, never 0).
+    live: Option<u64>,
     refused: Option<String>,
     why: String,
 }
@@ -186,7 +187,7 @@ fn reading(h: &Value, ptr: &str) -> Option<f64> {
 fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
     let h = &c.health;
     let known = h.is_object() && h.get("unsupported").is_none();
-    let live = h.get("liveSessions").and_then(Value::as_u64).unwrap_or(0);
+    let live = h.get("liveSessions").and_then(Value::as_u64);
     let mut w = Weighed {
         name: c.name.clone(),
         local: c.local,
@@ -220,7 +221,7 @@ fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
         parts.push(format!("{:.0} GB disk free", free / GB));
         rooms.push(("disk", (free / GB - lanes.free_gb_floor) / lanes.disk_per_lane_gb));
     }
-    if let Some(max) = lanes.max_lanes {
+    if let (Some(max), Some(live)) = (lanes.max_lanes, live) {
         parts.push(format!("{live}/{max:.0} lanes"));
         rooms.push(("lanes", max - live as f64));
     }
@@ -295,7 +296,7 @@ pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> 
         room(b)
             .total_cmp(&room(a))
             .then(a.lanes.rank.total_cmp(&b.lanes.rank))
-            .then(a.live.cmp(&b.live))
+            .then(a.live.unwrap_or(u64::MAX).cmp(&b.live.unwrap_or(u64::MAX)))
     });
     let pick = order.first();
     let why = match pick {
