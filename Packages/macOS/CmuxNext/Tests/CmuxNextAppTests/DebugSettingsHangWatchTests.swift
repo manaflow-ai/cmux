@@ -1,5 +1,6 @@
 @testable import CmuxNextApp
 @testable import CmuxNextControl
+import class CmuxNextDaemon.DaemonStore // only the store: the whole module makes JSONValue ambiguous (CmuxNextSettings has one too)
 import CmuxNextDesignTokens
 import CmuxNextPages
 import CmuxNextSettings
@@ -10,9 +11,9 @@ import Testing
 
 /// Debug Settings follows the recorder's hang files through ``HangEpisodeRecorder/changes()``
 /// while a page listens: each hang file written reaches every listening page with the files on
-/// disk in its state, the recorder keeps one stream however many pages listen, and the stream
-/// goes when the last page leaves or the provider goes away. A page opened again follows the
-/// files again.
+/// disk in its state, one change is one event, the recorder keeps one stream however many pages
+/// listen, and the stream goes when the last page leaves, which closing the tab does. A page
+/// opened again follows the files again.
 ///
 /// The symbolicator waits until the test ends, so the only changes are the writes the test makes.
 @MainActor @Suite struct DebugSettingsHangWatchTests {
@@ -70,30 +71,95 @@ import Testing
         #expect(after == Self.hangFiles(in: directory), "the staying page missed the second file")
     }
 
-    /// A provider released while a page still listens (no unsubscribe) ends its watch at once:
-    /// the recorder holds no stream for it.
-    @Test(.timeLimit(.minutes(1))) func aReleasedProviderEndsItsHangWatch() async throws {
+    /// One hang file change is one page event: a write, then a known other change (a search),
+    /// then a second write reach the page as exactly those three events, in that order. A second
+    /// event for one change (the Observation watch and the hang watch both answering it, or the
+    /// recorder telling it twice) would be a second full state build and bridge send on the main
+    /// thread, and shows here as an event out of place.
+    @Test(.timeLimit(.minutes(1))) func oneHangFileChangeIsOnePageEvent() async throws {
         let (directory, symbolsMayRun, recorder) = Self.recorder()
         defer { Self.finish(directory, symbolsMayRun, recorder) }
-        let subscription: PageSubscription
-        weak var released: DebugSettingsPageProvider?
-        do {
-            let provider = Self.provider(recorder)
-            let (listening, events) = try await Self.listen(provider)
-            subscription = listening
-            // One event: the watch task has run and waits in the stream for the next change.
-            recorder.begin(beat: 1, elapsed: .seconds(2), main: [1], others: [])
-            var iterator = events.makeAsyncIterator()
-            let written = Self.paths(await iterator.next())
-            #expect(written == Self.hangFiles(in: directory))
-            released = provider
-        }
-        #expect(released == nil, "the provider outlived its last reference")
-        #expect(recorder.subscriberCount == 0, "a released provider's hang watch still holds the recorder's stream")
-        subscription.cancel()
+        let provider = Self.provider(recorder)
+        let (listening, events) = try await Self.listen(provider)
+        defer { listening.cancel() }
+        var iterator = events.makeAsyncIterator()
+
+        recorder.begin(beat: 1, elapsed: .seconds(30), main: [1], others: [])
+        let first = await iterator.next()
+        #expect(Self.paths(first).count == 1, "the first event is not the first hang file")
+
+        _ = try await provider.call("cmux.debug.tunables.view.set", params: ["query": "marker"],
+                                    context: PageCallContext(page: "cmux.debug-settings"))
+        let marker = await iterator.next()
+        #expect(marker?.objectValue?["state"]?.objectValue?["query"]?.stringValue == "marker",
+                "a second event for the first hang file came before the search's event")
+        #expect(Self.paths(marker).count == 1)
+
+        recorder.begin(beat: 2, elapsed: .seconds(2), main: [2], others: [])
+        let second = await iterator.next()
+        #expect(Self.paths(second).count == 2, "a second event for one change came before the second hang file's event")
+        #expect(Self.paths(second) == Self.hangFiles(in: directory))
     }
 
-    // MARK: Helpers
+    /// Closing a Debug Settings tab through the tab store (the path of Cmd-W, the close button and
+    /// a closed pane) ends its page's subscriptions: the recorder forgets the page's stream. The
+    /// router's event handler holds the provider, so before the service closed the page each tab
+    /// opened and closed left a provider that followed the hang files and rebuilt its state on
+    /// every change for the rest of the session.
+    @Test(.timeLimit(.minutes(1))) func closingTheTabEndsItsPageHangWatch() async throws {
+        let (directory, symbolsMayRun, recorder) = Self.recorder()
+        defer { Self.finish(directory, symbolsMayRun, recorder) }
+        let root = try #require(Self.pageRoot, "no scratch page root")
+        PageID.registerBundledRoot(root, for: PageDescriptor.debugSettings.id) // the built page wins when bundled
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let watchdog = MainThreadWatchdog() // never started: it only hands the recorder to the page
+        watchdog.episodes = recorder
+        services.quit.watchdog = watchdog
+        services.pages.register(services.debugSettings)
+
+        let key = services.pages.open(.debugSettings, in: "pane-debug-settings-hangs", of: DaemonStore())
+        let view = try #require(services.pages.view(for: key))
+        let page = try #require(view.content as? PageWebView, "Debug Settings did not open as its React page")
+        await page.waitUntilLoaded() // a document committing later would reset the router itself
+        let (delivered, deliver) = AsyncStream<JSONValue>.makeStream()
+        let send = page.router.sendWithDrop
+        page.router.sendWithDrop = { envelope, dropped in
+            send?(envelope, dropped)
+            deliver.yield(envelope)
+        }
+        let reply = await page.router.handle(["t": "sub", "id": .number(1), "stream": "cmux.debug.tunables.changed",
+                                              "filter": .object([:])])
+        let sub = try #require(reply["value"]?.objectValue?["sub"]?.doubleValue, "the page could not subscribe: \(reply)")
+        #expect(recorder.subscriberCount == 1)
+
+        // A hang file reaches the page: the hang watch runs and waits in the stream again.
+        recorder.begin(beat: 1, elapsed: .seconds(2), main: [1], others: [])
+        var envelopes = delivered.makeAsyncIterator()
+        var event: JSONValue?
+        while let envelope = await envelopes.next() {
+            guard envelope["t"]?.stringValue == "ev", envelope["sub"]?.doubleValue == sub else { continue }
+            event = envelope["data"]
+            break
+        }
+        #expect(Self.paths(event) == Self.hangFiles(in: directory), "the page did not get the hang file")
+
+        services.pages.close(key)
+        #expect(recorder.subscriberCount == 0, "the closed tab's page still follows the hang files")
+        #expect(page.router.subscriptionCount == 0, "the closed tab's page still has subscriptions")
+        withExtendedLifetime(watchdog) {}
+    }
+
+        // MARK: Helpers
+
+    /// A scratch Debug Settings page (an empty document), for a test build without the built
+    /// page. Registered once per process; never deleted, as the registration outlives the test.
+    private static let pageRoot: URL? = {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "debug-settings-page-\(UUID().uuidString)")
+        guard (try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)) != nil,
+              (try? Data("<html><body></body></html>".utf8).write(to: directory.appending(path: "index.html"))) != nil
+        else { return nil }
+        return directory
+    }()
 
     /// A recorder in a fresh folder whose symbolicator waits for the semaphore (a latch: once
     /// signalled, every later symbolication runs too).

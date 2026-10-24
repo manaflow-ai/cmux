@@ -60,6 +60,8 @@ public final class HangEpisodeRecorder: Sendable {
         var symbolicating = false
         /// The streams of ``changes()`` still iterated.
         var subscribers: [UUID: AsyncStream<Void>.Continuation] = [:]
+        /// How many times ``notifyChanged()`` told the subscribers (tests: one per change).
+        var notifications = 0
     }
 
     static let filePrefix = "hang-"
@@ -138,6 +140,10 @@ public final class HangEpisodeRecorder: Sendable {
 
     /// Streams of ``changes()`` still registered (tests: an ended stream is forgotten).
     var subscriberCount: Int { state.withLock { $0.subscribers.count } }
+
+    /// The changes told to the subscribers so far, each one element per stream (tests: a stream
+    /// folds changes not yet taken, so only this shows a change told twice).
+    var changeNotificationCount: Int { state.withLock { $0.notifications } }
 
     /// The text of a hang file in ``directory``: nil when it is gone, is not a regular file (a
     /// symlink is refused, never followed), or is larger than ``maxBytes``. Call off the main thread.
@@ -297,7 +303,11 @@ public final class HangEpisodeRecorder: Sendable {
     /// Tells every ``changes()`` subscriber that ``entries`` changed, on the caller's thread (the
     /// recorder's queue), outside the lock.
     private func notifyChanged() {
-        for subscriber in state.withLock({ Array($0.subscribers.values) }) { subscriber.yield() }
+        let subscribers = state.withLock { state in
+            state.notifications += 1
+            return Array(state.subscribers.values)
+        }
+        for subscriber in subscribers { subscriber.yield() }
     }
 
     /// This folder's hang files that are regular files (symlinks and folders are skipped), newest first.

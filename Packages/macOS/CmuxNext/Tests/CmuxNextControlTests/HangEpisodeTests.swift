@@ -247,8 +247,12 @@ struct HangEpisodeTrackerTests {
         recorder.drain(symbols: false) // the (empty) folder of earlier launches is read: no change
         var changes = recorder.changes().makeAsyncIterator()
         #expect(recorder.subscriberCount == 1)
+        #expect(recorder.changeNotificationCount == 0)
 
         recorder.begin(beat: 1, elapsed: .seconds(2), main: [1, 2], others: [])
+        recorder.drain(symbols: false)
+        // The stream folds changes not yet taken, so the count shows a change told twice.
+        #expect(recorder.changeNotificationCount == 1, "one hang file written told the subscribers \(recorder.changeNotificationCount) times")
         let written = await changes.next() != nil
         #expect(written, "the first write of the hang file reached no subscriber")
         #expect(recorder.entries.count == 1, "the change arrived before the list changed")
@@ -257,6 +261,7 @@ struct HangEpisodeTrackerTests {
 
         symbolsMayRun.signal()
         recorder.drain()
+        #expect(recorder.changeNotificationCount == 2, "the symbols told the subscribers \(recorder.changeNotificationCount - 1) times")
         let symbolicated = await changes.next() != nil
         #expect(symbolicated, "the symbols reached no subscriber")
         #expect(recorder.entries.first?.topFrames == ["1", "2"])
@@ -264,6 +269,7 @@ struct HangEpisodeTrackerTests {
 
         recorder.update(beat: 1, duration: .seconds(3), ongoing: false)
         recorder.drain()
+        #expect(recorder.changeNotificationCount == 3, "the end told the subscribers \(recorder.changeNotificationCount - 2) times")
         let ended = await changes.next() != nil
         #expect(ended, "the end of the hang reached no subscriber")
         #expect(recorder.entries.first?.ongoing == false)
