@@ -106,6 +106,16 @@ struct ForkApi {
   // API version 22: the chrome.bookmarks bridge (shim_bookmarks.mm).
   int (*bookmarks_observe)(const char*, void (*)(void*, const char*), void*) = nullptr;
   int (*bookmarks_sync)(const char*, const char*) = nullptr;
+  // API version 30: the helper-app browser process (shim_helper_host.mm).
+  int (*browser_set_detached_hosting)(int, int) = nullptr;
+  int (*browser_set_embedder_active)(int, int) = nullptr;
+  int (*post_user_input_task)(void (*)(void*), void*) = nullptr;
+  int (*browser_send_wheel)(int, double, double, double, double, int, int, int, int) = nullptr;
+  int (*browser_text_input_watch)(int, void (*)(void*, int, const void*), void*) = nullptr;
+  int (*browser_accessibility_token)(int, int, const uint8_t*, int, const uint8_t*, int, uint8_t*, int) = nullptr;
+  void (*set_drag_source_handler)(void (*)(void*, int, const void*), void*) = nullptr;
+  int (*browser_drag_source_ended)(int, double, double, double, double, int) = nullptr;
+  int (*browser_drag_target_enter_source)(int, int, int, int, int) = nullptr;
 };
 
 struct Host {
