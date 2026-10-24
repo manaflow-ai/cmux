@@ -10,6 +10,15 @@ struct ChiefReplyWatchdogTests {
     static let sent = "2026-10-21T10:00:00.000Z"
     static let at = ChiefReplyWatchdog.date(sent)!
 
+    /// `text` as a `%@` argument reads inside a sentence that holds right-to-left text: Foundation's
+    /// `String(format:locale:)` writes it between U+2068 FIRST STRONG ISOLATE and U+2069 POP DIRECTIONAL ISOLATE
+    /// (see `Bundle.localizedString(forKey:value:table:arguments:preferredLocalizations:locale:)`).
+    static func isolated(_ text: String) -> String { "\u{2068}\(text)\u{2069}" }
+
+    /// Whether `text` holds `part` exactly: a literal search, so a Latin "3" never matches an Arabic-Indic "٣" (the
+    /// default `contains` on a bridged `String(format:)` result is not literal).
+    static func holds(_ text: String, _ part: String) -> Bool { text.range(of: part, options: .literal) != nil }
+
     static func summary(author: String, retracted: Bool = false) -> ConversationSummary {
         let message = ConversationMessage(id: "msg_1", conversation: "conv", seq: 1, clientMsgID: "c1", author: author,
                                           parts: [], createdAt: sent, retractedAt: retracted ? sent : nil)
@@ -60,7 +69,7 @@ struct ChiefReplyWatchdogTests {
         let shortMinutes = Duration.seconds(minutes * 60).formatted(.units(allowed: [.minutes], width: .abbreviated)
             .locale(Locale(identifier: "ar_US@numbers=latn")))
         #expect(arabic.hasPrefix("لا رد من Chief"), "not the Arabic notice: \(arabic)")
-        #expect(arabic.contains(shortMinutes + "."), "no Arabic short unit: \(arabic)")
+        #expect(Self.holds(arabic, "منذ " + Self.isolated(shortMinutes) + "."), "no Arabic short unit: \(arabic)")
         #expect(!arabic.contains("دقيقة") && !arabic.contains("دقائق"), "a minute noun after the count: \(arabic)")
         #expect(!arabic.contains("min"), "an English unit in the Arabic notice: \(arabic)")
     }
