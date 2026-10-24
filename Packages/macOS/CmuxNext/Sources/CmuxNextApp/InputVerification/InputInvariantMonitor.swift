@@ -114,7 +114,7 @@ final class InputInvariantMonitor {
     }
 
     /// DP1 (plans/cmux-next/layout-invariants.md): once no tab drag is in
-    /// flight, every strip shows exactly the tabs its pane holds, none
+    /// flight, every shown strip shows exactly the tabs its pane holds, none
     /// hidden (a drag's presentation that never ended) and none extra.
     static func tabConservation(_ services: AppServices) -> [InputViolation] {
         guard !services.dragSession.hasDragInFlight else { return [] }
@@ -128,9 +128,11 @@ final class InputInvariantMonitor {
     }
 
     /// One strip's DP1 check: nil when it shows exactly `held`, else what it shows and holds.
+    /// A strip that is not shown (out of its window, a parked workspace's, or a pane with its
+    /// tab bar hidden) is skipped: it does not lay out model changes until it shows again
+    /// (``TabStripView/syncFromModel()``), so what it showed last is not what it shows.
     static func stripMismatch(_ strip: TabStripView, holds held: [TabID]) -> String? {
-        // A strip out of the window does not observe its model.
-        guard strip.window != nil else { return nil }
+        guard strip.isShownInWindow else { return nil }
         let shown = strip.presentedTabIDs.map(\.rawValue)
         let heldKeys = held.map(\.rawValue)
         guard Set(shown) != Set(heldKeys) || shown.count != heldKeys.count else { return nil }
