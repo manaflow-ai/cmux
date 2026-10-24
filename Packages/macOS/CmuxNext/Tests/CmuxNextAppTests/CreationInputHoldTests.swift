@@ -78,4 +78,17 @@ import Testing
         #expect(!buffer.cancel(tab: "new"))
         #expect(buffer.take().count == 1, "a resolved creation's keys wait for its focus")
     }
+
+    /// Lawrence 2026-10-23: "spamming a bunch of cmd shift d and cmd d etc is laggy ish". A Cmd-D
+    /// pressed while the split before it waits for its reply runs at once (the window shows the pane
+    /// it splits); before, each one waited for the reply before it. A create key behind held text
+    /// still waits, so the order of the keys holds.
+    @Test func aCreateKeyIsNotHeldBehindAPendingCreation() {
+        let buffer = CreationInputBuffer(began: .now)
+        _ = buffer.open(generation: 1)
+        let cmdD = Self.key("d", .command, code: 2)
+        #expect(!buffer.holds(cmdD, limit: .seconds(2), expiring: true, creates: true))
+        buffer.capture(letter)
+        #expect(buffer.holds(cmdD, limit: .seconds(2), expiring: true, creates: true))
+    }
 }
