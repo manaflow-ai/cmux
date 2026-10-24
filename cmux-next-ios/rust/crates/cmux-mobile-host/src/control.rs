@@ -91,6 +91,23 @@ pub enum Inbound {
     BrowserGone {
         tab: String,
     },
+    /// The simulator surface source the app started for `need_surface`
+    /// `request` (`surface.rs`): its loopback address and per-launch secret.
+    Surface {
+        request: u64,
+        addr: String,
+        secret: String,
+    },
+    /// The app could not stream the surface of `request` (no such phone tab,
+    /// no booted simulator, no live screen with this Xcode).
+    SurfaceFailed {
+        request: u64,
+        reason: String,
+    },
+    /// The surface source of `tab` ended (its tab closed, its simulator shut down).
+    SurfaceGone {
+        tab: String,
+    },
     Devices(crate::pairing::DeviceTrust),
     DropPhone {
         phone_device_id: String,
@@ -149,6 +166,12 @@ pub enum Event {
     NeedBrowser { request: u64, tab: String, url: String },
     /// hostd no longer needs the browser host of `tab`: stop it.
     BrowserStop { tab: String },
+    /// A phone opened simulator surface tab `tab` (`s<surface>`, a phone tab
+    /// of this Mac): start its frame source and answer with `surface` (or
+    /// `surface_failed`) for `request`.
+    NeedSurface { request: u64, tab: String },
+    /// hostd no longer needs the surface source of `tab`: stop it.
+    SurfaceStop { tab: String },
 }
 
 /// Writes `event` as one stdout line when supervised; otherwise nothing.
@@ -172,6 +195,8 @@ pub struct Supplied {
     pub identity: watch::Receiver<Option<crate::pairing::MacIdentity>>,
     /// Browser hosts the app starts for the `browser` service.
     pub browser: std::sync::Arc<crate::browser::BrowserBroker>,
+    /// Simulator surface sources the app starts for the `surface` service.
+    pub surface: std::sync::Arc<crate::browser::BrowserBroker>,
 }
 
 /// Reads stdin until it ends, then exits the process (the app is gone).
@@ -182,6 +207,8 @@ pub fn spawn_stdin_reader() -> Supplied {
     let (identity_tx, identity) = watch::channel(None);
     let browser = std::sync::Arc::new(crate::browser::BrowserBroker::new(std::sync::Arc::new(emit)));
     let broker = std::sync::Arc::clone(&browser);
+    let surface = std::sync::Arc::new(crate::browser::BrowserBroker::for_surfaces(std::sync::Arc::new(emit)));
+    let surfaces = std::sync::Arc::clone(&surface);
     tokio::spawn(async move {
         let mut lines = BufReader::new(tokio::io::stdin()).lines();
         while let Ok(Some(line)) = lines.next_line().await {
@@ -212,6 +239,11 @@ pub fn spawn_stdin_reader() -> Supplied {
                 }
                 Some(Inbound::BrowserFailed { request, reason }) => broker.answer(request, Err(reason)),
                 Some(Inbound::BrowserGone { tab }) => broker.gone(&tab),
+                Some(Inbound::Surface { request, addr, secret }) => {
+                    surfaces.answer(request, Ok((addr, secret)));
+                }
+                Some(Inbound::SurfaceFailed { request, reason }) => surfaces.answer(request, Err(reason)),
+                Some(Inbound::SurfaceGone { tab }) => surfaces.gone(&tab),
                 None => tracing::warn!("ignoring an unknown control line"),
             }
         }
@@ -219,7 +251,7 @@ pub fn spawn_stdin_reader() -> Supplied {
         crate::size_release::stop_and_release(crate::size_release::EXIT_WAIT).await;
         std::process::exit(0);
     });
-    Supplied { token, acpmux, devices, identity, browser }
+    Supplied { token, acpmux, devices, identity, browser, surface }
 }
 
 /// The wire name of a transport.

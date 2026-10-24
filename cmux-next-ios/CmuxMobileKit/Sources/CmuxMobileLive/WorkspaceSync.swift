@@ -81,7 +81,8 @@ public final class WorkspaceSync {
             let replies = await client.requests([
                 ("set-client-info", [
                     "name": deviceName, "kind": "ios", "device_kind": "iphone", "device_name": deviceName, "device_id": deviceID,
-                    "capabilities": ["conversation-tabs-v1", "agent-session-tabs-v1"],
+                    // `page-tabs-v1`: the Mac's page tabs read as their page (a phone tab is a simulator tab).
+                    "capabilities": ["conversation-tabs-v1", "agent-session-tabs-v1", "page-tabs-v1"],
                 ]),
                 ("identify", [:]),
                 ("subscribe", ["tree_events": "deltas"]),
