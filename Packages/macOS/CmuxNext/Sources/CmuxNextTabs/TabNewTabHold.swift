@@ -15,7 +15,7 @@ import AppKit
         openedMenu = false
         guard let sleep = strip?.groups.sleep else { return }
         task = Task { [weak self] in
-            do { try await sleep(.milliseconds(450)) } catch { return }
+            do { try await sleep(.milliseconds(450)) } catch { return } // wakeup-allow: the one 450 ms press-and-hold delay; end() cancels it
             guard let self, let strip = self.strip, !Task.isCancelled, strip.pressedNewTab else { return }
             self.openedMenu = true
             strip.newTabButton.isPressed = false
