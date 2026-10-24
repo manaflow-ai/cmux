@@ -11,9 +11,12 @@ public enum MirrorOutcome: Hashable, Sendable {
 /// The confirmed state: written only by owner events and fetched pages,
 /// never by the client's own intents (those live in `IntentLog`).
 public struct HomeMirror: Hashable, Sendable {
-    public private(set) var me: Participant?
-    public private(set) var conversations: [ConversationID: ConversationSummary] = [:]
-    public private(set) var windows: [ConversationID: TranscriptWindow] = [:]
+    public private(set) var me: Participant? { didSet { cacheChanges.bump() } }
+    public private(set) var conversations: [ConversationID: ConversationSummary] = [:] { didSet { cacheChanges.bump() } }
+    public private(set) var windows: [ConversationID: TranscriptWindow] = [:] { didSet { cacheChanges.bump() } }
+    /// Moves with every write to what the client cache holds (`me`, `conversations`, `windows`);
+    /// revisions, stale marks and kept transcripts do not move it. Equality ignores it.
+    public private(set) var cacheChanges = HomeChangeCount()
     public private(set) var revisions: [HomeStream: Revision] = [:]
     /// Streams known to be behind their owner (a gap, or a newer revision in
     /// a snapshot) until a fetch catches them up. Nothing settles against them.
