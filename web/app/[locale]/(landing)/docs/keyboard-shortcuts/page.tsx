@@ -55,6 +55,16 @@ export default function KeyboardShortcutsPage() {
         <li>{t("chordsRuleSyntax")}</li>
       </ul>
 
+      <DocsHeading level={2} id="base-keymap-presets" className="scroll-mt-24">{t("keymapsTitle")}</DocsHeading>
+      <p>{t("keymapsIntro")}</p>
+      <ul>
+        <li>{t("keymapsCmux")}</li>
+        <li>{t("keymapsITerm2")}</li>
+        <li>{t("keymapsTerminal")}</li>
+        <li>{t("keymapsTmux")}</li>
+      </ul>
+      <p>{t("keymapsConfig")}</p>
+
       <KeyboardShortcuts />
     </>
   );

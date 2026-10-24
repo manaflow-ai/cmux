@@ -3704,6 +3704,13 @@
       "noResults": "No shortcuts found",
       "noResultsHint": "Try a different search term",
       "paneResizeDescription": "Resize the focused pane with Ctrl+Cmd+H/J/K/L (left/down/up/right). Hold a key to keep resizing. Change the bindings and Pane Resize Step in Settings → Keyboard Shortcuts. The step is also configurable with app.paneResizeStepPixels in cmux.json (1–200, default 20).",
+      "keymapsTitle": "Base keymap presets",
+      "keymapsIntro": "In Settings → Keyboard Shortcuts, Base Keymap applies a group of bindings for a familiar terminal. It writes only the differences from cmux defaults to shortcuts.bindings in cmux.json; bindings you set by hand are kept.",
+      "keymapsCmux": "cmux: Restore cmux's default bindings and remove overrides owned by another preset.",
+      "keymapsITerm2": "iTerm2: Cmd-1…9 selects tabs, Cmd-Opt-1…9 selects workspaces, Cmd-Shift-C opens copy mode, and Cmd-Ctrl-arrow resizes panes.",
+      "keymapsTerminal": "Terminal.app: Cmd-Opt-W closes other tabs, Cmd-Shift-I renames a tab, and Ctrl-Cmd-Shift-I opens Show Feed.",
+      "keymapsTmux": "tmux: Use Ctrl-B as a prefix for tabs, workspaces, pane splits and focus, zoom, copy mode, and pane navigation.",
+      "keymapsConfig": "The same values are stored in ~/.config/cmux/cmux.json under shortcuts.bindings. A preset does not overwrite a binding you changed manually; mixed custom bindings show no active preset.",
       "fileEditorWordWrap": "Toggle File Editor Word Wrap (Option+Z)."
     },
     "api": {
