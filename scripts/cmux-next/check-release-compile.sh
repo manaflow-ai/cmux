@@ -55,9 +55,11 @@ if [[ "${1:-}" == --archs ]]; then
   shift 2
 fi
 swift_other_flags='OTHER_SWIFT_FLAGS=$(inherited)'
+bench_label=''
 if [[ "${1:-}" == --bench-hooks ]]; then
   # The same flag reload.sh --config bench passes (SWIFT_OTHER_FLAGS).
   swift_other_flags+=' -DCMUX_BENCH_HOOKS'
+  bench_label=', bench hooks'
   shift
 fi
 if [[ "${CMUX_SWIFT_TYPECHECK_DIAGNOSTICS:-0}" == "1" ]]; then
@@ -115,7 +117,7 @@ if [[ -z "${DEVELOPER_DIR:-}" ]]; then
   export DEVELOPER_DIR="$xcode_app/Contents/Developer"
 fi
 
-echo "check-release-compile: $(xcodebuild -version | tr '\n' ' ')(ARCHS=$archs${bench_flags[*]:+, bench hooks})"
+echo "check-release-compile: $(xcodebuild -version | tr '\n' ' ')(ARCHS=$archs$bench_label)"
 cd "$repo_root/Packages/macOS/CmuxNext"
 build() {
   build_attempt=$((build_attempt + 1))
