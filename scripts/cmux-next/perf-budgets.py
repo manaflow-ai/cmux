@@ -314,11 +314,8 @@ def incomplete_rows(rows, baseline, manifest, only):
         for pattern in manifest.get(part, []):
             matched = [name for name in current if re.fullmatch(pattern, name)]
             if not matched or not any(current[name].get("p95") is not None for name in matched):
-                # A baseline row with a missing current value already has a concrete
-                # reason above; otherwise retain the manifest-level reason so a new
-                # baseline cannot be written from a partial run.
-                if any(name in baseline for name in matched) or any(re.fullmatch(pattern, name) for name in baseline):
-                    continue
+                # A part with no baseline rows still needs this manifest-level
+                # reason so a new baseline cannot be written from a partial run.
                 missing.append({"name": pattern, "reason": "manifest row not measured"})
     return missing
 

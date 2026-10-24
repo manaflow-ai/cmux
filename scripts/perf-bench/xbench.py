@@ -1033,20 +1033,9 @@ def gate(results_path: str, baseline_path: str, tolerance: float) -> int:
             verdict = "REGRESSED" if now > limit else "ok"
             failed += verdict != "ok"
             print(f"PERF-BENCH-GATE {verdict} {browser} {row} now={now} baseline={base} limit={round(limit, 3)} {unit}")
-    for row, per in results.items():
-        known = row in ROW_INFO or row.startswith(("tab-switch-", "palette-open-"))
-        if row not in baseline and known and row not in budget.ROW_INFO:
-            for browser in (*CMUX, TAB_SWITCH_BROWSER):
-                cell = per.get(browser, {}).get("median")
-                if cell is None:
-                    continue
-                key = f"{row}|{browser}"
-                expected += 1
-                if key in allowlisted:
-                    unsupported += 1
-                    print(f"PERF-BENCH-GATE UNSUPPORTED {key}: {allowlisted[key]}")
-                else:
-                    incomplete.append(f"{key}: missing baseline row")
+    # Rows newly emitted by a bench are not expected until a baseline records
+    # them. This keeps an older sparse baseline usable while still failing
+    # closed when one of its recorded cells disappears from the current run.
     for reason in incomplete:
         print(f"PERF-BENCH-GATE INCOMPLETE {reason}")
     verdict = "FAIL" if failed or incomplete else "PASS"

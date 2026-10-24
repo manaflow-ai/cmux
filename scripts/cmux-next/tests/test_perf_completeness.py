@@ -61,14 +61,15 @@ class XbenchGateTests(unittest.TestCase):
             current_path = self.write(directory, "current.json", current)
             self.assertEqual(xbench.gate(current_path, baseline_path, 0.15), 0)
 
-    def test_new_dynamic_row_without_baseline_is_incomplete(self):
+    def test_new_dynamic_row_is_not_expected_until_baselined(self):
         row = "tab-switch-terminal-10-ctrl_tab"
-        baseline = {"rows": {}}
-        current = {"rows": {row: {"cmux-debug": {"median": 12}}}}
+        baseline = {"rows": {"launch-window": {"cmux-chromium": {"median": 100}}}}
+        current = {"rows": {"launch-window": {"cmux-chromium": {"median": 100}},
+                              row: {"cmux-debug": {"median": 12}}}}
         with tempfile.TemporaryDirectory() as directory:
             baseline_path = self.write(directory, "baseline.json", baseline)
             current_path = self.write(directory, "current.json", current)
-            self.assertEqual(xbench.gate(current_path, baseline_path, 0.15), 1)
+            self.assertEqual(xbench.gate(current_path, baseline_path, 0.15), 0)
 
     def test_complete_matrix_still_passes(self):
         browsers = (*xbench.CMUX, xbench.TAB_SWITCH_BROWSER)
