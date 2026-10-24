@@ -1,8 +1,8 @@
 {
   "_doc": "Architecture counts the pre-push ratchet holds (scripts/cmux-next/guardrails.py runs scripts/cmux-next/arch-ratchet.py; the method is scripts/cmux-next/arch_counts.py, whose docstring defines every row). A push may not raise a ratcheted row's total, in the code or in this file's totals, nor swap a counted global, broadcast or layer edge for another; when one drops, rerun `scripts/cmux-next/arch-ratchet.py --update` (the only writer). The one escape is a dated exception: add {\"date\": \"YYYY-MM-DD\", \"row\": \"<row>\", \"allow\": <n>, \"why\": \"...\"} to exceptions; the push that adds it may raise that row by n, and the next --update folds it into the totals and marks it with applied_sha (an applied entry is never edited or removed). --update refuses a rise that no pending exception covers, except a rise that commits already on origin/feat-cmux-next made past the hook (a GitHub merge, --no-verify): it records that one with a generated applied entry whose raised_by names those commits. A generated entry allows no rise in any push's code, and the push that brings it is re-checked: its commits must be on origin/feat-cmux-next, after the old measured_sha and in the new one, named by no other entry, and its allow at most their rise. Never CI.",
   "method": "arch_counts",
-  "method_version": 5,
-  "measured_sha": "b8261760f242d3b18847c8e27412a949785e71c0",
+  "method_version": 6,
+  "measured_sha": "9b41c4e343a026dd1bb8aa9d0a0008afc9c21b9a",
   "measured_date": "2026-10-24",
   "rows": {
     "layer_hard": {
@@ -59,14 +59,14 @@
     "layer_soft": 12,
     "layer_upward": 3,
     "layer_unplaced": 0,
-    "stateful_singletons": 200,
-    "global_mutable_statics": 478,
-    "assume_isolated_outside_adapters": 152,
-    "assume_isolated_total": 202,
+    "stateful_singletons": 201,
+    "global_mutable_statics": 476,
+    "assume_isolated_outside_adapters": 151,
+    "assume_isolated_total": 203,
     "app_broadcast_names": 13,
-    "observer_sites": 336,
+    "observer_sites": 340,
     "blocking_allow_escapes": 0,
-    "app_lines": 143502
+    "app_lines": 143617
   },
   "packages": {
     "CmuxAuthRuntime": {
@@ -125,12 +125,12 @@
       "layer_soft": 1
     },
     "CmuxNextApp": {
-      "stateful_singletons": 33,
-      "global_mutable_statics": 74,
-      "assume_isolated_outside_adapters": 22,
-      "assume_isolated_total": 33,
+      "stateful_singletons": 35,
+      "global_mutable_statics": 72,
+      "assume_isolated_outside_adapters": 21,
+      "assume_isolated_total": 32,
       "observer_sites": 104,
-      "app_lines": 143502
+      "app_lines": 143617
     },
     "CmuxNextApps": {
       "stateful_singletons": 1,
@@ -225,7 +225,7 @@
       "assume_isolated_outside_adapters": 26,
       "assume_isolated_total": 33,
       "app_broadcast_names": 4,
-      "observer_sites": 78
+      "observer_sites": 82
     },
     "CmuxNextDesignTokens": {
       "stateful_singletons": 2,
@@ -376,7 +376,7 @@
       "layer_hard": 1
     },
     "CmuxNextTabs": {
-      "stateful_singletons": 5,
+      "stateful_singletons": 4,
       "global_mutable_statics": 2,
       "assume_isolated_outside_adapters": 4,
       "assume_isolated_total": 10,
@@ -400,7 +400,7 @@
     "CmuxNextWakeups": {
       "stateful_singletons": 6,
       "global_mutable_statics": 1,
-      "assume_isolated_total": 3,
+      "assume_isolated_total": 5,
       "observer_sites": 1
     },
     "CmuxNextWebUpdates": {
@@ -559,7 +559,8 @@
       "date": "2026-10-24",
       "row": "observer_sites",
       "allow": 4,
-      "why": "Honest recount, not a new observer (review 1 of 5a069bc6996, cmux-b6, asked for it): the old computed list of 5a069bc6996 hid 13 observers as 1 site; this commit removes 8 of them and restores the literal loop of its parent (5 window geometry notifications), which the ratchet counts as 5 sites. Counted sites +4, real observers -8."
+      "why": "Honest recount, not a new observer (review 1 of 5a069bc6996, cmux-b6, asked for it): the old computed list of 5a069bc6996 hid 13 observers as 1 site; this commit removes 8 of them and restores the literal loop of its parent (5 window geometry notifications), which the ratchet counts as 5 sites. Counted sites +4, real observers -8.",
+      "applied_sha": "1fb69bf23aaf93ed996f1183458a047b7a7b84d2"
     }
   ],
   "observer_wrappers": [
