@@ -57,6 +57,8 @@ Fleet (an owned mini's console; the allowlisted entry builds the tagged app at t
     --script scripts/measure/split-spring.sh --ref SHA --key KEY --timeout 10800 \\
     --artifact artifacts/split-spring/report.json --arg=--suite=every-action [--arg=--sessions=light,stress]
   (also artifacts/split-spring/every-action.md in a second step with that --artifact)
+  The controller returns --artifact files only when the step passes; a run with a failed session exits
+  FAILED_SESSION_EXIT, so its failure lines (FAILED, "the ... session failed") are in the step log.
 
 On the fleet pass --vdisplay=120 to split-spring.sh: a 1920x1080 120 Hz virtual display, so frames are judged at
 full ProMotion refresh and the STRESS grid (4 columns) fits; a 1024x768 console refuses the splits. The window
@@ -67,6 +69,8 @@ Usage: every-action-sweep.py --app APP --tag TAG --out DIR [--json PATH] [--sess
        [--only id,id] [--limit N] [--shard K/N] [--settle 0.5] [--no-interactions] [--keep]
 A sharded run (--shard K/N) times the interactions in shard 1 only; merge the shards' JSON with
 --merge OUT/every-action.json SHARD.json... (writes the merged JSON and the ranked markdown).
+Exit status FAILED_SESSION_EXIT (3) when a session failed (its error is in failed_sessions and every-action.md; a
+session that failed partway keeps its rows, marked `failed`); a --merge that holds a shard's failure exits the same.
 """
 import argparse, csv, signal, threading, glob, importlib.util, json, os, platform, re, socket, statistics, subprocess, sys, tempfile, time
 
@@ -110,6 +114,9 @@ WINDOW = (40, 40, 1600, 1000)
 
 TARGET_COMMIT_MS = 10.0
 TARGET_TURN_MS = 4.0
+# The exit status of a run (or a --merge) in which a session failed: the report still lands, with every failure in
+# failed_sessions and in every-action.md, but the run is not a pass (bench-launch-smoke, split-spring.sh's step).
+FAILED_SESSION_EXIT = 3
 
 
 def uptime():
@@ -1410,15 +1417,28 @@ def score(row):
     return (max(values) if values else 0) + 50 * ((row.get("frames") or {}).get("missed") or 0) + (500 if [e for e in row.get("errors") or [] if not refusal(e)] or row.get("error") else 0)
 
 
+def failure_line(failure):
+    shard = f" (shard {failure['shard']})" if failure.get("shard") else ""
+    return f"- {failure['name']}{shard}, after {failure.get('rows', 0)} rows: {failure.get('error', '')[:600]}"
+
+
 def markdown(report):
     lines = [f"# every-action sweep: {report['env']['host']} macOS {report['env']['macos']} build {report['env']['sha'][:12]}", ""]
     lines.append(f"Targets: commit p95 <= {TARGET_COMMIT_MS} ms, turn p95 <= {TARGET_TURN_MS} ms, 0 missed frames, no errors, right result.")
+    failed = report.get("failed_sessions") or []
+    if failed:
+        lines += ["", f"## FAILED: {len(failed)} session(s) did not finish", ""] + [failure_line(f) for f in failed]
+    if not report["sessions"]:
+        lines += ["", "No session finished."]
     for session in report["sessions"]:
         rows = session["rows"] + session["interactions"]
         ran = [r for r in session["rows"] if not r.get("skipped")]
         missed = [r for r in rows if misses(r)]
-        lines += ["", f"## {session['name']}", "",
-                  f"Session: {json.dumps(session['summary'])[:400]}", "",
+        lines += ["", f"## {session['name']}", ""]
+        if session.get("failed"):
+            lines += ["FAILED partway: the rows below cover only the actions before the failure.", ""] + \
+                [failure_line(f) for f in session["failed"]] + [""]
+        lines += [f"Session: {json.dumps(session['summary'])[:400]}", "",
                   f"Validity: Chromium ok {session['validity'].get('chromium_ok')} (flags {session['validity'].get('cef_flags')}), "
                   f"refresh {session['idle']['frames'].get('refresh_ms')} ms, idle 3 s missed {session['idle']['frames'].get('missed')} frames.", "",
                   f"Actions: {len(session['rows'])} listed, {len(ran)} ran, {len(session['rows']) - len(ran)} skipped; "
@@ -1485,15 +1505,22 @@ def main():
             if index:
                 app.relaunch()  # each session starts from a fresh app: STRESS is exactly perf-stress-session's shape
             sweep = Sweep(app, name, stress_module)
+            failure = None
             try:
                 sweep.run(actions)
-            except Exception as error:  # one session failing still returns the other's rows (the step must pass to return them)
+            except Exception as error:  # the session failed: the other sessions still run; the run exits FAILED_SESSION_EXIT
                 note(f"every-action: the {name} session failed: {error!r}")
-                report.setdefault("failed_sessions", []).append({"name": name, "error": repr(error)[:400]})
+                failure = {"name": name, "error": repr(error)[:2000], "rows": len(sweep.rows)}
+                if opts.shard:
+                    failure["shard"] = opts.shard
+                report.setdefault("failed_sessions", []).append(failure)
                 if not getattr(sweep, "validity", None):
-                    continue
-            report["sessions"].append({"name": name, "summary": getattr(sweep, "summary", {}), "validity": sweep.validity,
-                                       "idle": getattr(sweep, "idle", {"frames": {}}), "rows": sweep.rows, "interactions": sweep.interactions})
+                    continue  # failed before it measured anything: failed_sessions is its whole record
+            entry = {"name": name, "summary": getattr(sweep, "summary", {}), "validity": sweep.validity,
+                     "idle": getattr(sweep, "idle", {"frames": {}}), "rows": sweep.rows, "interactions": sweep.interactions}
+            if failure:
+                entry["failed"] = [failure]  # its rows cover only the actions before the failure
+            report["sessions"].append(entry)
             with open(report_path, "w") as f:
                 json.dump(report, f, indent=1, default=str)
     finally:
@@ -1503,7 +1530,7 @@ def main():
             with open(os.path.join(OUT, "every-action.json"), "w") as f:
                 json.dump(report, f, indent=1, default=str)
         with open(os.path.join(OUT, "every-action.md"), "w") as f:
-            f.write(markdown(report) if report["sessions"] else "# every-action sweep: no session finished\n")
+            f.write(markdown(report))
         SIGNPOSTS.stop()
         try:
             intervals = SIGNPOSTS.intervals()
@@ -1516,10 +1543,19 @@ def main():
         with open(report_path, "w") as f:
             json.dump(report, f, indent=1, default=str)
         with open(os.path.join(OUT, "every-action.md"), "w") as f:
-            f.write(markdown(report) if report["sessions"] else "# every-action sweep: no session finished\n")
+            f.write(markdown(report))
         if not opts.keep:
             app.stop()
     note(f"every-action: wrote {report_path} and {os.path.join(OUT, 'every-action.md')}")
+    fail_on_failed_sessions(report)
+
+
+def fail_on_failed_sessions(report):
+    """Exits FAILED_SESSION_EXIT when a session of `report` failed (after the report is written)."""
+    failed = report.get("failed_sessions") or []
+    if failed:
+        note(f"every-action: FAILED: {len(failed)} session(s) failed: {', '.join(f['name'] for f in failed)}")
+        raise SystemExit(FAILED_SESSION_EXIT)
 
 
 def merge(out, paths):
@@ -1527,13 +1563,23 @@ def merge(out, paths):
     reports = [json.load(open(p)) for p in paths]
     merged = {"env": dict(reports[0]["env"], shards=[r["env"].get("shard") for r in reports]), "sessions": []}
     for report in reports:
+        shard = report["env"].get("shard")
+        # A shard's failure stays a failure of the merged run (its missing rows are not covered actions).
+        for failure in report.get("failed_sessions") or []:
+            merged.setdefault("failed_sessions", []).append(dict(failure, shard=failure.get("shard") or shard))
         for session in report["sessions"]:
+            failures = [dict(f, shard=f.get("shard") or shard) for f in session.get("failed") or []]
             into = next((s for s in merged["sessions"] if s["name"] == session["name"]), None)
             if into is None:
-                merged["sessions"].append(json.loads(json.dumps(session)))
+                first = json.loads(json.dumps(session))
+                if failures:
+                    first["failed"] = failures
+                merged["sessions"].append(first)
                 continue
             into["rows"] += session["rows"]
             into["interactions"] += session["interactions"]
+            if failures:
+                into.setdefault("failed", []).extend(failures)
     for session in merged["sessions"]:
         session["rows"].sort(key=lambda r: r["id"])
     with open(out, "w") as f:
@@ -1541,6 +1587,7 @@ def merge(out, paths):
     with open(os.path.splitext(out)[0] + ".md", "w") as f:
         f.write(markdown(merged))
     print(f"every-action: merged {len(paths)} shards into {out}")
+    fail_on_failed_sessions(merged)
 
 
 if __name__ == "__main__":
