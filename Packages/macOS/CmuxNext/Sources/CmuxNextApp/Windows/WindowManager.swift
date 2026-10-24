@@ -5,6 +5,7 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextLaunch
 import CmuxNextWakeups
 import Observation
 

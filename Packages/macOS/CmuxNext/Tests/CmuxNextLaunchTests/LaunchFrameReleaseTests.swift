@@ -1,4 +1,4 @@
-@testable import CmuxNextApp
+@testable import CmuxNextLaunch
 import Observation
 import Testing
 
