@@ -5,7 +5,9 @@ public import AppKit
 /// pointer. Over a pane, `layout.scrollModifier` decides as on a column strip
 /// (`LayoutRootView+Scroll`): with `command` a plain scroll is the pane's and Command +
 /// scroll pans the canvas on both axes; with `none` the first dominant axis decides
-/// (horizontal pans, vertical scrolls the pane).
+/// (horizontal pans, vertical scrolls the pane). A scroll from a Chromium page's window is the
+/// page's even where the layout's point is empty canvas (a page window trails its pane during a
+/// pan or zoom), except Command + scroll under `command`.
 extension LayoutRootView {
     /// The frames `screen` shows now, in its view's points, and that view's
     /// size: what a new canvas starts from, so the screen looks the same in
@@ -30,21 +32,24 @@ extension LayoutRootView {
 
     /// Routes one scroll event over a canvas. True: consumed; false: the
     /// event goes on to the pane; nil: not a canvas event, the strip rules apply.
-    /// `decides`: this event decides its gesture's owner (`decidesGestureOwner`).
-    func handleCanvasScroll(_ event: NSEvent, at locationInWindow: NSPoint, decides: Bool) -> Bool? {
+    /// `decides`: this event decides its gesture's owner (`decidesGestureOwner`). `fromPageWindow`:
+    /// the event came from a page window (`LayoutRootView.scrollOrigin(of:at:in:)`).
+    func handleCanvasScroll(_ event: NSEvent, at locationInWindow: NSPoint, decides: Bool, fromPageWindow: Bool) -> Bool? {
         let delta = CGSize(width: event.scrollingDeltaX, height: event.scrollingDeltaY)
         if !event.momentumPhase.isEmpty {
-            guard case let .canvas(view) = scrollLock else { return nil }
+            guard case let .canvasCoast(view) = scrollLock else { return nil }
             let ended = event.momentumPhase.contains(.ended) || event.momentumPhase.contains(.cancelled)
             view.canvasPan(by: delta, ended: ended)
             if ended { scrollLock = .idle }
             updateVisibility()
             return true
         }
+        // A page window's scroll starts nothing on the canvas but Command + scroll under `command`.
+        let mayStart = !fromPageWindow || (model.scrollModifier == .command && event.modifierFlags.contains(.command))
         let phase = event.phase
         if phase.isEmpty {
             // A mouse wheel: it pans over the empty canvas, or sideways (Shift) anywhere.
-            guard let view = activeCanvasView(at: locationInWindow) else { return nil }
+            guard mayStart, let view = activeCanvasView(at: locationInWindow) else { return nil }
             let overPane = view.pane(at: view.convert(locationInWindow, from: nil)) != nil
             switch model.scrollModifier {
             case .command: guard !overPane || event.modifierFlags.contains(.command) else { return nil }
@@ -56,7 +61,7 @@ extension LayoutRootView {
             return true
         }
         if decides {
-            guard let view = activeCanvasView(at: locationInWindow) else { return nil }
+            guard mayStart, let view = activeCanvasView(at: locationInWindow) else { return nil }
             let overPane = view.pane(at: view.convert(locationInWindow, from: nil)) != nil
             switch model.scrollModifier {
             case .command:
@@ -70,7 +75,8 @@ extension LayoutRootView {
         let ended = phase.contains(.ended) || phase.contains(.cancelled)
         switch scrollLock {
         case let .canvas(view):
-            // The lock stays through the momentum that may follow; the next gesture replaces it.
+            // At the end the gesture is over; the canvas keeps the momentum that may follow.
+            if ended { scrollLock = .canvasCoast(view) }
             view.canvasPan(by: delta, ended: ended)
             updateVisibility()
             return true
