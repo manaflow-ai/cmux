@@ -270,6 +270,35 @@ class Run:
         self.sim.swipe(200, y0, 200 + random.randint(-20, 20), y1, duration=0.35)
         return self.responded("scroll-down" if down else "scroll-up", self.changed_after(before, t))
 
+    def reconnecting(self):
+        """Whether the page shows the app's reconnect notice."""
+        try:
+            return [t for t in self.sim.texts() if re.search(r"Reconnecting|reconnect", t, re.I)][:3]
+        except Exception:
+            return []
+
+    def long_scroll(self, seconds=12):
+        """Continuous pans for `seconds` (no pause longer than the swipe itself), then a
+        reconnect check: a long scroll must never end the stream."""
+        before = self.sig()
+        t = time.time()
+        n = 0
+        while time.time() - t < seconds:
+            down = (n // 4) % 2 == 0
+            self.sim.swipe(200, 680 if down else 260, 200, 260 if down else 680, duration=0.3)
+            n += 1
+        rtt = self.changed_after(before, time.time(), timeout=4)
+        seen = self.reconnecting()
+        return self.responded("long-scroll", 0.0 if self.diff(before, self.sig()) > self.a.change_threshold else rtt,
+                              swipes=n, seconds=round(time.time() - t, 1), reconnecting=seen)
+
+    def still_idle(self, seconds):
+        """A still page left alone; then the reconnect check and one scroll."""
+        self.record(act="still-idle", seconds=seconds)
+        time.sleep(seconds)
+        self.record(act="still-idle-end", reconnecting=self.reconnecting())
+        self.scroll(True)
+
     def tap_link(self):
         before = self.sig()
         x, y = random.randint(60, 340), random.randint(250, 620)
@@ -304,14 +333,13 @@ class Run:
                 self.sim.softtype(marker + "\n")
         if via == "address-bar":
             self.j.hide_keyboard()
-            url = {"A": f"en.wikipedia.org/w/index.php?search={marker}&fulltext=1",
-                   "B": f"hn.algolia.com/?q={marker}",
-                   "C": f"duckduckgo.com/?q={marker}"}.get(self.current, f"duckduckgo.com/?q={marker}")
+            # Letters, digits, '.' and '/' only: every key is on the first two layouts.
+            url = f"en.wikipedia.org/wiki/{marker}"
             t = time.time()
             try:
                 self.tv.type_url(url)
             except Exception as error:
-                self.j.hide_keyboard()
+                self.close_editing()
                 return self.record(act="search", error=str(error)[:160])
         t_typed = time.time()
         seen = None
@@ -320,8 +348,17 @@ class Run:
                 seen = round(time.time() - t_typed, 2)
                 break
             time.sleep(0.5)
-        self.j.hide_keyboard()
+        self.close_editing()
         return self.responded("search", seen, via=via, marker=marker, type_s=round(t_typed - t, 2))
+
+    def close_editing(self):
+        """Leaves an address field that is still editing (its X button), then the keyboard."""
+        for e in self.sim.find(kind="Button"):
+            if (e.label in ("Close", "Cancel", "Done") or (e.ident or "").endswith("cancel")) and 600 < e.center[1] < 874:
+                self.sim.tap_el(e)
+                time.sleep(0.8)
+                break
+        self.j.hide_keyboard()
 
     def interact(self, seconds):
         end = time.time() + seconds
@@ -365,9 +402,23 @@ class Run:
         self.sim.shot(f"open-{name}")
         return self.record(act="open", name=name, url=url, load_s=round(time.time() - t, 1), key=key, mac_ws=renamed)
 
+    def to_list(self):
+        """journey.back_to_list, with an edge swipe and one more try (a streamed page can
+        take the touches the toolbar's back control needs)."""
+        try:
+            return self.j.back_to_list()
+        except Exception as error:
+            labels = [(e.kind, e.label, e.ident) for e in self.sim.tree() if e.label][:40]
+            self.record(act="to-list-retry", error=str(error)[:80], labels=labels)
+            self.sim.shot(f"to-list-{utc().replace(':', '')}")
+            for _ in range(2):
+                self.sim.drag(2, 450, 340, 450, 0.5, 30, 0.1)
+                time.sleep(1.2)
+            return self.j.back_to_list()
+
     def switch(self, name):
         t = time.time()
-        self.j.back_to_list()
+        self.to_list()
         row = self.sim.wait(prefix=f"brfz-{name}", kind="Button", timeout=30)
         if not row:
             return self.record(act="switch", name=name, error="row not listed")
@@ -379,7 +430,7 @@ class Run:
         return self.record(act="switch", name=name, s=round(time.time() - t, 1), page=bool(ok))
 
     def list_idle(self, seconds):
-        self.j.back_to_list()
+        self.to_list()
         prev, self.current = self.current, None
         self.record(act="list-idle", seconds=seconds, left=prev)
         time.sleep(seconds)
@@ -401,16 +452,16 @@ class Run:
     def plan(self):
         a = self.a
         u = a.url
-        p = [("open", "A", u[0]), ("interact", 150),
-             ("open", "B", u[1]), ("interact", 60),
+        p = [("open_tab", "A", u[0]), ("interact", 70), ("long_scroll", 12), ("interact", 60),
+             ("open_tab", "B", u[1]), ("interact", 60),
              # No tab shown for > 30 s: the WebRTC media session lingers out; the next shown
              # tab brings it back and the lane switches route at a keyframe.
              ("list_idle", 45), ("switch", "B"), ("interact", 80),
              ("switch", "A"), ("interact", 50),
-             ("open", "C", u[2]), ("interact", 50)]
+             ("open_tab", "C", u[2]), ("interact", 50)]
         if a.bg:
             p += [("background", a.bg), ("interact", 30)]
-        p += [("idle", 60), ("switch", "B"), ("interact", 35), ("switch", "A"), ("interact", 35),
+        p += [("still_idle", 125), ("switch", "B"), ("interact", 35), ("switch", "A"), ("interact", 35),
               ("switch", "C"), ("interact", 35), ("list_idle", 40), ("switch", "C"), ("interact", 60),
               ("switch", "B"), ("interact", 60)]
         return p
@@ -560,7 +611,7 @@ def main():
     ap.add_argument("--config", default="default", choices=["default", "wgonly", "relay", "loss"])
     ap.add_argument("--drop-permille", type=int, default=0, help="the Mac drops this many of 1000 video RTP packets")
     ap.add_argument("--bg", type=float, default=0, help="background the app this many seconds mid-run")
-    ap.add_argument("--url", nargs=3, default=["https://en.wikipedia.org/wiki/Main_Page", "https://news.ycombinator.com",
+    ap.add_argument("--url", nargs=3, default=["https://en.wikipedia.org/wiki/Cat", "https://news.ycombinator.com",
                                                "https://duckduckgo.com"])
     ap.add_argument("--phone-log", default="info,cmux_mobile_link=debug,cmux_mobile_link_ffi=debug")
     ap.add_argument("--page-y0", type=float, default=130)
