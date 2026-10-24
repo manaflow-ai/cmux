@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '1e8ed8d1c9488496f61ce39773888417486f7d9a3ecf0469f4e801cd383fe3bd'
+IR_SHA256 = 'cb12b489fcaad8bfa7cd1979fdcc27eaff578f0f3540c961896abdc0c61eeea0'
 
 
 @dataclass(frozen=True)
@@ -1616,6 +1616,17 @@ COMMANDS = {
             'subject_key': CommandFieldMetadata(None, None),
         },
     ),
+    'get-host-size-policy': CommandMetadata(
+        'get-host-size-policy',
+        'control',
+        12,
+        'host-size-policy-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'surface': CommandFieldMetadata(None, None),
+        },
+    ),
     'get-size-state': CommandMetadata(
         'get-size-state',
         'control',
@@ -3011,6 +3022,7 @@ COMMANDS = {
             'install': CommandFieldMetadata(12, None),
             'kind': CommandFieldMetadata(None, None),
             'name': CommandFieldMetadata(None, None),
+            'remote': CommandFieldMetadata(12, 'host-size-policy-v1'),
             'user_id': CommandFieldMetadata(12, 'shared-sizing-v1'),
             'version': CommandFieldMetadata(12, None),
         },
@@ -3076,6 +3088,17 @@ COMMANDS = {
         {
             'history': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'set-host-size-policy': CommandMetadata(
+        'set-host-size-policy',
+        'control',
+        12,
+        'host-size-policy-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'policy': CommandFieldMetadata(None, None),
         },
     ),
     'set-personal-terminal': CommandMetadata(
