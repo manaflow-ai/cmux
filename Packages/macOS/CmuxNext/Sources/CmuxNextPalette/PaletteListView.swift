@@ -17,6 +17,8 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
     var onActivate: ((String) -> Void)?
 
     private let table = PaletteTableView()
+    /// The faces every row cell of this list draws a font setting's title in.
+    private let fontFaces = PaletteFontFaces()
     private var rows: [DisplayRow] = []
     private var rowIndexByID: [String: Int] = [:]
     private var selectedID: String?
@@ -184,7 +186,7 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
             return cell
         case .item(let item):
             let cell = tableView.makeView(withIdentifier: PaletteRowCell.identifier, owner: nil) as? PaletteRowCell
-                ?? PaletteRowCell(frame: .zero)
+                ?? PaletteRowCell(fontFaces: fontFaces)
             cell.configure(item, isSelected: item.id == selectedID)
             return cell
         }

@@ -131,8 +131,11 @@ final class PaletteRowCell: NSTableCellView {
     private var isSelected = false
     private var swatches: [ThemeRGB] = []
     private var ball: PaletteBall?
+    /// The list's kept faces a font setting's row draws its title in.
+    private let fontFaces: PaletteFontFaces
 
-    override init(frame: NSRect) {
+    init(frame: NSRect = .zero, fontFaces: PaletteFontFaces) {
+        self.fontFaces = fontFaces
         super.init(frame: frame)
         identifier = Self.identifier
         icon.imageScaling = .scaleProportionallyDown
@@ -161,7 +164,7 @@ final class PaletteRowCell: NSTableCellView {
         icon.isHidden = drawsColor
         self.isSelected = isSelected
         titleText = item.title
-        titleFace = item.fontFamily.flatMap { PaletteFontFaces.shared.font(family: $0, size: Typography.body.pointSize) }
+        titleFace = item.fontFamily.flatMap { fontFaces.font(family: $0, size: Typography.body.pointSize) }
         highlights = row.highlights
         applyColors()
         subtitle.stringValue = item.subtitle ?? ""

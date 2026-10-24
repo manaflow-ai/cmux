@@ -21,7 +21,7 @@ struct PaletteGroupColorBallsTests {
         let tokens = scope.tokens
         func drawn(_ id: String) throws -> [ThemeRGB] {
             let item = try #require(items.first { $0.id == "action:\(id)" })
-            let cell = PaletteRowCell(frame: NSRect(x: 0, y: 0, width: 400, height: 28))
+            let cell = PaletteRowCell(frame: NSRect(x: 0, y: 0, width: 400, height: 28), fontFaces: PaletteFontFaces())
             scope.root(cell)
             cell.configure(PaletteRow(item: item, highlights: [], score: 0), isSelected: false)
             return cell.swatch.isHidden ? [] : cell.swatch.colors
