@@ -4,17 +4,18 @@ public import QuartzCore
 /// the per-frame ``MainFrameBudget`` and the one display link its batches tick on.
 ///
 /// The app builds one at its composition root and passes it by init to everything that runs a
-/// budgeted batch (the control work queue, the daemon store's drain, the watchdog's board): there
+/// budgeted batch (the control work queue, the watchdog's board) and to the daemon services, whose
+/// store drain is a frame client on its link (it ticks first, whole, every frame): there
 /// is no shared instance. Budgeted clients exist only here (``FrameClient/init(owner:budgeted:on:onFrame:)``,
 /// ``FrameBatchQueue/init(owner:budgeted:on:)``), so the budget's window opens once per real frame
 /// on this one link, never once per tick of each window's link (two displays at 60 and 120 Hz
-/// would otherwise roll it several times a frame). Its link exists only while a budgeted batch
+/// would otherwise roll it several times a frame). Its link exists only while one of its clients
 /// has work; an idle app has no frame wakeups from it.
 ///
 /// ```swift
 /// // The composition root:
 /// let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(), signposts: true))
-/// let drain = FrameBatchQueue(owner: "DaemonStore.drain", budgeted: .visible, on: mainWork)
+/// let requests = FrameBatchQueue(owner: "Control.frames", budgeted: .automation, on: mainWork)
 ///
 /// // A test drives the frames by hand:
 /// let work = MainWorkScheduler.testing(budget: MainFrameBudget(uptimeNanos: clock.read)) { _ in FakeLink() }
@@ -24,7 +25,8 @@ public import QuartzCore
 public final class MainWorkScheduler {
     /// The per-frame budget every budgeted batch draws on.
     public let budget: MainFrameBudget
-    /// The display-link scheduler the budgeted clients tick on (the main screen's).
+    /// The display-link scheduler the budgeted clients tick on (the main screen's); the daemon
+    /// services' drains are frame clients on it, so they tick before the budgeted classes.
     public let frames: FrameScheduler
 
     /// Times the render pass after each frame's scheduled work while the link runs (nil in tests).
