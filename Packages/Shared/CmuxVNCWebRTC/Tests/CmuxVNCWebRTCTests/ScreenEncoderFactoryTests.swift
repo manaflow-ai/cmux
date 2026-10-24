@@ -29,8 +29,10 @@ struct ScreenEncoderFactoryTests {
         #expect(malformed.parameters["profile-level-id"] == "64")
     }
 
-    /// VideoToolbox accepts AutoLevel at a 16" MacBook Pro's full size at
-    /// 120 fps and at 1080p60 (a level too low for the size fails setup).
+    #if os(macOS)
+    /// VideoToolbox starts the encoder at AutoLevel and encodes at a 16"
+    /// MacBook Pro's full size at 120 fps and at 1080p60 (macOS: the Mac
+    /// host's encoder; three frames, a fraction of a second).
     @Test(.timeLimit(.minutes(1)), arguments: [(3456, 2234, 120), (1920, 1080, 60)])
     func theEncoderEncodesAtAutoLevel(width: Int, height: Int, fps: Int) async throws {
         let factory = ScreenEncoderFactory()
@@ -67,6 +69,7 @@ struct ScreenEncoderFactoryTests {
         #expect(encoded.frames == 3, "VideoToolbox encoded \(encoded.frames) of 3 frames at \(width)x\(height) \(fps) fps")
         #expect(encoded.bytes > 0)
     }
+    #endif
 }
 
 private final class EncodedCount: @unchecked Sendable {

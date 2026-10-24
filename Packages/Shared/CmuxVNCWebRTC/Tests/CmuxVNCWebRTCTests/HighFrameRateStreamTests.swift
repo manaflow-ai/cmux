@@ -11,7 +11,7 @@ import WebRTC
 /// display, over host ICE candidates and in-memory signaling. The source is
 /// a 16" MacBook Pro's built-in display (3456×2234) scrolling at 120 fps.
 ///
-/// Heavy (hardware encode and decode of ~7.7 MP frames for 10 s) and
+/// Heavy (hardware encode and decode at 120 fps for about 30 s) and
 /// timing-bound, so it runs only when asked: `CMUX_VNC_120FPS=1`
 /// (scripts/measure/mac-screen-120fps.sh), on an otherwise quiet Mac. One
 /// case at a time: two streams would share the hardware encoder.

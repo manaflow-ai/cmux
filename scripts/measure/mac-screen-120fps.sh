@@ -31,8 +31,11 @@ run_at() {
   CMUX_VNC_120FPS=1 swift test --package-path "$checkout/Packages/Shared/CmuxVNCWebRTC" \
     --filter HighFrameRateStreamTests >"$log" 2>&1 || status=$?
   grep -E "MAC-SCREEN-120FPS|host: (frame rate|capturing|video:)|✘|passed after|failed after|error:" "$log" || true
-  # A build or setup failure prints no result lines: show the end of the log.
-  grep -q "MAC-SCREEN-120FPS quality=" "$log" || tail -n 60 "$log"
+  # No result line (a build failure, or a commit without the test, whose filter matches nothing): a failure.
+  if ! grep -q "MAC-SCREEN-120FPS quality=" "$log"; then
+    tail -n 60 "$log"
+    [[ "$status" -ne 0 ]] || status=3
+  fi
   return "$status"
 }
 
@@ -40,12 +43,15 @@ if [[ -n "$before" ]]; then
   work="$root/.build/mac-screen-120fps-before"
   git worktree remove --force "$work" 2>/dev/null || true
   git fetch --quiet origin "$before" 2>/dev/null || true
-  git worktree add --detach "$work" "$before" >/dev/null
   set +e
-  run_at before "$work"
-  echo "MAC-SCREEN-120FPS-RESULT before exit=$?"
+  if git worktree add --detach "$work" "$before" >/dev/null; then
+    run_at before "$work"
+    echo "MAC-SCREEN-120FPS-RESULT before exit=$?"
+    git worktree remove --force "$work"
+  else
+    echo "MAC-SCREEN-120FPS-RESULT before exit=2 (could not check out $before)"
+  fi
   set -e
-  git worktree remove --force "$work" || true
 fi
 set +e
 run_at after "$root"

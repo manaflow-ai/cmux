@@ -72,7 +72,8 @@ public enum ScreenQuality: String, Codable, Sendable, CaseIterable, Identifiable
     /// H.264 encoder for above 60 fps (2160×1396 at 120). VideoToolbox's
     /// H.264 encoder is bound by pixels a second, not by its level or
     /// settings: an M1 Max sustains about 400 Mpixel/s (3456×2234 at 55 fps,
-    /// 2160×1396 at 120 with 28 ms latency), an M4 Pro about 500.
+    /// 2160×1396 at 120 with 28 ms latency), an M4 Pro about 500. One value
+    /// for every Mac (not measured per chip): ProMotion Macs are M1 Pro or later.
     static let maximumEncodedPixelRate = 360_000_000
 
     /// The frames per second to capture and encode at. Auto and Smooth
