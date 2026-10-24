@@ -73,8 +73,15 @@ pub async fn spawn_within(
         .map_err(|e| crate::agent::spawn_error(&format!("start {}", launcher.exe.display()), e))?;
     let mut stdin = child.stdin.take().context("host stdin")?;
     let mut stdout = child.stdout.take().context("host stdout")?;
+    // The host moves into its own scope before the spec: it starts its
+    // harness only once it has it, so the harness starts there too
+    // (`scope.rs`).
+    let pid = child.id();
     // A host that never reports ready must not hold the session's spawn.
     let bootstrap = within("start", budget, async {
+        if let Some(pid) = pid {
+            super::scope::place(pid).await;
+        }
         write_frame(&mut stdin, spec).await?;
         read_frame::<_, BootstrapReply>(&mut stdout).await
     })
