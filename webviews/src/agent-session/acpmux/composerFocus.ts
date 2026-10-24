@@ -104,6 +104,11 @@ export function useComposerKeyboard(focusComposer: () => boolean, page: PageClie
       pressedAt = performance.now();
       clearTimeout(settling);
       settling = undefined;
+      const target = event.target instanceof Node ? event.target : null;
+      const active = document.activeElement;
+      if (shouldBlurComposerOnPress(target, active)) {
+        (active as HTMLElement).blur();
+      }
     };
     /// The pane became active (window focus, the host's focusContent): claim unless a click did it.
     const claimOnActivation = () => {
