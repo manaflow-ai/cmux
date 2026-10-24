@@ -4,6 +4,9 @@ import Foundation
 nonisolated struct CEFSwitches: Equatable, Sendable {
     /// `cmux_cef_api_version()`; 0 for stock CEF.
     var forkAPIVersion: Int32
+    /// The fork and shim have the renderer paths (`CEFForkFeatures.rendererPaths`): no tab keeps a
+    /// DevTools session, so the per-renderer reuse switch applies.
+    var rendererPaths = false
     /// Development builds share one ad hoc identity per tag; the real
     /// keychain would prompt for "Chromium Safe Storage" on every rebuild.
     var useMockKeychain: Bool
@@ -64,6 +67,13 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // the deadline CEFLayerHosting sets, so AsyncLiveResize would only lose that sync.
         if forkAPIVersion < Self.resizeSyncForkAPI { result.append("enable-features=AsyncLiveResize") }
         result.append(contentsOf: Self.chromePromptOffSwitches)
+        // Chrome shares a renderer between at most 2 main frames of one site below its process
+        // limit (kProcessPerSiteUpToMainFrameThreshold), but Chromium 154 turns that off for the
+        // whole process once any frame ever had a DevTools agent (RenderFrameHostManager,
+        // WasEverAttachedToAnyFrame), which an agent's CDP session does. The fork's switch keeps
+        // the check per renderer only (a renderer with a DevTools agent is never shared), so one
+        // agent does not end sharing everywhere (fork API 29; tab-lifecycle.md "Renderer sharing").
+        if rendererPaths { result.append(Self.processReusePerRendererDevTools) }
         // Never pass a feature-list switch expecting it to replace CEF's own
         // list: the shim merges disable-features/enable-features into it
         // (CEFShim/src/command_line_switches.h). Chromium's code-sign clone
@@ -125,6 +135,9 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// client in this build, so DICE is off), the outdated-build bubble
     /// (Google Chrome builds only) and the Privacy Sandbox ad privacy notice
     /// (removed in Chromium 154, kPrivacySandboxAdPrivacyUxDeprecation).
+    /// The fork's switch for per-renderer DevTools checks in main-frame process reuse (fork API 29).
+    static let processReusePerRendererDevTools = "cmux-process-reuse-per-renderer-devtools"
+
     static let chromePromptOffSwitches = [
         "no-first-run",
         "no-default-browser-check",
@@ -139,6 +152,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// see plans/cmux-next/browser.md ("Chromium diagnostics").
     static func current(
         forkAPIVersion: Int32,
+        rendererPaths: Bool = false,
         bundleIdentifier: String?,
         environment: [String: String],
         builtInExtensions: [String] = [],
@@ -157,6 +171,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         #endif
         return CEFSwitches(
             forkAPIVersion: forkAPIVersion,
+            rendererPaths: rendererPaths,
             useMockKeychain: dev,
             loadExtensions: extensions,
             builtInExtensions: builtInExtensions,

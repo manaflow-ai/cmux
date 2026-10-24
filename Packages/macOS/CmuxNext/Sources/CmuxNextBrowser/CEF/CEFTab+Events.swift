@@ -179,6 +179,12 @@ extension CEFTab {
 
     public func evaluate(_ script: String, world: BrowserScriptWorld, gesture: BrowserScriptGesture) async throws -> BrowserJSValue {
         guard let browserID, !isClosed else { throw BrowserTabError.closed }
+        // No DevTools session for the tab's own scripts (fork API 29): its renderer stays shareable.
+        if runtime.forkFeatures.rendererPaths {
+            let result = try await runtime.evaluate(browserID, world: world == .isolated ? "cmux" : "", script: script,
+                                                    userGesture: gesture == .agent)
+            return try await result.value()
+        }
         var params: [String: Any] = ["expression": script, "returnByValue": true, "awaitPromise": true]
         // An agent's script runs as a user gesture: its `cmux browser click` on a target=_blank
         // link or a window.open button opens the tab instead of hitting the popup blocker

@@ -129,6 +129,8 @@ final class LinkHintController {
     /// A trusted click at the target's center (viewport CSS pixels), like
     /// the user's own: links honor their target and page handlers run.
     private static func click(_ target: LinkHintTarget, in tab: CEFTab) async {
+        // A native click (fork API 29) opens no DevTools session: the tab's renderer stays shareable.
+        if tab.sendClick(x: target.x * tab.emulationInputScale, y: target.y * tab.emulationInputScale) { return }
         for type in ["mouseMoved", "mousePressed", "mouseReleased"] {
             let pressed = type != "mouseMoved"
             _ = try? await tab.devTools(method: "Input.dispatchMouseEvent", params: [

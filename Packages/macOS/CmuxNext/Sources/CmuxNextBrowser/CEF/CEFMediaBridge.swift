@@ -27,20 +27,14 @@ final class CEFMediaBridge {
     func attach(_ browser: Int32) {
         guard let tab else { return }
         tab.agentRelay.mediaListens = true
-        let channel = BrowserMediaState.channel
-        let observer = BrowserMediaState.observerScript(post: "\(channel)(JSON.stringify(report))", ready: "typeof \(channel) === 'function'")
-        let calls: [(String, [String: Any])] = [
-            // Blink runs new-document scripts only while the Page domain is
-            // on; its events are a few per navigation.
-            ("Page.enable", [:]),
-            ("Page.addScriptToEvaluateOnNewDocument", ["source": observer, "worldName": BrowserMediaState.world, "runImmediately": true]),
-            ("Page.addScriptToEvaluateOnNewDocument", ["source": BrowserMediaState.actionsScript, "runImmediately": true]),
-            ("Page.addScriptToEvaluateOnNewDocument", ["source": BrowserPageBusy.recorderScript, "runImmediately": true]),
-            // A refused Widevine request reopens the tab in WebKit (BrowserProtectedMedia).
-            ("Page.addScriptToEvaluateOnNewDocument", ["source": BrowserProtectedMedia.probeScript, "runImmediately": true]),
-            ("Page.addScriptToEvaluateOnNewDocument", ["source": BrowserProtectedMedia.relayScript, "worldName": BrowserMediaState.world,
-                                                       "runImmediately": true]),
-        ] + Self.bindings
+        // Blink runs new-document scripts only while the Page domain is on; its events are a few
+        // per navigation. The scripts are the same list the renderer path installs (`CEFDocumentScripts`).
+        let scripts = CEFDocumentScripts(post: .binding).media.map { script -> (String, [String: Any]) in
+            var params: [String: Any] = ["source": script.source, "runImmediately": true]
+            if !script.world.isEmpty { params["worldName"] = script.world }
+            return ("Page.addScriptToEvaluateOnNewDocument", params)
+        }
+        let calls: [(String, [String: Any])] = [("Page.enable", [:])] + scripts + Self.bindings
         run(calls, browser)
         observation = ObservationLoop { [weak self] in self?.documentChanged() }
     }
@@ -89,11 +83,21 @@ final class CEFMediaBridge {
               message["method"] as? String == "Runtime.bindingCalled",
               let params = message["params"] as? [String: Any], params["name"] as? String == BrowserMediaState.channel
         else { return false }
-        if let tab, let payload = params["payload"] as? String, let media = BrowserMediaState.report(json: payload) {
-            tab.machine.apply(.mediaChanged(media))
-            tab.keepAudioMute(after: media)
-        }
+        if let payload = params["payload"] as? String { report(payload) }
         return true
+    }
+
+    /// The page's media report (a binding call's payload, or a page channel post): untrusted JSON.
+    func report(_ payload: String) {
+        guard let tab, let media = BrowserMediaState.report(json: payload) else { return }
+        tab.machine.apply(.mediaChanged(media))
+        tab.keepAudioMute(after: media)
+    }
+
+    /// A refused protected media request: the key system's name, untrusted.
+    func refused(_ payload: String) {
+        guard let refused = BrowserProtectedMedia(reported: payload) else { return }
+        tab?.emit(.protectedMediaUnavailable(refused))
     }
 }
 

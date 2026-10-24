@@ -99,6 +99,12 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     /// `fileDialogAnswer(dialogID, ...)`. `mode` 0 open one, 1 open several, 2 folder, 3 save;
     /// `acceptTypes` are MIME types and ".ext" entries; `defaultPath` may be empty.
     case fileDialog(browser: Int32, dialogID: Int32, mode: Int32, acceptTypes: [String], defaultPath: String)
+    /// A page posted on one of cmux's channels (PAGE_MESSAGE, fork API 29): untrusted data
+    /// (`CEFPageMessage`). `mainFrame`: posted from the main frame.
+    case pageMessage(browser: Int32, mainFrame: Bool, channel: String, payload: String)
+    /// A `cmux_shim_tab_evaluate` answer (EVALUATE_RESULT, fork API 29): `status` 1 value, 0
+    /// exception, -1 no result (renderer ended, navigated away), -2 refused world name.
+    case evaluateResult(token: Int32, status: Int, value: String)
     case unknown(kind: Int32)
 
     init(kind: Int32, browser: Int32, request: Int32, a: Int64, b: Int64, s1: String, s2: String) {
@@ -161,6 +167,8 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 48:
             self = .fileDialog(browser: browser, dialogID: request, mode: Int32(truncatingIfNeeded: a),
                                acceptTypes: s1.split(separator: "\n").map(String.init), defaultPath: s2)
+        case 49: self = .pageMessage(browser: browser, mainFrame: a == 1, channel: s1, payload: s2)
+        case 50: self = .evaluateResult(token: request, status: Int(a), value: s1)
         default: self = .unknown(kind: kind)
         }
     }
