@@ -12,8 +12,10 @@ import os
 /// Without `Runtime.enable` (which would stream every console message of
 /// every tab, and which pages can detect) a binding reaches only worlds
 /// that exist when it is added. So the bridge adds it again each time a
-/// document commits, once that document's world exists; the observer holds
-/// its report until the binding appears.
+/// document commits and finishes, once that document's world exists, and
+/// right after each add calls the observer's ready hook once in the existing
+/// worlds (``BrowserMediaState/readyHook``): a report the observer held
+/// because the binding was missing goes then, with no timer in the page.
 final class CEFMediaBridge {
     /// Weak: the tab owns this bridge; after it is gone every entry point returns.
     private weak var tab: CEFTab?
@@ -29,27 +31,32 @@ final class CEFMediaBridge {
         tab.agentRelay.mediaListens = true
         let channel = BrowserMediaState.channel
         let observer = BrowserMediaState.observerScript(post: "\(channel)(JSON.stringify(message))", ready: "typeof \(channel) === 'function'")
-        let calls: [(String, [String: Any])] = [
+        let script = { (source: String, world: String?) -> CEFDevToolsCall in
+            var params: [String: Any] = ["source": source, "runImmediately": true]
+            if let world { params["worldName"] = world }
+            return .call(method: "Page.addScriptToEvaluateOnNewDocument", params: params)
+        }
+        let calls: [CEFDevToolsCall] = [
             // Blink runs new-document scripts only while the Page domain is
             // on; its events are a few per navigation.
-            ("Page.enable", [:]),
-            ("Page.addScriptToEvaluateOnNewDocument", ["source": observer, "worldName": BrowserMediaState.world, "runImmediately": true]),
-            ("Page.addScriptToEvaluateOnNewDocument", ["source": BrowserMediaState.actionsScript, "runImmediately": true]),
-            ("Page.addScriptToEvaluateOnNewDocument", ["source": BrowserPageBusy.recorderScript, "runImmediately": true]),
+            .call(method: "Page.enable", params: [:]),
+            script(observer, BrowserMediaState.world),
+            script(BrowserMediaState.actionsScript, nil),
+            script(BrowserPageBusy.recorderScript, nil),
             // A refused Widevine request reopens the tab in WebKit (BrowserProtectedMedia).
-            ("Page.addScriptToEvaluateOnNewDocument", ["source": BrowserProtectedMedia.probeScript, "runImmediately": true]),
-            ("Page.addScriptToEvaluateOnNewDocument", ["source": BrowserProtectedMedia.relayScript, "worldName": BrowserMediaState.world,
-                                                       "runImmediately": true]),
-        ] + Self.bindings
-        run(calls, browser)
+            script(BrowserProtectedMedia.probeScript, nil),
+            script(BrowserProtectedMedia.relayScript, BrowserMediaState.world),
+        ] + Self.bindingCalls
+        CEFDevToolsCall.run(calls, browser: browser, tab: tab, label: "media hub")
         observation = ObservationLoop { [weak self] in self?.documentChanged() }
     }
 
-    /// The media world's bindings: the media report and the protected-media refusal.
-    private static var bindings: [(String, [String: Any])] {
+    /// The media world's bindings (the media report and the protected-media refusal), then the
+    /// observer's ready hook in the worlds that exist now.
+    static var bindingCalls: [CEFDevToolsCall] {
         [BrowserMediaState.channel, BrowserProtectedMedia.channel].map {
-            ("Runtime.addBinding", ["name": $0, "executionContextName": BrowserMediaState.world])
-        }
+            .call(method: "Runtime.addBinding", params: ["name": $0, "executionContextName": BrowserMediaState.world])
+        } + [.readyHook(BrowserMediaState.readyHook, world: BrowserMediaState.world)]
     }
 
     /// A document committed or finished: its world exists now.
@@ -60,20 +67,7 @@ final class CEFMediaBridge {
         let document = (url: state.url, phase: state.phase)
         guard boundDocument.map({ $0.url != document.url || $0.phase != document.phase }) ?? true else { return }
         boundDocument = document
-        run(Self.bindings, browser)
-    }
-
-    private func run(_ calls: [(String, [String: Any])], _ browser: Int32) {
-        Task { [weak tab] in
-            for (method, params) in calls {
-                guard let tab, tab.browserID == browser else { return }
-                do {
-                    _ = try await tab.runtime.devTools(browser, method: method, params: params)
-                } catch {
-                    tab.runtime.logger.info("media hub: \(method, privacy: .public) failed: \(String(describing: error), privacy: .public)")
-                }
-            }
-        }
+        CEFDevToolsCall.run(Self.bindingCalls, browser: browser, tab: tab, label: "media hub")
     }
 
     /// A `Runtime.bindingCalled` of the media binding: applies the page's
