@@ -238,7 +238,7 @@ pub struct Lane {
     /// call in flight and no sign of its model (`turn.stalledSince`); null
     /// otherwise. The state stays `working`, so a client that reads only it
     /// is unchanged.
-    #[serde(default)]
+    #[serde(default, rename = "stalledSince")]
     pub stalled_since: Option<u64>,
 }
 

@@ -113,7 +113,8 @@ pub fn lane(summary: &Value) -> Value {
         _ => Value::Null,
     };
     let error = error.as_str().map_or(Value::Null, |e| Value::String(masked_error(e)));
-    let stalled = if state == "working" { summary["turn"]["stalledSince"].clone() } else { Value::Null };
+    let stalled =
+        if state == "working" { summary["turn"]["stalledSince"].clone() } else { Value::Null };
     json!({"state": state, "since": since, "error": error, "step": lane_step(summary),
            "title": lane_title(summary), "stalledSince": stalled})
 }

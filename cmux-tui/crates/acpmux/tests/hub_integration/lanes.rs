@@ -115,15 +115,19 @@ async fn a_quiet_turn_with_no_tool_running_stalls_and_a_long_tool_call_does_not(
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
     hub.config.write().await.stalled_turn_ms = Some(300);
     let fifo = |tag: &str| {
-        let gate = std::env::temp_dir().join(format!("acpmux-stall-{tag}-{}", uuid::Uuid::now_v7()));
+        let gate =
+            std::env::temp_dir().join(format!("acpmux-stall-{tag}-{}", uuid::Uuid::now_v7()));
         assert!(std::process::Command::new("mkfifo").arg(&gate).status().unwrap().success());
         gate
     };
     let (quiet_gate, tool_gate) = (fifo("quiet"), fifo("tool"));
     let quiet = new_session(&mut c, "quiet").await;
     let building = new_session(&mut c, "building").await;
-    c.send(method::SESSION_PROMPT, prompt(&quiet, &format!("gate: {}", quiet_gate.display()), None))
-        .await;
+    c.send(
+        method::SESSION_PROMPT,
+        prompt(&quiet, &format!("gate: {}", quiet_gate.display()), None),
+    )
+    .await;
     c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "before-gate").await;
     let tool = format!("work-gate: {} | Run the full build", tool_gate.display());
     c.send(method::SESSION_PROMPT, prompt(&building, &tool, None)).await;

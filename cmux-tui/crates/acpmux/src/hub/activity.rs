@@ -208,16 +208,27 @@ mod tests {
     #[test]
     fn a_tool_call_is_in_flight_until_it_completes_or_fails() {
         let mut doing = TurnActivity::default();
-        doing.note_tool(&json!({"sessionUpdate": "tool_call", "toolCallId": "a", "title": "Build"}));
-        doing.note_tool(&json!({"sessionUpdate": "tool_call", "toolCallId": "b", "status": "pending"}));
+        doing
+            .note_tool(&json!({"sessionUpdate": "tool_call", "toolCallId": "a", "title": "Build"}));
+        doing.note_tool(
+            &json!({"sessionUpdate": "tool_call", "toolCallId": "b", "status": "pending"}),
+        );
         assert!(doing.tool_in_flight());
-        doing.note_tool(&json!({"sessionUpdate": "tool_call_update", "toolCallId": "a", "title": "Built"}));
-        doing.note_tool(&json!({"sessionUpdate": "tool_call_update", "toolCallId": "a", "status": "completed"}));
+        doing.note_tool(
+            &json!({"sessionUpdate": "tool_call_update", "toolCallId": "a", "title": "Built"}),
+        );
+        doing.note_tool(
+            &json!({"sessionUpdate": "tool_call_update", "toolCallId": "a", "status": "completed"}),
+        );
         assert!(doing.tool_in_flight(), "b still runs");
-        doing.note_tool(&json!({"sessionUpdate": "tool_call_update", "toolCallId": "b", "status": "failed"}));
+        doing.note_tool(
+            &json!({"sessionUpdate": "tool_call_update", "toolCallId": "b", "status": "failed"}),
+        );
         assert!(!doing.tool_in_flight());
         // A call that starts already done is never in flight.
-        doing.note_tool(&json!({"sessionUpdate": "tool_call", "toolCallId": "c", "status": "completed"}));
+        doing.note_tool(
+            &json!({"sessionUpdate": "tool_call", "toolCallId": "c", "status": "completed"}),
+        );
         assert!(!doing.tool_in_flight());
     }
 
