@@ -223,9 +223,13 @@ extension BrowserTab {
     /// Runs a media hub command in the page (`BrowserMediaCommand.script`).
     public func media(_ command: BrowserMediaCommand) async {
         let script = command.script
-        // The person's command (Play, Next, Picture in Picture) acts as the user; keeping the tab's
-        // mute in a new document is cmux's own.
-        let gesture: BrowserScriptGesture = if case .muteTab = command { .cmux } else { .agent }
+        // Only a command that may start playback acts as the user (a page's play() needs the
+        // activation): Play, Play/Pause, Next and Previous. Pause, seek and mute need none, and
+        // macOS sends Pause on its own (headphones unplugged): they must not hand the page an activation.
+        let gesture: BrowserScriptGesture = switch command {
+        case .play, .playPause, .nextTrack, .previousTrack, .pictureInPicture: .agent
+        case .pause, .toggleMute, .seek, .muteTab: .cmux
+        }
         _ = try? await evaluate(script.source, world: script.world, gesture: gesture)
     }
 

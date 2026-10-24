@@ -76,7 +76,7 @@ import Testing
             input.click();
             await changed;
             return Array.from(input.files, (file) => file.name);
-            """, world: .page)
+            """, world: .page, gesture: .agent)
 
         let ask = try #require(answerer.asks.first, "the tab's file input did not go through the engine's shared path")
         #expect(answerer.asks.count == 1, "one click asked the picker \(answerer.asks.count) times")
