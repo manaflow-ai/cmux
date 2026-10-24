@@ -14,7 +14,7 @@ import Testing
 
         init() {
             let row = NotificationsPanelRow(id: "n1", title: "Build finished", subtitle: nil, body: "All green", level: .info,
-                                            workspaceTitle: "cmux", createdAt: Date(timeIntervalSince1970: 0), unread: true,
+                                            source: "terminal", workspaceTitle: "cmux", createdAt: Date(timeIntervalSince1970: 0), unread: true,
                                             surface: nil, terminal: nil)
             var open: () -> Void = {}
             view = NotificationRowView(row: row, now: Date(timeIntervalSince1970: 60),
@@ -36,6 +36,7 @@ import Testing
     @Test func aNotificationRowOpensOnThePressAndOnlyOnce() throws {
         let harness = Harness()
         defer { harness.window.orderOut(nil) }
+        #expect(harness.view.accessibilityLabel == "Build finished, terminal, cmux, All green")
         harness.view.mouseDown(with: try harness.event(.leftMouseDown))
         #expect(harness.opened == 1, "the press did not open the notification")
         harness.view.mouseUp(with: try harness.event(.leftMouseUp))

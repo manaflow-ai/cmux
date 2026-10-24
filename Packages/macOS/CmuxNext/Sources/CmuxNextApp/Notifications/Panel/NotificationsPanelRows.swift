@@ -9,6 +9,8 @@ struct NotificationsPanelRow: Hashable, Identifiable {
     let subtitle: String?
     let body: String
     let level: NotificationLevel
+    /// Producer category supplied by the daemon (`extra.source`).
+    let source: String?
     /// The source workspace's sidebar title, when its tab still exists.
     let workspaceTitle: String?
     let createdAt: Date
@@ -17,6 +19,15 @@ struct NotificationsPanelRow: Hashable, Identifiable {
     let surface: SurfaceID?
     /// The terminal's public id (`term_…`), for Clear.
     let terminal: String?
+
+    /// A short, user-facing producer label. Unknown future values remain
+    /// visible so source identity is never silently lost.
+    var sourceLabel: String? {
+        guard let source, !source.isEmpty else { return nil }
+        switch source {
+        default: source
+        }
+    }
 
     /// Every ledger entry, newest first (the daemon's order). `workspace`
     /// names the workspace of a tab that still exists.
@@ -29,6 +40,7 @@ struct NotificationsPanelRow: Hashable, Identifiable {
                 subtitle: entry.subtitle.flatMap { $0.isEmpty ? nil : $0 },
                 body: entry.body,
                 level: entry.level,
+                source: entry.source,
                 workspaceTitle: entry.surface.flatMap(workspace),
                 createdAt: Date(timeIntervalSince1970: TimeInterval(entry.createdAtMs) / 1000),
                 unread: !entry.acknowledged,
@@ -40,7 +52,7 @@ struct NotificationsPanelRow: Hashable, Identifiable {
 
     /// The text Copy puts on the pasteboard.
     var copyText: String {
-        [title, subtitle, body.isEmpty ? nil : body].compactMap { $0 }.joined(separator: "\n")
+        [title, sourceLabel, subtitle, body.isEmpty ? nil : body].compactMap { $0 }.joined(separator: "\n")
     }
 }
 
