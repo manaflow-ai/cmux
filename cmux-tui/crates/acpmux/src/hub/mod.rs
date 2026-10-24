@@ -37,6 +37,7 @@ mod launchers;
 mod live_models;
 pub mod media_handles;
 pub mod media_read;
+pub(crate) mod workflow_index;
 pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
 pub use media_read::FEATURE as MEDIA_READ_FEATURE;
 mod hosts;
@@ -435,6 +436,8 @@ pub struct Hub {
     pub pairing: Arc<crate::pairing::Pairing>,
     /// Brief identities shared by dispatch, report and MCP clients.
     pub(crate) briefs: dispatch::Briefs,
+    /// Every Claude workflow of this daemon's chats (`workflow_index.rs`).
+    pub(crate) workflow_index: workflow_index::WorkflowIndex,
 }
 
 impl Hub {
@@ -510,6 +513,7 @@ impl Hub {
             health: Arc::new(crate::harness_health::HealthService::new()),
             web_token: WebToken::new(String::new()),
             person: Default::default(),
+            workflow_index: Default::default(),
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
             background_timeout: StdMutex::new(processes::STOP_TIMEOUT),
             offers: Default::default(),

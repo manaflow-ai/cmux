@@ -252,6 +252,9 @@ pub mod method {
     /// Stop one of a session's background subagents (a Claude background
     /// agent or workflow): `{sessionId, subagentSessionId}`.
     pub const MUX_SUBAGENT_STOP: &str = "_acpmux/subagent_stop";
+    /// Every Claude workflow of this daemon's chats: `{includeEnded?}` →
+    /// `{workflows}` (`hub/workflow_index.rs`).
+    pub const MUX_WORKFLOWS: &str = "_acpmux/workflows";
     /// The app pane's reply in place, checked and signed (`server/app_reply.rs`).
     pub const MUX_APP_REPLY: &str = "_acpmux/app_reply";
     pub const MUX_QUEUE_REMOVE: &str = "_acpmux/queue_remove";

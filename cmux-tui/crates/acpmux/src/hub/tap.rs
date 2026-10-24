@@ -182,6 +182,14 @@ impl Hub {
                 tree.set_own(own.as_deref());
                 subagent = tree.annotate(params);
             }
+            // A live update's workflow changes feed the daemon's index of them.
+            if d == "in"
+                && !kind.ends_with(".replay")
+                && let Some(events) =
+                    value.pointer("/params/_meta/acpmux/subagents").and_then(Value::as_array)
+            {
+                tap_hub.workflow_index.observe(&tap_session.id, events, crate::store::now_ms());
+            }
             // Live agent updates (not a session/load replay) also feed the
             // stream watcher, which may record `message_superseded` first.
             let live_update = d == "in"
