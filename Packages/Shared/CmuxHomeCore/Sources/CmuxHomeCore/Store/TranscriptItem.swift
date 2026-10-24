@@ -78,6 +78,9 @@ public struct TranscriptItem: Hashable, Sendable, Identifiable {
     public var id: IdempotencyKey { key }
 
     public var plainText: String { parts.map(\.plainText).joined(separator: "\n") }
+
+    /// A Chief's done marker (``Message/isDoneMarker(key:parts:)``): the transcript does not show it.
+    public var isDoneMarker: Bool { Message.isDoneMarker(key: key, parts: parts) }
 }
 
 extension TranscriptWindow {
