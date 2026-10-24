@@ -155,8 +155,11 @@ final class KeybindingsPageProvider: PageProvider {
     /// A modifier or key went up or down in the page's window: the strokes so far and the
     /// modifiers held now; `released` once every key of the last stroke is up.
     private func hold(_ event: NSEvent) {
+        // The key window, as the key router reads it for the strokes (`CmuxApplication.dispatch`):
+        // a modifier change or key-up can name no window, or another one, of its own.
+        let window = NSApp.keyWindow ?? event.window
         guard let recorder, !recorder.isFinished, let page = pageWindow(),
-              event.window === page || event.window?.parent === page else { return }
+              window === page || window?.parent === page else { return }
         let held = KeyRecorder.heldGlyphs(event.modifierFlags)
         if awaitingRelease, held.isEmpty {
             awaitingRelease = false
