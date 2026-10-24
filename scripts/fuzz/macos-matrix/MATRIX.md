@@ -41,7 +41,7 @@ scripts/cmux-next/os-matrix.sh --build JOB_ID --os 14 --suite repro:incognito-cl
 
 It submits one `cmux-ci run --class vm --script scripts/fuzz/macos-matrix/vm.sh` step with one `tart-<digest>`
 label per major, waits, downloads the step's artifact (`os-matrix-results.tgz`) into
-`artifacts/os-matrix/<build>-<suite>-<UTC>/` and prints one line per major and `MATRIX VERDICT PASS|FAIL`. Exit
+`artifacts/os-matrix/<build>-<suite>-<UTC>/` and prints one line per major and `MATRIX VERDICT PASS|FAIL|NO-VERDICT`. Exit
 0 is PASS, 1 is FAIL, 75 is no verdict (a wait timeout leaves the step running: `cmux-ci wait ID`, never
 resubmit). Per major the results hold `result.json` (smoke) or `summary.json` and `steps.jsonl` (fuzz), the app
 log (`app.log`, the app's stdout and stderr), a VNC screenshot per smoke step (`shot-<step>.png`) or every 50 fuzz
@@ -78,8 +78,10 @@ fallback), `webkit` (a WebKit tab loads the same page), `settings` (Settings ope
 A probe is one self-contained Swift file (Foundation and system frameworks only). vm.sh compiles it on the Tart
 host with the host's Xcode (`swiftc -O -target arm64-apple-macos14.0`, an ad hoc signature, 5 min bound),
 copies only the binary into each guest and runs it there as the guest user `admin` with a 5 min bound. It
-never runs on the host. Exit 0 is PASS, 1 is FAIL, and anything else (a crash, a timeout, exit 2 "cannot
-test") is no verdict. A probe that does not compile is no verdict for that step only. `result.json` per major
+never runs on the host. Exit 0 is PASS, 1 is FAIL, and anything else (a crash, a trap, a timeout, exit 2
+"cannot test") is no verdict: a probe must catch its errors and exit 1 for a FAIL. A probe that does not
+compile is no verdict for that step only, with the compiler's error in the step log. The compile runs in its
+own process group from an empty folder with its own module cache, bounded to 5 min. `result.json` per major
 has the exit code, stdout, stderr, the runner commit (`runner_ref`) and the source's sha256.
 
 - The source comes from the runner ref, not from the build: a probe tests the OS. It is review-gated like the

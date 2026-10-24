@@ -23,8 +23,9 @@
 #   --attempt  a new step for the same build, ref, majors and suite (default 1): the step key holds
 #              it, so the same command re-attaches to its step and --attempt 2 runs it again.
 #   --out      results directory (default artifacts/os-matrix/<build>-<suite>-<UTC>).
-# Prints one line per major and "MATRIX VERDICT PASS|FAIL"; exits 0 on PASS, 1 on FAIL, 2 on a usage
-# error and 75 when the fleet gave no verdict (a refused, failed or unfinished step). Results: <out>/<major>/{result.json|summary.json,app.log,shot-*.png,*.ips,
+# Prints one line per major and "MATRIX VERDICT PASS|FAIL|NO-VERDICT"; exits 0 on PASS, 1 on FAIL, 2 on a
+# usage error and 75 when there is no verdict (a refused, failed or unfinished step, or a major without
+# one: a VM that did not boot, an exec probe that crashed, timed out or did not compile). Results: <out>/<major>/{result.json|summary.json,app.log,shot-*.png,*.ips,
 # *.hang,faults.ndjson,smoke.log|fuzz.log}, <out>/matrix.json and <out>/step.log.
 # A VM has a paravirtual GPU and no ProMotion: use it for correctness, crashes, hangs, launch and
 # OS-behavior differences, never for frame timing. Label any VM timing "VM, not comparable".
@@ -95,7 +96,7 @@ code=${PIPESTATUS[0]}
 set -e
 # grep finds nothing in exactly the no-verdict cases: never let that end the script under set -e.
 step=$(grep -Eo 'cmux-ci: step [0-9a-f]{24}' "$OUT/step.log" | head -1 | awk '{print $3}' || true)
-verdict=$(grep -Eo '^MATRIX VERDICT (PASS|FAIL)' "$OUT/step.log" | tail -1 | awk '{print $3}' || true)
+verdict=$(grep -Eo '^MATRIX VERDICT (PASS|FAIL|NO-VERDICT)' "$OUT/step.log" | tail -1 | awk '{print $3}' || true)
 if [[ "$code" != 0 || -z "$step" || -z "$verdict" ]]; then
   echo "os-matrix: no verdict (step ${step:-not created}, cmux-ci exit $code); the log is $OUT/step.log" >&2
   if [[ -n "$step" ]]; then
@@ -110,4 +111,8 @@ fi
 grep -E '^EXEC |^[0-9]+ +[0-9.?]+ +[a-z]+ +(PASS|FAIL|NO-VERDICT)' "$OUT/step.log" || true
 echo "results: $OUT"
 echo "MATRIX VERDICT $verdict"
-[[ "$verdict" == PASS ]]
+case "$verdict" in
+  PASS) exit 0 ;;
+  FAIL) exit 1 ;;
+  *) echo "os-matrix: some major gave no verdict (see <out>/<major>/failure and result.json)" >&2; exit 75 ;;
+esac

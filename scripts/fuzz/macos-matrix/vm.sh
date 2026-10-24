@@ -12,15 +12,15 @@
 #              exec: compile probes/NAME.swift (beside this script) on the host with the host's
 #              Xcode (arm64, macOS 14 target, ad hoc signed), copy only the binary into each guest
 #              and run it there as the guest user, bounded to 5 min. result.json has its exit
-#              code, stdout and stderr. Exit 0 is PASS, 1 is FAIL, anything else is no verdict.
+#              code, stdout and stderr. Exit 0 is PASS, 1 is FAIL, anything else is no verdict
+#              (a probe must catch its errors and exit 1 for a FAIL: a trap is no verdict).
 #              The probe never runs on the host. It tests the OS, not the build (BUILD is still
 #              copied into the guest, so a probe may use it).
 #   --minutes  fuzz: stop each major's walk after N minutes (the run's time bound); --steps
 #              stays the upper bound of the walk.
 #   --results  write the run (logs, screenshots, reports, matrix.json) to FILE as a .tgz and
-#              exit 0 when every major gave a verdict, also a FAIL one: the verdict is the data
-#              (matrix.json and the last line, MATRIX VERDICT PASS|FAIL). Without it the exit
-#              code is the verdict.
+#              exit 0: the verdict is the data (matrix.json and the line MATRIX VERDICT
+#              PASS|FAIL|NO-VERDICT). Without it the exit code is the verdict (0, 1, 2 no verdict).
 # Images, Tart, TART_HOME, the fleet host lock and the keychain rules are defined
 # by this script's images.json and the host environment. Env: FUZZ_HOST_LOCK (none: no lock),
 # FUZZ_ALLOW_PULL=1 (pull an image the Tart cache lacks; off by default, each is about 25 GB),
@@ -167,28 +167,37 @@ EXEC_SECONDS=300
 PROBE_BIN=""
 PROBE_COMPILE_SECONDS=300
 PROBE_SOURCE_SHA256="" PROBE_RUNNER_REF=""
-bounded() {  # bounded SECONDS CMD...: run CMD, kill it past SECONDS (exit 124); no coreutils timeout on macOS
-  /usr/bin/perl -e 'my $s = shift; my $pid = fork; if (!$pid) { exec @ARGV; exit 127 }
+bounded() {  # bounded SECONDS CMD...: run CMD in its own process group, kill the group past SECONDS (exit 124)
+  /usr/bin/perl -e 'my $s = shift; my $pid = fork; if (!$pid) { setpgrp(0, 0); exec @ARGV; exit 127 }
     my $ok = eval { local $SIG{ALRM} = sub { die "t\n" }; alarm $s; waitpid($pid, 0); alarm 0; 1 };
-    if (!$ok) { kill 9, $pid; waitpid($pid, 0); exit 124 } exit($? & 127 ? 128 + ($? & 127) : $? >> 8)' "$@"
+    if (!$ok) { kill 9, -$pid; waitpid($pid, 0); exit 124 } exit($? & 127 ? 128 + ($? & 127) : $? >> 8)' "$@"
 }
 compile_probe() {  # compile_probe OUTDIR: sets PROBE_BIN, or returns 1 with OUTDIR/probe-compile.log
   mkdir -p "$1"
   PROBE_BIN="$1/$PROBE"
-  # Traceability: the probe's source and the runner commit it came from (the step's checkout).
+  # Traceability: the probe's source and the runner commit it came from. The worker sets the step's ref
+  # (CMUX_CI_SOURCE_DIGEST); no git call here, which a branch could steer with a planted repository.
   PROBE_SOURCE_SHA256=$(shasum -a 256 "$HERE/probes/$PROBE.swift" | cut -d' ' -f1)
-  PROBE_RUNNER_REF=$(git -C "$HERE" rev-parse HEAD 2>/dev/null || echo unknown)
-  # Compiled on the host, run only in the guests. Bounded: a compile that hangs is no verdict.
-  bounded "$PROBE_COMPILE_SECONDS" xcrun swiftc -O -target arm64-apple-macos14.0 -o "$PROBE_BIN" "$HERE/probes/$PROBE.swift" \
-    >"$1/probe-compile.log" 2>&1 &&
-    bounded 60 /usr/bin/codesign --force --sign - "$PROBE_BIN" >>"$1/probe-compile.log" 2>&1 || { PROBE_BIN=""; return 1; }
+  PROBE_RUNNER_REF=${CMUX_CI_SOURCE_DIGEST:-unknown}
+  # Compiled on the host, run only in the guests. Bounded (the whole compiler process group); from an
+  # empty folder with its own module cache, so nothing of the checkout or another step's cache reaches it.
+  local src; src=$(cd "$HERE/probes" && pwd -P)/$PROBE.swift
+  if ! (cd "$1" && bounded "$PROBE_COMPILE_SECONDS" xcrun swiftc -O -target arm64-apple-macos14.0 \
+          -module-cache-path "$1/module-cache" -o "$PROBE_BIN" "$src" >"$1/probe-compile.log" 2>&1 &&
+        bounded 60 /usr/bin/codesign --force --sign - "$PROBE_BIN" >>"$1/probe-compile.log" 2>&1); then
+    PROBE_BIN=""
+    echo "probe $PROBE did not compile; the log's end:" >&2
+    tail -c 3000 "$1/probe-compile.log" >&2
+    return 1
+  fi
 }
 exec_probe() {  # exec_probe IP OUT APP
   local ip=$1 out=$2 rc=0
   scp "${SSHB[@]}" -q "$PROBE_BIN" "admin@$ip:/Users/admin/os-probe" </dev/null || { echo "probe copy failed" >"$out/failure"; return 0; }
   # CMUX_MATRIX_APP: the build's app in the guest, for a later probe that drives or inspects it.
-  ssh "${SSHB[@]}" "admin@$ip" "set -e; p=\$HOME/os-probe; chmod 755 \"\$p\"; export CMUX_MATRIX_APP=$(printf %q "$3");
-    cd \$(mktemp -d); /usr/bin/perl -e 'my \$pid = fork; if (!\$pid) { exec @ARGV; exit 127 }
+  # Exit 3 for a guest setup failure: a probe's exit 1 alone means FAIL.
+  ssh "${SSHB[@]}" "admin@$ip" "p=\$HOME/os-probe; chmod 755 \"\$p\" || exit 3; export CMUX_MATRIX_APP=$(printf %q "$3");
+    d=\$(mktemp -d) && cd \"\$d\" || exit 3; /usr/bin/perl -e 'my \$pid = fork; if (!\$pid) { exec @ARGV; exit 127 }
       my \$ok = eval { local \$SIG{ALRM} = sub { die qq(t\\n) }; alarm $EXEC_SECONDS; waitpid(\$pid, 0); alarm 0; 1 };
       if (!\$ok) { kill 9, \$pid; waitpid(\$pid, 0); exit 124 } exit(\$? & 127 ? 128 + (\$? & 127) : \$? >> 8)' \"\$p\"" \
     </dev/null >"$out/probe.stdout" 2>"$out/probe.stderr" || rc=$?
@@ -206,6 +215,8 @@ result = {"suite": "exec", "probe": probe, "os": osv, "build": build, "exit_code
           "failed_steps": [] if rc == 0 else ["exec exit %d" % rc]}
 json.dump(result, open(os.path.join(out, "result.json"), "w"), indent=1)
 print("EXEC %s probe=%s os=%s exit=%d: %s" % (verdict, probe, osv, rc, last), file=sys.stderr)
+if rc != 0:  # the step log keeps why, even when the results never upload
+    print(read("probe.stderr")[-3000:], file=sys.stderr)
 PY
 }
 
@@ -237,7 +248,10 @@ export BUILD_ZIP
 IFS=, read -r -a majors <<<"$MAJORS"
 if [[ "$SUITE" == exec ]] && ! compile_probe "$RUN/probe-bin"; then
   # No probe, no verdict: every major records the compile failure (and boots no VM).
-  for major in "${majors[@]}"; do mkdir -p "$RUN/$major"; echo "probe $PROBE did not compile (probe-bin/probe-compile.log)" >"$RUN/$major/failure"; done
+  for major in "${majors[@]}"; do
+    mkdir -p "$RUN/$major"; echo "probe $PROBE did not compile (probe-bin/probe-compile.log)" >"$RUN/$major/failure"
+    printf '{"suite": "exec", "probe": "%s", "verdict": "NO-VERDICT", "ok": false, "failed_steps": ["compile"]}\n' "$PROBE" >"$RUN/$major/result.json"
+  done
   majors=()
 fi
 for major in ${majors[@]+"${majors[@]}"}; do
@@ -256,49 +270,49 @@ done
 python3 -I - "$RUN" "$MAJORS" "$SUITE" "$RESULTS" <<'PY'
 import json, os, sys, tarfile
 run, majors, suite, results = sys.argv[1], sys.argv[2].split(","), sys.argv[3], sys.argv[4]
-rows, bad, missing = {}, False, []
+# Each major's verdict: PASS, FAIL, or NO-VERDICT when the run gave none (no result: a VM, keychain or
+# image failure; or an exec probe that could not run: a crash, a timeout, exit 2, no compile).
+rows, verdicts = {}, []
 for m in majors:
     d = os.path.join(run, m)
     load = lambda name: json.load(open(os.path.join(d, name))) if os.path.exists(os.path.join(d, name)) else {}
     fail = open(os.path.join(d, "failure")).read().strip() if os.path.exists(os.path.join(d, "failure")) else ""
     if suite == "exec":
-        r = load("result.json")
-        # Exit 1 is a FAIL verdict; a probe that could not run (exit 2, timeout, a signal) gives none.
-        s = r if r.get("verdict") in ("PASS", "FAIL") else {}
-        verdict = bool(s) and bool(s.get("ok")) and not fail
+        s = load("result.json")
+        verdict = s.get("verdict", "NO-VERDICT") if s else "NO-VERDICT"
         line = "%-4s %-8s exec  %-10s probe=%s exit=%s %s" % (
-            m, r.get("os", "?"), "PASS" if verdict else ("FAIL" if s else "NO-VERDICT"), r.get("probe", "-"),
-            r.get("exit_code", "-"), fail)
+            m, s.get("os", "?"), verdict, s.get("probe", "-"), s.get("exit_code", "-"), fail)
     elif suite == "smoke":
         s = load("result.json")
-        verdict = bool(s) and bool(s.get("ok")) and not fail
-        line = "%-4s %-8s smoke %-4s failed=%s crashes=%s hang_reports=%s faults=%s %s" % (
-            m, s.get("os", "?"), "PASS" if verdict else "FAIL", ",".join(s.get("failed_steps", [])) or "-",
+        verdict = "NO-VERDICT" if not s else ("PASS" if s.get("ok") and not fail else "FAIL")
+        line = "%-4s %-8s smoke %-10s failed=%s crashes=%s hang_reports=%s faults=%s %s" % (
+            m, s.get("os", "?"), verdict, ",".join(s.get("failed_steps", [])) or "-",
             s.get("crashes", "-"), s.get("hang_reports", "-"), s.get("faults", "-"), fail)
     else:
         s = load("summary.json")
-        verdict = bool(s) and not fail and not (s.get("crashes", 0) or s.get("hangs", 0) or s.get("relaunches", 0)
-                                                or s.get("guest_lost_at") is not None)
-        line = "%-4s %-8s %-5s %-4s steps=%-5s crashes=%-3s hangs=%-3s dead=%-3s faults=%-4s %s" % (
-            m, s.get("os", "?"), suite, "PASS" if verdict else "FAIL", s.get("steps", 0), s.get("crashes", 0),
+        bad = fail or s.get("crashes", 0) or s.get("hangs", 0) or s.get("relaunches", 0) or s.get("guest_lost_at") is not None
+        verdict = "NO-VERDICT" if not s else ("FAIL" if bad else "PASS")
+        line = "%-4s %-8s %-5s %-10s steps=%-5s crashes=%-3s hangs=%-3s dead=%-3s faults=%-4s %s" % (
+            m, s.get("os", "?"), suite, verdict, s.get("steps", 0), s.get("crashes", 0),
             s.get("hangs", 0), s.get("relaunches", 0), s.get("faults", 0), fail)
-    if not s:
-        missing.append(m)
-    rows[m] = {**s, "suite": suite, "verdict": "PASS" if verdict else "FAIL", "failure": fail}
-    bad |= not verdict
+    rows[m] = {**s, "suite": suite, "verdict": verdict, "failure": fail}
+    verdicts.append(verdict)
     print(line)
+overall = "FAIL" if "FAIL" in verdicts else ("NO-VERDICT" if "NO-VERDICT" in verdicts else "PASS")
 json.dump(rows, open(os.path.join(run, "matrix.json"), "w"), indent=2)
 print("artifacts:", run)
-print("MATRIX VERDICT", "FAIL" if bad else "PASS")
+print("MATRIX VERDICT", overall)
 if results:
     # A new file only, never through a link: the run has the account HOME.
     fd = os.open(results, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     with os.fdopen(fd, "wb") as out, tarfile.open(fileobj=out, mode="w:gz") as tar:
         for name in sorted(os.listdir(run)):
             if name not in ("build.zip", "askpass.sh"):
-                tar.add(os.path.join(run, name), arcname=name)
+                # The probe's compiler module cache is not a result.
+                tar.add(os.path.join(run, name), arcname=name,
+                        filter=lambda info: None if "/module-cache" in "/" + info.name else info)
     print("results:", results)
-    # With --results the verdict is data: exit 0 when every major gave one (PASS or FAIL).
-    sys.exit(2 if missing else 0)
-sys.exit(1 if bad else 0)
+    # With --results the verdict is data, NO-VERDICT included: the results upload either way.
+    sys.exit(0)
+sys.exit({"PASS": 0, "FAIL": 1}.get(overall, 2))
 PY

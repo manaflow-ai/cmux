@@ -22,6 +22,15 @@ vm.sh (the fleet step needs the runner landed). Smoke times are "VM, not compara
 | 2026-10-24 | url-root-parent | 15.7.7 | 0    | `"/.."` | issue #4529 behavior |
 | 2026-10-24 | url-root-parent | 26.6.2 | 0    | `"/"`   | fixed by Apple |
 
+Verdict paths, checked by hand on 14.8.7 with throwaway probes: exit 1 is FAIL; a `fatalError` (exit 133) and
+a compile error are NO-VERDICT; the results upload in every case.
+
+## Fleet steps (cmux-ci, class vm)
+
+| Date (UTC) | Step | Build | macOS | Suite | Result |
+|------------|------|-------|-------|-------|--------|
+| 2026-10-24 | 1ec9c6df57b9f89652924bef (aws-m4pro-6) | perf-1023-2138-v1 | 14.8.7, 15.7.7 | smoke | PASS, PASS (first end-to-end fleet run) |
+
 ## Fuzz (fuzz.py)
 
 One line per run. Steps include the 16-step feature tour. "Dead" counts app deaths (each one restarts the app).
