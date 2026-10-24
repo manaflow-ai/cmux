@@ -13,9 +13,25 @@ import Testing
 
     private func slug(_ cwd: String) -> String { ClaudeProjectSlug().slug(forWorkingDirectory: cwd) }
 
+    /// A transcript after one turn, shaped like Claude Code's: session metadata, then the messages.
+    private static let conversation = """
+        {"type":"ai-title","aiTitle":"title","sessionId":"s1"}
+        {"type":"permission-mode","permissionMode":"default","sessionId":"s1"}
+        {"type":"user","message":{"role":"user","content":"Reply OK"},"sessionId":"s1"}
+        {"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"OK"}]},"sessionId":"s1"}
+
+        """
+
+    /// What Claude Code writes before the first turn when the session has a name: metadata, no message.
+    private static let metadataOnly = """
+        {"type":"ai-title","aiTitle":"title","sessionId":"s1"}
+        {"type":"agent-name","agentName":"title","sessionId":"s1"}
+
+        """
+
     @discardableResult
     private func seedSource(
-        root: String, cwd: String, body: String = "line1\nline2\nline3\n", mtime: Date? = nil
+        root: String, cwd: String, body: String = Self.conversation, mtime: Date? = nil
     ) throws -> String {
         let project = "\(root)/src/projects/\(slug(cwd))"
         try fm.createDirectory(atPath: "\(project)/s1/subagents", withIntermediateDirectories: true)
@@ -88,6 +104,68 @@ import Testing
         await #expect(throws: ClaudeTranscriptAccountSyncError.transcriptNotFound) {
             try await ClaudeTranscriptAccountSync().sync(request(root: root, cwd: "/p"))
         }
+    }
+
+    private static let unresumableSources: [(String, String)] = [
+        ("metadata only", metadataOnly),
+        ("empty file", ""),
+        ("blank lines", "\n\n"),
+        ("message type nested in a metadata record", #"{"type":"attachment","attachment":{"type":"user"}}"# + "\n"),
+        ("type that only starts like a message", #"{"type":"user-prompt-draft","sessionId":"s1"}"# + "\n"),
+        ("partial message line", #"{"type":"user","message":{"role":"user","#),
+        ("not JSON", "line1\nline2\n"),
+    ]
+
+    /// Sources `claude --resume` finds no conversation in. The sync refuses them before it touches
+    /// the target, so a switch never types a resume that exits with "No conversation found".
+    @Test(arguments: unresumableSources)
+    func refusesASourceWithoutAConversation(_ label: String, body: String) async throws {
+        let root = try makeRoot(); defer { try? fm.removeItem(atPath: root) }
+        try seedSource(root: root, cwd: "/p", body: body)
+        await #expect(throws: ClaudeTranscriptAccountSyncError.noConversation, "\(label)") {
+            try await ClaudeTranscriptAccountSync().sync(request(root: root, cwd: "/p"))
+        }
+        #expect(!fm.fileExists(atPath: "\(root)/dst"), "\(label): the target must stay untouched")
+    }
+
+    /// Switching back after a metadata-only copy reached the target: both sides are equally
+    /// current and the source still has no conversation, so it is refused, not `alreadyCurrent`.
+    @Test func refusesAMetadataOnlySourceEvenWhenTheTargetHasTheSameCopy() async throws {
+        let root = try makeRoot(); defer { try? fm.removeItem(atPath: root) }
+        let now = Date()
+        try seedSource(root: root, cwd: "/p", body: Self.metadataOnly, mtime: now)
+        let dstProject = "\(root)/dst/projects/\(slug("/p"))"
+        try fm.createDirectory(atPath: "\(dstProject)/s1/subagents", withIntermediateDirectories: true)
+        try Self.metadataOnly.write(toFile: "\(dstProject)/s1.jsonl", atomically: true, encoding: .utf8)
+        try fm.setAttributes([.modificationDate: now], ofItemAtPath: "\(dstProject)/s1.jsonl")
+        await #expect(throws: ClaudeTranscriptAccountSyncError.noConversation) {
+            try await ClaudeTranscriptAccountSync().sync(request(root: root, cwd: "/p"))
+        }
+    }
+
+    private static let userRecord = #"{"type":"user","message":{"role":"user","content":"hi"}}"#
+    private static let longAttachmentRecord: String = {
+        let content = String(repeating: "x", count: 200_000)
+        return #"{"type":"attachment","content":""# + content + #""}"#
+    }()
+    private static let resumableSources: [(String, String)] = [
+        ("user record only", userRecord + "\n"),
+        ("assistant record only", #"{"type":"assistant","message":{"role":"assistant","content":[]}}"# + "\n"),
+        ("metadata then a turn", conversation),
+        ("user record after a 200 KB attachment line", longAttachmentRecord + "\n" + userRecord + "\n"),
+        ("user record on a last line without a newline", metadataOnly + userRecord),
+    ]
+
+    /// One user or assistant record anywhere makes the source resumable, including after a line
+    /// longer than one read and on a last line with no newline.
+    @Test(arguments: resumableSources)
+    func copiesASourceWithAConversation(_ label: String, body: String) async throws {
+        let root = try makeRoot(); defer { try? fm.removeItem(atPath: root) }
+        let src = try seedSource(root: root, cwd: "/p", body: body)
+        let outcome = try await ClaudeTranscriptAccountSync().sync(request(root: root, cwd: "/p"))
+        #expect(outcome == .copied, "\(label)")
+        let dst = "\(root)/dst/projects/\(slug("/p"))/s1.jsonl"
+        #expect(try Data(contentsOf: URL(fileURLWithPath: dst)) == Data(contentsOf: URL(fileURLWithPath: src)))
     }
 
     @Test func rejectsUnsafeSessionID() async throws {

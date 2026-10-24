@@ -33,7 +33,12 @@ public enum ClaudeTranscriptAccountSyncOutcome: String, Equatable, Sendable {
 /// Why a sync could not run.
 public enum ClaudeTranscriptAccountSyncError: Error, Equatable {
     case invalidSessionID
+    /// The source account has no transcript for the session. Claude Code creates it on the
+    /// session's first turn, so a session nobody has sent a message to has none.
     case transcriptNotFound
+    /// The source transcript has no conversation record, only session metadata, so
+    /// `claude --resume` would find no conversation in it.
+    case noConversation
 }
 
 /// Copies or refreshes a Claude transcript (and its sidecar directory) from one account config dir
