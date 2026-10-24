@@ -109,7 +109,7 @@ fn pump_until(
             Event::Prologue { chan, .. } => panic!("terminal {chan}: unexpected prologue"),
             Event::Exit { chan, .. } => panic!("terminal {chan}: shell exited"),
             Event::Error { chan, message, .. } => panic!("terminal {chan}: holder error {message}"),
-            Event::Pong { .. } => {}
+            Event::Pong { .. } | Event::Adopted { .. } => {}
         }
     }
 }
@@ -301,6 +301,283 @@ fn a_holder_killed_holding_unsent_output_loses_no_byte_through_its_ring() {
     drop(client);
     kill(second);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A ring segment that ends before the offset the daemon has received (a
+/// stale one, say kept after an earlier adoption fell back to a fresh ring)
+/// is not continued: the new holder starts a fresh ring at `resume`, so the
+/// next output is numbered after what the daemon has. Continuing it would
+/// number that output below, and the daemon would drop it as received.
+#[test]
+fn a_stale_ring_segment_is_not_continued_and_output_continues_at_resume() {
+    let dir = temp_dir();
+    let socket = dir.join("h.sock");
+    let first = launch(holder_binary(), &socket, &TOKEN).unwrap();
+    let (mut client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
+    let spawned = client.spawn_with_ring(1, &shell(1)).unwrap();
+    client.attach(1, 0).unwrap();
+    let mut screens = BTreeMap::new();
+    screens.insert(
+        1,
+        Screen {
+            master: spawned.master.try_clone().unwrap(),
+            pid: spawned.pid,
+            base: 0,
+            bytes: Vec::new(),
+        },
+    );
+    pump_until(&mut client, &mut screens, |chan| format!("ready-{chan}"));
+    drop(client);
+    kill(first);
+    let received = screens[&1].end();
+    assert!(received > 0);
+    // A segment whose writer never got past offset 0.
+    let stale = cmux_holder::ring::create_segment(0, 64 * 1024).unwrap();
+
+    let second = launch(holder_binary(), &socket, &TOKEN).unwrap();
+    let (mut client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
+    let mut id = [0u8; 16];
+    id[..4].copy_from_slice(&1u32.to_le_bytes());
+    client
+        .adopt_with_ring(1, &id, (spawned.pid, received, received), &spawned.master, &stale, b"")
+        .unwrap();
+    client.attach(1, received).unwrap();
+    client.write(1, b"after-stale\n").unwrap();
+    // `pump_until` checks that every DATA offset continues the screen.
+    pump_until(&mut client, &mut screens, |_| "after-stale\r\nafter-stale".to_string());
+    client.close(1, 200).unwrap();
+    drop(client);
+    kill(second);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Review 2 of holder items 1-3: a holder that cannot continue the segment
+/// an ADOPT carried (here: a file that is no ring, so `Ring::adopt` fails)
+/// starts a fresh ring at `resume` and says so in its ADOPTED answer, with
+/// that ring's segment. The daemon keeps that segment, not the one it
+/// handed over: when this holder dies too, the next one continues the
+/// segment this one really wrote, and the stream goes on at the daemon's
+/// offset (`pump_until` checks every offset). Before the answer the daemon
+/// kept the old segment, which could end past what it received and splice
+/// stale bytes in.
+#[test]
+fn a_holder_that_cannot_continue_a_segment_says_which_ring_it_writes() {
+    let dir = temp_dir();
+    let socket = dir.join("h.sock");
+    let first = launch(holder_binary(), &socket, &TOKEN).unwrap();
+    let (mut client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
+    let spawned = client.spawn_with_ring(1, &shell(1)).unwrap();
+    client.attach(1, 0).unwrap();
+    let screen = Screen {
+        master: spawned.master.try_clone().unwrap(),
+        pid: spawned.pid,
+        base: 0,
+        bytes: Vec::new(),
+    };
+    let mut screens = BTreeMap::from([(1, screen)]);
+    pump_until(&mut client, &mut screens, |chan| format!("ready-{chan}"));
+    drop(client);
+    kill(first);
+    let mut id = [0u8; 16];
+    id[..4].copy_from_slice(&1u32.to_le_bytes());
+
+    // The segment handed over is no ring at all.
+    let not_a_ring: OwnedFd = std::fs::File::create(dir.join("not-a-ring")).unwrap().into();
+    let second = launch(holder_binary(), &socket, &TOKEN).unwrap();
+    let (mut client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
+    let received = screens[&1].end();
+    client
+        .adopt_with_ring(
+            1,
+            &id,
+            (spawned.pid, received, received),
+            &spawned.master,
+            &not_a_ring,
+            b"",
+        )
+        .unwrap();
+    let adopted = client.adopted(1).expect("the holder answers the ADOPT");
+    assert_eq!((adopted.oldest, adopted.end), (received, received), "a fresh ring at resume");
+    let written = adopted.ring.expect("the holder names the segment it writes");
+    client.attach(1, received).unwrap();
+    client.write(1, b"on-fresh\n").unwrap();
+    pump_until(&mut client, &mut screens, |_| "on-fresh\r\non-fresh".to_string());
+    assert_eq!(
+        cmux_holder::ring::segment_end(&written).unwrap(),
+        screens[&1].end(),
+        "the answered segment is the one the holder writes"
+    );
+    drop(client);
+    kill(second);
+
+    // The next holder continues exactly that segment.
+    let third = launch(holder_binary(), &socket, &TOKEN).unwrap();
+    let (mut client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
+    let received = screens[&1].end();
+    client
+        .adopt_with_ring(1, &id, (spawned.pid, received, received), &spawned.master, &written, b"")
+        .unwrap();
+    let adopted = client.adopted(1).unwrap();
+    assert_eq!(adopted.end, received, "the answered segment continues where the daemon is");
+    assert!(adopted.oldest < received, "the kept ring still holds the earlier output");
+    client.attach(1, received).unwrap();
+    client.write(1, b"on-kept\n").unwrap();
+    pump_until(&mut client, &mut screens, |_| "on-kept\r\non-kept".to_string());
+    assert_eq!(cmux_holder::ring::segment_end(&written).unwrap(), screens[&1].end());
+    client.close(1, 200).unwrap();
+    drop(client);
+    kill(third);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Review 2 of holder items 1-3: after an adoption the new holder's credit
+/// counts from the offset the daemon parsed, not the one it received. The
+/// "daemon" received one credit window and parsed none of it when the
+/// holder died; the new holder must send nothing more until an ACK, so the
+/// daemon's queue and the ring past what it parsed stay within the window
+/// plus the unsent limit. Before, the holder allowed a new window on top of
+/// the unparsed one.
+#[test]
+fn a_new_holders_credit_counts_from_what_the_daemon_parsed() {
+    const TOTAL: usize = 1_200_000;
+    let dir = temp_dir();
+    let socket = dir.join("h.sock");
+    let first = launch(holder_binary(), &socket, &TOKEN).unwrap();
+    let (mut client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
+    let mut request = shell(1);
+    request.argv[2] = format!(
+        "stty raw -echo; yes abcdefghijklmnopqrstuvwxyz0123456789 | head -c {TOTAL}; exec cat"
+    )
+    .into_bytes();
+    let spawned = client.spawn_with_ring(1, &request).unwrap();
+    let ring = spawned.ring.expect("the holder passes its ring segment");
+    client.attach(1, 0).unwrap();
+    let mut got = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while (got.len() as u64) < wire::CREDIT_WINDOW {
+        if let Event::Data { offset, bytes, .. } = client.next_event(deadline).unwrap() {
+            assert_eq!(offset, got.len() as u64);
+            got.extend(bytes);
+        }
+    }
+    let unsent = cmux_holder::holder::UNSENT_HIGH_WATER as u64;
+    while cmux_holder::ring::segment_end(&ring).unwrap() < wire::CREDIT_WINDOW + unsent {
+        assert!(Instant::now() < deadline, "the holder never read up to its unsent limit");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    kill(first);
+    while let Ok(event) = client.next_event(Instant::now() + Duration::from_millis(500)) {
+        if let Event::Data { offset, bytes, .. } = event {
+            assert_eq!(offset, got.len() as u64);
+            got.extend(bytes);
+        }
+    }
+    drop(client);
+    let received = got.len() as u64;
+    assert_eq!(received, wire::CREDIT_WINDOW, "the dead holder sent exactly one window");
+
+    let second = launch(holder_binary(), &socket, &TOKEN).unwrap();
+    let (mut client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
+    let mut id = [0u8; 16];
+    id[..4].copy_from_slice(&1u32.to_le_bytes());
+    // Nothing parsed: the screen is at 0, the stream continues at `received`.
+    client
+        .adopt_with_ring(1, &id, (spawned.pid, 0, received), &spawned.master, &ring, b"")
+        .unwrap();
+    client.attach_parsed(1, received, 0).unwrap();
+    let quiet = Instant::now() + Duration::from_millis(500);
+    while let Ok(event) = client.next_event(quiet) {
+        if let Event::Data { offset, bytes, .. } = event {
+            panic!(
+                "the holder sent {} bytes at {offset} past a window the daemon has not parsed",
+                bytes.len()
+            );
+        }
+    }
+    let ring_end = cmux_holder::ring::segment_end(&ring).unwrap();
+    assert!(
+        ring_end <= wire::CREDIT_WINDOW + unsent,
+        "the ring runs {ring_end} bytes past what the daemon parsed"
+    );
+    // The daemon parsed it all: the rest flows, byte for byte.
+    client.ack(1, received).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while got.len() < TOTAL {
+        if let Event::Data { offset, bytes, .. } = client.next_event(deadline).unwrap() {
+            assert_eq!(offset, got.len() as u64);
+            got.extend(bytes);
+            client.ack(1, got.len() as u64).unwrap();
+        }
+    }
+    let line = b"abcdefghijklmnopqrstuvwxyz0123456789\n";
+    let expected: Vec<u8> = line.iter().copied().cycle().take(TOTAL).collect();
+    assert!(got == expected, "the output after the crash differs from what the program printed");
+    client.close(1, 200).unwrap();
+    drop(client);
+    kill(second);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Review 2 of holder items 1-3: a daemon older than ring layout 2 (wire
+/// version 3 or 4) gets no ring segment from this holder, in a SPAWNED or a
+/// LISTED (one descriptor, the master, and no `FLAG_RING`), and no ADOPTED
+/// answer to an ADOPT (it would not know the frame). Such a daemon could
+/// hand a layout 2 segment to a holder of its own build, which cannot read
+/// it. A daemon of this version gets both.
+#[test]
+fn an_older_daemon_gets_no_ring_segment_and_no_adopted_answer() {
+    for version in [3u16, 4, wire::RING_VERSION] {
+        let dir = temp_dir();
+        let socket = dir.join("h.sock");
+        let first = launch(holder_binary(), &socket, &TOKEN).unwrap();
+        let (mut client, _) = HolderClient::connect_as(&socket, &TOKEN, version).unwrap();
+        assert_eq!(client.version(), version);
+        let spawned = client.spawn_with_ring(1, &shell(1)).unwrap();
+        let rings = version >= wire::RING_VERSION;
+        assert_eq!(spawned.ring.is_some(), rings, "version {version}: SPAWNED's segment");
+        client.attach(1, 0).unwrap();
+        let screen = Screen {
+            master: spawned.master.try_clone().unwrap(),
+            pid: spawned.pid,
+            base: 0,
+            bytes: Vec::new(),
+        };
+        let mut screens = BTreeMap::from([(1, screen)]);
+        pump_until(&mut client, &mut screens, |chan| format!("ready-{chan}"));
+        drop(client);
+        let (client, listed) = HolderClient::connect_as(&socket, &TOKEN, version).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert!(listed[0].master.is_some(), "version {version}: LISTED's master");
+        assert_eq!(listed[0].ring.is_some(), rings, "version {version}: LISTED's segment");
+        drop(listed);
+        drop(client);
+        kill(first);
+
+        let second = launch(holder_binary(), &socket, &TOKEN).unwrap();
+        let (mut client, _) = HolderClient::connect_as(&socket, &TOKEN, version).unwrap();
+        let mut id = [0u8; 16];
+        id[..4].copy_from_slice(&1u32.to_le_bytes());
+        let received = screens[&1].end();
+        client.adopt(1, &id, spawned.pid, received, &spawned.master).unwrap();
+        client.ping(7).unwrap();
+        let mut answered = false;
+        loop {
+            match expect_event(&mut client, "the PONG after the ADOPT") {
+                Event::Adopted { chan: 1, ring, .. } => {
+                    assert!(ring, "a version {version} holder writes a shared ring");
+                    answered = true;
+                }
+                Event::Pong { nonce: 7 } => break,
+                _ => {}
+            }
+        }
+        assert_eq!(answered, rings, "version {version}: the ADOPTED answer");
+        client.close(1, 200).unwrap();
+        drop(screens);
+        drop(client);
+        kill(second);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 #[test]
@@ -533,8 +810,11 @@ fn a_terminal_whose_streams_keep_ending_without_detach_restores_without_its_ring
     client.attach(1, 0).unwrap();
     let mut screens = BTreeMap::from([(1, Screen { master, pid, base: 0, bytes: Vec::new() })]);
     pump_until(&mut client, &mut screens, |chan| format!("ready-{chan}"));
-    // Strike 1: the first daemon's link ends without DETACH.
-    drop(client);
+    // Strike 1: the first daemon's link ends without DETACH. `end`, not a
+    // drop: a holder another test forks in this window would keep the
+    // socket open past the next connect, and the holder would see a
+    // takeover, not a lost link.
+    client.end();
     // Strike 2: the next one replays the ring, then ends the same way.
     let (mut client, listed) = HolderClient::connect(&socket, &TOKEN).unwrap();
     client.reattach(1, listed[0].oldest).unwrap();
@@ -542,7 +822,7 @@ fn a_terminal_whose_streams_keep_ending_without_detach_restores_without_its_ring
         Event::Data { offset: 0, .. } => {}
         other => panic!("the second daemon did not get the ring: {other:?}"),
     }
-    drop(client);
+    client.end();
     // The third gets no ring tail: a GAP to the end, then live output.
     let (mut client, listed) = HolderClient::connect(&socket, &TOKEN).unwrap();
     let end = listed[0].end;
@@ -559,7 +839,7 @@ fn a_terminal_whose_streams_keep_ending_without_detach_restores_without_its_ring
     }
     // A daemon that DETACHes is no strike: the next one gets the whole ring.
     client.detach(1).unwrap();
-    drop(client);
+    client.end();
     let (mut client, listed) = HolderClient::connect(&socket, &TOKEN).unwrap();
     client.reattach(1, listed[0].oldest).unwrap();
     match expect_event(&mut client, "the ring after a clean detach") {

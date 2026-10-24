@@ -62,10 +62,11 @@ import Testing
     }
 
     @Test func theTopCutOnlyTapersTheRailLeavingTheHeader() {
-        let path = SidebarGroupLineShape.topTaper(width: 2, height: 20, radius: 2)
-        #expect(path.contains(CGPoint(x: 0.1, y: 0.1)), "the rail's left edge stays square")
-        #expect(!path.contains(CGPoint(x: 1.9, y: 0.1)), "the top-right corner tapers out")
-        #expect(path.contains(CGPoint(x: 1.9, y: 4)), "the rail reaches full width below the taper")
+        let path = SidebarGroupLineShape.topTaper(railWidth: 2, flareWidth: 6, flareHeight: 6, height: 20)
+        #expect(path.contains(CGPoint(x: 0.1, y: 0.1)), "the rail's left edge stays straight")
+        #expect(path.contains(CGPoint(x: 5.5, y: 0.5)), "the right side visibly flares into the header")
+        #expect(!path.contains(CGPoint(x: 3.5, y: 5.5)), "the right side tapers back to the rail")
+        #expect(path.contains(CGPoint(x: 1.9, y: 7)), "the rail reaches full width below the taper")
         #expect(path.contains(CGPoint(x: 1.9, y: 19.9)), "the rail's bottom remains square")
     }
 
@@ -73,12 +74,11 @@ import Testing
         let line = GroupLineView()
         line.frame = NSRect(x: 0, y: 0, width: 2, height: 5000)
         line.layoutSubtreeIfNeeded()
-        let mask = line.layer?.mask
-        let initial = mask?.frame.height ?? 0
+        let initial = line.railShape.frame.height
         line.frame.size.height = 500
         line.layoutSubtreeIfNeeded()
-        #expect(initial >= 5000 && (mask?.frame.height ?? 0) >= initial,
-                "the cut mask covers the old presentation height during a shrink")
+        #expect(initial >= 5000 && line.railShape.frame.height >= initial,
+                "the cut shape covers the old presentation height during a shrink")
     }
 
     /// The line keeps the rail's x (its members' less `groupRailReach`) in every layout; the header's bar starts there
@@ -93,13 +93,14 @@ import Testing
             let header = try #require(list.rowViews[.group(Self.group)] as? GroupHeaderRowView)
             let loose = try #require(list.rowViews[.workspace(Self.looseID)])
             let line = try #require(list.groupLineViews.shown[Self.group]?.frame, "\(layout): the open group has no line")
-            let view = try #require(GroupPaletteDefaultTests.views(GroupLineView.self, in: sidebar).first { $0.frame == line })
+            let view = try #require(GroupPaletteDefaultTests.views(GroupLineView.self, in: sidebar).first { $0.logicalFrame == line })
             let head = header.frame
             #expect(line.width == 2, "\(layout): the line is \(line.width) pt")
             view.layoutSubtreeIfNeeded()
-            let mask = try #require(view.layer?.mask as? CAShapeLayer)
-            #expect(view.layer?.cornerRadius == 0 && mask.path != nil, "\(layout): the line has the Chrome corner cut")
-            #expect(mask.frame.height >= 4096, "\(layout): the mask covers a rail during its bounds spring")
+            #expect(view.layer?.cornerRadius == 0 && view.layer?.masksToBounds == true && view.railShape.path != nil,
+                    "\(layout): the line has the clipped Chrome corner cut")
+            #expect(view.railShape.frame.width == 6 && view.railShape.frame.height >= 4096,
+                    "\(layout): the cut shape covers a rail during its bounds spring")
 
             #expect(line.minX == loose.frame.minX - SidebarStyle.groupRailReach, "\(layout): the line left the rail, at \(line.minX)")
             #expect(header.pill.frame.minX == 0 && header.pill.frame.width == head.width, "\(layout): the bar spans \(header.pill.frame)")
@@ -127,7 +128,7 @@ import Testing
             header.updateLayer()
             view.updateLayer()
             let barColor = try GroupPaletteDefaultTests.rgb(header.pill.backgroundColor)
-            let drawn = try GroupPaletteDefaultTests.rgb(view.layer?.backgroundColor)
+            let drawn = try GroupPaletteDefaultTests.rgb(view.railShape.fillColor)
             #expect(GroupPaletteDefaultTests.same(barColor, drawn), "\(layout): line \(drawn), bar \(barColor)")
         }
     }
@@ -216,7 +217,7 @@ import Testing
         try Self.withLayout(.inside) {
             let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
             let parent = SidebarGroup(id: GroupID("g-parent-only"), name: "Parent", color: .purple, workspaces: [])
-            let child = SidebarGroup(id: GroupID("g-child-only"), name: "Child", color: .blue,
+            var child = SidebarGroup(id: GroupID("g-child-only"), name: "Child", color: .blue,
                                      workspaces: [SidebarWorkspace(id: WorkspaceID("w-child"), title: "Child member")])
             child.parent = parent.id
             let list = SidebarNestedGroupAlignmentTests.list([

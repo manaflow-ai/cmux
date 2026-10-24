@@ -3,7 +3,7 @@
 //! holder crash.
 
 use std::collections::HashMap;
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, Write};
 use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -51,6 +51,9 @@ pub(crate) struct HolderService {
     /// Another daemon of the session took the holder: this one never
     /// connects again, so the two do not take it from each other in turn.
     superseded: AtomicBool,
+    /// The standalone holder failed to start once: this daemon starts the
+    /// holder built into its host executable from then on.
+    standalone_failed: AtomicBool,
 }
 
 impl HolderService {
@@ -72,6 +75,7 @@ impl HolderService {
             live: Mutex::default(),
             listed: Mutex::default(),
             superseded: AtomicBool::new(false),
+            standalone_failed: AtomicBool::new(false),
         });
         services.insert(host_root.to_path_buf(), service.clone());
         Ok(service)
@@ -323,30 +327,55 @@ impl HolderService {
     /// built at the exact offset the parser confirmed
     /// ([`HolderTerminal::adoption`]). Output the shells wrote meanwhile
     /// waited in their PTYs; output the dead holder read but never sent is
-    /// in the ring segment.
+    /// in the ring segment. Each terminal's custody segment becomes the one
+    /// the new holder says it writes (its ADOPTED answer), so the next
+    /// crash never hands on a segment nobody wrote. Every ADOPT goes out
+    /// before the first answer is waited for: one round trip, not one per
+    /// terminal. Both resume and adopt count the holder's credit from the
+    /// offset the parser confirmed, not the one it received.
     fn readopt(&self, link: &HolderLink, still_held: &HashMap<u32, [u8; 16]>) {
         let live: Vec<_> =
             self.live.lock().recover_poison().values().filter_map(Weak::upgrade).collect();
+        let mut answers = Vec::new();
         for terminal in live {
             if still_held.get(&terminal.chan) == Some(&terminal.id) {
                 let sink = terminal.sink.clone() as Arc<dyn TerminalSink>;
-                if let Err(error) = link.resume(terminal.chan, terminal.sink.received(), sink) {
+                let at = (terminal.sink.received(), terminal.sink.confirmed());
+                if let Err(error) = link.resume(terminal.chan, at, sink) {
                     eprintln!("cmux-tui: resume holder terminal {}: {error}", terminal.chan);
                 }
                 continue;
             }
             let adoption =
-                terminal.adoption(link.has_rings(), super::terminal::ADOPT_PROLOGUE_MAX_BYTES);
+                terminal.adoption(link.takes_rings(), super::terminal::ADOPT_PROLOGUE_MAX_BYTES);
             let sink = terminal.sink.clone() as Arc<dyn TerminalSink>;
-            if let Err(error) = link.adopt(
+            match link.adopt(
                 terminal.chan,
                 &terminal.id,
                 (terminal.pid, adoption.base, adoption.resume),
                 (&terminal.custody, adoption.ring.as_ref()),
                 (sink, &adoption.prologue),
             ) {
-                eprintln!("cmux-tui: hand terminal {} to the new holder: {error}", terminal.chan);
+                Ok(answer) => answers.push((terminal, answer)),
+                // The ADOPT did not go out whole, so the holder never
+                // adopted the terminal: the custody segment stays.
+                Err(error) => {
+                    eprintln!(
+                        "cmux-tui: hand terminal {} to the new holder: {error}",
+                        terminal.chan
+                    );
+                }
             }
+        }
+        for (terminal, answer) in answers {
+            // Without an answer nobody knows which segment the holder
+            // writes: no custody segment then (the next crash replays the
+            // parser's queue instead of a ring nobody can vouch for).
+            let segment = answer.wait().unwrap_or_else(|error| {
+                eprintln!("cmux-tui: holder terminal {} ring: {error}", terminal.chan);
+                None
+            });
+            terminal.keep_ring(segment);
         }
     }
 
@@ -405,41 +434,80 @@ impl HolderService {
                     .stdout(Stdio::piped())
                     .stderr(Stdio::null());
             };
-        let standalone = standalone_holder().and_then(|path| {
+        if !self.standalone_failed.load(Ordering::Acquire)
+            && let Some(path) = standalone_holder()
+        {
             use std::os::unix::process::CommandExt;
             let mut command = std::process::Command::new(&path);
             command.arg0(crate::host_exe::HOLDER_NAME);
             configure(&mut command);
-            command
-                .spawn()
-                .inspect_err(|error| {
-                    eprintln!("cmux-tui: start the terminal holder {}: {error}", path.display());
-                })
-                .ok()
-        });
-        let mut child = match standalone {
-            Some(child) => child,
-            None => crate::host_exe::spawn_host(|command| {
-                command.arg("__holder");
-                configure(command);
-            })?,
-        };
-        let hex: String = self.token.iter().map(|byte| format!("{byte:02x}")).collect();
-        let mut stdin = child.stdin.take().ok_or_else(|| io::Error::other("no holder stdin"))?;
-        stdin.write_all(format!("{hex}\n").as_bytes())?;
-        drop(stdin);
-        let stdout = child.stdout.take().ok_or_else(|| io::Error::other("no holder stdout"))?;
-        let mut line = String::new();
-        BufReader::new(stdout).read_line(&mut line)?;
-        // Reap the holder if it ever exits while this daemon runs.
+            let started = command.spawn().and_then(|child| self.handshake(child));
+            match started {
+                Ok(()) => return Ok(()),
+                // It lost a race to another holder of this session, which
+                // listens now: connect to that one.
+                Err(_) if std::os::unix::net::UnixStream::connect(&self.socket).is_ok() => {
+                    return Ok(());
+                }
+                Err(error) => {
+                    // A standalone holder that answers `--version` but does
+                    // not start (a startup error, a crash in serve, a hang
+                    // before `ready`, a macOS major it fails on) must not
+                    // cost every holder terminal: this daemon runs the
+                    // built-in holder from now on.
+                    eprintln!(
+                        "cmux-tui: the terminal holder {} did not start ({error}); \
+                         using the built-in holder",
+                        path.display()
+                    );
+                    self.standalone_failed.store(true, Ordering::Release);
+                }
+            }
+        }
+        let child = crate::host_exe::spawn_host(|command| {
+            command.arg("__holder");
+            configure(command);
+        })?;
+        self.handshake(child)
+    }
+
+    /// Hand a just-started holder its token and wait for its `ready`. A
+    /// holder that answers anything else, or nothing in time, is killed and
+    /// reaped; one that is ready is reaped whenever it exits while this
+    /// daemon runs.
+    fn handshake(&self, mut child: std::process::Child) -> io::Result<()> {
+        match first_line(&mut child, &self.token) {
+            Ok(line) if line.trim() == "ready" => {}
+            answer => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(match answer {
+                    Ok(line) => {
+                        io::Error::other(format!("the terminal holder did not start: {line:?}"))
+                    }
+                    Err(error) => error,
+                });
+            }
+        }
         let _ = std::thread::Builder::new().name("holder-reaper".into()).spawn(move || {
             let _ = child.wait();
         });
-        if line.trim() != "ready" {
-            return Err(io::Error::other(format!("the terminal holder did not start: {line:?}")));
-        }
         Ok(())
     }
+}
+
+/// Write `token` to a just-started holder's stdin and read the first line
+/// it prints (`ready` once it listens), waiting at most
+/// [`cmux_holder::client::READY_TIMEOUT`]: a holder that hangs before it
+/// (and does not exit) must not hold the `connecting` lock, and with it
+/// every terminal create and holder restart, for ever.
+fn first_line(child: &mut std::process::Child, token: &[u8; 32]) -> io::Result<String> {
+    let hex: String = token.iter().map(|byte| format!("{byte:02x}")).collect();
+    let mut stdin = child.stdin.take().ok_or_else(|| io::Error::other("no holder stdin"))?;
+    stdin.write_all(format!("{hex}\n").as_bytes())?;
+    drop(stdin);
+    let mut stdout = child.stdout.take().ok_or_else(|| io::Error::other("no holder stdout"))?;
+    cmux_holder::client::first_line_within(&mut stdout, cmux_holder::client::READY_TIMEOUT)
 }
 
 /// The standalone holder this daemon starts, when it has one whose wire

@@ -12,7 +12,7 @@ public nonisolated enum DiffPrefKey {
     static let booleans: Set<String> = ["wordWrap", "wordDiffs", "lineNumbers", "showBackgrounds", "expandUnchanged",
                                        "groupByKind", "hideWhitespace"]
     static let choices: [String: Set<String>] = [
-        "layout": ["split", "unified"],
+        "layout": ["split", "unified", "auto"],
         "diffIndicators": ["bars", "classic", "none"],
         "colors": ["theme", "muted", "standard"],
     ]

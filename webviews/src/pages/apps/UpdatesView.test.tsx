@@ -53,3 +53,12 @@ test("renders localized update actions instead of raw lookup keys", () => {
   expect(html).not.toContain("store.updates.check");
   expect(html).not.toContain("store.updates.retry");
 });
+
+test("a failed update check never also says every app is up to date", () => {
+  const store = { refreshUpdates() {}, update() {} } as unknown as AppsStore;
+  const failed = { ...snapshot, updates: [], updatesStale: true, updatesError: "offline" } as unknown as AppsSnapshot;
+  const html = renderToStaticMarkup(<UpdatesView snap={failed} store={store} strings={strings} />);
+
+  expect(html).toContain("Update information may be out of date.");
+  expect(html).not.toContain("All apps are up to date");
+});

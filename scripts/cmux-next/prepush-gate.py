@@ -47,6 +47,12 @@ count); warns on CmuxNextApp source growth, `// perf-hot:` functions and OWNERS.
 CMUX_GUARDRAILS_SKIP_REASON="<rule>[,<rule>]: <why>" (it skips only the named rules); lines a push only
 brings in from origin/feat-cmux-next (a merge or rebase onto it) never count; --no-guardrails turns it off
 for a manual run.
+In the same local-only place: "Arch ratchet" (arch-ratchet.py, plans/cmux-next/arch-ratchet.json): refuses a
+push that raises the total of an architecture count (layer edges, stateful singletons, global mutable statics,
+assumeIsolated outside seam adapters, app broadcast names, observer sites; arch_counts.py defines them),
+counting only the files the push changes; a move between packages passes. It starts on a thread before the
+scanners (it only waits on git), so a push pays only what is left of it at the guardrails. Skip one row for one
+push with ARCH_RATCHET_SKIP_REASON="<row>: <why>"; --no-guardrails turns it off too; it fails open.
 
 Not here (they stay on CI and the fleet): generated-file freshness (gen-*.py --check), god files,
 the app size cap, script tests, Swift and Rust builds and tests.
@@ -73,6 +79,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.request
 import zipfile
@@ -680,18 +687,131 @@ def guardrails(repo: Path, ranges: list[tuple[str, str]], trusted_scripts: Path 
         return False
 
 
+# The perf cron's unit tests (scripts/cmux-next/perf-cron.py) never run on CI (Lawrence 2026-10-23: no new CI tests;
+# the owner runs them), so the push runs the fast file itself when it changes the cron or its tests. Local only,
+# like the guardrails. The two slower files (test_perf_cron_io.py, 22 s; test_perf_cron_arch_report.py, 82 s:
+# real git clones and subprocesses) are run by hand.
+PERF_CRON_PATHS = ("scripts/cmux-next/perf-cron", "scripts/cmux-next/tests/test_perf_cron")
+PERF_CRON_FILES = ("scripts/cmux-next/perf-cron.py", "scripts/cmux-next/perf-budgets.py", "scripts/cmux-next/perf-budgets.json",
+                   "scripts/cmux-next/perf-profile-split.py", "scripts/cmux-next/tests/test_perf_cron.py",
+                   "scripts/cmux-next/tests/fixtures", "scripts/perf-bench")
+PERF_CRON_TIMEOUT = 60
+
+
+def perf_cron_tests(repo: Path, ranges: list[tuple[str, str]]) -> bool:
+    """Run test_perf_cron.py on each pushed head that changes the perf cron; True when a test fails (refuse).
+
+    It runs the head's own files (git archive), not the checkout's. It fails open: a git error, a missing file at
+    an older head, a broken Python or a run past PERF_CRON_TIMEOUT prints a warning and lets the push through."""
+    refused = False
+    for base, head in ranges:
+        try:
+            # changed_files keeps only the app's source scopes; the cron is under scripts/.
+            names = git(repo, "diff", "--name-only", "--no-renames", "-z", base, head).decode().split("\0")
+            if not any(p.startswith(PERF_CRON_PATHS) for p in names if p):
+                continue
+            with tempfile.TemporaryDirectory(prefix="cmux-prepush-perf-cron-") as tmp:
+                present = [p for p in PERF_CRON_FILES if git(repo, "ls-tree", "--name-only", head, "--", p, check=False).strip()]
+                if "scripts/cmux-next/tests/test_perf_cron.py" not in present:
+                    continue
+                archive = git(repo, "archive", head, "--", *present)
+                subprocess.run(["tar", "-x", "-C", tmp], input=archive, check=True, capture_output=True, timeout=60)
+                done = subprocess.run([sys.executable, "-I", "-m", "unittest", "discover", "-s", "scripts/cmux-next/tests",
+                                       "-p", "test_perf_cron.py"], cwd=tmp, capture_output=True, text=True,
+                                      timeout=PERF_CRON_TIMEOUT)
+        except (Exception, SystemExit) as error:  # SystemExit: git() exits on a failed git call
+            log(f"prepush-gate: WARNING: the perf cron tests did not run ({type(error).__name__}: {error}); not applied "
+                "to this push. Run python3 -I -m unittest discover -s scripts/cmux-next/tests -p 'test_perf_cron*.py'.")
+            continue
+        if done.returncode != 0:
+            tail = "\n".join((done.stderr or done.stdout).splitlines()[-25:])
+            log(f"prepush-gate: the perf cron tests fail at {head[:12]} (scripts/cmux-next/tests/test_perf_cron.py):\n{tail}")
+            refused = True
+    return refused
+
+
+class ArchRatchet:
+    """The arch ratchet (arch-ratchet.py) for RANGES, started at once on a thread next to the scanners.
+
+    It waits only on git, so the push pays just what is left of it when the gate reaches the guardrails
+    (`finish`). It fails open: a missing or broken script, an error or a run past the wait limit is a
+    warning and lets the push through.
+    """
+
+    WAIT_LIMIT = 20.0
+
+    def __init__(self, repo: Path, ranges: list[tuple[str, str]], trusted_scripts: Path | None) -> None:
+        self.out: list[str] = []
+        self.refused = False
+        self.error: str | None = None
+        self.thread: threading.Thread | None = None
+        script = (trusted_scripts / "arch-ratchet.py") if trusted_scripts else (repo / SCRIPTS / "arch-ratchet.py")
+        try:
+            if not script.is_file():
+                if trusted_scripts:
+                    self.error = "arch-ratchet.py is not installed; rerun scripts/install-git-hooks.sh"
+                return
+            spec = importlib.util.spec_from_file_location("cmux_next_arch_ratchet", script)
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[spec.name] = module  # dataclasses resolve their module through sys.modules
+            spec.loader.exec_module(module)
+        except (Exception, SystemExit) as error:
+            self.error = f"WARNING: arch-ratchet.py failed ({type(error).__name__}: {error}); not applied to this push"
+            return
+
+        def run() -> None:
+            try:
+                self.refused = bool(module.run_push(repo, ranges, out=self.out))
+            except (Exception, SystemExit) as error:  # run_push fails open itself; this is the last guard
+                self.error = f"WARNING: arch-ratchet.py failed ({type(error).__name__}: {error}); not applied"
+
+        self.thread = threading.Thread(target=run, name="arch-ratchet", daemon=True)
+        self.thread.start()
+
+    def finish(self) -> bool:
+        """Print its report; True when it refuses the push."""
+        if self.thread is not None:
+            self.thread.join(self.WAIT_LIMIT)
+            if self.thread.is_alive():
+                log(f"prepush-gate: WARNING: arch-ratchet.py ran past {self.WAIT_LIMIT:.0f}s; not applied to this push. "
+                    "Tell the Performance Lead with this line.")
+                return False
+        if self.error:
+            log(f"prepush-gate: {self.error}. Tell the Performance Lead with this line.")
+        for text in self.out:
+            print(text)
+        return self.refused and self.error is None
+
+
+# guardrails.py loads count-swift-code-lines.py (CI's lexer) from the installed copy: an old one counts
+# source lines unlike CI's check-app-size.sh.
+TRUSTED_COPIES = ("prepush-gate.py", "guardrails.py", "count-swift-code-lines.py", "arch-ratchet.py", "arch_counts.py",
+                  "arch_rules/__init__.py", "arch_rules/layer_gate.py")
+
+
 def stale_hook_warning(repo: Path, trusted_scripts: Path) -> None:
     """Warn when the installed checker copies differ from origin/feat-cmux-next's (a rebase never refreshes them)."""
     for ref in DEFAULT_BASE_REFS:
         if not rev_ok(repo, ref):
             continue
         stale = []
-        # guardrails.py loads count-swift-code-lines.py (CI's lexer) from the installed copy: an old one counts
-        # source lines unlike CI's check-app-size.sh.
-        for name in ("prepush-gate.py", "guardrails.py", "count-swift-code-lines.py"):
-            theirs = subprocess.run(["git", "-C", str(repo), "show", f"{ref}:{SCRIPTS}/{name}"], capture_output=True)
+        # One `git cat-file --batch` for every copy (a `git show` each cost a process per push).
+        batch = "".join(f"{ref}:{SCRIPTS}/{name}\n" for name in TRUSTED_COPIES).encode()
+        out = subprocess.run(["git", "-C", str(repo), "cat-file", "--batch"], input=batch, capture_output=True).stdout
+        i = 0
+        for name in TRUSTED_COPIES:
+            nl = out.find(b"\n", i)
+            if nl < 0:
+                break
+            header = out[i:nl].split()
+            i = nl + 1
+            if len(header) < 3 or header[1] != b"blob":
+                continue
+            size = int(header[2])
+            theirs = out[i:i + size]
+            i += size + 1
             mine = trusted_scripts / name
-            if theirs.returncode == 0 and (not mine.is_file() or mine.read_bytes() != theirs.stdout):
+            if not mine.is_file() or mine.read_bytes() != theirs:
                 stale.append(name)
         if stale:
             log(f"prepush-gate: WARNING: this clone's installed hook copy of {', '.join(stale)} is not {ref}'s, so its "
@@ -726,7 +846,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--commits", help="CI: check each non-merge commit of RANGE against its first parent")
     parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,swiftlint,reserved,conflicts,sidebar")
     parser.add_argument("--timings", action="store_true")
-    parser.add_argument("--no-guardrails", action="store_true", help="skip guardrails.py (it never runs on CI)")
+    parser.add_argument("--no-guardrails", action="store_true", help="skip guardrails.py and arch-ratchet.py (they never run on CI)")
     args = parser.parse_args(argv)
     repo = Path(args.repo or git(Path.cwd(), "rev-parse", "--show-toplevel").decode().strip())
     only = set(args.only.split(",")) if args.only else None
@@ -770,22 +890,32 @@ def main(argv: list[str] | None = None) -> int:
         ranges = pushed_ranges(repo, sys.stdin.read().splitlines())
     else:
         ranges = [(args.base or default_base(repo, args.head), args.head)]
+    # Local only: CI runs this script too (--commits, and --base/--head on pull requests), and must gain no gate.
+    local_only = not args.no_guardrails and not os.environ.get("GITHUB_ACTIONS") and only is None
+    arch = ArchRatchet(repo, ranges, trusted_scripts) if local_only else None
     found_any = []
     for base, head in ranges:
         found_any += gate(repo, base, head, only, args.timings, trusted_scripts)
     if args.pre_push and trusted_scripts:
         stale_hook_warning(repo, trusted_scripts)
-    # Local only: CI runs this script too (--commits, and --base/--head on pull requests), and must gain no gate.
     guarded = False
-    if not args.no_guardrails and not os.environ.get("GITHUB_ACTIONS") and only is None:
+    if local_only:
         t0 = time.monotonic()
         guarded = guardrails(repo, ranges, trusted_scripts)
         if args.timings:
             log(f"  {time.monotonic() - t0:5.2f}s  guardrails")
+        t0 = time.monotonic()
+        guarded = perf_cron_tests(repo, ranges) or guarded
+        if args.timings:
+            log(f"  {time.monotonic() - t0:5.2f}s  perf cron tests")
+        t0 = time.monotonic()
+        guarded = arch.finish() or guarded
+        if args.timings:
+            log(f"  {time.monotonic() - t0:5.2f}s  arch ratchet (the wait left; it ran next to the scanners)")
     elapsed = time.monotonic() - started
     if not found_any:
         if guarded:
-            print(f"prepush-gate: push refused by the guardrails ({elapsed:.1f}s)")
+            print(f"prepush-gate: push refused by the guardrails, the arch ratchet or the perf cron tests ({elapsed:.1f}s)")
             return 1
         print(f"prepush-gate: no new violations ({elapsed:.1f}s)")
         return 0
@@ -804,7 +934,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"prepush-gate: SKIPPED by CMUX_NEXT_CHECKS_SKIP_REASON={skip!r}. Say so in your report; "
               "CI still names the commit.")
         if guarded:
-            print("prepush-gate: push refused by the guardrails (CMUX_NEXT_CHECKS_SKIP_REASON does not skip them)")
+            print("prepush-gate: push refused by the guardrails or the arch ratchet (CMUX_NEXT_CHECKS_SKIP_REASON "
+                  "does not skip them)")
             return 1
         return 0
     print(HOW_TO_FIX)

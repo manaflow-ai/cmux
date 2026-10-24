@@ -236,6 +236,7 @@ async fn fixture_trust(fake: FakeOptions, pairing: bool, loaded: bool) -> Fixtur
             ice: IceSource::Fixed(Vec::new()),
             include_loopback: true,
             exclude_cgnat: false,
+            mailbox: None,
         },
     ));
     let phone_id = uuid::Uuid::new_v4().to_string();

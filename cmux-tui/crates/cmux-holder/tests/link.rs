@@ -140,3 +140,59 @@ fn eight_threads_spawn_at_once_and_each_terminal_gets_only_its_own_output() {
     assert!(!link.is_open());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Review 2 of holder items 1-3: the daemon learns which ring a new holder
+/// writes. The ADOPT hands over a descriptor that is no ring segment, so
+/// the holder starts a fresh ring at `resume`; the link's answer is that
+/// fresh segment (the daemon's new custody copy), and the output it gets
+/// next is exactly what the holder writes there.
+#[test]
+fn an_adoption_answers_with_the_segment_the_new_holder_writes() {
+    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() % 1_000_000_000;
+    let dir = PathBuf::from("/tmp").join(format!("cmhla-{}-{stamp}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("h.sock");
+    let binary = std::path::Path::new(env!("CARGO_BIN_EXE_cmux-holder"));
+    let mut first = cmux_holder::client::launch(binary, &socket, &TOKEN).unwrap();
+    let (link, _) = HolderLink::connect(&socket, &TOKEN, Box::new(|_| {})).unwrap();
+    assert!(link.takes_rings(), "this build's holder takes ring segments");
+    let sink = Arc::new(Collect::default());
+    let spawned = link.spawn(1, &request(1, "echo up-1; exec cat"), sink.clone()).unwrap();
+    wait_for("the first line", || {
+        String::from_utf8_lossy(&sink.bytes.lock().unwrap()).contains("up-1")
+    });
+    let _ = first.kill();
+    let _ = first.wait();
+    wait_for("the lost link", || !link.is_open());
+
+    let mut second = cmux_holder::client::launch(binary, &socket, &TOKEN).unwrap();
+    let (link, _) = HolderLink::connect(&socket, &TOKEN, Box::new(|_| {})).unwrap();
+    let received = sink.bytes.lock().unwrap().len() as u64;
+    let not_a_ring: OwnedFd = std::fs::File::create(dir.join("not-a-ring")).unwrap().into();
+    let mut id = [0u8; 16];
+    id[..4].copy_from_slice(&1u32.to_le_bytes());
+    let answer = link
+        .adopt(
+            1,
+            &id,
+            (spawned.pid, received, received),
+            (&spawned.master, Some(&not_a_ring)),
+            (sink.clone(), b""),
+        )
+        .unwrap();
+    let written = answer.wait().unwrap().expect("the holder names the fresh segment it writes");
+    assert_eq!(cmux_holder::ring::segment_end(&written).unwrap(), received);
+    std::fs::File::from(spawned.master.try_clone().unwrap()).write_all(b"after\n").unwrap();
+    wait_for("the echo on the new holder", || {
+        String::from_utf8_lossy(&sink.bytes.lock().unwrap()).contains("after\r\nafter")
+    });
+    let end = sink.bytes.lock().unwrap().len() as u64;
+    wait_for("the holder's ring to hold what it sent", || {
+        cmux_holder::ring::segment_end(&written).unwrap() >= end
+    });
+    link.close(1, 200).unwrap();
+    wait_for("the exit", || sink.exit.lock().unwrap().is_some());
+    let _ = second.kill();
+    let _ = second.wait();
+    let _ = std::fs::remove_dir_all(&dir);
+}

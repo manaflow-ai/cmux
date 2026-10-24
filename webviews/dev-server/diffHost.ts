@@ -102,7 +102,8 @@ export function payloadFor(
       sessionSource,
       repoRoot: repo,
       branchBaseRef: kind === "branch" ? base : undefined,
-      layout: query.get("layout") === "unified" ? "unified" : "split",
+      // The app's default is auto (DiffPageConfig.swift); `?layout=` picks unified, split or auto.
+      layout: ["unified", "split", "auto"].includes(query.get("layout") ?? "") ? query.get("layout") : "auto",
       layoutSource: query.has("layout") ? "explicit" : "default",
       // The session options the real sidecar's handshake names (Hide white space), as the app sends.
       sessionCapabilities: capabilities.filter((capability) => capability.startsWith("session.")),

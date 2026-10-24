@@ -16,10 +16,19 @@ extension PaneController {
             for part in parts { part.pane.close(part.ids) }
             return
         }
-        let prepared = parts.compactMap { $0.pane.prepareClose($0.ids) }
+        send(parts.compactMap { $0.pane.prepareClose($0.ids) }, from: first, userClose: CloseUndoToasts.isUserClose)
+    }
+
+    /// Sends the daemon halves of closes whose local halves already ran
+    /// (`prepareClose`), every pane on `first`'s daemon, in ONE daemon close:
+    /// one closed group, one Reopen Closed step. A close that waited for its
+    /// pages (`PageDecidedCloses`) prepares its tabs at two moments and
+    /// sends them here together. `userClose`: a refused close shows
+    /// `RefusedCloseNotice`.
+    static func send(_ prepared: [PreparedTabClose], from first: PaneController, userClose: Bool) {
         guard !prepared.isEmpty else { return }
+        let daemon = first.daemon
         let runs = daemon.closeRuns(surfaces: prepared.flatMap(\.surfaces), commands: prepared.flatMap(\.commands))
-        let userClose = CloseUndoToasts.isUserClose // a refused user close shows RefusedCloseNotice
         let services = first.services, window = first.view.window
         services.registry.track(Task { [services, weak window] in
             let outcome = await daemon.runReportingOutcomes(runs)

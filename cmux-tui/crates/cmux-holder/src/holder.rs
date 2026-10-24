@@ -59,6 +59,12 @@ pub const IDLE_EXIT: Duration = Duration::from_secs(30);
 /// stream that crashes the daemon's parser cannot crash every restart.
 const POISON_STRIKES: usize = 2;
 const STRIKE_WINDOW: Duration = Duration::from_secs(10);
+
+/// Reads of the old link a takeover makes to see whether that daemon
+/// already ended (`Holder::link_ended`): enough for the frames a dead
+/// daemon left (each read takes up to the reader's chunk).
+const LINK_END_READS: usize = 16;
+
 /// A child's end ends its terminal once the master has nothing more to
 /// read, even while a background job keeps the PTY open. Not on Linux: a
 /// slave's last write reaches the master through an asynchronous flip
@@ -93,6 +99,10 @@ struct Terminal {
     exit_sent: bool,
     /// Next offset to send the attached daemon; `None` while not attached.
     sent: Option<u64>,
+    /// An ADOPT's `resume` until its daemon ATTACHes (or the link ends):
+    /// reading stops [`UNSENT_HIGH_WATER`] past it, as it would attached,
+    /// so the ring never runs past the credit the ATTACH sets up.
+    held: Option<u64>,
     /// Offset the attached daemon acknowledged it parsed up to.
     acked: u64,
     /// A CLOSE asked for its end: the holder forgets it once it ended and
@@ -129,8 +139,11 @@ struct Link {
     reader: wire::Reader,
     /// The daemon acknowledges what it parsed (wire version 2).
     credit: bool,
-    /// The daemon takes ring segments (wire version 4, [`wire::FLAG_RING`]).
+    /// The daemon takes ring segments and reads ring layout 2
+    /// ([`wire::RING_VERSION`], [`wire::FLAG_RING`]).
     rings: bool,
+    /// The wire version the link settled on.
+    version: u16,
     /// The frame the socket took part of: it finishes first.
     current: Option<OutFrame>,
     /// Small frames, written before `bulk`.
@@ -561,6 +574,14 @@ impl Holder {
     /// replaces hears SUPERSEDED (when its queue lets that through) so it
     /// does not take the holder back.
     fn promote(&mut self, pending: Pending, version: u16) {
+        // A daemon that died with frames still unread (its last ACKs) ended
+        // before this one connected: its end is a lost link (a strike, the
+        // poison pill), not a takeover. A restart after a parser crash
+        // connects at once, so the holder can see the new HELLO in the turn
+        // that still reads the dead link's last bytes.
+        if self.link_ended() {
+            self.drop_link(LinkDrop::Lost);
+        }
         if self.flush_link()
             && let Some(old) = self.link.as_ref()
             && !old.has_output()
@@ -578,7 +599,8 @@ impl Holder {
             stream: pending.stream,
             reader: pending.reader,
             credit: version >= 2,
-            rings: version >= 4,
+            rings: version >= wire::RING_VERSION,
+            version,
             current: None,
             urgent: VecDeque::new(),
             bulk: VecDeque::new(),
@@ -605,6 +627,7 @@ impl Holder {
                 terminal.strike(now);
             }
             terminal.sent = None;
+            terminal.held = None;
             terminal.exit_sent = false;
         }
     }
@@ -619,6 +642,27 @@ impl Holder {
             Err(_) => return false,
         }
         self.drain_link_frames()
+    }
+
+    /// Read and handle what the link has buffered, up to its end: true when
+    /// it ended or broke. A live link stops at the first read that would
+    /// block, or after [`LINK_END_READS`] reads (a daemon that keeps
+    /// writing is alive).
+    fn link_ended(&mut self) -> bool {
+        for _ in 0..LINK_END_READS {
+            let Some(link) = self.link.as_mut() else { return false };
+            match link.reader.fill(link.stream.as_raw_fd()) {
+                Ok(true) => {}
+                Ok(false) => return true,
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => return false,
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                Err(_) => return true,
+            }
+            if !self.drain_link_frames() {
+                return true;
+            }
+        }
+        false
     }
 
     /// Handle every complete frame the link has buffered. False when the
@@ -656,6 +700,7 @@ impl Holder {
             Some(Kind::Snapshot) => self.snapshot(frame.chan, &frame.payload),
             Some(Kind::Detach) => self.terminal(frame.chan).map(|terminal| {
                 terminal.sent = None;
+                terminal.held = None;
                 terminal.exit_sent = false;
             }),
             Some(Kind::Ack) => {
@@ -697,9 +742,11 @@ impl Holder {
     }
 
     /// WELCOME the new link with every terminal, a master dup of each and,
-    /// for a daemon of wire version 4, a dup of its ring segment.
+    /// for a daemon of [`wire::RING_VERSION`], a dup of its ring segment.
+    /// An older daemon gets no segment: it could hand a layout 2 segment to
+    /// a holder that knows only layout 1.
     fn welcome(&mut self, version: u16) {
-        let rings = version >= 4;
+        let rings = version >= wire::RING_VERSION;
         let listed: Vec<(u32, Vec<u8>, Vec<OwnedFd>)> = self
             .terminals
             .iter()
@@ -766,18 +813,44 @@ impl Holder {
         };
         pty::set_nonblocking(master.as_raw_fd());
         // The dead holder's ring, with every byte it read: the daemon
-        // re-attaches from where it is and gets the bytes nobody sent. A
-        // segment that is not a ring (never from a sane daemon) starts a
-        // fresh ring where the stream continues.
-        let ring = with_ring
+        // re-attaches from where it is and gets the bytes nobody sent. Any
+        // other segment starts a fresh ring where the stream continues: one
+        // that is not a ring, and one that ends before `resume` (a stale
+        // segment, say the one the daemon kept after an earlier adoption fell
+        // back to a fresh ring it never heard of). Continuing a stale ring
+        // would number new output below what the daemon already parsed, and
+        // the daemon would drop it as received: a silent splice.
+        let mut ring = with_ring
             .then(|| fds.next())
             .flatten()
             .and_then(|segment| Ring::adopt(segment).ok())
+            .filter(|ring| ring.end() >= resume)
             .unwrap_or_else(|| Ring::new(resume, RING_BYTES));
+        let version = self.link.as_ref().map_or(0, |link| link.version);
+        if version >= wire::RING_VERSION {
+            // Only a holder of this version continues it from here on.
+            ring.upgrade_layout();
+        }
         let mut terminal = Terminal::with_ring(id, master, pid, false, ring);
+        // The daemon ATTACHes right after its ADOPT: until then read no
+        // more than an attached stream from `resume` would.
+        terminal.held = Some(resume);
         terminal.prologue = input.rest().to_vec();
         terminal.prologue_base = base;
+        // Tell the daemon which ring this holder writes (the one it was
+        // handed, or a fresh one), so the custody copy it hands the next
+        // holder is never one nobody writes.
+        let adopted = (version >= wire::RING_VERSION).then(|| {
+            let payload = Out::default().u64(terminal.ring.oldest()).u64(terminal.ring.end()).0;
+            let fds: Vec<OwnedFd> =
+                terminal.ring.segment().and_then(|fd| fd.try_clone().ok()).into_iter().collect();
+            (payload, fds)
+        });
         self.terminals.insert(frame.chan, terminal);
+        if let Some((payload, fds)) = adopted {
+            let flags = if fds.is_empty() { 0 } else { wire::FLAG_RING };
+            self.queue_flagged(Kind::Adopted, flags, frame.chan, &payload, fds);
+        }
         Ok(())
     }
 
@@ -785,9 +858,12 @@ impl Holder {
     /// [`wire::FLAG_WITH_PROLOGUE`] (a restarted daemon) the prologue goes
     /// first and the stream starts at its base; a terminal whose streams
     /// keep ending without DETACH skips its ring tail (the poison pill).
+    /// The credit counts from the offset the daemon says it parsed (version
+    /// 5), so bytes it received and has not parsed stay in the window.
     fn attach(&mut self, chan: u32, flags: u16, payload: &[u8]) -> Result<(), (u16, String)> {
-        let from =
-            In(payload).u64().map_err(|error| (error_code::BAD_PAYLOAD, error.to_string()))?;
+        let mut input = In(payload);
+        let from = input.u64().map_err(|error| (error_code::BAD_PAYLOAD, error.to_string()))?;
+        let parsed = input.u64().ok();
         let terminal = self.terminal(chan)?;
         let (oldest, end) = (terminal.ring.oldest(), terminal.ring.end());
         let mut start = from.clamp(oldest, end);
@@ -813,7 +889,16 @@ impl Holder {
             terminal.strikes.clear();
         }
         terminal.sent = Some(start);
-        terminal.acked = start;
+        terminal.held = None;
+        // The `from - parsed` bytes the daemon holds unparsed count against
+        // its window (moved past a GAP with the stream): after an adoption
+        // or a resume the holder sends at most the window past what the
+        // daemon parsed, and the ring never holds more than the window plus
+        // UNSENT_HIGH_WATER past it.
+        terminal.acked = match parsed {
+            Some(parsed) => start.saturating_sub(from.saturating_sub(parsed.min(from))),
+            None => start,
+        };
         terminal.exit_sent = false;
         if let Some(link) = self.link.as_mut() {
             for frame in frames {
@@ -1176,6 +1261,7 @@ impl Terminal {
             eof: false,
             exit_sent: false,
             sent: None,
+            held: None,
             acked: base,
             closing: false,
             input: VecDeque::new(),
@@ -1200,11 +1286,12 @@ impl Terminal {
         self.eof && (self.status.is_some() || !self.own_child)
     }
 
-    /// Bytes the holder may read from the master now. Attached, at most
-    /// [`UNSENT_HIGH_WATER`] bytes wait unsent; unattached, the ring keeps
-    /// the newest bytes and reading never stops.
+    /// Bytes the holder may read from the master now. Attached (or adopted
+    /// and waiting for its ATTACH), at most [`UNSENT_HIGH_WATER`] bytes wait
+    /// unsent; unattached, the ring keeps the newest bytes and reading never
+    /// stops.
     fn room(&self) -> usize {
-        match self.sent {
+        match self.sent.or(self.held) {
             Some(sent) => {
                 let unsent = self.ring.end().saturating_sub(sent);
                 UNSENT_HIGH_WATER.saturating_sub(usize::try_from(unsent).unwrap_or(usize::MAX))

@@ -44,19 +44,20 @@ import Testing
         let header = try #require(sidebar.list.rowViews[.group(Self.open)] as? GroupHeaderRowView)
         let line = try #require(GroupPaletteDefaultTests.views(GroupLineView.self, in: sidebar).first)
         let head = sidebar.convert(header.bounds, from: header)
-        let drawn = sidebar.convert(line.bounds, from: line)
+        let logical = sidebar.convert(line.logicalFrame, from: line.superview)
         let bar = head.height // the bar fills the header's row (SidebarGroupHeaderHeightTests)
         // The sidebar is flipped or not; the bar's edge nearest the members is the one the line meets.
         let flipped = sidebar.isFlipped
         let barEdge = flipped ? head.midY + bar / 2 : head.midY - bar / 2
-        let lineStart = flipped ? drawn.minY : drawn.maxY
+        let lineStart = flipped ? logical.minY : logical.maxY
         #expect(flipped ? lineStart > barEdge : lineStart < barEdge,
                 "the line starts at \(lineStart), inside the header bar that ends at \(barEdge)")
         line.layoutSubtreeIfNeeded()
         // Chrome's square left edge and body keep their flat geometry; the top-right edge is the cut/taper.
-        let mask = try #require(line.layer?.mask as? CAShapeLayer)
-        #expect(line.layer?.cornerRadius == 0 && mask.path != nil, "the line has the Chrome corner cut")
-        #expect(mask.frame.height >= 4096, "the mask preserves coverage while the parent rail shrinks")
+        #expect(line.layer?.cornerRadius == 0 && line.layer?.masksToBounds == true && line.railShape.path != nil,
+                "the line has the clipped Chrome corner cut")
+        #expect(line.railShape.frame.width == 6 && line.railShape.frame.height >= 4096,
+                "the cut shape preserves coverage while the parent rail shrinks")
     }
 
     @Test func aHeaderInkIsWhiteOrNearBlackWhicheverReadsBetter() throws {

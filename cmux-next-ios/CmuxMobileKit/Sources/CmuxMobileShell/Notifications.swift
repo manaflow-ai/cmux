@@ -122,6 +122,10 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
     public func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
         PushReplies.shared.registerCategories()
+        #if DEBUG && targetEnvironment(simulator)
+        SimulatedServiceExtension.deliverIfAsked()
+        SimulatedServiceExtension.registerStandInTokenIfAsked()
+        #endif
         Task {
             let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
             if BuildCapabilities.current.push, [.authorized, .provisional, .ephemeral].contains(status) { application.registerForRemoteNotifications() }
@@ -152,12 +156,15 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
     public nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                                    withCompletionHandler completionHandler: @escaping @Sendable () -> Void) {
         // Only Sendable values cross to the main actor.
-        let userInfo = response.notification.request.content.userInfo
+        let content = response.notification.request.content
+        let userInfo = content.userInfo
+        let shown = PushTrustGate.Shown(title: content.title, subtitle: content.subtitle, body: content.body,
+                                        category: content.categoryIdentifier)
         // Only the app's own (local) notifications may carry a retry (review H1).
         let fromPush = response.notification.request.trigger is UNPushNotificationTrigger
         let read = PushReplies.Response(actionIdentifier: response.actionIdentifier,
                                         text: (response as? UNTextInputNotificationResponse)?.userText,
-                                        userInfo: userInfo, fromPush: fromPush, retries: PushRetryStore.app)
+                                        userInfo: userInfo, fromPush: fromPush, retries: PushRetryStore.app, shown: shown)
         Task { @MainActor in
             await PushReplies.shared.handle(read)
             completionHandler()

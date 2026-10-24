@@ -12,6 +12,10 @@ public enum PushCategory: String, CaseIterable, Sendable {
     case terminal = "CMUX_MOBILE_TERMINAL"
     /// The phone's own "Couldn't reach <Mac>" notification.
     case retry = "CMUX_MOBILE_RETRY"
+    /// A sealed push before it opened, and any push that is not to be acted
+    /// on (an unsealed one from a Mac that seals, a stale one): no buttons
+    /// (PR B security review H1).
+    case sealed = "CMUX_MOBILE_SEALED"
 }
 
 /// One notification button (PROTOCOL.md "Phone actions").
@@ -133,7 +137,7 @@ public struct PushActions: Sendable {
         case .question, .questionForm: [action(.answer)]
         case .permission: [action(.allowOnce), action(.deny)]
         case .completed, .failed, .chief: [action(.reply)]
-        case .terminal: []
+        case .terminal, .sealed: []
         case .retry: [action(.retry)]
         }
     }
@@ -152,17 +156,24 @@ public struct PushActions: Sendable {
             if question.allowsOther { out.append((.answer, title(.answer))) }
             return out
         case .permission:
-            guard !payload.options.isEmpty else { return [(.allowOnce, title(.allowOnce)), (.deny, title(.deny))] }
+            // None listed (a v1 push, or a sealed one the Mac trimmed to fit): the app opens on it.
+            guard !payload.options.isEmpty else { return [(.answer, title(.answer))] }
+            // As the Feed (`PushPayload.phoneOptions`): Always allow only when the agent offers no
+            // single-use Allow; acpmux then refuses it and says to allow it on the Mac.
+            let options = payload.phoneOptions
             var out: [(action: PushAction, title: String)] = []
-            if payload.options.contains(where: { $0.kind == .allowOnce }) { out.append((.allowOnce, title(.allowOnce))) }
-            // Never Always allow: acpmux refuses a lasting grant from a phone
-            // (`remote.lasting_grant_refused`); allow it for the chat on the Mac.
-            if payload.options.contains(where: \.isReject) { out.append((.deny, title(.deny))) }
+            if options.contains(where: { $0.kind == .allowOnce }) {
+                out.append((.allowOnce, title(.allowOnce)))
+            } else if options.contains(where: { $0.kind == .allowAlways }) {
+                out.append((.allowAlways, title(.allowAlways)))
+            }
+            if options.contains(where: \.isReject) { out.append((.deny, title(.deny))) }
             return out
         case .completed, .failed, .chief:
             return [(.reply, title(.reply))]
         case .terminal:
-            return []
+            // Text into the terminal (device unlock), only when its poster takes a reply.
+            return payload.replyable && payload.notificationId != nil ? [(.terminalReply, title(.terminalReply))] : []
         }
     }
 
