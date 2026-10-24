@@ -76,6 +76,11 @@ import PackageDescription
 // draw happens only after a quiet refresh interval (busy terminals no longer
 // draw twice per interval); a fresh frame publishes only while a present is
 // armed and in its own size generation; a reveal arms it.
+// Since 723c4ab..0493ce8 (PRs 51, 54, 55): ghostty_surface_present_host_frame_ready
+// presents a resized surface's frame only if it is drawn, never waits; a
+// content-only frame goes to the screen from the GPU completion thread (a
+// terminal echo does not wait for the main thread); bash 4.4-5.2 forks once
+// per command, not twice.
 // Since f3de4f4 and 8bbd6d3 (PRs 52, 53): a wheel scroll never waits on the
 // main thread for the terminal lock held by output parsing (it goes to the
 // termio thread, applied in the mode the terminal has then);
@@ -105,8 +110,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-8bbd6d3869df01ff8dfdc8764b7d78b95ad62cf4-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "b97829f62b29f77df54f9ea8048b3f7bfc820d4719cf55f0ebd96f3d04a0502c"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-0493ce89a99e7813b3a230aad521090be4e3a066-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "2da17796f56cfdf935af6f4338865a4beb16f6f9bc46d5d3e30fd2ed397911ed"
         ),
     ]
 )
