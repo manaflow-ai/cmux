@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -286,18 +287,27 @@ def run(case: dict) -> dict:
     return json.loads(result.stdout)
 
 
-LANDER_RULE_ON = SURFACE.replace("@require_non_lander_approver off", "@require_non_lander_approver on")
+def policy_surface(value: str) -> str:
+    return re.sub(r"(?m)^@require_non_lander_approver (?:on|off)$",
+                  f"@require_non_lander_approver {value}", SURFACE)
+
+
+LANDER_RULE_ON = policy_surface("on")
+LANDER_RULE_OFF = policy_surface("off")
 
 
 def surface_change(lander_rule: bool = True) -> dict:
     case = scenario(rangeFiles=[{"filename": ".github/workflows/nightly.yml"}],
-                    surface=LANDER_RULE_ON if lander_rule else SURFACE)
+                    surface=LANDER_RULE_ON if lander_rule else LANDER_RULE_OFF)
     case["commits"][0]["files"] = [{"filename": ".github/workflows/nightly.yml"}]
     return case
 
 
-def test_lander_rule_ships_off_and_a_lander_may_approve() -> None:
-    assert "@require_non_lander_approver off" in SURFACE
+def test_lander_rule_ships_on() -> None:
+    assert "@require_non_lander_approver on" in SURFACE.splitlines()
+
+
+def test_with_lander_rule_off_a_lander_may_approve() -> None:
     case = surface_change(lander_rule=False)
     case["approvals"] = [{"state": "approved", "user": {"login": "teamleaderleo"},
                           "environments": [{"name": "release-surface-ack"}]}]
@@ -308,7 +318,8 @@ def test_lander_rule_ships_off_and_a_lander_may_approve() -> None:
 
 def test_an_unknown_policy_line_refuses_the_promotion() -> None:
     case = surface_change()
-    case["surface"] = SURFACE.replace("@require_non_lander_approver off", "@require_non_lander_approver ON")
+    case["surface"] = re.sub(r"(?m)^@require_non_lander_approver (?:on|off)$",
+                             "@require_non_lander_approver ON", SURFACE)
     out = run(case)
     assert out["decision"]["action"] == "refuse"
     assert "unknown policy line" in out["decision"]["reason"]
@@ -348,6 +359,53 @@ def test_same_named_job_in_another_workflow_does_not_admit() -> None:
     assert out["decision"]["action"] == "refuse"
 
 
+def test_tip_without_release_compile_promotes_newest_earlier_green_commit() -> None:
+    # The tip SHA has no exact green Release job, but its immediate parent does.
+    # Promotion should use that parent while retaining the exact-job safety gate.
+    case = scenario(
+        runs=[gate_run(id=8, head_sha=MID)],
+        jobs={"8": GREEN},
+    )
+    out = run(case)
+    assert out["decision"]["action"] == "promote", out
+    assert out["decision"]["sha"] == MID, out
+    assert any("newest green source commit" in note for note in out["notices"]), out["notices"]
+
+
+def test_fallback_ranks_green_commits_by_ancestry_not_run_time() -> None:
+    older, newer, tip = "e" * 40, "d" * 40, "f" * 40
+    commits = [
+        {"sha": tip, "parents": [{"sha": newer}], "author": {"login": "lawrencecchen"}, "committer": {"login": "lawrencecchen"}, "files": []},
+        {"sha": newer, "parents": [{"sha": older}], "author": {"login": "lawrencecchen"}, "committer": {"login": "lawrencecchen"}, "files": []},
+        {"sha": older, "parents": [{"sha": CURRENT}], "author": {"login": "lawrencecchen"}, "committer": {"login": "lawrencecchen"}, "files": []},
+        {"sha": CURRENT, "parents": [], "author": {"login": "lawrencecchen"}, "committer": {"login": "lawrencecchen"}, "files": []},
+    ]
+    case = scenario(
+        sha=tip, sourceHead=tip, onSource={tip: "identical"}, commits=commits,
+        runs=[gate_run(id=8, head_sha=older, created_at="2026-10-24T01:00:00Z"), gate_run(id=9, head_sha=newer, created_at="2026-10-24T00:59:00Z")],
+        jobs={"8": GREEN, "9": GREEN},
+    )
+    out = run(case)
+    assert out["decision"]["action"] == "promote", out
+    assert out["decision"]["sha"] == newer, out
+
+
+def test_fallback_never_promotes_a_descendant_of_an_older_requested_sha() -> None:
+    requested, later = "d" * 40, "e" * 40
+    commits = [
+        {"sha": later, "parents": [{"sha": requested}], "author": {"login": "lawrencecchen"}, "committer": {"login": "lawrencecchen"}, "files": []},
+        {"sha": requested, "parents": [{"sha": CURRENT}], "author": {"login": "lawrencecchen"}, "committer": {"login": "lawrencecchen"}, "files": []},
+        {"sha": CURRENT, "parents": [], "author": {"login": "lawrencecchen"}, "committer": {"login": "lawrencecchen"}, "files": []},
+    ]
+    case = scenario(
+        sha=requested, sourceHead=later, onSource={requested: "ahead"}, commits=commits,
+        runs=[gate_run(id=8, head_sha=later)], jobs={"8": GREEN},
+    )
+    out = run(case)
+    assert out["decision"]["action"] == "refuse", out
+    assert "no earlier green source commit" in out["decision"]["reason"], out
+
+
 def test_admission_retries_while_the_index_lags() -> None:
     out = run(scenario(emptyRuns=2))
     assert out["decision"]["action"] == "promote"
@@ -367,6 +425,16 @@ def test_surface_change_needs_a_non_lander_approval() -> None:
     assert decision["surfaceFiles"] == [".github/workflows/nightly.yml"]
     assert decision["landers"] == ["teamleaderleo"]
     assert not out["ack"]["ok"]  # nobody approved yet
+
+
+def test_first_promotion_refuses_when_commit_authors_cannot_be_bounded() -> None:
+    case = surface_change()
+    case["current"] = None
+    case["approvals"] = [{"state": "approved", "user": {"login": "teamleaderleo"},
+                          "environments": [{"name": "release-surface-ack"}]}]
+    out = run(case)
+    assert out["decision"]["action"] == "refuse", out["decision"]
+    assert "does not exist" in out["decision"]["reason"]
 
 
 def test_lander_cannot_approve_their_own_surface_change() -> None:
@@ -410,6 +478,16 @@ def test_unknown_push_actor_fails_closed() -> None:
     out = run(case)
     assert out["decision"]["action"] == "refuse"
     assert "push actor" in out["decision"]["reason"]
+
+
+def test_unknown_surface_commit_author_fails_closed() -> None:
+    case = surface_change()
+    case["commits"][0]["author"] = None
+    case["approvals"] = [{"state": "approved", "user": {"login": "austinywang"},
+                          "environments": [{"name": "release-surface-ack"}]}]
+    out = run(case)
+    assert out["decision"]["action"] == "refuse", out["decision"]
+    assert "author" in out["decision"]["reason"]
 
 
 def test_activity_pages_are_followed_and_one_push_covers_its_commits() -> None:
@@ -867,6 +945,30 @@ def test_only_the_wait_for_the_approval_is_cancellable() -> None:
     assert move["needs"] == ["promote-nightly-next", "await-release-surface-ack"]
     assert move["environment"] == "nightly-next-promote"
     assert "requireNonLander: policy.require_non_lander_approver" in WORKFLOW
+
+
+def test_workflow_executes_the_release_surface_approval_gate() -> None:
+    import yaml
+
+    jobs = yaml.safe_load(WORKFLOW)["jobs"]
+    decide = jobs["promote-nightly-next"]
+    steps = {step["name"]: step for step in decide["steps"]}
+    direct = "steps.decide.outputs.action == 'promote' && steps.decide.outputs.dry_run != 'true'"
+    assert steps["Mint release App token"]["if"] == direct
+    assert steps["Move nightly-next"]["if"] == direct
+
+    wait = jobs["await-release-surface-ack"]
+    assert wait["if"] == (
+        "(needs.promote-nightly-next.outputs.action == 'needs-ack' || "
+        "needs.promote-nightly-next.outputs.action == 'promote') && "
+        "needs.promote-nightly-next.outputs.dry_run != 'true'"
+    )
+    acknowledged = jobs["promote-nightly-next-acked"]
+    assert acknowledged["if"] == (
+        "needs.await-release-surface-ack.result == 'success' && "
+        "needs.promote-nightly-next.outputs.action == 'needs-ack' && "
+        "needs.promote-nightly-next.outputs.dry_run != 'true'"
+    )
 
 
 # ------------------------------------------------------------ train commits (G1'/G2')
