@@ -85,13 +85,16 @@ extension PaneHandlers {
                 ctx.send("close-pane") { try await $0.closePane(handle) }
             }
         })
-        // The name shows in the input's turn (a store intent); a refusal puts the old one back.
+        // The name shows in the input's turn (a store intent); a refusal puts the old one back. The
+        // pane's own machine, as the screen renames: a pane of a disconnected one reports "not
+        // connected" through the effect (Rename Screen's refusal, not a second one).
         registry.bindEffect("renamePane", effect: { invocation in
             guard let pane = ctx.daemonPane(invocation) else { return .done }
             let handle = pane.handle
             if let name = invocation["name"]?.stringValue {
-                guard ctx.connection() != nil else { return .done }
-                return ctx.daemon.intentEffect("rename-pane", .renamePane(pane: handle, name: name)) { try await $0.renamePane(handle, to: name) }
+                return ctx.services.daemon(for: pane).intentEffect("rename-pane", .renamePane(pane: handle, name: name)) {
+                    try await $0.renamePane(handle, to: name)
+                }
             }
             ctx.services.registry.ask("renamePane", invocation, ActionArgumentAsk(argument: "name", initialText: pane.name ?? ""))
             return .done
