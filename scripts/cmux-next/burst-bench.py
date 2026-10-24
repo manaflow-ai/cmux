@@ -356,16 +356,19 @@ def scenario(opts):
         return (reply.get("recording") and not reply.get("sequence_playing") and reply.get("pending_intents") == 0
                 and reply.get("resize_idle") and reply.get("terminals_awaiting_echo") == 0)
 
+    # The keys are scheduled for `duration`: no status call while they play, so the bench adds no
+    # main-thread work to the presses it measures.
+    time.sleep(duration)  # test script: the sequence's own schedule, not a settle
     # The burst is done when the app says so: every key posted, no create still asking the daemon, no grid
     # waiting to go or for its echo. The deadline only bounds a burst that never settles (a failure).
-    settled = stress.wait(lambda: done(status()), duration + opts.deadline, step=0.02)
+    settled = stress.wait(lambda: done(status()), opts.deadline, step=0.1)
     settled_after = time.monotonic() - started
     frames = rpc("debug.frames", {"action": "stop", "raw": True}) or {}
     if not settled:
-        record["invalid"].append(f"the burst never settled within {duration + opts.deadline:.0f} s: {status()}")
+        record["invalid"].append(f"the burst never settled within {opts.deadline:.0f} s of its last key: {status()}")
     # Each echoed grid's first output: a program that does not redraw at a new size prints nothing, so
     # this is bounded and what never came is counted in the row, not failed.
-    stress.wait(lambda: status().get("awaiting_output_surfaces") == 0, opts.redraw_wait, step=0.02)
+    stress.wait(lambda: status().get("awaiting_output_surfaces") == 0, opts.redraw_wait, step=0.1)
     trace = rpc("debug.burst", {"action": "stop"}) or {}
     after = {"tabs": len(builder.tabs(workspace, pane)), "panes": len(builder.panes(builder.workspace(workspace)))}
     tabs_after = [t.get("id") for p in builder.panes(builder.workspace(workspace)) for t in p.get("tabs") or []]
