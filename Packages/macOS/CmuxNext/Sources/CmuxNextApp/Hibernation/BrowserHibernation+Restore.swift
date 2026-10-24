@@ -125,15 +125,41 @@ extension BrowserHibernation {
         if picture.data != nil { snapshots.insert(picture, for: key) } else { cache?.previews.insert(picture.image, for: key) }
     }
 
-    /// The full-size picture the app took as page `key` (`tab`) left the screen, of page version
-    /// `version` (`TabContentCache.pageVersion`). Seam only in this commit: nothing keeps it yet.
-    func pageDidLeave(_ key: String, tab: any BrowserTab, image: CGImage, version: Int) async {}
+    /// The full-size picture the app took as page `key` (`tab`) left the screen (the leave
+    /// capture, `TabContentCache.capturePagePreview`), of page version `version`
+    /// (`TabContentCache.pageVersion`; the caller passes none for a blank picture). Compressed off
+    /// the main thread and kept in `leavePictures` while it is still that page at that version, so
+    /// the page hibernates with it later and takes no second engine capture then.
+    func pageDidLeave(_ key: String, tab: any BrowserTab, image: CGImage, version: Int) async {
+        guard setting.isEnabled, let picture = await picture(of: image) else { return }
+        // The page navigated, loaded, closed or hibernated while the picture compressed: not its picture now.
+        guard setting.isEnabled, let entry = cache?.browsers[key], entry.tab === tab,
+              TabContentCache.pageVersion(entry) == version else { return }
+        leavePictures[key] = (version, picture)
+    }
 
-    /// A fresh picture (never one from an earlier sleep). Compressed whole into `snapshots` by
-    /// default; with `HibernationTunables.compressedSnapshots` off, decoded and scaled so that
-    /// several fit the 32 MB `previews` cache, which refuses a picture larger than itself.
-    func snapshot(_ tab: any BrowserTab, key: String) async -> HibernationSnapshots.Picture? {
+    /// The picture page `key` hibernates with: the one it left the screen with when it still shows
+    /// this page version, else a fresh engine capture (`snapshot`).
+    func hibernationPicture(_ tab: any BrowserTab, key: String) async -> HibernationSnapshots.Picture? {
+        if let left = leavePictures[key] {
+            if let entry = cache?.browsers[key], entry.tab === tab, left.version == TabContentCache.pageVersion(entry) {
+                return left.picture
+            }
+            leavePictures[key] = nil
+        }
+        return await snapshot(tab)
+    }
+
+    /// A fresh picture (never one from an earlier sleep): one engine capture (`capture`).
+    func snapshot(_ tab: any BrowserTab) async -> HibernationSnapshots.Picture? {
         guard let image = await capture(tab) else { return nil }
+        return await picture(of: image)
+    }
+
+    /// `image` as the store keeps it. Compressed whole into `snapshots` by default; with
+    /// `HibernationTunables.compressedSnapshots` off, decoded and scaled so that several fit the
+    /// 32 MB `previews` cache, which refuses a picture larger than itself.
+    func picture(of image: CGImage) async -> HibernationSnapshots.Picture? {
         if HibernationTunables.compressedSnapshots.value { return await HibernationSnapshots.compress(image) }
         // A quarter of the cache, less a margin for row padding; same aspect and color space, off the main actor.
         let bytes = Double((cache?.previews.capacityBytes ?? 32 << 20) / 4) * 0.98
