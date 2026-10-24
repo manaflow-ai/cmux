@@ -176,6 +176,18 @@ extension ScreenContentView {
             view.cursorClip = pointerClip
         }
         updateScrollbar()
+        // A pan with the finger down is layout motion too (hasMotion leaves user gestures out): motion-time content
+        // (divider catcher panels, page windows) waits for the landing. The landing frame's advanceFrame clears it.
+        let gesturing = isUserScrolling || rowScrolls.values.contains(where: \.state.isGestureActive)
+            || areaScrolls.values.contains(where: \.state.isGestureActive)
+        if gesturing, changed {
+            userMotionActive = true
+            context.userMotionStepped()
+        } else if !gesturing, userMotionActive {
+            // The gesture ended: a fling springs on (advanceFrame ends the motion when it lands), else it ends now.
+            userMotionActive = false
+            if !hasMotion { context.userMotionEnded() }
+        }
         // The handles moved under a still pointer, or the panes did (a zoom covers handles).
         if dividersChanged || changed { refreshDividerHover() }
         if dividersChanged || changed { context.overlayNeedsSync() }
