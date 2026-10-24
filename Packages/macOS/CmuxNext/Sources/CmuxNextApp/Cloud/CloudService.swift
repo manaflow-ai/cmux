@@ -30,6 +30,8 @@ final class CloudService {
     /// Chief hands: levels, the presence key and requests waiting for the owner (cx-om025).
     @ObservationIgnored let hands: HandsService
     @ObservationIgnored private let machines: MachineRegistry
+    /// The plan gate for a create, from the last machine list's limits.
+    var createGate: CloudMachineCreateFlow.Gate { CloudMachineCreateFlow.gate(machines.cloudLimits) }
     @ObservationIgnored private let binary: URL?
     /// This Mac's `cmux link` across the session (cx-rtipa S3).
     @ObservationIgnored private let link: CloudLinkLifecycle
@@ -430,7 +432,7 @@ final class CloudService {
         let onSent: @MainActor @Sendable () async -> Void = { [weak creation] in creation?.note(.creating) }
         let machine = configuration.linkSource == .appServer
             ? try await appServerCreate(name: name, startedByPerson: startedByPerson, askedBy: askedBy, onSent: onSent)
-            : try await CloudMachineCreateFlow.legacy(name: name, startedByPerson: startedByPerson, askedBy: askedBy, askFirst: UserDefaults.standard.bool(forKey: "cloud.askBeforeAgentCreate"), gate: { [weak self] in CloudMachineCreateFlow.gate(self?.machines.cloudLimits) }, confirm: { [weak self] in await self?.confirmCreate?($0) ?? false }, create: { [api] in try await api.createMachine(displayName: name, onSent: onSent) })
+            : try await CloudMachineCreateFlow.legacy(name: name, startedByPerson: startedByPerson, askedBy: askedBy, askFirst: UserDefaults.standard.bool(forKey: "cloud.askBeforeAgentCreate"), gate: { [weak self] in self?.createGate ?? .allowed }, confirm: { [weak self] in await self?.confirmCreate?($0) ?? false }, create: { [api] in try await api.createMachine(displayName: name, onSent: onSent) })
         logger.info("created machine \(machine.id, privacy: .public)")
         if let existing = machines.session(machine.id) { return existing }
         guard let session = addSession(machine) else { throw ActionFailure(message: CloudStrings.noClient) }
