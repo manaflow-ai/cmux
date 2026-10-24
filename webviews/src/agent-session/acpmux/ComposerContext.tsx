@@ -9,6 +9,7 @@ import { machineColor } from "./machineColor";
 import { knownMachines, type ConnectKind, type EnvironmentKind, type OffloadKind } from "./environments";
 import { FolderPopover } from "./FolderPopover";
 import type { Project } from "./ProjectChooser";
+import { ProjectBadge } from "./ProjectBadge";
 import { projectSuffixes } from "./projectSuffix";
 import { belowCheckout, folderRepo, isMainCheckout, worktreeName, type ProjectRepo } from "./projectRepos";
 import { isAgentHome, projectLabel } from "./sessionList";
@@ -228,7 +229,19 @@ export function ComposerContext({
               menu="Location"
               face={
                 <LocationFace
-                  icon={<FolderIcon />}
+                  icon={
+                    currentLocation ? (
+                      <ProjectBadge
+                        project={{
+                          cwd: currentLocation.id,
+                          label: currentName ?? currentLocation.label,
+                          ...(currentLocation.repo ? { repo: currentLocation.repo } : {}),
+                        }}
+                      />
+                    ) : (
+                      <FolderIcon />
+                    )
+                  }
                   value={
                     currentName ? currentName : noProject ? t(CONTEXT_LABELS.noProject) : t(CONTEXT_LABELS.chooseFolder)
                   }
