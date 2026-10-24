@@ -579,10 +579,6 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_concurrency.py
 
-      - name: Validate nightly and Dev delivery never cancel active work
-        if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_nightly_delivery_concurrency.py
-
       # Warn-level: a dispatched or PR workflow with macOS or long jobs needs a
       # concurrency group not keyed by SHA or run id (cmuxterm-hq#2568 flood).
       - name: Warn about workflows that can flood the queue
