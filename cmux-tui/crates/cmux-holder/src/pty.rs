@@ -385,6 +385,32 @@ pub fn resize(master: libc::c_int, cols: u16, rows: u16, px_w: u16, px_h: u16) -
 mod tests {
     use super::*;
 
+    /// Holder-core deep review (the guard 6513627f40b did not have): a start
+    /// report that cannot be read is a failed start, never a running
+    /// program. The pipe here is its write end, so the read fails (EBADF)
+    /// the way no pipe of a live child does; before 6513627f40b `poll` took
+    /// such an error for a program that runs, and the daemon was told a
+    /// shell ran whose fate nobody knew.
+    #[test]
+    fn a_start_report_that_cannot_be_read_is_a_failed_start() {
+        let (read, write) = cloexec_pipe().unwrap();
+        drop(read);
+        let mut start = Start {
+            pipe: write,
+            report: [0; REPORT_BYTES],
+            got: 0,
+            cwd: b"/tmp".to_vec(),
+            program: b"/bin/sh".to_vec(),
+        };
+        match start.poll() {
+            Some(Err(error)) => {
+                assert!(error.to_string().contains("read the start report"), "{error}");
+            }
+            Some(Ok(())) => panic!("an unreadable start report counted as a running program"),
+            None => panic!("an unreadable start report counted as a child still starting"),
+        }
+    }
+
     #[test]
     fn a_bare_program_name_is_tried_in_each_path_entry_and_a_path_as_it_is() {
         let env = vec![b"HOME=/".to_vec(), b"PATH=/nonexistent-cmux-dir::bin:/usr/bin".to_vec()];
