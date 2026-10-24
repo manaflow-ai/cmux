@@ -10,8 +10,6 @@ export function generateStaticParams() {
   return nextDocPages.map((page) => ({ slug: page.slug }));
 }
 
-export const dynamicParams = false;
-
 export async function generateMetadata({ params }: { params: Params }) {
   const { locale, slug } = await params;
   const page = nextDocPage(slug);
