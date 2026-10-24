@@ -32,8 +32,8 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// page's stylesheets stop their status loops. Static under Reduce Motion or
     /// `appearance.statusIndicator.animation: "static"` (`StatusIndicatorConfig.isStatic`).
     public let statusIndicators: String
-    /// `shimmer` or `spinner` (``StatusWorkingLook``): `data-working-look` on `<html>`, how a page
-    /// draws agent work. Pages draw the spinner for any other value, or none.
+    /// `breathe`, `shimmer` or `spinner` (``StatusWorkingLook``): `data-working-look` on `<html>`,
+    /// how a page draws agent work.
     public let workingLook: String
     /// `off`, `reduced` or `full` (``motionValue(_:)``): `data-cmux-motion` on `<html>`. Under
     /// `off` the bootstrap stylesheet makes every CSS transition and animation instant

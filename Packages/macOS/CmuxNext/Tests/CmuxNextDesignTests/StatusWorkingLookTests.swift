@@ -3,8 +3,8 @@ import Testing
 import CmuxNextDesignTokens
 
 /// WORKING-LOOK: agent work draws the spinner by default (Leo 2026-10-21: "WE SAID NO BLINKING. WE
-/// SAID SPINNER."); the still accent dot stays as a Debug choice, and loading (a page, a command)
-/// keeps its spinner whatever the look. The breathing dot is deleted (`NoBreathingDotTests`).
+/// SAID SPINNER."); the breathing and still accent dots stay as Debug choices, and loading (a page,
+/// a command) keeps its spinner whatever the look.
 @MainActor struct StatusWorkingLookTests {
     private static func plan(_ state: StatusIndicatorState, look: StatusWorkingLook, animates: Bool = true,
                              isStatic: Bool = false) -> StatusIndicatorPlan {
@@ -15,16 +15,17 @@ import CmuxNextDesignTokens
         #expect(StatusWorkingLook.tunable.defaultValue == .spinner)
     }
 
-    @Test func workIsTheSpinnerOrAStillAccentDot() {
+    @Test func workBreathesAsAnAccentDot() {
+        #expect(Self.plan(.working, look: .breathe) == StatusIndicatorPlan(glyph: .dot, animation: .breathe, tint: .working))
         #expect(Self.plan(.working, look: .shimmer) == StatusIndicatorPlan(glyph: .dot, animation: nil, tint: .working))
         #expect(Self.plan(.working, look: .spinner) == StatusIndicatorPlan(glyph: .arc, animation: .spin, tint: .spinner))
     }
 
     @Test func aHiddenOrStillRowHoldsTheDotStill() {
         // Occluded, off screen or loops off: the dot stays a dot, it does not turn into the work ring.
-        #expect(Self.plan(.working, look: .shimmer, animates: false) == StatusIndicatorPlan(glyph: .dot, animation: nil, tint: .working))
+        #expect(Self.plan(.working, look: .breathe, animates: false) == StatusIndicatorPlan(glyph: .dot, animation: nil, tint: .working))
         // The static look (Reduce Motion) keeps its own still glyphs.
-        let still = Self.plan(.working, look: .shimmer, isStatic: true)
+        let still = Self.plan(.working, look: .breathe, isStatic: true)
         #expect(still.animation == nil && still.tint != .working)
     }
 
@@ -33,5 +34,10 @@ import CmuxNextDesignTokens
             #expect(Self.plan(.busy, look: look).glyph == .arc, "\(look): loading keeps its spinner")
             #expect(Self.plan(.working(progress: 0.4), look: look).glyph == .ring(progress: 0.4), "\(look): known progress keeps its ring")
         }
+    }
+
+    @Test func theBreathIsCalmerThanTheWaitingPulse() {
+        #expect(MotionLoop.breath.minimumPeriod >= 1)
+        #expect((MotionTunables.loopDefaults[.breath]?.0 ?? 0) > (MotionTunables.loopDefaults[.pulse]?.0 ?? 0))
     }
 }

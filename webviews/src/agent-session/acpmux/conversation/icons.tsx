@@ -254,7 +254,7 @@ export const GitHubMark = ({ size = 16, className, style }: CvIconProps) => (
 );
 
 /** The running mark of a transcript row. Agent work (the default) draws the working look the
- * app picks (`data-working-look` on the root, conversation.css): the turning ring (the default),
+ * app picks (`data-working-look` on the root, conversation.css): a breathing dot, the turning ring,
  * or a still dot while the row's words shimmer. `loading` (a check or a page loading, not agent
  * work) always draws the turning ring. `cv-spinner` turns the ring on the shared clock. */
 export const Spinner = ({

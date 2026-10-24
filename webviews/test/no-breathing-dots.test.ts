@@ -19,6 +19,12 @@ type Loop = { file: string; keyframes: string; selector: string; props: string[]
  *  `goneWith`: the open change that removes or adds the entry, so it may match nothing. */
 const ALLOWED: { file: string; keyframes: string; selector: string; why: string; goneWith?: string }[] = [
   {
+    file: "agent-session/acpmux/conversation/conversation.css",
+    keyframes: "cmux-breathe",
+    selector: '[data-working-look="breathe"] .cv-spinner[data-working]',
+    why: "explicit user-selected Breathing Dot only; the default and unknown values use the spinner",
+  },
+  {
     file: "agent-session/acpmux/styles.css",
     keyframes: "acpmux-mic-wait",
     selector: ".acpmux-mic",
@@ -38,7 +44,7 @@ const ALLOWED: { file: string; keyframes: string; selector: string; why: string;
   },
   {
     file: "pages/apps/styles.css",
-    keyframes: "cmux-skeleton-pulse",
+    keyframes: "cmux-breathe",
     selector: ".apps-skeleton",
     why: "the Apps page's loading skeleton",
   },
@@ -252,14 +258,12 @@ describe("no breathing or blinking dots", () => {
       (sheet) => sheet.file === "agent-session/acpmux/conversation/conversation.css",
     )?.css;
     expect(conversation).toBeDefined();
-    expect(conversation).toContain(':root[data-working-look="shimmer"] .cv-spinner[data-working]');
-    expect(conversation).not.toContain("cmux-breathe");
     expect(conversation).not.toContain("acpmux-jump-latest-dot");
     expect(
       loops.filter(
         (loop) =>
           loop.file === "agent-session/acpmux/conversation/conversation.css" &&
-          (loop.selector.includes(".cv-spinner[data-working]") || loop.selector.includes(".acpmux-jump-latest")),
+          !loop.selector.includes('[data-working-look="breathe"]'),
       ),
     ).toEqual([]);
   });

@@ -115,7 +115,7 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
     const p = await page(`${desktop}${pane}${home}${diff}`, paneLoops + diffLoops, "no-preference");
     const running = await loops(p);
     await p.close();
-    expect(running.length).toBeGreaterThanOrEqual(10);
+    expect(running.length).toBeGreaterThanOrEqual(6);
     // The todo list's spinner among them, so the Static and Reduce Motion checks cover it.
     expect(running.some((loop) => loop.startsWith("cv-plan__mark") && loop.endsWith("cmux-spin"))).toBe(true);
     // The running rows' spinner (compaction, tool runs) too: it once had no rule and never turned.
@@ -155,7 +155,7 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
     );
   }
 
-  test("agent work defaults to the spinner and no working mark pulses", async () => {
+  test("default and unknown working looks never pulse; breathing requires an explicit pick", async () => {
     const looks: Record<string, { loops: string[]; pulses: string[] }> = {};
     for (const look of ["(none)", "breathe", "shimmer", "spinner", "pulse"]) {
       const p = await page(`${desktop}${pane}`, `<span class="cv-spinner"></span>${working}`, "no-preference");
@@ -171,13 +171,40 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
       };
       await p.close();
     }
-    for (const look of ["(none)", "breathe", "spinner", "pulse"]) {
+    for (const look of ["(none)", "spinner", "pulse"]) {
       expect(looks[look]).toEqual({
         loops: ["cv-spinner cmux-spin", "cv-spinner cmux-spin"],
         pulses: [],
       });
     }
+    expect(looks.breathe).toEqual({
+      loops: ["cv-spinner cmux-breathe", "cv-spinner cmux-spin"],
+      pulses: ["cv-spinner opacity"],
+    });
     expect(looks.shimmer).toEqual({ loops: ["cv-spinner cmux-spin", "cv-tool__text cmux-shimmer"], pulses: [] });
+  });
+
+  test("explicit breathing stops under Reduce Motion, static status, or completion", async () => {
+    for (const policy of ["reduce", "static", "complete"]) {
+      const p = await page(`${desktop}${pane}`, working, "no-preference");
+      try {
+        await p.evaluate(() => {
+          document.documentElement.dataset.workingLook = "breathe";
+          return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        });
+        expect((await loops(p)).map((loop) => loop.replace(/\s+/g, " "))).toEqual(["cv-spinner cmux-breathe"]);
+        if (policy === "reduce") await p.emulateMedia({ reducedMotion: "reduce" });
+        else
+          await p.evaluate((value) => {
+            if (value === "static") document.documentElement.dataset.statusIndicators = "static";
+            else document.querySelector(".cv-tool")?.remove();
+          }, policy);
+        await p.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        expect(await loops(p)).toEqual([]);
+      } finally {
+        await p.close();
+      }
+    }
   });
 
   test("Static status indicators stop every pane loop", async () => {

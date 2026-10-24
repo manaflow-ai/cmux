@@ -35,6 +35,8 @@ public nonisolated struct StatusIndicatorConfig: Hashable, Sendable {
     public var staticShapes: Bool
     /// How agent work shows (Debug Settings `status.working`).
     public var workingLook: StatusWorkingLook
+    /// Lowest opacity of the working dot's breath.
+    public var breathLow: Double { 0.3 }
 
     public init(settings: StatusIndicatorSettings = StatusIndicatorSettings(), styleOverride: StatusIndicatorStyle? = nil,
                 arcLength: Double = 0.72, trackOpacity: Double = 0.22, dotScale: Double = 0.5, pulseLow: Double = 0.35,

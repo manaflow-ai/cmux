@@ -22,7 +22,7 @@ import Testing
     }
 
     @Test func noMarkBlinks() {
-        let blinks: [StatusIndicatorPlan.Animation] = [.pulse, .wave]
+        let blinks: [StatusIndicatorPlan.Animation] = [.pulse, .breathe, .wave]
         for state in Self.states {
             let animation = Self.plan(state).animation
             #expect(animation.map(blinks.contains) != true, "\(state) draws \(String(describing: animation))")
