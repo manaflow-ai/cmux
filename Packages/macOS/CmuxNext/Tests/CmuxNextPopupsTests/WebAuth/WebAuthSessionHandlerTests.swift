@@ -34,4 +34,21 @@ import Testing
         #expect(installed.count == 1)
         #expect(installed.first === handler)
     }
+
+    /// macOS calls the handler on its own queue, through the ObjC protocol's
+    /// selectors. A main-actor handler's `@objc` witnesses check for the main
+    /// actor and trap there; the handler must return (a nil request does
+    /// nothing).
+    @Test func macOSCanCallTheHandlerOffTheMainActor() async throws {
+        let begin = "beginHandlingWebAuthenticationSessionRequest:"
+        let cancel = "cancelWebAuthenticationSessionRequest:"
+        try #require(handler.responds(to: NSSelectorFromString(begin)))
+        try #require(handler.responds(to: NSSelectorFromString(cancel)))
+        // The handler is not Sendable: only this one detached task calls it, and the test waits for that task.
+        nonisolated(unsafe) let system = handler
+        await Task.detached {
+            _ = system.perform(NSSelectorFromString(begin), with: nil)
+            _ = system.perform(NSSelectorFromString(cancel), with: nil)
+        }.value
+    }
 }
