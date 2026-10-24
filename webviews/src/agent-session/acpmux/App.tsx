@@ -2281,12 +2281,23 @@ export function VirtualTranscript({
     // running turn's line stays last under them (`below`, conversation/turns.ts).
     if (previous && previous.length <= rows.length) {
       const line = previous.at(-1)?.below === true && rows.at(-1)?.id === previous.at(-1)!.id ? 1 : 0;
-      if (
-        previous
-          .slice(0, previous.length - line)
-          .every((row, index) => row === rows[index] || row.id === rows[index]!.id)
-      )
-        return;
+      // `rowsChange` already found the first changed object while this render was prepared. Reuse
+      // that boundary instead of copying the unchanged prefix and walking it a second time for
+      // every streamed snapshot. Only the changed suffix can have lost a row id.
+      const change = rowsChange.current;
+      const start = change?.base === previous && change.rows === rows ? change.from : 0;
+      let sameIds = true;
+      for (
+        let index = Math.min(start, previous.length - line);
+        index < previous.length - line;
+        index += 1
+      ) {
+        if (previous[index]!.id !== rows[index]?.id) {
+          sameIds = false;
+          break;
+        }
+      }
+      if (sameIds) return;
     }
     const ids = new Set(rows.map((row) => row.id));
     const cache = measurementCache.current;
