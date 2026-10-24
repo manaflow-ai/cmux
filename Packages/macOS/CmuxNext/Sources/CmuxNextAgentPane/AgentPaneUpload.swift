@@ -4,8 +4,18 @@ public import Foundation
 /// `chat.upload` call (``AgentPaneReply``).
 public typealias AgentPaneUploader = @MainActor (_ files: [AgentPaneUpload]) async -> [String: Any]
 
+public struct AgentPaneUploadBatchEntry: Sendable, Equatable {
+    public let name: String
+    public let size: Int
+
+    public init(name: String, size: Int) {
+        self.name = name
+        self.size = size
+    }
+}
+
 public enum AgentPaneUploadStageRequest: Sendable, Equatable {
-    case begin(name: String, size: Int, batchToken: String?, batch: [(name: String, size: Int)]?)
+    case begin(name: String, size: Int, batchToken: String?, batch: [AgentPaneUploadBatchEntry]?)
     case chunk(token: String, offset: Int, data: Data)
     case finish(token: String)
     case cancel(token: String)
