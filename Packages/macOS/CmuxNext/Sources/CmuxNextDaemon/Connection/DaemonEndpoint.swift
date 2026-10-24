@@ -22,9 +22,8 @@ public struct DaemonEndpoint: Hashable, Sendable {
 
 /// Capabilities the GUI relies on (plans/cmux-next/cmux-tui-contract.md 2.2).
 public struct DaemonCapabilities: Sendable {
+    /// An empty value: every capability and list is a static declaration.
     public init() {}
-    /// The catalog has no instances: every capability and list is a static declaration.
-    private init() {}
 
     public static let required: [String] = [
         "workspace-registry-v1",
