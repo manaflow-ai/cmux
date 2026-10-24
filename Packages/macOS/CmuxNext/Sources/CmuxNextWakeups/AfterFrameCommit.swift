@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CoreFoundation
 
 /// Runs main-actor work once this run-loop pass committed its frame: a one-shot main run loop
@@ -14,10 +15,12 @@ public struct AfterFrameCommit: Sendable {
 
     /// Runs `work` on the main thread after the current pass's commit. Call on the main thread.
     public func run(_ work: @escaping @MainActor () -> Void) {
-        let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, false, CFIndex.max) { _, _ in
-            MainActor.assumeIsolated(work) // main-proof: an observer of the main run loop
+        // The frame commit point has no async-native signal: `MainRunLoopObserver` is the seam.
+        MainRunLoopObserver.once(activities: .beforeWaiting, order: .max) {
+            work()
+            // What `work` changed is in a new implicit transaction: wake the run loop so the next
+            // pass commits it instead of sleeping until unrelated input.
             CFRunLoopWakeUp(CFRunLoopGetMain())
         }
-        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
     }
 }

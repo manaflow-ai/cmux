@@ -76,9 +76,15 @@ final class TabContentCache {
     let browserTabs: BrowserTabService
     /// Page-originated tab requests (new-tab links, popups, window.close).
     let pageRequests = BrowserPageRequests()
-    private(set) var pendingBrowsers: Set<String> = [] // Chromium pages being created (ChromiumWarmup waits)
+    /// Chromium pages being created (ChromiumWarmup waits for none, `onPagesSettled`).
+    private(set) var pendingBrowsers: Set<String> = [] {
+        didSet { if pendingBrowsers.isEmpty, !oldValue.isEmpty { onPagesSettled?() } }
+    }
+    /// No Chromium page is being created any more (ChromiumWarmup's spare window).
+    var onPagesSettled: (@MainActor () -> Void)?
     private var framedStandIns: Set<String> = [] // stand-in tabs whose page waited for their first frame
-    var afterFrame: (@escaping @MainActor () -> Void) -> BrowserEntry? = { AfterFrameCommit().run($0); return nil } // tests run it at once
+    /// Runs work after the current pass's frame committed (`AfterFrameCommit`); tests pass their own.
+    private let afterFrame: (@escaping @MainActor () -> Void) -> Void
     /// Restored browser tabs start as `DeferredBrowserTab` (nothing loads)
     /// until the user reloads one: set after cmux quit unexpectedly twice in
     /// a row (`LaunchRecovery.restartedSafely`).
@@ -127,9 +133,13 @@ final class TabContentCache {
     /// closed; the App routes it through the window's focus coordinator.
     var onDevToolsChange: ((String, BrowserDevToolsState, Bool) -> Void)?
 
-    init(daemon: DaemonService, cef: CEFEngine = CEFEngine()) {
+    /// - Parameter afterFrame: runs work once the current pass's frame committed (a stand-in's page
+    ///   follows the key's frame); tests pass one that collects the work or runs it at once.
+    init(daemon: DaemonService, cef: CEFEngine = CEFEngine(),
+         afterFrame: @escaping (@escaping @MainActor () -> Void) -> Void = { AfterFrameCommit().run($0) }) {
         self.daemon = daemon
         self.cef = cef
+        self.afterFrame = afterFrame
         browserTabs = BrowserTabService(daemon: daemon, cef: cef)
         wireNotices()
     }
@@ -226,7 +236,10 @@ final class TabContentCache {
         }
         if let adopted = pageRequests.takeAdoption(for: tab) { return tracked(install(adopted, for: key), tab) }
         // A stand-in's page and chrome come once its first frame (the tab selected on its themed pane) committed.
-        if ProvisionalTab.isProvisional(surface: tab.surface), framedStandIns.insert(key).inserted, pendingBrowsers.insert(key).inserted { return afterFrame { [weak self] in if self?.pendingBrowsers.remove(key) != nil { self?.onBrowserReady?(key) } } }
+        if ProvisionalTab.isProvisional(surface: tab.surface), framedStandIns.insert(key).inserted, pendingBrowsers.insert(key).inserted {
+            afterFrame { [weak self] in if self?.pendingBrowsers.remove(key) != nil { self?.onBrowserReady?(key) } }
+            return nil
+        }
         let url = MachineBrowserPages(cache: self).recordURL(tab) ?? recordURL(tab)
         // A browser tab on a Mac Screen address (dev builds before Mac Screen had its own tab
         // kind, or restored from then): the Mac Screen tab replaces it, waiting for Connect.

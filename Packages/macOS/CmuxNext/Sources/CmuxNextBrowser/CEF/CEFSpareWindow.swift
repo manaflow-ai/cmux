@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// A Chromium window made at an idle moment before a pane needs one, so a
@@ -94,9 +95,9 @@ final class CEFSpareWindow {
     func giveBack(_ taken: CEFPaneHost, runtime: CEFRuntime) {
         guard taken.placeholder != nil, taken.tabs.count == 1 else { return }
         guard host == nil else {
-            // Another spare was made since the take: this window has no use left. Closed on the
-            // next turn, never inside the removal that called here.
-            Task { @MainActor [weak taken] in
+            // Another spare was made since the take: this window has no use left. Closed in a later
+            // run-loop callout, never inside the removal that called here.
+            MainRunLoopBlock.perform { [weak taken] in
                 guard let taken, let blank = taken.placeholder, taken.tabs.count == 1 else { return }
                 taken.placeholder = nil
                 taken.removed(blank)
