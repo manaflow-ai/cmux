@@ -194,7 +194,8 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextAgentPermissionsTests",
       "targets": [
-        "CmuxNextAgentPermissions"
+        "CmuxNextAgentPermissions",
+        "CmuxNextWakeupsTestSupport"
       ],
       "packages": [],
       "reads": []
@@ -831,7 +832,8 @@
       "targets": [
         "CmuxNextDesign",
         "CmuxNextDesignTokens",
-        "CmuxNextWakeups"
+        "CmuxNextWakeups",
+        "CmuxNextWakeupsTestSupport"
       ],
       "packages": [
         "CMUXMobileCore",
@@ -1736,11 +1738,21 @@
       ],
       "packages": []
     },
+    "CmuxNextWakeupsTestSupport": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextWakeupsTestSupport",
+      "targets": [
+        "CmuxNextCompat"
+      ],
+      "packages": []
+    },
     "CmuxNextWakeupsTests": {
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextWakeupsTests",
       "targets": [
-        "CmuxNextWakeups"
+        "CmuxNextCompat",
+        "CmuxNextWakeups",
+        "CmuxNextWakeupsTestSupport"
       ],
       "packages": [],
       "reads": []

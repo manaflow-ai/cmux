@@ -1,15 +1,13 @@
-import Foundation
+import CmuxNextCompat
 
 /// The names of the deadline actions that ran, in order, readable from the test without a hop to
-/// the actor the actions ran on.
-// Test-only recorder; `names` is guarded by `lock` (actions append on ManualActor, the test reads).
-nonisolated final class RecordedRuns: @unchecked Sendable {
-    private let lock = NSLock()
-    private var recorded: [String] = []
+/// the actor the actions ran on (actions append on ManualActor, the test reads).
+final class RecordedRuns: Sendable {
+    private let recorded = Mutex<[String]>([])
 
-    var names: [String] { lock.withLock { recorded } }
+    var names: [String] { recorded.withLock { $0 } }
 
     func append(_ name: String) {
-        lock.withLock { recorded.append(name) }
+        recorded.withLock { $0.append(name) }
     }
 }

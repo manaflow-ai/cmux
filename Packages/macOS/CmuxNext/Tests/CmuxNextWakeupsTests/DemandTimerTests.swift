@@ -1,4 +1,5 @@
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Testing
 
 /// A DemandTimer deadline whose action is isolated to an actor (the main actor for ThinScroller's
@@ -6,6 +7,8 @@ import Testing
 /// is busy. A `schedule` or `cancel` the actor makes before its next turn must still win: the
 /// replaced action never runs and is not a wakeup. The actions here run on ``ManualActor``, whose
 /// turns the test gives, so "the deadline passed while the actor was busy" is exact, not timed.
+/// The waits for a sleeper and for the actor's job are signals (CmuxNextWakeupsTestSupport); the
+/// suite's time limit is the only bound on a guard that never arrives.
 @Suite(.serialized, .timeLimit(.minutes(1)))
 struct DemandTimerTests {
     private static let owner = "test.deadline"

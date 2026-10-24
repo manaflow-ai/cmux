@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Testing
 
 /// Lawrence 2026-10-23 (msg 11494): "the scrollbar stuff needs to be fixed so it auto-fades away,
@@ -13,7 +14,7 @@ import Testing
 struct ThinScrollerFadeTests {
     /// A scroll view whose content is four times its height, with the shared thin scroller on
     /// `clock` counting its wakeups in `ledger`, scrolled to the top.
-    private static func scrollView(clock: ThinScrollerManualClock = ThinScrollerManualClock(),
+    private static func scrollView(clock: ManualClock = ManualClock(),
                                    ledger: WakeupLedger = WakeupLedger()) -> (NSScrollView, ThinScroller) {
         let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 240, height: 200))
         scrollView.hasVerticalScroller = true
@@ -40,7 +41,7 @@ struct ThinScrollerFadeTests {
     }
 
     @Test func scrollingShowsTheKnobAndItFadesAfterTheRestDelay() async throws {
-        let clock = ThinScrollerManualClock()
+        let clock = ManualClock()
         let (scrollView, scroller) = Self.scrollView(clock: clock)
         scroller.doubleValue = 0.5 // the app or a layout moved it: no knob
         #expect(!scroller.isKnobShown)
@@ -62,7 +63,7 @@ struct ThinScrollerFadeTests {
     /// `debug.wakeups` counts each fade-out under the scroller's owner, and only the one that ran:
     /// a deadline the next scroll replaced is not a wakeup (plans/cmux-next/idle-wakeups.md).
     @Test func eachFadeOutIsOneWakeupInTheLedger() async throws {
-        let clock = ThinScrollerManualClock()
+        let clock = ManualClock()
         let ledger = WakeupLedger()
         let (_, scroller) = Self.scrollView(clock: clock, ledger: ledger)
         scroller.flash()
@@ -98,7 +99,7 @@ struct ThinScrollerFadeTests {
     }
 
     @Test func aDragKeepsTheKnobWideAndItStaysAMomentAfter() async throws {
-        let clock = ThinScrollerManualClock()
+        let clock = ManualClock()
         let (_, scroller) = Self.scrollView(clock: clock)
         var presence = scroller.presence
         presence.drag(true)
@@ -112,7 +113,7 @@ struct ThinScrollerFadeTests {
     /// The terminal: the pointer does not reveal a knob at rest (the last column is the
     /// terminal's), but it holds and widens one a scroll showed, so it can be grabbed.
     @Test func withoutRevealAtRestThePointerOnlyHoldsAShownKnob() async throws {
-        let clock = ThinScrollerManualClock()
+        let clock = ManualClock()
         let (scrollView, scroller) = Self.scrollView(clock: clock)
         scroller.revealsNearPointerAtRest = false
         scroller.showsOnScroll = false

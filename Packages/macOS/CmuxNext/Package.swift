@@ -523,7 +523,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextAgentPermissionsTests",
-            dependencies: ["CmuxNextAgentPermissions"],
+            dependencies: ["CmuxNextAgentPermissions", "CmuxNextWakeupsTestSupport"],
             swiftSettings: uiSwiftSettings
         ),
         .target(
@@ -1234,11 +1234,19 @@ let package = Package(
             dependencies: ["CmuxNextCompat"],
             swiftSettings: daemonSwiftSettings
         ),
+        // The one manual clock and manual serial executor for every test target that drives a
+        // DemandTimer or another injected-clock wait: a fix lands once (private copies drifted),
+        // and the waits for a sleeper or a job are signals, not polls.
+        .target(
+            name: "CmuxNextWakeupsTestSupport",
+            dependencies: ["CmuxNextCompat"],
+            swiftSettings: daemonSwiftSettings
+        ),
         // The wakeup primitives' own behavior: a DemandTimer fire is claimed on its action's
         // actor, on a manual clock and a manual serial executor.
         .testTarget(
             name: "CmuxNextWakeupsTests",
-            dependencies: ["CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
             swiftSettings: daemonSwiftSettings
         ),
         // Install cmux CLI in PATH: the /usr/local/bin link to the bundled CLI
@@ -1326,6 +1334,7 @@ let package = Package(
                 "CmuxNextDesignTokens",
                 // The thin scroller's rest-delay wakeups are counted in an injected WakeupLedger.
                 "CmuxNextWakeups",
+                "CmuxNextWakeupsTestSupport",
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
                 .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
             ],

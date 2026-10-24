@@ -1,4 +1,5 @@
 @testable import CmuxNextAgentPermissions
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -6,7 +7,8 @@ import Testing
 /// TCC probe: no card for a grant that is on, nothing opens before Continue,
 /// Deny returns `denied`, the grant landing returns `granted`, computer use
 /// guides through both grants, duplicates join, others queue, timeouts end.
-@MainActor @Suite struct AgentPermissionRequestsTests {
+/// The time limit bounds the shared ManualClock's wait for a sleeper, which is a signal, not a poll.
+@MainActor @Suite(.timeLimit(.minutes(1))) struct AgentPermissionRequestsTests {
     let probe = MockPermissionProbe()
     let opener = RecordingOpener()
     let clock = ManualClock()
