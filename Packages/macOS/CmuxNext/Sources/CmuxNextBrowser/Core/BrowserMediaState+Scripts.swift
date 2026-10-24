@@ -14,6 +14,8 @@ import Foundation
 /// (or unmutes) the frame's media elements, keeps muting the ones that play
 /// next, and passes on to the frame's child frames. A video floating in
 /// Picture in Picture is the one reported, playing or not, until it comes back.
+/// The observer keeps a timer only while what it reported plays or a report
+/// waits for the binding: an idle frame costs its renderer no wakeup.
 nonisolated extension BrowserMediaState {
     /// WebKit's message handler and Chromium's binding.
     static let channel = "cmuxMedia"
@@ -28,6 +30,8 @@ nonisolated extension BrowserMediaState {
           if (window.__cmuxMedia) return;
           window.__cmuxMedia = true;
           let last = '', reported = false, pending = false, heartbeat = false, timer = 0, actions = '', tabMuted = false, seeked = false;
+          // What the last look found playing, and the one-second look-again while it plays (`follow`).
+          let playing = false, ticks = 0, ticker = 0;
           // The elements the tab's mute muted, which Unmute unmutes.
           const hushed = new WeakSet();
           const media = (e) => !!e && (e.tagName === 'VIDEO' || e.tagName === 'AUDIO');
@@ -51,8 +55,8 @@ nonisolated extension BrowserMediaState {
             const best = list[list.length - 1];
             try { return best ? new URL(best.src, location.href).href : ''; } catch (_) { return ''; }
           };
-          const report = () => {
-            timer = 0;
+          const look = () => {
+            playing = false;
             const element = active();
             if (!element) {
               if (reported && send(null)) { reported = false; last = ''; }
@@ -66,6 +70,7 @@ nonisolated extension BrowserMediaState {
               muted: element.muted || element.volume === 0, video: element.tagName === 'VIDEO', pip: floating() === element,
               tabMuted, actions,
             };
+            playing = state.playing;
             // The position leaves the key: the heartbeat carries it on, and a seek reports at once.
             const key = JSON.stringify(state) + '#' + (isFinite(element.duration) ? Math.round(element.duration) : '')
               + (seeked ? '#' + Math.round(element.currentTime) : '');
@@ -79,6 +84,29 @@ nonisolated extension BrowserMediaState {
             if (!send(state)) return;
             last = key;
             reported = true;
+          };
+          // Metadata changes fire no event: look again every second while what this frame reported
+          // plays (every third look sends it again: another frame's report may have replaced it),
+          // and while a report waits for the binding. Nothing else keeps a timer, so a frame with
+          // nothing playing (every idle page, hidden or shown) never wakes its renderer.
+          const follow = () => {
+            const on = (playing && reported) || pending;
+            if (on && !ticker) {
+              ticks = 0;
+              ticker = setInterval(() => {
+                ticks += 1;
+                heartbeat = reported && ticks % 3 === 0;
+                schedule();
+              }, 1000);
+            } else if (!on && ticker) {
+              clearInterval(ticker);
+              ticker = 0;
+            }
+          };
+          const report = () => {
+            timer = 0;
+            look();
+            follow();
           };
           const schedule = () => { if (!timer) timer = setTimeout(report, 250); };
           for (const type of ['play', 'playing', 'pause', 'ended', 'emptied', 'volumechange', 'loadedmetadata', 'durationchange',
@@ -119,14 +147,6 @@ nonisolated extension BrowserMediaState {
             actions = typeof event.detail === 'string' ? event.detail : '';
             schedule();
           }, true);
-          // Metadata changes fire no event: look again while something
-          // plays, and retry a report the binding was not ready for.
-          let ticks = 0;
-          setInterval(() => {
-            ticks += 1;
-            heartbeat = reported && ticks % 3 === 0;
-            if (reported || pending) schedule();
-          }, 1000);
         })();
         """#
     }
