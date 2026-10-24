@@ -70,6 +70,7 @@ struct WorkspaceAutoNameTests {
     @Test func terminalWithABareShellTitleShowsItsFolder() {
         #expect(Self.live.label(name: "workspace-3", title: nil, front: Self.terminal(title: "zsh", cwd: "/Users/me/src/cmux")) == "cmux")
         #expect(Self.live.label(name: "workspace-3", title: nil, front: Self.terminal(title: "-bash", cwd: "/tmp/api")) == "api")
+        #expect(Self.live.label(name: "workspace-3", title: nil, front: Self.terminal(title: "~", cwd: "/tmp/api")) == "api")
     }
 
     @Test func multiLineAndLongNamesAreTrimmedToOneLine() {
@@ -82,6 +83,16 @@ struct WorkspaceAutoNameTests {
         let front = WorkspaceAutoName.Front.chat(userName: nil, title: "Fix the sidebar drag")
         #expect(Self.live.label(name: "api", title: nil, front: front) == nil)
         #expect(Self.live.label(name: "workspace-3", title: "My work", front: front) == nil)
+    }
+
+    @Test func legacyDefaultNamesStillTakeAFrontTabName() {
+        let front = Self.terminal(title: "npm run dev")
+        #expect(Self.live.label(name: "~", title: nil, front: front) == "npm run dev")
+        #expect(Self.live.label(name: "", title: nil, front: front) == "npm run dev")
+        #expect(Self.live.label(name: "~", title: "My work", front: front) == nil)
+        #expect(Self.live.label(name: "~", title: nil, front: front, nameSource: .user, nameRevision: 1) == nil)
+        #expect(Self.live.label(name: "~", title: nil, front: front, nameSource: .user, nameRevision: 0,
+                                allowsLegacyDefaults: false) == nil)
     }
 
     @Test func emptyTitleDoesNotCountAsAUserName() {
@@ -171,5 +182,6 @@ struct WorkspaceAutoNameTests {
         #expect(Self.persist.confirmsRename(currentName: "workspace-3", currentTitle: ""))
         #expect(!Self.persist.confirmsRename(currentName: "api", currentTitle: nil))
         #expect(!Self.persist.confirmsRename(currentName: "workspace-3", currentTitle: "Mine"))
+        #expect(!Self.persist.confirmsRename(currentName: "~", currentTitle: nil, nameSource: .user, nameRevision: 1))
     }
 }

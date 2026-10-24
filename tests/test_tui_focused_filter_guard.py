@@ -254,47 +254,21 @@ def test_lint_matrix_runs_clippy_with_each_host_cfg() -> None:
         assert "cargo clippy --workspace --all-targets --locked -- -D warnings" in clippy_steps[0]["run"]
 
 
-MACOS_RELAY_RUNNER = (
-    "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
-    "vars.CI_PR_POOL_OWNED == '1' && "
-    "contains(fromJSON('[\"pull_request\",\"push\",\"schedule\",\"workflow_dispatch\"]'), github.event_name) && "
-    "github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || "
-    "vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}"
-)
+def test_relay_filter_runs_on_the_linux_test_job() -> None:
+    """The focused relay selector is handled by the Linux test job.
 
-
-def test_macos_runs_the_chatmux_relay_tests() -> None:
-    """The relay crate's tests run on macOS again.
-
-    9f4acf5b2787 (#17051) dropped the `test (macos)` matrix entry, and with it
-    the only macOS run of `cargo test -p chatmux-relay` (full mode, and focused
-    mode with the chatmux_relay selector). The relay job takes the owned minis
-    through CI_SIDE_LANE_RUNNER on attempt 1, and a rerun returns to the
-    background lane.
+    The full Linux workspace test already covers chatmux-relay. Keeping a
+    separate Mac-only invocation duplicated that work and spent a Mac runner.
     """
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-    job = workflow["jobs"]["macos-relay"]
+    test_job = workflow["jobs"]["test"]
     gate = workflow["jobs"]["hosted-verification"]
-
-    assert job["name"] == "chatmux-relay tests (macOS)"
-    assert job["needs"] == "validate-inputs"
-    assert job["runs-on"] == MACOS_RELAY_RUNNER
-    condition = str(job["if"])
-    assert "inputs.mode == 'full'" in condition
-    assert "inputs.test_filter == 'chatmux_relay'" in condition
-    assert "inputs.test_filter == 'chatmux-relay'" in condition
-
-    steps = {step.get("name"): step for step in job["steps"]}
-    assert steps["Require exact checkout"]["run"] == 'test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"'
-    relay = steps["cargo test -p chatmux-relay"]
-    assert relay["working-directory"] == "cmux-tui"
-    assert "cargo test -p chatmux-relay --locked" in relay["run"]
-
+    test_commands = "\n".join(str(step.get("run", "")) for step in test_job["steps"])
+    assert 'cmux-tui-focused-test.sh "$TEST_FILTER"' in test_commands
+    assert "macos-relay" not in workflow["jobs"]
+    assert "macos-relay" not in gate["needs"]
     gate_commands = "\n".join(str(step.get("run", "")) for step in gate["steps"])
-    assert "macos-relay" in gate["needs"]
-    assert gate["env"]["MACOS_RELAY_RESULT"] == "${{ needs.macos-relay.result }}"
-    assert gate["env"]["TEST_FILTER"] == "${{ inputs.test_filter }}"
-    assert 'require_success "macOS chatmux-relay tests" "$MACOS_RELAY_RESULT"' in gate_commands
+    assert "MACOS_RELAY_RESULT" not in gate_commands
 
 
 ARTIFACTS_WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui-artifacts.yml"

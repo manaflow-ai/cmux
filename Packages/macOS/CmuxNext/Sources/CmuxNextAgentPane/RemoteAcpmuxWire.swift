@@ -124,6 +124,18 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
                 guard let self else { throw AgentSessionRemoteError(code: Self.unsupported, message: "closed") }
                 return try await self.page(method, page, client: client)
             }
+        case "link.inspect":
+            // Remote paths are classified by the host that owns the chat. Image paths are
+            // deliberately marked readable so ReplyImage starts `image.load`; the local app
+            // never probes or resolves the same spelling here. Ordinary path chips remain
+            // outside this machine's roots and are shown as elsewhere/locked by the page.
+            let paths = (params["paths"] as? [String] ?? []).reduce(into: [String: Any]()) { result, path in
+                if Self.remoteImagePath(path) != nil { result[path] = ["place": "root", "folder": false] }
+                else { result[path] = ["place": "outside", "folder": false] }
+            }
+            reply(id, ["paths": paths, "sites": [:], "policy": [
+                "outsideRoots": "text", "remoteImages": "always", "clickFreeImageHosts": [String](),
+            ]])
         case "session/prompt":
             guard !isReadOnly else { return refuseReadOnly(id, method) }
             guard names(params["sessionId"]), let text = Self.text(params["prompt"]) else { return refuse(id, method) }
@@ -137,6 +149,22 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
                 self?.notify("_acpmux/prompt_accepted", ["sessionId": session, "promptId": prompt, "turnId": turn,
                                                          "queued": object["queued"] ?? false])
                 return Self.json(["_meta": ["acpmux": ["promptId": prompt, "turnId": turn]]])
+            }
+        case "image.load":
+            guard let src = params["src"] as? String, let path = Self.remoteImagePath(src) else {
+                return refuse(id, method)
+            }
+            // The bytes are read by the daemon attached to the chat's host. The local app never
+            // resolves this path, so a same-named file on this Mac cannot leak into the reply.
+            run(id) { client in
+                let data = try await client.media(path: path)
+                guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                      let encoded = object["data"] as? String,
+                      let bytes = Data(base64Encoded: encoded),
+                      case .success(let source) = await AgentPaneReplyImages.remote(bytes) else {
+                    throw AgentSessionRemoteError(code: Self.unsupported, message: "the remote image could not be decoded")
+                }
+                return Self.json(AgentPaneReply.success(["src": source]))
             }
         case "_acpmux/permission_respond":
             guard !isReadOnly else { return refuseReadOnly(id, method) }
@@ -158,6 +186,13 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         guard close(), let client = state.withLock({ $0.client }) else { return }
         // task-owner: ends the daemon attachment once; nothing waits on it
         Task { await client.close() }
+    }
+
+    public func loadRemoteImage(_ path: String) async throws -> Data {
+        guard let client = state.withLock({ $0.client }) else {
+            throw AgentSessionRemoteError(code: Self.unsupported, message: "the remote chat has no session")
+        }
+        return try await client.media(path: path)
     }
 
     // MARK: Start
@@ -335,6 +370,18 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
 
     private func refuse(_ id: String?, _ method: String) {
         fail(id, code: Self.unsupported, message: "\(method) is not available for a chat on another machine")
+    }
+
+    /// The remote media reader takes a path, not a URL decoration. Keep the extension check at
+    /// this boundary because the page's `image.load` request is untrusted.
+    private static func remoteImagePath(_ text: String) -> String? {
+        guard AgentPaneReplyPaths.isImagePath(text) else { return nil }
+        if text.lowercased().hasPrefix("file://"), let url = URL(string: text), url.isFileURL {
+            let host = url.host(percentEncoded: false) ?? ""
+            guard host.isEmpty || host == "localhost" else { return nil }
+            return url.path(percentEncoded: false)
+        }
+        return text.split(maxSplits: 1, whereSeparator: { $0 == "?" || $0 == "#" }).first.map(String.init)
     }
 
     private func refuseReadOnly(_ id: String?, _ method: String) {

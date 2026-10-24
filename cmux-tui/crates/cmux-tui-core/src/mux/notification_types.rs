@@ -2,6 +2,8 @@
 //! broadcast when it is posted, the durable resource row, and the per-surface
 //! unread marker.
 
+use std::sync::Arc;
+
 use super::NotificationLevel;
 use crate::SurfaceId;
 use crate::resource::{NotificationPublicId, TerminalPublicId, WorkspacePublicId};
@@ -86,6 +88,9 @@ pub struct NotificationEvent {
     /// An agent's last message for a turn-done or error banner, memory only: never in the
     /// durable ledger (`agent_prompts.rs`). The app shows it per its Show Previews setting.
     pub preview: Option<String>,
+    /// The question an agent's question notification asks (`agent_hook_question.rs`), memory
+    /// only: `{harness, tool_use_id?, questions: [{question, header?, multiSelect, options}]}`.
+    pub question: Option<Arc<serde_json::Value>>,
     pub level: NotificationLevel,
     pub surface: Option<SurfaceId>,
     /// The workspace a terminal-less notification belongs to (`cmux notify

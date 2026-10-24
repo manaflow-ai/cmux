@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileArtifacts
 import Foundation
 import Observation
 import UIKit
@@ -435,6 +436,12 @@ public final class TerminalModel {
         attachments.append(attachment)
     }
 
+    /// A tapped attachment, before sending: every attachment opens full screen, to swipe between.
+    func previewAttachment(_ id: ComposerAttachment.ID) {
+        let request = FilePreviewRequest(files: attachments.map(\.localFile), startingAt: id.uuidString)
+        controller?.presentFilePreview(request)
+    }
+
     func removeAttachment(_ id: ComposerAttachment.ID) {
         attachments.removeAll { $0.id == id }
         if attachments.isEmpty { attachmentError = nil }
@@ -508,6 +515,11 @@ public struct ComposerAttachment: Identifiable, Sendable {
 
     struct Unreadable: Error, LocalizedError {
         var errorDescription: String? { "its contents couldn't be read on this iPhone" }
+    }
+
+    /// The attachment as the file preview reads it.
+    public var localFile: LocalFile {
+        LocalFile(id: id.uuidString, name: name, data: data, isImage: kind == .image, fileURL: fileURL)
     }
 
     func contents() throws -> Data {

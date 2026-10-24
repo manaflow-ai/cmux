@@ -279,6 +279,14 @@ struct FeedCell: View {
             QuestionCard(question: question, showsHeader: false) { answer in
                 withAnimation(.cmuxMobileSmooth) { store.answer(item.id, answer: answer) }
             }
+            // A terminal agent's question: answered here, or in its terminal.
+            if item.opensTerminal, question.isPending, item.resolution == nil {
+                Button(action: open) {
+                    Label("Open in Terminal", systemImage: "terminal")
+                }
+                .buttonStyle(CmuxMobileCapsuleButtonStyle(.secondary, size: .compact))
+                .accessibilityIdentifier("feed.terminal.open")
+            }
         case .needsInput:
             if let resolution = item.resolution {
                 Label(resolution, systemImage: "checkmark.circle")

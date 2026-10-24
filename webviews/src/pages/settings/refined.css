@@ -128,6 +128,7 @@
 :root[data-settings-look="refined"] .settings .group.ui-glass { border-radius: 12px; padding-top: 12px; }
 :root[data-settings-look="refined"] .settings .group.ui-glass > :not(.rows) { margin-inline: 16px; }
 :root[data-settings-look="refined"] .settings .group.ui-glass .group-title { margin-left: 0; }
+:root[data-settings-look="refined"] .settings .group.ui-glass > .group-title { margin-inline: 16px; }
 :root[data-settings-look="refined"] .settings .group.ui-glass > .rows {
   border: 0;
   border-radius: 0 0 12px 12px;

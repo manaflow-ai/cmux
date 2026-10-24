@@ -18,6 +18,11 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
+    /// Send a local brief to another harness on a peer (or the least-loaded
+    /// allowed host with `--host auto`) and record its identity.
+    Dispatch(DispatchArgs),
+    #[command(subcommand)]
+    Briefs(BriefsCmd),
     /// Create a session and optionally send a first prompt. `run` is the
     /// same with --quiet: it prints only the final reply. With --worktree,
     /// --prompt-file, --report-to and --group it starts an agent on a task
@@ -183,6 +188,21 @@ pub enum Command {
         #[arg(long, value_name = "KEY")]
         supersede: Option<String>,
     },
+    /// Append a report to a human basket without waking any agent session.
+    /// The target must be `reports:<person>`; the sender is the attached local
+    /// ACP session (or `--from` when the daemon can bind that session).
+    Deliver {
+        #[arg(long, value_name = "TARGET")]
+        target: String,
+        /// Report text. Reads stdin when omitted or "-".
+        prompt: Vec<String>,
+        /// Stable id for retries; generated when omitted.
+        #[arg(long)]
+        id: Option<String>,
+        /// Audience metadata (`leo`, `coordinator`, or `silent`).
+        #[arg(long, default_value = "leo")]
+        audience: String,
+    },
     /// List sessions on every host.
     #[command(alias = "list", alias = "list-sessions")]
     Ls {
@@ -278,10 +298,6 @@ pub enum Command {
     /// files (~/.config/cmux/harnesses/<id>.toml). Also `cmux harness …`.
     #[command(subcommand)]
     Harness(HarnessCmd),
-    /// How harnesses reach their model provider: list, add, edit, test and
-    /// use routes (~/.config/cmux/routes/<id>.toml). Also `cmux route …`.
-    #[command(subcommand)]
-    Route(crate::cli::route::RouteCmd),
     /// Forum rules: announce one, list the current ones, ack one.
     #[command(subcommand)]
     Forum(crate::cli::forum::ForumCmd),
@@ -468,6 +484,51 @@ pub enum Command {
         /// (or in a debug build). Release launchers never pass it.
         #[arg(long)]
         dev: bool,
+    },
+}
+
+#[derive(Args)]
+pub struct DispatchArgs {
+    /// Local Markdown/text brief file (use `-` for stdin).
+    pub brief: PathBuf,
+    /// Host name, `auto` for least-loaded placement, or `local`.
+    #[arg(long, alias = "target", default_value = "auto")]
+    pub host: String,
+    #[arg(long)]
+    pub title: Option<String>,
+    #[arg(long)]
+    pub to: Option<String>,
+    #[arg(long)]
+    pub stop_condition: Option<String>,
+    /// HARNESS[/MODEL] or profile; any ACP harness is accepted.
+    #[arg(long, short)]
+    pub model: Option<String>,
+    #[arg(long)]
+    pub preset: Option<String>,
+    #[arg(long)]
+    pub policy: Option<String>,
+    #[arg(long)]
+    pub cwd: Option<PathBuf>,
+}
+
+#[derive(Subcommand)]
+pub enum BriefsCmd {
+    #[command(alias = "list")]
+    Ls {
+        #[arg(long)]
+        status: Option<String>,
+        #[arg(long, default_value_t = 100)]
+        limit: usize,
+    },
+    Steer {
+        brief_id: String,
+        text: Vec<String>,
+    },
+    Report {
+        brief_id: String,
+        summary: Vec<String>,
+        #[arg(long, default_value = "reported")]
+        status: String,
     },
 }
 

@@ -14,6 +14,7 @@ import Testing
         #expect(!NSApp.isRunning, "the test host runs no app event loop")
         let services = AppServices(environment: AppEnvironment.current([:]))
         let view = HomeHostView(services: services, conversation: ConversationID("conv_panel_warm_up").rawValue)
+        let panel = services.openPanel // the app's one, which Home's "+" takes
         #expect(view.transcript.canAttach, "the conversation takes attachments, so it would warm the panel")
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700), styleMask: [.titled, .resizable],
                               backing: .buffered, defer: false)
@@ -21,14 +22,14 @@ import Testing
         defer { window.orderOut(nil) }
         window.contentView = view
         window.makeKeyAndOrderFront(nil)
-        #expect(HomeAttachmentPanel.isWarming, "the transcript in a window did not start the warm-up")
+        #expect(panel.isWarming, "the transcript in a window did not start the warm-up")
         // Until the warm-up has run its checks (the first at 2 s, idle retries 1 s apart, ten at most).
         let deadline = ContinuousClock.now + .seconds(20)
-        let checks = HomeAttachmentPanel.warmChecks
-        while HomeAttachmentPanel.warmChecks == checks || HomeAttachmentPanel.isWarming, ContinuousClock.now < deadline {
+        let checks = panel.warmChecks
+        while panel.warmChecks == checks || panel.isWarming, ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(50))
         }
-        #expect(HomeAttachmentPanel.warmChecks > checks && !HomeAttachmentPanel.isWarming, "the warm-up never finished")
-        #expect(!HomeAttachmentPanel.isMade, "a panel was made ahead in a process that never ran the app")
+        #expect(panel.warmChecks > checks && !panel.isWarming, "the warm-up never finished")
+        #expect(!panel.isMade, "a panel was made ahead in a process that never ran the app")
     }
 }

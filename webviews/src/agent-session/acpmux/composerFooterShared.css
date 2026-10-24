@@ -1,0 +1,29 @@
+/* The context affordance is one compact control in every composer look. Keep the hit area and glyph
+   metrics shared while the surrounding row decides where it sits. The quiet footer used to shrink
+   this same control to 20px, so switching between Claude and Codex changed the footer's shared
+   geometry (HQ #3322/#3325). */
+:root {
+  --acpmux-context-control-size: 22px;
+  --acpmux-context-glyph-size: 12px;
+}
+
+.acpmux-context-ring {
+  width: var(--acpmux-context-control-size);
+  height: var(--acpmux-context-control-size);
+}
+
+.acpmux-context-ring svg {
+  width: var(--acpmux-context-glyph-size);
+  height: var(--acpmux-context-glyph-size);
+}
+
+.acpmux-composer.acpmux-composer .acpmux-composer-foot .acpmux-context-ring {
+  margin-inline-start: 2px;
+}
+
+/* This selector intentionally outranks the legacy look-specific size rule in composerLocation.css;
+   the look owns ordering, while this shared primitive owns the affordance footprint. */
+.acpmux-composer.acpmux-composer .acpmux-composer-foot .acpmux-context-ring {
+  width: var(--acpmux-context-control-size);
+  height: var(--acpmux-context-control-size);
+}
