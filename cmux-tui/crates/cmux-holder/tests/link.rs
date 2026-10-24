@@ -6,9 +6,10 @@
 
 use std::io::Write;
 use std::os::fd::OwnedFd;
+use std::path::PathBuf;
 use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_holder::link::{HolderLink, TerminalSink};
 use cmux_holder::{ExitStatus, SpawnRequest};
