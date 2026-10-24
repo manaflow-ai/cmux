@@ -19,13 +19,17 @@ public final class QuitUnsavedRegistry {
     }
 
     private let clock: any Clock<Duration>
-    private let drafts: RecoveryDraftStore?
+    private let drafts: RecoveryDraftStore
     private var entries: [Entry] = []
     private var nextToken = 1
 
-    public init(clock: any Clock<Duration> = ContinuousClock(), drafts: RecoveryDraftStore? = nil) {
-        self.clock = clock
+    /// - Parameters:
+    ///   - drafts: The recovery drafts this registry removes after a save or a Don't Save
+    ///     (required: a registry without it would bring a stale draft back at the next launch).
+    ///   - clock: The clock the save deadlines run on; tests pass their own.
+    public init(drafts: RecoveryDraftStore, clock: any Clock<Duration> = ContinuousClock()) {
         self.drafts = drafts
+        self.clock = clock
     }
 
     /// Registers `participant` weakly. An id that is not
@@ -73,7 +77,7 @@ public final class QuitUnsavedRegistry {
             if let index = pending.firstIndex(of: outcome.title) { pending.remove(at: index) }
             saving?(pending)
         }
-        for outcome in outcomes where outcome.result == .saved { await drafts?.remove(id: outcome.id) }
+        for outcome in outcomes where outcome.result == .saved { await drafts.remove(id: outcome.id) }
         return outcomes
     }
 
@@ -81,7 +85,7 @@ public final class QuitUnsavedRegistry {
     public func discard(_ participants: [any QuitUnsavedParticipant]) async {
         for participant in participants {
             await participant.discardForQuit()
-            await drafts?.remove(id: participant.quitParticipantID)
+            await drafts.remove(id: participant.quitParticipantID)
         }
     }
 
