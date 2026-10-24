@@ -312,6 +312,26 @@ impl BuildIdentity {
         })
     }
 
+    /// The file in which an untagged NIGHTLY, RC or staging build records
+    /// that it adopted the old shared daemon session `cmux-app` (CmuxNext
+    /// `LegacyChannelSession`): `tags/<channel>/legacy-session-adopted` in
+    /// the user's App Support `cmux`, beside the daemon's state directory
+    /// `tags/<channel>/tui`. `None` for every other build.
+    pub fn legacy_session_marker(&self, user_home: &Path) -> Option<PathBuf> {
+        let bundle_id = self.bundle_id.as_deref()?;
+        let (_, channel) = CHANNELS.iter().find(|(id, _)| *id == bundle_id)?;
+        // Only the untagged channel build runs `cmux-app-<channel>` (`KeptNames::of`).
+        if self.kept.as_ref()?.session_tag.as_deref() != Some(*channel) {
+            return None;
+        }
+        Some(
+            user_home
+                .join("Library/Application Support/cmux/tags")
+                .join(channel)
+                .join("legacy-session-adopted"),
+        )
+    }
+
     /// This build's directory under `~/Library/Application Support/cmux`
     /// (`app_support` is that `cmux` directory): the directory itself for
     /// NIGHTLY and outside any bundle, else `builds/<key>` below it.

@@ -23,6 +23,9 @@ const CHANNELS: [(&str, &str); 3] = [
     ("com.cmuxterm.app.staging", "staging"),
 ];
 
+/// The old shared daemon session an untagged channel build may adopt.
+const LEGACY_SESSION: &str = "cmux-app";
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct AppIdentity {
     pub bundle_id: Option<String>,
@@ -155,10 +158,23 @@ impl AppIdentity {
     /// `scripts/reload.sh` DEV build, `cmux-app-<channel>` for an untagged
     /// nightly, rc or staging build, `cmux-app` for release, and
     /// `cmux-app--<key hash>` for every other build (the untagged DEV build
-    /// among them), so each build reaches its own daemon.
+    /// among them), so each build reaches its own daemon; `cmux-app` for a
+    /// channel build that adopted the old shared session.
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub(crate) fn daemon_session(&self) -> Option<String> {
-        self.build().app_session()
+        let home = std::env::var_os("HOME").filter(|home| !home.is_empty()).map(PathBuf::from);
+        self.daemon_session_in(home.as_deref())
+    }
+
+    /// [`Self::daemon_session`] for the user home `user_home`. An untagged
+    /// channel build that adopted the old shared session (CmuxNext
+    /// `LegacyChannelSession` wrote its marker) runs `cmux-app` instead.
+    fn daemon_session_in(&self, user_home: Option<&Path>) -> Option<String> {
+        let build = self.build();
+        let adopted = user_home
+            .and_then(|home| build.legacy_session_marker(home))
+            .is_some_and(|marker| marker.is_file());
+        if adopted { Some(LEGACY_SESSION.to_owned()) } else { build.app_session() }
     }
 }
 
@@ -365,6 +381,34 @@ mod tests {
             identity(Some("com.cmuxterm.app.debug.nx9"), None).daemon_session().as_deref(),
             Some("cmux-app-nx9")
         );
+    }
+
+    #[test]
+    fn daemon_session_follows_an_adopted_legacy_session() {
+        let home = tempfile::tempdir().unwrap();
+        let home = home.path();
+        let nightly = identity(Some("com.cmuxterm.app.nightly"), None);
+        assert_eq!(nightly.daemon_session_in(Some(home)).as_deref(), Some("cmux-app-nightly"));
+        // The app recorded the adopt beside its state directory
+        // (CmuxNext `LegacyChannelSession`): its daemon runs `cmux-app`.
+        let marker = nightly.build().legacy_session_marker(home).unwrap();
+        assert!(marker.ends_with("tags/nightly/legacy-session-adopted"), "{marker:?}");
+        std::fs::create_dir_all(marker.parent().unwrap()).unwrap();
+        std::fs::write(&marker, "{}").unwrap();
+        assert_eq!(nightly.daemon_session_in(Some(home)).as_deref(), Some("cmux-app"));
+        assert_eq!(nightly.daemon_session_in(None).as_deref(), Some("cmux-app-nightly"));
+        // Only that channel's own marker counts; release and tagged builds have none.
+        let rc = identity(Some("com.cmuxterm.app.rc"), None);
+        assert_eq!(rc.daemon_session_in(Some(home)).as_deref(), Some("cmux-app-rc"));
+        for other in
+            ["com.cmuxterm.app", "com.cmuxterm.app.nightly.try2", "com.cmuxterm.app.debug.nx9"]
+        {
+            assert_eq!(
+                identity(Some(other), None).build().legacy_session_marker(home),
+                None,
+                "{other}"
+            );
+        }
     }
 
     #[test]
