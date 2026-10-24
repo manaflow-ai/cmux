@@ -697,6 +697,72 @@ class LayerTests(Repo):
         self.assertNotIn("the ratchet failed", out)
         self.assertIn("[layer_unplaced]", out)
 
+    def test_a_push_that_repairs_a_broken_base_map_is_not_refused_for_standing_edges(self):
+        # The review's case: a broken map landed upstream (past the hook: a GitHub merge, --no-verify). It places
+        # nothing, so its edges read 0, and the push that fixes the JSON was refused for the hard edge that stood
+        # all along. The broken end is judged by the last map that parsed: every row is judged, none rises.
+        self.write("Packages/macOS/CmuxNext/Package.swift", MANIFEST % ', "CmuxNextUI"')
+        self.commit("a standing hard edge")
+        self.write("plans/cmux-next/architecture-layers.json", "{not json")
+        base = self.commit("a broken map lands")
+        self.write("plans/cmux-next/architecture-layers.json", json.dumps(LAYERS))
+        self.commit("repairs the map")
+        refused, out = self.run_push(base=base)
+        self.assertFalse(refused, out)
+        self.assertNotIn("[layer_hard]", out)
+        self.assertIn("layer_unplaced -4", out)
+        refusals, notes = self.check(base=base)
+        self.assertEqual(refusals, [])
+        self.assertFalse(any("not judged" in n for n in notes), notes)
+        self.assert_matches_full(base, "HEAD")
+
+    def test_a_broken_map_with_no_earlier_map_leaves_the_edge_rows_unjudged(self):
+        # No earlier map parses (the map was deleted, then added broken): its edges are unknown, not 0, so the
+        # repair is not refused for the standing edge and a note says the edge rows were not judged.
+        self.write("Packages/macOS/CmuxNext/Package.swift", MANIFEST % ', "CmuxNextUI"')
+        self.remove("plans/cmux-next/architecture-layers.json")
+        self.commit("a standing hard edge, no map")
+        self.write("plans/cmux-next/architecture-layers.json", "{not json")
+        base = self.commit("a broken map lands")
+        self.write("plans/cmux-next/architecture-layers.json", json.dumps(LAYERS))
+        self.commit("repairs the map")
+        refusals, notes = self.check(base=base)
+        self.assertEqual(refusals, [], notes)
+        self.assertTrue(any("layer_hard, layer_soft, layer_upward not judged" in n for n in notes), notes)
+
+    def test_a_repair_of_a_broken_base_map_is_judged_against_the_last_map_that_parsed(self):
+        # The review's case: a broken base map placed nothing, so the gate judged no relabel and no unplaced
+        # target, and the push that repaired the map could relabel a standing hard edge away unrefused.
+        self.write("Packages/macOS/CmuxNext/Package.swift", MANIFEST % ', "CmuxNextUI"')
+        self.commit("a standing hard edge")
+        self.write("plans/cmux-next/architecture-layers.json", "{not json")
+        base = self.commit("a broken map lands")
+        relabelled = json.loads(json.dumps(LAYERS))
+        relabelled["targets"]["CmuxNextDomain"]["layer"] = "ui"
+        self.write("plans/cmux-next/architecture-layers.json", json.dumps(relabelled))
+        self.commit("repairs the map and relabels the edge away")
+        refused, out = self.run_push(base=base)
+        self.assertTrue(refused, out)
+        self.assertIn("moves from domain to ui", out)
+        dropped = json.loads(json.dumps(LAYERS))
+        del dropped["targets"]["CmuxNextUI"]
+        self.write("plans/cmux-next/architecture-layers.json", json.dumps(dropped))
+        self.commit("repairs the map without CmuxNextUI")
+        refusals, _ = ratchet.check_range(self.repo, base, "HEAD")
+        self.assertIn("layer-gate", self.rows(refusals))
+        self.assertIn("target CmuxNextUI (target) has no layer", dict(refusals)["layer-gate"])
+
+    def test_a_new_edge_with_a_broken_base_map_is_still_refused_by_the_gate(self):
+        self.write("plans/cmux-next/architecture-layers.json", "{not json")
+        base = self.commit("a broken map lands")
+        self.write("Packages/macOS/CmuxNext/Package.swift", MANIFEST % ', "CmuxNextUI"')
+        self.write("plans/cmux-next/architecture-layers.json", json.dumps(LAYERS))
+        self.commit("repairs the map and adds a hard edge")
+        refusals, _ = ratchet.check_range(self.repo, base, "HEAD")
+        # The count judges the broken base by the map before it (no hard edge): the gate's refusal answers it.
+        self.assertEqual(self.rows(refusals), ["layer-gate"])
+        self.assertIn("new edge CmuxNextDomain (domain) -> CmuxNextUI (ui)", dict(refusals)["layer-gate"])
+
     def test_a_new_hard_edge_and_an_unplaced_target_are_refused(self):
         self.write("Packages/macOS/CmuxNext/Package.swift",
                    (MANIFEST % ', "CmuxNextUI"').replace('.target(name: "CmuxNextCore"),',
