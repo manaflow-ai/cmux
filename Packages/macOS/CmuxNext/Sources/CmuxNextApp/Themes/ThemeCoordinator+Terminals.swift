@@ -44,7 +44,7 @@ extension ThemeCoordinator {
             let machine = String(legacy[..<split]), tabID = String(legacy[legacy.index(after: split)...])
             guard let daemon = services.machines.daemon(machine: machine), daemon.store.isLoaded,
                   let session = daemon.store.registryID else { continue }
-            let tab = daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { $0.id == tabID }
+            let tab = daemon.store.tab(id: tabID)
             terminalThemes.set(nil, for: legacy)
             guard let tab else { continue }
             let terminal = TerminalThemeKey(machine: machine, tab: tab).terminal
