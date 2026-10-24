@@ -219,27 +219,42 @@ extension ControlRouter {
     /// Waits for the run's work, then for a snapshot that reflects it.
     /// Returns that snapshot or the first failure.
     func settle(_ run: ControlActionRun, scope: ControlCommandScope, action: String, method: String,
-                        deadline: ContinuousClock.Instant, replyBy: @Sendable () -> ContinuousClock.Instant) async -> Result<ControlSnapshot, ControlError> {
+                deadline: ContinuousClock.Instant, replyBy: @Sendable () -> ContinuousClock.Instant) async -> Result<ControlSnapshot, ControlError> {
+        await settle(opWork: [run.work], scope: scope, action: action, method: method, deadline: deadline, replyBy: replyBy).mapError { failure in
+            switch failure {
+            case .work(_, _, let failure): ControlError.actionWork(failure, action: action, method: method)
+            case .other(let error): error
+            }
+        }
+    }
+
+    /// Waits for every op's work (`opWork[i]`: the tasks op `i`'s handler started), then for a
+    /// snapshot that reflects it. Returns that snapshot, or the failure: when some op's work
+    /// failed, the first such op with its first failure and every op whose work failed (one op's
+    /// failure never hides a later op's); else a missed deadline or a failed command of `scope`,
+    /// which no op owns (`action` names the request).
+    func settle(opWork: [[ActionWork]], scope: ControlCommandScope, action: String, method: String,
+                deadline: ContinuousClock.Instant, replyBy: @Sendable () -> ContinuousClock.Instant) async -> Result<ControlSnapshot, ControlSettleFailure> {
         defer { scope.close() }
-        let failure: ActionWorkFailure?
+        let failed: [(op: Int, failure: ActionWorkFailure)]
         do {
-            failure = try await ControlDeadline.shared.run(method: method, deadline: deadline) {
-                let tracked = await scope.stage("work") { await Self.firstFailure(of: run.work) }
+            failed = try await ControlDeadline.shared.run(method: method, deadline: deadline) {
+                let tracked = await scope.stage("work") { await Self.workFailures(of: opWork) }
                 await scope.stage("daemon") { await Self.awaitIdle(scope) }
                 return tracked
             }
         } catch {
-            return .failure(Self.stillRunning(method, action: action))
+            return .failure(.other(Self.stillRunning(method, action: action)))
         }
-        if let failure { return .failure(ControlError.actionWork(failure, action: action, method: method)) }
-        if let failure = scope.failures.first { return .failure(Self.scopeError(failure, action: action, method: method)) }
+        if let first = failed.first { return .failure(.work(op: first.op, failed: failed.map(\.op), first.failure)) }
+        if let failure = scope.failures.first { return .failure(.other(Self.scopeError(failure, action: action, method: method))) }
         // No daemon command: the work queue's frame already published the
         // app-local change (selection, focus, settings).
         let barriers = scope.snapshotBarriers()
         guard !barriers.isEmpty else { return .success(await snapshots.showing(scope.created, after: snapshots.current, replyBy: replyBy())) }
         guard let snapshot = await snapshots.snapshot(reflecting: Self.sequenceBarrier(barriers, in: snapshots.current.topology),
                                                       deadline: deadline) else {
-            return .failure(Self.stillRunning(method, action: action))
+            return .failure(.other(Self.stillRunning(method, action: action)))
         }
         return .success(await snapshots.showing(scope.created, after: snapshot, replyBy: replyBy()))
     }
