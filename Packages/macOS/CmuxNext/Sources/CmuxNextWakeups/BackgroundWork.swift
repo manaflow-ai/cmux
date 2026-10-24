@@ -92,14 +92,10 @@ public final class BackgroundWork: Sendable {
         let id = nextID()
         let scheduler = lanes[lane.rawValue]
         let start = max(priority, WorkPriority(Task.currentPriority))
-        if #available(macOS 26.0, *) {
-            defer { scheduler.forget(id) }
-            return try await withTaskPriorityEscalationHandler(operation: {
-                try await enqueue(id, on: scheduler, at: start, shutdown: shutdown, body)
-            }, onPriorityEscalated: { _, raised in
-                scheduler.boost(id, to: WorkPriority(raised))
-            })
-        }
+        // No withTaskPriorityEscalationHandler here: its runtime entry point
+        // (swift_task_addPriorityEscalationHandler) is strong-linked, so any reference, even under
+        // `#available(macOS 26.0, *)`, stops dyld before main on macOS 14 and 15. A later waiter's
+        // escalation does not move a queued item up; the item runs at the caller's priority at submit.
         return try await enqueue(id, on: scheduler, at: start, shutdown: shutdown, body)
     }
 

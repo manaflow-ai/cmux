@@ -118,7 +118,8 @@ import Testing
         release.signal()
     }
 
-    @Test func anEscalatedWaiterMovesItsQueuedItemUp() async throws {
+    @Test(.disabled("escalation handler removed: its runtime symbol is strong-linked and stops launch on macOS 14/15"))
+    func anEscalatedWaiterMovesItsQueuedItemUp() async throws {
         guard #available(macOS 26.0, *) else { return }
         let work = BackgroundWork(label: "test.escalate")
         let release = DispatchSemaphore(value: 0)
