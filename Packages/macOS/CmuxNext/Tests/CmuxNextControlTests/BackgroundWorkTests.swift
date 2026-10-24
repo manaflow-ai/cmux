@@ -71,7 +71,9 @@ import Testing
         let count = ProcessInfo.processInfo.activeProcessorCount * 4
         let done = await withTaskGroup(of: Int.self) { group in
             for index in 0..<count { group.addTask { index } }
-            return await group.reduce(0) { total, _ in total + 1 }
+            var finished = 0
+            for await _ in group { finished += 1 }
+            return finished
         }
         #expect(done == count)
         for _ in 0..<blockers { release.signal() }

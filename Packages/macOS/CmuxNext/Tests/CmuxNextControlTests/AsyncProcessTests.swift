@@ -75,7 +75,9 @@ import Testing
         let runs = (0..<count).map { _ in Task { try await processes.run(Self.tool("/bin/sleep", "30")) } }
         let done = await withTaskGroup(of: Int.self) { group in
             for index in 0..<(count * 4) { group.addTask { index } }
-            return await group.reduce(0) { total, _ in total + 1 }
+            var finished = 0
+            for await _ in group { finished += 1 }
+            return finished
         }
         #expect(done == count * 4)
         runs.forEach { $0.cancel() }
