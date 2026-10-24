@@ -45,7 +45,7 @@ pub(super) fn serve_line_connection(
     let Ok(writer_thread) =
         std::thread::Builder::new().name("mux-line-out".into()).spawn(move || {
             while let Some(item) = writer_outbound.recv() {
-                if write_line_outbound_item(&mut *write_half, item).is_err() {
+                if write_stream_outbound_item(&mut *write_half, item).is_err() {
                     writer_outbound.close();
                     let _ = write_half.shutdown(Shutdown::Both);
                     break;

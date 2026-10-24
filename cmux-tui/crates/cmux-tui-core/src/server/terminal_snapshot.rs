@@ -65,12 +65,14 @@ use base64::Engine as _;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use super::attach_frames::{FrameKind, StreamFraming, TERMINAL_OUTPUT_RING_CAPABILITY};
 use super::{
     AttachWorkerCommit, MarkedClientAttach, MessageWriter, OutboundStream,
     commit_client_attach_and_start_worker, detach_committed_attach, get_surface,
     mark_client_attached, require_pty, rollback_failed_attach, spawn_attach_notification_stream,
     terminal_colors_json,
 };
+use crate::TerminalColors;
 use crate::stream_interrupt::StreamInterrupt;
 use crate::surface::snapshot_attach::{
     DEFAULT_VIEWER_BACKLOG_BYTES, LocalReadySnapshot, SNAPSHOT_DIGEST_IDLE, SnapshotAdmission,
@@ -176,6 +178,10 @@ pub(crate) struct SnapshotRequestParams {
     /// pending collapses into it.
     #[serde(default)]
     request_id: Option<String>,
+    /// The request's client stream (`Request::stream`, set before dispatch):
+    /// only that view resyncs, not the connection's other views of the surface.
+    #[serde(skip)]
+    pub(super) stream: Option<super::attach_frames::ClientStreamId>,
 }
 
 #[derive(Clone)]
@@ -211,12 +217,24 @@ impl SnapshotViewers {
         }
     }
 
-    fn gates(&self, client: u64, surface: SurfaceId) -> Vec<SnapshotRequestGate> {
+    /// The viewers of `surface` on `client`'s connection; with `stream`, only
+    /// that attach stream's.
+    fn gates(
+        &self,
+        client: u64,
+        surface: SurfaceId,
+        stream: Option<u64>,
+    ) -> Vec<SnapshotRequestGate> {
         self.viewers
             .lock()
             .recover_poison()
             .get(&(client, surface))
-            .map(|list| list.iter().map(|viewer| viewer.gate.clone()).collect())
+            .map(|list| {
+                list.iter()
+                    .filter(|viewer| stream.is_none_or(|stream| viewer.stream == stream))
+                    .map(|viewer| viewer.gate.clone())
+                    .collect()
+            })
             .unwrap_or_default()
     }
 }
@@ -267,7 +285,11 @@ pub(crate) fn handle_request(
     {
         anyhow::bail!("unsupported_version");
     }
-    let gates = mux.control_clients.snapshot_viewers.gates(client, params.surface);
+    let stream = params
+        .stream
+        .and_then(|stream| mux.control_clients.client_stream(client, stream))
+        .map(|(_, outbound)| outbound.id);
+    let gates = mux.control_clients.snapshot_viewers.gates(client, params.surface, stream);
     if gates.is_empty() {
         anyhow::bail!("not_attached");
     }
@@ -328,9 +350,10 @@ fn base64(bytes: &[u8]) -> String {
     base64::engine::general_purpose::STANDARD.encode(bytes)
 }
 
-/// The READY of a local-history resize: no history follows it.
-fn local_snapshot_json(surface: SurfaceId, ready: &LocalReadySnapshot) -> Value {
-    let mut value = snapshot_json(surface, &ready.frame);
+/// The READY of a local-history resize, without its bytes: no history
+/// follows it.
+fn local_snapshot_meta(surface: SurfaceId, ready: &LocalReadySnapshot) -> Value {
+    let mut value = snapshot_meta(surface, &ready.frame);
     value.insert("history", json!("local"));
     value.insert("history_rows", json!(ready.history_rows));
     value.insert("history_digest", json!(hex(&ready.history_digest)));
@@ -341,7 +364,9 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-fn snapshot_json(surface: SurfaceId, frame: &TerminalSnapshotFrame) -> Value {
+/// A READY's fields without its bytes: the SNAPSHOT frame's meta, and the
+/// JSON event with `data` added.
+fn snapshot_meta(surface: SurfaceId, frame: &TerminalSnapshotFrame) -> Value {
     json!({
         "event": "snapshot",
         "surface": surface,
@@ -354,8 +379,33 @@ fn snapshot_json(surface: SurfaceId, frame: &TerminalSnapshotFrame) -> Value {
         "colors": terminal_colors_json(frame.colors, true),
         "marker_epoch": frame.marker_epoch,
         "active_top_marker": frame.active_top_marker,
-        "data": base64(&frame.data),
     })
+}
+
+/// `meta` with `data` (base64): a stream item's JSON event shape.
+fn with_data(mut meta: Value, data: &[u8]) -> Value {
+    meta.insert("data", json!(base64(data)));
+    meta
+}
+
+/// Sends a READY on `stream`: a SNAPSHOT frame, or the JSON event.
+fn send_ready(
+    writer: &MessageWriter,
+    surface: SurfaceId,
+    frame: &TerminalSnapshotFrame,
+    stream: &OutboundStream,
+    initial: bool,
+) -> std::io::Result<()> {
+    let meta = snapshot_meta(surface, frame);
+    writer.send_meta_frame(
+        FrameKind::Snapshot,
+        &meta,
+        &[&frame.data],
+        frame.offset,
+        || with_data(meta.clone(), &frame.data),
+        stream,
+        initial,
+    )
 }
 
 /// The history and the images of one READY still to send.
@@ -382,20 +432,23 @@ impl PendingTail {
         }
     }
 
-    /// The next chunk event and whether it ends this READY's tail; `None`
-    /// when nothing is left. History goes first: a placement above the
-    /// active area needs its row.
-    fn next_chunk(&mut self, surface: SurfaceId) -> std::io::Result<Option<(Value, bool)>> {
+    /// The next chunk (its fields without the bytes, and the bytes) and
+    /// whether it ends this READY's tail; `None` when nothing is left.
+    /// History goes first: a placement above the active area needs its row.
+    fn next_chunk(
+        &mut self,
+        surface: SurfaceId,
+    ) -> std::io::Result<Option<(Value, Vec<u8>, bool)>> {
         if !self.history_done {
-            let value = self.next_history_chunk(surface)?;
+            let (value, data) = self.next_history_chunk(surface)?;
             let done = self.history_done && self.images.is_none();
-            return Ok(Some((value, done)));
+            return Ok(Some((value, data, done)));
         }
         let at = (self.generation, self.offset, self.version);
         Ok(self.images.as_mut().and_then(|images| images.next_chunk(surface, at)))
     }
 
-    fn next_history_chunk(&mut self, surface: SurfaceId) -> std::io::Result<Value> {
+    fn next_history_chunk(&mut self, surface: SurfaceId) -> std::io::Result<(Value, Vec<u8>)> {
         let end = self.history_sent.saturating_add(HISTORY_CHUNK_BYTES).min(self.history.len());
         let done = end == self.history.len();
         let raw = self.history.get(self.history_sent..end).unwrap_or_default();
@@ -409,12 +462,11 @@ impl PendingTail {
             "version": self.version,
             "compression": "deflate",
             "raw_bytes": raw.len(),
-            "data": base64(&packed),
             "done": done,
         });
         self.history_sent = end;
         self.history_done = done;
-        Ok(value)
+        Ok((value, packed))
     }
 }
 
@@ -436,7 +488,11 @@ impl PendingImages {
     /// The next images chunk and whether it is the last one. The stream is
     /// sent as is: its pixels are already zlib.
     /// `at`: the READY's `(generation, offset, version)`.
-    fn next_chunk(&mut self, surface: SurfaceId, at: (u64, u64, u16)) -> Option<(Value, bool)> {
+    fn next_chunk(
+        &mut self,
+        surface: SurfaceId,
+        at: (u64, u64, u16),
+    ) -> Option<(Value, Vec<u8>, bool)> {
         let (generation, offset, version) = at;
         if self.finished {
             return None;
@@ -451,15 +507,15 @@ impl PendingImages {
             "generation": generation,
             "offset": offset,
             "version": version,
-            "data": base64(stream.get(self.sent..end).unwrap_or_default()),
             "done": done,
         });
         if done && self.skipped_images > 0 {
             value.insert("skipped_images", json!(self.skipped_images));
         }
+        let data = stream.get(self.sent..end).unwrap_or_default().to_vec();
         self.sent = end;
         self.finished = done;
-        Some((value, done))
+        Some((value, data, done))
     }
 }
 
@@ -497,32 +553,12 @@ fn digest_json(surface: SurfaceId, digest: &TerminalSnapshotDigest) -> Value {
     })
 }
 
-/// The `output`/`colors-changed` event of a snapshot viewer, or `None` for a
-/// frame a snapshot viewer never receives (grid changes become snapshots).
-fn frame_json(
-    surface: SurfaceId,
-    frame: &AttachFrame,
-    generation: u64,
-    offset: u64,
-) -> Option<Value> {
-    match frame {
-        AttachFrame::Output(output) => Some(json!({
-            "event": "output", "surface": surface, "data": base64(output),
-            "generation": generation, "offset": offset,
-        })),
-        AttachFrame::OutputWithColors { output, colors } => Some(json!({
-            "event": "output", "surface": surface, "data": base64(output),
-            "generation": generation, "offset": offset,
-            "colors": terminal_colors_json(**colors, true),
-        })),
-        AttachFrame::ColorsChanged(colors) => {
-            let mut value = terminal_colors_json(**colors, true);
-            value.insert("event", json!("colors-changed"));
-            value.insert("surface", json!(surface));
-            Some(value)
-        }
-        AttachFrame::Resized { .. } | AttachFrame::ResizedWithColors { .. } => None,
-    }
+/// The `colors-changed` event of a snapshot viewer.
+fn colors_changed_json(surface: SurfaceId, colors: TerminalColors) -> Value {
+    let mut value = terminal_colors_json(colors, true);
+    value.insert("event", json!("colors-changed"));
+    value.insert("surface", json!(surface));
+    value
 }
 
 fn frame_output_len(frame: &AttachFrame) -> usize {
@@ -553,14 +589,68 @@ struct SnapshotWorker {
 }
 
 impl SnapshotWorker {
-    fn send(&self, value: &Value) -> bool {
-        match self.writer.send_stream_backpressured(value, &self.outbound_stream) {
+    fn sent(&self, result: std::io::Result<()>) -> bool {
+        match result {
             Ok(()) => true,
             Err(error) => {
                 handle_attach_send_error(&self.lifecycle, &error);
                 false
             }
         }
+    }
+
+    fn send(&self, value: &Value) -> bool {
+        self.sent(self.writer.send_stream_backpressured(value, &self.outbound_stream))
+    }
+
+    /// One output frame of the viewer's queue: its bytes end at
+    /// `self.offset`. OUTPUT frames carry their start offset; the JSON event
+    /// carries the end (its existing meaning).
+    fn send_frame(&self, frame: &AttachFrame) -> bool {
+        let (output, colors) = match frame {
+            AttachFrame::Output(output) => (output, None),
+            AttachFrame::OutputWithColors { output, colors } => (output, Some(**colors)),
+            AttachFrame::ColorsChanged(colors) => {
+                return self.send(&colors_changed_json(self.surface_id, **colors));
+            }
+            // A snapshot viewer gets grid changes as snapshots.
+            AttachFrame::Resized { .. } | AttachFrame::ResizedWithColors { .. } => return true,
+        };
+        let start = self.offset - output.len() as u64;
+        let (surface, generation, end) = (self.surface_id, self.generation, self.offset);
+        let legacy = || {
+            let mut value = json!({
+                "event": "output", "surface": surface, "data": base64(output),
+                "generation": generation, "offset": end,
+            });
+            if let Some(colors) = colors {
+                value.insert("colors", terminal_colors_json(colors, true));
+            }
+            value
+        };
+        if self.outbound_stream.framing.frame_stream().is_none() {
+            return self.send(&legacy());
+        }
+        // Frames: the bytes, then the colors that apply after them.
+        self.sent(self.writer.send_output_backpressured(
+            output,
+            start,
+            legacy,
+            &self.outbound_stream,
+        )) && colors.is_none_or(|colors| self.send(&colors_changed_json(surface, colors)))
+    }
+
+    /// A history or images chunk of the READY cut at `offset`.
+    fn send_more(&self, offset: u64, meta: Value, data: &[u8]) -> bool {
+        self.sent(self.writer.send_meta_frame(
+            FrameKind::SnapshotMore,
+            &meta,
+            &[data],
+            offset,
+            || with_data(meta.clone(), data),
+            &self.outbound_stream,
+            false,
+        ))
     }
 
     fn send_snapshot(&mut self) -> bool {
@@ -572,7 +662,9 @@ impl SnapshotWorker {
                 log_skipped_images(self.surface_id, &frame);
                 // The older READY's history and images no longer apply.
                 self.tail = Some(PendingTail::of(&mut frame));
-                self.send(&snapshot_json(self.surface_id, &frame))
+                let sent =
+                    send_ready(&self.writer, self.surface_id, &frame, &self.outbound_stream, false);
+                self.sent(sent)
             }
             Err(_) => {
                 // The unfinished escape sequence is longer than the snapshot
@@ -595,7 +687,16 @@ impl SnapshotWorker {
             return self.send_snapshot();
         }
         self.generation = ready.frame.generation;
-        self.send(&local_snapshot_json(self.surface_id, ready))
+        let meta = local_snapshot_meta(self.surface_id, ready);
+        self.sent(self.writer.send_meta_frame(
+            FrameKind::Snapshot,
+            &meta,
+            &[&ready.frame.data],
+            ready.frame.offset,
+            || with_data(meta.clone(), &ready.frame.data),
+            &self.outbound_stream,
+            false,
+        ))
     }
 
     /// One history or images chunk; the last one ends the pending tail. A
@@ -604,12 +705,14 @@ impl SnapshotWorker {
     /// and its next READY brings a complete history.
     fn send_tail_chunk(&mut self) -> bool {
         let Some(tail) = self.tail.as_mut() else { return true };
+        // A tail chunk belongs to the READY at its own cut.
+        let cut = tail.offset;
         match tail.next_chunk(self.surface_id) {
-            Ok(Some((value, done))) => {
+            Ok(Some((meta, data, done))) => {
                 if done {
                     self.tail = None;
                 }
-                self.send(&value)
+                self.send_more(cut, meta, &data)
             }
             Ok(None) => {
                 self.tail = None;
@@ -657,10 +760,14 @@ impl SnapshotWorker {
                     if frame_output_len(&frame) > 0 {
                         digest_at = Some(Instant::now() + SNAPSHOT_DIGEST_IDLE);
                     }
-                    match frame_json(self.surface_id, &frame, self.generation, self.offset) {
-                        Some(value) => self.send(&value),
-                        None => true,
-                    }
+                    self.send_frame(&frame)
+                }
+                #[cfg(unix)]
+                Ok(ViewerEvent::RingAdvance(end)) => {
+                    // The bytes are in the ring the client maps: only the new end travels.
+                    self.offset = end;
+                    digest_at = Some(Instant::now() + SNAPSHOT_DIGEST_IDLE);
+                    self.sent(self.writer.send_ring_advance(end, &self.outbound_stream))
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) if self.tail.is_some() => {
                     self.send_tail_chunk()
@@ -699,12 +806,7 @@ impl SnapshotWorker {
                 break;
             }
         }
-        report_attach_overflow(
-            &self.writer,
-            self.surface_id,
-            &self.lifecycle,
-            &self.outbound_stream,
-        );
+        report_attach_overflow(&self.writer, &self.lifecycle, &self.outbound_stream);
         self.mux.control_clients.snapshot_viewers.unregister(
             self.client,
             self.surface_id,
@@ -726,10 +828,18 @@ impl SnapshotAttachParams {
         surface: Arc<Surface>,
         writer: &MessageWriter,
         initial_size: Option<(u16, u16)>,
+        framing: StreamFraming,
     ) -> anyhow::Result<Value> {
         let surface_id = surface.id;
         let lifecycle = AttachLifecycle::default();
-        let outbound_stream = writer.start_stream(&attach_overflow_json(surface_id))?;
+        let outbound_stream =
+            writer.start_framed_stream(&attach_overflow_json(surface_id), framing)?;
+        // The ring only for a frames stream of a local client that asked for
+        // it (design 4.5: the listener admits only this user's processes).
+        let ring = framing.frame_stream().is_some()
+            && mux.control_clients.supports_capability(client, TERMINAL_OUTPUT_RING_CAPABILITY)
+            && mux.control_clients.is_unix(client)
+            && !mux.is_remote_client(client);
         attach(
             mux,
             client,
@@ -742,6 +852,7 @@ impl SnapshotAttachParams {
             self.backlog_bytes(),
             self.snapshot_local_history,
             self.images_cap(),
+            ring,
         )
     }
 }
@@ -759,10 +870,16 @@ fn attach(
     backlog: usize,
     local_history: bool,
     images_cap: Option<u64>,
+    ring: bool,
 ) -> anyhow::Result<Value> {
     let MarkedClientAttach { lease, size_rollback, client_changed, .. } =
         mark_client_attached(mux, client, surface_id, outbound_stream.clone(), initial_size)?;
-    let stream = match surface.attach_snapshot_stream(lifecycle.clone(), backlog, local_history) {
+    let stream = match surface.attach_snapshot_stream_reading(
+        lifecycle.clone(),
+        backlog,
+        local_history,
+        ring,
+    ) {
         Ok(stream) => stream,
         Err(error) => {
             lifecycle.cancel();
@@ -770,6 +887,16 @@ fn attach(
             return Err(error.into());
         }
     };
+    // The ring goes first: the client maps it before the READY whose offset
+    // it continues.
+    #[cfg(unix)]
+    if let Some(ring) = &stream.ring
+        && let Err(error) = writer.send_ring(ring, &outbound_stream)
+    {
+        handle_attach_send_error(&lifecycle, &error);
+        rollback_failed_attach(mux, client, surface_id, outbound_stream.id, size_rollback);
+        return Err(error.into());
+    }
     // The first snapshot goes out before the reply. When it cannot be
     // encoded yet (an unfinished escape sequence over the continuation
     // budget), the attach still succeeds and the worker sends it at the next
@@ -780,8 +907,7 @@ fn attach(
             log_skipped_images(surface_id, &first);
             tail = Some(PendingTail::of(&mut first));
             stream.requests.sent(Instant::now());
-            let initial = snapshot_json(surface_id, &first);
-            if let Err(error) = writer.send_initial(&initial, &outbound_stream) {
+            if let Err(error) = send_ready(writer, surface_id, &first, &outbound_stream, true) {
                 handle_attach_send_error(&lifecycle, &error);
                 rollback_failed_attach(mux, client, surface_id, outbound_stream.id, size_rollback);
                 return Err(error.into());
@@ -862,12 +988,14 @@ fn attach(
 
 pub(super) fn report_attach_overflow(
     writer: &MessageWriter,
-    surface_id: SurfaceId,
     lifecycle: &AttachLifecycle,
     outbound_stream: &OutboundStream,
 ) {
     if lifecycle.claim_overflow_report() {
-        let _ = writer.send_terminal(&attach_overflow_json(surface_id), outbound_stream);
+        // The stream's own overflow item: the `overflow` event of a legacy
+        // stream (attach_overflow_json, set at start), a client stream's
+        // `stream-end` with reason `overflow`.
+        let _ = writer.send_stream_overflow(outbound_stream);
     }
 }
 
@@ -942,7 +1070,7 @@ mod tests {
         let mut pending =
             PendingImages::of(Arc::new(SnapshotImages { data: stream.clone(), stats }));
         let (mut joined, mut events) = (Vec::new(), Vec::new());
-        while let Some((value, done)) = pending.next_chunk(3, (9, 77, 1)) {
+        while let Some((value, bytes, done)) = pending.next_chunk(3, (9, 77, 1)) {
             assert_eq!(value["phase"], "images");
             assert_eq!(
                 (value["generation"].as_u64(), value["offset"].as_u64()),
@@ -950,9 +1078,7 @@ mod tests {
             );
             assert!(value.get("compression").is_none(), "{value}");
             assert_eq!(value["version"], 1);
-            let bytes = base64::engine::general_purpose::STANDARD
-                .decode(value["data"].as_str().unwrap())
-                .unwrap();
+            assert!(value.get("data").is_none(), "the bytes travel beside the fields");
             assert!(bytes.len() <= IMAGES_CHUNK_BYTES);
             joined.extend_from_slice(&bytes);
             assert_eq!(value["done"], done);

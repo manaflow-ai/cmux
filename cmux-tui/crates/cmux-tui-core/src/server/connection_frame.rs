@@ -110,6 +110,18 @@ pub(super) fn handle_connection_frame(
         Ok(request) => request,
         Err(error) => return send_bad_request(writer, message, &error),
     };
+    // A per-view request of a client stream runs on that stream's lane, so it
+    // never waits behind another view's or the control lane's requests.
+    if let Some(stream) = request.stream.filter(|_| request.cmd.runs_on_stream_lane()) {
+        return scheduler.dispatch_on_stream(
+            mux.clone(),
+            client,
+            stream,
+            request,
+            message.len(),
+            writer,
+        );
+    }
     let mut pending = Some(request);
     match scheduler.dispatch(mux.clone(), client, &mut pending, message.len(), writer.clone()) {
         Some(keep_open) => keep_open,
@@ -136,7 +148,15 @@ pub(super) fn handle_request_with_cancellation(
     writer: &MessageWriter,
     cancellation: Option<&ConnectionCancellation>,
 ) -> bool {
-    let Request { id, cmd } = request;
+    let Request { id, stream, mut cmd } = request;
+    // Commands that need their client stream read it from the request.
+    match &mut cmd {
+        Command::AttachSurface { stream: slot, .. } | Command::CancelStream { stream: slot } => {
+            *slot = stream;
+        }
+        Command::SnapshotRequest(params) => params.stream = stream,
+        _ => {}
+    }
     if let Command::UrlOpen { terminal_id, url } = cmd {
         return url_open::start(mux, client, id, terminal_id, url, writer);
     }

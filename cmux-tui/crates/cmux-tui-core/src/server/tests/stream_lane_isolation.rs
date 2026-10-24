@@ -4,7 +4,6 @@
 //! lines only, so this guard runs against a daemon without stream lanes too.
 
 use super::*;
-use std::io::Write as _;
 use std::net::Shutdown;
 use std::time::Instant;
 

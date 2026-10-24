@@ -324,13 +324,65 @@ After a timeout, clients must not retry a non-idempotent legacy mutation until a
 snapshot or event reconciles the original outcome. A durable mutation retries
 with the same `(origin, mutation_id)` so the server can replay its receipt.
 
-Repeated `subscribe` calls and repeated attachments create independent server streams without public stream ids. Closing a local iterator on a shared connection does not cancel its server stream. A v10 client that needs independent cancellation uses a dedicated connection and closes it. On one shared connection, use at most one subscription and one attachment per surface.
+Repeated `subscribe` calls and repeated attachments create independent server streams without public stream ids. Closing a local iterator on a shared connection does not cancel its server stream. A v10 client that needs independent cancellation uses a dedicated connection and closes it, or attaches with client streams (below). Without client streams, use at most one subscription and one attachment per surface on one shared connection.
 
 The server event broadcaster holds 4,096 events per subscriber. The connection writer also has a 256-message, 16 MiB regular queue and a separate 256-message, 16 MiB control reserve. Stream overflow discards that stream's queued events, emits one stream-scoped `overflow`, and can leave unrelated streams and command responses usable. Exhausting the control reserve or the two-second write deadline closes the connection.
 
 A reconnect creates a new transport generation. Old pending ids, event buffers, and stream handles never cross generations. A client resends authentication, calls `identify`, registers subscriptions before fetching snapshots, checks generation values, and reattaches surfaces. Network loss uses capped exponential delay with jitter and one in-flight attempt. Static-token rejection is terminal. Reconnect-credential rejection discards that credential once and enters one pairing attempt. Pairing denial, expiry, or rate limiting requires user action.
 
-vNext adds client-generated `stream_id` to `subscribe` and `attach-surface`, echoes it on every event, and adds idempotent `cancel-stream`. Request timeout remains distinct from stream cancellation.
+### Client streams (`attach-streams-v1`)
+
+A client that lists `attach-streams-v1` in `set-client-info` may attach many
+views on one connection. `attach-surface` takes a top-level `stream`
+(1-65535), minted by the client and unique among the streams the connection
+has open (a duplicate fails with `stream_in_use`). Every event of that attach,
+also the READY or replay that precedes the reply, carries `"stream": N` (or,
+with `attach-frames-v1`, travels in a frame naming it). The stream's last item
+is `{"event": "stream-end", "stream": N, "reason": "ended" | "overflow"}`: after
+it, and only after it, the client may reuse the id. A failed `attach-surface`
+that named a stream also ends it with `stream-end` after its error reply,
+unless the id belongs to another open stream.
+
+A request that acts for one view carries the same top-level `stream`: `send`,
+`send-key`, `resize-attached-view`, `release-attached-view-size`,
+`detach-attached-view`, `reattach-view`, `set-client-sizing`, `set-size-counts`,
+`set-size-policy`, `note-size-activity`, `snapshot-request`, `scroll-surface`,
+`attach-surface` and `cancel-stream`. These run on that stream's lane: in order
+with the stream's earlier requests, never behind another stream's requests or
+the connection's other requests (which keep the serial order above). Their
+replies may therefore come before the replies of earlier requests; match by
+`id`. `cancel-stream {stream}` ends a stream at once (idempotent: a stream that
+is not open answers `{"outcome": "ended"}`).
+
+### Binary attach frames (`attach-frames-v1`)
+
+A client that lists both `attach-streams-v1` and `attach-frames-v1` gets its
+streams' items as binary frames, on a local Unix connection only (never a
+WebSocket or the remote entry). Server to client is then a sequence of JSON
+lines and frames: a message that starts with byte `0xFF` is a frame, anything
+else a JSON line. Client to server stays JSON lines. A frame is a 16-byte
+little-endian header, then `len` payload bytes:
+
+```text
+0xFF | kind u8 | stream u16 | len u32 | offset u64
+```
+
+| kind | payload | offset |
+| --- | --- | --- |
+| 1 OUTPUT | raw PTY bytes (at most 64 KiB) | the first byte's stream offset (0 on a byte-replay stream) |
+| 3 EVENT | one JSON event object | 0 |
+| 4 SNAPSHOT | `meta_len u32`, the `snapshot` event without `data`, raw data | the READY's cut |
+| 5 SNAPSHOT_MORE | the same for `history` and `images` chunks | the READY's cut |
+| 6 REPLAY | `meta_len u32`, the `vt-state` or `resized` event without its bytes plus `pending_len`, the replay, then `pending_len` pending bytes | 0 |
+
+Kinds 2 (GRID), 7 (RING) and 8 (RING_ADVANCE) are reserved for the in-band
+resize marker and the shared-memory output ring. On a snapshot stream an
+OUTPUT frame continues at the offset after the previous one (the READY's cut
+after a READY); a client that sees another offset has lost bytes and asks for a
+`snapshot-request` with reason `gap`. A colors sidecar is an OUTPUT frame
+followed by an EVENT `colors-changed`, applied after those bytes.
+
+vNext adds client-generated `stream_id` to `subscribe`. Request timeout remains distinct from stream cancellation.
 
 ## HTTP
 
