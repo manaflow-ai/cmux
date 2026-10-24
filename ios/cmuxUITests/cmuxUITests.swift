@@ -29,7 +29,6 @@ final class cmuxUITests: XCTestCase {
         cloudTab.tap()
         XCTAssertTrue(app.descendants(matching: .any)["CloudInlineOnboarding"].waitForExistence(timeout: 10))
 
-        let progress = app.descendants(matching: .any)["CloudOnboardingProgressIndicator"]
         let primary = app.buttons["CloudOnboardingPrimaryButton"]
         func assertNoVPN() {
             XCTAssertFalse(app.staticTexts["System VPN"].exists)
@@ -44,29 +43,28 @@ final class cmuxUITests: XCTestCase {
             add(attachment)
         }
         XCTAssertTrue(primary.waitForExistence(timeout: 10))
-        XCTAssertEqual(progress.value as? String, "Step 1 of 2")
+        XCTAssertTrue(app.staticTexts["Your workspace lives in the Cloud"].exists)
         XCTAssertEqual(primary.label, "Continue")
         capture("appstore-cloud-page-1")
         primary.tap()
         XCTAssertTrue(app.staticTexts["A private key keeps it private"].waitForExistence(timeout: 5))
-        XCTAssertEqual(progress.value as? String, "Step 2 of 2")
         XCTAssertEqual(primary.label, "Get started")
         capture("appstore-cloud-page-2")
         app.buttons["CloudOnboardingSecondaryButton"].tap()
-        XCTAssertEqual(progress.value as? String, "Step 1 of 2")
+        XCTAssertTrue(app.staticTexts["Your workspace lives in the Cloud"].waitForExistence(timeout: 5))
         capture("appstore-cloud-back")
         primary.tap()
-        XCTAssertEqual(progress.value as? String, "Step 2 of 2")
+        XCTAssertTrue(app.staticTexts["A private key keeps it private"].waitForExistence(timeout: 5))
         primary.tap()
         let basics = app.buttons["CloudBasicsButton"]
         XCTAssertTrue(basics.waitForExistence(timeout: 5))
         capture("appstore-cloud-settings")
         basics.tap()
         XCTAssertTrue(primary.waitForExistence(timeout: 5))
-        XCTAssertEqual(progress.value as? String, "Step 1 of 2")
+        XCTAssertTrue(app.staticTexts["Your workspace lives in the Cloud"].waitForExistence(timeout: 5))
         capture("appstore-cloud-basics-reopened")
         primary.tap()
-        XCTAssertEqual(progress.value as? String, "Step 2 of 2")
+        XCTAssertTrue(app.staticTexts["A private key keeps it private"].waitForExistence(timeout: 5))
         capture("appstore-cloud-basics-final-page")
         primary.tap()
         XCTAssertTrue(basics.waitForExistence(timeout: 5))
