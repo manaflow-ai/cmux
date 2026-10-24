@@ -17,6 +17,12 @@ nonisolated struct ChromiumHostFrame: Equatable, Sendable {
     static let headerSize = 64
     /// Longer payloads end the connection: no kind carries more than a URL.
     static let maxPayload = 64 * 1024
+    /// How long a host may take to end after `quit` or EOF before it is
+    /// ended by force (`kQuitLimitSeconds` in the header: the host `_exit`s
+    /// itself; cmux SIGKILLs it). The same reasoning as the app's own
+    /// `QuitDeadline.engineStopLimit`: CEF's 3 s browser close plus
+    /// Chromium's 10 s shutdown watchdog, with room for a loaded machine.
+    static let quitLimit: Duration = .seconds(15)
 
     /// The raw kind, so a frame of a kind this side does not know still decodes.
     var rawKind: UInt32
