@@ -129,8 +129,19 @@ final class ScreenContentView: NSView {
         reconcileAndScroll()
     }
 
+    /// The backing scale the frames were last computed at (`reconcile`), nil before the first pass.
+    private(set) var reconciledScale: CGFloat?
+    /// `applyCamera` is setting the bounds (the canvas camera).
+    var isApplyingCamera = false
+    /// Reconcile passes, cumulative (ScreenBackingChangeTests: a bounds change is not a backing change).
+    private(set) var reconcilePasses = 0
+
+    /// Only a real scale change (the window moved to a display of another scale) lays out again.
+    /// AppKit also calls this inside `setBoundsSize`, which the canvas camera sets (`applyCamera`):
+    /// reconciling there set the bounds again and recursed until the stack overflowed (Crash D, #24998).
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
+        guard !isApplyingCamera, window != nil, reconciledScale != scale else { return }
         reconcileAndScroll()
     }
 
@@ -183,7 +194,9 @@ final class ScreenContentView: NSView {
         let before = geometry
         // One style read per pass: it is resolved from the settings.
         let style = context.style
+        reconcilePasses += 1
         applyCamera()
+        reconciledScale = scale
         baseGeometry = canvasGeometry ?? ScreenGeometry.compute(shown, viewport: bounds.size, style: style, scale: scale)
         geometry = baseGeometry.shiftingAreas(areaOffsets).shiftingRows(rowOffsets)
         let animate = animated && !context.reduceMotion && bounds.width > 0
