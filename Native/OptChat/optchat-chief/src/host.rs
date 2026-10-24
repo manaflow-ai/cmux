@@ -936,17 +936,11 @@ fn start(
     if let Err(e) = crate::skills::install_builtin(&crate::skills::shared_dir(&paths.home)) {
         eprintln!("optchat-chief: installing the shipped Chief skills: {e}");
     }
-    // The tool packs cmux ships (toolpacks.rs), and the skills of the user's
-    // own packs linked beside the skills.
-    let packs_dir = crate::toolpacks::shared_dir(&paths.home);
-    if let Err(e) = crate::toolpacks::install_builtin(&packs_dir) {
+    // The tool packs cmux ships (toolpacks.rs); their skills reach each
+    // Chief through session_dir::write (toolpacks::sync_skills).
+    if let Err(e) = crate::toolpacks::install_builtin(&crate::toolpacks::shared_dir(&paths.home)) {
         eprintln!("optchat-chief: installing the shipped tool packs: {e}");
     }
-    crate::toolpacks::link_skills(&packs_dir, &crate::skills::shared_dir(&paths.home));
-    crate::toolpacks::link_skills(
-        &crate::toolpacks::chief_dir(&paths.home),
-        &crate::skills::chief_dir(&paths.home),
-    );
     // Section 9: every subagent's directory and system prompt.
     let sub_tools = if sub_family == Family::Claude {
         crate::prompt::Tools::Mcp
