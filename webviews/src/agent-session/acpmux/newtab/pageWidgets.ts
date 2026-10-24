@@ -4,7 +4,7 @@
 // drew: they are there to compare against.
 
 /// Every widget, in Settings' order.
-export const PAGE_WIDGETS = ["greeting", "projects", "actions", "chats", "styleDots", "weather", "machines"] as const;
+export const PAGE_WIDGETS = ["greeting", "projects", "actions", "chats", "styleDots", "weather", "machines", "clock", "timer", "warmGreeting", "quote"] as const;
 export type PageWidget = (typeof PAGE_WIDGETS)[number];
 export type PageWidgets = ReadonlySet<PageWidget>;
 
@@ -27,7 +27,7 @@ const MINIMAL_DEFAULT: PageWidgets = new Set<PageWidget>(MINIMAL_DEFAULT_LIST);
 const AMBIENT: ReadonlySet<PageWidget> = new Set<PageWidget>(["weather", "machines"]);
 /// What every other layout shows: everything it drew before the widgets, with no headline.
 const OTHER_LAYOUTS: readonly PageWidget[] = PAGE_WIDGETS.filter(
-  (widget) => widget !== "greeting" && !AMBIENT.has(widget),
+  (widget) => widget !== "greeting" && !AMBIENT.has(widget) && !["clock", "timer", "warmGreeting", "quote"].includes(widget),
 );
 
 /// The widgets a handshake's `pageWidgets` names, in PAGE_WIDGETS' places, the movable ones in the
