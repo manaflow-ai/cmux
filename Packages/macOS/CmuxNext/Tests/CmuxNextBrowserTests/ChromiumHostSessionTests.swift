@@ -18,25 +18,35 @@ import Testing
     nonisolated struct FakeHost: Sendable {
         let pid: pid_t
         let wire: ChromiumHostConnection
+        /// The descriptor `wire` writes to the session on, for raw writes.
+        let toSessionFD: Int32
     }
 
-    // Test double shared by the session (any thread) and the test; every field
-    // is behind `state`'s lock.
-    nonisolated final class FakeLauncher: ChromiumHostLaunching, @unchecked Sendable {
+    /// Shared by the session (any thread) and the test: its mutable state is
+    /// behind `state`'s lock, so it is `Sendable` as declared.
+    nonisolated final class FakeLauncher: ChromiumHostLaunching, Sendable {
         private struct State {
             var hosts: [FakeHost] = []
             var exits: [pid_t: CheckedContinuation<ChromiumHostExit, Never>] = [:]
             var pending: [pid_t: ChromiumHostExit] = [:]
             var launched: AsyncStream<FakeHost>.Continuation?
+            var waitingForExit: AsyncStream<pid_t>.Continuation?
             var killed: [pid_t] = []
         }
         private let state = Mutex(State())
         let launches: AsyncStream<FakeHost>
+        /// The pid of each host whose exit the session waits for (``exit(of:)`` holds its continuation).
+        let exitWaits: AsyncStream<pid_t>
 
         init() {
             let (stream, continuation) = AsyncStream<FakeHost>.makeStream()
             launches = stream
-            state.withLock { $0.launched = continuation }
+            let (waits, waiting) = AsyncStream<pid_t>.makeStream()
+            exitWaits = waits
+            state.withLock { state in
+                state.launched = continuation
+                state.waitingForExit = waiting
+            }
         }
 
         var count: Int { state.withLock { $0.hosts.count } }
@@ -50,7 +60,8 @@ import Testing
             }
             let host = state.withLock { state -> FakeHost in
                 let host = FakeHost(pid: pid_t(1_000 + state.hosts.count),
-                                    wire: ChromiumHostConnection(readFD: toHost[1], writeFD: fromHost[1]))
+                                    wire: ChromiumHostConnection(readFD: toHost[1], writeFD: fromHost[1]),
+                                    toSessionFD: fromHost[1])
                 state.hosts.append(host)
                 return host
             }
@@ -60,12 +71,13 @@ import Testing
 
         func exit(of pid: pid_t) async -> ChromiumHostExit {
             await withCheckedContinuation { continuation in
-                let ready = state.withLock { state -> ChromiumHostExit? in
-                    if let exit = state.pending.removeValue(forKey: pid) { return exit }
+                let (ready, waiting) = state.withLock { state -> (ChromiumHostExit?, AsyncStream<pid_t>.Continuation?) in
+                    if let exit = state.pending.removeValue(forKey: pid) { return (exit, nil) }
                     state.exits[pid] = continuation
-                    return nil
+                    return (nil, state.waitingForExit)
                 }
                 if let ready { continuation.resume(returning: ready) }
+                waiting?.yield(pid)
             }
         }
 
@@ -83,6 +95,12 @@ import Testing
         /// The host process `host` ends: its wire closes, then its exit is reported.
         func end(_ host: FakeHost, _ exit: ChromiumHostExit) {
             host.wire.close()
+            reportExit(host, exit)
+        }
+
+        /// Reports the exit of `host` and leaves its wire open (the kernel told
+        /// cmux about the exit before cmux read the host's last bytes).
+        func reportExit(_ host: FakeHost, _ exit: ChromiumHostExit) {
             let waiter = state.withLock { state -> CheckedContinuation<ChromiumHostExit, Never>? in
                 guard let waiter = state.exits.removeValue(forKey: host.pid) else {
                     state.pending[host.pid] = exit
@@ -175,6 +193,76 @@ import Testing
         #expect(session.contextID == 0)
         #expect(session.view.contextID == 0)
         #expect(session.phase == .starting)
+    }
+
+    /// Writes all of `bytes` to `fd`, blocking until the reader has made room.
+    private func writeAll(_ bytes: [UInt8], to fd: Int32) throws {
+        var offset = 0
+        while offset < bytes.count {
+            let written = bytes[offset...].withUnsafeBytes { Darwin.write(fd, $0.baseAddress, $0.count) }
+            if written < 0 {
+                if errno == EINTR { continue }
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+            offset += written
+        }
+    }
+
+    // Before the fix the frames task applied these frames after hostEnded had
+    // started the next host: phase .running and context 77 of a dead host.
+    @Test(.timeLimit(.minutes(1))) func framesOfAHostThatEndedDoNotChangeTheNextHost() async throws {
+        let launcher = FakeLauncher()
+        var exitWaits = launcher.exitWaits.makeAsyncIterator()
+        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher, now: { ContinuousClock.now })
+        session.open("https://a.example/")
+        let first = try await nextLaunch(launcher)
+        // The session waits for the host's exit, so its frames task (started first) waits
+        // on the wire too: a frame from now on is handled in a main-actor job of its own.
+        #expect(await exitWaits.next() == first.pid)
+
+        // No await until nextLaunch: the main actor runs nothing else meanwhile. The
+        // exit is reported first, so hostEnded is queued before any frame below.
+        launcher.reportExit(first, ChromiumHostExit(signal: SIGSEGV, status: nil))
+        var stale = ChromiumHostFrame(.ready, v: [27, first.pid]).encoded()
+        stale += ChromiumHostFrame(.context, v: [77]).encoded()
+        // Far more bytes than the socket holds (ChromiumHostConnection.sendBuffer): the
+        // write returns only after the session's reader took the ready and context
+        // frames (and some of these) into its stream, still unhandled.
+        let filler = ChromiumHostFrame(.address, payload: [UInt8](repeating: UInt8(ascii: "x"),
+                                                                 count: ChromiumHostFrame.maxPayload)).encoded()
+        for _ in 0..<16 { stale += filler }
+        _ = fcntl(first.toSessionFD, F_SETFL, fcntl(first.toSessionFD, F_GETFL) & ~O_NONBLOCK)
+        try writeAll(stale, to: first.toSessionFD)
+        first.wire.close()
+
+        let second = try await nextLaunch(launcher)
+        let reopened = try await firstFrame(of: second)
+        #expect(reopened.text == "https://a.example/")
+        #expect(session.phase == .starting)
+        #expect(session.contextID == 0)
+        #expect(session.view.contextID == 0)
+        #expect(session.forkAPI == 0)
+        #expect(session.url == "https://a.example/")
+        #expect(session.exits == ["signal \(SIGSEGV)"])
+    }
+
+    // Before the fix a host that could not start was started once more (the first
+    // start's restart) and failed the same way.
+    @Test(arguments: [Int32(64), 65, 66, 67])
+    func aHostThatCannotStartStaysEnded(status: Int32) async throws {
+        let launcher = FakeLauncher()
+        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher, now: { ContinuousClock.now })
+        session.open("https://a.example/")
+        let host = try await nextLaunch(launcher)
+        launcher.end(host, ChromiumHostExit(signal: nil, status: status))
+        try await until("ended") {
+            if case .ended = session.phase { return true }
+            return false
+        }
+        guard case .ended(let reason) = session.phase else { return }
+        #expect(reason.contains("could not start (exit \(status))"))
+        #expect(session.restarts == 0)
+        #expect(launcher.count == 1)
     }
 
     @Test func aHostThatEndsAgainSoonStaysEnded() async throws {
