@@ -10882,6 +10882,10 @@
         "ty": "string",
         "nullable": true
       },
+      "/flow": {
+        "ty": "uint64",
+        "nullable": true
+      },
       "/paste": {
         "ty": "boolean"
       },
