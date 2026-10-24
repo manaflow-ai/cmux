@@ -657,6 +657,75 @@ class AppSizeTests(Fixture):
         self.commit("30 lines into AppDelegate")
         self.assertPasses("a move into the root within its budget")
 
+    def test_a_block_that_stays_in_its_file_is_no_move_into_a_new_file(self):
+        # Re-indenting a block (wrapping it in `Task { @MainActor in ... }`) removes and re-adds every line with the
+        # same stripped text: the block is still in its file, so a copy of it in a new file is new code.
+        lines = swift_body(120, "textBox").splitlines(keepends=True)
+        self.write(f"{APP}/TextBox/TextBoxView.swift",
+                   "".join(["    " + line if line.strip() else line for line in lines[:40]] + lines[40:]))
+        self.write(f"{APP}/TextBox/TextBoxReload.swift", "".join(lines[:40]))
+        self.commit("a re-indented block, and a copy of it in a new file")
+        found = self.assertRefused(f"new App file, {code(lines[:40])} source lines ({code(lines[:40])} not moved)",
+                                   "only a move or the push's one Host conformance file may be added")
+        self.assertEqual([h.bucket for h in found], [f"new:{APP}/TextBox/TextBoxReload.swift"])
+        self.reset()
+        self.write(f"{APP}/TextBox/TextBoxView.swift", "".join(lines[40:]))
+        self.write(f"{APP}/TextBox/TextBoxReload.swift", "".join(lines[:40]))
+        self.commit("control: the block really leaves its file")
+        self.assertPasses("a split")
+
+    def test_moved_imports_do_not_count_toward_a_new_file_s_moved_share(self):
+        imports = "import Foundation\nimport SwiftUI\nimport AppKit\nimport CmuxNextCore\n\n"
+        old = swift_body(16, "old").splitlines(keepends=True)
+        self.rebase_on({f"{APP}/Quit/QuitOld.swift": imports + "".join(old)}, "an old Quit file")
+        self.git("rm", "--quiet", f"{APP}/Quit/QuitOld.swift")
+        fresh = "".join(f"    let quitFresh{i} = {i}\n" for i in range(4))
+        self.write(f"{APP}/Quit/QuitNew.swift", imports + "".join(old[:8]) + fresh)
+        self.commit("one moved function and four new lines in a new file; the old file's imports come along")
+        moved, total = code(old[:8]), code(old[:8]) + 4
+        self.assertLess(moved, guardrails.MOVE_SHARE * total, "the file's code is not mostly moved")
+        self.assertGreaterEqual(moved + 4, guardrails.MOVE_SHARE * total, "the imports would push it over")
+        found = self.assertRefused(f"new App file, {total + 4} source lines")
+        self.assertEqual([h.bucket for h in found], [f"new:{APP}/Quit/QuitNew.swift"])
+
+    def test_a_move_out_of_the_root_stays_neutral_when_feature_files_drop_stub_lines(self):
+        # The feature side's removed `}` and `return 0` lines match the moved block's: they must not cut the block
+        # into runs too short to count as moved out of the root (each line not counted is free root budget).
+        lines = swift_body(200, "delegate").splitlines(keepends=True)
+        wire = swift_body(35, "wire")
+        self.assertEqual(code(wire), guardrails.ROOT_BUDGET + 1)
+        self.write(f"{APP}/AppDelegate.swift", "".join(lines[:40] + lines[136:]) + wire)
+        self.append(f"{APP}/TextBox/TextBoxView.swift", "".join(lines[40:136]))
+        self.write(f"{APP}/Quit/QuitCoordinator.swift", "".join(self.quit[:200]))
+        self.commit("84 lines out of AppDelegate, dead Quit code deleted, 31 new wiring lines")
+        found = self.assertRefused(f"the composition root grows +{code(wire)} source lines", "budget of +30")
+        self.assertEqual([(h.bucket, h.excess) for h in found], [("root", 1)])
+        self.reset()
+        self.write(f"{APP}/AppDelegate.swift", "".join(lines[:40] + lines[136:]))
+        self.append(f"{APP}/TextBox/TextBoxView.swift", "".join(lines[40:136]))
+        self.write(f"{APP}/Quit/QuitCoordinator.swift", "".join(self.quit[:200]))
+        self.commit("control: the same move with no new wiring")
+        self.assertPasses("a move out of the root and a deletion")
+
+    def test_a_small_file_renamed_whole_is_a_move(self):
+        flag = "import Foundation\n\nlet quitFlag = true\n"
+        self.rebase_on({f"{APP}/Quit/QuitFlag.swift": flag}, "a small Quit file")
+        (self.repo / APP / "Shutdown").mkdir()  # git before 2.54 does not create the folder for a git mv
+        self.git("mv", f"{APP}/Quit/QuitFlag.swift", f"{APP}/Shutdown/QuitFlag.swift")
+        self.commit("rename a two-line file")
+        self.assertPasses("a git mv of a file shorter than MOVE_RUN")
+        self.reset()
+        (self.repo / APP / "Shutdown").mkdir(exist_ok=True)
+        self.git("mv", f"{APP}/Quit/QuitFlag.swift", f"{APP}/Shutdown/QuitFlag.swift")
+        self.write(f"{APP}/Shutdown/QuitFlagCopy.swift", flag)
+        self.commit("rename it and copy it")
+        found = self.assertRefused("new App file, 2 source lines")
+        self.assertEqual([h.bucket for h in found], [f"new:{APP}/Shutdown/QuitFlagCopy.swift"])
+        self.reset()
+        self.git("mv", f"{APP}/Quit/QuitFlag.swift", f"{APP}/AppServices+QuitFlag.swift")
+        self.commit("a feature file renamed into the root")
+        self.assertRefused("a new root file is split from the root files")
+
     def test_feature_logic_pasted_into_an_existing_app_services_file_is_refused(self):
         lines = swift_body(120, "textBox").splitlines(keepends=True)
         self.write(f"{APP}/TextBox/TextBoxView.swift", "".join(lines[:20]))
