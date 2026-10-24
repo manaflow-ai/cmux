@@ -233,15 +233,17 @@ impl Tool {
             Ok(params) => params,
             Err(message) => return invalid(message),
         };
+        // Owned: `parsed` moves into the request below.
         let key = parsed
             .get("idempotencyKey")
             .and_then(Value::as_str)
-            .or_else(|| arguments.get("idempotency_key").and_then(Value::as_str));
+            .or_else(|| arguments.get("idempotency_key").and_then(Value::as_str))
+            .map(str::to_owned);
         match backend.acpmux(
             self.method(),
             parsed,
             dispatch_timeout(self.kind),
-            key,
+            key.as_deref(),
             self.mutation(),
         ) {
             Ok(value) => success(normalize_result(value), self.mutation()),
