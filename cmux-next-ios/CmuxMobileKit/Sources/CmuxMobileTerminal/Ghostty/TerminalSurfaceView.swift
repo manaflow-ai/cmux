@@ -78,8 +78,11 @@ final class TerminalSurfaceView: UIView {
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        guard window != nil, surface == nil else { return }
-        createSurface()
+        guard window != nil else { return }
+        guard surface != nil else { return createSurface() }
+        // Back in a window: its screen's scale may differ from the one the
+        // size was last given at.
+        syncSize()
     }
 
     private func createSurface() {
@@ -155,9 +158,14 @@ final class TerminalSurfaceView: UIView {
     /// another viewport, so its placement is read from its pixels again.
     private(set) var viewportEpoch = 0
 
+    /// Tells Ghostty the view's size, with or without a window. A page out
+    /// of its window (the workspace list on top, a warm tab behind another)
+    /// still parses output: a frame change there must reach Ghostty at once,
+    /// or the bytes are parsed at the old grid (the Mac's 120 columns parsed
+    /// at the phone's 49 wrapped every row of htop, PR #24650 live rig).
     private func syncSize() {
-        guard let surface, let window else { return }
-        let scale = window.screen.scale
+        guard let surface else { return }
+        let scale = window?.screen.scale ?? (traitCollection.displayScale > 0 ? traitCollection.displayScale : 3)
         let size = (UInt32(bounds.width * scale), UInt32(bounds.height * scale))
         guard size.0 > 0, size.1 > 0, size != lastPixelSize else { return }
         lastPixelSize = size
@@ -165,7 +173,8 @@ final class TerminalSurfaceView: UIView {
         ghostty_surface_set_content_scale(surface, scale, scale)
         ghostty_surface_set_size(surface, size.0, size.1)
         if let pinnedRow { scrollViewport(pinnedRow) }
-        drawNow()
+        // Out of a window nothing shows: the next frame in one draws it.
+        if window != nil { drawNow() }
     }
 
     #if DEBUG
