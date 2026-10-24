@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileAgentChat
 import CmuxMobileChief
+import CmuxMobileDesign
 import CmuxMobileModel
 import SwiftUI
 
@@ -80,7 +81,12 @@ extension ShellModel {
             tab = .feed
             feedPath = [destination]
         case .workspace(let id, let tabID):
-            guard let workspace = store.workspace(id: id) else { return false }
+            guard let workspace = store.workspace(id: id) else {
+                // Gone since `decide` saw it: the Feed, never a wait on a screen that will not come.
+                tab = .feed
+                toast = NotificationTarget.fallbackToast(route, macName: macName(route.mac))
+                return true
+            }
             if let tabID { store.noteOpened(tabID: tabID, in: workspace.id) }
             store.markSeen(workspace.id)
             tab = .workspaces
@@ -96,8 +102,26 @@ extension ShellModel {
             return false
         case .feed:
             tab = .feed
+            toast = NotificationTarget.fallbackToast(route, macName: macName(route.mac))
         }
         return true
+    }
+
+    private func macName(_ id: String?) -> String? {
+        guard let id else { return nil }
+        return store.teams.flatMap(\.macs).first { $0.id == id }?.name
+    }
+}
+
+extension NotificationTarget {
+    /// Said when a tap that named a chat, workspace or tab settles for the Feed
+    /// (the screen is gone, its Mac is offline, or its tree never came): the
+    /// person sees why the exact screen did not open. Nil when the Feed is what
+    /// the notification points at.
+    static func fallbackToast(_ route: NotificationRoute, macName: String?) -> CmuxMobileToast? {
+        guard route.kind != "chief", route.sessionID != nil || route.workspaceID != nil || route.tabID != nil else { return nil }
+        let mac = macName ?? "your Mac"
+        return CmuxMobileToast(symbol: "exclamationmark.circle", text: "Couldn't open that on \(mac). Showing the Feed.")
     }
 }
 #endif
