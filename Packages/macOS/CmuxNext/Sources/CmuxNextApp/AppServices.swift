@@ -174,6 +174,7 @@ final class AppServices {
     private(set) lazy var rightSidebarSections: RightSidebarSections = {
         let sections = RightSidebarSections()
         sections.registerAppSections()
+        sections.prewarmIcons()
         return sections
     }()
     /// `cmux://agent-activity`: the computer use sessions page.
@@ -405,6 +406,7 @@ final class AppServices {
         machines.isFeatureDisabled = { [registry] in registry.disabledFeatures.contains($0) }
         _ = cloud  // built here, as before
         _ = feed  // built here, as before
+        _ = rightSidebarSections  // built at launch: its icons are made off the main thread before the first show
         _ = ssh  // built here, as before
         BrowserLifecycleTrace.shared.configure { tab, event in
             InputJournal.shared.append(window: nil, .content(tab: tab, event: event))
