@@ -42,7 +42,7 @@ export type ComposerBoxProps = {
   /// Codex's attachments say they go as files (AttachmentStrip).
   codex?: boolean;
   onRemoveAttachment(id: string): void;
-  onRestoreAttachment?(id: string): void;
+  onRestoreAttachment?(ids: readonly string[]): void;
   onPasteAttachments?(attachments: ComposerAttachment[], index: number): void;
   onPasteFiles?(files: File[]): void;
   /// The prompt's own right-click menu (POLISH.md right-click contract); WebKit's never shows.

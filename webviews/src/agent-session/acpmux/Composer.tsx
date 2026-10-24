@@ -514,14 +514,22 @@ export function Composer({
     [setAttachments],
   );
   const restoreAttachment = useCallback(
-    (id: string) => {
-      const restored = removedInline.current.find((entry) => entry.attachment.id === id);
-      if (!restored) return;
-      removedInline.current = removedInline.current.filter((entry) => entry.attachment.id !== id);
+    (ids: readonly string[]) => {
+      const restored = ids
+        .map((id) => removedInline.current.find((entry) => entry.attachment.id === id))
+        .filter((entry): entry is { attachment: ComposerAttachment; index: number } => Boolean(entry))
+        .sort((left, right) => left.index - right.index);
+      if (!restored.length) return;
+      const restoredIds = new Set(restored.map((entry) => entry.attachment.id));
+      removedInline.current = removedInline.current.filter((entry) => !restoredIds.has(entry.attachment.id));
       setAttachments((items) => {
-        if (items.some((item) => item.id === id)) return items;
-        const at = Math.min(Math.max(restored.index, 0), items.length);
-        return [...items.slice(0, at), restored.attachment, ...items.slice(at)];
+        const next = [...items];
+        for (const entry of restored) {
+          if (next.some((item) => item.id === entry.attachment.id)) continue;
+          const at = Math.min(Math.max(entry.index, 0), next.length);
+          next.splice(at, 0, entry.attachment);
+        }
+        return next;
       });
     },
     [setAttachments],

@@ -62,10 +62,18 @@ export function usePastedChips(
     take(text: string): boolean {
       if (raw() || !isLargePaste(text)) return false;
       const chip = pastedTextAttachment(text);
-      field.current?.insertInlineAttachments([chip.id]);
+      const insertionIndex = field.current?.insertInlineAttachments([chip.id]);
       // Ahead of the render, so a second paste at once counts this one.
-      attachments.current = [...attachments.current, chip];
-      setAttachments((current) => [...current, chip]);
+      const at =
+        insertionIndex === undefined
+          ? attachments.current.length
+          : Math.min(Math.max(insertionIndex, 0), attachments.current.length);
+      attachments.current = [...attachments.current.slice(0, at), chip, ...attachments.current.slice(at)];
+      setAttachments((current) => {
+        const at =
+          insertionIndex === undefined ? current.length : Math.min(Math.max(insertionIndex, 0), current.length);
+        return [...current.slice(0, at), chip, ...current.slice(at)];
+      });
       return true;
     },
     /// Puts chip `id`'s text back in the prompt at the caret, as a paste of it, and drops the chip.
