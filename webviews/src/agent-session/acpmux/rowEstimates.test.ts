@@ -155,6 +155,10 @@ test("specialized latest rows reserve the same no-summary turn gap before mounti
       { id: "u", version: 1, at: 1_000, kind: "user", text: "Wait" },
       { id: "notice", version: 1, at: 2_000, kind: "notice" },
     ],
+    [
+      { id: "u", version: 1, at: 1_000, kind: "user", text: "Think" },
+      { id: "quiet", version: 1, at: 2_000, kind: "activity", items: [{ kind: "thought", text: "brief" }] },
+    ],
   ];
   for (const source of sources) {
     const rows = turnView(source as never, new Set(), { now: 3_000 });
@@ -165,7 +169,8 @@ test("specialized latest rows reserve the same no-summary turn gap before mounti
       rows.map(({ lastTurn: _lastTurn, ...row }) => row),
       720,
     ).heights.at(-1)!;
-    expect(withGap - withoutMarker).toBe(16);
+    if (final.items?.[0]?.kind === "thought") expect(withGap).toBe(0);
+    else expect(withGap - withoutMarker).toBe(16);
   }
 });
 
