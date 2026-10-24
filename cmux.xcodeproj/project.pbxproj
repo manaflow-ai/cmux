@@ -683,6 +683,8 @@
 		F3000000A1B2C3D4E5F60718 /* CJKIMEInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */; };
 		D3571002A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3571003A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift */; };
 		A41CE856DED1347FAEBEE999 /* ClaudeAccountCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9863ADE859F3FF4220C9B3E /* ClaudeAccountCommands.swift */; };
+		6D5AA657655087BE4A72885A /* ClaudeAccountPaneEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB6E5EB7C2F8101C5CFB2376 /* ClaudeAccountPaneEnvironment.swift */; };
+		300B37BD9C44FCC2EA739A8A /* ClaudeAccountPaneEnvironmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DB5F7ECD99750D180CCC3AA /* ClaudeAccountPaneEnvironmentTests.swift */; };
 		6AF0FB5D2D2BB1190A80747B /* ClaudeAccountSwitchManualResume.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F3B6A42CA9561E7EFD08E24 /* ClaudeAccountSwitchManualResume.swift */; };
 		58F2883731FA8681241087D6 /* ClaudeAccountSwitchMenuModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DDB03AFA9156CF673F5E0CB /* ClaudeAccountSwitchMenuModel.swift */; };
 		0459FCC70EB07D4475E2B2C0 /* ClaudeAccountSwitchMenuModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C2B2CB556860C05746D0946 /* ClaudeAccountSwitchMenuModelTests.swift */; };
@@ -5558,6 +5560,8 @@
 		F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CJKIMEInputTests.swift; sourceTree = "<group>"; };
 		D3571003A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CJKIMEMarkedSelectionTests.swift; sourceTree = "<group>"; };
 		F9863ADE859F3FF4220C9B3E /* ClaudeAccountCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeAccountCommands.swift; sourceTree = "<group>"; };
+		EB6E5EB7C2F8101C5CFB2376 /* ClaudeAccountPaneEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeAccountPaneEnvironment.swift; sourceTree = "<group>"; };
+		4DB5F7ECD99750D180CCC3AA /* ClaudeAccountPaneEnvironmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ClaudeAccountPaneEnvironmentTests.swift"; sourceTree = "<group>"; };
 		2F3B6A42CA9561E7EFD08E24 /* ClaudeAccountSwitchManualResume.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeAccountSwitchManualResume.swift; sourceTree = "<group>"; };
 		3DDB03AFA9156CF673F5E0CB /* ClaudeAccountSwitchMenuModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeAccountSwitchMenuModel.swift; sourceTree = "<group>"; };
 		7C2B2CB556860C05746D0946 /* ClaudeAccountSwitchMenuModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ClaudeAccountSwitchMenuModelTests.swift"; sourceTree = "<group>"; };
@@ -12708,6 +12712,7 @@
 				2432E44D6AB85AECE0AF6F97 /* ClaudeAccountSwitchSocketPreflight.swift */,
 				8AA4E712D4BCF49C81579F0B /* SidebarAgentProfileLabel+RowRefresh.swift */,
 				AD8B02ED602FD95BE1C75140 /* ClaudeAccountSwitchReplacedAgents.swift */,
+				EB6E5EB7C2F8101C5CFB2376 /* ClaudeAccountPaneEnvironment.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -14356,6 +14361,7 @@
 				2F3631B291CA3E82078CE175 /* ClaudeAccountSwitchSocketPreflightTests.swift */,
 				F67E23869A7EDDA131CCC704 /* SidebarLiveAgentIndexRefreshTests.swift */,
 				2EE5EB343364D1040FFDF732 /* ClaudeAccountSwitchReplacedAgentsTests.swift */,
+				4DB5F7ECD99750D180CCC3AA /* ClaudeAccountPaneEnvironmentTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -15653,6 +15659,7 @@
 				C41EFA69FDC0B7F2ADA75E9D /* ChiefTurnContextBuilder.swift in Sources */,
 				C41EF69DD6EC14119E2F575D /* ChiefWakeScheduler.swift in Sources */,
 				C41EF8430A1F00A816DB2695 /* ChiefWorkingStatusView.swift in Sources */,
+				6D5AA657655087BE4A72885A /* ClaudeAccountPaneEnvironment.swift in Sources */,
 				6AF0FB5D2D2BB1190A80747B /* ClaudeAccountSwitchManualResume.swift in Sources */,
 				58F2883731FA8681241087D6 /* ClaudeAccountSwitchMenuModel.swift in Sources */,
 				4ADB77AC22F1DD7DFF6D88FF /* ClaudeAccountSwitchNotice.swift in Sources */,
@@ -18571,6 +18578,7 @@
 				F3000002A1B2C3D4E5F60718 /* CJKIMEInputTests+DeadKeyComposition.swift in Sources */,
 				F3000000A1B2C3D4E5F60718 /* CJKIMEInputTests.swift in Sources */,
 				D3571002A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift in Sources */,
+				300B37BD9C44FCC2EA739A8A /* ClaudeAccountPaneEnvironmentTests.swift in Sources */,
 				0459FCC70EB07D4475E2B2C0 /* ClaudeAccountSwitchMenuModelTests.swift in Sources */,
 				4CA094151CD7A385217F16E3 /* ClaudeAccountSwitchNoticeTests.swift in Sources */,
 				EC75985A6F3AA4E064238360 /* ClaudeAccountSwitchReplacedAgentsTests.swift in Sources */,
