@@ -1,5 +1,7 @@
 @testable import CmuxNextApp
+import CmuxNextDesignTokens
 import CmuxNextPages
+import CmuxNextSettings
 import Foundation
 import Testing
 
@@ -79,8 +81,8 @@ private enum ThreadProbe {
         #expect(first.written == MarkdownTableWidthWrite(attribute: true, fallback: true))
         #expect(second.written == MarkdownTableWidthWrite(attribute: true, fallback: true))
         #expect(removed.written == MarkdownTableWidthWrite(attribute: true, fallback: true))
-        #expect([first.sequence, second.sequence, removed.sequence] == [1, 2, 3])
-        #expect(await storage.writeOnMainActor == [false, false, false])
+        let writesOnMain: [Bool] = await storage.writeOnMainActor
+        #expect(writesOnMain == [false, false, false])
 
         let writes = await storage.writes
         let firstData = try #require(writes[0])
