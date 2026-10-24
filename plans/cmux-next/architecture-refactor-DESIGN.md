@@ -74,14 +74,14 @@ Removed (batch 4, hard 31 -> 28; each edge was a type in the wrong layer, not a 
   the model and the service together (`HistoryPageService.stash`), and the service reloads the
   model through the seam. History does not depend on Stash: no ui -> service edge took its place.
   Open: the model moves to a History domain package with History's own model (B4).
-- **DaemonService -> Layout.** `RefusalStrings.direction(_ LayoutDirection)` moved to the App
-  (`Handlers/RefusalStrings+LayoutDirection.swift`, 15 lines of logic in the composition root);
-  the direction words are `package` in DaemonService for it. Open debt: lift `LayoutDirection` to
-  core (it is a pure value enum) and move `direction(_:)` back into DaemonService. That needs a
-  `public import CmuxNextCompat` line in `LayoutRootView.swift` (PL-motion-core), so it waits for
-  that owner; the request went to session `cmux-b6 [0ad95f]` on 2026-10-23. After that line lands:
-  move `LayoutDirection` to Compat, put `direction(_:)` back in `DaemonService/RefusalStrings.swift`,
-  and delete the App file.
+- **DaemonService -> Layout.** The only Layout type DaemonService used was `LayoutDirection`, a
+  pure value enum, in `RefusalStrings.direction(_:)`. The enum is core now
+  (`CmuxNextCompat/Layout/LayoutDirection.swift`); Layout keeps the name as
+  `public typealias LayoutDirection = CmuxNextCompat.LayoutDirection` (LayoutIntent.swift), so no
+  call site changes. The Layout and Bridge files with `LayoutDirection` in a public signature
+  (LayoutModel.swift, LayoutRootView.swift line 2 with the grant from session `cmux-b6 [0ad95f]`,
+  Bridge/PaneResize.swift) import CmuxNextCompat publicly. `direction(_:)` stays in
+  `DaemonService/RefusalStrings.swift` with its direction words private; nothing moved into the App.
 - **MobileHost -> RemoteBrowser.** The loopback remote browser host process
   (`LocalRemoteBrowserHost`, its locator) is a service: it moved to CmuxNextRemote (BrowserHost/),
   `RemoteRdLoopbackEndpoint` and the host's `Failure` (`LocalRemoteBrowserHostFailure`) to Compat,
