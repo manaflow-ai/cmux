@@ -121,8 +121,27 @@ public final class DaemonTerminalSession: TerminalSession {
     /// The input lane given up because a `send` got no answer: its other
     /// unanswered sends are not sent again either.
     private var abandonedInputLane: DaemonClient?
-    /// Unanswered sends allowed at once.
-    static let maxInputInFlight = 8
+    /// Unanswered sends allowed at once: about a second of scroll frames, so
+    /// a lost reply does not stop input (later sends keep both directions
+    /// moving, and the loss is repaired by duplicate ACKs).
+    static let maxInputInFlight = 64
+    /// How long a `send` may go unanswered before ``armTailProbe()`` writes
+    /// `ping`s behind it: many round trips, well under the 1 s RTO.
+    var tailProbeDelay: Duration = .milliseconds(150)
+    /// Writes and answers so far: a probe fires only if none came since it was armed.
+    private var inputProgress = 0
+    private var tailProbe: Task<Void, Never>?
+    /// When each unanswered send went out, by batch number.
+    private var inputWrittenAt: [Int: TimeInterval] = [:]
+    /// No new send while the oldest unanswered one is older than this
+    /// (seconds): a stalled link holds typed keys in `input`, where the hold
+    /// rules apply, instead of writing up to `maxInputInFlight` of them to
+    /// arrive late. Scrolling keeps many in flight; a stall does not.
+    var inputStallLimit: TimeInterval = 0.5
+    /// Sends written and not yet answered (tests).
+    var inputsInFlight: Int { inputInFlight }
+    /// A tail probe is armed (tests).
+    var tailProbeArmed: Bool { tailProbe != nil }
     private var nextInputBatch = 0
     /// Batches of the failed channel, held until its sends all settle.
     private var inputFailed: [(number: Int, bytes: Data, at: TimeInterval, written: Bool)] = []
@@ -356,6 +375,8 @@ public final class DaemonTerminalSession: TerminalSession {
         dropInputLane()
         outbox.removeAll()
         input.removeAll()
+        tailProbe?.cancel()
+        tailProbe = nil
     }
 
     /// Attaches again after a dropped link. A no-op while attached or
@@ -829,11 +850,13 @@ public final class DaemonTerminalSession: TerminalSession {
         expireInput()
         guard !input.isEmpty, let target = inputClient ?? client else { return }
         if inputInFlight > 0, inputRecovering || inputTarget !== target || inputInFlight >= Self.maxInputInFlight { return }
+        if let oldest = inputWrittenAt.values.min(), now() - oldest > inputStallLimit { return }
         inputWriting = true
         inputInFlight += 1
         inputTarget = target
         let number = nextInputBatch
         nextInputBatch += 1
+        inputWrittenAt[number] = now()
         let typedAt = input[0].at
         let batch = input.reduce(into: Data()) { $0.append($1.bytes) }
         input.removeAll()
@@ -860,6 +883,8 @@ public final class DaemonTerminalSession: TerminalSession {
                 }
                 written = true
                 inputWriting = false
+                inputProgress += 1
+                armTailProbe()
                 drainInput()
                 let reply: Data
                 if onLane {
@@ -898,6 +923,7 @@ public final class DaemonTerminalSession: TerminalSession {
                     handler?(.connection(connectionState))
                 }
             }
+            inputWrittenAt[number] = nil
             inputSettled()
         }
     }
@@ -911,6 +937,7 @@ public final class DaemonTerminalSession: TerminalSession {
         inputRecovering = true
         inputFailed.append((number, Data(count: bytes), now(), written: true))
         if wasWriting { inputWriting = false }
+        inputWrittenAt[number] = nil
         if inputClient === lane { dropInputLane() }
         inputSettled()
     }
@@ -921,7 +948,14 @@ public final class DaemonTerminalSession: TerminalSession {
     /// typed already: then all of them are dropped and the screen is told.
     private func inputSettled() {
         inputInFlight -= 1
-        guard inputInFlight == 0 else { return drainInput() }
+        inputProgress += 1
+        guard inputInFlight == 0 else {
+            armTailProbe()
+            return drainInput()
+        }
+        tailProbe?.cancel()
+        tailProbe = nil
+        inputWrittenAt.removeAll()
         inputTarget = nil
         abandonedInputLane = nil
         if inputRecovering {
@@ -943,6 +977,46 @@ public final class DaemonTerminalSession: TerminalSession {
         drainInput()
     }
 
+    /// TUI scroll tail: when a `send` stays unanswered for
+    /// ``tailProbeDelay`` with no other progress, three `ping`s go behind it
+    /// on the same channel (twice at most per stall). A segment lost at the
+    /// end of a flick has nothing behind it to produce duplicate ACKs, so it
+    /// waited out the 1 s retransmission timeout; the pings' segments (or
+    /// their replies, for a lost reply) bring the three duplicate ACKs that
+    /// retransmit it at once. Nothing typed is ever sent twice.
+    private func armTailProbe() {
+        tailProbe?.cancel()
+        guard attached, inputInFlight > 0, !inputRecovering, let target = inputTarget else {
+            tailProbe = nil
+            return
+        }
+        let mark = inputProgress
+        let delay = tailProbeDelay
+        tailProbe = Task { [weak self] in
+            for _ in 0..<2 {
+                try? await Task.sleep(for: delay)
+                guard !Task.isCancelled, self?.tailProbeStillDue(mark: mark, target: target) == true else { return }
+                var ids: [String] = []
+                for _ in 0..<3 where !Task.isCancelled {
+                    guard let id = try? await target.submit("ping") else { break }
+                    ids.append(id)
+                }
+                // Collect the replies so none is left waiting in the client
+                // (they end with the channel if it never answers).
+                let sent = ids
+                Task { for id in sent { _ = try? await target.reply(to: id) } }
+            }
+        }
+    }
+
+    /// Nothing was written or answered since the probe was armed, and the
+    /// stalled sends are still on `target`.
+    private func tailProbeStillDue(mark: Int, target: DaemonClient) -> Bool {
+        guard attached, inputProgress == mark, inputInFlight > 0, !inputRecovering, inputTarget === target else { return false }
+        log.info("surface \(self.surface, privacy: .public): send unanswered for \(self.tailProbeDelay, privacy: .public); tail probe")
+        return true
+    }
+
     /// One main-queue turn's input goes out as one `send`: Ghostty writes a
     /// scroll frame's wheel reports one by one.
     private func scheduleInputDrain() {
@@ -961,18 +1035,22 @@ public final class DaemonTerminalSession: TerminalSession {
     private static func within<T: Sendable>(_ limit: Duration, _ operation: @escaping @Sendable () async throws -> T) async throws -> T? {
         let once = RaceOnce()
         let result: Result<T?, any Error> = await withCheckedContinuation { continuation in
+            let timer = TaskBox()
             let work = Task {
                 let result: Result<T?, any Error>
                 do { result = .success(try await operation()) } catch { result = .failure(error) }
-                if once.claim() { continuation.resume(returning: result) }
-            }
-            Task {
-                try? await Task.sleep(for: limit)
                 if once.claim() {
+                    timer.cancel()
+                    continuation.resume(returning: result)
+                }
+            }
+            timer.set(Task {
+                try? await Task.sleep(for: limit)
+                if !Task.isCancelled, once.claim() {
                     work.cancel()
                     continuation.resume(returning: .success(nil))
                 }
-            }
+            })
         }
         return try result.get()
     }
@@ -1076,5 +1154,28 @@ public final class DaemonTerminalSession: TerminalSession {
         if object["ok"] as? Bool == false { return (object["error"] as? String) ?? "refused" }
         if let error = object["error"] as? String { return error }
         return nil
+    }
+}
+
+/// A task another task may cancel once it is set (``DaemonTerminalSession/within``).
+private final class TaskBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var task: Task<Void, Never>?
+    private var cancelled = false
+
+    func set(_ task: Task<Void, Never>) {
+        let cancelNow = lock.withLock { () -> Bool in
+            self.task = task
+            return cancelled
+        }
+        if cancelNow { task.cancel() }
+    }
+
+    func cancel() {
+        let task = lock.withLock { () -> Task<Void, Never>? in
+            cancelled = true
+            return self.task
+        }
+        task?.cancel()
     }
 }

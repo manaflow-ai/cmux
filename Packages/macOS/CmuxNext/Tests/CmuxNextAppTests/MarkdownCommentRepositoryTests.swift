@@ -3,7 +3,6 @@ import CmuxNextDesign
 import CmuxNextDesignTokens
 import CmuxNextPages
 import CmuxNextSettings
-import CmuxNextSettings
 import Foundation
 import Testing
 

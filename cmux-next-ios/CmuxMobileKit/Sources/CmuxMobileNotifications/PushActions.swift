@@ -158,11 +158,16 @@ public struct PushActions: Sendable {
         case .permission:
             // None listed (a v1 push, or a sealed one the Mac trimmed to fit): the app opens on it.
             guard !payload.options.isEmpty else { return [(.answer, title(.answer))] }
+            // As the Feed (`PushPayload.phoneOptions`): Always allow only when the agent offers no
+            // single-use Allow; acpmux then refuses it and says to allow it on the Mac.
+            let options = payload.phoneOptions
             var out: [(action: PushAction, title: String)] = []
-            if payload.options.contains(where: { $0.kind == .allowOnce }) { out.append((.allowOnce, title(.allowOnce))) }
-            // Never Always allow: acpmux refuses a lasting grant from a phone
-            // (`remote.lasting_grant_refused`); allow it for the chat on the Mac.
-            if payload.options.contains(where: \.isReject) { out.append((.deny, title(.deny))) }
+            if options.contains(where: { $0.kind == .allowOnce }) {
+                out.append((.allowOnce, title(.allowOnce)))
+            } else if options.contains(where: { $0.kind == .allowAlways }) {
+                out.append((.allowAlways, title(.allowAlways)))
+            }
+            if options.contains(where: \.isReject) { out.append((.deny, title(.deny))) }
             return out
         case .completed, .failed, .chief:
             return [(.reply, title(.reply))]

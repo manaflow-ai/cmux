@@ -43,9 +43,42 @@ echo "CREATE-MACHINE host=$(scutil --get ComputerName 2>/dev/null || hostname) c
 echo "CREATE-LOAD before $(uptime | sed 's/.*load averages*: //')"
 status=0
 
+# holder <label> <tree key>: the published holder companion of that tree, beside its cmux-tui as
+# cmux-holder, the way pin-cmux-tui.sh fetch_tree_companion gets it (the attested manifest of the
+# commit named in the tree's source.json). A tree whose build published no holder gets none, and
+# the daemon then runs the holder built into its own binary.
+holder() { # label key
+  local dir="$work/bin-$1" base="${CMUX_TUI_PIN_BASE:-https://files.cmux.com/cmux-tui}" owner want
+  local asset=cmux-tui-holder-aarch64-apple-darwin
+  rm -f "$dir/cmux-holder"
+  owner="$(curl -fsSL --proto '=https' "$base/tree/$2/source.json" 2>/dev/null \
+    | python3 -I -c 'import json,sys; print(json.load(sys.stdin).get("commit") or "")' 2>/dev/null || true)"
+  if [[ ! "$owner" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "CREATE-BIN $1 holder none (tree $2 names no source commit)"
+    return 0
+  fi
+  curl -fsSL --proto '=https' "$base/$owner/manifest.json" -o "$dir/manifest.json" \
+    || { echo "CREATE could not download $base/$owner/manifest.json" >&2; exit 1; }
+  want="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["binaries"].get(sys.argv[2]) or "none")' \
+    "$dir/manifest.json" "$asset")"
+  rm -f "$dir/manifest.json"
+  if [ "$want" = none ]; then
+    echo "CREATE-BIN $1 holder none (${owner:0:12} published no $asset)"
+    return 0
+  fi
+  [[ "$want" =~ ^[0-9a-f]{64}$ ]] || { echo "CREATE malformed $asset sha256 in ${owner:0:12} manifest" >&2; exit 1; }
+  curl -fsSL --proto '=https' "$base/$owner/$asset" -o "$dir/cmux-holder" \
+    || { echo "CREATE could not download $base/$owner/$asset" >&2; exit 1; }
+  [ "$(shasum -a 256 "$dir/cmux-holder" | awk '{print $1}')" = "$want" ] \
+    || { echo "CREATE $asset of ${owner:0:12} does not match its manifest" >&2; exit 1; }
+  chmod +x "$dir/cmux-holder"
+  echo "CREATE-BIN $1 holder published owner=${owner:0:12} sha256=$want"
+}
+
 # binary <label> <revision>: $work/bin-<label>/cmux-tui, with that revision's terminal holder
 # beside it as cmux-holder when it has one (the daemon starts holders from that sibling, else
-# from the holder built into its own binary).
+# from the holder built into its own binary). The published tree binary and its published holder
+# when the tree is published (the build the app ships), else a release build of both from source.
 binary() { # label revision
   local key sum base="${CMUX_TUI_PIN_BASE:-https://files.cmux.com/cmux-tui}" dir="$work/bin-$1"
   mkdir -p "$dir"
@@ -54,11 +87,10 @@ binary() { # label revision
     sum="$(curl -fsSL --proto '=https' "$base/tree/$key/cmux-tui-aarch64-apple-darwin.sha256" | awk '{print $1}')"
     [ "$(shasum -a 256 "$dir/cmux-tui" | awk '{print $1}')" = "$sum" ] || { echo "CREATE sha256 mismatch for $1 ($key)" >&2; exit 1; }
     echo "CREATE-BIN $1 rev=$2 published key=$key"
-  fi
-  if [ ! -s "$dir/cmux-tui" ] || git cat-file -e "$2:cmux-tui/crates/cmux-holder/src/main.rs" 2>/dev/null; then
-    # Unpublished, or a revision with a standalone holder: build both from source (the published
-    # tree carries no holder companion under its tree key).
-    echo "CREATE-BIN $1 rev=$2 key=$key building cmux-tui and its holder from source"
+    holder "$1" "$key"
+  else
+    rm -f "$dir/cmux-tui"
+    echo "CREATE-BIN $1 rev=$2 key=$key not published; building cmux-tui and its holder from source"
     local src="$work/src-$1"
     git worktree add --detach "$src" "$2" >/dev/null
     (cd "$src" && export CI=1 && git submodule update --init --depth 1 ghostty-next >/dev/null \

@@ -1,11 +1,11 @@
 //! The daemon's side of the holder link.
 
 use std::collections::VecDeque;
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, Read, Write};
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::os::unix::net::UnixStream;
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, ChildStdout, Command, Stdio};
 use std::time::{Duration, Instant};
 
 use crate::wire::{self, In, Kind, Out};
@@ -44,6 +44,74 @@ pub enum Event {
     Pong {
         nonce: u64,
     },
+    /// The holder's answer to an ADOPT (wire version 5), its segment
+    /// dropped: [`HolderClient::adopted`] returns it with the segment.
+    Adopted {
+        chan: u32,
+        oldest: u64,
+        end: u64,
+        /// The answer carried the ring's segment.
+        ring: bool,
+    },
+}
+
+/// The ring a holder writes an adopted terminal's output to
+/// ([`Kind::Adopted`], wire version 5).
+#[derive(Debug)]
+pub struct Adopted {
+    /// Offset of the oldest byte the ring keeps.
+    pub oldest: u64,
+    /// Offset after its newest byte.
+    pub end: u64,
+    /// The ring's segment (`None`: the ring is private).
+    pub ring: Option<OwnedFd>,
+}
+
+/// How long a just-started holder may take to say `ready`. One that hangs
+/// before it (a stall in its setup or its first exec) is killed then, so
+/// it cannot hold up every terminal create for ever.
+pub const READY_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// The first line a just-started holder prints on `stdout` (`ready` once it
+/// listens), waiting at most `timeout`. An answer that ends without a
+/// newline (the holder exited) is returned as it is; no answer in time is a
+/// `TimedOut` error.
+pub fn first_line_within(stdout: &mut ChildStdout, timeout: Duration) -> io::Result<String> {
+    let deadline = Instant::now() + timeout;
+    let mut line = Vec::new();
+    let mut buf = [0u8; 256];
+    while !line.contains(&b'\n') && line.len() < 4096 {
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                format!("the holder did not say ready within {timeout:?}"),
+            ));
+        }
+        let mut poll_fd = libc::pollfd { fd: stdout.as_raw_fd(), events: libc::POLLIN, revents: 0 };
+        let millis = i32::try_from(left.as_millis()).unwrap_or(i32::MAX).max(1);
+        // SAFETY: polls one live pollfd; the timeout is the deadline left.
+        let ready = unsafe { libc::poll(&mut poll_fd, 1, millis) };
+        if ready < 0 {
+            let error = io::Error::last_os_error();
+            if error.kind() == io::ErrorKind::Interrupted {
+                continue;
+            }
+            return Err(error);
+        }
+        if ready == 0 {
+            continue;
+        }
+        match stdout.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => line.extend_from_slice(buf.get(..n).unwrap_or_default()),
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(error),
+        }
+    }
+    let end = line.iter().position(|byte| *byte == b'\n').map_or(line.len(), |at| at + 1);
+    line.truncate(end);
+    Ok(String::from_utf8_lossy(&line).into_owned())
 }
 
 /// A terminal a holder started: its pid and the custody dups.
@@ -81,15 +149,17 @@ pub fn launch_with(
     let mut stdin = child.stdin.take().ok_or_else(|| io::Error::other("no holder stdin"))?;
     stdin.write_all(format!("{hex}\n").as_bytes())?;
     drop(stdin);
-    let stdout = child.stdout.take().ok_or_else(|| io::Error::other("no holder stdout"))?;
-    let mut line = String::new();
-    BufReader::new(stdout).read_line(&mut line)?;
-    if line.trim() != "ready" {
-        let _ = child.kill();
-        let _ = child.wait();
-        return Err(io::Error::other(format!("holder did not start: {line:?}")));
+    let mut stdout = child.stdout.take().ok_or_else(|| io::Error::other("no holder stdout"))?;
+    let answer = first_line_within(&mut stdout, READY_TIMEOUT);
+    if matches!(&answer, Ok(line) if line.trim() == "ready") {
+        return Ok(child);
     }
-    Ok(child)
+    let _ = child.kill();
+    let _ = child.wait();
+    Err(match answer {
+        Ok(line) => io::Error::other(format!("holder did not start: {line:?}")),
+        Err(error) => error,
+    })
 }
 
 /// An authenticated link to a holder.
@@ -104,6 +174,16 @@ pub struct HolderClient {
 impl HolderClient {
     /// Connect and authenticate; returns the terminals the holder runs.
     pub fn connect(socket: &Path, token: &[u8; 32]) -> io::Result<(Self, Vec<Listed>)> {
+        Self::connect_as(socket, token, wire::VERSION)
+    }
+
+    /// [`Self::connect`], offering wire version `version` in the HELLO: an
+    /// older daemon's link (a test of what an older build gets).
+    pub fn connect_as(
+        socket: &Path,
+        token: &[u8; 32],
+        version: u16,
+    ) -> io::Result<(Self, Vec<Listed>)> {
         let stream = UnixStream::connect(socket)?;
         wire::tune_socket(stream.as_raw_fd());
         let mut client = Self {
@@ -112,7 +192,7 @@ impl HolderClient {
             pending: VecDeque::new(),
             version: wire::MIN_VERSION,
         };
-        client.send(Kind::Hello, 0, &Out::default().u16(wire::VERSION).bytes(token).0, None)?;
+        client.send(Kind::Hello, 0, &Out::default().u16(version).bytes(token).0, None)?;
         let deadline = Instant::now() + Duration::from_secs(10);
         let count = loop {
             let frame = client.frame(deadline)?;
@@ -140,6 +220,14 @@ impl HolderClient {
     /// and the settled wire version (for [`crate::link::HolderLink`]).
     pub(crate) fn into_parts(self) -> (UnixStream, wire::Reader, u16) {
         (self.stream, self.reader, self.version)
+    }
+
+    /// End the link now, as a daemon's death does: the holder reads its
+    /// end even while a process another thread just forked still holds a
+    /// copy of the socket (until that child's exec closes it), which a
+    /// plain drop would leave open.
+    pub fn end(self) {
+        let _ = self.stream.shutdown(std::net::Shutdown::Both);
     }
 
     /// Whether the holder sends at most [`wire::CREDIT_WINDOW`] past the
@@ -198,7 +286,8 @@ impl HolderClient {
     /// Hand a running terminal and its ring segment to this holder (wire
     /// version 4): the holder continues the dead holder's ring, with every
     /// byte it read. `base` is where `prologue`'s screen is (the offset the
-    /// daemon parsed), `resume` where a fresh ring would start.
+    /// daemon parsed), `resume` where a fresh ring would start. A holder of
+    /// wire version 5 answers with the ring it writes ([`Self::adopted`]).
     pub fn adopt_with_ring(
         &mut self,
         chan: u32,
@@ -220,6 +309,38 @@ impl HolderClient {
 
     pub fn attach(&mut self, chan: u32, from: u64) -> io::Result<()> {
         self.send(Kind::Attach, chan, &Out::default().u64(from).0, None)
+    }
+
+    /// [`Self::attach`] for a daemon that received up to `from` but parsed
+    /// only up to `parsed` (wire version 5): the credit counts from `parsed`.
+    pub fn attach_parsed(&mut self, chan: u32, from: u64, parsed: u64) -> io::Result<()> {
+        self.send(Kind::Attach, chan, &Out::default().u64(from).u64(parsed).0, None)
+    }
+
+    /// The holder's answer to an ADOPT of `chan` (wire version 5): the ring
+    /// it writes the terminal's output to. Other events wait for
+    /// [`Self::next_event`].
+    pub fn adopted(&mut self, chan: u32) -> io::Result<Adopted> {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let frame = self.frame(deadline)?;
+            match Kind::from_u16(frame.kind) {
+                Some(Kind::Adopted) if frame.chan == chan => {
+                    let mut input = In(&frame.payload);
+                    let (oldest, end) = (input.u64()?, input.u64()?);
+                    return Ok(Adopted { oldest, end, ring: frame.fds.into_iter().next() });
+                }
+                Some(Kind::Error) if frame.chan == chan => {
+                    return Err(io::Error::other(error_message(&frame.payload)));
+                }
+                _ => self.keep(frame)?,
+            }
+        }
+    }
+
+    /// Ask the holder for a [`Event::Pong`] with `nonce`.
+    pub fn ping(&mut self, nonce: u64) -> io::Result<()> {
+        self.send(Kind::Ping, 0, &Out::default().u64(nonce).0, None)
     }
 
     /// [`Self::attach`] as a restarted daemon does: the prologue first.
@@ -293,6 +414,12 @@ impl HolderClient {
                 message: String::from_utf8_lossy(input.rest()).into_owned(),
             },
             Some(Kind::Pong) => Event::Pong { nonce: input.u64()? },
+            Some(Kind::Adopted) => Event::Adopted {
+                chan,
+                oldest: input.u64()?,
+                end: input.u64()?,
+                ring: !frame.fds.is_empty(),
+            },
             _ => return Ok(()),
         };
         self.pending.push_back(event);

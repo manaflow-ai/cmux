@@ -4135,6 +4135,16 @@
       "title" : "Cmd-W Closes Pinned Tabs",
       "type" : "boolean"
     },
+    "tabs.commandDigits" : {
+      "default" : "workspaces",
+      "description" : "Workspaces: Command-1 to 9 go to sidebar items and Control-1 to 9 to tabs. Tabs: Command-1 to 9 go to the focused pane's tabs and Control-1 to 9 to workspaces.",
+      "enum" : [
+        "workspaces",
+        "tabs"
+      ],
+      "title" : "Command-1 to 9 Select",
+      "type" : "string"
+    },
     "tabs.newTabNowPlaying" : {
       "default" : false,
       "description" : "A player for what is playing, on the New Tab page.",
