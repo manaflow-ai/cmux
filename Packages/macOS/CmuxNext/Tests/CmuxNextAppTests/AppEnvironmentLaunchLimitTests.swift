@@ -22,6 +22,7 @@ struct AppEnvironmentLaunchLimitTests {
     /// so the daemon records it and gives it back to its shells, hooks and plugins.
     @Test func theDaemonGetsTheLaunchLimit() {
         let environment = AppEnvironment.current([:], openFiles: Self.raised)
+        #expect(environment.launchOpenFileLimit == 256)
         #expect(environment.daemonEnvironment == [Self.key: "256"])
         let ensure = DaemonService.ownerProcessEnvironment(launch: environment.daemonEnvironment)
         #expect(ensure[Self.key] == "256")
@@ -31,6 +32,7 @@ struct AppEnvironmentLaunchLimitTests {
     /// A launch that raised nothing (a shell with a higher limit) names no launch limit.
     @Test func aLaunchThatRaisedNothingNamesNoLaunchLimit() {
         let environment = AppEnvironment.current([:], openFiles: .init(before: 50_000, after: 50_000))
+        #expect(environment.launchOpenFileLimit == nil)
         #expect(environment.daemonEnvironment.isEmpty)
         #expect(DaemonService.ownerProcessEnvironment(launch: environment.daemonEnvironment)[Self.key] == nil)
     }
