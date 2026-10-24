@@ -42,13 +42,11 @@ public final class HoverCardCoordinator {
     /// The last pointer move was on the card.
     private var pointerWasOnCard = false
     private var observers: [MainActorObservation] = []
-    /// The last window-server answer to "which window is on top here", for its point and the time it was
-    /// asked: valid for one display frame (``topWindowLifetime``), so a burst of relayouts under a still
-    /// pointer asks once, and a window of another app or a non-key panel brought forward shows by the
-    /// next frame (no notification of this app says so).
-    var topWindowCache: (point: CGPoint, at: CFTimeInterval, number: Int)?
-    /// One frame at 120 Hz: how long a cached top window holds.
-    static let topWindowLifetime: CFTimeInterval = 1.0 / 120
+    /// The last window-server answer to "which window is on top here", for its point. Content moving under a
+    /// still pointer (each relayout, each frame of an animation) reuses it; a source window moving or resizing,
+    /// a pointer event and a pending card's deadline clear it. A window this app is never told about (another
+    /// app's, a non-key panel ordered front) is seen by the next pointer event or deadline: those decide cards.
+    var topWindowCache: (point: CGPoint, number: Int)?
     /// Machine events delivered (debug report).
     public private(set) var eventCount = 0
 
@@ -74,8 +72,6 @@ public final class HoverCardCoordinator {
         if let eventPointer, eventPointer.mouse == mouse { return eventPointer.point }
         return mouse
     }
-    /// The clock the cached top window expires on, in seconds (tests inject one).
-    public var now: () -> CFTimeInterval = { CACurrentMediaTime() }
     /// The number of the topmost window under a screen point, ignoring
     /// the card itself (tests inject one).
     public var windowNumberAt: ((CGPoint) -> Int?)?
@@ -156,6 +152,8 @@ public final class HoverCardCoordinator {
     /// coordinates, from the event) when known.
     public func pointerMoved(to point: CGPoint? = nil) {
         if let point { eventPointer = (point, pointerLocation()) }
+        // A pointer event decides a card: it asks the window server afresh, even at the same point.
+        topWindowCache = nil
         let now = currentPointer()
         let timing = HoverIntentTiming.current
         machine.leaveWindow = timing.cardGrace
@@ -310,6 +308,7 @@ public final class HoverCardCoordinator {
             timer.schedule(after: delay) { @MainActor [weak self] in
                 guard let self else { return }
                 send(.pointerOnCard(pointerIsOnCard()))
+                confirmPendingHit(token: token)
                 send(.deadline(token: token))
             }
         case .cancelTimer:
@@ -338,6 +337,16 @@ public final class HoverCardCoordinator {
             guard owned == nil else { return }
             panel?.dismiss()
         }
+    }
+
+    /// At a pending card's deadline, hit-tests once more with a fresh window-server answer: another app's
+    /// window, a non-key panel or a browser's child window ordered over the target during the delay posts
+    /// nothing here, and a still pointer sends no event. A target no longer on top ends the pending card (or
+    /// another target takes it), so the deadline that follows finds a stale token and shows nothing.
+    private func confirmPendingHit(token: Int) {
+        guard case .pending(_, let armed) = machine.phase, armed == token else { return }
+        topWindowCache = nil
+        send(.hit(hitTest(escaping: escapeTarget(at: currentPointer()))?.target, moved: false))
     }
 
     /// Tells sources when their card starts and stops being pending or shown.
@@ -430,6 +439,8 @@ public final class HoverCardCoordinator {
         guard let number, number != panel?.windowNumber,
               let window = sources.values.lazy.compactMap({ $0.source?.hoverCardWindow }).first(where: { $0.windowNumber == number })
         else { return }
+        // A source window moved or resized: the window on top under the pointer may be another now.
+        topWindowCache = nil
         geometryChanged(in: window, liveResizeEnded: liveResizeEnded)
     }
 

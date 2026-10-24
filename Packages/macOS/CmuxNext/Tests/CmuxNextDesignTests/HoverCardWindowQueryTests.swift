@@ -21,8 +21,6 @@ import CmuxNextDesignTokens
 
     private final class Queries {
         var count = 0
-        /// The coordinator's clock (seconds).
-        var now: CFTimeInterval = 100
     }
 
     /// A source in `window` with no targets: registering it installs the coordinator's window observers.
@@ -44,7 +42,6 @@ import CmuxNextDesignTokens
         coordinator.hoverCardsEnabled = { true }
         coordinator.mouseButtonDown = { false }
         coordinator.windowNumberAt = { _ in queries.count += 1; return main.windowNumber }
-        coordinator.now = { queries.now }
         coordinator.ownWindows = { queries.count += 1; return [(number: main.windowNumber, frame: main.frame)] }
         return coordinator
     }
@@ -68,15 +65,8 @@ import CmuxNextDesignTokens
         for _ in 0..<10 { coordinator.geometryChanged(in: main) }
         #expect(queries.count == 1, "\(queries.count) window server queries for 10 relayouts in one frame")
 
-        // A tab-close slide at 60 Hz, then one at 120 Hz with each frame a little late (display link jitter).
-        for _ in 0..<18 {
-            queries.now += 1.0 / 60
-            coordinator.geometryChanged(in: main)
-        }
-        for frame in 0..<36 {
-            queries.now += 1.0 / 120 + (frame.isMultiple(of: 2) ? 0.000_3 : -0.000_1)
-            coordinator.geometryChanged(in: main)
-        }
+        // The frames of a tab-close slide: the cache has no clock: any number of frames, at any rate, reuses the one answer.
+        for _ in 0..<54 { coordinator.geometryChanged(in: main) }
         #expect(queries.count == 1, "\(queries.count) window server queries for 54 animation frames under a still pointer")
 
         point.x += 5  // the pointer moved: ask again
