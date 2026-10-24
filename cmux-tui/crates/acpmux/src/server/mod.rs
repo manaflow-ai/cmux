@@ -519,6 +519,9 @@ pub async fn serve_ws_with(
                     return;
                 }
             };
+            // Only the HTTP upgrade is admission-controlled; an established
+            // connection is governed by its authenticated request budget.
+            drop(_handshake_slot);
             let admitted = std::mem::take(&mut *admitted.lock().unwrap_or_else(|e| e.into_inner()));
             let device = match admitted {
                 pairing::Admitted::Ticket(secret) => {
