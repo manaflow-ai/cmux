@@ -395,7 +395,7 @@ class RuleTests(Fixture):
         self.assertEqual([r.id for r, _ in refusals], ["main-async"])
         self.assertIn("perf-hot failed (RuntimeError: boom", " ".join(text for _, text in warnings))
         # The installed hook copies scripts/cmux-next; a CI edit of the lexer next to guardrails.py that no
-        # longer loads turns off app-size only, never the whole module (and so every rule).
+        # longer loads turns off the App rules (app-size, app-type) only, never the whole module (and so every rule).
         installed = self.root / "installed"
         installed.mkdir()
         shutil.copy(SOURCE / "scripts/cmux-next/guardrails.py", installed)
@@ -410,8 +410,9 @@ class RuleTests(Fixture):
         refusals, warnings = self.check(copy.check)
         self.assertEqual([r.id for r, _ in refusals], ["main-async"], "the other line rules still refuse")
         failed = [text for kind, text in warnings if kind == "guardrails"]
-        self.assertEqual(len(failed), 1, warnings)
+        self.assertEqual(len(failed), 2, warnings)  # app-size and app-type read the lexer
         self.assertIn("rule app-size failed (ImportError: a lexer that does not load", failed[0])
+        self.assertIn("rule app-type failed (ImportError: a lexer that does not load", failed[1])
 
     def test_a_refusal_names_only_crash_ratchet_options_that_exist(self):
         # The unchecked-sendable refusal sends the author to crash_ratchet.py: every option it names must run.
@@ -506,8 +507,14 @@ def code(text):
 
 
 def swift_type(name, lines, kind="struct", head=""):
-    """A top-level KIND NAME of LINES physical lines (swift_body inside, unique to NAME); HEAD goes before `struct`."""
-    return f"{head}{kind} {name} {{\n" + swift_body(lines - 2, name[0].lower() + name[1:]) + "}\n"
+    """A top-level KIND NAME of LINES physical lines (swift_body inside, unique to NAME); HEAD goes before `struct`.
+
+    Its braces balance, as in real Swift (app-type's brace scan reads them): the lines a whole swift_body function
+    does not fill are `let` lines (no blank line, so the source count is swift_body's)."""
+    tag, body = name[0].lower() + name[1:], lines - 2
+    whole = body - body % 8
+    rest = "".join(f"    let {tag}Extra{k} = {k}\n" for k in range(body - whole))
+    return f"{head}{kind} {name} {{\n" + swift_body(whole, tag) + rest + "}\n"
 
 
 def host_file(lines, domain="Foo", declare=True):
@@ -547,8 +554,14 @@ class AppSizeTests(Fixture):
         return code(self.quit[keep:])
 
     def hits(self, *args):
+        """The push's app-size and app-type refusals."""
         refusals, _ = self.check(*args)
-        return [hit for rule, found in refusals if rule.id == "app-size" for hit in found]
+        return [hit for rule, found in refusals if rule.id in ("app-size", "app-type") for hit in found]
+
+    def type_warnings(self, *args):
+        """app-type's warnings: files whose braces its scan could not follow (fail open)."""
+        _, warnings = self.check(*args)
+        return [text for kind, text in warnings if kind in ("app-type", "guardrails")]
 
     def assertRefused(self, *needles, args=()):
         found = self.hits(*args)
@@ -576,6 +589,7 @@ class AppSizeTests(Fixture):
     def assertPasses(self, message=""):
         self.assertEqual([h.text for h in self.hits()], [], message)
         self.assertEqual(self.growth(), [], message)
+        self.assertEqual(self.type_warnings(), [], message)
 
     def reset(self):
         self.git("reset", "--quiet", "--hard", self.base)
@@ -965,6 +979,207 @@ class AppSizeTests(Fixture):
         self.write(f"{APP}/TextBox/TextBoxStyle.swift", "struct TextBoxLook {\n    let size = 1\n}\n")
         self.commit("an old type renamed in place")
         self.assertEqual([h.text for h in self.hits()], [], "a rename in place adds no new code")
+
+    def indent(self, text, by=4):
+        return "".join(" " * by + line if line.strip() else line for line in text.splitlines(keepends=True))
+
+    def type_hits(self, path):
+        return [h for h in self.hits() if h.bucket.startswith(f"new:{path}:")]
+
+    def test_a_new_type_nested_in_an_extension_a_type_or_a_function_is_held_to_the_move_rule(self):
+        # Review 1 of app-size-b: the rule looked only at brace depth 0, so a type wrapped in `extension X { }` or
+        # added inside an existing class passed with a growth warning (CLAUDE.md: nested types still count).
+        view = f"{APP}/TextBox/TextBoxView.swift"
+        zoom = f"{APP}/Zoom/ZoomModel.swift"
+        self.rebase_on({zoom: "final class ZoomModel {\n" + swift_body(40, "zoom") + "}\n"}, "a Zoom class")
+        zoom_lines = (self.repo / zoom).read_text().splitlines(keepends=True)
+
+        def inside_zoom(text):
+            return "".join(zoom_lines[:-1]) + self.indent(text) + zoom_lines[-1]
+        refused = {
+            "a type in an extension appended to a file":
+                (view, None, "extension TextBoxView {\n" + self.indent(swift_type("Big", 40)) + "}\n",
+                 "TextBoxView.Big"),
+            "a 40-line struct inside an existing class": (zoom, inside_zoom(swift_type("Big", 40)), None, "ZoomModel.Big"),
+            "a 40-line private struct inside an existing class":
+                (zoom, inside_zoom(swift_type("Big", 40, head="private ")), None, "ZoomModel.Big"),
+            "a small public type in an extension":
+                (view, None, "extension TextBoxView {\n" + self.indent(swift_type("Tiny", 6, head="public ")) + "}\n",
+                 "TextBoxView.Tiny"),
+            "a 40-line local struct in a function body":
+                (zoom, inside_zoom("func zoomLayout() {\n" + self.indent(swift_type("Local", 40)) + "}\n"),
+                 None, "ZoomModel.zoomLayout().Local"),
+        }
+        for name, (path, text, appended, qual) in refused.items():
+            with self.subTest(refused=name):
+                self.reset()
+                if text is not None:
+                    self.write(path, text)
+                else:
+                    self.append(path, appended)
+                self.commit(name)
+                found = self.type_hits(path)
+                self.assertEqual([h.bucket for h in found], [f"new:{path}:{qual}"], name)
+                self.assertEqual(self.type_warnings(), [])
+        passes = {
+            "a small nested type in a class": inside_zoom(swift_type("Key", 10, kind="enum")),
+            "a small private type in an extension": None,
+        }
+        for name, text in passes.items():
+            with self.subTest(passes=name):
+                self.reset()
+                if text is not None:
+                    self.write(zoom, text)
+                else:
+                    self.append(view, "extension TextBoxView {\n" + self.indent(swift_type("Row", 10, head="private "))
+                                + "}\n")
+                self.commit(name)
+                self.assertEqual([h.text for h in self.hits() if h.bucket.startswith("new:")], [], name)
+        # A nested type moved unchanged out of its outer type into an extension of an existing file is a move.
+        self.reset()
+        metrics = self.indent(swift_type("Metrics", 30))
+        self.rebase_on({f"{APP}/TextBox/TextBoxLayout.swift": "struct TextBoxLayout {\n" + metrics + "}\n"},
+                       "a nested type")
+        self.write(f"{APP}/TextBox/TextBoxLayout.swift", "struct TextBoxLayout {\n}\n")
+        self.write(zoom, "".join(zoom_lines) + "extension ZoomModel {\n" + metrics + "}\n")
+        self.commit("a nested type moved into an extension of an existing file")
+        self.assertEqual([h.text for h in self.hits() if h.bucket.startswith("new:")], [])
+
+    def test_a_small_helper_that_stops_being_one_is_judged_whole(self):
+        # Review 1 of app-size-b: push 1 adds a 15-line private helper (it passes); push 2 drops `private` and grows
+        # it. The type was in the base, so the rule never looked at it again.
+        view = f"{APP}/TextBox/TextBoxView.swift"
+        lines = (self.repo / view).read_text()
+        helper = swift_type("Foo", 16, head="private ")
+        self.assertEqual(code(helper), guardrails.PRIVATE_TYPE_MAX)
+        self.append(view, helper)
+        self.commit("push 1: a private helper of 15 source lines")
+        self.assertEqual([h.text for h in self.hits()], [], "push 1 passes")
+        self.base = self.git("rev-parse", "HEAD").stdout.strip()
+        for name, text in (("push 2: no longer private and 300 lines", swift_type("Foo", 300)),
+                           ("push 2: no longer private", swift_type("Foo", 16)),
+                           ("push 2: still private, 40 lines", swift_type("Foo", 40, head="private "))):
+            with self.subTest(name):
+                self.reset()
+                self.write(view, lines + text)
+                self.commit(name)
+                found = self.type_hits(view)
+                self.assertEqual([h.bucket for h in found], [f"new:{view}:Foo"], name)
+                self.assertIn("is no longer a small private or nested helper", found[0].text)
+        self.reset()
+        self.write(view, lines + helper.replace("fooScaled0 = value * 2", "fooScaled0 = value * 3"))
+        self.commit("control: an edit inside the helper that keeps it small and private")
+        self.assertEqual([h.text for h in self.hits()], [])
+
+    def test_one_removed_type_is_credited_to_one_placement_only(self):
+        # Review 1 of app-size-b: each candidate type built its own pools, so one deleted type pasted into two
+        # existing files (or into a new file and an existing one) was two moves.
+        steps = swift_type("QuitSteps", 40)
+        zoom = f"{APP}/Zoom/ZoomModel.swift"
+        self.rebase_on({f"{APP}/Quit/QuitSteps.swift": steps, zoom: swift_body(40, "zoom")}, "a type to move")
+        (self.repo / APP / "Quit/QuitSteps.swift").unlink()
+        self.append(f"{APP}/TextBox/TextBoxView.swift", steps)
+        self.append(zoom, steps)
+        self.commit("one deleted type pasted into two existing files")
+        self.assertEqual([h.bucket for h in self.hits() if h.bucket.startswith("new:")],
+                         [f"new:{zoom}:QuitSteps"], "the first file in path order is the move, the second is new")
+        self.reset()
+        (self.repo / APP / "Quit/QuitSteps.swift").unlink()
+        self.write(f"{APP}/Shutdown/QuitSteps.swift", steps)
+        self.append(zoom, steps)
+        self.commit("the deleted file re-added under a new name, and its type also pasted into an existing file")
+        # One move and one refusal. The lines are back in an existing file, so the new file is no rename (as in
+        # test_a_file_deleted_whole_and_pasted_into_an_existing_file_is_no_rename_of_a_new_copy): it is refused,
+        # and the type is the move.
+        self.assertEqual([h.bucket for h in self.hits() if h.bucket.startswith("new:")],
+                         [f"new:{APP}/Shutdown/QuitSteps.swift"])
+
+    def test_a_type_moved_into_the_root_is_the_root_budget_s_and_a_private_type_is_told_to_become_internal(self):
+        steps = swift_type("QuitSteps", 40)
+        self.rebase_on({f"{APP}/Quit/QuitSteps.swift": steps}, "a feature type")
+        (self.repo / APP / "Quit/QuitSteps.swift").unlink()
+        self.append(f"{APP}/AppServices+Glass.swift", steps)
+        self.commit("a feature type moved into a root file")
+        self.assertEqual([h.bucket for h in self.hits()], ["root"], "a move, which the root budget judges")
+        self.reset()
+        self.append(f"{APP}/TextBox/TextBoxView.swift", swift_type("Cache", 30, head="fileprivate "))
+        self.commit("a new fileprivate type over 15 lines")
+        found = self.type_hits(f"{APP}/TextBox/TextBoxView.swift")
+        self.assertEqual(len(found), 1)
+        self.assertIn("its own file (make it internal)", found[0].text)
+
+    def test_the_type_scan_reads_interpolations_raw_strings_and_regex_literals(self):
+        # Review 1 of app-size-b: a brace in a raw string or a regex literal moved the old scan's depth, so every
+        # type after it was invisible, with no warning.
+        view = f"{APP}/TextBox/TextBoxView.swift"
+        late = swift_type("Late", 40)
+        tricky = {
+            "an interpolation with a closure and a string": 'let lateTitle = "\\(items.map { "\\($0)}" }.joined()) {"\n',
+            "a raw string": 'let lateRaw = #"a"b{"#\n',
+            "a raw string with an escaped quote": 'let lateRawQuote = #"a\\#"b{"#\n',
+            "a raw multi-line string": 'let lateRawMulti = #"""\n    "} {\n    """#\n',
+            "a multi-line string with an interpolation": 'let lateMulti = """\n    {\\(a ? "}" : "{")\n    """\n',
+            "a bare regex literal": "let lateRegex = /[{]/\n",
+            "a bare regex after a keyword": "func lateMatch() -> Regex<Substring> {\n    return /a{2}}/\n}\n",
+            "an extended regex literal": "let lateExtended = #/[{]\\//#\n",
+            "a division": "let lateDivide = total / count / 2\n",
+            "a nested block comment": "/* { /* nested } */ { */\n",
+        }
+        for name, text in tricky.items():
+            with self.subTest(construct=name):
+                self.reset()
+                self.append(view, text + late)
+                self.commit(name)
+                self.assertEqual([h.bucket for h in self.type_hits(view)], [f"new:{view}:Late"], name)
+                self.assertEqual(self.type_warnings(), [], name)
+
+    def test_a_file_whose_braces_the_type_scan_cannot_follow_is_warned_and_left_out(self):
+        view = f"{APP}/TextBox/TextBoxView.swift"
+        self.append(view, "let stray = 1 }\n" + swift_type("Late", 40))
+        self.commit("a stray closing brace before a new type")
+        warned = self.type_warnings()
+        self.assertEqual(len(warned), 1, warned)
+        self.assertIn(f"{view}:1: could not follow this file's braces (head: a `}}` with no opener on line 121)",
+                      warned[0])
+        self.assertEqual(self.type_hits(view), [], "fail open for that file only")
+        self.assertTrue(self.growth(), "app-size still runs")
+
+    def test_a_fault_in_the_type_scan_turns_off_only_app_type(self):
+        # Review 1 of app-size-b: the type check ran inside app-size, so an exception in the brace scan turned off
+        # the root budget and the new-file refusals too.
+        self.append(f"{APP}/AppDelegate.swift", swift_body(35, "wire"))
+        self.append(f"{APP}/TextBox/TextBoxView.swift", swift_type("Late", 40))
+        self.write(f"{APP}/Quit/QuitNew.swift", swift_body(20, "fresh"))
+        self.commit("root +31, a new file and a new type")
+        with mock.patch.object(guardrails, "type_scan", side_effect=RuntimeError("boom")):
+            refusals, warnings = self.check()
+        self.assertEqual(sorted(h.bucket for rule, hits in refusals if rule.id == "app-size" for h in hits),
+                         [f"new:{APP}/Quit/QuitNew.swift", "root"])
+        self.assertNotIn("app-type", [rule.id for rule, _ in refusals])
+        failed = [text for kind, text in warnings if kind == "guardrails"]
+        self.assertEqual(len(failed), 1, warnings)
+        self.assertIn("rule app-type failed (RuntimeError: boom", failed[0])
+
+    def test_the_type_scan_reads_only_files_that_can_add_a_type(self):
+        # Review 1 of app-size-b: the scan read the base and head of every changed App file, so a wide rename paid a
+        # Python scan per file. A file that adds no type declaration line and has no small helper type is skipped.
+        files = {f"{APP}/Wide/Wide{i}.swift": swift_body(40, f"wide{i}") for i in range(30)}
+        self.rebase_on(files, "thirty App files")
+        for path, text in files.items():
+            self.write(path, text.replace("Value0(", "Renamed0("))
+        self.append(f"{APP}/TextBox/TextBoxView.swift", swift_type("Late", 40))
+        self.commit("a one-line rename in thirty files and one new type")
+        scanned = []
+        real = guardrails.type_scan
+
+        def counted(lines):
+            scanned.append(len(lines))
+            return real(lines)
+        with mock.patch.object(guardrails, "type_scan", counted):
+            found = self.hits()
+        self.assertEqual(len(scanned), 2, "the base and head of the one file that adds a type")
+        self.assertEqual([h.bucket for h in found if h.bucket.startswith("new:")],
+                         [f"new:{APP}/TextBox/TextBoxView.swift:Late"])
 
     def test_code_moved_from_a_package_into_the_app_is_new_app_code(self):
         # The App-size rule moves code out of the App; a package's code moved into the App is the wrong direction,
