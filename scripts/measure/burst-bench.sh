@@ -5,8 +5,9 @@
 # presses, frames, and key -> PTY grid / first TUI output. Runs alone on the worker because it launches an app:
 #   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/burst-bench.sh --ref <sha> \
 #     [--label macos-26] [--arg=--vdisplay=120] [--arg=--no-stress] [--arg=--presses=20] --artifact burst-bench.json
-# --vdisplay=HZ runs the bench on a virtual main display at HZ (split-spring.sh's helper, 1920 x 1080: STRESS
-# needs a display that holds its 4 x 3 grid); without it the bench measures on the host's display.
+# --vdisplay=HZ runs the bench on a virtual main display at HZ (split-spring.sh's helper, 1920 x 1200: STRESS
+# needs a display that holds its 4 x 3 grid and a 1000 pt window under the Dock); without it the bench measures on
+# the host's display.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 tag="burst"
@@ -66,7 +67,7 @@ if [[ -n "$vdisplay_hz" ]]; then
       scripts/ci/frame-pacing/vdisplay.m -o "$vd/VDisplay.app/Contents/MacOS/VDisplay" 2> "$vd/clang.err"; then
     cp scripts/ci/frame-pacing/VDisplay-Info.plist "$vd/VDisplay.app/Contents/Info.plist"
     codesign -s - --force "$vd/VDisplay.app" 2>/dev/null || true
-    "$vd/VDisplay.app/Contents/MacOS/VDisplay" "$vdisplay_hz" 3600 main > "$vd/out" 2> "$vd/err" &
+    "$vd/VDisplay.app/Contents/MacOS/VDisplay" "$vdisplay_hz" 3600 main 1920x1200 > "$vd/out" 2> "$vd/err" &
     vdisplay_pid=$!
     for _ in $(seq 20); do
       grep -q '^ready\|^error' "$vd/out" 2>/dev/null && break
