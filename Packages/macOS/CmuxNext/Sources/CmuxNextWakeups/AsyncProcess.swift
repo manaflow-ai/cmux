@@ -20,12 +20,18 @@ import Dispatch
 /// ```
 public struct AsyncProcess: Sendable {
     private let clock: any Clock<Duration>
+    private let launch: @Sendable (Process) throws -> Void
 
     /// Creates a runner.
     ///
-    /// - Parameter clock: the clock of the request's timeout; tests pass a manual one.
-    public init(clock: any Clock<Duration> = ContinuousClock()) {
+    /// - Parameters:
+    ///   - clock: the clock of the request's timeout; tests pass a manual one.
+    ///   - launch: starts the configured child (`Process.run()`, a fork and exec); tests pass one that
+    ///     records where it ran and then starts it.
+    public init(clock: any Clock<Duration> = ContinuousClock(),
+                launch: @escaping @Sendable (Process) throws -> Void = { try $0.run() }) {
         self.clock = clock
+        self.launch = launch
     }
 
     /// Starts the request's child and returns when it has exited.
@@ -37,7 +43,7 @@ public struct AsyncProcess: Sendable {
     ///   request's stop signal in both cases).
     public func run(_ request: ProcessRequest) async throws -> ProcessOutcome {
         try Task.checkCancellation()
-        let run = ProcessRun(request)
+        let run = ProcessRun(request, launch: launch)
         let deadline = request.timeout.map { _ in DemandTimer(owner: "process.\(request.executable.lastPathComponent)", clock: clock) }
         defer { deadline?.cancel() }
         return try await withTaskCancellationHandler {

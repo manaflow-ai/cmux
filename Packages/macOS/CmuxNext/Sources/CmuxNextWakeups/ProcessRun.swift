@@ -24,12 +24,14 @@ final class ProcessRun: Sendable {
     }
 
     private let request: ProcessRequest
+    private let launch: @Sendable (Process) throws -> Void
     private let queue: DispatchQueue
     // concurrency-allow: one-shot resume guard and buffers shared by the starting task, read sources and the termination callback (lock carve-out).
     private let state = Mutex(State())
 
-    init(_ request: ProcessRequest) {
+    init(_ request: ProcessRequest, launch: @escaping @Sendable (Process) throws -> Void) {
         self.request = request
+        self.launch = launch
         queue = DispatchQueue(label: "com.cmuxterm.next.process.\(request.executable.lastPathComponent)",
                               qos: WorkPriority(Task.currentPriority).qos)
     }
@@ -86,7 +88,7 @@ final class ProcessRun: Sendable {
             }
         }
         do {
-            try process.run()
+            try launch(process)
         } catch {
             process.terminationHandler = nil
             sources.forEach { $0.cancel() }
