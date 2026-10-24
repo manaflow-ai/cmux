@@ -205,9 +205,10 @@ pub(super) fn inline_parts(
                 "image" => {
                     let (_, named) = decode(block)?;
                     let id = named.get("id").and_then(Value::as_str)?;
+                    let persisted = kept_images.contains(id);
                     let mut part = named;
                     part["kind"] = Value::String("image".into());
-                    if !kept_images.contains(id) {
+                    if !persisted {
                         part["persisted"] = Value::Bool(false);
                     }
                     if let Some(display_part) = display_part {
@@ -298,6 +299,10 @@ pub(crate) fn validated_display_parts(
                 continue;
             }
             out.insert("name".into(), Value::String(name.into()));
+        } else if kind == "file" && block_type == "text" {
+            // A text block has no authoritative filename. Without the app's name, fall back to
+            // the plain text part rather than persisting an invalid nameless file descriptor.
+            continue;
         }
         if let Some(mime) = object.get("mimeType").and_then(Value::as_str) {
             if mime.is_empty() || mime.len() > MAX_DISPLAY_MIME {
@@ -567,6 +572,16 @@ mod tests {
             vec![
                 json!({"kind": "file", "name": "notes.txt", "mimeType": "text/plain", "size": 4, "text": "notes.txt\n```\nbody\n```"})
             ]
+        );
+    }
+
+    #[test]
+    fn nameless_text_file_metadata_falls_back_to_text() {
+        let blocks = vec![json!({"type": "text", "text": "body"})];
+        let display = json!([{"kind": "file", "blockIndex": 0}]);
+        assert_eq!(
+            inline_parts(&blocks, &[], Some(&display)),
+            vec![json!({"kind": "text", "text": "body"})]
         );
     }
 
