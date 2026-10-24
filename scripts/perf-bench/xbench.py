@@ -736,10 +736,12 @@ class Run:
                     if browser.can_close:
                         browser.close(handle)
                     sleep(2)
-            browser.hide()
-            sleep(10)
-            self.window(browser, round_no, {"power-idle-hidden": "mw"}, a.idle)
-            browser.unhide()
+            if browser.hide():
+                sleep(10)
+                self.window(browser, round_no, {"power-idle-hidden": "mw"}, a.idle)
+                browser.unhide()
+            else:  # a visible app's idle is not the hidden app's (as budget.py)
+                self.record(browser.name, round_no, "power-idle-hidden", None, note="the app did not hide")
             if browser.can_close:
                 while len(browser.tabs) > 1:
                     browser.close(browser.tabs[-1])
