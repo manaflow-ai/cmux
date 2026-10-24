@@ -59,9 +59,11 @@ function MotionPolicyGallery({ mode }: Props) {
     if (mode === "flush-on-policy") {
       if (frame.current !== undefined) cancelAnimationFrame(frame.current);
       frame.current = undefined;
+      const settlementFrame = latest.current.frames + 1;
+      setFrames(settlementFrame);
       setVisible(TEXT.length);
       setStreaming(false);
-      setSettledFrame(latest.current.frames + 1);
+      setSettledFrame(settlementFrame);
     }
   };
 
