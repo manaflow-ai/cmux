@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/swift_typecheck_diagnostics.py"
 PROJECT = ROOT / "cmux.xcodeproj/project.pbxproj"
 COMPILE = ROOT / "scripts/cmux-next/check-release-compile.sh"
+SCHEME_COMPILE = ROOT / "scripts/cmux-next/check-cmux-scheme-compile.sh"
 
 spec = importlib.util.spec_from_file_location("swift_typecheck_diagnostics", SCRIPT)
 diagnostics = importlib.util.module_from_spec(spec)
@@ -43,7 +44,10 @@ class SwiftTypecheckDiagnosticsTests(unittest.TestCase):
         self.assertIn("-warn-long-function-bodies=200", source)
         self.assertIn("-warn-long-expression-type-checking=200", source)
         self.assertIn("-driver-time-compilation", source)
-        self.assertIn("DEBUG_INFORMATION_FORMAT=dwarf", source)
+        self.assertNotIn("DEBUG_INFORMATION_FORMAT=dwarf", source)
+        self.assertIn("CMUX_SWIFT_TYPECHECK_DIAGNOSTICS", source)
+        scheme_source = SCHEME_COMPILE.read_text()
+        self.assertIn("DEBUG_INFORMATION_FORMAT=dwarf", scheme_source)
         self.assertIn('DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";', PROJECT.read_text())
 
     def test_next_script_phases_have_dependency_declarations(self):

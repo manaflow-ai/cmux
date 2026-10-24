@@ -129,7 +129,6 @@ build() {
     -derivedDataPath "$derived_data" \
     ARCHS="$archs" ONLY_ACTIVE_ARCH=NO \
     COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO \
-    DEBUG_INFORMATION_FORMAT=dwarf \
     ${bench_flags[@]+"${bench_flags[@]}"} \
     ${swift_diagnostics_flags[@]+"${swift_diagnostics_flags[@]}"} \
     -showBuildTimingSummary build 2>&1 | tee "$log"
