@@ -1,0 +1,90 @@
+/* Gallery-only cohesion treatments. The real TurnReel remains the mounted component. */
+
+.cv-reel[data-look^="cohesion-"] .cv-reel__stage {
+  background: var(--cv-card-fill);
+  box-shadow:
+    inset 0 0 0 var(--cmux-hairline, 0.5px) var(--cv-card-ring),
+    inset 0 1px 0 color-mix(in srgb, var(--agent-text) 8%, transparent);
+}
+
+.cv-reel[data-look^="cohesion-"] .cv-reel__strip {
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--cv-card-fill) 72%, transparent);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--cv-card-ring);
+}
+
+.cv-reel[data-look^="cohesion-"] .cv-reel__thumb {
+  transition:
+    opacity var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out),
+    transform var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out),
+    box-shadow var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out);
+}
+
+.cv-reel[data-look^="cohesion-"] .cv-reel__thumb:hover {
+  transform: translateY(-1px);
+  background: color-mix(in srgb, var(--agent-accent) 8%, var(--cv-card-fill));
+}
+
+.cv-reel[data-look^="cohesion-"] .cv-reel__thumb[aria-current="step"] {
+  box-shadow:
+    0 0 0 var(--cmux-hairline, 0.5px) var(--agent-accent),
+    0 2px 0 color-mix(in srgb, var(--agent-accent) 16%, transparent);
+}
+
+.cv-reel[data-look="cohesion-instant"] .cv-img--enter {
+  animation: none;
+}
+
+.cv-reel[data-look="cohesion-instant"] .cv-reel__thumb:hover {
+  transform: translateY(-1px) scale(1.02);
+}
+
+.cv-reel[data-look="cohesion-crossfade"] .cv-img--enter {
+  animation: cohesion-reel-crossfade var(--cmux-motion-micro, 120ms) var(--cmux-ease-out, ease-out) both;
+}
+
+.cv-reel[data-look="cohesion-crossfade"] .cv-reel__mark {
+  filter: drop-shadow(0 0 2px color-mix(in srgb, var(--agent-accent) 22%, transparent));
+}
+
+.cv-reel[data-look="cohesion-slide"] .cv-img--enter {
+  animation: cohesion-reel-slide var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out) both;
+}
+
+.cv-reel[data-look="cohesion-slide"] .cv-reel__thumb:hover {
+  transform: translateY(-1px) scale(1.02);
+}
+
+@keyframes cohesion-reel-crossfade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes cohesion-reel-slide {
+  from {
+    opacity: 0;
+    transform: translateX(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cv-reel[data-look^="cohesion-"] .cv-img--enter,
+  .cv-reel[data-look^="cohesion-"] .cv-reel__thumb {
+    animation: none;
+    transition: none;
+  }
+}
+
+:root[data-agent-motion="off"] .cv-reel[data-look^="cohesion-"] .cv-img--enter,
+:root[data-agent-motion="off"] .cv-reel[data-look^="cohesion-"] .cv-reel__thumb {
+  animation: none;
+  transition: none;
+}

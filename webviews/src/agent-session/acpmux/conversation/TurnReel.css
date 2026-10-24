@@ -1,0 +1,142 @@
+/* A turn's reel (TurnReel.tsx): one stage of the first frame's shape, the step's caption, and a
+   filmstrip. Glass and caps follow the reply thumbnails (.cv-thumb) and tool images (360 px). */
+.cv-reel {
+  display: grid;
+  gap: 8px;
+  width: min(100%, 360px);
+  margin: 4px 0 8px;
+}
+.cv-reel__stage {
+  position: relative;
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--cv-card-fill);
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+}
+.cv-reel__open {
+  all: unset;
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: zoom-in;
+}
+.cv-reel__open:focus-visible {
+  outline: 2px solid var(--agent-accent-soft);
+  outline-offset: -2px;
+  border-radius: 10px;
+}
+.cv-reel__img,
+.cv-reel__video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+/* The play lens sits in the corner so the frame stays readable; it is the media player's lens. */
+.cv-reel__play {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+}
+/* Where the step clicked: a ring in the accent, centered on the point. */
+.cv-reel__mark {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  margin: -10px 0 0 -10px;
+  box-sizing: border-box;
+  border: 2px solid var(--agent-accent, var(--cv-text));
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--agent-page-bg, #000) 55%, transparent);
+  pointer-events: none;
+}
+.cv-reel[data-mark="crosshair"] .cv-reel__mark {
+  width: 24px;
+  height: 24px;
+  margin: -12px 0 0 -12px;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background:
+    linear-gradient(var(--agent-accent, var(--cv-text)), var(--agent-accent, var(--cv-text))) center / 2px 100% no-repeat,
+    linear-gradient(var(--agent-accent, var(--cv-text)), var(--agent-accent, var(--cv-text))) center / 100% 2px no-repeat;
+  filter: drop-shadow(0 0 1px color-mix(in srgb, var(--agent-page-bg, #000) 70%, transparent));
+}
+/* The ripple grows from the point and settles to the ring once per step shown; finite, never a loop. */
+@media (prefers-reduced-motion: no-preference) {
+  .cv-reel[data-mark="ripple"] .cv-reel__mark {
+    animation: cv-reel-ripple var(--cmux-motion-large, 240ms) var(--cmux-ease-out, ease-out) both;
+  }
+}
+@keyframes cv-reel-ripple {
+  from {
+    opacity: 0;
+    transform: scale(2.2);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.cv-reel__caption {
+  overflow: hidden;
+  color: var(--cv-text-dim);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.cv-reel__caption[data-failed] {
+  color: var(--agent-status-failure);
+}
+/* The filmstrip: small frames of one shape in a row that scrolls sideways, faded at its edges. */
+.cv-reel__strip {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  mask-image: linear-gradient(to right, transparent, #000 12px, #000 calc(100% - 12px), transparent);
+}
+.cv-reel__thumb {
+  all: unset;
+  flex: none;
+  width: 56px;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--cv-card-fill);
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+  opacity: 0.62;
+  cursor: pointer;
+}
+.cv-reel__thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.cv-reel__thumb:hover,
+.cv-reel__thumb[aria-current="step"] {
+  opacity: 1;
+}
+.cv-reel__thumb[aria-current="step"] {
+  box-shadow: 0 0 0 1.5px var(--agent-accent, var(--cv-text));
+}
+.cv-reel__thumb[data-failed] {
+  box-shadow: inset 0 0 0 1.5px var(--agent-status-failure);
+}
+.cv-reel__thumb[data-failed][aria-current="step"] {
+  box-shadow:
+    inset 0 0 0 1.5px var(--agent-status-failure),
+    0 0 0 1.5px var(--agent-accent, var(--cv-text));
+}
+.cv-reel__thumb:focus-visible {
+  outline: 2px solid var(--agent-accent-soft);
+  outline-offset: 1px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-reel__thumb {
+    transition: opacity var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out);
+  }
+}
