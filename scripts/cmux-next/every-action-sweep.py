@@ -77,6 +77,12 @@ A sharded run (--shard K/N) times the interactions in shard 1 only; merge the sh
 step log of a failed step (the EVERY-ACTION-REPORT lines it printed).
 Exit status FAILED_SESSION_EXIT (3) when a session failed (its error is in failed_sessions and every-action.md; a
 session that failed partway keeps its rows, marked `failed`); a --merge that holds a shard's failure exits the same.
+Exit status NEW_GAP_EXIT (4) when the derived-coverage check of a whole-catalog run (no --only, --limit, failed
+session, or incomplete shard set) finds an action no session covered that every-action-gaps.json does not list: a
+`gap` skip (no fixture), an action the app refused at every sample, or an id a SKIPS pattern excluded that the
+reviewed `excluded` list does not name. Session-state skips and EXPECTED_REFUSALS are listed, never a verdict. Any
+non-zero exit prints the whole report into the step log (report_to_log). --write-gaps rewrites the baseline from a
+whole-catalog run only (a partial or failed run is refused) and then exits without the new-gap status.
 A STRESS session of another shape (perf-stress-session's StressShapeError at the build, SessionShapeError at a
 mid-session rebuild or tab restore) is such a failure: another layout is never measured as `stress`. So is an app that
 does not come back after a crash (bench_launch's LaunchError at a relaunch): the session is recorded with its rows and
@@ -135,9 +141,15 @@ FAILED_SESSION_EXIT = 3
 # baseline (GAPS): a new action must come with its fixture (zero-latency.md, "Native actions: the budget contract").
 NEW_GAP_EXIT = 4
 GAPS = os.path.join(HERE, "every-action-gaps.json")
-# Skip reasons that are a missing fixture (the sweep could set the action up, it does not yet), as opposed to a
-# deliberate exclusion (the Cloud, another app, a file panel, destructive, a purchase, ...).
-GAP_REASONS = ("needs context the sweep does not set up", "needs a ", "argument ", "unavailable here", "no ")
+# Why a row was skipped (`skip_kind`), set where the skip is decided, never read back from the reason's words:
+#   gap       plan() or argument_values() found no fixture: a context the sweep does not set up, a target or argument
+#             it has no value for (the derived-coverage check counts these);
+#   excluded  a deliberate exclusion: a catalog flag (debug-only, waits for a person, destructive, palette-internal),
+#             a SKIPS pattern over the id (`excluded_by: pattern`: such an id must also be listed, reviewed, in
+#             every-action-gaps.json `excluded`, or the coverage check names it), or a STRESS-only exclusion;
+#   state     what the session showed at that moment (no Chromium tab in the base pane, describe said unavailable,
+#             no pane with a neighbor that way): listed in the report, never a coverage verdict.
+SKIP_KINDS = ("gap", "excluded", "state")
 # A failed run prints its report into the step log as `EVERY-ACTION-REPORT k/N <gzip+base64 chunk>` lines.
 REPORT_LINE = "EVERY-ACTION-REPORT"
 # Base64 characters per line. Not measured against a log store: report_from() needs every line whole, and a store
@@ -514,6 +526,14 @@ EXPECTED_REFUSALS = {
     "palette.disableBrowser": "can be changed only by you",
     "palette.enableBrowser": "can be changed only by you",
 }
+# Actions whose effect is state no restore sees (not a topology object, not a setting, not a TOGGLES re-run): the
+# inverse the restore runs after each sample, before anything else. The fits write the daemon tab record's
+# extra.emulation (BrowserDeviceHandlers: browser.tab.emulate on the focused tab); a session's tabs start with no fit
+# and "off" clears any fit, so browserFit's 16:9 fixture, and the two desktop fits that toggle one fit, never leave
+# a later Chromium row measuring a letterboxed page. The directional swaps are undone by swapping the same two panes
+# back (``swap_back``).
+FIT_OFF = ("browserFit", {"fit": "off"})
+UNDO = {"browserFit": FIT_OFF, "browserFitDesktop": FIT_OFF, "browserFitDesktop1280": FIT_OFF}
 # A pane frame's edge sits on its neighbor's within this many points (frames are rounded to points).
 EDGE_PT = 1.0
 TOGGLES = r"(?i)(toggle|Toggle|zoom(?!In|Out|Reset)|^show|^hide|Sidebar$|fullScreen|pin|mute)"
@@ -521,22 +541,25 @@ KEY_NAMES = {"left", "right", "up", "down", "home", "end", "pageup", "pagedown",
 
 
 def skip_reason(action, session):
+    """(reason, by) of a deliberate exclusion, or (None, None). `by` is `flag` (a catalog flag says so), `pattern` (a
+    SKIPS pattern over the id: never run, but the coverage check wants the id in the reviewed `excluded` list) or
+    `session` (STRESS only; light runs it)."""
     ident = action["id"]
     if action.get("debug_only"):
-        return "debug-only tool"
+        return "debug-only tool", "flag"
     if action.get("waits_for_person"):
-        return "waits for a person"
+        return "waits for a person", "flag"
     for pattern, reason in SKIPS:
         if re.search(pattern, ident):
-            return reason
+            return reason, "pattern"
     if action.get("destructive") and not re.match(r"(?i)^close(Tab|Pane|Workspace|Window)$", ident):
-        return "destructive (deletes or closes things a person confirms)"
+        return "destructive (deletes or closes things a person confirms)", "flag"
     if session == "stress" and (re.search(MASS_DESTROY, ident) or re.match(WINDOW_CLOSERS, ident)):
-        return "destroys the STRESS session (measured in light)"
+        return "destroys the STRESS session (measured in light)", "session"
     surfaces = action.get("surfaces") or {}
     if surfaces.get("palette") == "paletteInternal" and not action.get("shortcut_config"):
-        return "palette-internal (runs inside the open palette)"
-    return None
+        return "palette-internal (runs inside the open palette)", "flag"
+    return None, None
 
 
 def key_of(action):
@@ -686,6 +709,10 @@ class Sweep:
         self.notes = []
         # A lost tab's id -> the id of the tab replace_tab made in its place (reselect finds a replaced shown tab).
         self.replaced = {}
+        # The measured sample whose restore has not run yet: {"id", "toggled", "undo"} (``begin_sample``). A harness
+        # failure between the input and its restore leaves it set, and unfit() judges the session by it.
+        self.pending = None
+        self.recovered = []  # what the last unfit() put back (an undo, a setting): the harness row records it
 
     # Session building.
 
@@ -826,14 +853,14 @@ class Sweep:
         for _ in range(2):
             rpc("debug.key", {"key": "escape"}, timeout=5)
         rpc("debug.key", {"key": "escape", "target": "palette"}, timeout=5)
+        drift = self.undo_sample()
         if toggled:
             reply = rpc("action.run", {"action": action_id, "focus": True})
             if error_of(reply):
-                key = None
+                drift.append(f"toggle {action_id} again: {error_of(reply)}"[:120])
         mark, self.closed_mark = self.closed_mark, None
         problem, self.mark_problem = self.mark_problem, None
         closed = []
-        drift = []
         if self.lost(self.base["shape"], shape(topology())):
             if mark is None:
                 # No entry can be told apart as the input's own (mark_closed says why).
@@ -865,7 +892,50 @@ class Sweep:
         self.home()
         drift += self.notes
         self.notes = []
+        self.pending = None
         return drift
+
+    def begin_sample(self, ident, toggled, start=None):
+        """Records the sample about to be measured (``pending``) and its inverse (UNDO, or ``swap_back`` for a
+        directional swap from `start`), taken before the input."""
+        undo = None
+        if ident in UNDO:
+            action, args = UNDO[ident]
+            undo = lambda: error_of(act(action, args=args, focus=True))
+        elif ident.startswith("swapPane") and start:
+            undo = self.swap_back(start)
+        self.pending = {"id": ident, "toggled": toggled, "undo": undo}
+
+    def undo_sample(self):
+        """Runs the pending sample's inverse once; returns the drift it reports (an inverse that failed)."""
+        pending = self.pending or {}
+        undo = pending.get("undo")
+        if pending:
+            self.pending = dict(pending, undo=None)  # once: a restore that fails after it does not run it again
+        if not undo:
+            return []
+        error = undo()
+        return [f"undo {pending['id']}: {error}"[:120]] if error else []
+
+    def cells(self):
+        """{pane id: [x, y, w, h]} of the shown window's grid (debug.pane_chrome)."""
+        return {p["pane"]: p["cell"] for p in self.pane_chrome().get("panes") or [] if p.get("pane") and p.get("cell")}
+
+    def swap_back(self, start):
+        """The inverse of a directional swap from `start`, taken before it: after the swap, the pane that now sits in
+        `start`'s old cell is the one it swapped with, and swapping the two again (palette.swapWithSession, the one
+        pane-with-pane swap) gives the base layout back. Nothing when nothing moved."""
+        was = self.cells().get(start)
+
+        def undo():
+            now = self.cells()
+            if was is None or now.get(start) == was:
+                return None
+            other = next((pane for pane, cell in now.items() if cell == was and pane != start), None)
+            if other is None:
+                return "no pane in the start pane's old cell"
+            return error_of(act("palette.swapWithSession", f"pane:{start}", args={"pane": f"pane:{other}"}, origin="script"))
+        return undo
 
     def check_extras(self):
         """After close_new: no docked pane or workspace group the base does not have is left (they change the layout
@@ -1229,59 +1299,71 @@ class Sweep:
     # One action.
 
     def plan(self, action):
-        reason = skip_reason(action, self.session)
+        """(plan, None) for an action the sweep runs, else (None, skip) with skip {"skipped": reason, "skip_kind": one
+        of SKIP_KINDS, and "excluded_by" for an exclusion}."""
+        reason, by = skip_reason(action, self.session)
         if reason:
-            return None, reason
+            return None, {"skipped": reason, "skip_kind": "excluded", "excluded_by": by}
         missing = [k for k in action.get("requires") or [] if k not in CONTEXT_SETUP]
         if missing:
-            return None, f"needs context the sweep does not set up: {', '.join(missing)}"
+            return None, {"skipped": f"needs context the sweep does not set up: {', '.join(missing)}", "skip_kind": "gap"}
         kinds = [CONTEXT_SETUP[k] for k in action.get("requires") or [] if CONTEXT_SETUP.get(k)]
         context = "omnibar" if "omnibar" in kinds else (kinds[0] if kinds else None)
         args, why = argument_values(action, self.base)
         if args is None:
-            return None, why
+            return None, {"skipped": why, "skip_kind": "gap"}  # no value the action accepts: a missing fixture
         return {"context": context, "args": args, "key": key_of(action) if not args else None}, None
 
     def run_action(self, action):
         ident = action["id"]
-        plan, reason = self.plan(action)
+        plan, skip = self.plan(action)
         row = {"session": self.session, "kind": "action", "id": ident, "title": action.get("title"),
                "category": action.get("category"), "shortcut": action.get("shortcut_config")}
         if not plan:
-            row["skipped"] = reason
+            row.update(skip)
             return row
         row["entry"] = "key" if plan["key"] else "action"
         row["context"] = plan["context"]
         samples, errors, checks, drifts = [], [], [], []
         toggled = bool(re.search(TOGGLES, ident)) and not checked(ident)
-        for attempt in range(opts.repeat):
-            self.mark_closed()
+
+        def ready():
+            """(start pane, None) when the session can take this sample now, else (None, why): the base pane shows no
+            tab of the context's kind, describe says unavailable, or no pane has a neighbor that way."""
             if not self.show(plan["context"]):
-                row["skipped"] = f"no {plan['context']} tab in the base pane"
-                return row
+                return None, f"no {plan['context']} tab in the base pane"
             described = rpc("action.describe", {"action": ident})
             info = (described or {}).get("action") if isinstance(described, dict) else None
             if info and info.get("available") is False and not plan["args"]:
-                row["skipped"] = f"unavailable here: {info.get('context_reason') or info.get('unavailable_reason') or 'context'}"
-                return row
-            start = self.focus_start(ident, row)
-            if start is False:
-                return row
+                return None, f"unavailable here: {info.get('context_reason') or info.get('unavailable_reason') or 'context'}"
+            start, why = self.focus_start(ident)
+            return (start, None) if why is None else (None, why)
+
+        stopped = None
+        for attempt in range(opts.repeat):
+            self.mark_closed()
+            start, stopped = ready()
+            if stopped:
+                break
             before = shape(topology())
             entry = row["entry"]
             if plan["key"]:
                 key, mods = plan["key"]
+                self.begin_sample(ident, toggled, start)
                 sample = self.measure(lambda t: rpc("debug.key", {"key": key, "modifiers": mods, "timestamp": t}, timeout=20), ident)
                 if not sample["ran"]:
                     # The key did not run this action here (another handler took it, or none): the CLI path instead.
                     sample["key_reply"] = {k: sample["reply"].get(k) for k in ("handled_by", "action", "refused_action")} \
                         if isinstance(sample["reply"], dict) else sample["reply"]
                     key_runs = sample["runs"]
-                    drift = self.restore(ident, False) if key_runs else []
+                    drifts.extend(self.restore(ident, False) if key_runs else self.undo_sample())
+                    self.pending = None
                     self.mark_closed()
-                    if not self.show(plan["context"]) or self.focus_start(ident, row) is False:
+                    start, stopped = ready()
+                    if stopped:
                         break
                     before = shape(topology())
+                    self.begin_sample(ident, toggled, start)
                     retry = self.measure(lambda t: act(ident, focus=True), ident)
                     retry["key_routed"] = False
                     retry["key_reply"] = sample["key_reply"]
@@ -1289,6 +1371,7 @@ class Sweep:
                     sample = retry
                     entry = "action"
             else:
+                self.begin_sample(ident, toggled, start)
                 sample = self.measure(lambda t: act(ident, args=plan["args"], focus=True), ident)
             sample["entry"] = entry
             err = error_of(sample["reply"])
@@ -1302,6 +1385,8 @@ class Sweep:
                 sample["from_pane"] = start
             after_topo = topology()
             check, result_ms = self.check(expectation(ident, entry), before, shape(after_topo), sample)
+            # A sample the app refused ran no handler work: its timing is a refusal's, and it covers nothing.
+            sample["refused"] = bool(err and (refusal(err) or expected_refusal(ident, err)))
             if err and check == "wrong" and refusal(err):
                 check = "refused"  # a typed refusal (launch denied, not available here) made nothing: not a wrong result
             if err and expected_refusal(ident, err):
@@ -1316,6 +1401,11 @@ class Sweep:
             drifts.extend(self.restore(ident, toggled))
             if err and attempt == 0 and ("unavailable" in err or "not_found" in err or "refused" in err or "invalid" in err):
                 break
+        if stopped and not samples:
+            row.update(skipped=stopped, skip_kind="state")
+            return row
+        if stopped:
+            row["cut_short"] = stopped  # later samples could not start; the ones that ran are the row
         row["samples"] = len(samples)
         # Wall-clock windows of the measured inputs: the always-on action signposts are joined to them after the run.
         row["windows"] = [[round(s["window"][0], 6), round(s["window"][1], 6), s.get("wait_ms")] for s in samples]
@@ -1337,24 +1427,27 @@ class Sweep:
         row["runs"] = samples[0]["runs"] if samples else []
         row["errors"] = sorted(set(errors))
         row["check"] = next((c for c in ("wrong", "ok", "refused") if c in checks), "n/a")
+        # Every sample refused: the handler never did its work, so the row is no coverage and its timings are a
+        # refusal's (misses() and the target table leave them out; the report lists the row as refused).
+        row["refused"] = bool(samples) and all(s["refused"] for s in samples)
         row["drift"] = sorted(set(drifts))[:6]
         starts = sorted({s["from_pane"] for s in samples if s.get("from_pane")})
         if starts:
             row["from_pane"] = starts
         return row
 
-    def focus_start(self, ident, row):
-        """For a directional focus move, focuses a pane with a neighbor that way (``start_pane``) and returns it; False
-        (with the row skipped) when the session's grid has none; None for every other action."""
+    def focus_start(self, ident):
+        """(start pane, None): for a directional focus move or swap, focuses a pane with a neighbor that way
+        (``start_pane``) and returns it; (None, why) when the session's grid has none; (None, None) for every other
+        action."""
         direction = DIRECTIONS.get(ident)
         if not direction:
-            return None
+            return None, None
         start = self.start_pane(direction)
         if not start:
-            row["skipped"] = f"no pane with a neighbor to the {direction} in this session's grid"
-            return False
+            return None, f"no pane with a neighbor to the {direction} in this session's grid"
         self.builder.focus_pane(start)
-        return start
+        return start, None
 
     def check(self, expect, before, after, sample):
         """`ok`, `wrong` or `n/a`, and when a create or close finished after the first commit, input to the
@@ -1684,6 +1777,8 @@ class Sweep:
                 # unfit to measure (not the base layout, not running busy terminals, Chromium no longer valid).
                 unfit = self.unfit()
                 row["after_harness"] = unfit or "the session is intact; no relaunch"
+                if self.recovered:
+                    row["after_harness_restored"] = self.recovered
                 if unfit:
                     self.relaunch_session(f"a harness failure in {action['id']} left {unfit}")
             elif not alive:
@@ -1703,9 +1798,22 @@ class Sweep:
         return self
 
     def unfit(self):
-        """Why the session cannot measure the next row, or None: the topology is not the base (``restored``), or
-        Chromium is no longer valid (``check_validity``). STRESS also needs its shape (``check_stress_shape`` raises
+        """Why the session cannot measure the next row, or None. A harness failure can escape between a row's input
+        and its restore (inside measure(), check() or close_new), so first the part of the restore that leaves no trace
+        in the layout runs now: the pending sample's inverse (UNDO, a swap back) and the settings back to the build's
+        (``restore_settings``; what it changed is in ``recovered``). A toggle whose restore did not run leaves the
+        session unfit: whether the toggle ran cannot be read back. Then the topology must be the base (``restored``)
+        and Chromium valid (``check_validity``); STRESS also needs its shape (``check_stress_shape`` raises
         SessionShapeError, which fails the session as for a restore)."""
+        pending = self.pending
+        self.recovered = self.undo_sample() if pending else []
+        self.pending = None
+        if pending and pending.get("toggled"):
+            return f"the restore of toggle {pending['id']} did not run"
+        self.recovered += [f"settings {name}" for name in self.restore_settings()]
+        old = self.base.get("settings")
+        if isinstance(old, dict) and self.settings() != old:
+            return "settings other than the build's"
         if not self.restored():
             return "a layout other than the base"
         validity = self.check_validity()
@@ -1725,6 +1833,7 @@ class Sweep:
         self.app.relaunch()
         self.closed_mark, self.mark_problem = None, None
         self.notes, self.replaced = [], {}  # the old launch's notes and replaced tabs name its ids
+        self.pending = None  # the new launch starts from the build: nothing of the old sample is left to undo
         self.build()
         validity = self.check_validity()
         validity["relaunch"] = why
@@ -1905,8 +2014,9 @@ SIGNPOSTS = SignpostStream(os.path.join(OUT, "signposts.ndjson"))
 # Report.
 
 def misses(row):
-    """Why a row misses a target (empty: it meets them)."""
-    if row.get("skipped"):
+    """Why a row misses a target (empty: it meets them). A row whose every sample the app refused has refusal timings,
+    not the action's: it is listed apart (markdown), never in the target table."""
+    if row.get("skipped") or row.get("refused"):
         return []
     why = []
     commit = (row.get("commit_ms") or {}).get("p95")
@@ -2015,6 +2125,15 @@ def markdown(report):
         lines += [f"- {ident}: {reason}" for ident, reason in checked["new"].items()]
     if checked and checked.get("closed"):
         lines += ["", f"Covered now, drop from every-action-gaps.json: {', '.join(checked['closed'][:40])}"]
+    if checked and checked.get("policy_refused"):
+        lines += ["", f"Policy-refused (the refusal is the right answer; not measured): {', '.join(checked['policy_refused'])}"]
+    if checked and checked.get("state"):
+        lines += ["", f"Skipped for the session's state at that moment ({len(checked['state'])}; no coverage verdict): "
+                      f"{', '.join(list(checked['state'])[:40])}"]
+    if checked and checked.get("error"):
+        lines += ["", f"No coverage verdict: {checked['error']}"]
+    elif report.get("coverage_skipped"):
+        lines += ["", f"No coverage verdict: {report['coverage_skipped']}"]
     if not report["sessions"]:
         lines += ["", "No session finished."]
     for session in report["sessions"]:
@@ -2037,22 +2156,33 @@ def markdown(report):
                          f"{(row.get('commit_ms') or {}).get('p95')} | {(row.get('turn_ms') or {}).get('p95')} | "
                          f"{(row.get('wait_ms') or {}).get('p95')} | {(row.get('frames') or {}).get('missed')} | "
                          f"{'; '.join(row.get('errors') or [])[:80]} {row.get('check', '')} | {'; '.join(misses(row))[:160]} |")
-        refused = [r for r in session["rows"] if r.get("errors") and all(refusal(e) for e in r["errors"])]
+        refused = [r for r in session["rows"] if r.get("refused") or (r.get("errors") and all(refusal(e) for e in r["errors"]))]
         if refused:
-            lines += ["", f"Refused in the sweep's context ({len(refused)}; timed, not counted as errors):", ""]
+            lines += ["", f"Refused in the sweep's context ({len(refused)}; not counted as errors; the times are the "
+                          f"refusal's, not the action's):", ""]
             for row in refused:
-                lines.append(f"- {row['id']}: {row['errors'][0][:160]}")
+                why = row.get("expected_refusal") or (row.get("errors") or ["refused"])[0]
+                lines.append(f"- {row['id']}{' (policy)' if row.get('expected_refusal') else ''}: {why[:160]} "
+                             f"(refusal timing: commit p95 {(row.get('commit_ms') or {}).get('p95')} ms)")
+        cut = [r for r in session["rows"] if r.get("cut_short")]
+        if cut:
+            lines += ["", f"Cut short (fewer samples than --repeat; the samples that ran are the row) ({len(cut)}):", ""]
+            lines += [f"- {row['id']}: {row['cut_short'][:160]}" for row in cut]
         skipped = {}
         for row in session["rows"]:
             if row.get("skipped"):
-                skipped.setdefault(row["skipped"], []).append(row["id"])
+                kind = row.get("skip_kind") or "?"
+                skipped.setdefault((kind if row.get("excluded_by") != "pattern" else "excluded by pattern", row["skipped"]), []).append(row["id"])
         lines += ["", "Skipped:", ""]
-        for reason, ids in sorted(skipped.items(), key=lambda kv: -len(kv[1])):
-            lines.append(f"- {reason} ({len(ids)}): {', '.join(ids[:12])}{' ...' if len(ids) > 12 else ''}")
+        for (kind, reason), ids in sorted(skipped.items(), key=lambda kv: -len(kv[1])):
+            lines.append(f"- [{kind}] {reason} ({len(ids)}): {', '.join(ids[:12])}{' ...' if len(ids) > 12 else ''}")
     return "\n".join(lines) + "\n"
 
 
 def main():
+    if opts.write_gaps and (opts.only or opts.limit or opts.shard):
+        raise SystemExit("every-action: --write-gaps needs a whole-catalog run (no --only, --limit or --shard): "
+                         "a partial run would shrink the baseline")
     stress_module = load("perf_stress_session", "perf-stress-session.py")
     SIGNPOSTS.start(load("perf_signposts", "perf-signposts.py"))
     if not SIGNPOSTS.live:
@@ -2142,23 +2272,31 @@ def main():
             app.stop()
     if not opts.shard:
         report["coverage"] = coverage(report)
+        report["coverage_skipped"] = verdict_blocker(report)
         if opts.write_gaps:
-            write_gaps(report)
+            if report["coverage_skipped"]:
+                report["write_gaps"] = f"refused: {report['coverage_skipped']}"
+                note(f"every-action: --write-gaps refused: {report['coverage_skipped']}")
+            else:
+                write_gaps(report)
+                report["write_gaps"] = "written"
+                report["coverage"] = coverage(report)  # against the baseline just written: no new gap is left
         with open(report_path, "w") as f:
             json.dump(report, f, indent=1, default=str)
         with open(os.path.join(OUT, "every-action.md"), "w") as f:
             f.write(markdown(report))
     note(f"every-action: wrote {report_path} and {os.path.join(OUT, 'every-action.md')}")
-    if report.get("failed_sessions"):
+    if exit_status(report):
+        # Any failing exit (a failed session, a new gap) loses the step's --artifact files: the report goes to the log.
         report_to_log(report)
     fail_on_failed_sessions(report)
     fail_on_new_gaps(report)
 
 
 def report_to_log(report):
-    """Prints `report` into the step log, for a run that exits FAILED_SESSION_EXIT. The controller returns --artifact
-    files only when the step passes (`cmux-ci run --help`), so without this a failed STRESS session would also lose
-    the finished light session's rows. Prints every-action.md as it is, then the JSON (gzip, base64) in
+    """Prints `report` into the step log, for a run that exits non-zero (``exit_status``: FAILED_SESSION_EXIT or
+    NEW_GAP_EXIT). The controller returns --artifact files only when the step passes (`cmux-ci run --help`), so
+    without this a failed STRESS session, or one new action without a fixture, would lose every row of the run. Prints every-action.md as it is, then the JSON (gzip, base64) in
     REPORT_LINE_CHARS pieces, `EVERY-ACTION-REPORT k/N <piece>`. report_from() reads them back (--merge OUT STEP.log)."""
     note("every-action: the step fails, so its artifacts do not come back; the report follows in the step log")
     report.setdefault("display", display_of(report))
@@ -2190,43 +2328,119 @@ def report_from(path):
     return json.loads(gzip.decompress(base64.b64decode("".join(pieces[k] for k in sorted(pieces)))))
 
 
-def gaps_of(report):
-    """{action id: skip reason} of every action no session could set up for lack of a fixture (GAP_REASONS); an action
-    one session ran (light or STRESS) is covered."""
-    ran, gaps = set(), {}
+# The category an action no session covered falls in, most telling first (``uncovered``).
+COVERAGE_ORDER = ("gap", "refused", "pattern", "policy", "state", "excluded")
+
+
+def covered_ids(report):
+    """The ids some session ran with at least one sample the app did not refuse."""
+    return {row["id"] for session in report.get("sessions") or [] for row in session["rows"]
+            if not row.get("skipped") and not row.get("refused")}
+
+
+def uncovered(report):
+    """{category: {action id: reason}} of every action no session covered (``covered_ids``), each in the first
+    COVERAGE_ORDER category any of its rows has:
+      gap      skip_kind `gap`: no fixture (plan(), argument_values());
+      refused  it ran and the app refused every sample with a typed refusal EXPECTED_REFUSALS does not name: its
+               handler never did its work (the sweep did not set it up), so it is a gap too;
+      pattern  a SKIPS pattern over the id excluded it (the reviewed `excluded` list must name it);
+      policy   EXPECTED_REFUSALS: the refusal is the action's right answer to a script;
+      state    a session-state skip (no Chromium tab, describe said unavailable, no neighbor that way);
+      excluded a catalog flag or a STRESS-only exclusion.
+    None when a skipped row has no typed skip_kind (a report from before typed skips): no verdict from words."""
+    covered, found = covered_ids(report), {}
     for session in report.get("sessions") or []:
         for row in session["rows"]:
-            reason = row.get("skipped")
-            if reason is None:
-                ran.add(row["id"])
-            elif reason.startswith(GAP_REASONS):
-                gaps.setdefault(row["id"], reason)
-    return {ident: reason for ident, reason in sorted(gaps.items()) if ident not in ran}
+            if row["id"] in covered:
+                continue
+            if row.get("skipped"):
+                if row.get("skip_kind") not in SKIP_KINDS:
+                    return None
+                category = "pattern" if row.get("excluded_by") == "pattern" else row["skip_kind"]
+                reason = row["skipped"]
+            elif row.get("refused"):
+                category = "policy" if row.get("expected_refusal") else "refused"
+                reason = row.get("expected_refusal") or "refused at run: " + "; ".join(row.get("errors") or [])[:160]
+            else:
+                continue
+            was = found.get(row["id"])
+            if was is None or COVERAGE_ORDER.index(category) < COVERAGE_ORDER.index(was[0]):
+                found[row["id"]] = (category, reason)
+    out = {category: {} for category in COVERAGE_ORDER}
+    for ident, (category, reason) in sorted(found.items()):
+        out[category][ident] = reason
+    return out
 
 
-def coverage(report, baseline_path=GAPS):
-    """The derived-coverage check of a whole-catalog run: `new` gaps (no fixture, not in the baseline) fail it,
-    `closed` ones (in the baseline, covered now) are listed to drop from the baseline. None for a partial run (--only,
-    --limit) or a baseline that cannot be read (fail open: it says why)."""
+def gaps_of(report):
+    """{action id: reason} of every action no session covered for lack of a fixture: a `gap` skip, or every sample
+    refused at run (``uncovered``). An action one session ran (light or STRESS) is covered."""
+    found = uncovered(report) or {}
+    return dict(sorted({**found.get("gap", {}), **found.get("refused", {})}.items()))
+
+
+def verdict_blocker(report):
+    """Why `report` gives no whole-catalog coverage verdict, or None: a partial run (--only, --limit, a merge of an
+    incomplete shard set), or a failed session (the actions after its failure have no row: neither ran nor gap)."""
     if report["env"].get("partial"):
+        return "a partial run (--only, --limit, or not every shard of the set)"
+    if report.get("failed_sessions"):
+        return "a session failed: the actions after its failure have no row"
+    return None
+
+
+def coverage(report, baseline_path=None):
+    """The derived-coverage check of a whole-catalog run: `new` gaps (no fixture, or refused at every sample, and
+    not in the baseline's `gaps`) and pattern exclusions not in its reviewed `excluded` list fail it; `closed` ones
+    (in the baseline, covered now) are listed to drop from the baseline; policy refusals and session-state skips
+    are listed apart. None when the run gives no verdict (``verdict_blocker``); an error dict, failing open, for a
+    baseline that cannot be read or a report without typed skips."""
+    if verdict_blocker(report):
         return None
     try:
-        with open(baseline_path) as f:
-            baseline = set(json.load(f)["gaps"])
-    except (OSError, ValueError, KeyError) as error:
-        return {"error": f"gap baseline unreadable: {error}"}
+        with open(baseline_path or GAPS) as f:
+            loaded = json.load(f)
+        baseline, excluded = set(loaded["gaps"]), set(loaded["excluded"])
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        return {"error": f"gap baseline unreadable: {error!r}"}
+    found = uncovered(report)
+    if found is None:
+        return {"error": "a skipped row has no skip_kind (a report from before typed skips)"}
     gaps = gaps_of(report)
-    return {"gaps": len(gaps), "new": {k: v for k, v in gaps.items() if k not in baseline},
-            "closed": sorted(baseline - set(gaps))}
+    new = {k: v for k, v in gaps.items() if k not in baseline}
+    new.update({k: f"excluded by an id pattern, not in the reviewed excluded list: {v}"
+                for k, v in found["pattern"].items() if k not in excluded})
+    return {"gaps": len(gaps), "new": new, "closed": sorted(baseline & covered_ids(report)),
+            "policy_refused": sorted(found["policy"]), "state": found["state"]}
 
 
-def write_gaps(report, path=GAPS):
-    """Rewrites the gap baseline from `report` (`--write-gaps`, after adding fixtures)."""
-    with open(path, "w") as f:
-        json.dump({"_doc": "Actions the every-action sweep cannot set up yet (no fixture), from a whole-catalog run; "
-                           "a run fails on any gap not listed here. Shrink it as fixtures land "
-                           "(every-action-sweep.py --write-gaps).", "gaps": gaps_of(report)}, f, indent=1, sort_keys=True)
+def write_gaps(report, path=None):
+    """Rewrites the gap baseline from `report` (`--write-gaps`, after adding fixtures and reviewing the exclusions):
+    `gaps` (``gaps_of``) and `excluded`, the ids a SKIPS pattern excluded. Only a whole-catalog run with no failed
+    session may write it (``verdict_blocker``): a partial one would shrink the baseline and hide gaps."""
+    blocker = verdict_blocker(report)
+    if blocker:
+        raise SystemExit(f"every-action: --write-gaps refused: {blocker}")
+    found = uncovered(report)
+    if found is None:
+        raise SystemExit("every-action: --write-gaps refused: a skipped row has no skip_kind")
+    with open(path or GAPS, "w") as f:
+        json.dump({"_doc": "Actions the every-action sweep cannot set up yet (no fixture, or refused at every sample), "
+                           "and the ids an id pattern excludes on purpose (reviewed), from a whole-catalog run; a run "
+                           "fails on any gap or pattern exclusion not listed here. Shrink `gaps` as fixtures land "
+                           "(every-action-sweep.py --write-gaps).",
+                   "gaps": gaps_of(report), "excluded": found["pattern"]}, f, indent=1, sort_keys=True)
         f.write("\n")
+
+
+def exit_status(report):
+    """The run's exit status: FAILED_SESSION_EXIT for a failed session, NEW_GAP_EXIT for a new gap, else 0."""
+    if report.get("failed_sessions"):
+        return FAILED_SESSION_EXIT
+    if (report.get("coverage") or {}).get("new"):
+        return NEW_GAP_EXIT
+    return 0
 
 
 def fail_on_new_gaps(report):
@@ -2245,8 +2459,36 @@ def fail_on_failed_sessions(report):
         raise SystemExit(FAILED_SESSION_EXIT)
 
 
+def shard_set_problem(specs):
+    """Why the shard specs of a merge (each report's env `shard`, `K1,K2/N` or None) are not one whole set, or None:
+    every report a shard of the same N, their Ks disjoint and together 1..N; or one unsharded report."""
+    if specs == [None]:
+        return None
+    if None in specs:
+        return "an unsharded report among shards"
+    parsed = []
+    for spec in specs:
+        try:
+            ks, n = str(spec).split("/")
+            parsed.append(({int(k) for k in ks.split(",")}, int(n)))
+        except ValueError:
+            return f"unreadable shard {spec!r}"
+    counts = {n for _, n in parsed}
+    if len(counts) != 1:
+        return f"shards of different N {sorted(counts)}"
+    n = counts.pop()
+    seen = [k for ks, _ in parsed for k in ks]
+    if len(seen) != len(set(seen)):
+        return f"a shard appears twice ({sorted(seen)})"
+    missing = sorted(set(range(1, n + 1)) - set(seen))
+    if missing or set(seen) - set(range(1, n + 1)):
+        return f"shards {missing or sorted(set(seen) - set(range(1, n + 1)))} of {n} missing or out of range"
+    return None
+
+
 def merge(out, paths):
-    """One report from shard reports (same host and build): sessions joined by name, rows by action id."""
+    """One report from shard reports (same host and build): sessions joined by name, rows by action id. Only a
+    whole shard set (``shard_set_problem``) gives a coverage verdict."""
     reports = [report_from(p) for p in paths]
     merged = {"env": dict(reports[0]["env"], shards=[r["env"].get("shard") for r in reports]), "sessions": []}
     for report in reports:
@@ -2270,8 +2512,12 @@ def merge(out, paths):
     for session in merged["sessions"]:
         session["rows"].sort(key=lambda r: r["id"])
     merged["env"].pop("shard", None)
-    merged["env"]["partial"] = any(r["env"].get("partial") for r in reports)
+    problem = shard_set_problem([r["env"].get("shard") for r in reports])
+    if problem:
+        merged["env"]["shard_set"] = problem
+    merged["env"]["partial"] = any(r["env"].get("partial") for r in reports) or bool(problem)
     merged["coverage"] = coverage(merged)
+    merged["coverage_skipped"] = verdict_blocker(merged)
     with open(out, "w") as f:
         json.dump(merged, f, indent=1, default=str)
     with open(os.path.splitext(out)[0] + ".md", "w") as f:
