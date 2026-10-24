@@ -132,17 +132,6 @@ import SwiftUI
 
 #if os(iOS)
 @Suite @MainActor struct HomeDesignTests {
-    private func tab(_ id: String, _ title: String) -> WorkspaceTab {
-        WorkspaceTab(id: id, kind: .agent, title: title, subtitle: nil, harness: title.lowercased())
-    }
-
-    /// SPEC 1.2: rows read by workspace; a second agent tab adds the agent.
-    @Test func rowTitlesAreTheWorkspace() {
-        let ids = ["a", "b"]
-        #expect(ConversationsHome<EmptyToolbar>.title(of: tab("a", "Claude"), in: "cmux", agentIDs: ids) == "cmux")
-        #expect(ConversationsHome<EmptyToolbar>.title(of: tab("b", "Codex"), in: "cmux", agentIDs: ids) == "cmux · Codex")
-    }
-
     /// SPEC 4: recent turns read as words, never raw ids.
     @Test func recentTurnsAreReadable() {
         let report = ChiefEngineReport(engine: .init(harness: "codex"),

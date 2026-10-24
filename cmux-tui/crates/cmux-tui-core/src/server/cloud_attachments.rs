@@ -16,6 +16,7 @@
 //! The person's own clients only (the app, an authenticated page), like every
 //! command that uses the lease.
 
+use crate::panic_free::JsonFields;
 use base64::Engine;
 use serde_json::{Value, json};
 
@@ -43,6 +44,12 @@ fn variant_name(piece: Piece) -> Option<&'static str> {
 /// and links of one person never serve another (a sign-out and sign-in on the
 /// same daemon).
 pub(super) fn lease_identity(service: &CloudConversations) -> anyhow::Result<String> {
+    // A self-hosted server's person, once `cloud-selfhost-info` named them.
+    if let Some((origin, user)) = service.lease_selfhost() {
+        return user
+            .map(|user| format!("selfhost:{origin}:{user}"))
+            .ok_or_else(|| CloudError::SignedOut.into());
+    }
     service
         .lease_person()
         .map(|(account, audience)| format!("{audience}:{account}"))
@@ -147,20 +154,25 @@ pub(super) fn put(mux: &Mux, client: u64, params: UploadParams) -> anyhow::Resul
                 ("duration_ms", declaration.duration_ms),
             ] {
                 if let Some(value) = value {
-                    intent[field] = json!(value);
+                    intent.insert(field, json!(value));
                 }
             }
             for (field, image) in
                 [("poster", &declaration.poster), ("preview", &declaration.preview)]
             {
                 if let Some(image) = image {
-                    intent[field] = json!({"sha256": image.sha256, "byte_count": image.byte_count,
-                                           "mime_type": image.mime_type.to_lowercase()});
+                    intent.insert(
+                        field,
+                        json!({"sha256": image.sha256, "byte_count": image.byte_count,
+                                           "mime_type": image.mime_type.to_lowercase()}),
+                    );
                 }
             }
             let plan = service.attachment_intent(&conversation, &intent)?;
             if plan.get("state").and_then(Value::as_str) == Some("exists") {
-                return Ok(json!({"upload": null, "needs": [], "stored": plan["attachment"]}));
+                return Ok(
+                    json!({"upload": null, "needs": [], "stored": plan.field("attachment")}),
+                );
             }
             let actor = mux.conversation_principal(client);
             let (upload, needs) = mux.with_conversations(|store| {
@@ -235,23 +247,27 @@ fn send_upload(service: &CloudConversations, upload: CloudUpload) -> anyhow::Res
         match variant_name(piece) {
             None => original = Some(bytes),
             Some(variant) => {
-                let slot = &plan[format!("{variant}_upload")];
-                let url = slot["upload_url"]
+                let slot = plan.field(&format!("{variant}_upload"));
+                let url = slot
+                    .field("upload_url")
                     .as_str()
                     .ok_or_else(|| CloudError::Unavailable(format!("no {variant} upload slot")))?;
-                service.attachment_put(url, &plan_headers(&slot["headers"]), bytes, true)?;
+                service.attachment_put(url, &plan_headers(slot.field("headers")), bytes, true)?;
             }
         }
     }
     let bytes = original.ok_or_else(|| anyhow::anyhow!("an upload without its file"))?;
-    let url = plan["upload_url"]
+    let url = plan
+        .field("upload_url")
         .as_str()
         .ok_or_else(|| CloudError::Unavailable("no upload slot".into()))?;
-    let presigned = plan["mode"] == "presigned";
+    let presigned = plan.field("mode") == "presigned";
     // A Worker slot is on the lease's origin; only a presigned object URL may be elsewhere.
-    let answer = service.attachment_put(url, &plan_headers(&plan["headers"]), bytes, !presigned)?;
+    let answer =
+        service.attachment_put(url, &plan_headers(plan.field("headers")), bytes, !presigned)?;
     let committed = if presigned {
-        let slot = plan["slot"]
+        let slot = plan
+            .field("slot")
             .as_str()
             .ok_or_else(|| CloudError::Unavailable("a presigned slot without its id".into()))?;
         service.attachment_commit(&conversation, slot)?

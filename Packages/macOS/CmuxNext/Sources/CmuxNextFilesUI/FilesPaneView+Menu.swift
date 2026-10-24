@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import CmuxNextFiles
 
 /// The Files context menus, in Finder's order. Every item calls the same
@@ -8,6 +9,12 @@ extension FilesPaneView {
         let menu = NSMenu()
         if entry != nil {
             menu.addItem(item(FilesStrings.open, "doc", #selector(menuOpen)))
+            // Open as Text: a page cmux renders (HTML, SVG, Markdown) as its source in the code editor.
+            if let entry, let fileMenu {
+                let url = entry.url
+                let folder = entry.kind == .folder || entry.kind == .package
+                if let text = fileMenu.openAsTextItem(forFileNamed: entry.name, isDirectory: folder, resolve: { url }) { menu.addItem(text) }
+            }
             // Open With ▸ (every app the system reports, the default first, Other…), Finder's
             // second row; the clicked item's type picks the apps.
             if let entry, let fileMenu {
@@ -43,7 +50,7 @@ extension FilesPaneView {
         menu.addItem(.separator())
         menu.addItem(item(FilesStrings.newFolder, "folder.badge.plus", #selector(menuNewFolder)))
         menu.addItem(item(FilesStrings.goToFolder, "arrow.right.circle", #selector(menuGoTo)))
-        menu.addItem(item(model.showHidden ? FilesStrings.hideHidden : FilesStrings.showHidden, "eye.slash", #selector(menuHidden)))
+        menu.addItem(item(model.showHidden ? FilesStrings.hideHidden : FilesStrings.showHidden, model.showHidden ? "eye.slash" : "eye", #selector(menuHidden)))
         menu.addItem(.separator())
         let undoItem = item(FilesStrings.undo, "arrow.uturn.backward", #selector(menuUndo))
         undoItem.isEnabled = model.canUndo
@@ -60,7 +67,7 @@ extension FilesPaneView {
     private func item(_ title: String, _ symbol: String, _ action: Selector) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
         item.target = self
-        item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        item.image = NSImage.menuSymbol(symbol)
         return item
     }
 

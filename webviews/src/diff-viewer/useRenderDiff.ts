@@ -2,10 +2,11 @@
 // session, the transport's lifetime, deferred hydration and re-languaging after registry changes.
 import { parsePatchFiles, preloadHighlighter, processFile, registerCustomTheme } from "@pierre/diffs";
 import { useEffect, useRef } from "react";
-import { resolveDiffViewerAppearance } from "../appearance";
+import { resolveDiffViewerAppearance, type ResolvedDiffViewerAppearance } from "../appearance";
 import { resolveDiffPreloadLanguages } from "../diff-language";
 import { fileName, type DiffItem, streamPatch } from "../diff-stream";
 import { DEFERRED_PATCH_KEY, hydrateDeferredFileDiff } from "../deferred-parse";
+import { isGeneratedDiffPath } from "../deferred-diffs";
 import { shikiThemeFromGhostty } from "../pierre-options";
 import { createDiffViewerStatus } from "../status";
 import type { DiffViewerLabelResolver } from "../labels";
@@ -23,8 +24,23 @@ import {
 } from "./session";
 import { type AppAction, type AppState } from "./state";
 import { getInitialFileTreeRowCount } from "./FilesSidebar";
+import { withoutImportOnlyHunks } from "./importHunks";
 
 const registeredCustomThemeNames = new Set<string>();
+
+/**
+ * Registers the terminal theme's Shiki themes under their names. The surface calls it before the
+ * viewer's first render, so the highlight pool (created on that render, App.tsx) can start its
+ * workers while the patch is still on its way; the stream calls it again for a new render.
+ */
+export function registerDiffViewerThemes(appearance: ResolvedDiffViewerAppearance): void {
+  for (const theme of [appearance.themes.light, appearance.themes.dark]) {
+    if (theme.name && !registeredCustomThemeNames.has(theme.name)) {
+      registerCustomTheme(theme.name, () => Promise.resolve(shikiThemeFromGhostty(theme, appearance)));
+      registeredCustomThemeNames.add(theme.name);
+    }
+  }
+}
 /// Re-detects every file's language when the host installs new user languages or overrides.
 export function useDiffLanguageChanges(dispatch: React.Dispatch<AppAction>): void {
   useEffect(() => diffLanguages.subscribe(() => dispatch({ type: "relanguage-items" })), [dispatch]);
@@ -43,6 +59,10 @@ export function useRenderDiff(
   onResolvedSessionSource: (source: DiffSource) => void,
   renderGeneration: number,
   adoptedSessionRef: React.MutableRefObject<AdoptedDiffSession | null>,
+  /** Hide white space as chosen; App changes it only together with a refresh (setOption). */
+  hideWhitespace: boolean,
+  /** Hide imports as chosen (importHunks.ts); as `hideWhitespace`, it changes with a refresh. */
+  hideImports: boolean,
 ) {
   useEffect(() => {
     if (isStatusOnlyPayload(config.payload, transport, sessionSource)) {
@@ -53,31 +73,45 @@ export function useRenderDiff(
     document.body.dataset.diffRenderGeneration = String(renderGeneration);
     const payload = config.payload ?? {};
     const appearance = resolveDiffViewerAppearance(payload.appearance);
-    for (const theme of [appearance.themes.light, appearance.themes.dark]) {
-      if (theme.name && !registeredCustomThemeNames.has(theme.name)) {
-        registerCustomTheme(theme.name, () => Promise.resolve(shikiThemeFromGhostty(theme, appearance)));
-        registeredCustomThemeNames.add(theme.name);
-      }
-    }
+    registerDiffViewerThemes(appearance);
     let cancelled = false;
     const streamAbortController = new AbortController();
     const handlePageHide = () => {
       void closeActiveSession();
     };
     window.addEventListener("pagehide", handlePageHide);
+    // An empty diff with white space hidden is not "no changes".
+    let hidingWhitespace = false;
+    // This run's sessionOpen is in flight. Only then does the cleanup close the pending session:
+    // the host cancels whatever open is in flight on that close, and after a refresh (which has
+    // closed the active session) that would be the next run's open (CancellationError, "Could not
+    // render this diff" on Hide imports and Hide white space).
+    let opening = false;
+    const emptyMessage = () =>
+      hidingWhitespace
+        ? label("noChangesWithWhitespaceHidden")
+        : hideImports
+          ? label("noChangesWithImportsHidden")
+          : typeof payload.emptyMessage === "string"
+            ? payload.emptyMessage
+            : label("noFileDiffs");
     void (async () => {
       try {
         let patchURL = payload.patchURL as string | undefined;
         // Taken once: a later render of the same source opens its own session.
         const adopted = adoptedSessionRef.current;
         adoptedSessionRef.current = null;
-        const session = adopted ? null : diffSessionRequest(payload, transport, sessionSource);
+        const session = adopted ? null : diffSessionRequest(payload, transport, sessionSource, hideWhitespace);
+        hidingWhitespace = session?.ignoreWhitespace === true;
         if (adopted || session) {
           let opened: SessionOpened;
           if (adopted) {
             opened = adopted.session;
           } else {
-            const result = await transport!.request({ method: "sessionOpen", params: session! });
+            opening = true;
+            const result = await transport!
+              .request({ method: "sessionOpen", params: session! })
+              .finally(() => (opening = false));
             if (result.type !== "sessionOpened") {
               throw new DiffTransportError("invalidResponse", "Diff transport did not open a session");
             }
@@ -99,12 +133,26 @@ export function useRenderDiff(
             ? result.value.generatedPaths.filter((path): path is string => typeof path === "string")
             : [];
           dispatch({ type: "set-generated-paths", paths: generatedPaths });
+          // Older sidecars omit the field: white space is shown.
+          hidingWhitespace = result.value.ignoreWhitespace === true;
+          dispatch({ type: "set-whitespace-hidden", hidden: hidingWhitespace });
           patchURL = result.value.patch.id;
         }
         if (cancelled || !patchURL) {
           return;
         }
         onPatchURL(patchURL);
+        // The sidecar's generated list as a set, rebuilt only when the list itself changes.
+        let declaredPaths: readonly string[] = [];
+        let declaredSet: ReadonlySet<string> = new Set<string>();
+        const declaredGenerated = (): ReadonlySet<string> => {
+          const paths = latestState.current.generatedPaths;
+          if (paths !== declaredPaths) {
+            declaredPaths = paths;
+            declaredSet = new Set(paths);
+          }
+          return declaredSet;
+        };
         const streamedItems: DiffItem[] = [];
         dispatch({ type: "set-status", status: createDiffViewerStatus(label("parsingDiff"), { loading: true }) });
         await streamPatch({
@@ -120,13 +168,14 @@ export function useRenderDiff(
           onComplete: (metrics) => {
             if (cancelled) return;
             dispatch({ type: "set-metrics", metrics });
+            // Every file has arrived, so "Group by kind" can reorder without moving text the
+            // reader is already on.
+            dispatch({ type: "set-stream-complete" });
             const items = streamedItems;
             if (items.length === 0) {
-              const emptyMessage =
-                typeof payload.emptyMessage === "string" ? payload.emptyMessage : label("noFileDiffs");
               dispatch({
                 type: "set-status",
-                status: createDiffViewerStatus(emptyMessage, { error: false, loading: false, statusOnly: true }),
+                status: createDiffViewerStatus(emptyMessage(), { error: false, loading: false, statusOnly: true }),
               });
               return;
             }
@@ -152,7 +201,8 @@ export function useRenderDiff(
           onTreeSource: (source) => {
             if (!cancelled) dispatch({ type: "set-tree-source", source });
           },
-          isGeneratedPath: (path) => latestState.current.generatedPaths.includes(path),
+          isGeneratedPath: (path) => isGeneratedDiffPath(path, declaredGenerated()),
+          ...(hideImports ? { filterFileText: withoutImportOnlyHunks } : {}),
           parsePatchFiles,
           patchURL,
           processFile,
@@ -170,10 +220,9 @@ export function useRenderDiff(
             String((error as any)?.stack ?? (error as any)?.message ?? error),
           );
         }
-        const emptyMessage = typeof payload.emptyMessage === "string" ? payload.emptyMessage : label("noFileDiffs");
         dispatch({
           type: "set-status",
-          status: createDiffViewerStatus(empty ? emptyMessage : label("renderFailed"), {
+          status: createDiffViewerStatus(empty ? emptyMessage() : label("renderFailed"), {
             error: !empty,
             loading: false,
             statusOnly: true,
@@ -185,7 +234,7 @@ export function useRenderDiff(
       cancelled = true;
       streamAbortController.abort();
       window.removeEventListener("pagehide", handlePageHide);
-      void closeActiveSession();
+      if (opening || activeSessionRef.current) void closeActiveSession();
     };
   }, [
     activeSessionRef,
@@ -200,6 +249,8 @@ export function useRenderDiff(
     sessionSource,
     transport,
     adoptedSessionRef,
+    hideWhitespace,
+    hideImports,
   ]);
 }
 

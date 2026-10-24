@@ -97,7 +97,7 @@ final class BookmarkService {
     // MARK: Reading
 
     /// The home daemon serves bookmarks; every read and write goes there.
-    var usesDaemon: Bool { services.machines.local.supports(DaemonCapabilities.shared.bookmarks) }
+    var usesDaemon: Bool { services.machines.local.supports(DaemonCapability.bookmarks.rawValue) }
 
     /// `profile`'s tree; asks the daemon for it the first time.
     func tree(_ profile: String) -> BookmarkTree {
@@ -109,13 +109,13 @@ final class BookmarkService {
     /// default one for an incognito tab, so incognito shows your bookmarks.
     func profile(ofTab key: String) -> String {
         let engine = services.browserProfiles.engineProfile(forTab: key)
-        if OffTheRecordProfiles.shared.isOffTheRecord(engine) { return BrowserProfileRecord.defaultID }
+        if services.browserStores.offTheRecord.isOffTheRecord(engine) { return BrowserProfileRecord.defaultID }
         return BrowserProfileRecord.wireID(for: engine)
     }
 
     /// The wire id for an engine profile (a page's `profileID`).
     func profile(of engine: BrowserProfileID) -> String {
-        OffTheRecordProfiles.shared.isOffTheRecord(engine) ? BrowserProfileRecord.defaultID : BrowserProfileRecord.wireID(for: engine)
+        services.browserStores.offTheRecord.isOffTheRecord(engine) ? BrowserProfileRecord.defaultID : BrowserProfileRecord.wireID(for: engine)
     }
 
     func isBookmarked(_ url: URL?, profile: String) -> Bool { tree(profile).isBookmarked(url) }

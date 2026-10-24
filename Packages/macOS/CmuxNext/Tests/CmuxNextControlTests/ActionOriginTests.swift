@@ -78,6 +78,8 @@ import Testing
         let list = try await router.handle(ControlRequest(id: "3", method: "action.list", params: [:])).get()
         let focusing = list["actions"]?.arrayValue?.filter { $0["focuses"] == true }.compactMap { $0["id"]?.stringValue } ?? []
         #expect(focusing.contains("tab.focus") && focusing.contains("focusLeft") && !focusing.contains("newTab"))
+        // Open Chief Subagent shows a subagent's tab or opens a workspace on it: a view change.
+        #expect(focusing.contains("chief.openSubagent"))
     }
 
     /// Import Passwords from CSV is a person's: the socket refuses it even
@@ -151,17 +153,15 @@ import Testing
         #expect(ran, "an in-app palette, menu, or keyboard run still reaches the handler")
     }
 
-    /// Raw window screenshots can include a browser page. Automation must use
-    /// the browser host's guarded capture, which masks secrets in every frame,
-    /// instead of bypassing it through the generic action socket. Design mode
-    /// also snapshots selected page regions into a composer, so only a person
-    /// may enable that capture path. Pane and tab screenshots reach their
-    /// handler (#23026), which refuses browser pixels to automation itself.
-    @Test func appScreenshotsAreRefusedOverTheSocket() async {
+    /// Raw browser page screenshots bypass the browser host's guarded capture,
+    /// which masks secrets in every frame, so automation must use the browser
+    /// REPL instead of the generic action socket. Design mode also snapshots
+    /// selected page regions into a composer, so only a person may enable that
+    /// capture path.
+    @Test func browserScreenshotsAreRefusedOverTheSocket() async {
         let registry = ActionRegistry.standard()
         registry.context = [.browserFocused, .webViewFocused]
         let ids: [ActionID] = [
-            "window.screenshot",
             "browserScreenshotPage", "browserScreenshotSection",
             "devtools.captureScreenshot", "devtools.captureFullPageScreenshot", "devtools.captureNodeScreenshot",
             "toggleBrowserDesignMode",
@@ -184,23 +184,31 @@ import Testing
         for id in ids { #expect(registry.descriptor(for: id)?.isPersonOnly == true) }
     }
 
-    /// An agent captures a pane or a tab over the socket (#23026): the run reaches the
-    /// screenshot handler, which decides per target (browser pixels stay refused there).
-    @Test func paneAndTabScreenshotsReachTheirHandlerOverTheSocket() async {
+    /// An agent sees the app: `cmux window|pane|tab screenshot` run for every
+    /// caller (Leo 2026-10-21: "cmux only lets a person run the window
+    /// screenshot action. doesnt seem right"). An automation run's image has
+    /// every web page the app does not own painted over
+    /// (`ScreenshotPrivacyMask`), so it shows no browser pixels.
+    @Test func appScreenshotsRunForEveryCaller() async throws {
         let registry = ActionRegistry.standard()
-        let ids: [ActionID] = ["pane.screenshot", "tab.screenshot"]
-        var ran: [ActionID] = []
-        for id in ids { registry.bind(id, invoke: { _ in ran.append(id) }) }
+        let ids: [ActionID] = ["window.screenshot", "pane.screenshot", "tab.screenshot"]
+        var ran: [(ActionID, ActionOrigin)] = []
+        for id in ids { registry.bind(id, invoke: { ran.append((id, $0.origin)) }) }
         let router = ControlRouter(identity: testIdentity(), executor: RegistryControlBridge(registry: registry), settings: nil,
                                    configuration: .loadTolerant)
         router.updateCatalog(RegistryControlBridge.catalog(from: registry))
+
         for id in ids {
-            #expect(registry.descriptor(for: id)?.isPersonOnly == false)
-            _ = await router.handle(ControlRequest(method: "action.run", params: [
-                "action": .string(id.rawValue), "origin": "cli",
-            ]))
+            #expect(registry.descriptor(for: id)?.isPersonOnly == false, "\(id)")
+            for origin: JSONValue in ["cli", "mcp", "script", .null] {
+                let result = await router.handle(ControlRequest(method: "action.run", params: [
+                    "action": .string(id.rawValue), "origin": origin,
+                ]))
+                #expect((try? result.get()) != nil, "\(id) from \(origin): \(result)")
+            }
         }
-        #expect(ran == ids)
+        #expect(ran.count == ids.count * 4)
+        #expect(ran.allSatisfy { $0.1 != .user }, "an automation run is never the person's, so its image is masked")
     }
 
     @Test func toolPermissionActionsRequireAPersonInTheApp() async {

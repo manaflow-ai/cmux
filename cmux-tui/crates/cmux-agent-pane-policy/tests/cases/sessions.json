@@ -451,5 +451,257 @@
    "a"
   ],
   "refused": true
+ },
+ {
+  "name": "btw about own session",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/btw",
+   "params": {
+    "sessionId": "a",
+    "question": "why did it flake?"
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": false
+ },
+ {
+  "name": "btw about another session",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/btw",
+   "params": {
+    "sessionId": "b",
+    "question": "why did it flake?"
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": true
+ },
+ {
+  "name": "btw without a session",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/btw",
+   "params": {
+    "question": "q"
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": true
+ },
+ {
+  "name": "process/kill for the chat in scope passes",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/process/kill",
+   "params": {
+    "sessionId": "a",
+    "processId": "a/r1"
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": false
+ },
+ {
+  "name": "process/kill for another chat is refused",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/process/kill",
+   "params": {
+    "sessionId": "b",
+    "processId": "b/r1"
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": true
+ },
+ {
+  "name": "process/kill without its chat is refused",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/process/kill",
+   "params": {
+    "processId": "b/r1"
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": true
+ },
+ {
+  "name": "process/background for another chat is refused",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/process/background",
+   "params": {
+    "sessionId": "b"
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": true
+ },
+ {
+  "name": "chat/route.set for the chat in scope passes",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/chat/route.set",
+   "params": {
+    "sessionId": "a",
+    "routeId": "r",
+    "when": "after-turn"
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": false
+ },
+ {
+  "name": "chat/route.set for another chat is refused",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/chat/route.set",
+   "params": {
+    "sessionId": "b",
+    "routeId": "r",
+    "when": "after-turn"
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": true
+ },
+ {
+  "name": "app_reply as the pane's own chat",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/app_reply",
+   "params": {
+    "sessionId": "a",
+    "to": "b",
+    "replyTo": "msg_1",
+    "threadId": "msg_1",
+    "text": "Done.",
+    "replyId": "m-1"
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": false
+ },
+ {
+  "name": "app_reply as a chat the pane does not show",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/app_reply",
+   "params": {
+    "sessionId": "c",
+    "to": "b",
+    "replyTo": "msg_1",
+    "threadId": "msg_1",
+    "text": "Done.",
+    "replyId": "m-1"
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": true
+ },
+ {
+  "name": "app_reply as no chat",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/app_reply",
+   "params": {
+    "to": "b",
+    "replyTo": "msg_1",
+    "threadId": "msg_1",
+    "text": "Done.",
+    "replyId": "m-1"
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": true
+ },
+ {
+  "name": "set_tools for the pane's chat passes",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/set_tools",
+   "params": {
+    "sessionId": "a",
+    "id": "mcp:github",
+    "enabled": false
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": false
+ },
+ {
+  "name": "set_tools for a chat outside the scope is refused",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/set_tools",
+   "params": {
+    "sessionId": "b",
+    "id": "mcp:github",
+    "enabled": true
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": true
+ },
+ {
+  "name": "set_tools without a chat is refused",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/set_tools",
+   "params": {
+    "id": "mcp:github",
+    "enabled": true
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": true
  }
 ]

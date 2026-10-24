@@ -61,7 +61,9 @@ public final class AgentCursorLayerHost: AgentCursorLayerHosting {
         switch command {
         case let .place(session, point):
             let cursor = cursor(for: session)
-            for layer in cursor.roots { layer.position = point; layer.isHidden = false }
+            for layer in cursor.roots { layer.position = point }
+            cursor.layOutTag(tip: point)
+            for layer in cursor.roots { layer.isHidden = false }
             cursor.showsIndicator = false
             cursor.armIdleHide(after: Self.idleHideDelay)
         case let .glide(session, plan):
@@ -69,7 +71,10 @@ public final class AgentCursorLayerHost: AgentCursorLayerHosting {
             for layer in cursor.roots { layer.isHidden = false }
             cursor.showsIndicator = false
             if let last = plan.samples.last {
-                for layer in cursor.roots { layer.position = CGPoint(x: last.x, y: last.y) }
+                let end = CGPoint(x: last.x, y: last.y)
+                for layer in cursor.roots { layer.position = end }
+                // The tag rides with the arrow, laid out for where the glide ends.
+                cursor.layOutTag(tip: end)
                 for layer in cursor.headings {
                     layer.setValue(last.heading - AgentCursorOverlayModel.restingHeading, forKeyPath: "transform.rotation.z")
                 }
@@ -92,6 +97,8 @@ public final class AgentCursorLayerHost: AgentCursorLayerHosting {
                 for layer in cursor.headings { layer.removeAnimation(forKey: "agentCursor.heading") }
             }
             cursor.armIdleHide(after: played + Self.idleHideDelay)
+        case let .confine(session, bounds):
+            cursor(for: session).confinement = bounds
         case let .pulse(session):
             // A pulse follows its action's place or glide, which armed the idle hide.
             cursor(for: session).pulse()
@@ -122,7 +129,7 @@ public final class AgentCursorLayerHost: AgentCursorLayerHosting {
         }
         switch command {
         case .place, .glide, .indicate, .hide, .remove: onTagsChange?()
-        case .pulse, .caption, .setPaused: break
+        case .pulse, .caption, .setPaused, .confine: break
         }
     }
 

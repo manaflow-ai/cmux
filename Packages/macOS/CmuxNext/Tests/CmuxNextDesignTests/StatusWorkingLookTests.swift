@@ -1,17 +1,18 @@
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
-/// WORKING-LOOK (Leo 2026-10-20: seventeen running sessions with a spinner each "reads as noise"):
-/// agent work draws a calm dot in the theme accent by default, breathing on the shared clock; the
-/// spinner stays as an option, and loading (a page, a command) keeps its spinner whatever the look.
+/// WORKING-LOOK: agent work draws the spinner by default (Leo 2026-10-21: "WE SAID NO BLINKING. WE
+/// SAID SPINNER."); the breathing and still accent dots stay as Debug choices, and loading (a page,
+/// a command) keeps its spinner whatever the look.
 @MainActor struct StatusWorkingLookTests {
     private static func plan(_ state: StatusIndicatorState, look: StatusWorkingLook, animates: Bool = true,
                              isStatic: Bool = false) -> StatusIndicatorPlan {
         StatusIndicatorPlan.make(state, style: .arc, animates: animates, set: .codex, isStatic: isStatic, working: look)
     }
 
-    @Test func theBreathingDotIsTheDefault() {
-        #expect(StatusWorkingLook.tunable.defaultValue == .breathe)
+    @Test func theSpinnerIsTheDefault() {
+        #expect(StatusWorkingLook.tunable.defaultValue == .spinner)
     }
 
     @Test func workBreathesAsAnAccentDot() {

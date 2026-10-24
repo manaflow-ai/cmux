@@ -12,6 +12,8 @@ mod colors;
 mod hosted;
 mod input;
 mod lifecycle;
+#[cfg(unix)]
+mod local_resize_order;
 mod lock_order;
 mod render_geometry;
 #[cfg(unix)]

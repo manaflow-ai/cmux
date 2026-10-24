@@ -119,6 +119,7 @@ impl Hub {
                     keep_harness_mode: true,
                     route: None,
                     subsession: None,
+                    disallowed_tools: Vec::new(),
                 };
                 let side = match self.new_session(req.clone()).await {
                     // A default model the harness refuses: its own default instead.
@@ -327,7 +328,11 @@ impl Hub {
                     "user_message" => ("User", e.msg.get("text").and_then(Value::as_str)),
                     "agent_message_chunk" => (
                         "Assistant",
-                        e.msg.pointer("/params/update/content/text").and_then(Value::as_str),
+                        e.msg
+                            .get("params")
+                            .filter(|p| !crate::subagents::is_subagents(p))
+                            .and_then(|p| p.pointer("/update/content/text"))
+                            .and_then(Value::as_str),
                     ),
                     _ => return true,
                 };

@@ -93,7 +93,7 @@ SECTIONS = [
         "lists": {"updates": ("descriptors", "UpdatesSettings"),
                   "announcements": ("announcements", "AnnouncementsSettings")},
         "enums": {"updates.channel": "UpdatesChannelSetting", "updates.meteredNetwork": "UpdatesMeteredSetting",
-                  "updates.notify": "UpdatesNotifySetting"},
+                  "updates.notify": "UpdatesNotifySetting", "updates.web": "UpdatesWebSetting"},
     },
     {
         "source": "schemas/settings/source/labs.json",
@@ -148,7 +148,15 @@ SECTIONS = [
         "source": "schemas/settings/source/now-playing.json",
         "swift": SCHEMA_DIR + "/SettingsSchema+NowPlaying.generated.swift",
         "type": "NowPlayingSettingsSchema",
-        "lists": {"nowPlaying": ("descriptors", "NowPlayingSettings"), "newTab": ("newTabDescriptors", "NowPlayingSettings")},
+        "lists": {"nowPlaying": ("descriptors", "NowPlayingSettings"), "newTab": ("newTabDescriptors", "NowPlayingSettings"),
+                  "pictureInPicture": ("pictureInPictureDescriptors", "NowPlayingSettings")},
+        "enums": {},
+    },
+    {
+        "source": "schemas/settings/source/new-tab-widgets.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+NewTabWidgets.generated.swift",
+        "type": "NewTabWidgetSettingsSchema",
+        "lists": {"newTabWidgets": ("descriptors", "NewTabWidgetSettings")},
         "enums": {},
     },
     {
@@ -358,6 +366,9 @@ def load_section(section, seen_keys, section_ids):
                 if not isinstance(default, list) or not all(isinstance(item, str) and item.strip() for item in default) \
                         or "choices" in row or "range" in row:
                     fail(src, "%s: a string_list default is a list of non-empty strings" % key)
+            elif kind == "text":
+                if not isinstance(default, str) or "choices" in row or "range" in row:
+                    fail(src, "%s: a text row has a string default and no choices or range" % key)
             else:
                 fail(src, "%s: kind %r is not supported by the generator yet" % (key, kind))
             if "aliases" in row and kind != "choice":
@@ -428,6 +439,8 @@ def section_swift(section, data):
                            % (name, number_literal(rng["min"]), number_literal(rng["max"])))
             elif kind in ("folder_list", "string_list"):
                 out.append("    public nonisolated static let %sDefault: [String] = [%s]" % (name, ", ".join(swift_string(p) for p in row["default"])))
+            elif kind == "text":
+                out.append("    public nonisolated static let %sDefault = %s" % (name, swift_string(row["default"])))
             else:
                 enum = section["enums"][row["key"]]
                 out.append("    public nonisolated static let %sDefault: %s = .%s" % (name, enum, camel(row["default"])))
@@ -463,6 +476,8 @@ def section_swift(section, data):
                          "default: .number(%s.%sDefault)" % (owner, name)]
             elif kind in ("folder_list", "string_list"):
                 args += ["kind: .folderList" if kind == "folder_list" else "kind: .stringList", "default: .array(%s.%sDefault.map { .string($0) })" % (owner, name)]
+            elif kind == "text":
+                args += ["kind: .text", "default: .string(%s.%sDefault)" % (owner, name)]
             else:
                 enum = section["enums"][row["key"]]
                 choices = "".join("\n                    SettingChoice(%s.%s.rawValue, %s)," % (enum, camel(c["value"]), keyed(c["title"]))

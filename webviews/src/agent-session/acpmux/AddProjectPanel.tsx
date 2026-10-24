@@ -280,7 +280,7 @@ export function AddProjectDialog({ open, ...props }: AddProjectPanelProps & { op
         if (!next) props.onClose();
       }}
       label={t("project.add")}
-      className="acpmux-add-project-dialog"
+      className="ui-glass ui-glass-floats acpmux-add-project-dialog"
     >
       <AddProjectPanel {...props} />
     </Dialog>

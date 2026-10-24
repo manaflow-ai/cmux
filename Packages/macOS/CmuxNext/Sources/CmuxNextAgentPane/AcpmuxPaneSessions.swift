@@ -85,6 +85,17 @@ public nonisolated final class AcpmuxPaneSessions: Sendable {
         }
     }
 
+    /// A chat on another machine: that machine's daemon attached the session its store records for
+    /// the tab, and the remote wire's `_acpmux/watch` reply names it by acpmux's id (`tabSessionId`,
+    /// ``RemoteAcpmuxWire``). The page opens that session (direct.ts `tabSession`) even when the tab
+    /// recorded another name for it, so it is the pane's like the one the host opened the tab on.
+    /// Only a remote wire's frames are read for it (``AcpmuxPaneSocket``).
+    func observeTabSession(_ object: [String: Any], replyTo method: String?) {
+        guard method == "_acpmux/watch", object["method"] == nil, let result = object["result"] as? [String: Any],
+              let session = result["tabSessionId"] as? String, !session.isEmpty else { return }
+        add(session)
+    }
+
     /// The form of acpmux's harness the store records (cmux-tui `validate_harness`): a profile such
     /// as `providers/deepseek` by its last part (the brand catalog reads that part too), then 1 to
     /// 64 ASCII letters, digits or `_ . -`; nil otherwise, so a bind never fails on it.

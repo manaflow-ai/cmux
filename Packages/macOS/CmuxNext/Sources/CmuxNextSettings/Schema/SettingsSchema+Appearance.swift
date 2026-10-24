@@ -100,6 +100,7 @@ nonisolated enum AppearanceSettingsSchema {
                 keywords: ["shuffle", "rotate", "rotating", "wallpaper", "interval", "change picture", "background"]
             ),
             PaneBackgroundsSetting.descriptor(group: window),
+            ReducedBackgroundsSetting.descriptor(group: window),
             SettingDescriptor(
                 ExperimentalAppearanceSetting().configPath, section: .appearance, group: window,
                 title: SettingsText.keyed("settings.appearance.experimentalControls", "Experimental Appearance Controls"),
@@ -247,7 +248,7 @@ nonisolated enum AppearanceSettingsSchema {
                 PaneFocusSettings.inactiveTabStylePath, section: .appearance, group: look,
                 title: SettingsText.keyed("settings.focus.inactiveTabStyle", "Unfocused Pane Tabs"),
                 help: SettingsText.keyed("settings.focus.inactiveTabStyle.help",
-                                        "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet drops the selected pill."),
+                                        "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet keeps only a faint selected pill."),
                 summary: SettingsText.keyed("settings.focus.inactiveTabStyle.summary", "How tabs in other panes tone down"),
                 kind: .choice([
                     SettingChoice(InactiveTabStyle.fade.rawValue, SettingsText.keyed("settings.choice.fade", "Fade")),

@@ -1,4 +1,6 @@
 public import QuartzCore
+import CmuxNextCompat
+public import CmuxNextDesignTokens
 
 /// Fades a clipped single-line title and runs its hover marquee.
 ///
@@ -63,7 +65,7 @@ public final class TitleFade {
             mask.frame = CGRect(x: x, y: 0, width: width, height: frame.height)
             let open = [0, geometry.leadingPadding / max(1, width), 1, 1, 1].map { NSNumber(value: Double($0)) }
             CATransaction.begin()
-            CATransaction.setCompletionBlock { [weak self] in MainActor.assumeIsolated { self?.dropOpenMask() } } // main-proof: CATransaction.h: the completion block is called on the main thread
+            CATransaction.setMainCompletion { [weak self] in self?.dropOpenMask() }
             gate.set(mask, "locations", to: open, fade: .hover)
             CATransaction.commit()
             return
@@ -191,7 +193,7 @@ public final class TitleFade {
         CATransaction.begin()
         // The title keeps its full width until it is back at rest, so its
         // end is never cut while it slides back.
-        CATransaction.setCompletionBlock { [weak self] in MainActor.assumeIsolated { self?.restoreWidth() } } // main-proof: CATransaction.h: the completion block is called on the main thread
+        CATransaction.setMainCompletion { [weak self] in self?.restoreWidth() }
         gate.set(textLayer, Self.keyPath, to: CGFloat(0), spring: .disappear, from: shown)
         gate.set(mask, Self.keyPath, to: CGFloat(0), spring: .disappear, from: -shown)
         CATransaction.commit()

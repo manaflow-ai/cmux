@@ -195,7 +195,13 @@ keys. The AST lands with the fix; the text grammar is the next slice.
   defaults in the default layer, so in their context they win and elsewhere the global key
   runs; the last-entry rule is unchanged. First use: Home's Cmd-Shift-[ / ]
   (`home.previousConversation`, `home.nextConversation`, `when: topPage == home`), which
-  stop at the ends of the list like Messages. In cmux.json a user entry with the same
+  stop at the ends of the list like Messages. Since 2026-10-21 (Lawrence: "ctrl 1-9 and cmd
+  shift [] and ctrl tab ... cycling through chiefs (only for home chief)") the tab keys
+  Ctrl-Tab / Ctrl-Shift-Tab, Cmd-Shift-] / [ and Ctrl-1…9 move through Home's chat list,
+  wrapping, with `when: topPage == home || surfaceKind == home-dock`
+  (`KeyBindingDefaults.homeChatSwitching`, after the Chrome tab keys); a Home chat opened
+  as a pane tab keeps the tab keys, and a rebind of the Home actions stays Home-scoped
+  (`homeChatScoped`). In cmux.json a user entry with the same
   `when` overrides them; `KeyBindingTable.conflicts()` reports entries of one layer on the
   same keys and the same `when` that run different actions (a scoped entry over a global
   one is a scope, not a conflict).

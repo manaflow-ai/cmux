@@ -1,5 +1,7 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextCompat
+import CmuxNextPalette
 @testable import CmuxNextApp
 import Testing
 
@@ -35,32 +37,57 @@ import Testing
         return bar.items.first { $0.title == title }?.submenu
     }
 
-    @Test func everyMainMenuPlacementIsInItsTopMenu() {
+    @Test func compactMainMenuPlacementsStayInTheirTopMenu() {
         _ = NSApplication.shared
         let registry = ActionRegistry.standard()
-        let bar = MainMenu.make(registry: registry)
+        let bar = MainMenu.make(registry: registry, blocking: .forProcess())
         var missing: [String] = []
-        for descriptor in registry.descriptors {
-            guard let placement = descriptor.mainMenu else { continue }
-            if placement == .debug, !DevTools.isEnabled { continue }
-            // Edit placements stay out of the bar until their key equivalents can't take keys
-            // from a user's Ghostty keybinds or a panel (cmuxterm-hq#2015 C11).
-            if placement == .edit { continue }
+        for (placement, ids) in MainMenu.compactActionIDs {
             guard let menu = Self.topMenu(placement, in: bar) else {
-                missing.append("\(descriptor.id.rawValue): no \(placement) menu")
+                missing.append("no \(placement) menu")
                 continue
             }
-            if !Self.actionIDs(in: menu).contains(descriptor.id.rawValue) {
-                missing.append("\(descriptor.id.rawValue) not in the \(placement) menu")
+            let shown = Set(Self.actionIDs(in: menu))
+            for id in ids where !shown.contains(id.rawValue) {
+                missing.append("\(id) not in the \(placement) menu")
             }
         }
-        #expect(missing.isEmpty, "\(missing.count) placements not in the menu bar:\n\(missing.joined(separator: "\n"))")
+        #expect(missing.isEmpty, "\(missing.count) compact placements missing:\n\(missing.joined(separator: "\n"))")
+    }
+
+    @Test func removedMainMenuActionsResolveFromPaletteSearch() {
+        let registry = ActionRegistry.standard()
+        // Give the provider every catalog fact so target-sensitive actions are included in
+        // this catalog-level reachability check; runtime palette filtering still follows focus.
+        registry.context = registry.descriptors.reduce(into: ActionContext()) { $0.formUnion($1.requires) }
+        let items = RegistryPaletteProvider(registry: registry, includeUnbound: true).makeItems()
+        let actionIDs = Set(items.compactMap(\.actionID))
+        for id in MainMenu.removedMainMenuActionIDs {
+            #expect(actionIDs.contains(id), "removed menu action \(id) is not palette-searchable")
+        }
+    }
+
+    @Test func compactMenuCountsMatchAudit() {
+        _ = NSApplication.shared
+        let registry = ActionRegistry.standard()
+        let bar = MainMenu.make(registry: registry, blocking: .forProcess())
+        let counts = ActionMainMenu.allCases.reduce(into: [ActionMainMenu: Int]()) { result, menu in
+            result[menu] = Self.topMenu(menu, in: bar)?.items.filter { !$0.isSeparatorItem }.count ?? 0
+        }
+        #expect(counts[.app] == 8)
+        #expect(counts[.file] == 15)
+        #expect(counts[.edit] == 7)
+        #expect(counts[.view] == 12)
+        #expect(counts[.server] == 2)
+        #expect(counts[.window] == 9)
+        #expect(counts[.help] == 5)
+        #expect(counts[.debug] == 0 || DevTools.isEnabled)
     }
 
     @Test func appMenuStartsWithOneAbout() throws {
         _ = NSApplication.shared
         let registry = ActionRegistry.standard()
-        let app = try #require(MainMenu.make(registry: registry).items.first?.submenu)
+        let app = try #require(MainMenu.make(registry: registry, blocking: .forProcess()).items.first?.submenu)
         let about = try #require(registry.title(for: "about"))
         #expect(app.items.filter { $0.title == about }.count == 1, "About rows: \(app.items.map(\.title))")
         #expect(app.items.first?.representedObject as? String == "about", "first row: \(app.items.first?.title ?? "none")")

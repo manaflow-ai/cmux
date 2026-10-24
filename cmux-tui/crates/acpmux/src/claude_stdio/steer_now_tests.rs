@@ -25,7 +25,7 @@ fn is_interrupt(line: &Value) -> bool {
 
 fn answer(msgs: &[Message], want: i64) -> Option<Value> {
     msgs.iter().find_map(|m| match m {
-        Message::Response { id, result, .. } if *id == Value::from(want) => result.clone(),
+        Message::Response { id, result, .. } if *id == want => result.clone(),
         _ => None,
     })
 }
@@ -120,4 +120,67 @@ async fn stop_with_a_steer_waiting_still_ends_the_turn_stopped() {
     let (written, turn) = steered_turn(&t, json!({"steer": true}), Some(stop)).await;
     assert_eq!(written.iter().filter(|l| is_interrupt(l)).count(), 2, "{written:?}");
     assert_eq!(turn["stopReason"], "cancelled", "{turn}");
+}
+
+/// Claude Code's `interrupt` ends more than the step: every running subagent, background ones
+/// included, and every background shell (cosmic-gray, 2026-10-21: a Send now killed two
+/// background subagents 17 and 4 minutes in). While one runs, Send now stops nothing; the steer
+/// is read at the next tool boundary.
+async fn turn_with(t: &Translator, work: Value) {
+    let Outbound::Lines(first) = t.outbound(&prompt(1, "run sleep 25", json!({}))).await else {
+        panic!()
+    };
+    t.inbound(&echo(&first[0])).await;
+    t.inbound(&json!({"type": "assistant", "message": {"content": [work]}})).await;
+}
+
+fn agent(id: &str, background: bool) -> Value {
+    json!({"type": "tool_use", "id": id, "name": "Agent", "input": {"description": "Review", "prompt": "review it", "run_in_background": background}})
+}
+
+fn shell(id: &str, background: bool) -> Value {
+    json!({"type": "tool_use", "id": id, "name": "Bash", "input": {"command": "sleep 600", "run_in_background": background}})
+}
+
+#[tokio::test]
+async fn a_steer_sent_now_never_stops_a_running_subagent_or_background_shell() {
+    for work in [agent("toolu_bg", true), agent("toolu_fg", false), shell("toolu_sh", true)] {
+        let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+        turn_with(&t, work.clone()).await;
+        let meta = json!({"steer": true, "steerNow": true});
+        let Outbound::Lines(written) = t.outbound(&prompt(2, "reply PINEAPPLE", meta)).await else {
+            panic!()
+        };
+        assert!(!written.iter().any(is_interrupt), "{work}: {written:?}");
+        assert_eq!(written.len(), 1, "{work}: {written:?}");
+    }
+}
+
+#[tokio::test]
+async fn send_now_for_a_waiting_steer_never_stops_a_running_subagent_or_background_shell() {
+    for work in [agent("toolu_bg", true), agent("toolu_fg", false), shell("toolu_sh", true)] {
+        let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+        turn_with(&t, work.clone()).await;
+        let steer = json!({"steer": true});
+        let Outbound::Lines(_) = t.outbound(&prompt(2, "reply PINEAPPLE", steer)).await else {
+            panic!()
+        };
+        let now = Message::request(9, method::MUX_STEP_NOW, json!({"sessionId": "acp-1"}));
+        let Outbound::Reply(reply) = t.outbound(&now).await else {
+            panic!("{work}: it stopped the step")
+        };
+        assert_eq!(answer(&[reply], 9).unwrap()["interrupted"], false, "{work}");
+    }
+}
+
+/// A foreground shell alone is the step Send now stops: nothing else ends with it.
+#[tokio::test]
+async fn a_steer_sent_now_still_stops_a_foreground_shell() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    turn_with(&t, shell("toolu_sh", false)).await;
+    let meta = json!({"steer": true, "steerNow": true});
+    let Outbound::Lines(written) = t.outbound(&prompt(2, "reply PINEAPPLE", meta)).await else {
+        panic!()
+    };
+    assert_eq!(written.iter().filter(|l| is_interrupt(l)).count(), 1, "{written:?}");
 }

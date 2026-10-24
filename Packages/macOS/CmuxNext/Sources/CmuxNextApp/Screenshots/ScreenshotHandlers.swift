@@ -23,16 +23,11 @@ import Foundation
 /// point) and `method` (`window` or `page`). A person's run (palette, menu)
 /// also copies the image.
 ///
-/// Agents and scripts may capture panes and tabs (#23026), never browser
-/// pixels or an agent chat's: a browser or chat tab, or a pane whose shown tab
-/// is one, is refused to any run that is not a person's. Browser pages go
-/// through the browser host's guarded capture (`cmux browser page screenshot`,
-/// masked for other sessions) and chats through `cmux agents chat read`, which
-/// masks secrets. Their capture is the window alone (``AppWindowImage``
-/// `contentOnly`): no overlay panel, floating window or Chromium page, any of
-/// which can show a page over the pane. A terminal's pixels show nothing
-/// `cmux terminal … screen read` does not. `window.screenshot` stays a
-/// person's only (`isPersonOnly`).
+/// An automation run (CLI, MCP, scripts) gets the same image with every web
+/// page the app does not own painted black (``ScreenshotPrivacyMask``): the
+/// app cannot mask the secrets a page shows the way the browser host does, so
+/// a browser tab or a pane showing one is refused and points at the browser
+/// REPL, whose capture masks them.
 enum ScreenshotHandlers {
     /// The capture gave no image; the message says why.
     static let unavailableCode = "screenshot.unavailable"
@@ -44,7 +39,7 @@ enum ScreenshotHandlers {
             let output = try ScreenshotOutput(invocation)
             guard let window = try context.window(invocation).window else { throw ActionFailure(message: ScreenshotStrings.notOnScreen) }
             start(output: output, invocation: invocation, context: context) {
-                try await shown(window, crop: nil, services: context.services)
+                try await shown(window, crop: nil, masked: ScreenshotPrivacyMask.applies(to: invocation), services: context.services)
             }
         })
         registry.bind("pane.screenshot", run: { invocation in
@@ -54,26 +49,26 @@ enum ScreenshotHandlers {
                 if invocation.target == nil { throw ActionFailure(message: MiscHandlerStrings.noPane) }
                 return
             }
-            if invocation.origin != .user, let id = pane.stripModel.selectedID, let shown = pane.tab(id) {
-                try refuseToAutomation(shown)
-            }
             guard let window = pane.view.window, pane.isVisible, !pane.view.isHiddenOrHasHiddenAncestor else {
                 throw ActionFailure(message: ScreenshotStrings.paneNotShown)
             }
+            let masked = ScreenshotPrivacyMask.applies(to: invocation)
+            if masked, case .browser? = pane.currentContent { throw ActionFailure(message: ScreenshotStrings.browserNeedsREPL) }
             let view = pane.view
             start(output: output, invocation: invocation, context: context) {
-                try await shown(window, crop: view, contentOnly: invocation.origin != .user, services: context.services)
+                try await shown(window, crop: view, masked: masked, services: context.services)
             }
         })
         registry.bind("tab.screenshot", run: { invocation in
             let output = try ScreenshotOutput(invocation)
             let (tab, controller) = try resolveTab(invocation, services: context.services)
-            if invocation.origin != .user { try refuseToAutomation(tab) }
+            let masked = ScreenshotPrivacyMask.applies(to: invocation)
+            if masked, tab.kind == .browser { throw ActionFailure(message: ScreenshotStrings.browserNeedsREPL) }
             if let controller, let window = controller.view.window, controller.isVisible, controller.currentTabKey == tab.id,
                !controller.view.contentHost.isHiddenOrHasHiddenAncestor {
                 let view = controller.view.contentHost
                 start(output: output, invocation: invocation, context: context) {
-                    try await shown(window, crop: view, contentOnly: invocation.origin != .user, services: context.services)
+                    try await shown(window, crop: view, masked: masked, services: context.services)
                 }
                 return
             }
@@ -85,14 +80,6 @@ enum ScreenshotHandlers {
                 try await offscreenPage(tab, services: context.services)
             }
         })
-    }
-
-    /// Refuses `tab`'s pixels to a run that is not a person's: a browser page (masked
-    /// only by the browser host's capture) or an agent chat (masked only by `agents chat read`).
-    private static func refuseToAutomation(_ tab: TabModel) throws {
-        if tab.kind == .browser { throw ActionFailure(message: ScreenshotStrings.browserNeedsGuardedCapture) }
-        // An app page tab (Settings, App Store) shows no chat; every other conversation tab does.
-        if tab.kind == .conversation, tab.page == nil { throw ActionFailure(message: ScreenshotStrings.chatNeedsMaskedRead) }
     }
 
     /// The tab the run names (target or `tab` argument, in any workspace),
@@ -119,10 +106,10 @@ enum ScreenshotHandlers {
         let method: String
     }
 
-    /// `window` as on screen, cropped to `crop`'s frame when given.
-    private static func shown(_ window: NSWindow, crop view: NSView?, contentOnly: Bool = false,
-                              services: AppServices) async throws -> Capture {
-        let full = try await AppWindowImage(services: services).capture(window, contentOnly: contentOnly)
+    /// `window` as on screen, cropped to `crop`'s frame when given; `masked`
+    /// for an automation run (``ScreenshotPrivacyMask``).
+    private static func shown(_ window: NSWindow, crop view: NSView?, masked: Bool, services: AppServices) async throws -> Capture {
+        let full = try await AppWindowImage(services: services).capture(window, masked: masked)
         let size = window.frame.size
         let scale = size.width > 0 ? Double(full.width) / size.width : Double(window.backingScaleFactor)
         guard let view else { return Capture(image: full, scale: scale, method: "window") }
@@ -188,15 +175,17 @@ enum ScreenshotHandlers {
     /// Encodes and writes `capture` where `output` says.
     private static func deliver(_ capture: Capture, output: ScreenshotOutput, copies: Bool) async throws -> [String: ActionResultValue] {
         let image = capture.image
-        guard !image.isFullyTransparent else { throw ActionWorkFailure(code: unavailableCode, reason: ScreenshotStrings.blank) }
-        guard let png = await encode(image) else { throw ActionWorkFailure(code: unavailableCode, reason: BrowserPageStrings.encodeFailed) }
+        let encoded = await encode(image)
+        guard !encoded.blank else { throw ActionWorkFailure(code: unavailableCode, reason: ScreenshotStrings.blank) }
+        guard let png = encoded.png else { throw ActionWorkFailure(code: unavailableCode, reason: BrowserPageStrings.encodeFailed) }
         var result: [String: ActionResultValue] = [
             "width": .int(image.width), "height": .int(image.height), "scale": .double(capture.scale), "method": .string(capture.method),
         ]
         do {
             switch output {
             case .inline where png.count <= AppBrowserPage.inlinePNGLimit:
-                result["png_base64"] = .string(png.base64EncodedString())
+                // Up to 4 MiB of PNG grows to 5.3 MiB of text: off the main actor.
+                result["png_base64"] = .string(await AppBrowserPage.base64(png))
             case .inline, .temporary:
                 result["path"] = .string(try await saveTemporary(png))
             case .file(let url):
@@ -213,10 +202,12 @@ enum ScreenshotHandlers {
         return result
     }
 
-    /// Encodes off the main actor: a Retina window is several megapixels.
+    /// The blank check (a 64 x 64 redraw) and the PNG encoding, off the main actor: a Retina
+    /// window is several megapixels. `png` is nil for a blank image or a failed encoding.
     @concurrent
-    nonisolated private static func encode(_ image: CGImage) async -> Data? {
-        image.pngData()
+    nonisolated private static func encode(_ image: CGImage) async -> (blank: Bool, png: Data?) {
+        if image.isFullyTransparent { return (true, nil) }
+        return (false, image.pngData())
     }
 
     @concurrent

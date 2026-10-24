@@ -6,10 +6,29 @@
 // FindReveal, the tool group or call that holds it (cx-ncc.70).
 import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
+import { commandFolder } from "./commandFolder";
 import { cleanText, mcpCall, prettyOutput, prettyValue } from "./mcpCalls";
+import { plainText } from "./messageMenu";
+import { drawnThought } from "./thoughts";
+import { shellOutput } from "./toolFailure";
+import { toolResult } from "./toolResult";
+import { stripsEnvelopeImages } from "../toolImages";
 
 /** One match: the `occurrence`th match of the query in row `rowIndex`. */
 export type FindMatch = { rowIndex: number; rowId: string; occurrence: number };
+
+export type FindMatchesCache = {
+  needle: string;
+  rows: readonly AcpmuxRow[];
+  matches: FindMatch[];
+};
+
+export type FindMatchesResult = {
+  matches: FindMatch[];
+  cache: FindMatchesCache;
+  /** Number of rows whose searchable text was inspected for this result. */
+  scannedRows: number;
+};
 
 /** The highlight names conversation.css styles. */
 export const FIND_HIGHLIGHT = "acpmux-find";
@@ -23,12 +42,27 @@ const SEARCHED_KINDS = new Set(["user", "assistant"]);
 /// without the context a host injects into it, as ToolRow does.
 function drawnText(item: AcpmuxActivity): string {
   const tool = item.tool;
-  if (!tool) return item.text;
+  // A thought draws its headings without their marks (ThoughtRow.tsx, thoughts.ts thoughtParts).
+  if (!tool) return item.kind === "thought" ? drawnThought(item.text) : item.text;
   const call = mcpCall(tool);
-  if (call) return [prettyValue(call.args), prettyOutput(tool.output)].filter(Boolean).join("\n");
+  // A finished call's envelope images show in its strip, not its text (toolImages.ts).
+  const strip = stripsEnvelopeImages(tool);
+  if (call) return [prettyValue(call.args), prettyOutput(tool.output, strip)].filter(Boolean).join("\n");
   const shell = tool.kind === "execute" && Boolean(tool.command);
-  const output = shell || !tool.output ? tool.output : cleanText(tool.output);
-  return [tool.command || tool.title, output].filter(Boolean).join("\n");
+  // A shell draws its output without Claude Code's leading "Exit code N" line (toolFailure.ts), which
+  // its Shell block says once, at its end. Other output reads as ToolRow draws it: out of its envelope,
+  // without injected context (toolResult.ts), and Markdown as its words, without the marks
+  // (messageMenu.ts plainText).
+  const result = shell || !tool.output ? undefined : toolResult(tool.output, cleanText, strip);
+  const output = shell
+    ? shellOutput(tool)
+    : !result
+      ? tool.output
+      : result.lang === "markdown"
+        ? plainText(result.text)
+        : result.text;
+  // The command as its rows draw it, without a leading `cd <folder> &&` (commandFolder).
+  return [(tool.command && commandFolder(tool.command).rest) || tool.title, output].filter(Boolean).join("\n");
 }
 
 /** A call's edits' new text, which draws in @pierre/diffs' shadow root, past the page's highlights. */
@@ -70,18 +104,39 @@ function searchableText(row: AcpmuxRow): string | undefined {
 }
 
 /** Every match of `query` (case-insensitive) in the prompts, replies and work of `rows`, in order. */
-export function findMatches(rows: readonly AcpmuxRow[], query: string): FindMatch[] {
+export function findMatchesIncremental(
+  rows: readonly AcpmuxRow[],
+  query: string,
+  previous?: FindMatchesCache,
+): FindMatchesResult {
   const needle = query.toLocaleLowerCase();
-  if (!needle) return [];
-  const matches: FindMatch[] = [];
-  rows.forEach((row, rowIndex) => {
+  if (!needle) {
+    return { matches: [], cache: { needle, rows, matches: [] }, scannedRows: 0 };
+  }
+
+  let prefix = 0;
+  if (previous?.needle === needle) {
+    while (prefix < rows.length && prefix < previous.rows.length && rows[prefix] === previous.rows[prefix]) prefix += 1;
+  }
+
+  if (previous?.needle === needle && prefix === rows.length && rows.length === previous.rows.length) {
+    return { matches: previous.matches, cache: { needle, rows, matches: previous.matches }, scannedRows: 0 };
+  }
+
+  const matches = previous?.needle === needle ? previous.matches.filter(({ rowIndex }) => rowIndex < prefix) : [];
+  for (let rowIndex = prefix; rowIndex < rows.length; rowIndex += 1) {
+    const row = rows[rowIndex];
     const text = searchableText(row);
-    if (!text) return;
+    if (!text) continue;
     let occurrence = 0;
     for (let at = text.indexOf(needle); at >= 0; at = text.indexOf(needle, at + needle.length))
       matches.push({ rowIndex, rowId: row.id, occurrence: occurrence++ });
-  });
-  return matches;
+  }
+  return { matches, cache: { needle, rows, matches }, scannedRows: rows.length - prefix };
+}
+
+export function findMatches(rows: readonly AcpmuxRow[], query: string): FindMatch[] {
+  return findMatchesIncremental(rows, query).matches;
 }
 
 export type ChatFind = {
@@ -109,7 +164,13 @@ export function useChatFind(rows: readonly AcpmuxRow[]): ChatFind {
   const [query, setQueryState] = useState("");
   const [active, setActive] = useState(0);
   const [focusRequest, setFocusRequest] = useState(0);
-  const matches = useMemo(() => (open ? findMatches(rows, query) : []), [open, rows, query]);
+  const matchesCache = useRef<FindMatchesCache | undefined>(undefined);
+  const matches = useMemo(() => {
+    if (!open) return [];
+    const result = findMatchesIncremental(rows, query, matchesCache.current);
+    matchesCache.current = result.cache;
+    return result.matches;
+  }, [open, rows, query]);
   const count = matches.length;
   const current = count ? Math.min(active, count - 1) : 0;
   // Where focus was when the bar opened, so closing it puts the reader back there.
@@ -164,16 +225,17 @@ export type FindRevealTarget = {
 };
 export const FindReveal = createContext<FindRevealTarget | undefined>(undefined);
 
-/** Whether `row` draws match row `rowId` itself: the row or its copy in an open fold. */
+/** Whether `row` draws match row `rowId` itself: the row, its copy in an open fold, or the run
+ * that absorbed it (turns.ts `mergeShortNotes`). */
 export const isFindRow = (row: AcpmuxRow, rowId: string) =>
-  (row.id === rowId && !row.ended) || row.id === `${rowId}:fold`;
+  (!row.ended && (row.id === rowId || Boolean(row.joined?.includes(rowId)))) || row.id === `${rowId}:fold`;
 
 /** Whether `row` is the edited-files card (turns.ts) that merges edit `rowId`. */
 const isCardOf = (row: AcpmuxRow, rowId: string) => Boolean(row.ended) && (row.merged ?? [row.id]).includes(rowId);
 
 /** Whether `row` is the one `reveal` names. */
 export const isRevealRow = (row: AcpmuxRow, reveal: Pick<FindRevealTarget, "rowId" | "card">) =>
-  row.id === reveal.rowId && Boolean(row.ended) === reveal.card;
+  (row.id === reveal.rowId || Boolean(row.joined?.includes(reveal.rowId))) && Boolean(row.ended) === reveal.card;
 
 /** Where the transcript draws match row `rowId`: the row or its fold copy (isFindRow), else the
  * edited-files card that holds it (an edit after the answer is only there); -1 while hidden. */

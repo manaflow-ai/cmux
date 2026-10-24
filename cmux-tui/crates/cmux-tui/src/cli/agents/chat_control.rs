@@ -7,7 +7,8 @@
 //! `chat send|read` read), with the harness, model, effort, mode and
 //! permission policy given, and `CMUX_WORKSPACE_ID` naming the workspace it
 //! belongs to (`_meta.acpmux.env`), so `chat send|read` reach it afterwards.
-//! The app then shows it as a chat tab (`agent.openSessionWorkspace`): in the
+//! The app then shows it as a chat tab (`agent.openSessionTab`, or
+//! `agent.openSessionWorkspace` for a new workspace): in the
 //! given pane, the given workspace's most recently focused pane, or a new workspace. Either
 //! way nothing takes focus or switches the shown workspace. A first prompt goes in as the
 //! chat's own, as a person types it into New Agent Chat and presses Return.
@@ -163,14 +164,22 @@ fn not_run(code: &str, message: impl Into<String>) -> CallFailure {
 }
 
 /// Where a new chat goes: its workspace's key (for the chat's
-/// `CMUX_WORKSPACE_ID`) and the `agent.openSessionWorkspace` arguments that
+/// `CMUX_WORKSPACE_ID`), the pane, and the `agent.openSessionWorkspace` arguments that
 /// name the place.
 struct Place {
     /// The workspace's key, for the chat's `CMUX_WORKSPACE_ID`.
     key: String,
-    /// The app makes the workspace: a chat it never shows reaches nothing.
-    new_workspace: bool,
+    /// The pane (`pane_` id) the tab opens in (`agent.openSessionTab`); None: the app makes a
+    /// new workspace for it (`agent.openSessionWorkspace`), and a chat it never shows reaches
+    /// nothing.
+    pane: Option<String>,
     arguments: Map<String, Value>,
+}
+
+impl Place {
+    fn new_workspace(&self) -> bool {
+        self.pane.is_none()
+    }
 }
 
 fn place(global: &GlobalArgs, chat: &NewChat) -> Result<Place, CallFailure> {
@@ -185,7 +194,7 @@ fn place(global: &GlobalArgs, chat: &NewChat) -> Result<Place, CallFailure> {
         if let Some(cwd) = &chat.cwd {
             arguments.insert("cwd".into(), json!(cwd));
         }
-        return Ok(Place { key, new_workspace: true, arguments });
+        return Ok(Place { key, pane: None, arguments });
     }
     let snapshot = mcp::agent_resource(global, super::snapshot_plan())
         .map_err(|error| CallFailure { kind: FailureKind::NotRun, error, idempotency_key: None })?;
@@ -201,7 +210,19 @@ fn place(global: &GlobalArgs, chat: &NewChat) -> Result<Place, CallFailure> {
                         .as_str()
                         .is_some_and(|key| chat::workspace_key(key) == chat::workspace_key(id))
             });
-            ("workspace", workspace.map(|workspace| (workspace.clone(), workspace["id"].clone())))
+            // Its focused pane, else its first.
+            let found = workspace.and_then(|workspace| {
+                let own: Vec<&Value> = panes
+                    .iter()
+                    .filter(|pane| {
+                        by_id(&screens, &pane["screen_id"])
+                            .is_some_and(|screen| screen["workspace_id"] == workspace["id"])
+                    })
+                    .collect();
+                let pane = own.iter().find(|pane| pane["focused"] == true).or(own.first())?;
+                Some((workspace.clone(), pane["id"].clone()))
+            });
+            ("workspace", found)
         }
         (None, Some(id)) => {
             // A pane names its screen, and the screen its workspace.
@@ -230,8 +251,7 @@ fn place(global: &GlobalArgs, chat: &NewChat) -> Result<Place, CallFailure> {
             idempotency_key: None,
         });
     };
-    arguments.insert(scope.into(), json!(format!("{scope}:{id}")));
-    Ok(Place { key, new_workspace: false, arguments })
+    Ok(Place { key, pane: Some(id), arguments })
 }
 
 /// A workspace key in the dashed UUID form acpmux takes for
@@ -284,11 +304,18 @@ pub(in crate::cli) fn new(global: &GlobalArgs, chat: &NewChat, origin: &str) -> 
         "harness": created.pointer("/_meta/acpmux/harness").cloned().unwrap_or(Value::Null),
     });
 
-    // The tab, in the background: `agent.openSessionWorkspace` never takes focus.
+    // The tab, in the background: neither action takes focus for a script's run.
+    let new_workspace = place.new_workspace();
+    let pane = place.pane;
     // The app takes cli, mcp, script or remote; `agents` is this surface's receipt label.
     let app_origin = if origin == "mcp" { "mcp" } else { "cli" };
-    let mut params = app::action_run_params("agent.openSessionWorkspace", ActionName::Any, app_origin);
-    let new_workspace = place.new_workspace;
+    // A pane: `agent.openSessionTab` adds the tab there (shown or not) and keeps the person's
+    // selected tab; none: `agent.openSessionWorkspace` makes the workspace.
+    let action = if pane.is_some() { "agent.openSessionTab" } else { "agent.openSessionWorkspace" };
+    let mut params = app::action_run_params(action, ActionName::Any, app_origin);
+    if let Some(pane) = &pane {
+        params.insert("target".into(), json!(format!("pane:{pane}")));
+    }
     let mut arguments = place.arguments;
     arguments.insert("session".into(), json!(session));
     params.insert("args".into(), Value::Object(arguments));

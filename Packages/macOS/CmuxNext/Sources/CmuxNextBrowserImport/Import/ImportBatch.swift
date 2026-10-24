@@ -85,6 +85,11 @@ public struct ImportSourceRecord: Sendable, Codable, Equatable, Hashable {
     /// Times a Clear History removed this source's pages from: a later
     /// Keep in Sync read leaves out pages last visited in them.
     public var clearedRanges: [DateInterval]?
+    /// Pages a Remove from History took out (``pageKey(_:)`` to when): a later read
+    /// or re-import leaves out their visits up to then; a newer visit comes back.
+    public var removedPages: [String: Date]?
+    /// Sites a Remove Site took out (lowercased host to when), the same way.
+    public var removedSites: [String: Date]?
 
     public init(browser: ImportBrowser, profileDirectory: String, displayName: String, proposedProfileID: String, targetProfileID: String,
                 profileName: String? = nil) {
@@ -97,6 +102,67 @@ public struct ImportSourceRecord: Sendable, Codable, Equatable, Hashable {
     }
 
     public var sourceKey: String { "\(browser.rawValue)/\(profileDirectory)" }
+
+    /// Whether a read page stays: not last visited in a cleared range, nor at or
+    /// before the removal of its page or its site.
+    public func keeps(_ page: ImportedHistoryEntry) -> Bool {
+        if clearedRanges?.contains(where: { $0.contains(page.lastVisit) }) == true { return false }
+        // Records saved before pages were keyed by ``pageKey(_:)`` hold the plain URL.
+        if let removed = removedPages?[Self.pageKey(page.url)] ?? removedPages?[page.url.absoluteString], page.lastVisit <= removed { return false }
+        if let host = page.url.host()?.lowercased(), let removed = removedSites?[host], page.lastVisit <= removed { return false }
+        return true
+    }
+
+    /// This record's fences joined with `other`'s (the record a fresh import builds has none).
+    func fences(adding other: ImportSourceRecord) -> ImportSourceRecord {
+        var joined = self
+        let cleared = ImportedDataStore.coalesced((clearedRanges ?? []) + (other.clearedRanges ?? []))
+        joined.clearedRanges = cleared.isEmpty ? nil : cleared
+        let latest = { (a: [String: Date]?, b: [String: Date]?) -> [String: Date]? in
+            let merged = (a ?? [:]).merging(b ?? [:], uniquingKeysWith: max)
+            return merged.isEmpty ? nil : merged
+        }
+        joined.removedPages = latest(removedPages, other.removedPages)
+        joined.removedSites = latest(removedSites, other.removedSites)
+        return joined.compacted()
+    }
+
+    /// The most removed pages, and removed sites, a record keeps.
+    public static let fenceLimit = 2_000
+
+    /// The key a removed page is fenced under: `http`/`https`, a leading `www.`, letter
+    /// case and a trailing slash do not count, as in the omnibar's one row per page
+    /// (`BrowserHistoryRanker.dedupeKey`), so removing that row fences every spelling.
+    public static func pageKey(_ url: URL) -> String { pageKey(url.absoluteString) }
+
+    static func pageKey(_ url: String) -> String {
+        var text = url.lowercased()
+        for scheme in ["https://", "http://"] where text.hasPrefix(scheme) {
+            text.removeFirst(scheme.count)
+            break
+        }
+        if text.hasPrefix("www.") { text.removeFirst(4) }
+        if text.hasSuffix("/") { text.removeLast() }
+        return text
+    }
+
+    /// The fences kept small: pages keyed by ``pageKey(_:)``, removals that a Clear
+    /// History of all time already covers dropped, and past ``fenceLimit`` the oldest
+    /// removals dropped (a page removed that long ago may come back from its source).
+    public func compacted() -> ImportSourceRecord {
+        var record = self
+        let allTime = clearedRanges?.filter { $0.start <= .distantPast }.map(\.end).max()
+        let kept = { (fences: [String: Date]) -> [String: Date]? in
+            let live = fences.filter { fence in allTime.map { fence.value > $0 } ?? true }
+            let newest = live.count <= Self.fenceLimit ? live
+                : Dictionary(uniqueKeysWithValues: live.sorted { $0.value > $1.value }.prefix(Self.fenceLimit).map { ($0.key, $0.value) })
+            return newest.isEmpty ? nil : newest
+        }
+        let pages = removedPages.map { Dictionary($0.map { (Self.pageKey($0.key), $0.value) }, uniquingKeysWith: max) }
+        record.removedPages = pages.flatMap(kept)
+        record.removedSites = removedSites.flatMap(kept)
+        return record
+    }
 
     /// The structured `source` for `create-browser-profile`.
     public var sourceFields: [String: String] {

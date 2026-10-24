@@ -317,8 +317,8 @@ pub(super) fn stream_ends(
             (path.extension()? == SUFFIX).then_some(())?;
             let terminal_id = TerminalPublicId::parse(path.file_stem()?.to_str()?).ok()?;
             let header = read_header(&path)?;
-            let generation = header["generation"].as_str()?.to_owned();
-            let end = header["stream_end"].as_u64()?;
+            let generation = header.get("generation")?.as_str()?.to_owned();
+            let end = header.get("stream_end")?.as_u64()?;
             Some((terminal_id, (generation, end)))
         })
         .collect()
@@ -337,20 +337,21 @@ pub(super) fn read(
     let contents = fs::read(&file).ok()?;
     let rest = contents.strip_prefix(MAGIC)?;
     let newline = rest.iter().position(|byte| *byte == b'\n')?;
-    let header: serde_json::Value = serde_json::from_slice(&rest[..newline]).ok()?;
+    let (header, body) = rest.split_at_checked(newline)?;
+    let header: serde_json::Value = serde_json::from_slice(header).ok()?;
     let mut bytes = Vec::new();
-    GzDecoder::new(&rest[newline + 1..])
+    GzDecoder::new(body.get(1..)?)
         .take(MAX_SNAPSHOT_REPLAY_BYTES as u64 + 1)
         .read_to_end(&mut bytes)
         .ok()?;
     if bytes.is_empty() || bytes.len() > MAX_SNAPSHOT_REPLAY_BYTES {
         return None;
     }
-    let generation = header["generation"].as_str()?.to_owned();
+    let generation = header.get("generation")?.as_str()?.to_owned();
     Some((
         TerminalReplay {
-            cols: u16::try_from(header["cols"].as_u64()?).ok()?,
-            rows: u16::try_from(header["rows"].as_u64()?).ok()?,
+            cols: u16::try_from(header.get("cols")?.as_u64()?).ok()?,
+            rows: u16::try_from(header.get("rows")?.as_u64()?).ok()?,
             bytes,
         },
         generation,

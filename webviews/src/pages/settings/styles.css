@@ -33,8 +33,8 @@
   );
   --danger: var(--cmux-app-danger, light-dark(rgba(196, 43, 28, 1), rgba(255, 105, 97, 1)));
   --warning: var(--cmux-app-warning, light-dark(rgba(166, 104, 0, 1), rgba(255, 196, 77, 1)));
-  --motion-hover: 120ms;
-  --motion-focus: 120ms;
+  --motion-hover: var(--cmux-motion-quick, 80ms);
+  --motion-focus: var(--cmux-motion-quick, 80ms);
   font: 13px/1.4 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
 }
 
@@ -171,11 +171,17 @@ mark {
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 5px 8px;
+  padding: 5px 6px;
   border: 0;
   border-radius: 6px;
   background: transparent;
   text-align: left;
+  /* A router link (it preloads its section on hover) that looks and acts like the list's
+     buttons: no underline, no link color, no pointing hand, never dragged out as a URL. */
+  color: inherit;
+  text-decoration: none;
+  cursor: default;
+  -webkit-user-drag: none;
 }
 
 /* Only the pointer fades in. The current-section mark snaps: a route the host opens while the
@@ -308,6 +314,16 @@ mark {
   justify-content: flex-end;
   gap: 8px;
   max-width: 60%;
+}
+
+/* A row with a Reset slot (setting rows, the Theme rows, the spacer rows) holds one control and the
+   slot, on one line: the cap leaves the slot's 30 px (22 px slot, 8 px gap) beyond the control's
+   60 %. A wrapped slot left the control in the slot's column, 30 px right of the other rows'
+   controls and a line higher (live QA 7a: the three-choice New Tab Position, 330 px, in a 570 px
+   card). Editors with several parts (number, color, text, lists) wrap inside their own box. */
+.row-control:has(> .reset-slot) {
+  flex-wrap: nowrap;
+  max-width: calc(60% + 30px);
 }
 
 /* The row menu's host around the control (SettingRow): the control's own flex items stay in place. */
@@ -634,26 +650,45 @@ mark {
 }
 
 .domain-list {
-  display: flex;
-  flex-direction: column;
-  max-height: 220px;
+  max-height: 260px;
+  margin: 0;
+  padding: 0;
   overflow-y: auto;
+  list-style: none;
 }
 
+/* A font row draws in its own face (FontPicker); the highlight is the theme list's. */
 .domain-option {
-  padding: 4px 8px;
-  border: 0;
+  padding: 3px 6px;
   border-radius: 5px;
-  background: transparent;
-  text-align: left;
 }
 
-.domain-option:hover {
-  background: var(--input-bg);
+.domain-option[data-highlighted] {
+  background: var(--row-focus);
+  box-shadow: inset var(--cmux-row-focus-bar, 0px) 0 0 var(--cmux-accent, currentColor);
 }
 
-.domain-option[aria-pressed="true"] {
-  background: var(--accent-soft);
+.font-option-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.font-option-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.font-option-tag {
+  color: var(--muted-text);
+  font-size: var(--text-caption);
+}
+
+.font-option-check {
+  color: var(--accent-text);
 }
 
 .host-list {
@@ -735,7 +770,8 @@ mark {
     flex-wrap: wrap;
   }
 
-  .row-control {
+  .row-control,
+  .row-control:has(> .reset-slot) {
     max-width: 100%;
   }
 }
@@ -904,17 +940,6 @@ mark {
   opacity: 0.4;
 }
 
-/* A sign-in in progress: the dot pulses until it ends (Reduce Motion stops it, layout.css). */
-@keyframes accounts-busy {
-  50% {
-    opacity: 0.3;
-  }
-}
-
-.accounts-status[data-busy] .accounts-dot {
-  animation: accounts-busy calc(var(--motion-in) * 8) var(--motion-ease) infinite;
-}
-
 .accounts-body {
   display: flex;
   flex-direction: column;
@@ -929,6 +954,202 @@ mark {
 
 .accounts-form > .field {
   max-width: 320px;
+}
+
+/* Settings > Devices: tones reuse the Accounts status dot; the history is a compact table. */
+.devices-header {
+  justify-content: flex-start;
+}
+
+.devices-header > .devices-status {
+  margin-right: auto;
+}
+
+.devices-status[data-tone="success"] .accounts-dot {
+  border-color: var(--success, var(--text));
+}
+
+.devices-status[data-tone="attention"] .accounts-dot {
+  border-color: var(--warning);
+}
+
+.devices-status[data-tone="danger"] .accounts-dot {
+  border-color: var(--danger);
+}
+
+.devices-status[data-tone="neutral"] .accounts-dot {
+  opacity: 0.4;
+}
+
+.devices-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.devices-badge {
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+}
+
+.devices-access,
+.devices-field-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.devices-relays-header {
+  justify-content: space-between;
+  flex-wrap: nowrap;
+}
+
+.devices-form {
+  margin-top: 6px;
+}
+
+.devices-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.devices-field > .field,
+.devices-field > .select {
+  max-width: 360px;
+}
+
+.devices-urls {
+  resize: vertical;
+}
+
+.devices-priority {
+  width: 80px;
+}
+
+.devices-history-scroll {
+  overflow-x: auto;
+}
+
+.devices-history {
+  width: 100%;
+  table-layout: auto;
+  border-collapse: collapse;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+
+.devices-history th,
+.devices-history td {
+  padding: 5px 6px;
+  text-align: left;
+  vertical-align: top;
+  box-shadow: inset 0 -1px 0 var(--border);
+}
+
+.devices-history th {
+  font-weight: 600;
+  color: var(--muted-text);
+}
+
+.devices-history tbody tr:last-child td {
+  box-shadow: none;
+}
+
+.devices-nowrap {
+  white-space: nowrap;
+}
+
+/* History fits its card at any page width: fixed columns, names and details wrap between words
+   (a single word longer than its column still breaks rather than spill), headers wrap too. */
+.devices-history-fixed {
+  table-layout: fixed;
+}
+
+.devices-history-fixed th {
+  white-space: normal;
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
+
+.devices-col-time {
+  width: 13%;
+}
+
+.devices-col-event {
+  width: 16%;
+}
+
+.devices-col-device {
+  width: 15%;
+}
+
+.devices-col-scope {
+  width: 11%;
+}
+
+.devices-col-detail {
+  width: 18%;
+}
+
+.devices-col-duration {
+  width: 12%;
+}
+
+.devices-wrap {
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+/* A narrow page (about 1000 pt) keeps every device line: the label wraps and the controls go below it. */
+.devices-device .row-main {
+  flex-wrap: wrap;
+}
+
+.devices-device .row-label {
+  min-width: min(100%, 16em);
+}
+
+.devices-device .row-label > .row-help {
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+}
+
+.devices-device .row-control {
+  max-width: 100%;
+}
+
+.devices-copy {
+  padding: 0 6px;
+  font-size: var(--text-detail);
+}
+
+/* The event pill never clips its word: a longer event wraps inside it. */
+.devices-pill {
+  display: inline-block;
+  max-width: 100%;
+  white-space: normal;
+  text-align: center;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted-text);
+}
+
+.devices-pill[data-tone="success"] {
+  color: var(--success, var(--text));
+}
+
+.devices-pill[data-tone="attention"] {
+  color: var(--warning);
+}
+
+.devices-pill[data-tone="danger"] {
+  color: var(--danger);
 }
 
 /* All Workspaces | This Workspace (cx-t2x.5). */
@@ -1098,6 +1319,28 @@ mark {
   text-overflow: ellipsis;
 }
 
+/* Key and value lists (browser.siteEngines). */
+.string-map {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.string-map-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.string-map-key {
+  max-width: 220px;
+  overflow: hidden;
+  font-size: var(--text-detail);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 /* Folder lists (picker.pinned, files.roots). */
 .folder-list {
   display: inline-flex;
@@ -1219,8 +1462,10 @@ mark {
   height: 100%;
   object-fit: cover;
 }
-.chiefs-initial {
-  font-weight: 600;
+/* Pixel-art mascots stay crisp and uncropped, as in the pet card. */
+.chiefs-picture img[data-mascot] {
+  object-fit: contain;
+  image-rendering: pixelated;
 }
 .chiefs-backend {
   flex: none;

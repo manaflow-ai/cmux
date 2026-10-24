@@ -42,9 +42,9 @@ public final class DiffPageRuntime {
         return DiffRepository(status: status)
     }
 
-    /// The tab's grant (for `repository`'s root) and config. Fails with a
-    /// ``DiffTabFailure`` the page shows.
-    public func prepare(repository: DiffRepository, source: DiffOpenSource) -> Task<DiffTabReady, any Error> {
+    /// The tab's grant (for `repository`'s root) and config, with `turn` as its
+    /// Last turn. Fails with a ``DiffTabFailure`` the page shows.
+    public func prepare(repository: DiffRepository, source: DiffOpenSource, turn: DiffTurn? = nil) -> Task<DiffTabReady, any Error> {
         let root = root, available = sidecar != nil
         return Task {
             guard available else { throw DiffTabFailure(title: repository.name, message: DiffPageStrings.unavailable) }
@@ -53,7 +53,8 @@ public final class DiffPageRuntime {
                 await Self.drop(grant)
                 throw CancellationError()
             }
-            return DiffTabReady(grant: grant, config: DiffPageConfig.make(repository: repository, source: source, token: grant.token))
+            return DiffTabReady(grant: grant, config: DiffPageConfig.make(repository: repository, source: source, token: grant.token, turn: turn),
+                                turn: turn)
         }
     }
 

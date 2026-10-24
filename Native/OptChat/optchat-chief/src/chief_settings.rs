@@ -31,6 +31,10 @@ pub struct ChiefSettings {
     /// pauses it (`cloud.autoPauseIdleSeconds`, cloud-subagents-DESIGN.md
     /// B4). Default 60.
     pub cloud_auto_pause_idle_secs: u64,
+    /// Days a finished subagent's own VM stays paused (for a later tell)
+    /// before the host deletes it (`cloud.deleteAfterPausedDays`,
+    /// cloud-subagents-DESIGN.md v2).
+    pub cloud_delete_after_paused_days: u64,
 }
 
 /// `replies.thread`: when a Chief reply in its DM is threaded under the user
@@ -74,6 +78,7 @@ impl Default for ChiefSettings {
             reply_threads: ReplyThreads::Auto,
             show_after_report: true,
             cloud_auto_pause_idle_secs: 60,
+            cloud_delete_after_paused_days: 7,
         }
     }
 }
@@ -107,6 +112,9 @@ impl ChiefSettings {
             cloud_auto_pause_idle_secs: value["cloud"]["autoPauseIdleSeconds"]
                 .as_u64()
                 .unwrap_or(60),
+            cloud_delete_after_paused_days: value["cloud"]["deleteAfterPausedDays"]
+                .as_u64()
+                .unwrap_or(7),
         }
     }
 
@@ -117,7 +125,10 @@ impl ChiefSettings {
         }
         value["replies"] = json!({"thread": self.reply_threads.as_str()});
         value["show"] = json!({"afterReport": self.show_after_report});
-        value["cloud"] = json!({"autoPauseIdleSeconds": self.cloud_auto_pause_idle_secs});
+        value["cloud"] = json!({
+            "autoPauseIdleSeconds": self.cloud_auto_pause_idle_secs,
+            "deleteAfterPausedDays": self.cloud_delete_after_paused_days,
+        });
         value
     }
 
@@ -139,6 +150,21 @@ impl ChiefSettings {
         file.sync_all()?;
         std::fs::rename(&tmp, path)
     }
+}
+
+/// The key of `ChiefSettings::cloud_delete_after_paused_days`.
+pub const CLOUD_DELETE_AFTER_PAUSED_DAYS: &str = "cloud.deleteAfterPausedDays";
+
+/// A `cloud.deleteAfterPausedDays` value: whole days, 0 to 365.
+pub fn parse_paused_days(value: &str) -> Result<u64, String> {
+    value
+        .trim()
+        .parse::<u64>()
+        .ok()
+        .filter(|n| *n <= 365)
+        .ok_or_else(|| {
+            format!("{CLOUD_DELETE_AFTER_PAUSED_DAYS}: whole days 0..365, not {value:?}")
+        })
 }
 
 /// A `cloud.autoPauseIdleSeconds` value: whole seconds, 0 to 86400.

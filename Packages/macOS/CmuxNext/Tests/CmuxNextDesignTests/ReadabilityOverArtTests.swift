@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// Leo, 2026-10-20: readability over a background is not about the picture. It comes from how
 /// much opacity, blur and glass the window lays over it, applied the same way whatever picture is

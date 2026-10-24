@@ -33,6 +33,8 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.CloseWorkspaceRequest, "report_closed_ids");
     try expectExplicitNullRejected(protocol.CloudHostReplicaClearRequest, "purge");
     try expectExplicitNullRejected(protocol.CloudInboxListRequest, "include_archived");
+    try expectExplicitNullRejected(protocol.CloudSessionSetRequest, "access_token");
+    try expectExplicitNullRejected(protocol.CloudSessionSetRequest, "expires_at");
     try expectExplicitNullRejected(protocol.ConversationHistoryResult, "threads");
     try expectExplicitNullRejected(protocol.ConversationInboxOpResult, "pin_position");
     try expectExplicitNullRejected(protocol.ConversationLinkResolveResult, "message");
@@ -73,6 +75,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.RenameWorkspaceRequest, "release");
     try expectExplicitNullRejected(protocol.RunRequest, "new_workspace");
     try expectExplicitNullRejected(protocol.SendRequest, "paste");
+    try expectExplicitNullRejected(protocol.SendRequest, "submit");
     try expectExplicitNullRejected(protocol.SendResult, "queued");
     try expectExplicitNullRejected(protocol.SetClientSizingRequest, "exclusive");
     try expectExplicitNullRejected(protocol.SetDefaultColorsRequest, "complete");
@@ -221,6 +224,8 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.LivePane, "focused_at");
     try expectExplicitNullRejected(protocol.LivePane, "short_id");
     try expectExplicitNullRejected(protocol.MintTerminalRendererResult, "supports_viewer_size_priority");
+    try expectExplicitNullRejected(protocol.NewRowResult, "pane_id");
+    try expectExplicitNullRejected(protocol.NewRowResult, "tab_id");
     try expectExplicitNullRejected(protocol.NewRowResult, "transaction");
     try expectExplicitNullRejected(protocol.NotificationMarker, "source");
     try expectExplicitNullRejected(protocol.RenderGraphicPlacement, "anchor_col");

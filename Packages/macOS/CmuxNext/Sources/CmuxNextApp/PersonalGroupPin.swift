@@ -13,7 +13,7 @@ struct PersonalGroupPin {
     let bridge: SidebarBridge
 
     private var home: DaemonService { bridge.services.machines.local }
-    private var isServed: Bool { bridge.statePersonal && home.supports(DaemonCapabilities.shared.workspaceGroupPin) }
+    private var isServed: Bool { bridge.statePersonal && home.supports(DaemonCapability.workspaceGroupPin.rawValue) }
 
     /// Handles a pin change (true). For a group close it sends the group's
     /// write and returns false, so the bridge still closes the workspaces.
@@ -28,7 +28,7 @@ struct PersonalGroupPin {
             send("update-personal-group") { try await $0.state.updateWorkspaceGroup(group.rawValue, pinned: pinned) }
             return true
         case let .setGroupIcon(group, icon):
-            guard bridge.statePersonal, home.supports(DaemonCapabilities.shared.workspaceGroupIcon) else {
+            guard bridge.statePersonal, home.supports(DaemonCapability.workspaceGroupIcon.rawValue) else {
                 bridge.resync()
                 return true
             }

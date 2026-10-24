@@ -9,6 +9,7 @@
 //! agent's `OnClockChange` timer. A `{"resume": true}` socket line still
 //! works.
 
+use crate::json::JsonField;
 use std::fs::{self, OpenOptions};
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::os::fd::AsRawFd;
@@ -126,8 +127,8 @@ pub fn query_identify(socket: &Path, timeout: Duration) -> io::Result<Value> {
     let mut line = String::new();
     BufReader::new(stream).read_line(&mut line)?;
     let reply: Value = serde_json::from_str(&line).map_err(io::Error::other)?;
-    if reply["ok"] == true && reply["data"].is_object() {
-        Ok(reply["data"].clone())
+    if *reply.field("ok") == true && reply.field("data").is_object() {
+        Ok(reply.field("data").clone())
     } else {
         Err(io::Error::other("daemon identify refused"))
     }
@@ -405,7 +406,7 @@ impl Worker {
                 }
                 return Err(err);
             }
-            let ready = |i: usize| fds[i].revents != 0;
+            let ready = |i: usize| fds.get(i).is_some_and(|fd| fd.revents != 0);
             if ready(0) && self.control_words()? {
                 return Ok(());
             }
@@ -434,7 +435,7 @@ impl Worker {
         loop {
             match self.control.read(&mut buf) {
                 Ok(0) => return Ok(true),
-                Ok(n) => self.control_buf.extend_from_slice(&buf[..n]),
+                Ok(n) => self.control_buf.extend_from_slice(read_part(&buf, n)?),
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
                 Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
                 Err(e) => return Err(e),
@@ -489,7 +490,7 @@ impl Worker {
         let mut closed = Vec::new();
         let mut lines = Vec::new();
         for &i in readable {
-            let client = &mut self.clients[i];
+            let Some(client) = self.clients.get_mut(i) else { continue };
             match read_available(&mut client.stream, &mut client.buf) {
                 Ok(open) => {
                     lines.extend(take_lines(&mut client.buf));
@@ -616,7 +617,7 @@ impl Worker {
             .ok_or_else(|| io::Error::other("no daemon socket"))
             .and_then(|socket| {
                 let identify = query_identify(&socket, Duration::from_secs(2))?;
-                let caps = identify["capabilities"].as_array().cloned().unwrap_or_default();
+                let caps = identify.field("capabilities").as_array().cloned().unwrap_or_default();
                 if !caps.iter().any(|c| c == DAEMON_ACTIVITY_CAPABILITY) {
                     return Ok(None);
                 }
@@ -646,17 +647,17 @@ impl Worker {
             };
             let now = self.now();
             let mut reqs = Vec::new();
-            if msg["ok"] == true && !self.activity.connected {
+            if *msg.field("ok") == true && !self.activity.connected {
                 self.activity.connected = true;
                 self.activity.backoff.reset();
                 if let Some(live) = self.live.as_mut() {
                     reqs.extend(live.session.activity_stream(true, now));
                 }
             }
-            let activity = if msg["event"] == "activity-changed" {
-                Some(&msg["activity"])
-            } else if msg["ok"] == true {
-                Some(&msg["data"]["activity"])
+            let activity = if *msg.field("event") == "activity-changed" {
+                Some(msg.field("activity"))
+            } else if *msg.field("ok") == true {
+                Some(msg.field("data").field("activity"))
             } else {
                 None
             };
@@ -726,8 +727,8 @@ impl Worker {
         let Some(live) = self.live.as_ref() else { return };
         let (ok, applied, status) = match answer {
             Answer::Http { status, body } => {
-                let ok = *status == 200 && body["ok"] == true;
-                (ok, ok.then(|| body["value"]["applied"] == true), Some(*status))
+                let ok = *status == 200 && *body.field("ok") == true;
+                (ok, ok.then(|| *body.field("value").field("applied") == true), Some(*status))
             }
             Answer::Transport => (false, None, None),
         };
@@ -748,7 +749,7 @@ fn read_available(stream: &mut UnixStream, buf: &mut Vec<u8>) -> io::Result<bool
         match stream.read(&mut chunk) {
             Ok(0) => return Ok(false),
             Ok(n) => {
-                buf.extend_from_slice(&chunk[..n]);
+                buf.extend_from_slice(read_part(&chunk, n)?);
                 if buf.len() > MAX_LINE {
                     return Ok(true);
                 }
@@ -760,12 +761,20 @@ fn read_available(stream: &mut UnixStream, buf: &mut Vec<u8>) -> io::Result<bool
     }
 }
 
+/// The first `n` bytes of a read buffer; a reader that claims more than
+/// the buffer holds is an error.
+fn read_part(buf: &[u8], n: usize) -> io::Result<&[u8]> {
+    buf.get(..n).ok_or_else(|| io::Error::other("read returned more than its buffer"))
+}
+
 /// Complete lines out of `buf` (the rest stays).
 fn take_lines(buf: &mut Vec<u8>) -> Vec<String> {
     let mut out = Vec::new();
     while let Some(nl) = buf.iter().position(|b| *b == b'\n') {
-        let line: Vec<u8> = buf.drain(..=nl).collect();
-        out.push(String::from_utf8_lossy(&line[..nl]).into_owned());
+        // `nl` is a position in `buf`, so the range is in bounds.
+        let mut line: Vec<u8> = buf.drain(..=nl).collect();
+        line.pop();
+        out.push(String::from_utf8_lossy(&line).into_owned());
     }
     out
 }
@@ -786,7 +795,7 @@ fn group_id(name: &str) -> Option<u32> {
 pub fn probe_activity(paths: &Paths, timeout: Duration) -> Result<Value, String> {
     let socket = daemon_socket(paths).ok_or_else(|| format!("{DAEMON_SOCKET_FILE} is missing"))?;
     let identify = query_identify(&socket, timeout).map_err(|e| format!("identify: {e}"))?;
-    let caps = identify["capabilities"].as_array().cloned().unwrap_or_default();
+    let caps = identify.field("capabilities").as_array().cloned().unwrap_or_default();
     if !caps.iter().any(|c| c == DAEMON_ACTIVITY_CAPABILITY) {
         return Err(format!("daemon does not advertise {DAEMON_ACTIVITY_CAPABILITY}"));
     }
@@ -798,10 +807,10 @@ pub fn probe_activity(paths: &Paths, timeout: Duration) -> Result<Value, String>
         .read_line(&mut line)
         .map_err(|_| "activity stream did not connect".to_owned())?;
     let msg: Value = serde_json::from_str(&line).map_err(|e| e.to_string())?;
-    if msg["ok"] != true || !msg["data"]["activity"].is_object() {
+    if *msg.field("ok") != true || !msg.field("data").field("activity").is_object() {
         return Err("activity stream did not connect".to_owned());
     }
-    let change = super::wire::activity_from_daemon(&msg["data"]["activity"]);
+    let change = super::wire::activity_from_daemon(msg.field("data").field("activity"));
     let mut activity = super::wire::Activity::default();
     change.apply(&mut activity);
     Ok(json!({ "capability": true, "connected": true, "activity": activity.to_json() }))

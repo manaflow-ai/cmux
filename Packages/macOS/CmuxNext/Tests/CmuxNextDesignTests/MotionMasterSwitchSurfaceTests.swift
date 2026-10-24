@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// Turning the master switch `ui.animations.enabled` off (or one category off) makes the real
 /// animation entry points apply their change in one frame and add no Core Animation animation
@@ -80,7 +81,15 @@ import Testing
             #expect(layer.animation(forKey: "sublayerTransform") == nil)
             var closed = false
             window.closePopup(pivot: CGPoint(x: 150, y: 200)) { closed = true }
-            #expect(window.alphaValue == 0)
+            // A popup closes on its card layer and keeps the window opaque (Motion+Popup.swift); a
+            // window with no screen to draw on, where nothing can animate, drops its alpha instead.
+            if Motion.canAnimate(in: content) {
+                #expect(window.alphaValue == 1)
+                #expect(layer.opacity == 0, "the card did not hide at once")
+                #expect(layer.animation(forKey: "opacity") == nil)
+            } else {
+                #expect(window.alphaValue == 0)
+            }
             #expect(closed, "the close waited for an animation")
             #expect(layer.animation(forKey: "sublayerTransform") == nil)
             window.resetPopupScale()

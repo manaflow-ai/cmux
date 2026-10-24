@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 96e61acfae440a8a09afd96f3fcebb5b2aa189cff1cdcb74d026be328dd4ea67. */
+/* cmux-tui mux protocol 12, IR 723fa14ae06654ab0c2fd018a406c8353af7e7edb0f60ba05ee761541bdeb6f2. */
 
 
 import type * as T from "./types.js";
@@ -601,6 +601,12 @@ export interface CloudRequestsListRequest extends CmuxRequestBase {
 export type CloudRequestsListResult = T.JsonValue;
 
 /** Protocol v12; authority: local-admin. */
+export interface CloudSelfhostInfoRequest extends CmuxRequestBase {
+  cmd: "cloud-selfhost-info";
+}
+export type CloudSelfhostInfoResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
 export interface CloudSessionClearRequest extends CmuxRequestBase {
   cmd: "cloud-session-clear";
 }
@@ -609,10 +615,11 @@ export type CloudSessionClearResult = T.JsonValue;
 /** Protocol v12; authority: local-admin. */
 export interface CloudSessionSetRequest extends CmuxRequestBase {
   cmd: "cloud-session-set";
-  "access_token": string;
+  "access_token"?: string;
   "api_base_url": string;
+  "auth"?: (string) | null;
   "client_version"?: (string) | null;
-  "expires_at": bigint;
+  "expires_at"?: bigint;
 }
 export type CloudSessionSetResult = T.JsonValue;
 
@@ -1265,6 +1272,12 @@ export interface GetFrontendProjectionRequest extends CmuxRequestBase {
 export type GetFrontendProjectionResult = T.FrontendProjection;
 
 /** Protocol v12; authority: control. */
+export interface GetHostSizePolicyRequest extends CmuxRequestBase {
+  cmd: "get-host-size-policy";
+  "surface"?: (T.Id) | null;
+}
+
+/** Protocol v12; authority: control. */
 export interface GetSizeStateRequest extends CmuxRequestBase {
   cmd: "get-size-state";
   "surface": T.Id;
@@ -1789,8 +1802,10 @@ export interface NewRowRequest extends CmuxRequestBase {
   "height_permille": bigint;
   "keep"?: boolean;
   "pane": T.Id;
+  "pane_id"?: (string) | null;
   "rows"?: (number) | null;
   "shell_args"?: (Array<string>) | null;
+  "tab_id"?: (string) | null;
   "terminal_id"?: (string) | null;
   "transaction"?: (string) | null;
 }
@@ -2233,8 +2248,11 @@ export type SelectWorkspaceResult = T.EmptyResult;
 export interface SendRequest extends CmuxRequestBase {
   cmd: "send";
   "bytes"?: (T.Base64) | null;
+  "expect_agent"?: (T.SendExpectAgent) | null;
   "expect_foreground"?: (string) | null;
+  "flow"?: (bigint) | null;
   "paste"?: boolean;
+  "submit"?: boolean;
   "surface"?: (T.Id) | null;
   "terminal_id"?: (string) | null;
   "text"?: (string) | null;
@@ -2276,6 +2294,7 @@ export interface SetClientInfoRequest extends CmuxRequestBase {
   "install"?: (string) | null;
   "kind"?: (string) | null;
   "name"?: (string) | null;
+  "remote"?: (boolean) | null;
   "user_id"?: (string) | null;
   "version"?: (string) | null;
 }
@@ -2327,6 +2346,12 @@ export interface SetFrontendBrowserHistoryRequest extends CmuxRequestBase {
   "surface": T.Id;
 }
 export type SetFrontendBrowserHistoryResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
+export interface SetHostSizePolicyRequest extends CmuxRequestBase {
+  cmd: "set-host-size-policy";
+  "policy": T.HostSizePolicyRequest;
+}
 
 /** Protocol v12; authority: control. */
 export interface SetPersonalTerminalRequest extends CmuxRequestBase {
@@ -2596,6 +2621,12 @@ export interface TerminalHistoryRequest extends CmuxRequestBase {
 export type TerminalHistoryResult = T.TerminalHistoryPagesResult;
 
 /** Protocol v12; authority: control. */
+export interface TerminalPortsRequest extends CmuxRequestBase {
+  cmd: "terminal-ports";
+  "surface": T.Id;
+}
+
+/** Protocol v12; authority: control. */
 export interface TerminalReadRangeRequest extends CmuxRequestBase {
   cmd: "terminal-read-range";
   "format"?: (string) | null;
@@ -2701,6 +2732,7 @@ export interface UpdateBrowserProfileRequest extends CmuxRequestBase {
   "color"?: (string) | null;
   "icon"?: (string) | null;
   "name"?: (string) | null;
+  "proxy"?: (T.JsonValue) | null;
 }
 export type UpdateBrowserProfileResult = T.JsonValue;
 
@@ -2904,6 +2936,7 @@ export type CmuxRequest =
   | CloudMuxUnsubscribeRequest
   | CloudParticipantAvatarGetRequest
   | CloudRequestsListRequest
+  | CloudSelfhostInfoRequest
   | CloudSessionClearRequest
   | CloudSessionSetRequest
   | CloudSessionStatusRequest
@@ -2964,6 +2997,7 @@ export type CmuxRequest =
   | GetCellPixelsRequest
   | GetFrontendBrowserHistoryRequest
   | GetFrontendProjectionRequest
+  | GetHostSizePolicyRequest
   | GetSizeStateRequest
   | HistorySearchRequest
   | HomeInboxRequest
@@ -3071,6 +3105,7 @@ export type CmuxRequest =
   | SetColumnDockRequest
   | SetDefaultColorsRequest
   | SetFrontendBrowserHistoryRequest
+  | SetHostSizePolicyRequest
   | SetPersonalTerminalRequest
   | SetPersonalWorkspaceRequest
   | SetProfileFollowsRequest
@@ -3100,6 +3135,7 @@ export type CmuxRequest =
   | TerminalClipboardSubscribeRequest
   | TerminalEventsRequest
   | TerminalHistoryRequest
+  | TerminalPortsRequest
   | TerminalReadRangeRequest
   | TerminalResourcesRequest
   | TerminalResumeCommandRequest
@@ -3594,6 +3630,14 @@ export interface CmuxCommandDefinitionMap {
     capability: "cloud-conversations-v1";
     stream: null;
   };
+  "cloud-selfhost-info": {
+    request: CloudSelfhostInfoRequest;
+    result: CloudSelfhostInfoResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-selfhost-v1";
+    stream: null;
+  };
   "cloud-session-clear": {
     request: CloudSessionClearRequest;
     result: CloudSessionClearResult;
@@ -4072,6 +4116,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 7;
     capability: null;
+    stream: null;
+  };
+  "get-host-size-policy": {
+    request: GetHostSizePolicyRequest;
+    result: T.GetHostSizePolicyResult;
+    authority: "control";
+    since: 12;
+    capability: "host-size-policy-v1";
     stream: null;
   };
   "get-size-state": {
@@ -4930,6 +4982,14 @@ export interface CmuxCommandDefinitionMap {
     capability: "frontend-browser-history-v1";
     stream: null;
   };
+  "set-host-size-policy": {
+    request: SetHostSizePolicyRequest;
+    result: T.SetHostSizePolicyResult;
+    authority: "control";
+    since: 12;
+    capability: "host-size-policy-v1";
+    stream: null;
+  };
   "set-personal-terminal": {
     request: SetPersonalTerminalRequest;
     result: SetPersonalTerminalResult;
@@ -5160,6 +5220,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "terminal-snapshot-v1";
+    stream: null;
+  };
+  "terminal-ports": {
+    request: TerminalPortsRequest;
+    result: T.TerminalPortsResult;
+    authority: "control";
+    since: 12;
+    capability: "terminal-ports-v1";
     stream: null;
   };
   "terminal-read-range": {

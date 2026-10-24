@@ -20,7 +20,12 @@ dirs, and overflow slots at or above K), oldest first, until at most
 --keep-others remain. A dir is never removed when:
 
   - a process has a file in it open (lsof); if lsof cannot list open files,
-    nothing is removed,
+    nothing is removed. The one exception is a dead tour's own app: when every
+    process holding the dir runs from inside it, no tour holds its tag and no
+    build touched it within --min-idle-minutes, those processes are ended
+    (SIGTERM, then SIGKILL) and the dir goes. Run 39199091515 left its chief
+    host and acpmux daemon running from cmux-ci-media-pr-21726-head, which
+    kept 10 GiB on cmux10s for days,
   - a build touched it within --min-idle-minutes (longer than the tour's
     timeout, so a tour still building elsewhere on this Mac is safe),
   - a tour holds its tag (media_tag_lock.py in --lock-dir): it may be about
@@ -39,6 +44,7 @@ import fcntl
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -76,11 +82,11 @@ def last_used(path: Path) -> float:
     return newest
 
 
-def open_paths() -> list[str] | None:
-    """Every path any visible process has open, or None if lsof failed."""
+def open_paths() -> list[tuple[int, str]] | None:
+    """(pid, path) for every file any visible process has open, or None if lsof failed."""
     try:
         result = subprocess.run(
-            ["lsof", "-w", "-Fn"],
+            ["lsof", "-w", "-Fpn"],
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             text=True,
@@ -90,7 +96,13 @@ def open_paths() -> list[str] | None:
     except (OSError, subprocess.TimeoutExpired) as error:
         print(f"lsof failed ({error}); removing nothing")
         return None
-    paths = [line[1:] for line in result.stdout.splitlines() if line.startswith("n/")]
+    paths = []
+    pid = 0
+    for line in result.stdout.splitlines():
+        if line.startswith("p") and line[1:].isdigit():
+            pid = int(line[1:])
+        elif line.startswith("n/"):
+            paths.append((pid, line[1:]))
     if not paths:
         # lsof always sees this process's own files; none means it saw nothing.
         print(f"lsof listed no open files (exit {result.returncode}); removing nothing")
@@ -98,11 +110,70 @@ def open_paths() -> list[str] | None:
     return paths
 
 
-def is_open(path: Path, opened: list[str]) -> bool:
+def inside(entry: str, path: Path) -> bool:
     real = os.path.realpath(path)
-    prefixes = {str(path) + os.sep, real + os.sep}
-    exact = {str(path), real}
-    return any(entry in exact or entry.startswith(tuple(prefixes)) for entry in opened)
+    return entry in (str(path), real) or entry.startswith((str(path) + os.sep, real + os.sep))
+
+
+def holders(path: Path, opened: list[tuple[int, str]]) -> set[int]:
+    """The processes with a file in path open."""
+    return {pid for pid, entry in opened if inside(entry, path)}
+
+
+def executable(pid: int) -> str | None:
+    """The file pid runs: /proc on Linux, else ps (the full path on macOS)."""
+    try:
+        return os.readlink(f"/proc/{pid}/exe")
+    except OSError:
+        pass
+    try:
+        done = subprocess.run(["ps", "-p", str(pid), "-o", "comm="], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return done.stdout.strip() or None
+
+
+def own_leftovers(path: Path, pids: set[int]) -> bool:
+    """True when every holder runs from inside path: a dead tour's app, chief host or daemon."""
+    if not pids or os.getpid() in pids or os.getppid() in pids:
+        return False
+    for pid in pids:
+        running = executable(pid)
+        if not running or not inside(running, path):
+            return False
+    return True
+
+
+def end_processes(pids: set[int], grace: float = 10.0) -> bool:
+    """SIGTERM, then SIGKILL after grace seconds; True once all of them are gone."""
+    def alive() -> set[int]:
+        left = set()
+        for pid in pids:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                continue
+            except PermissionError:
+                pass
+            # An exited process its parent has not reaped yet holds no files.
+            state = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True)
+            if state.stdout.strip().startswith("Z"):
+                continue
+            left.add(pid)
+        return left
+
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        for pid in alive():
+            try:
+                os.kill(pid, sig)
+            except OSError:
+                pass
+        deadline = time.monotonic() + (grace if sig == signal.SIGTERM else 5.0)
+        while alive() and time.monotonic() < deadline:
+            time.sleep(0.2)
+        if not alive():
+            return True
+    return False
 
 
 def claim_tag(path: Path, lock_dir: Path) -> int | None:
@@ -197,7 +268,8 @@ def main() -> int:
         if last_used(path) > cutoff:
             print(f"{path.name}: built within {args.min_idle_minutes} min; keeping it")
             continue
-        if is_open(path, opened):
+        held = holders(path, opened)
+        if held and not own_leftovers(path, held):
             print(f"{path.name}: open in a process; keeping it")
             continue
         claim = claim_tag(path, args.lock_dir)
@@ -206,6 +278,12 @@ def main() -> int:
             print(f"{path.name}: a tour holds its tag (or its lock cannot be opened); keeping it")
             continue
         try:
+            if held:
+                print(f"{path.name}: only its own app's processes {sorted(held)} hold it; ending them")
+                again = open_paths() if end_processes(held) else None
+                if again is None or holders(path, again):
+                    print(f"{path.name}: still open; keeping it")
+                    continue
             size = allocated_gib(path)
             shutil.rmtree(path)
         except OSError as error:

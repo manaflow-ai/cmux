@@ -89,13 +89,18 @@ function button(label: string): HTMLButtonElement | null {
   return dom.window.document.querySelector<HTMLButtonElement>(`.acpmux-image-viewer-action[aria-label="${label}"]`);
 }
 
-async function click(label: string) {
+/// Clicks the action and waits until the host has its request and the viewer has its answer
+/// (`done`, by default the request posted): the image goes to the host as a data URL read first.
+async function click(label: string, done = (before: number) => posted.length > before) {
   const target = button(label);
   expect(target).not.toBeNull();
-  await act(async () => {
-    target!.click();
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  });
+  const before = posted.length;
+  await act(async () => target!.click());
+  for (let tries = 0; tries < 200 && !done(before); tries += 1)
+    await act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
+  expect(done(before)).toBe(true);
+  // One more task, so a duplicate request posted right after shows up in the asserts.
+  await act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
 }
 
 test("Show in Finder sends the image and the file it was read from, in one request", async () => {
@@ -125,7 +130,7 @@ test("Open in browser tab sends the image; an SVG has no such button", async () 
 test("a refused action says the image could not open", async () => {
   await show(1);
   refuseAll = true;
-  await click("Open in browser tab");
+  await click("Open in browser tab", () => button("Couldn’t open image") !== null);
   refuseAll = false;
   expect(button("Couldn’t open image")).not.toBeNull();
   expect(button("Show in Finder")).not.toBeNull();

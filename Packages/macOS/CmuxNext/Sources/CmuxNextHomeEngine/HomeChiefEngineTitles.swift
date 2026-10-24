@@ -19,8 +19,9 @@ nonisolated struct HomeChiefEngineTitles {
     /// does not say it has none (or the Chief is on Fast now, so it can be turned off).
     var offersFast: Bool
 
-    init(_ snapshot: HomeChiefSnapshot, recents: [String] = []) {
-        harnesses = HomeChiefSettingsView.harnessItems(routeConfigured: snapshot.routeConfigured)
+    /// - Parameter listed: this Mac's acpmux harness ids, offered after the official engines.
+    init(_ snapshot: HomeChiefSnapshot, recents: [String] = [], listed: [String] = []) {
+        harnesses = HomeChiefSettingsView.harnessItems(routeConfigured: snapshot.routeConfigured, listed: listed)
         // The models acpmux offers for the engine's harness (cx-miuo), grouped and deduped;
         // acpmux's own "default" is the picker's first item.
         menu = HomeChiefModelMenu(models: snapshot.models, chosen: snapshot.model, recents: recents)

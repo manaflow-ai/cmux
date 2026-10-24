@@ -240,6 +240,51 @@ struct AgentPaneProjectRepoTests {
         #expect(fetched.all == ["https://github.com/manaflow-ai.png?size=64"])
     }
 
+    /// Leo 2026-10-21: "why are the project icons not showing up for SOME of the cmux...? only one
+    /// has my github icon?" Every clone and worktree of a GitHub repository wears its owner's avatar,
+    /// an organization's too, ahead of an icon file it happens to have.
+    @Test func theOwnersAvatarComesBeforeTheProjectsOwnIconFile() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try checkout(fixture)
+        try fixture.write(Data([0x89, 0x50, 0x4E, 0x47, 1]), "code/cmux/favicon.png")
+        let fetched = Touches()
+        let avatars = AgentPaneOwnerAvatars(folder: nil, fetch: { url in fetched.add(url.absoluteString); return Self.png })
+        let icons = AgentPaneProjectIcons(reader: fixture.icons, repos: fixture.repos, avatars: avatars)
+        let avatar = "data:image/png;base64," + Self.png.base64EncodedString()
+        #expect(await icons.answer(for: fixture.home + "/code/cmux").src == avatar)
+        #expect(await icons.answer(for: fixture.home + "/wt/cmux/picker").src == avatar)
+        #expect(fetched.all == ["https://github.com/manaflow-ai.png?size=64"])
+    }
+
+    @Test func withNoAvatarTheProjectsOwnIconFileIsDrawn() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try checkout(fixture)
+        let own = Data([0x89, 0x50, 0x4E, 0x47, 1])
+        try fixture.write(own, "code/cmux/favicon.png")
+        let icons = AgentPaneProjectIcons(reader: fixture.icons, repos: fixture.repos,
+                                          avatars: AgentPaneOwnerAvatars(folder: nil, fetch: { _ in nil }))
+        #expect(await icons.answer(for: fixture.home + "/code/cmux").src == "data:image/png;base64," + own.base64EncodedString())
+    }
+
+    /// A lane mirror (`.wt-mirrors/manaflow-ai/cmux.git`) is a bare repository: a chat in it belongs
+    /// to its GitHub repository, so it folds with the other clones and draws the owner's avatar.
+    @Test func aBareMirrorIsItsGitHubRepository() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try fixture.write("ref: refs/heads/main\n", "mirrors/cmux.git/HEAD")
+        try fixture.write(Self.githubConfig.replacingOccurrences(of: "bare = false", with: "bare = true"), "mirrors/cmux.git/config")
+        let repo = fixture.repos.repo(for: fixture.home + "/mirrors/cmux.git")
+        #expect(repo?.github == "manaflow-ai/cmux")
+        #expect(repo?.name == "cmux")
+        #expect(repo?.root == fixture.home + "/mirrors/cmux.git")
+        // A folder that only looks like one (no `bare = true`) is no repository.
+        try fixture.write("ref: refs/heads/main\n", "notes/HEAD")
+        try fixture.write("[core]\n\tbare = false\n", "notes/config")
+        #expect(fixture.repos.repo(for: fixture.home + "/notes") == nil)
+    }
+
     @Test func anAvatarIsFetchedOnceAndKeptOnDiskForAWeek() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }

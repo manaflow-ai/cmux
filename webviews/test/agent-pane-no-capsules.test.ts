@@ -22,13 +22,13 @@ if (!built) console.warn("agent-pane-no-capsules: skipping (run scripts/cmux-nex
  * and the composer's model, effort and access chips, whose hover, focus and open background is the
  * Claude app's soft pill (#22107; composer-chip-plain-rest and composer-chip-press check it). The
  * Cards New Tab template (u2851, from the user's scrawl of Aside's New Tab page) is a pill design
- * on purpose: its field, its Search | Ask switch (track, thumb and buttons) and its selected Chats
- * tab are round (newtab/screen.css). The other templates keep small-radius rects. */
+ * on purpose: its field and its selected Chats tab are round (newtab/screen.css). The other templates keep small-radius rects. */
 const SHAPES = new Set([
   ".acpmux-switch",
   ".acpmux-effort-track",
   ".acpmux-effort-fill",
-  ".acpmux-context-bar",
+  ".acpmux-context-card-bar",
+  ".acpmux-chat-inspector-context__bar",
   ".acpmux-pdf-sheet-lines i",
   ":is(.acpmux-composer-bar,.nt-pickers) .acpmux-model .acpmux-picker-button",
   ":is(.acpmux-composer-bar,.nt-pickers) .acpmux-effort .acpmux-picker-button",
@@ -37,9 +37,6 @@ const SHAPES = new Set([
   ".acpmux-effort .acpmux-picker-button",
   ".acpmux-access .acpmux-picker-button",
   '.nt-screen[data-template="cards"][data-pill] .nt-box',
-  '.nt-screen[data-template="cards"][data-pill] .nt-mode-track',
-  '.nt-screen[data-template="cards"][data-pill] .nt-mode-thumb',
-  '.nt-screen[data-template="cards"][data-pill] .nt-mode-track button',
   '.nt-screen[data-template="cards"] .nt-chats-tab.is-selected',
 ]);
 

@@ -1,6 +1,7 @@
 public import AppKit
 public import Observation
 import WebKit
+import CmuxNextCompat
 
 /// Whether a WebKit tab's Web Inspector is shown, as an observable value
 /// (the toolbar's DevTools button). WebKit has no public inspector API and
@@ -22,37 +23,24 @@ import WebKit
 public final class WebKitInspectorWatch: NSObject {
     public private(set) var isVisible = false
     @ObservationIgnored private weak var webView: WKWebView?
-    @ObservationIgnored private var closeObserver: (any NSObjectProtocol)?
+    @ObservationIgnored private var closeObserver: MainActorObservation?
 
     override init() {}
-
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            if let closeObserver { NotificationCenter.default.removeObserver(closeObserver) }
-        }
-    }
 
     func attach(webView: WKWebView, container: WebKitPageContainer) {
         self.webView = webView
         container.onSubviewsChange = { [weak self] in self?.refresh() }
         // queue: .main: a window may close off main; a selector into this
         // main-actor object trapped there. Inline for a close on main.
-        if let closeObserver { NotificationCenter.default.removeObserver(closeObserver) }
-        closeObserver = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) {
-            [weak self] _ in
-            MainActor.assumeIsolated { self?.refresh() } // main-proof: observer on queue: .main
+        closeObserver = MainActorObservation(NSWindow.willCloseNotification) { [weak self] in
+            self?.refresh()
         }
     }
 
     /// Reads the inspector's visibility now and once more on the next turn.
     public func refresh() {
         read()
-        CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) { [weak self] in
-            MainActor.assumeIsolated { self?.read() } // main-proof: a CFRunLoopGetMain() block runs on the main thread
-        }
-        CFRunLoopWakeUp(CFRunLoopGetMain())
+        MainRunLoopBlock.perform { [weak self] in self?.read() }
     }
 
     private func read() {

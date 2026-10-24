@@ -91,6 +91,29 @@ impl<'a> Printer<'a> {
         Ok(())
     }
 
+    /// A command's result: JSON as is; text prints stdout, sends the guest's
+    /// stderr to stderr, and fails (exit 1) when the command did not exit 0.
+    pub fn exec(&mut self, body: &[u8]) -> Result<(), CliError> {
+        let value: serde_json::Value = serde_json::from_slice(body).map_err(|e| {
+            CliError::unexpected(format!("the cmux VM API sent a body that is not JSON: {e}"))
+        })?;
+        let code = value["exitCode"].as_i64();
+        if self.json {
+            self.json_value(&value)?;
+        } else {
+            write!(self.out, "{}", value["stdout"].as_str().unwrap_or(""))
+                .map_err(|e| CliError::unexpected(format!("write output: {e}")))?;
+        }
+        if code == Some(0) {
+            return Ok(());
+        }
+        let stderr = value["stderr"].as_str().unwrap_or("").trim_end();
+        Err(CliError::unexpected(match code {
+            Some(code) => format!("the command exited with status {code}: {stderr}"),
+            None => format!("the command was killed by its timeout: {stderr}"),
+        }))
+    }
+
     pub fn vm(&mut self, body: &[u8]) -> Result<(), CliError> {
         if self.json {
             return self.raw_json(body);

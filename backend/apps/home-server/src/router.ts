@@ -1,7 +1,9 @@
 import type { OwnerFrame, Principal } from "@cmux/ownership"
 import { cloudOpByName } from "@cmux/protocol"
 import { conversationMutate, conversationRead } from "../../api/src/home-routes.ts"
+import { handleAttachmentCommit, handleAttachmentDerived, handleAttachmentDownload, handleAttachmentIntent, handleAttachmentUpload, handleAttachmentUrl } from "../../api/src/home-attachments.ts"
 import { linkVerifiedAddress } from "../../api/src/home-requests.ts"
+import { presignUrl } from "../../api/src/r2-presign.ts"
 import type { SubmitResult } from "../../api/src/owner-do.ts"
 import type { Admission, Admitted } from "./admission.ts"
 import type { RosterMember } from "./roster-do.ts"
@@ -12,6 +14,11 @@ export const SELFHOST_API_VERSION = 1
 
 /** UserDO ops (besides `inbox.*`) a self-hosted server runs. */
 const USER_OPS = new Set(["user.ensure", "home.settings.set"])
+/** Attachment paths (home-attachments.ts), as the Worker routes them (index.ts). */
+const CONV = "conv_(?:dm_)?[0-9A-HJKMNP-TV-Z]{26}"
+const UPLOAD = new RegExp(`^/v1/home/attachments/upload/(${CONV})/([A-Za-z0-9_.-]{1,256})$`)
+const DERIVED = new RegExp(`^/v1/home/attachments/(poster|preview)/(${CONV})/([A-Za-z0-9_.-]{1,256})$`)
+const DOWNLOAD = new RegExp(`^/v1/home/attachments/(${CONV})/([0-9a-f]{32})$`)
 /** The conversation socket path: `/v1/wire/conv/<id>`. */
 const CONV_WIRE = /^\/v1\/wire\/conv\/(conv_(?:dm_)?[0-9A-HJKMNP-TV-Z]{26})$/
 
@@ -118,6 +125,18 @@ export class Router {
     if (url.pathname === "/v1/selfhost/members" && request.method === "GET") {
       const members = await this.roster.members()
       return Response.json({ members: members.map((m) => ({ user_id: m.user, login: m.login, display_name: m.display_name })) })
+    }
+    if (url.pathname.startsWith("/v1/home/attachments/")) {
+      const env = this.env
+      if (url.pathname === "/v1/home/attachments/intent" && request.method === "POST") return handleAttachmentIntent(request, env, presignUrl, principal)
+      if (url.pathname === "/v1/home/attachments/commit" && request.method === "POST") return handleAttachmentCommit(request, env, principal)
+      if (url.pathname === "/v1/home/attachments/url" && request.method === "POST") return handleAttachmentUrl(request, env, principal)
+      const up = UPLOAD.exec(url.pathname)
+      if (up && request.method === "PUT") return handleAttachmentUpload(request, env, up[1]!, up[2]!)
+      const d = DERIVED.exec(url.pathname)
+      if (d && request.method === "PUT") return handleAttachmentDerived(request, env, d[1] as "poster" | "preview", d[2]!, d[3]!)
+      const file = DOWNLOAD.exec(url.pathname)
+      if (file && (request.method === "GET" || request.method === "HEAD")) return handleAttachmentDownload(request, env, file[1]!, file[2]!)
     }
     if (url.pathname === "/v1/ops" && request.method === "POST") return this.mutate(principal, request)
     if (url.pathname === "/v1/read" && request.method === "POST") return this.read(principal, request)

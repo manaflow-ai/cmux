@@ -10,6 +10,7 @@ through the regenerated graph.
 from __future__ import annotations
 
 import json
+import re
 import sys
 import unittest
 from unittest import mock
@@ -35,8 +36,56 @@ PR_17470 = [
 ]
 
 
+def manifest_target_paths() -> set[str]:
+    """The path of each target Package.swift declares: its own `path:` when it sets one
+    (CmuxNextTestExitTrace lives in Tests/Support), else Tests/<name> for a test target and
+    Sources/<name> otherwise."""
+    manifest = (ROOT / PACKAGE / "Package.swift").read_text(encoding="utf-8")
+    starts = list(re.finditer(r'\.(target|testTarget|executableTarget)\(\s*name:\s*"([^"]+)"', manifest))
+    paths = set()
+    for index, start in enumerate(starts):
+        end = starts[index + 1].start() if index + 1 < len(starts) else len(manifest)
+        own = re.search(r'\bpath:\s*"([^"]+)"', manifest[start.end():end])
+        kind, name = start.groups()
+        default = f"{'Tests' if kind == 'testTarget' else 'Sources'}/{name}"
+        paths.add(f"{PACKAGE}/{own.group(1) if own else default}")
+    return paths
+
+
 def tiers(changed: list[str], event: str = "pull_request", labels: frozenset[str] = frozenset()) -> dict[str, str]:
     return outputs(route(ROOT, event, changed, set(labels)))
+
+
+def graph_dependencies(name: str) -> set[str]:
+    """Every target `name` depends on, directly or not, read straight from the graph."""
+    found: set[str] = set()
+    pending = list(GRAPH["targets"][name]["targets"])
+    while pending:
+        dependency = pending.pop()
+        if dependency not in found:
+            found.add(dependency)
+            pending.extend(GRAPH["targets"][dependency]["targets"])
+    return found
+
+
+def graph_dependents(changed_targets: set[str]) -> set[str]:
+    """The test targets a change to `changed_targets` can break: each test target that is
+    one of them or depends on one of them. Expectations come from the regenerated graph,
+    so a new target or dependency (#22683's CmuxNextChiefViewsTests) moves them with it."""
+    return {
+        name for name, target in GRAPH["targets"].items()
+        if target["kind"] == "test" and (name in changed_targets or graph_dependencies(name) & changed_targets)
+    }
+
+
+def graph_readers(path: str) -> set[str]:
+    """The test targets whose sources name `path` (the graph's `reads`; a trailing / is a directory)."""
+    return {
+        name for name, target in GRAPH["targets"].items()
+        if target["kind"] == "test" and any(
+            path.startswith(read) if read.endswith("/") else path == read for read in target.get("reads", [])
+        )
+    }
 
 
 class GraphCoversThePackage(unittest.TestCase):
@@ -44,12 +93,30 @@ class GraphCoversThePackage(unittest.TestCase):
 
     def test_every_source_and_test_directory_is_a_target(self):
         paths = {target["path"] for target in GRAPH["targets"].values() if target["path"]}
+        # The graph is bot-only (#21946): a pull request that adds a target to the
+        # manifest cannot add it to the graph, and the base autofix regenerates the
+        # graph after the merge. Such a pull request routes every tier, so a target
+        # the manifest declares is covered until then. A directory the manifest does
+        # not declare still fails.
+        declared = manifest_target_paths()
         for kind in ("Sources", "Tests"):
             for directory in sorted((ROOT / PACKAGE / kind).iterdir()):
                 # A folder with no Swift sources (a fixture another language reads) is not a target.
                 if directory.is_dir() and any(directory.rglob("*.swift")):
                     with self.subTest(directory=directory.name):
-                        self.assertIn(f"{PACKAGE}/{kind}/{directory.name}", paths)
+                        path = f"{PACKAGE}/{kind}/{directory.name}"
+                        if path not in paths and path in declared:
+                            continue
+                        self.assertIn(path, paths)
+
+    def test_the_manifest_reader_finds_the_graph_targets(self):
+        """The allowance above reads target names from the manifest text; it must see every
+        graph target whose directory still exists, or it could let a stray directory through."""
+        declared = manifest_target_paths()
+        for name, target in GRAPH["targets"].items():
+            if target["path"] and (ROOT / target["path"]).is_dir():
+                with self.subTest(target=name):
+                    self.assertIn(target["path"], declared)
 
     def test_dependencies_name_known_targets_and_packages(self):
         for name, target in GRAPH["targets"].items():
@@ -93,9 +160,28 @@ class PullRequestTiers(unittest.TestCase):
         self.assertEqual(result["swift_filter"], r"^(CmuxNextAppTests)\.")
 
     def test_a_shared_module_selects_its_dependents(self):
-        result = tiers([f"{PACKAGE}/Sources/CmuxNextSidebar/SidebarView.swift"])
-        self.assertEqual(result["swift_targets"].split(), ["CmuxNextAppTests", "CmuxNextKeepAwakeTests", "CmuxNextPhoneAccessTests", "CmuxNextWorkspaceNamingTests"])
+        path = f"{PACKAGE}/Sources/CmuxNextSidebar/SidebarView.swift"
+        result = tiers([path])
+        selected = result["swift_targets"].split()
+        self.assertEqual(selected, sorted(graph_dependents({"CmuxNextSidebar"}) | graph_readers(path)))
+        # CmuxNextChiefViewsTests (#22683) reaches the sidebar through CmuxNextChiefViews.
+        for name in ("CmuxNextAppTests", "CmuxNextChiefViewsTests", "CmuxNextKeepAwakeTests", "CmuxNextWorkspaceNamingTests"):
+            self.assertIn(name, selected)
+        for name in ("CmuxNextDaemonTests", "CmuxNextDesignTests"):
+            self.assertNotIn(name, selected)
         self.assertEqual(result["daemon"], "false")
+
+    def test_every_target_selects_the_tests_that_reach_it(self):
+        """A source file in any target selects exactly the test targets that are it, depend on
+        it, or read the file, so no target in the graph is under- or over-routed."""
+        for name, target in sorted(GRAPH["targets"].items()):
+            if not target["path"]:
+                continue
+            path = f"{target['path']}/RouteProbe.swift"
+            with self.subTest(target=name):
+                result = tiers([path])
+                self.assertEqual(result["full"], "false", path)
+                self.assertEqual(result["swift_targets"].split(), sorted(graph_dependents({name}) | graph_readers(path)))
 
     def test_daemon_client_sources_run_the_daemon_tier(self):
         result = tiers([f"{PACKAGE}/Sources/CmuxNextDaemon/Connection/DaemonEndpoint.swift"])
@@ -110,15 +196,23 @@ class PullRequestTiers(unittest.TestCase):
 
     def test_a_file_a_test_reads_selects_that_test(self):
         # CmuxNextSettingsTests reads the schema. Since the bundles are build output
-        # (ce0b9e76a9b) the schema is also a web-bundle input, so the targets that ship
-        # a bundle, the app that embeds them, and CmuxNextPhoneAccessTests and
-        # CmuxNextMobileHostTests (their targets depend on CmuxNextAgentPane and CmuxNextPages)
-        # are selected with it, and nothing else.
-        result = tiers(["schemas/settings/settings-schema.json"])
-        self.assertEqual(result["swift_targets"].split(), sorted([
-            "CmuxNextSettingsTests", "CmuxNextAppTests", "CmuxNextAgentPaneTests", "CmuxNextPagesTests", "CmuxNextPaletteTests",
-            "CmuxNextPhoneAccessTests", "CmuxNextMobileHostTests",
-        ]))
+        # (ce0b9e76a9b) the schema is also a web-bundle input, so the test targets that
+        # depend on a target shipping a bundle are selected with it, and nothing else.
+        # The graph names those dependents (#23260, #22683 and #21818 each added one).
+        import cmux_next_route as route_module
+        path = "schemas/settings/settings-schema.json"
+        result = tiers([path])
+        selected = result["swift_targets"].split()
+        # The targets that ship a bundle are pinned here, so dropping one from the router
+        # fails this test instead of moving the expectation with it.
+        bundles = {"CmuxNextAgentPane", "CmuxNextPages", "CmuxNextAgentActivity", "CmuxNextPalette"}
+        self.assertEqual(set(route_module.BUNDLE_TARGETS), bundles)
+        self.assertLessEqual(bundles, set(GRAPH["targets"]))
+        self.assertEqual(selected, sorted(graph_dependents(bundles) | graph_readers(path)))
+        for name in ("CmuxNextSettingsTests", "CmuxNextAppTests", "CmuxNextAgentPaneTests", "CmuxNextPagesTests", "CmuxNextPaletteTests"):
+            self.assertIn(name, selected)
+        for name in ("CmuxNextDaemonTests", "CmuxNextMobileTests"):
+            self.assertNotIn(name, selected)
 
     def test_a_local_package_selects_the_targets_that_use_it(self):
         result = tiers(["Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Thread.swift"])
@@ -309,6 +403,64 @@ class PushAttribution(unittest.TestCase):
     def test_reporting_jobs_are_not_culprits(self):
         self.assertEqual(failed_jobs({"cmux-next swift test": "failure", "cmux-next push attribution": "failure",
                                       "cmux-next checks": "success"}), ["cmux-next swift test"])
+
+
+class RouteLabels(unittest.TestCase):
+    """The route step reads the push's labels from the event and the live ones only on a re-run.
+
+    Every push read issues/N/labels; the event already carries them. A re-run keeps its event, so
+    adding full-ci or dev-build and re-running still routes on the live labels.
+    """
+
+    def run_route(self, attempt: str) -> tuple[str, list[str]]:
+        import os
+        import subprocess
+        import tempfile
+        import yaml
+        workflow = yaml.safe_load((ROOT / ".github/workflows/cmux-next.yml").read_text(encoding="utf-8"))
+        step = next(s for s in workflow["jobs"]["path_route"]["steps"] if s.get("id") == "route")
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, bin_dir = Path(tmp) / "repo", Path(tmp) / "bin"
+            (repo / "scripts/ci").mkdir(parents=True)
+            (repo / "scripts/cmux-next").mkdir(parents=True)
+            bin_dir.mkdir()
+            (repo / "scripts/ci/cmux_next_route.py").write_text(
+                "import sys, pathlib\n"
+                "args = sys.argv[1:]\n"
+                "pathlib.Path(sys.argv[0]).with_name('labels.txt').write_text(args[args.index('--labels') + 1])\n")
+            (repo / "scripts/cmux-next/cmux-tui-tree-inputs.txt").write_text("tree cmux-tui\n")
+            gh_log = Path(tmp) / "gh.log"
+            (bin_dir / "gh").write_text(f'#!/usr/bin/env bash\necho "$*" >> {gh_log}\necho dev-build\n')
+            (bin_dir / "gh").chmod(0o755)
+            git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.com"]
+            subprocess.run(["git", "init", "-q", str(repo)], check=True)
+            subprocess.run([*git, "add", "-A"], check=True)
+            subprocess.run([*git, "commit", "-qm", "base"], check=True)
+            (repo / "webviews.txt").write_text("x\n")
+            subprocess.run([*git, "add", "-A"], check=True)
+            subprocess.run([*git, "commit", "-qm", "head"], check=True)
+            out = Path(tmp) / "out"
+            env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "EVENT_NAME": "pull_request",
+                   "PR_NUMBER": "7", "GITHUB_REPOSITORY": "o/r", "GITHUB_RUN_ATTEMPT": attempt,
+                   "EVENT_LABELS": "full-ci,risk:low", "RUNNER_TEMP": tmp, "GITHUB_OUTPUT": str(out),
+                   "GITHUB_STEP_SUMMARY": str(Path(tmp) / "summary"), "DEV_DAILY": "false",
+                   "DEV_DAILY_SHA": "", "SAME_TREE_SHA": "", "GH_TOKEN": "t"}
+            result = subprocess.run(["bash", "-e", "-c", step["run"]], cwd=repo, env=env,
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            labels = (repo / "scripts/ci/labels.txt").read_text()
+            return labels, gh_log.read_text().splitlines() if gh_log.exists() else []
+
+    def test_a_first_attempt_routes_on_the_event_labels(self):
+        labels, gh_calls = self.run_route("1")
+        self.assertEqual(labels, "full-ci,risk:low")
+        self.assertEqual(gh_calls, [])
+
+    def test_a_rerun_routes_on_the_live_labels(self):
+        labels, gh_calls = self.run_route("2")
+        self.assertEqual(labels, "dev-build")
+        self.assertEqual(len(gh_calls), 1)
+        self.assertIn("issues/7/labels", gh_calls[0])
 
 
 if __name__ == "__main__":

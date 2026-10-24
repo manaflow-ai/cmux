@@ -46,7 +46,9 @@ pub(super) async fn handle(
                     .map_err(|e| RpcError::internal(format!("remove preset directory: {e}")))?;
             }
         } else if let Some(set) = set {
-            let obj = set.as_object().unwrap();
+            let Some(obj) = set.as_object() else {
+                return Err(RpcError::invalid_params("preset: set must be an object"));
+            };
             let mut merged = cfg.presets.get(&name).cloned();
             let harness = obj
                 .get("harness")
@@ -129,9 +131,17 @@ pub(super) async fn handle(
                     }
                 }
             }
-            let mut p = merged.unwrap();
+            // `merged` was filled above (`get_or_insert_with`).
+            let Some(mut p) = merged else {
+                return Err(RpcError::internal("preset: nothing to save"));
+            };
             // Checked against the profile the preset resolves to now.
             let profile = cfg.resolve_harness(&p.harness).map_err(RpcError::invalid_params)?;
+            let Some(kind) = cfg.harnesses.get(&profile).map(|h| h.kind) else {
+                return Err(RpcError::invalid_params(format!(
+                    "unknown harness profile {profile:?}"
+                )));
+            };
             // A built-in Chief preset without a client env gets its
             // env from the definition (`config/chief_builtins.rs`),
             // whoever installs it; a client env is the person's
@@ -139,7 +149,11 @@ pub(super) async fn handle(
             if let Some(builtin) = crate::config::chief_builtins::parse(&name)
                 && obj.get("env").is_none()
             {
-                let family = crate::config::derive_family(&profile, &cfg.harnesses[&profile]);
+                let family = cfg
+                    .harnesses
+                    .get(&profile)
+                    .map(|h| crate::config::derive_family(&profile, h))
+                    .unwrap_or_default();
                 p.env = crate::config::chief_builtins::env(
                     &builtin,
                     &family,
@@ -147,7 +161,6 @@ pub(super) async fn handle(
                 )
                 .map_err(RpcError::invalid_params)?;
             }
-            let kind = cfg.harnesses[&profile].kind;
             crate::config::check_preset_args(kind, &p.args).map_err(RpcError::invalid_params)?;
             let keeps_prompt =
                 p.system_prompt_sha256.is_some() && !matches!(new_prompt, Some(None));

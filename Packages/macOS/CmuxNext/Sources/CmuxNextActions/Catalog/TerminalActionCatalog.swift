@@ -63,7 +63,7 @@ nonisolated enum TerminalActionCatalog: ActionCatalogGroup {
                 id: "clearScreenKeepScrollback",
                 title: String(localized: "action.clearScreenKeepScrollback", defaultValue: "Clear Screen (Keep Scrollback)", bundle: .module),
                 keywords: ["clear", "reset"], defaultShortcut: Shortcut("k", modifiers: [.command, .shift]),
-                category: .terminal, symbol: "clear", surfaces: [.palette, .keyboard], requires: [.terminalFocused],
+                category: .terminal, symbol: "eraser", surfaces: [.palette, .keyboard], requires: [.terminalFocused],
                 targets: [.pane], cliName: "terminal clear-screen-keep-scrollback"
             ),
             ActionDescriptor(
@@ -77,7 +77,7 @@ nonisolated enum TerminalActionCatalog: ActionCatalogGroup {
                 id: "findInDirectory",
                 title: String(localized: "action.findInDirectory", defaultValue: "Find in Directory…", bundle: .module),
                 keywords: ["search", "grep"], defaultShortcut: Shortcut("f", modifiers: [.command, .shift]),
-                category: .terminal, symbol: "folder.badge.magnifyingglass", surfaces: [.palette, .keyboard, .menu],
+                category: .terminal, symbol: "doc.text.magnifyingglass", surfaces: [.palette, .keyboard, .menu],
                 arguments: [CatalogArgument.textString], targets: [.pane],
                 cliName: "terminal find-in-directory", mainMenu: .edit
             ),
@@ -157,7 +157,7 @@ nonisolated enum TerminalActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "palette.terminalOpenDirectory",
-                title: String(localized: "action.palette.terminalOpenDirectory", defaultValue: "Open Current Directory in…", bundle: .module),
+                title: String(localized: "action.palette.terminalOpenDirectory", defaultValue: "Open Current Directory In…", bundle: .module),
                 keywords: ["finder", "editor", "open in"], category: .terminal, symbol: "arrow.up.forward.app",
                 surfaces: [.palette], arguments: [CatalogArgument.appString], targets: [.pane],
                 cliName: "terminal open-current-directory-in"

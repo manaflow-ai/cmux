@@ -32,13 +32,26 @@ final class TabCell {
     var isAudioHovered = false { didSet { if oldValue != isAudioHovered { updateColors(animated: true, showing: isAudioHovered) } } }
     var isAudioPressed = false { didSet { if oldValue != isAudioPressed { updateColors(animated: false) } } }
     var isLifted = false { didSet { if oldValue != isLifted { updateLift() } } }
-    /// The strip's window is main (in front); off, the selected tab has no fill, so only it repaints.
+    /// The strip's window is main (in front); off, the selected tab's fill is dimmer (never
+    /// gone: a pane's active tab always looks active), so only it repaints.
     var isWindowMain = true { didSet { if oldValue != isWindowMain, isSelected { updateColors(animated: false) } } }
     /// The strip's window is on screen and not fully covered: a busy indicator spins only then
     /// (cx-qtgj2: a minimized or covered window costs no spinner frames).
     var isWindowVisible = true { didSet { if oldValue != isWindowVisible, item.isBusy { updateSpinner() } } }
-    /// The selected (or lifted) tab's fill shows.
-    var fillsSelection: Bool { (isSelected && isWindowMain) || isLifted }
+    /// The strip shows in its window (not a parked workspace's strip or a hidden screen bar). An
+    /// app-wide indicator resync (the app coming back to the front) reaches the cell only then, so
+    /// an activation costs the tabs on screen, not every busy tab of the session; a resync that
+    /// came while hidden runs when the strip shows again.
+    var isStripShown = true {
+        didSet { if isStripShown, !oldValue, owesIndicatorResync { statusIndicatorResync() } }
+    }
+    /// A resync arrived while the strip was hidden (TabCell+StatusIndicator).
+    var owesIndicatorResync = false
+    /// The selected (or lifted) tab's fill shows: always for the pane's active tab, in a
+    /// background window too (Lawrence 2026-10-20, a tab with no pill read as inactive).
+    var fillsSelection: Bool { isSelected || isLifted }
+    /// The share of the selected fill's alpha a background window's active tab keeps.
+    static let backgroundWindowSelectionShare: CGFloat = 0.55
     /// Hover may start the title marquee (off while a drag or rename runs).
     var allowsMarquee = true { didSet { if !allowsMarquee { titleFade.stopMarquee(animated: false) } } }
     /// A closing tab keeps the content it showed when the close began
@@ -286,7 +299,9 @@ final class TabCell {
         themeScope.perform {
             backgroundLayer.shadowColor = Palette.shadow.cgColor
             let multi = isMultiSelected && !isSelected
-            let fill: NSColor? = fillsSelection ? Palette.selectionFill : multi ? Palette.secondarySelectionFill : (isHovered && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : nil)
+            let selection = isWindowMain || isLifted ? Palette.selectionFill
+                : Palette.selectionFill.withAlphaComponent(Palette.selectionFill.alphaComponent * Self.backgroundWindowSelectionShare)
+            let fill: NSColor? = fillsSelection ? selection : multi ? Palette.secondarySelectionFill : (isHovered && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : nil)
             backgroundLayer.backgroundColor = fill?.cgColor
             if isLifted, let lift = Palette.windowBackground.blended(withFraction: 0.08, of: Palette.textPrimary) {
                 // Keeps the tabs sliding under it quiet: solid when opaque, thicker glass when translucent.
@@ -296,7 +311,7 @@ final class TabCell {
             let text = isSelected ? Palette.textPrimary : Palette.textSecondary
             hibernationRingLayer?.strokeColor = Self.hibernationRingColor.cgColor
             titleLayer.foregroundColor = text.cgColor
-            machineLayer?.foregroundColor = Palette.textTertiary.cgColor
+            machineLayer?.foregroundColor = item.machineBadgeColor.cgColor
             applyProfileDotColors()
             applyPresenceDotColor()
             applyAudioIcon()

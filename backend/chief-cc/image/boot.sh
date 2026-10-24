@@ -14,12 +14,14 @@ tailscale up --auth-key=file:/run/ts/key --hostname="$host" --accept-dns=false -
 rm -f /run/ts/key
 # Until the Worker applies the Chief's network settings (apps/api/src/chief-brain-cc/net.ts, right after
 # this script; by default the public Internet and DNS), the agent user (Claude Code) reaches only the
-# model forward on 127.0.0.1:4017: no Internet, no tailnet address, no DNS, no other local port. Its
-# tailscaled socket stays root-only either way. Root (run.mjs, the notes posts) and ccproxy keep their
+# model forward on 127.0.0.1:4017: no Internet, no tailnet address, no DNS, no other local port. The agent
+# is the node's Tailscale operator (msg 8200 item 4: `tailscale status`, `tailscale ping` without root); what
+# the node reaches is the tailnet policy of its tag (CHIEF_CC_TS_TAG). Root (chief-turn-runner, the notes posts) and ccproxy keep their
 # network. The guest kernel has no xt_owner, so the rule is nftables `meta skuid`. systemd-resolved
 # goes too: its varlink and D-Bus lookups are open to every user, and root resolves through the
 # nameservers in /etc/resolv.conf without it.
-chmod 700 /var/run/tailscale
+tailscale set --operator=chief
+chmod 755 /var/run/tailscale
 systemctl mask --now systemd-resolved.service >/dev/null 2>&1 || true
 uid="$(id -u chief)"
 if ! nft list table inet chiefcc >/dev/null 2>&1; then

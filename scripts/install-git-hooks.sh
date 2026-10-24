@@ -7,6 +7,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 
+ORIGINAL_ARGS=("$@")
 NAMESPACE_FIX=0
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -44,6 +45,66 @@ case "$PYTHON3_BIN" in
         exit 1
         ;;
 esac
+# One install at a time per clone. post-merge runs this in every worktree that pulls a hook change, and every
+# worktree shares this hook folder and .git/config: two at once collide on `git config` (its lock file), and
+# two cleanups would remove one tree together. The installer runs as the child of a python3 that holds an
+# exclusive flock on install.lock until the child exits. Only that parent has the lock file open (Python opens
+# it close-on-exec), so no process this install starts can keep the lock: a shell fd would be inherited by
+# every child, and a daemon a git command detaches (`git fsmonitor--daemon` with core.fsmonitor=true) would
+# hold it after the install exits, so every later install would wait forever. A waiting install names the
+# holder's pid. The marker variable says this shell is that child; it is removed at once so no child of this
+# install inherits it.
+INSTALL_LOCK="$TRUSTED_HOOK_DIR/install.lock"
+if [[ "${CMUX_HOOKS_INSTALL_LOCK_HELD:-}" != "$INSTALL_LOCK" ]]; then
+    # The Python programs here are -c arguments, never here-documents: bash 5.1+ writes a short here-document
+    # into a pipe before the command runs, and on a Mac short of pipe memory (git_batch.py) that write blocks
+    # for good; for `read` the shell is its own reader, so the install hangs (seen with bash 5.3). Keep them
+    # free of single quotes.
+    LOCK_HOLDER='
+import fcntl
+import os
+import signal
+import subprocess
+import sys
+
+lock_path, command = sys.argv[1], sys.argv[2:]
+lock = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o644)  # not inheritable (PEP 446)
+try:
+    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except BlockingIOError:
+    holder = os.pread(lock, 32, 0).decode(errors="replace").strip() or "unknown"
+    print(f"install-git-hooks: another install holds {lock_path} (pid {holder}); waiting for it to finish.",
+          file=sys.stderr, flush=True)
+    fcntl.flock(lock, fcntl.LOCK_EX)
+os.ftruncate(lock, 0)
+os.pwrite(lock, f"{os.getpid()}\n".encode(), 0)
+# The lock must outlive the child: Ctrl-C reaches the child through the process group of the terminal, and a
+# SIGTERM or SIGHUP sent to this holder goes on to the child (one that comes before the child exists is sent
+# once it does). The handlers are caught dispositions, which exec resets: the child keeps the defaults.
+children, pending = [], []
+
+
+def forward(number, frame):
+    if children:
+        children[0].send_signal(number)
+    else:
+        pending.append(number)
+
+
+signal.signal(signal.SIGINT, lambda number, frame: None)
+signal.signal(signal.SIGTERM, forward)
+signal.signal(signal.SIGHUP, forward)
+child = subprocess.Popen(command, env={**os.environ, "CMUX_HOOKS_INSTALL_LOCK_HELD": lock_path})
+children.append(child)
+for number in pending:
+    child.send_signal(number)
+code = child.wait()
+sys.exit(128 - code if code < 0 else code)
+'
+    exec "$PYTHON3_BIN" -I -c "$LOCK_HOLDER" "$INSTALL_LOCK" "$BASH" "$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")" \
+        ${ORIGINAL_ARGS[@]+"${ORIGINAL_ARGS[@]}"}
+fi
+unset CMUX_HOOKS_INSTALL_LOCK_HELD
 install -m 0755 scripts/git-hooks/pre-commit "$TRUSTED_HOOK_DIR/pre-commit"
 install -m 0755 scripts/git-hooks/post-merge "$TRUSTED_HOOK_DIR/post-merge"
 # pre-push always runs the web lint and the cmux-next checks gate; its namespace autofix part runs only when
@@ -51,21 +112,48 @@ install -m 0755 scripts/git-hooks/post-merge "$TRUSTED_HOOK_DIR/post-merge"
 install -m 0755 scripts/git-hooks/pre-push "$TRUSTED_HOOK_DIR/pre-push"
 install -m 0644 scripts/web_lint_prepush.py "$TRUSTED_HOOK_DIR/web_lint_prepush.py"
 install -m 0644 scripts/cmux-next/prepush-gate.py "$TRUSTED_HOOK_DIR/cmux_next_prepush_gate.py"
+# The gate loads its git helper from its own folder (guardrails.py loads the snapshot's copy below).
+install -m 0644 scripts/cmux-next/git_batch.py "$TRUSTED_HOOK_DIR/git_batch.py"
 install -m 0644 scripts/ci/base_merge_warning.py "$TRUSTED_HOOK_DIR/base_merge_warning.py"
+# The hooks are per clone: every worktree of it (main-based ones too) runs these copies. A push in another
+# worktree can run while this installs, so each install writes a new versioned copy and points the
+# cmux-next-checks symlink at it with one rename: the checks are never missing (a missing guardrails.py
+# would let a push through unchecked). The gate resolves the link once when it starts and holds the copy it
+# resolved in use until it exits: a shared flock on the copy's .in-use file (prepush-gate.py,
+# claim_trusted_scripts). No other install's cleanup runs while this one stages and links its copy (the
+# install lock above).
 TRUSTED_CHECKS_DIR="$TRUSTED_HOOK_DIR/cmux-next-checks"
-TRUSTED_CHECKS_STAGE="$TRUSTED_HOOK_DIR/cmux-next-checks.new.$$"
+CHECKS_VERSION="cmux-next-checks.v$(date +%s).$$"
+TRUSTED_CHECKS_STAGE="$TRUSTED_HOOK_DIR/$CHECKS_VERSION.partial"
 rm -rf "$TRUSTED_CHECKS_STAGE"
 mkdir -p "$TRUSTED_CHECKS_STAGE"
+: > "$TRUSTED_CHECKS_STAGE/.in-use"
 while IFS= read -r -d '' checker; do
     relative="${checker#scripts/cmux-next/}"
+    # lint/ holds the linters' configs; arch_rules/ holds the rule modules arch-ratchet.py loads from its
+    # own directory (without it the installed ratchet runs no layer gate).
     case "$relative" in
-        */*) [[ "$relative" == lint/* ]] || continue ;;
+        */*) [[ "$relative" == lint/* || "$relative" == arch_rules/* ]] || continue ;;
     esac
-    mkdir -p "$TRUSTED_CHECKS_STAGE/$(dirname "$relative")"
+    # Folders only below the stage: a stage that is gone fails this install (cp, the mv below) instead of coming
+    # back without its .in-use.
+    folder="$(dirname "$relative")"
+    [[ "$folder" == . ]] || (cd "$TRUSTED_CHECKS_STAGE" && mkdir -p "$folder")
     cp -p "$checker" "$TRUSTED_CHECKS_STAGE/$relative"
 done < <(git ls-files -z scripts/cmux-next)
-rm -rf "$TRUSTED_CHECKS_DIR"
-mv "$TRUSTED_CHECKS_STAGE" "$TRUSTED_CHECKS_DIR"
+mv "$TRUSTED_CHECKS_STAGE" "$TRUSTED_HOOK_DIR/$CHECKS_VERSION"
+PREVIOUS_CHECKS=""
+if [[ -L "$TRUSTED_CHECKS_DIR" ]]; then
+    PREVIOUS_CHECKS="$(readlink "$TRUSTED_CHECKS_DIR")"
+elif [[ -e "$TRUSTED_CHECKS_DIR" ]]; then
+    # Once, from the plain directory older installs wrote: the only moment it is briefly absent.
+    PREVIOUS_CHECKS="cmux-next-checks.plain.$$"
+    mv "$TRUSTED_CHECKS_DIR" "$TRUSTED_HOOK_DIR/$PREVIOUS_CHECKS"
+fi
+rm -f "$TRUSTED_CHECKS_DIR.link.$$"
+ln -s "$CHECKS_VERSION" "$TRUSTED_CHECKS_DIR.link.$$"
+"$PYTHON3_BIN" -I -c 'import os, sys; os.replace(sys.argv[1], sys.argv[2])' \
+    "$TRUSTED_CHECKS_DIR.link.$$" "$TRUSTED_CHECKS_DIR"
 if (( NAMESPACE_FIX )); then
     install -m 0755 scripts/lint_swift_namespaces.py "$TRUSTED_HOOK_DIR/lint_swift_namespaces.py"
     install -m 0644 scripts/swift_source_mask.py "$TRUSTED_HOOK_DIR/swift_source_mask.py"
@@ -187,3 +275,95 @@ echo "==> daemon capability merge driver installed (merge.cmux-capabilities-v1.d
 git config merge.cmux-generated-v1.name "Generated web bundle (keep ours, then regenerate)"
 git config merge.cmux-generated-v1.driver true
 echo "==> generated web bundle merge driver installed (merge.cmux-generated-v1.driver)."
+
+# Last, so a failure here never leaves the hooks half installed: remove every checks copy nobody holds. Only an
+# install removes copies, and installs run one at a time (the install lock), so each tree has one remover: not
+# the copy the link points at, and not one whose .in-use a push holds (an exclusive flock that fails). A removed
+# copy is first renamed to `.deleting.` (while its lock is held), so a gate that resolved it before sees it gone
+# and resolves the link again, and a killed install leaves only `.deleting.` trees, which the next one removes. Copies without .in-use come from installs before the
+# lock (or a stage before its lock, seconds old): those keep the old rule (not the copy just replaced, nor any
+# younger than 10 minutes). `.link.` temporaries older than 10 minutes were left by a killed install (an install
+# takes seconds).
+# A -c argument, not a here-document (the install lock above says why); keep it free of single quotes.
+CLEANUP='
+import fcntl
+import os
+import shutil
+import sys
+import time
+
+hook_dir, previous = sys.argv[1], sys.argv[2]
+link = os.path.join(hook_dir, "cmux-next-checks")
+STALE_SECONDS = 600
+
+
+def current():
+    try:
+        return os.readlink(link)
+    except OSError:
+        return None
+
+
+def gone(error):
+    # An install from before the install lock (the copy of this script in an older checkout) removes old copies without
+    # it; what it removed first is gone either way. Anything else is raised.
+    if not isinstance(error, FileNotFoundError):
+        raise error
+
+
+def remove(path):
+    """Remove the tree PATH, which this cleanup claimed (renamed to its `.deleting.` name or found there)."""
+    if sys.version_info >= (3, 12):
+        shutil.rmtree(path, onexc=lambda function, name, error: gone(error))
+    else:
+        shutil.rmtree(path, onerror=lambda function, name, info: gone(info[1]))
+
+
+def claim(path, name):
+    """Rename PATH out of the way for removal; None when it is already gone."""
+    target = os.path.join(hook_dir, f"cmux-next-checks.deleting.{os.getpid()}.{name}")
+    try:
+        os.rename(path, target)
+    except FileNotFoundError:
+        return None
+    return target
+
+
+for name in sorted(os.listdir(hook_dir)):
+    path = os.path.join(hook_dir, name)
+    if not name.startswith("cmux-next-checks.") or name == current():
+        continue
+    if os.path.islink(path):
+        if ".link." in name and time.time() - os.lstat(path).st_mtime > STALE_SECONDS:
+            try:
+                os.unlink(path)
+            except FileNotFoundError:
+                pass  # removed by an install from before the install lock
+    elif not os.path.isdir(path):
+        continue
+    elif ".deleting." in name:  # installs run one at a time, so its remover was killed
+        remove(path)
+    elif not os.path.exists(os.path.join(path, ".in-use")):
+        if name != previous and time.time() - os.stat(path).st_mtime > STALE_SECONDS:
+            claimed = claim(path, name)
+            if claimed is not None:
+                remove(claimed)
+    else:
+        try:
+            lock = os.open(os.path.join(path, ".in-use"), os.O_RDONLY)
+        except FileNotFoundError:
+            continue  # removed by an install from before the install lock
+        try:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                continue  # a push holds it
+            if name == current():
+                continue
+            claimed = claim(path, name)
+            if claimed is not None:
+                remove(claimed)
+        finally:
+            os.close(lock)
+'
+"$PYTHON3_BIN" -I -c "$CLEANUP" "$TRUSTED_HOOK_DIR" "$PREVIOUS_CHECKS"

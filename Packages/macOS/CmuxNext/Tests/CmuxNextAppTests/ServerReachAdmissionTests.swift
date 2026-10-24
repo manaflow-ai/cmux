@@ -1,6 +1,7 @@
 import CmuxNextDaemonService
 @testable import CmuxNextDaemon
 import CmuxNextRemote
+import CmuxNextWakeups
 import Foundation
 import Testing
 @testable import CmuxNextApp
@@ -20,7 +21,7 @@ struct ServerReachAdmissionTests {
         var listed = true
         var calls: [String] = []
         var removed: [DaemonService] = []
-        lazy var service = ServerReachService(machines: machines, call: { [unowned self] path, body in
+        lazy var service = ServerReachService(machines: machines, mainWork: MainWorkScheduler(budget: MainFrameBudget()), call: { [unowned self] path, body in
             #expect(path == "v1/read")
             let op = body["op"] as? String ?? ""
             calls.append(op)
@@ -112,16 +113,6 @@ struct ServerReachAdmissionTests {
         await h.service.read()
         #expect(h.machines.servers.first === saved)
         #expect(saved.daemon.isStarting)
-    }
-
-    @Test func aLocalChiefKeepsItsSeparateLocalAdmissionWithoutAnAccount() throws {
-        let h = Harness(); defer { h.stop() }
-        h.user = nil
-        let chief = try ServerReach.localChief(homeID: "abcd1234", socket: h.socket, name: "Local Chief")
-        h.service.localChief = { chief }
-        h.service.showLocalChief()
-        let shown = try #require(h.machines.servers.first)
-        #expect(shown.reach == chief && shown.daemon.isStarting)
     }
 
     @Test func oldRegistryEchoesCannotReplaceAnAdmittedCurrentInstallation() async throws {

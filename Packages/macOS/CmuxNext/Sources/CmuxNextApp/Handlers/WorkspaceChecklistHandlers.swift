@@ -16,7 +16,7 @@ enum WorkspaceChecklistHandlers {
     static let pageIDs: [ActionID] = ["palette.openWorkspaceTodoPane", "checklistOpenAsPane"]
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        let capability = DaemonCapabilities.shared.workspaceChecklist
+        let capability = DaemonCapability.workspaceChecklist.rawValue
         let services = context.services
         services.pages.register(services.workspaceTodo) // at launch, so a restored tab finds it
         for id in editIDs {
@@ -48,7 +48,7 @@ enum WorkspaceChecklistHandlers {
             let daemon = context.services.machines.daemon(forWorkspace: workspace.id) ?? context.services.activeDaemon
             guard daemon.supports(capability) else { throw ActionFailure(message: daemon.missingCapabilityMessage(capability)) }
             guard let key = workspace.key, let resource = daemon.store.stateResourceID(workspace: key) else {
-                throw ActionFailure.needsDaemonCapability(DaemonCapabilities.shared.stateResources)
+                throw ActionFailure.needsDaemonCapability(DaemonCapability.stateResources.rawValue)
             }
             self.workspace = workspace
             self.daemon = daemon

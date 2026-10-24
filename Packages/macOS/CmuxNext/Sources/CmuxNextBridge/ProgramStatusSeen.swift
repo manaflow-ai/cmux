@@ -21,21 +21,42 @@ public nonisolated struct ProgramStatusSeen: Hashable, Sendable {
     static let limit = 1024
 
     /// Oldest first.
-    private(set) var keys: [Key] = []
+    private(set) var keys: [Key] = [] {
+        didSet { (keySet, keysPerTerminal) = Self.index(keys) }
+    }
+    /// ``keys`` as a set, and how many keys each terminal has: a look that changes nothing (every
+    /// keystroke in a terminal marks its tab seen) is answered from these in O(the tab's records),
+    /// not O(``limit``). Derived from ``keys`` only.
+    private var keySet: Set<Key> = []
+    private var keysPerTerminal: [String: Int] = [:]
 
     public init() {}
 
     init(keys: [Key]) {
         self.keys = Array(keys.suffix(Self.limit))
+        (keySet, keysPerTerminal) = Self.index(self.keys)
     }
 
+    private static func index(_ keys: [Key]) -> (Set<Key>, [String: Int]) {
+        (Set(keys), keys.reduce(into: [:]) { $0[$1.terminal, default: 0] += 1 })
+    }
+
+    /// Seen keys ``markSeen(_:terminal:)`` read since this value was made: its cost, which tests count (a look
+    /// that changes nothing must read the tab's records, not every key). Not part of the value (`==`, `hash`).
+    private(set) var keysRead = 0
+
+    public static func == (lhs: Self, rhs: Self) -> Bool { lhs.keys == rhs.keys }
+    public func hash(into hasher: inout Hasher) { hasher.combine(keys) }
+
     var count: Int { keys.count }
+
+    /// Whether any key is `terminal`'s, in O(1).
+    public func hasKeys(of terminal: String) -> Bool { keysPerTerminal[terminal, default: 0] > 0 }
 
     /// The records still to show: every record except a seen `done` or `error`.
     public func visible(_ records: [ProgramStatusRecord], terminal: String) -> [ProgramStatusRecord] {
         guard !keys.isEmpty else { return records }
-        let seen = Set(keys)
-        return records.filter { !Self.holdsUntilSeen($0) || !seen.contains(Self.key($0, terminal: terminal)) }
+        return records.filter { !Self.holdsUntilSeen($0) || !keySet.contains(Self.key($0, terminal: terminal)) }
     }
 
     /// Marks the terminal's current `done` and `error` records seen and drops
@@ -45,6 +66,10 @@ public nonisolated struct ProgramStatusSeen: Hashable, Sendable {
     public mutating func markSeen(_ records: [ProgramStatusRecord], terminal: String) -> Bool {
         let current = records.filter(Self.holdsUntilSeen).map { Self.key($0, terminal: terminal) }
         let currentSet = Set(current)
+        // Already seen, and no key of a record the terminal no longer has: nothing changes.
+        keysRead += currentSet.count  // the lookups of the check below
+        if currentSet.count == keysPerTerminal[terminal, default: 0], currentSet.isSubset(of: keySet) { return false }
+        keysRead += keys.count  // the rebuild reads every key
         var next = keys.filter { $0.terminal != terminal || currentSet.contains($0) }
         let present = Set(next)
         next.append(contentsOf: current.filter { !present.contains($0) })
@@ -113,7 +138,7 @@ public final class ProgramStatusSeenStore {
     public func markSeen(_ tab: TabModel) {
         // A tab without records and without saved keys has nothing to clear.
         let terminal = Self.terminal(of: tab)
-        guard !tab.programStatus.isEmpty || seen.keys.contains(where: { $0.terminal == terminal }) else { return }
+        guard !tab.programStatus.isEmpty || seen.hasKeys(of: terminal) else { return }
         markSeen(tab.programStatus, terminal: terminal)
     }
 

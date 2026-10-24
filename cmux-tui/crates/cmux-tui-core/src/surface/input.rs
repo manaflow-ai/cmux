@@ -37,6 +37,9 @@ impl Surface {
         if let Some(result) = Self::send_hosted_input(pty, MessageKind::Input, bytes) {
             return result;
         }
+        // Not hosted: the daemon writes the PTY itself (the holder model's custody master). Marked
+        // before the runtime lock, so the mark never runs under it.
+        cmux_flow_trace::hop("daemon.pty.write", 0, pty.flow_terminal_id());
         let mut runtime = pty.runtime.lock().unwrap();
         match &mut *runtime {
             PtyRuntime::Local { writer, master, .. } => {

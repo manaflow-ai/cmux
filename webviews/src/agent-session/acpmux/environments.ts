@@ -9,13 +9,18 @@ export type Environment = { id: string; label: string; kind: EnvironmentKind; co
 /// The location row's connect choices and the app action each runs (the agent pane allows exactly
 /// these; AgentPaneModel.connectActions): SSH… connects a machine, New Cloud Machine creates one on
 /// the plan's default size, and Open Cloud… opens the Cloud page, whose storefront lists
-/// the plan's sizes (the pane knows no plan).
+/// the plan's sizes (the pane knows no plan). A started chat's picker offers its one move instead:
+/// Move to Cloud on this Mac, Bring Back Local on a Cloud machine (the tab menu's same actions).
 export const CONNECT_ACTIONS = {
   ssh: "remote.connect",
   cloud: "newCloudMachine",
   cloudPage: "palette.openCloudPane",
+  move: "cloudMove",
+  bringBack: "cloudBringBack",
 } as const;
 export type ConnectKind = keyof typeof CONNECT_ACTIONS;
+/// A started chat's move: to a Cloud machine, or back to this Mac.
+export type OffloadKind = Extract<ConnectKind, "move" | "bringBack">;
 
 const SECTION_ORDER: readonly EnvironmentKind[] = ["local", "ssh", "cloud"];
 
@@ -156,4 +161,40 @@ export function savedEnvironmentReady(draft: SavedEnvironmentDraft): boolean {
 /// The list after a save: the saved one first (the host sorts by `updatedAt`), replacing itself.
 export function withSavedEnvironment(list: readonly SavedEnvironment[], saved: SavedEnvironment): SavedEnvironment[] {
   return [saved, ...list.filter((environment) => environment.id !== saved.id)];
+}
+
+type Host = { peer?: string | undefined; host?: string | undefined; hostKind?: string | undefined };
+
+/// The machines besides this one, in order: acpmux's peers, then the hosts its chats ran on (a
+/// chat's peer, else a Cloud chat's host), then `extra`, each once, never this one (`local`). A peer's transport names its
+/// kind (`peerKinds`): an `ssh://` peer is SSH, any other, or a Cloud chat's host acpmux no longer
+/// lists, is Cloud. A peer carries what acpmux last said of its connection (`peerConnected`); a
+/// Cloud chat's host carries none. The composer's computers and the New Tab machines widget both
+/// list these.
+export function knownMachines(
+  peers: readonly string[],
+  chats: readonly Host[],
+  peerKinds: Record<string, "ssh" | "cloud">,
+  extra: readonly Host[] = [],
+  peerConnected: Record<string, boolean> = {},
+): Environment[] {
+  const machines: Environment[] = [];
+  const seen = new Set<string>();
+  const add = (id: string, label: string, cloudHost: boolean) => {
+    if (id === "local" || seen.has(id)) return;
+    seen.add(id);
+    const connected = cloudHost ? undefined : peerConnected[id];
+    machines.push({
+      id,
+      label,
+      kind: !cloudHost && peerKinds[id] === "ssh" ? "ssh" : "cloud",
+      ...(connected !== undefined ? { connected } : {}),
+    });
+  };
+  for (const peer of peers) add(peer, peer, false);
+  for (const chat of [...chats, ...extra]) {
+    const peer = chat.peer ?? (chat.hostKind === "cloud" ? chat.host : undefined);
+    if (peer) add(peer, chat.host ?? peer, !chat.peer);
+  }
+  return machines;
 }

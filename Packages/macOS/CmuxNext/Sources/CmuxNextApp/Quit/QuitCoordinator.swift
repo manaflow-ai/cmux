@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -25,14 +26,14 @@ final class QuitCoordinator {
     /// The last dialog brought the app forward (`debug.quit`).
     private(set) var lastAskActivated = false
     private unowned let services: AppServices
-    /// The quit hook's participants (`QuitUnsavedRegistry.shared` in the app).
-    var unsaved: QuitUnsavedRegistry = .shared
+    /// The quit hook's participants (`AppServices.quitUnsaved`; tests replace it).
+    var unsaved: QuitUnsavedRegistry
     /// The app's main-thread watchdog (AppDelegate): a quit that is ending
     /// stops its debug hang assertion.
     weak var watchdog: MainThreadWatchdog?
     /// Ends the process if the engine stop never returns (cx-ccjnn).
     let deadline = QuitDeadline()
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.quit {wedge_engine_stop: true}`: the next quit's engine stop
     /// blocks the main thread for good, as a wedged CefShutdown did (cx-ccjnn).
     var wedgesEngineStop = false
@@ -41,6 +42,7 @@ final class QuitCoordinator {
 
     init(services: AppServices) {
         self.services = services
+        unsaved = services.quitUnsaved
     }
 
     /// Records the origin, then starts AppKit's termination. A second Cmd-Q
@@ -55,10 +57,7 @@ final class QuitCoordinator {
         // From a run-loop callout, not from inside the caller's main-queue
         // job (control socket, palette): terminateLater spins a nested run
         // loop, and the save Task could never get the main queue.
-        RunLoop.main.perform(inModes: [.common]) {
-            SheetDismissal.endAll()
-            NSApp.terminate(nil)
-        }
+        NSApplication.terminateFromRunLoop { SheetDismissal.endAll() }
     }
 
     /// SIGTERM, SIGINT, SIGHUP (`QuitSignal`): Quit, keep sessions, never an alert. Dev
@@ -110,7 +109,8 @@ final class QuitCoordinator {
     /// The unsaved step for `origin` (`QuitUnsavedStep.resolve`).
     private func resolveUnsaved(_ origin: QuitOrigin) async -> Bool {
         let window = sheetWindow()
-        return await QuitUnsavedStep.resolve(origin, registry: unsaved, scope: window.map { .window($0) } ?? .app)
+        return await QuitUnsavedStep.resolve(origin, registry: unsaved, scope: window.map { .window($0) } ?? .app,
+                                             writeDrafts: { [drafts = services.recoveryDrafts] in await drafts.writePending() })
     }
 
     /// A quit from the Dock or the app switcher while cmux is inactive is the
@@ -187,7 +187,8 @@ final class QuitCoordinator {
                 await ChiefHostStop.endChiefSessions(home: services.home.chief.home,
                                                      bundledBin: Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true))
                 await services.home.chief.shutdownForEndSessions()
-                return await QuitAgents.end(QuitAgents.environment(services), waitForShutdown: attempts.isRetry())
+                let keep = ChiefHostStop.appAcpmuxEndKeep(chiefUsesAppAcpmux: services.home.chief.home.usesAppAcpmux)
+                return await QuitAgents.end(QuitAgents.environment(services), keep: keep, waitForShutdown: attempts.isRetry())
             },
             stopBrowserEngines: { [weak self, deadline = self.deadline] in
                 // CefShutdown runs on the main thread and can block it for
@@ -195,7 +196,7 @@ final class QuitCoordinator {
                 // does, and a debug build reports that hang, never asserts it.
                 deadline.arm(after: QuitDeadline.engineStopLimit)
                 self?.watchdog?.endHangAssertions()
-                #if DEBUG
+                #if DEBUG || CMUX_BENCH_HOOKS
                 if self?.wedgesEngineStop == true { deadline.wedgeMainThread(self?.watchdog) }
                 #endif
                 await services.cache.cef.shutdown()

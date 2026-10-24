@@ -131,6 +131,13 @@ pub(super) fn publish_local_exit_if_ready(surface: &Arc<Surface>) {
     if !pty.local_pty_drained.load(Ordering::Acquire) || pty.exit.lock().unwrap().is_none() {
         return;
     }
+    // A holder terminal the daemon left for its shutdown did not end.
+    #[cfg(unix)]
+    if let PtyRuntime::Local { holder: Some(holder), .. } = &*pty.runtime.lock().unwrap()
+        && holder.is_detached()
+    {
+        return;
+    }
     if pty.exit_notified.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_err()
     {
         return;

@@ -1,4 +1,5 @@
 import CmuxNextBrowser
+import CmuxNextCrashReporting
 import CmuxNextSettings
 import Foundation
 
@@ -59,19 +60,23 @@ enum DebugCrashes {
         return .object(object)
     }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.crash.app`: ends this process like a crash (DEBUG builds), to
     /// verify relaunch recovery. `signal`: "segv" (default), "abort", "trap",
     /// "frozen". "frozen" is a crash that blocks: it starts the crash path
     /// (as an uncaught exception does), then traps with the task's
     /// EXC_BREAKPOINT port on a port nothing receives, so the main thread
     /// waits for an exception reply forever, as in the 2026-10-20 NIGHTLY
-    /// freezes. Only the crash deadline can end it.
+    /// freezes. Only the crash deadline can end it. "suspended" starts the
+    /// crash path, suspends the deadline thread (as Sentry's report writer
+    /// suspends every thread) and blocks the main thread: only the
+    /// out-of-process ``CrashWatcher`` can end it (#22844).
     /// `reporting` tags the Sentry event `deliberate_crash`, so it can be filtered out.
     static func crashApp(_ params: [String: JSONValue], _ reporting: AppCrashReporting? = nil) -> Never {
         reporting?.reporter.markDeliberateCrash("debug.crash.app")
         switch params["signal"]?.stringValue {
         case "abort": abort()
+        case "suspended": CrashReporter.blockWithDeadlineSuspended()
         case let signal? where signal == "trap" || signal == "frozen":
             if signal == "frozen" { reporting?.reporter.freezeNextTrap() }
             fatalError("debug.crash.app")
@@ -96,7 +101,7 @@ enum DebugCrashes {
     #endif
 }
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// The target of `debug.crash.exception`'s run-loop perform.
 final class DebugExceptionRaiser: NSObject {
     static let shared = DebugExceptionRaiser()

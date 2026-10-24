@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// A capture slot runs the app with `CMUX_NEXT_NO_ACTIVATE`, never frontmost, under other runs'
 /// windows (Safari, permission dialogs): the system's topmost window over the tab strip was

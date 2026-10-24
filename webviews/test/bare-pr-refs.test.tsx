@@ -17,13 +17,19 @@ const keys = [
   "Node",
   "MutationObserver",
   "ResizeObserver",
+  "customElements",
   "getComputedStyle",
   "localStorage",
   "requestAnimationFrame",
   "cancelAnimationFrame",
   "IS_REACT_ACT_ENVIRONMENT",
 ] as const;
-const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
+// The code block's highlighted card (@pierre/diffs) defines its web component on import and builds
+// its lines with the DOM's constructors (as in render-fence.test.tsx).
+const domConstructors = Object.getOwnPropertyNames(dom.window).filter(
+  (key) => /^(HTML|SVG|CSS|Shadow|Document)/.test(key) && !(key in scope) && !(keys as readonly string[]).includes(key),
+);
+const saved = [...keys, ...domConstructors].map((key) => [key, key in scope, scope[key]] as const);
 beforeAll(() => {
   Object.assign(scope, {
     window: dom.window,
@@ -33,6 +39,8 @@ beforeAll(() => {
     Element: dom.window.Element,
     Node: dom.window.Node,
     MutationObserver: dom.window.MutationObserver,
+    customElements: dom.window.customElements,
+    ...Object.fromEntries(domConstructors.map((key) => [key, (dom.window as unknown as Record<string, unknown>)[key]])),
     ResizeObserver: class {
       observe() {}
       unobserve() {}
@@ -131,10 +139,20 @@ test("a bare #N in a reply links to the pull request and opens its card", async 
 
 test("a reference in a code span or a code block is not a link", async () => {
   const view = await render("Prose #634, code `#635` and `a/b#636`.\n\n```\n#637 a/b#638\n```\n", REPO);
+  // The code block's highlighted card loads after the first frame (CodeBlock.tsx): load it here, so
+  // it always lands inside this test, not whenever the import settles (on a slow runner, mid-test),
+  // and read the code where the card draws it, in its shadow root.
+  const { act } = await import("react");
+  const { loadHighlightedCode } = await import("../src/agent-session/acpmux/conversation/CodeBlock");
+  await act(async () => {
+    await loadHighlightedCode();
+  });
+  const code = view.element.querySelector("diffs-container")?.shadowRoot;
   const chips = [...view.element.querySelectorAll<HTMLAnchorElement>("a.cv-chip")];
   expect(chips.map((chip) => chip.getAttribute("href"))).toEqual([URL]);
   expect(view.element.textContent).toContain("#635");
-  expect(view.element.textContent).toContain("#637 a/b#638");
+  expect(code?.querySelector("[data-content]")?.textContent).toBe("#637 a/b#638");
+  expect(code?.querySelectorAll("a")).toHaveLength(0);
 });
 
 test("without the folder's remote, a bare #N takes the repository the transcript mentioned last", async () => {

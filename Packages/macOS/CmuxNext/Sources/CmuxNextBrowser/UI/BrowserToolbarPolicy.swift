@@ -45,13 +45,18 @@ public nonisolated struct BrowserToolbarPolicy {
         case .favorites:
             return BrowserToolbarButtonState(icon: .browserToolbarBookmarks, label: hinted(Strings.toolbarFavorites))
         case .downloads:
-            return BrowserToolbarButtonState(icon: facts.downloads.inProgress ? .browserToolbarDownloadsActive : .browserToolbarDownloads,
-                                             label: hinted(Strings.toolbarDownloads),
-                                             isActive: facts.downloads.inProgress)
+            var state = BrowserToolbarButtonState(icon: facts.downloads.inProgress ? .browserToolbarDownloadsActive : .browserToolbarDownloads,
+                                                  label: hinted(Strings.toolbarDownloads),
+                                                  isActive: facts.downloads.inProgress)
+            // Chrome's ring around the Downloads icon while a download runs.
+            if facts.downloads.inProgress { state.progress = facts.downloads.progress ?? -1 }
+            return state
         case .designMode:
             // chrome-icons: allow Chrome has no Design mode button
             return BrowserToolbarButtonState(icon: .theme,
-                                             label: hinted(Strings.toolbarDesignMode), isActive: facts.designMode)
+                                             label: hinted(Strings.toolbarDesignMode),
+                                             isEnabled: BrowserPageTunables.uiPointer.value || facts.designMode,
+                                             isActive: facts.designMode)
         case .profile:
             let label = facts.profileName.map(Strings.toolbarProfile) ?? Strings.toolbarProfileUnknown
             return BrowserToolbarButtonState(icon: .browserToolbarProfile, label: label)

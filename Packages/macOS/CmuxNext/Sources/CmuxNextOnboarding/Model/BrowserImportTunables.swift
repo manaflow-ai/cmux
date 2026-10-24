@@ -15,5 +15,12 @@ public nonisolated struct BrowserImportTunables {
         help: "Import from Browser reads a browser's profiles only after you pick its folder in the open panel. Off reads every browser's folder on Find Browsers.",
         default: true, code: "BrowserImportTunables.folderGrant")
 
-    public static var all: [TunableDescriptor] { [folderGrant.descriptor] }
+    /// On (the default): Settings › Import shows cards for what this Mac has that cmux can bring
+    /// over (CmuxNextImportCards). Off: no cards and no scan. Home and New Tab never show them.
+    public static let suggestionCards = Tunable<Bool>.toggle(
+        "browserImport.suggestionCards", section, "Show import suggestion cards",
+        help: "Settings › Import suggests what to bring over from other browsers, agents and terminals on this Mac. Off hides the cards and stops the scan.",
+        default: true, code: "BrowserImportTunables.suggestionCards")
+
+    public static var all: [TunableDescriptor] { [folderGrant.descriptor, suggestionCards.descriptor] }
 }

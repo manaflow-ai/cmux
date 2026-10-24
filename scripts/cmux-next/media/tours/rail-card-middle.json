@@ -1,0 +1,158 @@
+{
+  "title": "Sidebar rail: hover card at the middle row",
+  "settings": {
+    "sidebar": {
+      "style": "rail"
+    }
+  },
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 3
+    },
+    {
+      "title": "New workspace",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Release notes draft"
+      ],
+      "wait": 0.5
+    },
+    {
+      "title": "New workspace",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Fix flaky login test"
+      ],
+      "wait": 0.5
+    },
+    {
+      "title": "New workspace",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Docs: install guide"
+      ],
+      "wait": 0.5
+    },
+    {
+      "title": "New workspace",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Sidebar rail polish"
+      ],
+      "wait": 0.5
+    },
+    {
+      "title": "New workspace",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Bench: terminal startup"
+      ],
+      "wait": 0.5
+    },
+    {
+      "title": "New workspace",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Refactor settings page"
+      ],
+      "wait": 0.5
+    },
+    {
+      "title": "New workspace",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Crash report triage"
+      ],
+      "wait": 0.5
+    },
+    {
+      "title": "New workspace",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Update dependencies"
+      ],
+      "wait": 0.5
+    },
+    {
+      "title": "New workspace",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Onboarding copy"
+      ],
+      "wait": 0.5
+    },
+    {
+      "title": "New workspace",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Search ranking"
+      ],
+      "wait": 0.5
+    },
+    {
+      "title": "New workspace",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Theme editor"
+      ],
+      "wait": 0.5
+    },
+    {
+      "title": "New workspace",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Keyboard shortcuts audit"
+      ],
+      "wait": 0.5
+    },
+    {
+      "title": "Settle",
+      "wait": 2
+    },
+    {
+      "title": "Point at the middle mark of the rail",
+      "rpc": {
+        "method": "debug.pointer_hover",
+        "params": {
+          "rail": "middle"
+        }
+      },
+      "wait": 0.3
+    },
+    {
+      "title": "Move within the row (a real pointer moves)",
+      "rpc": {
+        "method": "debug.pointer_hover",
+        "params": {
+          "rail": "middle"
+        }
+      },
+      "wait": 2
+    }
+  ]
+}

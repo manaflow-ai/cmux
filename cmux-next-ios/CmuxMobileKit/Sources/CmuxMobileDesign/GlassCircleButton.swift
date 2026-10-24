@@ -38,23 +38,35 @@ public struct GlassCircleButton: View {
 /// name's first letter, `""` draws nothing (color only), and any other value is
 /// the one character the user typed: an emoji at emoji size, or a letter,
 /// digit or symbol in white like the initial.
+///
+/// `transparent` (only meaningful with a typed character) drops the fill: the
+/// character sits on whatever is behind the badge, inside a hairline outline
+/// that keeps the badge's shape readable in light and dark, and a letter,
+/// digit or symbol is drawn in `label` instead of white.
 public struct TeamAvatar: View {
     let name: String
     let colorHex: String?
     let emoji: String?
     var size: CGFloat
+    let transparent: Bool
 
-    public init(name: String, colorHex: String?, emoji: String?, size: CGFloat = 36) {
+    public init(name: String, colorHex: String?, emoji: String?, size: CGFloat = 36, transparent: Bool = false) {
         self.name = name
         self.colorHex = colorHex
         self.emoji = emoji
         self.size = size
+        self.transparent = transparent
     }
 
     public var body: some View {
         let radius = size * (theme.metrics.teamAvatarRadius / theme.metrics.teamAvatar)
+        // Transparent only over a typed character: never an empty badge.
+        let transparent = transparent && emoji?.isEmpty == false
         ZStack {
-            if let colorHex {
+            if transparent {
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .strokeBorder(theme.colors.separator, lineWidth: 1)
+            } else if let colorHex {
                 RoundedRectangle(cornerRadius: radius, style: .continuous).fill(theme.colors.team(colorHex))
             } else {
                 RoundedRectangle(cornerRadius: radius, style: .continuous).fill(theme.colors.fill)
@@ -77,7 +89,7 @@ public struct TeamAvatar: View {
     private func letter(_ text: String) -> some View {
         Text(verbatim: text)
             .font(.system(size: size * 0.47, weight: .semibold))
-            .foregroundStyle(.white)
+            .foregroundStyle(transparent && emoji?.isEmpty == false ? AnyShapeStyle(theme.colors.label) : AnyShapeStyle(.white))
             .minimumScaleFactor(0.5)
     }
 

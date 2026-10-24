@@ -191,8 +191,8 @@ pub enum Frame {
         #[serde(rename = "targetId")]
         target_id: String,
     },
-    /// Whether agents may drive a CEF tab (app -> host, interim extension
-    /// rule): `extension_host_access` is true when an enabled extension of
+    /// A CEF tab's extension exposure (app -> host), informational since
+    /// #24413 made it no gate: `extension_host_access` is true when an enabled extension of
     /// the tab's profile holds host permissions on its page; `user_override`
     /// is the person's per-tab override from the app's native confirmation.
     /// Only the provider connection sends this; no driver call can set it.

@@ -66,7 +66,7 @@ struct KeybindingsFileRelaunchTests {
         }
 
         var connected: Bool {
-            services.machines.local.connection != nil && services.machines.local.supports(DaemonCapabilities.shared.keybindings)
+            services.machines.local.connection != nil && services.machines.local.supports(DaemonCapability.keybindings.rawValue)
         }
 
         func entries(_ command: ActionID, keys: [Shortcut]) -> [KeyBinding] {

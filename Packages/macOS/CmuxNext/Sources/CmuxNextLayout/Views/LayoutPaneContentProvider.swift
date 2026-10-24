@@ -42,13 +42,18 @@ final class LayoutViewContext {
     var requestFrames: () -> Void = {}
     /// Pane hosts or dividers moved: the overlay plane follows them.
     var overlayNeedsSync: () -> Void = {}
+    /// A user gesture moves the layout (a strip, row or scroll-area pan with the finger down): the root reads
+    /// as in layout motion until the motion after it lands (`LayoutRootView.setLayoutInMotion`).
+    var userMotionStepped: () -> Void = {}
+    /// A user gesture ended with nothing left to spring: the motion it started ends.
+    var userMotionEnded: () -> Void = {}
     /// A pane's strip clip changed (`PaneHostView.setStripClip`): Chromium pages re-read their clips.
     var stripClipsDidChange: () -> Void = {}
-    /// Screens whose panes spring into a closed pane's space now (`ScreenContentView.closing`).
-    var closingScreens: Set<ScreenID> = [] {
-        didSet { if oldValue.isEmpty != closingScreens.isEmpty { gridHoldDidChange(!closingScreens.isEmpty) } }
+    /// Screens whose panes spring to a split's or a close's sizes now (`ScreenContentView.holdsGrids`).
+    var gridHoldScreens: Set<ScreenID> = [] {
+        didSet { if oldValue.isEmpty != gridHoldScreens.isEmpty { gridHoldDidChange(!gridHoldScreens.isEmpty) } }
     }
-    /// The first close started (true) or the last one landed (false): `LayoutRootView.onTerminalGridHold`.
+    /// The first split or close started (true) or the last one landed (false): `LayoutRootView.onTerminalGridHold`.
     var gridHoldDidChange: (Bool) -> Void = { _ in }
     /// The strip scrollbar's fade-out deadline clock.
     let scrollbarClock: any Clock<Duration>

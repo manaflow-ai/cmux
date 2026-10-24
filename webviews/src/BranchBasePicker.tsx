@@ -148,6 +148,7 @@ function computePopoverStyle(rect: DOMRect): PopoverStyle {
 }
 
 export function BranchBasePicker({
+  ignoreWhitespace = false,
   label,
   onBranchSessionOpened,
   onNavigate,
@@ -155,6 +156,8 @@ export function BranchBasePicker({
   picker,
   transport = null,
 }: {
+  /** Hide white space applies: the branchChange session leaves white space changes out too. */
+  ignoreWhitespace?: boolean;
   label: DiffViewerLabelResolver;
   /** branchChange answered with a new session (page host): the viewer adopts it in place. */
   onBranchSessionOpened?: (session: SessionOpened) => void;
@@ -244,6 +247,7 @@ export function BranchBasePicker({
             repoRoot: picker.repoRoot,
             baseRef: trimmed,
             capabilityToken: picker.capabilityToken,
+            ...(ignoreWhitespace ? { ignoreWhitespace: true } : {}),
           },
         })
         .then((result) => {

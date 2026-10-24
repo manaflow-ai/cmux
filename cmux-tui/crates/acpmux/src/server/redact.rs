@@ -1,6 +1,7 @@
 //! What a reply to a connection that is not the local unix socket may not
 //! carry: any token.
 
+use crate::no_panic::JsonExt;
 use serde_json::Value;
 
 /// A remote-origin (Web) connection never learns a token: not the
@@ -31,7 +32,7 @@ pub(super) fn redact_for_remote(method: &str, reply: &mut Value) {
     if let Some(peers) = reply.get_mut("peers").and_then(Value::as_array_mut) {
         for peer in peers {
             if let Some(url) = peer.get("url").and_then(Value::as_str) {
-                peer["url"] = Value::String(url_without_secrets(url));
+                peer.set("url", Value::String(url_without_secrets(url)));
             }
         }
     }

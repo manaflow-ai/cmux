@@ -13,6 +13,11 @@
     private let same: (Item, Item) -> Bool
     private let changed: () -> Void
 
+    // A main-actor generic class needs a nonisolated deinit while the package targets macOS 14: the
+    // implicit isolated deinit crashes swift-frontend 6.3.3's Release inliner (EarlyPerfInliner,
+    // isCallerAndCalleeLayoutConstraintsCompatible) on its deallocating deinit. This one touches nothing.
+    nonisolated deinit {}
+
     /// `item` maps one model (nil: its owner is gone); `changed` runs after an item changed
     /// (`same` false: an item's equality may be main-actor isolated, so it is passed in).
     public init(item: @escaping @MainActor @Sendable (Model) -> Item?, same: @escaping (Item, Item) -> Bool,

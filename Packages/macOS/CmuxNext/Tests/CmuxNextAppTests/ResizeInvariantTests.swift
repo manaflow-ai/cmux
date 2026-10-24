@@ -53,13 +53,16 @@ import Testing
 
     /// The Home list gives way before the transcript: it shrinks so the transcript keeps 280 pt,
     /// down to its avatar-only minimum, and grows back to the saved width when there is room.
+    /// The list holds two conversations: a list of one takes no column once it would show avatars
+    /// only (`HomeLoneChiefRailTests`).
     @Test func theHomeTranscriptKeepsItsMinimumThroughResizes() throws {
         _ = NSApplication.shared
         let suite = "cmux.tests.resize.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        let split = HomeSidebarSplitView(sidebar: HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 600)),
-                                         content: NSView(), widths: HomeSidebarWidth(defaults: defaults))
+        let sidebar = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 600))
+        sidebar.update(HomeLoneChiefRailTests.model(chiefs: 2))
+        let split = HomeSidebarSplitView(sidebar: sidebar, content: NSView(), widths: HomeSidebarWidth(defaults: defaults))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

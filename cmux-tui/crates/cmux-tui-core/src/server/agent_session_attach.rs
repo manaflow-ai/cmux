@@ -5,6 +5,7 @@
 //! refused. Attachments have bounded pages, calls and outbound buffering, and
 //! close with a replay cursor when acpmux or the client falls behind.
 
+use crate::panic_free::JsonFields;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -14,6 +15,8 @@ use std::time::Duration;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+#[path = "agent_session_children.rs"]
+pub(super) mod agent_session_children;
 #[path = "agent_session_link.rs"]
 pub(super) mod agent_session_link;
 #[path = "agent_session_observe.rs"]
@@ -72,6 +75,9 @@ pub(crate) struct AgentSessions {
     state: Mutex<AttachState>,
     /// `agent-session-start-v1`: the acpmux starter and the tabs starting.
     starts: agent_session_start::AgentSessionStarts,
+    /// `agent-session-children-v1`: the descendants acpmux answered, which
+    /// a `registry:` tab of this store may show.
+    pub(crate) known_children: agent_session_children::KnownChildren,
 }
 
 #[derive(Default)]
@@ -158,6 +164,9 @@ struct Attachment {
     permissions: Mutex<VecDeque<String>>,
     /// Prompt ids waiting for `_acpmux/prompt_accepted`, with their reply slot.
     prompts: Mutex<HashMap<String, std::sync::mpsc::SyncSender<Value>>>,
+    /// The session's descendants this attachment follows
+    /// (`agent-session-children-v1`): their changes are streamed too.
+    children: Mutex<HashSet<String>>,
 }
 
 impl Attachment {
@@ -237,6 +246,8 @@ enum AgentSessionCommand {
     Cancel(SurfaceParams),
     Permission(PermissionParams),
     Detach(SurfaceParams),
+    Children(SurfaceParams),
+    Media(MediaParams),
 }
 
 impl AgentSessionCommand {
@@ -252,6 +263,8 @@ impl AgentSessionCommand {
             "agent-session-cancel" => Self::Cancel(from_value(params).ok()?),
             "agent-session-permission" => Self::Permission(from_value(params).ok()?),
             "agent-session-detach" => Self::Detach(from_value(params).ok()?),
+            "agent-session-children" => Self::Children(from_value(params).ok()?),
+            "agent-session-media" => Self::Media(from_value(params).ok()?),
             _ => return None,
         })
     }
@@ -261,6 +274,13 @@ impl AgentSessionCommand {
 #[serde(deny_unknown_fields)]
 struct SurfaceParams {
     surface: SurfaceId,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MediaParams {
+    surface: SurfaceId,
+    path: String,
 }
 
 #[derive(Deserialize)]
@@ -532,7 +552,10 @@ fn command_surface(command: &AgentSessionCommand) -> SurfaceId {
         AgentSessionCommand::Attach(params) | AgentSessionCommand::Events(params) => params.surface,
         AgentSessionCommand::Prompt(params) => params.surface,
         AgentSessionCommand::Permission(params) => params.surface,
-        AgentSessionCommand::Cancel(params) | AgentSessionCommand::Detach(params) => params.surface,
+        AgentSessionCommand::Cancel(params)
+        | AgentSessionCommand::Detach(params)
+        | AgentSessionCommand::Children(params) => params.surface,
+        AgentSessionCommand::Media(params) => params.surface,
     }
 }
 
@@ -552,10 +575,10 @@ fn page_params(session: &str, params: &PageParams, attach: bool) -> Result<Value
     let mut out =
         json!({"sessionId": session, "limit": params.limit.unwrap_or(200).clamp(1, MAX_PAGE)});
     if let Some(after) = params.after_seq {
-        out["afterSeq"] = json!(after);
+        out.insert("afterSeq", json!(after));
     }
     if let Some(before) = params.before_seq {
-        out["beforeSeq"] = json!(before);
+        out.insert("beforeSeq", json!(before));
     }
     if let Some(kinds) = &params.kinds {
         let valid = kinds.len() <= MAX_KINDS
@@ -566,10 +589,10 @@ fn page_params(session: &str, params: &PageParams, attach: bool) -> Result<Value
         if !valid {
             return Err(Refusal::BadRequest);
         }
-        out["kinds"] = json!(kinds);
+        out.insert("kinds", json!(kinds));
     }
     if attach {
-        out["eventStream"] = json!(true);
+        out.insert("eventStream", json!(true));
     }
     Ok(out)
 }
@@ -803,7 +826,7 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
                 );
             }
             if !meta.is_empty() {
-                params["_meta"] = json!({"acpmux": meta});
+                params.insert("_meta", json!({"acpmux": meta}));
             }
             let answered = attachment.link.call("_acpmux/permission_respond", params, CALL_TIMEOUT);
             // A failed answer stays answerable; a delivered one is spent.
@@ -812,8 +835,76 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
             }
             answered.map_err(Refusal::of)
         }
+        AgentSessionCommand::Children(_) => agent_session_children::list(attachment),
+        AgentSessionCommand::Media(MediaParams { path, .. }) => media(attachment, path),
         AgentSessionCommand::Cancel(_) | AgentSessionCommand::Detach(_) => Ok(json!({})),
     }
+}
+
+/// Reads one image from the attached chat's host acpmux. The attachment daemon keeps the path
+/// scoped to the bound session; this command only relays the already checked media reader bytes.
+fn media(attachment: &Attachment, path: String) -> Result<Value, Refusal> {
+    use base64::Engine;
+    let image_extension = std::path::Path::new(&path)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            matches!(
+                extension.to_ascii_lowercase().as_str(),
+                "png" | "jpg" | "jpeg" | "gif" | "webp"
+            )
+        });
+    if !image_extension {
+        return Err(Refusal::BadRequest);
+    }
+    if path.is_empty() || path.len() > 4096 {
+        return Err(Refusal::BadRequest);
+    }
+    let opened = attachment
+        .link
+        .call(
+            "_acpmux/media_open",
+            json!({"sessionId": attachment.session, "path": path}),
+            CALL_TIMEOUT,
+        )
+        .map_err(Refusal::of)?;
+    let handle = opened.get("handle").and_then(Value::as_str).ok_or(Refusal::BadRequest)?;
+    let size = opened.get("size").and_then(Value::as_u64).ok_or(Refusal::BadRequest)?;
+    const MAX_BYTES: u64 = 10 << 20;
+    const MAX_RANGE: u64 = 6 << 20;
+    if size == 0 || size > MAX_BYTES {
+        return Err(Refusal::BadRequest);
+    }
+    let mut bytes = Vec::with_capacity(usize::try_from(size).map_err(|_| Refusal::BadRequest)?);
+    let mut offset = 0u64;
+    while offset < size {
+        let length = (size - offset).min(MAX_RANGE);
+        let range = attachment
+            .link
+            .call(
+                "_acpmux/media_range",
+                json!({"sessionId": attachment.session, "handle": handle, "offset": offset, "length": length}),
+                CALL_TIMEOUT,
+            )
+            .map_err(Refusal::of)?;
+        let actual = range.get("offset").and_then(Value::as_u64).ok_or(Refusal::BadRequest)?;
+        if actual != offset {
+            return Err(Refusal::BadRequest);
+        }
+        let encoded = range.get("data").and_then(Value::as_str).ok_or(Refusal::BadRequest)?;
+        let chunk = base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .map_err(|_| Refusal::BadRequest)?;
+        if chunk.is_empty() || chunk.len() as u64 > length {
+            return Err(Refusal::BadRequest);
+        }
+        offset = offset.saturating_add(chunk.len() as u64);
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(json!({
+        "mimeType": opened.get("mimeType").cloned().unwrap_or(Value::Null),
+        "data": base64::engine::general_purpose::STANDARD.encode(bytes),
+    }))
 }
 
 /// Sends one text prompt and answers once acpmux recorded it. The turn's

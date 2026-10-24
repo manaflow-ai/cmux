@@ -27,6 +27,8 @@ export function createWebviewsRouter(WebviewComponent: WebviewRouteComponent) {
   return createRouter({
     history: createHashHistory(),
     routeTree,
+    // Every cmux router preloads a link's route on intent (hover or keyboard focus).
+    defaultPreload: "intent",
   });
 }
 

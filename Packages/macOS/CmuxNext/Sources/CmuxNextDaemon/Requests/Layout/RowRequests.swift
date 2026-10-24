@@ -5,7 +5,7 @@ import Foundation
 public struct NewRowRequest: TerminalSpawningRequest {
     public typealias Response = SurfaceCreated
     public static let command = "new-row"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.rows
+    public static let requiredCapability: String? = DaemonCapability.rows.rawValue
     public var pane: PaneID
     /// 100...1000 permille of the column's viewport height.
     public var heightPermille: Int
@@ -29,7 +29,7 @@ public struct NewRowRequest: TerminalSpawningRequest {
 public struct SetRowHeightsRequest: DaemonRequest {
     public typealias Response = EmptyResponse
     public static let command = "set-row-heights"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.rows
+    public static let requiredCapability: String? = DaemonCapability.rows.rawValue
     public var column: ColumnID
     public var heights: [RowHeightValue]
     public var fit: Bool

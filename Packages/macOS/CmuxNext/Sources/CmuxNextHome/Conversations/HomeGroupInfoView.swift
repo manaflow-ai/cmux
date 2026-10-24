@@ -2,7 +2,7 @@ import CmuxHomeCore
 import CmuxNextDesign
 import SwiftUI
 
-/// The group info sheet (styled as the Home page's other sheets: the theme's popup surface, a
+/// The group info sheet (styled as the Home page's other sheets: the sheet's glass, a
 /// title, the content, a status line, then the buttons). A group shows its name (editable),
 /// its members with Remove, Add People…, Hide Alerts and Leave Group…; a DM shows the person and
 /// Hide Alerts.
@@ -52,7 +52,6 @@ struct HomeGroupInfoView: View {
         }
         .padding(Metrics.space6)
         .frame(width: Self.width, alignment: .leading)
-        .background(colors.background)
         .tint(colors.accent)
     }
 

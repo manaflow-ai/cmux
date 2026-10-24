@@ -45,18 +45,9 @@ enum ScreenshotStrings {
         String(localized: "handlers.screenshot.tabNotShown", defaultValue: "The tab is not on screen. Show its workspace and select the tab, then retry",
                table: "MiscHandlers", bundle: .module)
     }
-    /// An agent or script asked for browser pixels (#23026): those go through the browser
-    /// host's guarded capture, which masks cross-session secrets.
-    static var browserNeedsGuardedCapture: String {
-        String(localized: "handlers.screenshot.browserNeedsGuardedCapture",
-               defaultValue: "A browser page is captured only through `cmux browser page screenshot`, which hides secrets from other sessions",
-               table: "MiscHandlers", bundle: .module)
-    }
-    /// An agent or script asked for an agent chat's pixels (#23026): its text comes masked
-    /// through `cmux agents chat read`.
-    static var chatNeedsMaskedRead: String {
-        String(localized: "handlers.screenshot.chatNeedsMaskedRead",
-               defaultValue: "An agent chat is read through `cmux agents chat read`, which hides secrets, not captured",
+    static var browserNeedsREPL: String {
+        String(localized: "handlers.screenshot.browserNeedsREPL",
+               defaultValue: "A browser page's screenshot for automation comes from the browser REPL, which hides the secrets on the page: browser_repl_eval with page.screenshot()",
                table: "MiscHandlers", bundle: .module)
     }
     static func pageFailed(_ reason: String) -> String {

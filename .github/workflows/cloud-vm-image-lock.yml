@@ -1,7 +1,8 @@
 name: Cloud VM image lock
 
 # Validates images/cmux-vm/inputs.lock.json and the sshd policy checker on every
-# change to the cmux-next image definition (plans/cmux-next/vm-image.md 4.11).
+# change to the cmux-next image definition (plans/cmux-next/vm-image.md 4.11),
+# and runs cloud-vm-image-bake.yml's step scripts with a stubbed bun.
 # No Freestyle access and no bake: bakes spend Freestyle resources, so
 # cloud-vm-image-bake.yml stays workflow_dispatch only (coordinator decision,
 # 2026-10-04). Not a merge gate. The lock test imports smoke.ts, which reaches
@@ -15,7 +16,10 @@ on:
       - web/scripts/cmux-vm-image/**
       - web/tests/vm-image-cmux-vm-lock.test.ts
       - web/tests/vm-image-cmux-vm-sshd.test.ts
+      - web/tests/vm-image-cmux-vm-bake-workflow.test.ts
+      - web/tests/vm-image-cmux-vm-dev-tree.test.ts
       - .github/workflows/cloud-vm-image-lock.yml
+      - .github/workflows/cloud-vm-image-bake.yml
   workflow_dispatch:
 
 permissions:
@@ -40,4 +44,4 @@ jobs:
         with:
           bun-version: "1.3.14"
       - run: bun install --frozen-lockfile
-      - run: bun test tests/vm-image-cmux-vm-lock.test.ts tests/vm-image-cmux-vm-sshd.test.ts
+      - run: bun test tests/vm-image-cmux-vm-lock.test.ts tests/vm-image-cmux-vm-sshd.test.ts tests/vm-image-cmux-vm-bake-workflow.test.ts tests/vm-image-cmux-vm-dev-tree.test.ts

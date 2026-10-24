@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesignTokens
 
 /// The one Cmd-F find pill: a Liquid Glass capsule (frosted before macOS 26, solid under Reduce
 /// Transparency) with a magnifier, a field that searches as you type, the match count, an optional
@@ -25,6 +26,49 @@ public import AppKit
 /// Tests build one with any images and labels and drive it through ``handleFieldCommand(_:shift:)``,
 /// ``simulateTyping(_:)`` and its buttons; no window is needed.
 public final class FindPillView: NSView {
+    /// Whether an arrow key-down belongs to the field editor's text-navigation path.
+    ///
+    /// The app dispatches key-downs before AppKit's field editor and menu routing. Keep this
+    /// policy beside the shared find field so terminal and browser pills get the same treatment.
+    public static func shouldForwardArrowKeyDown(keyCode: UInt16, flags: NSEvent.ModifierFlags,
+                                                 hasMarkedText: Bool) -> Bool {
+        guard !hasMarkedText, (123...126).contains(keyCode) else { return false }
+        let normalizedFlags = flags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        switch normalizedFlags {
+        case [], [.shift], [.option], [.option, .shift], [.command], [.command, .shift]:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Whether `responder` is the field editor currently editing this pill's query.
+    public static func ownsFieldEditor(_ responder: NSResponder?) -> Bool {
+        guard let editor = responder as? NSTextView, editor.isFieldEditor else { return false }
+        if editor.delegate is FindPillView { return true }
+        guard let field = editor.delegate as? NSTextField else { return false }
+        var view: NSView? = field
+        while let current = view {
+            if current is FindPillView { return true }
+            view = current.superview
+        }
+        return false
+    }
+
+    /// Sends an allowed arrow directly to the active field editor before AppKit offers menu
+    /// equivalents. Returns true when this pill owned the event.
+    public static func forwardArrowKeyDown(_ event: NSEvent, in window: NSWindow?) -> Bool {
+        guard event.type == .keyDown, let responder = window?.firstResponder,
+              let client = responder as? NSTextInputClient,
+              ownsFieldEditor(responder),
+              shouldForwardArrowKeyDown(keyCode: event.keyCode, flags: event.modifierFlags,
+                                        hasMarkedText: client.hasMarkedText()) else { return false }
+        responder.keyDown(with: event)
+        return true
+    }
+
     /// Called with the field's text on every edit the user makes (not when ``query`` is set).
     public var onQueryChange: ((String) -> Void)?
     /// Called for Return, Shift-Return, Escape and the three buttons.

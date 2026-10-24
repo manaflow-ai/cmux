@@ -59,6 +59,8 @@ public struct SidebarDocDrag {
                          blocks: [String: SidebarRegionLayout] = [:]) -> (SidebarDragGeometry, [String: SidebarRow]) {
         var slots: [SidebarDragGeometry.Slot] = []
         var rows: [String: SidebarRow] = [:]
+        // The group header open at each depth, so a subgroup's slot names the group it sits in.
+        var headerAtDepth: [Int: GroupID] = [:]
         for row in layout.rows {
             guard let section = section(row.section) else { continue }
             let frame = CGRect(x: 0, y: row.y, width: width, height: row.height)
@@ -67,12 +69,25 @@ public struct SidebarDocDrag {
                 guard let id = item(row.key) else { continue }
                 var parent: String?
                 var kind = SidebarDragGeometry.Slot.Kind.row
-                if case .group = row.key { kind = .group } else { parent = row.group.flatMap { item(.group($0)) } }
+                if case let .group(group) = row.key {
+                    kind = .group
+                    headerAtDepth = headerAtDepth.filter { $0.key < row.depth }
+                    headerAtDepth[row.depth] = group
+                    parent = row.depth > 0 ? headerAtDepth[row.depth - 1].flatMap { item(.group($0)) } : nil
+                } else {
+                    parent = row.group.flatMap { item(.group($0)) }
+                }
                 slots.append(.init(key: id, item: id, section: section, parent: parent, frame: frame, kind: kind))
                 rows[id] = row
             case .section, .emptySection:
                 slots.append(.init(key: section, item: nil, section: section, frame: frame, kind: .section))
                 rows[section] = row
+            case .emptyGroup(let group):
+                // Its own key, the group as item and parent: a drop goes into the group, by the group's acceptance.
+                guard let id = item(.group(group)) else { continue }
+                let key = "empty:" + id
+                slots.append(.init(key: key, item: id, section: section, parent: id, frame: frame, kind: .emptyGroup))
+                rows[key] = row
             case .block(let id):
                 // A block's items: tiles and rows of its own arrangement, at their base frames.
                 if let block = blocks[id] { slots += blockSlots(block, at: row.y) }
@@ -81,7 +96,7 @@ public struct SidebarDocDrag {
                 if let last = slots.last, last.kind == .row, item(.workspace(owner)) == last.item {
                     slots[slots.count - 1].frame.size.height = max(last.frame.height, row.maxY - last.frame.minY)
                 }
-            case .folder:
+            case .folder, .status, .doneFold, .showMore:
                 continue
             }
         }
@@ -127,10 +142,33 @@ public struct SidebarDocDrag {
                 }
             }
         }
-        let target = SidebarDocStore.target(section: section, parent: position.group?.rawValue, index: position.index, siblings: siblings,
+        var target = SidebarDocStore.target(section: section, parent: position.group?.rawValue, index: position.index, siblings: siblings,
                                             moving: Set(moving))
+        if position.group == nil { target = Self.topLevelAnchor(target, siblings: siblings, nested: Self.nestedGroups(shown), moving: Set(moving)) }
         let adopt = (target.before ?? target.after).flatMap { pending[$0] }.map { [$0] } ?? []
         return (target, adopt)
+    }
+
+    /// The groups in `section` that sit in another group (nested groups list flat, after their parent).
+    static func nestedGroups(_ section: SidebarSection) -> Set<String> {
+        Set(section.nodes.compactMap { node in
+            if case let .group(group) = node, group.parent != nil { group.id.rawValue } else { nil }
+        })
+    }
+
+    /// `target` with its anchor moved off a nested group: a top-level slot counts the section's
+    /// rows flat, so the slot before a subgroup (or after the last row, when that is a subgroup)
+    /// named the subgroup as a top-level sibling, a move the document refuses. Such a slot is the
+    /// gap before the next top-level row, or after the last one.
+    static func topLevelAnchor(_ target: SidebarDocTarget, siblings: [String], nested: Set<String>, moving: Set<String>) -> SidebarDocTarget {
+        guard let anchor = target.before ?? target.after, nested.contains(anchor) else { return target }
+        let staying = siblings.filter { !moving.contains($0) }
+        if target.before != nil, let start = staying.firstIndex(of: anchor),
+           let next = staying[start...].first(where: { !nested.contains($0) }) {
+            return SidebarDocTarget(section: target.section, before: next)
+        }
+        guard let last = staying.last(where: { !nested.contains($0) }) else { return SidebarDocTarget(section: target.section, index: 0) }
+        return SidebarDocTarget(section: target.section, after: last)
     }
 
     /// Where Move to Top (or a list reorder) sends workspace rows the document does not place when their
