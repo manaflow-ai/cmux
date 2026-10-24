@@ -341,6 +341,7 @@ import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } 
 import { configureTurnActionsPlacement } from "./turnActionsPlacement";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
 import { copyRow } from "./header/copyRow";
+import { recordedConversationMarkdown } from "./conversation/exportMarkdown";
 import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
 import { opensBesideRows, sideChatRow } from "./header/sideChatRow";
 import { PendingSteer } from "./conversation/PendingSteer";
@@ -480,6 +481,9 @@ declare global {
       /// Copy Last Code Block (Opt-Cmd-;): the app reads the block and writes the pasteboard itself,
       /// since a script it runs here is no gesture the page's clipboard accepts.
       lastCodeBlock?(): string | null;
+      /// Copy Conversation as Markdown: read recorded history on this page's connection; the native
+      /// palette action writes the role-headed, tool-folded text to the pasteboard.
+      conversationMarkdown?(): Promise<string | null>;
       /// The app's shortcuts as the user bound them, keyed by action id (shortcuts.ts).
       applyShortcuts?(labels: Record<string, string>): void;
       /// Preview features on or off (Settings > Advanced > Labs, `labs.previewFeatures`, off by
@@ -6084,6 +6088,22 @@ function AcpmuxPane() {
     window.cmuxAcpmuxBridge = {
       toggleInspector,
       lastCodeBlock: () => lastCodeBlock(snapshotRef.current?.rows ?? []) ?? null,
+      conversationMarkdown: async () => {
+        const client = directClient.current;
+        const sessionId = client?.selectedSession;
+        if (!client || !sessionId) return null;
+        const current = () =>
+          directClient.current === client &&
+          client.selectedSession === sessionId &&
+          snapshotRef.current?.sessionId === sessionId;
+        try {
+          const events = await client.conversationEvents(current);
+          if (!current()) return null;
+          return recordedConversationMarkdown(sessionId, events) || null;
+        } catch {
+          return null;
+        }
+      },
       command(name) {
         if (name === "createCheckpoint") showCheckpoint.current();
         // Side Question (the palette): the composer, focused, with `/btw ` to type the question after.
