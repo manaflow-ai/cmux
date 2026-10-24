@@ -26,46 +26,28 @@ pub(super) async fn send_latest(
     conn: &Conn,
     snapshots: &mut tokio::sync::watch::Receiver<crate::harness_health::inventory_feed::Snapshot>,
 ) {
+    let _outbound = conn.outbound_lock.lock().unwrap_or_else(|e| e.into_inner());
     let enabled = *conn.watch_inventory.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    let reserved = if enabled {
-        let _guard = conn.outbound_lock.lock().unwrap_or_else(|e| e.into_inner());
-        if conn.out.capacity() > super::OUTBOUND_CONTROL_RESERVE {
-            let permit = conn.out.try_reserve().ok();
-            if let Some(permit) = permit {
-                // Keep producer admission serialized through the final
-                // subscription check and enqueue.
-                let enabled =
-                    conn.watch_inventory.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                if *enabled {
-                    let value = snapshots.borrow_and_update().wire();
-                    match Message::notification(method::MUX_HARNESS_INVENTORY, value).bounded_line()
-                    {
-                        Ok(line) => permit.send(line),
-                        Err(bytes) => {
-                            tracing::warn!(bytes, "left out an inventory too large to send")
-                        }
-                    }
-                    return;
-                }
-                true
-            } else {
-                false
+    let reserved = super::OUTBOUND_CONTROL_RESERVE
+        + conn.outbound_pending_controls.load(std::sync::atomic::Ordering::Acquire);
+    if enabled && conn.out.capacity() > reserved {
+        if let Ok(permit) = conn.out.try_reserve() {
+            let value = snapshots.borrow_and_update().wire();
+            match Message::notification(method::MUX_HARNESS_INVENTORY, value).bounded_line() {
+                Ok(line) => permit.send(line),
+                Err(bytes) => tracing::warn!(bytes, "left out an inventory too large to send"),
             }
-        } else {
-            false
+            return;
         }
-    } else {
-        false
-    };
-    if enabled && !reserved {
+    }
+    if enabled {
         // Keep the response and gap-marker permits available when an
         // inventory watcher is slower than the daemon's bounded queue.
-        super::report_outbound_loss(
+        super::report_outbound_loss_locked(
             &conn.out,
             &conn.outbound_dropped,
             &conn.outbound_gap_pending,
             &conn.outbound_lock,
-            &conn.outbound_closed,
         );
     }
     // Do not replay changes that happened while the subscription was off.
