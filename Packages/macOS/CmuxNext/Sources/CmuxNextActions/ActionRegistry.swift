@@ -232,7 +232,9 @@ public final class ActionRegistry {
     /// are folded into their canonical ID.
     public func register(_ action: Action) {
         let id = canonicalID(for: action.id)
-        let stored = id == action.id ? action : action.withID(id)
+        var stored = id == action.id ? action : action.withID(id)
+        // Interned here, when bound, so a run's timing looks nothing up (ActionBudgetMonitor).
+        stored.timingIndex = runTiming.intern(id)
         if let index = indexByID[id] {
             actions[index] = stored
         } else {
