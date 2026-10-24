@@ -440,7 +440,14 @@ class Sweep:
             note(f"every-action: {self.session}: closed {len(leftover)} restored workspaces; "
                  f"{len(topology().get('workspaces') or [])} left")
         if self.session == "stress":
-            summary = self.builder.build()
+            summary = self.builder.build(check=False) if "check" in self.builder.build.__code__.co_varnames else self.builder.build()
+            # The builder's own shape check (PL-motion-core): a deviation is quoted with every number, not a failed run.
+            try:
+                checker = getattr(type(self.builder), "check", None)
+                if checker:
+                    checker(summary)
+            except Exception as error:  # StressShapeError
+                summary["shape_error"] = str(error)[:400]
             note("STRESS-SESSION " + json.dumps(summary))
             self.summary = summary
             workspace = summary.get("measured")
@@ -1371,9 +1378,15 @@ def main():
             if index:
                 app.relaunch()  # each session starts from a fresh app: STRESS is exactly perf-stress-session's shape
             sweep = Sweep(app, name, stress_module)
-            sweep.run(actions)
-            report["sessions"].append({"name": name, "summary": sweep.summary, "validity": sweep.validity, "idle": sweep.idle,
-                                       "rows": sweep.rows, "interactions": sweep.interactions})
+            try:
+                sweep.run(actions)
+            except Exception as error:  # one session failing still returns the other's rows (the step must pass to return them)
+                note(f"every-action: the {name} session failed: {error!r}")
+                report.setdefault("failed_sessions", []).append({"name": name, "error": repr(error)[:400]})
+                if not getattr(sweep, "validity", None):
+                    continue
+            report["sessions"].append({"name": name, "summary": getattr(sweep, "summary", {}), "validity": sweep.validity,
+                                       "idle": getattr(sweep, "idle", {"frames": {}}), "rows": sweep.rows, "interactions": sweep.interactions})
             with open(report_path, "w") as f:
                 json.dump(report, f, indent=1, default=str)
     finally:

@@ -20,6 +20,7 @@ import { footerLabel, isEmptyFooter, workedLabel } from "./turns";
 import { AlertCircle, ArrowRight, ChevronRight, Retry } from "./icons";
 import {
   ForkButton,
+  forkWithFeedback,
   MessageCopy,
   MessageMore,
   MessageTime,
@@ -318,7 +319,9 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
               onPick={(model) => retryWith.retry(row.retryRowId ?? "", prompt, model)}
             />
           )}
-          {fork && seq !== undefined && (forkAny || seq === forkSeq) && <ForkButton onFork={() => fork(seq)} />}
+          {fork && seq !== undefined && (forkAny || seq === forkSeq) && (
+            <ForkButton onFork={() => forkWithFeedback(seq, () => fork(seq))} />
+          )}
           <PinButton rowId={row.id} />
           {text && <ReadAloudButton id={row.id} text={text} />}
           {text && row.answerId && <MessageMore rowId={row.answerId} />}
