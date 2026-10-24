@@ -19,7 +19,7 @@ import Testing
     @Test func aPageThatDoesNotAnswerIsNotPlayingMedia() async {
         let page = tab()
         page.evaluationResult = .null
-        let probe = await BrowserHibernation.probe(page, discarding: true)
+        let probe = await BrowserHibernation.probe(page)
         #expect(!probe.playingMedia)
         #expect(probe.exemption != .audio)
         #expect(!probe.answered)
@@ -30,7 +30,7 @@ import Testing
         let page = tab()
         page.evaluationResult = .null
         page.simulate(.mediaChanged(BrowserMediaState(title: "song", isPlaying: true)))
-        let probe = await BrowserHibernation.probe(page, discarding: true)
+        let probe = await BrowserHibernation.probe(page)
         #expect(probe.playingMedia)
         #expect(probe.exemption == .audio)
     }

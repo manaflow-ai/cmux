@@ -104,6 +104,77 @@ import Testing
         #expect(!rig.isHibernated(key))
     }
 
+    /// The probe ran the page's own beforeunload handlers, as a synthetic close, on a page that
+    /// stays: on every replan (each tab switch, every 3 s at critical pressure), and inside cmux's
+    /// user gesture. A handler that closes a socket, stops reconnects or sends a "left" beacon then
+    /// left the person a dead page. A page something else keeps (here running Web Audio) must never
+    /// have its handlers run.
+    @Test func aPageKeptForAnotherReasonNeverRunsItsBeforeUnload() async throws {
+        let rig = try HiddenPageHibernationTests.Rig()
+        defer { rig.close() }
+        let page = try await rig.page("synth-unload", body: """
+            <div style="height: 2000px"></div>
+            <script>
+            window.unloadRuns = 0;
+            addEventListener('keydown', (e) => { window.pressed = e.isTrusted; window.synth = new AudioContext(); window.synth.resume(); }, true);
+            addEventListener('beforeunload', (e) => { window.unloadRuns += 1; e.preventDefault(); e.returnValue = ''; });
+            </script>
+            """)
+        try await rig.pressDown(page)
+        try await rig.until("the audio context runs") {
+            (try? await page.evaluate("window.synth?.state === 'running'", world: .page)) == .bool(true)
+        }
+        rig.window.contentView = nil
+        let key = try await rig.hide(page)
+        try await rig.until("the page was kept") { rig.isHibernated(key) || rig.exemption(key) != nil }
+        #expect(rig.exemption(key)?.rawValue == "web_audio")
+        try await Self.replan(rig, key, times: 2)
+        // A frozen page runs no script: as an agent's call, this thaws it.
+        rig.hibernation.noteAgentUse(key)
+        #expect(try await page.evaluate("window.unloadRuns", world: .page) == .number(0),
+                "the probe ran the beforeunload handlers of a page Web Audio keeps")
+    }
+
+    /// A page whose beforeunload asks is asked once while it stays hidden (each run is its own
+    /// unload logic on a page that lives on), and without a user gesture: a handler cannot open a
+    /// popup or see an activation on cmux's behalf.
+    @Test func aPageWhoseBeforeUnloadAsksIsAskedOnceWithoutAGesture() async throws {
+        let rig = try HiddenPageHibernationTests.Rig()
+        defer { rig.close() }
+        let page = try await rig.page("asks-once", body: """
+            <div style="height: 2000px"></div>
+            <script>
+            window.unloadGestures = [];
+            addEventListener('keydown', (e) => { window.pressed = e.isTrusted; }, true);
+            addEventListener('beforeunload', (e) => {
+              window.unloadGestures.push(navigator.userActivation?.isActive === true);
+              e.preventDefault(); e.returnValue = '';
+            });
+            </script>
+            """)
+        try await rig.pressDown(page)
+        rig.window.contentView = nil
+        let key = try await rig.hide(page)
+        try await rig.until("the page was kept") { rig.isHibernated(key) || rig.exemption(key) != nil }
+        #expect(rig.exemption(key)?.rawValue == "before_unload")
+        try await Self.replan(rig, key, times: 3)
+        #expect(rig.exemption(key)?.rawValue == "before_unload", "a page that asked was discarded on a later replan")
+        #expect(!rig.isHibernated(key))
+        rig.hibernation.noteAgentUse(key)
+        #expect(try await page.evaluate("JSON.stringify(window.unloadGestures)", world: .page) == .string("[false]"),
+                "the handlers ran more than once, or inside a user gesture")
+    }
+
+    /// Runs `times` discard probes of hidden page `key`, one after another.
+    private static func replan(_ rig: HiddenPageHibernationTests.Rig, _ key: String, times: Int) async throws {
+        for _ in 0..<times {
+            try await rig.until("the last probe ended") { !rig.hibernation.probing.contains(key) }
+            rig.hibernation.replan()
+            #expect(rig.hibernation.probing.contains(key), "the replan did not probe the kept page")
+            try await rig.until("the probe ended") { !rig.hibernation.probing.contains(key) }
+        }
+    }
+
     // MARK: Web Audio, live
 
     /// A running AudioContext (a game, a synth, a call's ringtone engine) at critical pressure.
