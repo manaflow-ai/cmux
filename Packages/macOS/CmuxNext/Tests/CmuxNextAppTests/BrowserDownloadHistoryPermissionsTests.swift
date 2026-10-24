@@ -1,4 +1,5 @@
 @testable import CmuxNextApp
+import CmuxNextWakeups
 import Darwin
 import Foundation
 import Testing
@@ -17,7 +18,7 @@ import Testing
         let file = root.appendingPathComponent("downloads.json")
         try Data(#"{"downloads":[]}"#.utf8).write(to: file)
         try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: file.path)
-        let history = BrowserDownloadHistory(url: file)
+        let history = BrowserDownloadHistory(url: file, work: BackgroundWork())
         _ = await history.load()
         #expect(try permissions(of: root) == 0o700)
         #expect(try permissions(of: file) == 0o600)
@@ -39,7 +40,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
 
         let file = root.appendingPathComponent("downloads.json")
-        let history = BrowserDownloadHistory(url: file)
+        let history = BrowserDownloadHistory(url: file, work: BackgroundWork())
         history.record([BrowserDownloadHistory.Row(
             filename: "new-download.txt", source: "https://example.test/new", destination: nil,
             status: "finished", reason: nil, received: 3, total: 3
@@ -66,7 +67,7 @@ import Testing
         try FileManager.default.createSymbolicLink(at: linked, withDestinationURL: external)
         defer { try? FileManager.default.removeItem(at: base) }
 
-        let rows = await BrowserDownloadHistory(url: linked.appendingPathComponent("downloads.json")).load()
+        let rows = await BrowserDownloadHistory(url: linked.appendingPathComponent("downloads.json"), work: BackgroundWork()).load()
 
         #expect(rows.isEmpty)
         #expect(try permissions(of: external) == 0o755)
@@ -85,7 +86,7 @@ import Testing
         try FileManager.default.createSymbolicLink(at: linked, withDestinationURL: target)
         defer { try? FileManager.default.removeItem(at: base) }
 
-        let rows = await BrowserDownloadHistory(url: linked).load()
+        let rows = await BrowserDownloadHistory(url: linked, work: BackgroundWork()).load()
 
         #expect(rows.isEmpty)
         #expect(try permissions(of: target) == 0o644)
@@ -103,7 +104,7 @@ import Testing
         #expect(try extendedACLSize(of: root) > 0)
         #expect(try extendedACLSize(of: file) > 0)
 
-        _ = await BrowserDownloadHistory(url: file).load()
+        _ = await BrowserDownloadHistory(url: file, work: BackgroundWork()).load()
 
         #expect(try extendedACLSize(of: root) == 0)
         #expect(try extendedACLSize(of: file) == 0)

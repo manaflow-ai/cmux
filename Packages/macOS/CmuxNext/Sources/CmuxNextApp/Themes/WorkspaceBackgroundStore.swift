@@ -1,5 +1,6 @@
 import CmuxNextDesign
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import Observation
 import os
@@ -17,23 +18,28 @@ import os
 final class WorkspaceBackgroundStore {
     private(set) var backgrounds: [String: String] = [:]
     @ObservationIgnored private let url: URL?
-    @ObservationIgnored private var lastWrite: Task<Void, Never>?
+    @ObservationIgnored private let work: BackgroundWork
+    @ObservationIgnored private let writes: OrderedWrites
     @ObservationIgnored private var isLoaded = false
     @ObservationIgnored private var saveAfterLoad = false
     /// The file has entries this build cannot read, or could not be read: it is left as is.
     @ObservationIgnored private var keepsFile = false
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "themes")
 
-    /// `url` nil keeps backgrounds in memory only (tests).
-    init(url: URL?) {
+    /// `url` nil keeps backgrounds in memory only (tests); reads and writes run on `work`'s files lane.
+    init(url: URL?, work: BackgroundWork) {
         self.url = url
+        self.work = work
+        let logger = logger
+        writes = OrderedWrites(work: work) { logger.error("workspace backgrounds write failed: \(String(describing: $0), privacy: .public)") }
     }
 
-    static func forApplication(bundleIdentifier: String?, file: String = "workspace-backgrounds.json") -> WorkspaceBackgroundStore {
+    static func forApplication(bundleIdentifier: String?, file: String = "workspace-backgrounds.json",
+                               work: BackgroundWork) -> WorkspaceBackgroundStore {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(filePath: NSTemporaryDirectory())
         let bundle = bundleIdentifier.flatMap { $0.isEmpty ? nil : $0 } ?? "com.cmuxterm.app.next"
-        return WorkspaceBackgroundStore(url: support.appending(path: bundle).appending(path: file))
+        return WorkspaceBackgroundStore(url: support.appending(path: bundle).appending(path: file), work: work)
     }
 
     static func key(session: String, workspace: String) -> String { "\(session)/\(workspace)" }
@@ -61,7 +67,8 @@ final class WorkspaceBackgroundStore {
     func load() async {
         guard let url else { return }
         let logger = logger
-        let loaded = await Task.detached(priority: .userInitiated) { TerminalThemeStore.read(url, logger: logger) }.value
+        // What the windows show at launch: a person sees it.
+        let loaded = (try? await work.run(.userVisible, mayBlock: .files) { TerminalThemeStore.read(url, logger: logger) }) ?? ([:], false)
         // A background set before the file loaded wins.
         backgrounds = loaded.themes.merging(backgrounds) { _, current in current }
         keepsFile = !loaded.complete
@@ -75,7 +82,7 @@ final class WorkspaceBackgroundStore {
 
     /// Waits for every queued write (tests).
     func flush() async {
-        await lastWrite?.value
+        await writes.flush()
     }
 
     private func save() {
@@ -84,21 +91,6 @@ final class WorkspaceBackgroundStore {
             saveAfterLoad = true
             return
         }
-        let data = try? JSONEncoder().encode(backgrounds)
-        let empty = backgrounds.isEmpty
-        let previous = lastWrite, logger = logger
-        lastWrite = Task.detached(priority: .utility) {
-            await previous?.value
-            do {
-                if let data, !empty {
-                    try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-                    try data.write(to: url, options: .atomic)
-                } else if FileManager.default.fileExists(atPath: url.path) {
-                    try FileManager.default.removeItem(at: url)
-                }
-            } catch {
-                logger.error("workspace backgrounds write failed: \(String(describing: error), privacy: .public)")
-            }
-        }
+        writes.save(backgrounds.isEmpty ? nil : try? JSONEncoder().encode(backgrounds), to: url)
     }
 }
