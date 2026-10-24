@@ -7,10 +7,11 @@ Launches the tagged Debug app through bench_launch.BenchApp (a failed launch rep
 starts the app with launchd's soft limits, as Finder does: 256 open files), opens `--tabs` Chromium tabs on a local page over `--workspaces` workspaces, and after
 every `--every` tabs reads the app's soft open-file limit (the one line the app logs at every
 launch, OpenFileLimit.Report: "cmux: open-file limit A -> B", "... S (kept)", "... stays S (...)"
-or "... unknown (...)"; "unknown" when the log has no such line), its open descriptors (lsof), its
-thread count, resident memory and Chromium helpers, and checks the socket answers. Fails (exit 1)
-when the app stops answering, dies, or logs a soft limit at or below 256; an unknown limit alone
-is reported, not failed.
+or "... unknown (...)"; only this launch's bytes of the log count, since BenchApp appends to one log
+per tag), its open descriptors (lsof), its thread count, resident memory and Chromium helpers, and
+checks the socket answers. Fails (exit 1) when the app stops answering, dies, logs a soft limit at
+or below 256, or logs no limit line; `--no-limit-line` is for a build from before the line
+(b8b74a07b95~1), where a missing line is reported as unknown, not failed.
 
 Not a CI gate: run it yourself on a fleet GUI host, before and after a change:
   nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA -- \\
@@ -32,6 +33,8 @@ parser.add_argument("--workspaces", type=int, default=15)
 parser.add_argument("--every", type=int, default=10)
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--json")
+parser.add_argument("--no-limit-line", action="store_true",
+                    help="the build predates the launch limit line (b8b74a07b95~1): a missing line is unknown, not a failure")
 opts, _unknown = parser.parse_known_args()
 os.makedirs(opts.out, exist_ok=True)
 PAGE = os.path.join(tempfile.mkdtemp(prefix="cef-count-"), "page.html")
@@ -49,18 +52,30 @@ def action(name, args=None, timeout=60):
 LIMIT_LINE = re.compile(r"^cmux: open-file limit (?:\d+ -> (\d+)|(\d+) \(kept\)|stays (\d+)|unknown)")
 
 
-def open_files(pid):
-    """{soft, open} of the app: its soft limit (`ulimit` of another process is not readable from outside, so the
-    app's own launch line names it; None when the log has none or says unknown) and its open descriptors (lsof)."""
-    soft = None
+# The log's size before this launch: BenchApp appends to app-<tag>.log, so an earlier run's line
+# (another build with the same tag and --out) must not count for this one.
+LOG_START = 0
+
+
+def limit_line():
+    """This launch's limit line match, or None when this launch logged none."""
+    found = None
     try:
-        for line in open(bench.log_path, errors="replace"):
-            match = LIMIT_LINE.match(line)
-            if match:
-                found = next((group for group in match.groups() if group), None)
-                soft = int(found) if found else None
+        with open(bench.log_path, "rb") as log:
+            log.seek(LOG_START)
+            for line in log.read().decode(errors="replace").splitlines():
+                found = LIMIT_LINE.match(line) or found
     except OSError:
         pass
+    return found
+
+
+def open_files(pid):
+    """{soft, open} of the app: its soft limit (`ulimit` of another process is not readable from outside, so the
+    app's own launch line names it; None when this launch logged none or says unknown) and its open descriptors (lsof)."""
+    match = limit_line()
+    found = next((group for group in match.groups() if group), None) if match else None
+    soft = int(found) if found else None
     listed = subprocess.run(["lsof", "-n", "-P", "-p", str(pid)], capture_output=True, text=True).stdout.splitlines()
     numbered = [l for l in listed[1:] if len(l.split()) > 3 and l.split()[3][:1].isdigit()]
     return {"soft": soft, "open": len(numbered)}
@@ -85,7 +100,9 @@ def copy_crash_reports(since):
 
 
 def main():
+    global LOG_START
     started = time.time()
+    LOG_START = os.path.getsize(bench.log_path) if os.path.exists(bench.log_path) else 0
     bench.launch()
     rows, failure, opened = [], None, 0
     per_workspace = max(1, opts.tabs // max(1, opts.workspaces))
@@ -110,9 +127,9 @@ def main():
     soft = ((rows[-1] if rows else {}).get("open_files") or {}).get("soft")
     if failure is None and soft is not None and soft <= 256:
         failure = f"the app's soft open-file limit is {soft}"
+    if failure is None and limit_line() is None and not opts.no_limit_line:
+        failure = "the app logged no open-file limit line at launch (its main no longer calls OpenFileLimit.raise)"
     crashes = copy_crash_reports(started) if failure else []
-    if failure and crashes:
-        time.sleep(0)  # reports copied above; a crash report written late is copied by wait_for_crash_report
     result = {"host": os.uname().nodename, "tabs": opts.tabs, "rows": rows, "failure": failure, "crash_reports": crashes,
               "soft_limit": soft if soft is not None else "unknown", "log": bench.log_path}
     print("RESULT " + json.dumps({k: v for k, v in result.items() if k != "rows"}), flush=True)
