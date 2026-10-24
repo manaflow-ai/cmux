@@ -113,6 +113,9 @@ export const KeybindingOps = {
   keymapImport: "cmux.keybindings.keymap.import",
 } as const;
 
+/** The error code of a write that takes keys another action holds in the same place. */
+export const CONFLICT = "cmux.keybindings.conflict";
+
 /** The error code of a write the app cannot do yet (no keybindings.json writer). */
 export const UNSUPPORTED = "cmux.keybindings.unsupported";
 

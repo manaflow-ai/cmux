@@ -29,7 +29,9 @@ struct KeyRecorder: Equatable {
             isFinished = true
             return Event(keys: keys, done: true, cancelled: false)
         }
-        guard let shortcut else { return nil }
+        // Keypad Enter reads as U+0003: a bare Return on either key is one Return stroke, so the
+        // page closes the recorder on it as on Return.
+        guard let shortcut = isReturn ? Shortcut(Shortcut.returnKey, modifiers: []) : shortcut else { return nil }
         keys.append(shortcut)
         isFinished = keys.count == KeyBindingTable.maxSequenceLength
         return Event(keys: keys, done: isFinished, cancelled: false)

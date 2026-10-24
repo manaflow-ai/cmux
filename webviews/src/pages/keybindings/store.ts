@@ -18,6 +18,7 @@ import {
   type KeyFilter,
 } from "./model";
 import {
+  CONFLICT,
   KeybindingOps,
   UNSUPPORTED,
   type Binding,
@@ -51,6 +52,8 @@ export type Recording =
       refusalOwner?: string;
       /** Counts the times the recorder said keys are taken (its red light plays on each). */
       warned: number;
+      /** Return came while the released keys' save was on the way: that save closes the recorder. */
+      closing?: boolean;
     };
 
 /** New keys that take other actions' keys, waiting for Overwrite, Ignore or Cancel. */
@@ -308,7 +311,8 @@ export class KeybindingsStore {
   closeRecording(): void {
     const recording = this.snapshot.recording;
     if (recording?.target !== "row") return;
-    if (recording.prompt) {
+    // Keys taken or refused were never saved: Close keeps the row's keys.
+    if (recording.prompt || recording.refusal) {
       this.endRecording();
       return;
     }
@@ -337,6 +341,15 @@ export class KeybindingsStore {
     // While the writes run the recorder holds no keys of its own: Return's release (the key
     // that answered) must not commit these keys a second time.
     this.set({ recording: { ...asked, key: "" } });
+    // The keys first: a save the app refuses for any other reason than these conflicts (keys it
+    // cannot hold for this action) takes nothing from the other actions.
+    let saved = await this.save(asked, { conflictFirst: true });
+    if (saved === "failed") {
+      const current = this.snapshot.recording;
+      if (current?.target === "row" && current.binding.command === recording.binding.command && current.refusal)
+        await this.recapture(current);
+      return;
+    }
     for (const other of prompt.conflicts) {
       try {
         await this.client?.call(KeybindingOps.remove, {
@@ -346,7 +359,7 @@ export class KeybindingsStore {
           idempotency_key: this.key(),
         });
       } catch (error) {
-        // The keys stay the other action's: the recorder says why and saves nothing.
+        // The keys stay the other action's: the recorder says why.
         const current = this.snapshot.recording;
         const shown = failure(error);
         if (current?.target === "row" && shown.notice?.kind === "failed") {
@@ -356,7 +369,9 @@ export class KeybindingsStore {
         return;
       }
     }
-    await this.save(asked);
+    // The app refused them in the same place as the other actions': saved now they are free.
+    if (saved === "conflict") saved = await this.save(asked);
+    else await this.reload();
     const current = this.snapshot.recording;
     // Another row's recorder took over while the writes ran: it stays as it is.
     if (current?.target !== "row" || current.binding.command !== recording.binding.command) return;
@@ -420,7 +435,7 @@ export class KeybindingsStore {
       // Every key is up: no modifier is held any more.
       const released = { ...recording, held: "" };
       this.set({ recording: released });
-      if (released.key) void this.commit(released, "continue");
+      if (released.key && !released.closing) void this.commit(released, "continue");
       return;
     }
     const finished = event.done || event.cancelled;
@@ -442,6 +457,11 @@ export class KeybindingsStore {
         return;
       }
       if (first === "return" || first === "enter") {
+        // Right after a release whose save is still on the way: that save closes the recorder.
+        if (recording.target === "row" && recording.key && this.committing === recording.key) {
+          this.set({ recording: { ...recording, closing: true } });
+          return;
+        }
         this.endRecording();
         return;
       }
@@ -469,6 +489,21 @@ export class KeybindingsStore {
    *  app's capture stays on for its Return and Escape. `after`: the recording goes on (a release),
    *  or closes (Close, Return, a press outside). */
   private async commit(recording: Extract<Recording, { target: "row" }>, after: "continue" | "close"): Promise<void> {
+    this.committing = recording.key;
+    try {
+      await this.commitKeys(recording, after);
+    } finally {
+      if (this.committing === recording.key) this.committing = undefined;
+    }
+  }
+
+  /** The keys `commit` checks and saves now (Return while they are on the way waits for them). */
+  private committing?: string;
+
+  private async commitKeys(
+    recording: Extract<Recording, { target: "row" }>,
+    after: "continue" | "close",
+  ): Promise<void> {
     const { binding, key, display } = recording;
     const same = !binding.unset && keyMatches(key, { key: binding.key, exact: true });
     const { conflicts, refusal, owner } = same ? { conflicts: [] } : await this.conflictsOf(binding, key);
@@ -479,7 +514,16 @@ export class KeybindingsStore {
     // A refusal first: keys an action always runs never offer Overwrite (the app never takes them).
     if (refusal) {
       // Never saved: the recorder says why and records the next shortcut.
-      await this.recapture({ ...current, key, display, held: "", warned, refusal, refusalOwner: owner });
+      await this.recapture({
+        ...current,
+        key,
+        display,
+        held: "",
+        warned,
+        refusal,
+        refusalOwner: owner,
+        closing: undefined,
+      });
       return;
     }
     if (conflicts.length) {
@@ -490,7 +534,8 @@ export class KeybindingsStore {
         display,
         held: "",
         warned,
-        prompt: { key, display, conflicts, after },
+        closing: undefined,
+        prompt: { key, display, conflicts, after: current.closing ? "close" : after },
       });
       return;
     }
@@ -498,8 +543,8 @@ export class KeybindingsStore {
     const now = this.snapshot.recording;
     if (now?.target !== "row" || now.binding.command !== binding.command) return;
     // A refused save keeps the recorder open on why, recording the next shortcut.
-    if (!saved && now.refusal) await this.recapture(now);
-    else if (after === "close") this.endRecording();
+    if (saved !== "saved" && now.refusal) await this.recapture({ ...now, closing: undefined });
+    else if (after === "close" || now.closing) this.endRecording();
   }
 
   /** The entries `key` would take from other actions, and the app's refusal of the keys; none
@@ -523,8 +568,12 @@ export class KeybindingsStore {
   }
 
   /** Saves the recording's keys as its row's (the shortcut so far, a release or a confirmed
-   *  conflict); the recording goes on, its light confirming. False when the write failed. */
-  private async save(recording: Extract<Recording, { target: "row" }>): Promise<boolean> {
+   *  conflict); the recording goes on, its light confirming. `conflictFirst`: the app's refusal
+   *  of keys another action holds in the same place is `conflict`, with nothing shown. */
+  private async save(
+    recording: Extract<Recording, { target: "row" }>,
+    options: { conflictFirst?: boolean } = {},
+  ): Promise<"saved" | "failed" | "conflict"> {
     const { binding, key, display } = recording;
     const same = !binding.unset && keyMatches(key, { key: binding.key, exact: true });
     // The recorder follows the new keys before the write: the provider's `changed` re-read can
@@ -540,17 +589,29 @@ export class KeybindingsStore {
         await this.client?.call(KeybindingOps.set, params);
       } catch (error) {
         const current = this.snapshot.recording;
+        const mine = current?.target === "row" && current.row === recording.row;
+        if (options.conflictFirst && isPageError(error) && error.code === CONFLICT) {
+          if (mine) this.set({ recording: { ...current, binding } });
+          return "conflict";
+        }
         const shown = failure(error);
-        // A refused save shows in the recorder (its keys and why), not in the page's notice.
-        if (current?.target === "row" && current.row === recording.row) {
-          if (shown.notice?.kind === "failed") {
-            this.set({ recording: { ...current, binding, refusal: shown.notice.message, warned: current.warned + 1 } });
-            return false;
+        // A refused save shows in the recorder (its keys and why), not in the page's notice: the
+        // app's reason, also for keys only keybindings.json could hold.
+        const why =
+          shown.notice?.kind === "failed"
+            ? shown.notice.message
+            : shown.notice?.kind === "unsupported" && error instanceof Error
+              ? error.message
+              : undefined;
+        if (mine) {
+          if (why) {
+            this.set({ recording: { ...current, binding, refusal: why, warned: current.warned + 1 } });
+            return "failed";
           }
           this.set({ recording: { ...current, binding } });
         }
         this.set(shown);
-        return false;
+        return "failed";
       }
       this.pendingSelect = { command: params.command, key, when: params.when ?? null };
     }
@@ -564,7 +625,7 @@ export class KeybindingsStore {
       this.set({ recording: { ...current, confirmed: current.confirmed + 1 } });
     }
     if (!same) await this.reload();
-    return true;
+    return "saved";
   }
 
   /** Ends the capture on both sides; the app may have ended it already (stop is idempotent). */
