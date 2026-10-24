@@ -569,6 +569,8 @@ public final class LayoutRootView: NSView {
             }
         }
         updateVisibility()
+        // The layout changes it saw while parked: one overlay sync now.
+        if live { flushOverlaySync() }
     }
 
 }
