@@ -19,6 +19,13 @@
    history entry lands after the next mark is never reopened for the next input. An interaction whose restore failed
    gets the same relaunch and build() as an action's. A failed run prints its report into the step log, and --merge
    reads it back from there.
+6. The closed history is the daemon's whole list behind the app's barrier (`debug.closed_ids`), read once: a blank
+   New Tab page the restore closes (Recently Closed hides it) does not cost the next input its reopen, and an input
+   that moves a tab away (closes nothing) reads it once, with no wait. A relaunch checks Chromium again (rows on an
+   invalid launch say so) and drops the old mark. A reopen of another shape fails the session. Expectations are by
+   exact id, and a typed refusal is `refused`, not `wrong`. Tabs already back need no rebuild. A restored pane shows
+   the kind of tab it showed at the build, and the Chromium context is a Chromium page. A failed run's logged report
+   says which display it measured on.
 
 No app, GUI or build: the module's socket helper is replaced by a model of the topology, focus and closed history.
 Run: python3 -I scripts/cmux-next/tests/test_every_action_sweep.py
@@ -75,6 +82,9 @@ class FakeApp:
         self.history_errors = 0  # the next N history.list reads fail (a socket timeout under load)
         self.reopened = []  # closed ids history.reopen brought back, in order
         self.engines = {}  # tab id -> webkit or chromium (the app knows; snapshot.get says `browser` for both)
+        self.reads = []  # each closed-history read (debug.closed_ids or history.list), in order
+        self.deny_chat = False  # palette.newAgentChat answers the typed refusal of ACPMUX_AGENT_LAUNCH=deny
+        self.moved = None  # the tab `test.moveDoomedTab` moves out of its pane (a move: nothing closes)
 
     def new_id(self, prefix):
         return f"{prefix}_{next(self.ids)}"
@@ -120,6 +130,34 @@ class FakeApp:
             if entry[0] <= 0:
                 self.history_pending.remove(entry)
                 self.closed.insert(0, entry[1])
+
+    def barrier(self):
+        """debug.closed_ids' sync barrier: every close the daemon committed is in the store before it answers."""
+        for entry in self.history_pending:
+            self.closed.insert(0, entry[1])
+        self.history_pending = []
+
+    @staticmethod
+    def blank(tab):
+        """A tab the daemon marks `empty`: an untouched New Tab page, a chat with no session yet, a blank browser."""
+        return tab["kind"] == "page" or (tab["kind"] == "browser" and not tab.get("url")) or \
+            (tab["kind"] == "conversation" and not tab.get("session"))
+
+    def recently_closed(self):
+        """history.list's closed rows: HistoryService.closedEntries hides a group with only blank tabs
+        (isWorthReopening) and lists a page closed again once, at its newest close (newestOnce)."""
+        rows, pages = [], set()
+        for item in self.closed:
+            tabs = [item["tab"]] if item["kind"] == "tab" else (item["pane"]["tabs"] if item["kind"] == "pane" else
+                                                                 [t for s in item["workspace"]["screens"] for p in s["panes"] for t in p["tabs"]])
+            if all(self.blank(t) for t in tabs):
+                continue
+            if item["kind"] == "tab" and tabs[0]["kind"] == "browser" and tabs[0].get("url"):
+                if tabs[0]["url"] in pages:
+                    continue
+                pages.add(tabs[0]["url"])
+            rows.append(item)
+        return rows
 
     def close_pane(self, pane_id):
         workspace, screen, index = self.find_pane(pane_id)
@@ -195,11 +233,16 @@ class FakeApp:
                     self.pending.remove(entry)
                     entry[1]()
             return {"topology": self.topology()}
-        if method == "history.list":
+        if method in ("history.list", "debug.closed_ids"):
+            self.reads.append(method)
             if self.history_errors:
                 self.history_errors -= 1
-                return {"error": {"code": "timeout", "message": "history.list missed its deadline"}}
-            return {"entries": [{"id": "closed:" + c["id"], "kind": "closed", "closed_id": c["id"]} for c in self.closed]}
+                return {"error": {"code": "timeout", "message": f"{method} missed its deadline"}}
+        if method == "history.list":
+            return {"entries": [{"id": "closed:" + c["id"], "kind": "closed", "closed_id": c["id"]} for c in self.recently_closed()]}
+        if method == "debug.closed_ids":
+            self.barrier()
+            return {"closed_ids": [c["id"] for c in self.closed]}
         if method == "settings.get":
             return {"value": {}}
         if method == "action.describe":
@@ -227,9 +270,18 @@ class FakeApp:
         elif action in ("openBrowser.chromium", "openBrowser.webkit"):
             self.add_tab(target, "browser", engine=action.partition(".")[2], url=args.get("url"))
         elif action == "palette.newAgentChat":
-            self.add_tab(target, "conversation")
+            if self.deny_chat:
+                return {"error": {"code": "unavailable", "message": "agent launch is denied (ACPMUX_AGENT_LAUNCH=deny)"}}
+            self.add_tab(target or self.focus["pane"], "conversation")
+        elif action == "test.moveDoomedTab":
+            source, target_pane = self.moved
+            _, screen, index = self.find_pane(source)
+            tab = next(t for t in screen["panes"][index]["tabs"] if t["id"] == self.doomed_tab)
+            screen["panes"][index]["tabs"].remove(tab)
+            _, screen, index = self.find_pane(target_pane)
+            screen["panes"][index]["tabs"].append(dict(tab, selected=False))
         elif action == "newTab.page":
-            self.add_tab(target, "page")
+            self.add_tab(target or self.focus["pane"], "page")
         elif action == "reopenClosedBrowserPanel":
             if self.closed:
                 self.reopen(self.closed.pop(0))
@@ -247,6 +299,13 @@ class FakeApp:
                 self.focus.update(workspace=found[0]["id"], pane=target)
         elif action == "tab.focus":
             self.focus["tab"] = target
+            for workspace in self.workspaces:
+                for screen in workspace["screens"]:
+                    for pane in screen["panes"]:
+                        if any(t["id"] == target for t in pane["tabs"]):
+                            for tab in pane["tabs"]:
+                                tab["selected"] = tab["id"] == target
+                            self.focus.update(workspace=workspace["id"], pane=pane["id"])
         elif action == "goToWorkspace":
             self.focus["workspace"] = args.get("workspace")
         return {}
@@ -351,6 +410,110 @@ class ReopenTests(unittest.TestCase):
         self.assertEqual(layout(fake, base["id"]), want_base)
         self.assertEqual(sweep.base["pane"], measured["id"])
         self.assertEqual(fake.focus["pane"], measured["id"])
+
+
+class ClosedHistoryTests(unittest.TestCase):
+    """The closed history the sweep reads is the daemon's whole list behind the app's barrier (debug.closed_ids)."""
+
+    def light(self, fake, kinds=("terminal", "browser", "terminal")):
+        measured = fake.pane(0, list(kinds))
+        base = fake.workspace([measured, fake.pane(1, ["terminal"])])
+        fake.focus_on(base, measured)
+        sweep = sweep_mod.Sweep(NoProcess(), "light", stress_mod)
+        sweep.builder = stress_mod.Stress(fake.rpc, log=lambda line: None)
+        sweep.snapshot_base(base["id"])
+        return sweep, base, measured
+
+    def test_a_blank_new_tab_page_the_restore_closes_does_not_cost_the_next_input_its_reopen(self):
+        # Row N opens a New Tab page; its restore closes it. Recently Closed (history.list) hides that close (a blank
+        # page is not worth reopening), so counting history.list entries waited for it in vain and left the next
+        # mark unset. Row N+1 closes a terminal: it must come back by id, as the closed group it made.
+        fake = FakeApp()
+        with mock.patch.object(sweep_mod, "rpc", fake.rpc):
+            sweep, base, measured = self.light(fake)
+            want = layout(fake, base["id"])
+            doomed = measured["tabs"][0]["id"]
+            first = sweep.run_action({"id": "newTab.page", "title": "New Tab Page"})
+            fake.doomed_tab = doomed
+            row = sweep.run_action({"id": "test.closeDoomedTab", "title": "Close one tab"})
+        self.assertEqual(first["check"], "ok", first)
+        self.assertEqual([item["tab"]["id"] for item in fake.reopened_items], [doomed], row["drift"])
+        self.assertFalse(any("no reopen" in d for d in row["drift"]), row["drift"])
+        self.assertEqual(layout(fake, base["id"]), want)
+
+    def test_an_input_that_moves_a_tab_away_reads_the_closed_history_once_after_it(self):
+        # A move closes nothing: the restore finds no group of the input's own in one read, never a wait for an
+        # entry that never comes (the 3 s bound per attempt of every move, stash and drag row).
+        fake = FakeApp()
+        with mock.patch.object(sweep_mod, "rpc", fake.rpc):
+            sweep, base, measured = self.light(fake)
+            want = layout(fake, base["id"])
+            fake.doomed_tab = measured["tabs"][0]["id"]
+            fake.moved = (measured["id"], base["screens"][0]["panes"][1]["id"])
+            del fake.reads[:]
+            row = sweep.run_action({"id": "test.moveDoomedTab", "title": "Move a tab to the other pane"})
+        self.assertEqual(fake.reads, ["debug.closed_ids", "debug.closed_ids"], row["drift"])
+        self.assertEqual(fake.reopened, [])
+        self.assertEqual(layout(fake, base["id"]), want)
+
+
+class ExpectationTests(unittest.TestCase):
+    def test_each_id_is_checked_against_what_it_makes(self):
+        self.assertIsNone(sweep_mod.expectation("newWorkspaceGroup"))
+        self.assertIsNone(sweep_mod.expectation("nextWorkspaceGroup"))
+        self.assertIsNone(sweep_mod.expectation("focusRightSidebar"))
+        self.assertEqual(sweep_mod.expectation("newTab"), "workspace+")
+        self.assertEqual(sweep_mod.expectation("palette.newAgentChat"), "tab+")
+        self.assertEqual(sweep_mod.expectation("focusNextPane"), "focus")
+
+    def test_a_typed_refusal_is_refused_not_wrong(self):
+        fake = FakeApp()
+        fake.deny_chat = True
+        measured = fake.pane(0, ["terminal", "browser"])
+        base = fake.workspace([measured])
+        fake.focus_on(base, measured)
+        with mock.patch.object(sweep_mod, "rpc", fake.rpc), mock.patch.object(sweep_mod.SIGNPOSTS, "live", False):
+            sweep = sweep_mod.Sweep(NoProcess(), "light", stress_mod)
+            sweep.builder = stress_mod.Stress(fake.rpc, log=lambda line: None)
+            sweep.snapshot_base(base["id"])
+            row = sweep.run_action({"id": "palette.newAgentChat", "title": "New Agent Chat"})
+        self.assertEqual(row["check"], "refused", row)
+        self.assertNotIn("wrong result", sweep_mod.misses(row))
+
+
+class RelaunchTests(unittest.TestCase):
+    def test_rows_after_a_relaunch_whose_chromium_is_not_valid_say_so_and_the_old_mark_goes(self):
+        launches = iter([{"chromium_ok": True, "cef_flags": []},
+                         {"chromium_ok": False, "cef_flags": ["fallback {'webkit': 3}"]}])
+        marks = []
+
+        class App:
+            process = None
+
+            def relaunch(self):
+                pass
+
+        sweep = sweep_mod.Sweep(App(), "light", stress_mod)
+
+        def run_action(action):
+            marks.append(sweep.closed_mark)
+            if action["id"] == "first":
+                sweep.closed_mark = {"daemon:closed_of_the_old_daemon"}
+                raise RuntimeError("focus never reached pane pane_7")
+            return {"session": "light", "kind": "action", "id": action["id"], "errors": [], "frames": {"missed": 0}, "check": "ok"}
+
+        with mock.patch.object(sweep, "build", lambda: None), mock.patch.object(sweep, "check_validity", lambda: next(launches)), \
+                mock.patch.object(sweep, "frames_during", lambda body, settle=0.4: {"frames": {}}), \
+                mock.patch.object(sweep, "run_action", run_action), \
+                mock.patch.object(sweep_mod, "rpc", lambda method, params=None, timeout=60: {"pong": True}), \
+                mock.patch.object(sweep_mod.opts, "no_interactions", True):
+            sweep.run([{"id": "first"}, {"id": "second"}])
+        self.assertEqual(len(sweep.launches), 2)
+        self.assertNotIn("invalid_launch", sweep.rows[0])
+        self.assertEqual(sweep.rows[1]["invalid_launch"], ["fallback {'webkit': 3}"])
+        self.assertEqual(sweep.rows[1]["launch"], 1)
+        self.assertEqual(marks[1], None)
+        self.assertIn("second", sweep_mod.markdown({"env": ENV, "sessions": [dict(session("light", sweep.rows), launches=sweep.launches)]}))
 
 
 def session(name, rows, failures=None):
@@ -518,7 +681,7 @@ class FailedSessionTests(unittest.TestCase):
         # must still give back the finished light session's rows and the failed STRESS session's, from its log.
         class Sweep(sweep_mod.Sweep):
             def run(self, actions):
-                self.validity, self.idle, self.summary = {"chromium_ok": True}, {"frames": {}}, {}
+                self.validity, self.idle, self.summary = {"chromium_ok": True}, {"frames": {"refresh_ms": 8.33}}, {}
                 self.rows.append({"session": self.session, "kind": "action", "id": f"{self.session}.splitRight",
                                   "frames": {"missed": 0}, "check": "ok"})
                 if self.session == "stress":
@@ -535,6 +698,8 @@ class FailedSessionTests(unittest.TestCase):
         with open(path, "w") as f:
             # The log store puts its own prefix before every line.
             f.write("".join(f"2026-10-24T03:00:00Z [step] {line}\n" for line in log.getvalue().splitlines()))
+        # The perf cron reads display.refresh_ms, which split-spring.sh adds only to a step it returns.
+        self.assertEqual(sweep_mod.report_from(path)["display"]["refresh_ms"], 8.33)
         out = os.path.join(folder, "every-action.json")
         with self.assertRaises(SystemExit) as raised:
             sweep_mod.merge(out, [path])
@@ -653,7 +818,9 @@ class StressShapeTests(unittest.TestCase):
         def body():
             sweep.builder = stress_mod.Stress(fake.rpc, log=lambda line: None)
             sweep.snapshot_base(base["id"])
-            sweep.rebuild({"workspaces": 1})
+            # The measured pane is gone with no closed group of the input's own: only a rebuild is exact.
+            fake.close_pane(base["screens"][0]["panes"][0]["id"])
+            sweep.rebuild({"panes": 1})
         with self.assertRaises(sweep_mod.SessionShapeError):
             self.run_patched(self.patched(fake, STRESS_NARROW), body)
 
@@ -776,6 +943,62 @@ class StressShapeTests(unittest.TestCase):
             if kind in ("webkit", "chromium"):
                 self.assertEqual(fake.engines.get(tab), kind)
 
+    def test_a_reopen_of_another_shape_fails_the_session(self):
+        # The pane comes back by id with every tab kind in place (restored() is satisfied), but the shape check says
+        # a reopened Chromium page is WebKit now: the session fails at this row, not later at an unrelated one.
+        fake = FakeApp()
+        wrong = dict(STRESS_OK, chromium_unavailable=["WebKit fallbacks: {'reopened': 1}"])
+
+        def body():
+            sweep, pane = self.webkit_pane(fake)
+            sweep.run_action({"id": "closePane", "title": "Close Pane"})
+        with self.assertRaises(sweep_mod.SessionShapeError):
+            self.run_patched(self.patched(fake, wrong), body)
+
+    def test_tabs_that_are_back_need_no_rebuild(self):
+        fake = FakeApp()
+
+        def body():
+            sweep, pane = self.webkit_pane(fake)
+            before = copy.deepcopy(fake.workspaces)
+            sweep.rebuild({"tabs": 1})
+            return before
+        patches = self.patched(fake, STRESS_OK) + [
+            mock.patch.object(stress_mod.Stress, "build_measured", lambda builder: self.fail("rebuilt a base that is whole"))]
+        before = self.run_patched(patches, body)
+        self.assertEqual(fake.workspaces, before)
+
+    def test_a_tab_restore_leaves_each_pane_showing_what_it_showed(self):
+        # A replaced tab is selected when it opens: STRESS shows each pane's terminal, so the restored pane must
+        # show its terminal again, not the new WebKit page.
+        fake = FakeApp()
+
+        def body():
+            sweep, pane = self.webkit_pane(fake)
+            shown = next(t["kind"] for t in self.tabs_of(fake, pane) if t["selected"])
+            fake.close_tab(next(tab for kind, tab, *_ in sweep.builder.made[pane] if kind == "webkit"))
+            sweep.rebuild({"tabs": 1})
+            return pane, shown
+        pane, shown = self.run_patched(self.patched(fake, STRESS_OK), body)
+        self.assertEqual(shown, "terminal")
+        self.assertEqual([t["kind"] for t in self.tabs_of(fake, pane) if t["selected"]], ["terminal"])
+
+    def test_the_chromium_context_shows_a_chromium_page_when_the_webkit_page_comes_first(self):
+        fake = FakeApp()
+
+        def body():
+            pane = fake.pane(0, ["terminal"])
+            base = fake.workspace([pane])
+            fake.focus_on(base, pane)
+            sweep = sweep_mod.Sweep(NoProcess(), "stress", stress_mod)
+            sweep.builder = stress_mod.Stress(fake.rpc, log=lambda line: None)
+            for kind in ["webkit", "chromium", "terminal"]:
+                sweep.builder.add_tab(base["id"], pane["id"], kind)
+            sweep.snapshot_base(base["id"])
+            self.assertTrue(sweep.show("chromium"))
+        self.run_patched(self.patched(fake, STRESS_OK), body)
+        self.assertEqual(fake.engines.get(fake.focus["tab"]), "chromium")
+
     def test_a_stress_rebuild_replaces_the_damaged_measured_workspace(self):
         fake, base = self.stress_app()
         sweep = sweep_mod.Sweep(NoProcess(), "stress", stress_mod)
@@ -784,6 +1007,7 @@ class StressShapeTests(unittest.TestCase):
         def body():
             sweep.builder = stress_mod.Stress(fake.rpc, log=lambda line: None)
             sweep.snapshot_base(base["id"])
+            fake.close_pane(base["screens"][0]["panes"][0]["id"])
             sweep.rebuild({"panes": 1})
         self.run_patched(self.patched(fake, STRESS_OK), body)
         self.assertNotIn(base["id"], [w["id"] for w in fake.workspaces])
@@ -881,10 +1105,11 @@ class StressShapeTests(unittest.TestCase):
         def restore(action_id, toggled):
             raise stress_mod.StressShapeError("focus never reached pane pane_7")
         with mock.patch.object(sweep_mod, "rpc", lambda method, params=None, timeout=60: {"entries": []}), \
-                mock.patch.object(sweep, "restore", restore), mock.patch.object(sweep, "build", lambda: events.append("build")):
+                mock.patch.object(sweep, "restore", restore), mock.patch.object(sweep, "build", lambda: events.append("build")), \
+                mock.patch.object(sweep, "check_validity", lambda: events.append("validity") or {"chromium_ok": True}):
             sweep.interaction("click.pane", lambda: {"commit_ms": 4.0})
         self.assertIn("focus never reached pane", sweep.interactions[0]["restore_error"])
-        self.assertEqual(events, ["relaunch", "build"])
+        self.assertEqual(events, ["relaunch", "build", "validity"])
 
     def test_an_interaction_whose_rebuild_after_a_failed_restore_is_not_stress_fails_the_session(self):
         class App:
