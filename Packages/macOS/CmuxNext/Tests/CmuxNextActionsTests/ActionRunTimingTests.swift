@@ -242,20 +242,25 @@ private final class RunTimingRecorder: ActionRunTiming {
         #expect(confirmed.count == 2)
     }
 
-    /// The main run loop waking while a run watches (a nested loop that waited inside a handler)
-    /// is counted; a run's synchronous work alone never wakes it.
-    @Test func theWakeWatchCountsANestedLoopsWakes() {
+    /// A nested loop counts as the person's dwell only in a mode a person drives (a menu's event
+    /// tracking, a modal panel). A handler that spins the default mode waiting for a helper's reply is a
+    /// stall: its wakes stay out of the count, so its sample stays in action.perform / action.commit.
+    @Test func onlyAPersonDrivenNestedLoopCountsAsDwell() {
+        func spin(_ mode: CFRunLoopMode) {
+            let timer = CFRunLoopTimerCreateWithHandler(nil, CFAbsoluteTimeGetCurrent() + 0.02, 0, 0, 0) { _ in }
+            CFRunLoopAddTimer(CFRunLoopGetMain(), timer, mode)
+            _ = CFRunLoopRunInMode(mode, 1, true)
+            CFRunLoopTimerInvalidate(timer)
+        }
         let watch = RunLoopWakeWatch()
         watch.begin()
-        #expect(watch.wakes == 0)
-        let timer = CFRunLoopTimerCreateWithHandler(nil, CFAbsoluteTimeGetCurrent() + 0.02, 0, 0, 0) { _ in }
-        CFRunLoopAddTimer(CFRunLoopGetMain(), timer, .defaultMode)
-        _ = CFRunLoopRunInMode(.defaultMode, 1, true)
-        CFRunLoopTimerInvalidate(timer)
-        #expect(watch.wakes >= 1)
+        spin(.defaultMode)
+        #expect(watch.wakes == 0, "a default-mode wait inside a handler counted as the person's dwell")
+        spin(CFRunLoopMode("NSEventTrackingRunLoopMode" as CFString))
+        #expect(watch.wakes >= 1, "a menu's event-tracking loop was not counted")
         watch.end()
         let after = watch.wakes
-        _ = CFRunLoopRunInMode(.defaultMode, 0.05, false)
+        spin(CFRunLoopMode("NSEventTrackingRunLoopMode" as CFString))
         #expect(watch.wakes == after, "an ended watch still counted")
     }
 
