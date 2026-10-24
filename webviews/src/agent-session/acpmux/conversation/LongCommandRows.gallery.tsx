@@ -75,7 +75,9 @@ const inspectHoverAndClick: Play = async (ctx) => {
   await ctx.hover({ selector: ".long-command-gallery__row summary" });
   await ctx.click({ selector: ".long-command-gallery__row summary" });
   await ctx.waitFor(() => ctx.document.querySelector("[data-full-command]") !== null);
-  if (!ctx.document.querySelector("[data-full-command]")?.textContent?.includes("CMUX_DEV_BACKEND_MODE=local"))
+  const kind = ctx.document.querySelector("[data-long-command-gallery]")?.getAttribute("data-kind");
+  const expected = kind === "background" ? "--follow" : "CMUX_DEV_BACKEND_MODE=local";
+  if (!ctx.document.querySelector("[data-full-command]")?.textContent?.includes(expected))
     throw new Error("expanded row must show the full command");
 };
 
