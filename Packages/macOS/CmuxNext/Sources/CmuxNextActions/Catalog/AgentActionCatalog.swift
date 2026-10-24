@@ -51,7 +51,8 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.agentPane.stopTurn", defaultValue: "Stop Agent Turn", bundle: .module),
                 keywords: ["agent", "chat", "stop", "cancel", "interrupt", "turn", "working", "generation"],
                 category: .agents, symbol: "stop.circle", surfaces: [.palette, .keyboard],
-                requires: [.agentPaneFocused], targets: [.pane], cliName: "agent stop-turn"
+                requires: [.agentPaneFocused], targets: [.pane], cliName: "agent stop-turn",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .guiOnly)
             ),
             ActionDescriptor(
                 id: "agentPane.togglePointerInspector",
