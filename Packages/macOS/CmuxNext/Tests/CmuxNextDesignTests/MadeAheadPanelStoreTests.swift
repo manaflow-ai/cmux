@@ -1,4 +1,5 @@
 @testable import CmuxNextDesign
+import CmuxNextWakeupsTestSupport
 import Testing
 
 /// With no GUI session (a fleet worker whose account is not the console user, 2026-10-23) `NSOpenPanel()` blocks
@@ -37,7 +38,7 @@ struct MadeAheadPanelStoreTests {
         }
     }
 
-    private static func store(_ factory: Factory, clock: ThinScrollerManualClock = ThinScrollerManualClock(),
+    private static func store(_ factory: Factory, clock: ManualClock = ManualClock(),
                               check: OpenPanelWarmCheck = .ready) -> MadeAheadPanelStore<Panel> {
         MadeAheadPanelStore(clock: clock, makePanel: { factory.make() }, warmCheck: { check })
     }
@@ -45,14 +46,14 @@ struct MadeAheadPanelStoreTests {
     /// Fires the pending warm-up check. The test then awaits the check's end on its one local iterator of
     /// ``MadeAheadPanelStore/checksRan`` (`await runs.next()`, as MachineCatalogPublisherTests reads its stream; an
     /// iterator passed `inout` through a main-actor helper would cross isolation), bounded by the suite's time limit.
-    private static func fire(_ clock: ThinScrollerManualClock) async throws {
+    private static func fire(_ clock: ManualClock) async throws {
         try await clock.waitForSleeper()
         clock.advance(by: .seconds(2))
     }
 
     @Test func aWarmUpThatGotADeadPanelKeepsNoneAndArmsNoOtherWarmUp() async throws {
         let factory = Factory([nil])
-        let clock = ThinScrollerManualClock()
+        let clock = ManualClock()
         let store = Self.store(factory, clock: clock)
         var runs = store.checksRan.makeAsyncIterator()
         store.warmWhenIdle()
@@ -75,7 +76,7 @@ struct MadeAheadPanelStoreTests {
 
     @Test func aClickAfterADeadWarmUpGetsAFreshPanelAndKeepsItWhenItWorks() async throws {
         let factory = Factory([nil])
-        let clock = ThinScrollerManualClock()
+        let clock = ManualClock()
         let store = Self.store(factory, clock: clock)
         var runs = store.checksRan.makeAsyncIterator()
         store.warmWhenIdle()
@@ -110,7 +111,7 @@ struct MadeAheadPanelStoreTests {
 
     @Test func aProcessThatCannotMakeAPanelMakesNoneAndEndsTheWarmUp() async throws {
         let factory = Factory([])
-        let clock = ThinScrollerManualClock()
+        let clock = ManualClock()
         let store = Self.store(factory, clock: clock, check: .never(reason: "test host"))
         var runs = store.checksRan.makeAsyncIterator()
         store.warmWhenIdle()
@@ -124,7 +125,7 @@ struct MadeAheadPanelStoreTests {
     @Test func aRunningAppOffTheConsoleSessionMakesNoPanel() async throws {
         let gate = OpenPanelWarmGate(appIsRunning: { true }, sessionIsOnConsole: { false }, personIsIdle: { true })
         let factory = Factory([])
-        let clock = ThinScrollerManualClock()
+        let clock = ManualClock()
         let store = MadeAheadPanelStore(clock: clock, makePanel: { factory.make() }, warmCheck: { gate.check() })
         var runs = store.checksRan.makeAsyncIterator()
         store.warmWhenIdle()

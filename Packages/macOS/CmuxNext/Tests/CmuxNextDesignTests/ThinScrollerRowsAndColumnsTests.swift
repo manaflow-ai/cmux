@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextWakeupsTestSupport
 import Testing
 
 /// Lawrence 2026-10-23 (msg 12114): "ensure horizontal and vertical scrollbars when there are
@@ -23,7 +24,7 @@ struct ThinScrollerRowsAndColumnsTests {
 
     /// A sideways scroller in a 240 x 200 host, along its bottom edge, its content four times as wide.
     private static func sideways(in host: NSView) -> ThinScroller {
-        let scroller = ThinScroller(frame: .zero, clock: ThinScrollerManualClock(), notificationCenter: NotificationCenter())
+        let scroller = ThinScroller(frame: .zero, clock: ManualClock(), notificationCenter: NotificationCenter())
         let y = host.isFlipped ? host.bounds.maxY - ThinScroller.width : host.bounds.minY
         scroller.frame = NSRect(x: 0, y: y, width: host.bounds.width, height: ThinScroller.width)
         host.addSubview(scroller)
