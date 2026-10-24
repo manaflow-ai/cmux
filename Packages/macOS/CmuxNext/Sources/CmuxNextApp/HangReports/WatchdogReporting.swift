@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDaemon
@@ -20,7 +21,10 @@ enum WatchdogReporting {
         let collector = hangReports.collector
         watchdog.onHang = { hang in
             reporter.reportHang(duration: hang.duration, addresses: hang.addresses, otherThreads: hang.otherThreads.map { ($0.name, $0.addresses) })
-            collector?.noteHang(durationNanos: Self.nanos(hang.duration), addresses: hang.addresses)
+            let nanos = Self.nanos(hang.duration)
+            // Reported while it runs: it started `duration` before now.
+            let start = clock_gettime_nsec_np(CLOCK_UPTIME_RAW) &- nanos
+            collector?.noteHang(durationNanos: nanos, addresses: hang.addresses, sampledSinceNanos: start)
         }
         // ~/Library/Logs/<bundle id>/hangs, listed in Debug Settings > Hangs.
         watchdog.episodes = HangFileTunables.recorder(bundleID: Bundle.main.bundleIdentifier)
@@ -36,7 +40,8 @@ enum WatchdogReporting {
         }
         watchdog.onStall = { record in
             lagSpikes.noteStall(duration: record.duration, cpu: record.cpu, addresses: record.addresses)
-            collector?.noteStall(durationNanos: Self.nanos(record.duration), cpuNanos: Self.nanos(record.cpu), addresses: record.addresses)
+            collector?.noteStall(durationNanos: Self.nanos(record.duration), cpuNanos: Self.nanos(record.cpu), addresses: record.addresses,
+                                 sampledSinceNanos: record.startUptimeNanos)
         }
         return hangReports
     }

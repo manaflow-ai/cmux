@@ -49,6 +49,9 @@ public nonisolated struct ImageClassifier: Sendable {
     private let appBundlePath: String?
     private let forbiddenTerms: @Sendable () -> [String]
     private let systemImageExists: @Sendable (String) -> Bool
+    /// The UUIDs of our own images, this build's and recent builds' (``OwnImageUUIDs``): a MetricKit
+    /// frame is ours only when its UUID is one of them, not because its name looks like ours.
+    private let ownUUIDs: @Sendable () -> Set<String>
 
     /// - Parameters:
     ///   - appBundlePath: The running app's bundle (`Bundle.main.bundlePath`); images inside it are ours.
@@ -59,11 +62,15 @@ public nonisolated struct ImageClassifier: Sendable {
     ///     passes a value computed once on the first check (a utility task or the service actor).
     ///   - systemImageExists: Whether an image of that name exists in an Apple folder (the default
     ///     looks on disk); tests pass a fixed answer.
+    ///   - ownUUIDs: Our images' UUIDs (uppercase); a MetricKit frame that is not loaded now is
+    ///     ours only with one of them. Empty (the default) names no unloaded image as ours.
     public init(appBundlePath: String?, forbiddenTerms: @autoclosure @escaping @Sendable () -> [String],
-                systemImageExists: @escaping @Sendable (String) -> Bool = { ImageClassifier.systemImageOnDisk($0) }) {
+                systemImageExists: @escaping @Sendable (String) -> Bool = { ImageClassifier.systemImageOnDisk($0) },
+                ownUUIDs: @escaping @Sendable () -> Set<String> = { [] }) {
         self.appBundlePath = appBundlePath.map { $0.hasSuffix("/") ? $0 : $0 + "/" }
         self.forbiddenTerms = { Self.normalizedTerms(forbiddenTerms()) }
         self.systemImageExists = systemImageExists
+        self.ownUUIDs = ownUUIDs
     }
 
     /// The frame for an address in `image` (from ``ImageResolving``), or ``HangReportFrame/other``.
@@ -85,13 +92,17 @@ public nonisolated struct ImageClassifier: Sendable {
         guard let uuid, Self.isUUID(uuid), let offset, offset <= Self.maxOffset else { return .other }
         if let loaded { return frame(image: loaded, offset: offset) }
         guard let name, !name.isEmpty else { return .other }
-        // A name that is a path is judged as a path; a bare name is ours by prefix or Apple's
-        // when that framework or library exists in an Apple folder.
-        let who: Owner = name.contains("/") ? owner(path: name)
+        // Not loaded now (MetricKit's diagnostics often arrive after an update). Ours only by a
+        // UUID of one of our builds: a third-party binary may take a name that looks like ours
+        // ("Sparkle", "cmux-helper"). Apple's by an Apple path, or a bare name that exists in an
+        // Apple folder or the dyld shared cache.
+        let upper = uuid.uppercased()
+        let named: Owner = name.contains("/") ? owner(path: name)
             : Self.ownNamePrefixes.contains { name.hasPrefix($0) } ? .ours
             : systemImageExists(name) ? .apple : .other
+        let who: Owner = named == .ours ? (ownUUIDs().contains(upper) ? .ours : .other) : named
         guard who != .other, let sent = sendableName(name) else { return .other }
-        return HangReportFrame(image: sent, uuid: uuid.uppercased(), offset: offset)
+        return HangReportFrame(image: sent, uuid: upper, offset: offset)
     }
 
     /// Who `path` belongs to.

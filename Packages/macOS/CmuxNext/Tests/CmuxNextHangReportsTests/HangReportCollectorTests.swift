@@ -1,4 +1,5 @@
 @testable import CmuxNextHangReports
+import CmuxNextCompat
 import Foundation
 import Testing
 
@@ -7,15 +8,15 @@ import Testing
 struct HangReportCollectorTests {
     private func collector(resolved: @escaping @Sendable ([UInt]) -> [HangReportFrame] = { _ in [HangReportFrame(image: "AppKit", uuid: HangReportFixtures.appKitUUID, offset: 1)] })
         -> HangReportCollector {
-        HangReportCollector(resolve: resolved, schedule: { $0() })
+        HangReportCollector(resolve: resolved, imageRemovedSince: { _ in false }, schedule: { $0() })
     }
 
     private static func nanos(_ ms: Int) -> UInt64 { UInt64(ms) * 1_000_000 }
 
     @Test func offRecordsNothing() {
         let collector = collector()
-        collector.noteStall(durationNanos: Self.nanos(400), cpuNanos: 0, addresses: [1])
-        collector.noteHang(durationNanos: Self.nanos(2_000), addresses: [1])
+        collector.noteStall(durationNanos: Self.nanos(400), cpuNanos: 0, addresses: [1], sampledSinceNanos: 1)
+        collector.noteHang(durationNanos: Self.nanos(2_000), addresses: [1], sampledSinceNanos: 1)
         #expect(collector.drain().isEmpty)
     }
 
@@ -23,7 +24,7 @@ struct HangReportCollectorTests {
         let collector = collector()
         collector.setEnabled(true)
         for ms in [60, 120, 260, 300, 310, 320, 330, 340, 350, 360, 370, 1_500, 2_500] {
-            collector.noteStall(durationNanos: Self.nanos(ms), cpuNanos: Self.nanos(ms / 2), addresses: [1, 2])
+            collector.noteStall(durationNanos: Self.nanos(ms), cpuNanos: Self.nanos(ms / 2), addresses: [1, 2], sampledSinceNanos: 1)
         }
         let aggregate = collector.drain()
         #expect(aggregate.histogram == [
@@ -41,14 +42,14 @@ struct HangReportCollectorTests {
     @Test func hangsKeepTheirStackSampledWhileTheyRan() {
         let collector = collector()
         collector.setEnabled(true)
-        collector.noteHang(durationNanos: Self.nanos(2_000), addresses: [1])
+        collector.noteHang(durationNanos: Self.nanos(2_000), addresses: [1], sampledSinceNanos: 1)
         #expect(collector.snapshot().hangs.map(\.kind) == [.hang])
     }
 
     @Test func turningOffDropsWhatWasRecorded() {
         let collector = collector()
         collector.setEnabled(true)
-        collector.noteStall(durationNanos: Self.nanos(400), cpuNanos: 0, addresses: [1])
+        collector.noteStall(durationNanos: Self.nanos(400), cpuNanos: 0, addresses: [1], sampledSinceNanos: 1)
         collector.setEnabled(false)
         collector.setEnabled(true)
         #expect(collector.drain().isEmpty)
@@ -62,11 +63,29 @@ struct HangReportCollectorTests {
         #expect(decoded == aggregate)
         let collector = collector()
         collector.setEnabled(true)
-        collector.noteStall(durationNanos: Self.nanos(80), cpuNanos: 0, addresses: [])
+        collector.noteStall(durationNanos: Self.nanos(80), cpuNanos: 0, addresses: [], sampledSinceNanos: 1)
         collector.merge(decoded)
         let merged = collector.drain()
         #expect(merged.histogram == [HistogramBucket(lowMs: 50, highMs: 100, count: 2)])
         #expect(merged.stalls.count == 1)
+    }
+
+    @Test func aStackSampledBeforeAnImageUnloadKeepsNoImageNames() {
+        let removedAt = Mutex<UInt64>(0)
+        let collector = HangReportCollector(resolve: { _ in [HangReportFrame(image: "AppKit", uuid: HangReportFixtures.appKitUUID, offset: 1)] },
+                                            imageRemovedSince: { since in removedAt.withLock { $0 } >= since && removedAt.withLock { $0 } > 0 },
+                                            schedule: { $0() })
+        collector.setEnabled(true)
+        collector.noteStall(durationNanos: Self.nanos(300), cpuNanos: 0, addresses: [1], sampledSinceNanos: 100)
+        removedAt.withLock { $0 = 150 }  // an image went away after this stall began
+        collector.noteStall(durationNanos: Self.nanos(400), cpuNanos: 0, addresses: [1], sampledSinceNanos: 120)
+        collector.noteStall(durationNanos: Self.nanos(500), cpuNanos: 0, addresses: [1], sampledSinceNanos: 200)
+        let stalls = collector.drain().stalls
+        // Longest first: 500 ms (sampled after the unload), 400 ms (before it), 300 ms (before it).
+        #expect(stalls.map(\.durationMs) == [500, 400, 300])
+        #expect(stalls[0].frames.first?.image == "AppKit")
+        #expect(stalls[1].frames.allSatisfy(\.isOther))
+        #expect(stalls[2].frames.first?.image == "AppKit", "resolved before the unload happened")
     }
 
     @Test func coarseCountsAreBuckets() {
