@@ -372,7 +372,11 @@ def main():
     # One launch path for GUI benches (bench_launch.py): the console-session check, the tag's socket in the state
     # folder, and the reason when the app does not come up. The bench's own environment on top of its defaults.
     bench = BenchApp(opts.app, out=OUT, config={"appearance": {"theme": "Catppuccin Mocha"}}, window=WINDOW, log_name="app.log",
-                     env={"CMUX_NEXT_TYPING_PROBE": PROBE, "CMUX_NEXT_HANG_THRESHOLD_MS": "8"})
+                     env={"CMUX_NEXT_TYPING_PROBE": PROBE, "CMUX_NEXT_HANG_THRESHOLD_MS": "8",
+                          # The environment this bench measured before bench_launch.py started it: no mock agent pane,
+                          # the real backend mode, agent host and the account's shell (None removes a default).
+                          "SHELL": None, "CMUX_DEV_BACKEND_MODE": None, "CMUX_NEXT_AGENT_PANE_MOCK": None,
+                          "ACPMUX_AGENT_LAUNCH": None})
     results["load_at_start"] = os.getloadavg()
     made = []
     groups = []
