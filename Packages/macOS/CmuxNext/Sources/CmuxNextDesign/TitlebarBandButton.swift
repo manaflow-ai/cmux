@@ -45,6 +45,13 @@ public final class TitlebarBandButton: NSButton {
         didSet { if followsPointer, isEnabled != oldValue { hover.pointer?.refresh() } }
     }
 
+    /// Moved to another window under a still pointer (fullscreen's toolbar window, Move Pane to
+    /// New Window): its hover recomputes there (`PointerHover.ownerDidMoveToWindow()`).
+    override public func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if followsPointer { hover.viewDidMoveToWindow() }
+    }
+
     override public func layout() {
         super.layout()
         renderSymbol()

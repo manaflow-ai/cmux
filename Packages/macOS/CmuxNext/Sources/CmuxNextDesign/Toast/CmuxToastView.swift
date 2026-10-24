@@ -121,6 +121,12 @@ public final class CmuxToastView: NSView {
         layer?.shadowOffset = elevation.layerOffset()
     }
 
+    /// Re-hosted in another window under a still pointer: its hover recomputes there.
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        pointerHover?.ownerDidMoveToWindow()
+    }
+
     public override func layout() {
         super.layout()
         // CoreGraphics refuses a corner wider than half the rect.

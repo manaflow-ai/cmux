@@ -152,6 +152,12 @@ public final class ChromeHover {
         pointer.refresh()
     }
 
+    /// Call from the view's `viewDidMoveToWindow()` after `followPointer`: the pointer hover
+    /// recomputes in the new window (`PointerHover.ownerDidMoveToWindow()`).
+    public func viewDidMoveToWindow() {
+        pointer?.ownerDidMoveToWindow()
+    }
+
     /// Call from the view's `updateTrackingAreas()` (not needed after
     /// `followPointer`).
     public func updateTrackingAreas() {
