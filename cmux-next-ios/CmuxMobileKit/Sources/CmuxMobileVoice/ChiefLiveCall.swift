@@ -80,6 +80,12 @@ public final class ChiefLiveCall {
         let config = VoiceCallSessionConfig(model: preferences.modelID, voice: preferences.voiceID,
                                             instructions: toolbox.briefing().instructions(now: Date()))
         let session = VoiceCallSession(link: makeLink(apiKey: key), toolbox: toolbox, config: config)
+        session.onEnd = { [weak self, weak session] failure in
+            guard let self, let session, self.session === session, self.isMinimized else { return }
+            // Ended while minimized: a failure comes back on screen (what happened, Try Again);
+            // a goodbye just closes, and the pill goes away.
+            if failure != nil { self.isMinimized = false } else { self.close() }
+        }
         self.session = session
         isMinimized = false
         seenChiefMessages = Set(sources.primary.store.messages.map(\.id))
@@ -92,6 +98,12 @@ public final class ChiefLiveCall {
             self?.watchChief(for: session)
         }
         return true
+    }
+
+    /// The account signed out: hang up, close the screen, forget the account's key.
+    public func signedOut() {
+        configure(store: store ?? AppStore(teams: [], activeTeamID: "", workspaces: [], feed: []), accountID: nil, userName: nil)
+        isMinimized = false
     }
 
     /// Closes an ended call's screen, or hangs up and closes.

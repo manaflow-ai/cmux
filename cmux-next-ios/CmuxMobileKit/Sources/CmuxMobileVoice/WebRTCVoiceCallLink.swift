@@ -22,6 +22,8 @@ public final class WebRTCVoiceCallLink: VoiceCallLink {
     private var peer: Peer?
     private var interruptionObserver: (any NSObjectProtocol)?
     private var speaker = true
+    private var microphoneEnabled = true
+    private var isClosed = false
 
     /// - Parameters:
     ///   - apiKey: The user's key, read from the Keychain for this call only.
@@ -36,13 +38,17 @@ public final class WebRTCVoiceCallLink: VoiceCallLink {
     public func open(session: Data) async throws {
         peer?.close()
         peer = nil
+        guard !isClosed else { throw CancellationError() }
         try configureAudioSession()
         let peer = try Peer(sink: sink)
+        peer.setMicrophoneEnabled(microphoneEnabled)
         self.peer = peer
         let offer = try await peer.offer()
         let answer = try await api.connect(offerSDP: offer, session: session, apiKey: apiKey, safetyIdentifier: safetyIdentifier)
         try await peer.accept(answer: answer)
         try await peer.waitUntilOpen()
+        // Hung up while connecting: close() already ran; leave nothing behind.
+        guard !isClosed else { throw CancellationError() }
         observeInterruptions()
         log.info("chief call connected")
     }
@@ -52,6 +58,7 @@ public final class WebRTCVoiceCallLink: VoiceCallLink {
     }
 
     public func setMicrophoneEnabled(_ enabled: Bool) {
+        microphoneEnabled = enabled
         peer?.setMicrophoneEnabled(enabled)
     }
 
@@ -66,6 +73,7 @@ public final class WebRTCVoiceCallLink: VoiceCallLink {
     }
 
     public func close() {
+        isClosed = true
         peer?.close()
         peer = nil
         if let interruptionObserver { NotificationCenter.default.removeObserver(interruptionObserver) }
@@ -79,7 +87,9 @@ public final class WebRTCVoiceCallLink: VoiceCallLink {
 
     /// Voice chat: the voice-processing I/O unit (echo cancellation, so
     /// Chief doesn't hear itself on the speaker), Bluetooth headsets, and the
-    /// speaker by default (held like a voice assistant, not to the ear).
+    /// speaker by default (held like a voice assistant, not to the ear). The
+    /// speaker is a port override, not `.defaultToSpeaker`, so turning it off
+    /// moves the audio to the earpiece.
     private func configureAudioSession() throws {
         let session = RTCAudioSession.sharedInstance()
         session.useManualAudio = false
@@ -88,10 +98,10 @@ public final class WebRTCVoiceCallLink: VoiceCallLink {
         let configuration = RTCAudioSessionConfiguration.webRTC()
         configuration.category = AVAudioSession.Category.playAndRecord.rawValue
         configuration.mode = AVAudioSession.Mode.voiceChat.rawValue
-        configuration.categoryOptions = [.allowBluetoothHFP, .allowBluetoothA2DP, .defaultToSpeaker]
+        configuration.categoryOptions = [.allowBluetoothHFP, .allowBluetoothA2DP]
         do {
             try session.setConfiguration(configuration, active: true)
-            if !speaker { try session.overrideOutputAudioPort(.none) }
+            try session.overrideOutputAudioPort(speaker ? .speaker : .none)
         } catch {
             throw VoiceCallFailure.network(String(localized: "The microphone couldn't start: \(error.localizedDescription)"))
         }

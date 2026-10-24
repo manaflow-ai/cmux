@@ -21,6 +21,7 @@ final class FakeLink: VoiceCallLink {
 
     func open(session: Data) async throws {
         opened.append(session)
+        microphoneEnabled = true // a new connection starts with the microphone on, as WebRTC's does
         if !openFailures.isEmpty { throw openFailures.removeFirst() }
     }
 
@@ -217,6 +218,59 @@ func liveCall(_ link: FakeLink = FakeLink(), toolbox: FakeToolbox = FakeToolbox(
         link.yield(.audioInterrupted(false))
         await settle()
         #expect(link.microphoneEnabled)
+    }
+
+    @Test func typingDuringAReplyStartsExactlyOneResponse() async {
+        let link = FakeLink()
+        let session = await liveCall(link)
+        link.deliver(#"{"type":"response.created"}"#)
+        link.deliver(#"{"type":"output_audio_buffer.started"}"#)
+        await settle()
+        session.send(text: "Actually, stop the build")
+        // The cancelled reply ends before the typed turn's response starts.
+        link.deliver(#"{"type":"response.done","response":{"status":"cancelled","output":[]}}"#)
+        await settle()
+        session.chiefReplied("Build stopped.")
+        #expect(link.sentTypes.filter { $0 == "response.create" }.count == 1)
+        link.deliver(#"{"type":"response.created"}"#)
+        link.deliver(#"{"type":"response.done","response":{"status":"completed","output":[]}}"#)
+        await settle()
+        #expect(link.sentTypes.filter { $0 == "response.create" }.count == 2)
+        #expect(link.sent.contains { ($0["item"] as? [String: Any])?["role"] as? String == "system" })
+    }
+
+    @Test func aRefusedResponseCreateIsAskedAgain() async {
+        let link = FakeLink()
+        let session = await liveCall(link)
+        session.chiefReplied("PR #42 is open.")
+        #expect(link.sentTypes.filter { $0 == "response.create" }.count == 1)
+        // The server had just started its own response (the user spoke): ours is refused.
+        link.deliver(#"{"type":"error","error":{"type":"invalid_request_error","code":"conversation_already_has_active_response","message":"active response"}}"#)
+        link.deliver(#"{"type":"response.created"}"#)
+        link.deliver(#"{"type":"response.done","response":{"status":"completed","output":[]}}"#)
+        await settle()
+        #expect(link.sentTypes.filter { $0 == "response.create" }.count == 2)
+    }
+
+    @Test func muteSetWhileConnectingHolds() async {
+        let link = FakeLink()
+        let session = VoiceCallSession(link: link, toolbox: FakeToolbox(),
+                                       config: VoiceCallSessionConfig(model: "gpt-realtime-2.1", voice: "marin", instructions: ""))
+        session.setMuted(true)
+        await session.start()
+        #expect(session.isLive)
+        #expect(!link.microphoneEnabled)
+    }
+
+    @Test func endingReportsOnceWithTheReason() async {
+        let link = FakeLink()
+        let session = await liveCall(link)
+        var ends: [VoiceCallFailure?] = []
+        session.onEnd = { ends.append($0) }
+        link.yield(.closed)
+        await settle()
+        session.hangUp()
+        #expect(ends == [.dropped])
     }
 
     @Test func droppedConnectionEndsTheCall() async {

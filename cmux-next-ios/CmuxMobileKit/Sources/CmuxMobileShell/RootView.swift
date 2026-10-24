@@ -266,6 +266,9 @@ public struct RootView: View {
     /// same account signs in again (verify/persistence.md). Removing it from
     /// the Macs is its own action (Settings → Devices).
     private func signedOut() {
+        // A live Chief call (even minimized) ends with the account; a call asked for while signed out is dropped.
+        ChiefLiveCall.shared.signedOut()
+        ChiefCallLauncher.shared.cancelPending()
         let ending = live
         live = nil
         setupPlan = nil

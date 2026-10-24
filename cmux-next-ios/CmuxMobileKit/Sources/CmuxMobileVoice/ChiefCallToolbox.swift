@@ -52,7 +52,7 @@ public final class ChiefCallToolbox: VoiceCallToolbox {
         let text = message.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return VoiceCallToolResult(object: ["error": "empty message"]) }
         let connected = chief.acceptsSendsNow && chief.isConnected
-        chief.send(ConversationComposeMessage(text: text))
+        chief.send(ConversationComposeMessage(text: text), asksForAlerts: false)
         return VoiceCallToolResult(
             object: ["status": connected ? "sent" : "queued",
                      "note": connected ? "Chief got the message; its reply will arrive as a system message."

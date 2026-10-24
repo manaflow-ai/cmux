@@ -118,12 +118,17 @@ public final class OpenAIKeyModel {
             check = .malformed
             return .malformed
         }
+        // The account and its store as of now: a sign-out or switch during the check
+        // must not put this key in another account's Keychain item.
+        let account = accountID
+        let target = store
         isChecking = true
         let outcome = await verifier.check(key: key, model: model)
         isChecking = false
+        guard account == accountID else { return outcome }
         check = outcome
-        guard outcome.allowsSaving, let store else { return outcome }
-        do { try store.save(key) } catch { check = .notSaved }
+        guard outcome.allowsSaving, let target else { return outcome }
+        do { try target.save(key) } catch { check = .notSaved }
         refresh()
         return check ?? outcome
     }
@@ -131,9 +136,11 @@ public final class OpenAIKeyModel {
     /// Checks the stored key again (Settings' Check Key).
     public func recheck(model: String) async {
         guard let key = key() else { return }
+        let account = accountID
         isChecking = true
-        check = await verifier.check(key: key, model: model)
+        let outcome = await verifier.check(key: key, model: model)
         isChecking = false
+        if account == accountID { check = outcome }
     }
 
     #if DEBUG

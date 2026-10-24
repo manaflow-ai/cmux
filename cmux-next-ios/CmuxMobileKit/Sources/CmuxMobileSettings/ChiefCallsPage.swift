@@ -103,7 +103,6 @@ struct ChiefCallsPage: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
                 SecureField("sk-…", text: $draft)
-                    .textContentType(.password)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .focused($fieldFocused)

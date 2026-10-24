@@ -90,11 +90,65 @@ def fresh_app(sim, app, run):
     run.log("installed fresh app, keychain reset, microphone granted")
 
 
-def launch(sim, extra_env=None):
+def launch(sim, extra_env=None, args=("-cmux-mobile-tab", "home")):
     env = {"CMUX_MOBILE_MOCK_AUTH": "1"}
     env.update(extra_env or {})
-    sim.launch(BUNDLE, args=["-cmux-mobile-tab", "home"], env=env)
-    time.sleep(3)
+    sim.launch(BUNDLE, args=list(args), env=env)
+    finish_setup(sim)
+
+
+def dismiss_alerts(sim, elements=None):
+    """iOS permission alerts (notifications) cover the app and hide it from AX: allow them."""
+    els = elements if elements is not None else sim.tree()
+    if any("Would Like to Send You" in (e.label or "") for e in els):
+        allow = sim.find(label="Allow", kind="Button", elements=els)
+        if allow:
+            sim.tap_el(allow[0])
+            time.sleep(1)
+            return True
+    return False
+
+
+def tap_any(sim, idents=(), labels=(), timeout=10):
+    """Taps the first element found by identifier or, failing that, by label."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        els = sim.tree()
+        dismiss_alerts(sim, els)
+        for ident in idents:
+            f = sim.find(ident=ident, elements=els)
+            if f:
+                return sim.tap_el(f[0])
+        for label in labels:
+            f = sim.find(label=label, elements=els)
+            if f:
+                return sim.tap_el(f[0])
+        time.sleep(0.4)
+    raise LookupError(f"not found: {idents} {labels}")
+
+
+def finish_setup(sim):
+    """A fresh install's setup (as acceptance_latest_ci.py passes it): the Personal
+    space, Continue past Connect your Mac, notifications Not now; then the shell."""
+    for _ in range(8):
+        dismiss_alerts(sim)
+        i, _ = sim.wait_any([dict(ident="setup.teams.personal"), dict(label="Personal", kind="Button"),
+                             dict(contains="Connect your Mac"), dict(label="Turn on notifications"),
+                             dict(label="Home", kind="RadioButton"), dict(label="Settings", kind="RadioButton")],
+                            timeout=30)
+        if i in (0, 1):
+            e = sim.find(ident="setup.teams.personal") or sim.find(label="Personal", kind="Button")
+            sim.tap_el(e[0])
+        elif i == 2:
+            c = sim.wait(label="Continue", kind="Button", timeout=20)
+            if c:
+                sim.tap_el(c)
+        elif i == 3:
+            sim.tap_q(label="Not now", kind="Button")
+        else:
+            break
+        time.sleep(1.5)
+    time.sleep(1.5)
 
 
 def open_chief(sim):
@@ -110,6 +164,16 @@ def open_chief(sim):
 def text_of(sim, ident):
     e = sim.wait(timeout=2, ident=ident)
     return (e.label or e.value or "") if e else ""
+
+
+def wait_text(sim, wanted, timeout):
+    """The screen's text once any of `wanted` is on it (or at the timeout)."""
+    deadline = time.monotonic() + timeout
+    while True:
+        text = " ".join(sim.texts())
+        if any(w in text for w in wanted) or time.monotonic() > deadline:
+            return text
+        time.sleep(0.4)
 
 
 def wait_label(sim, ident, wanted, timeout):
@@ -142,8 +206,9 @@ def phase_nokey(sim, app, run):
     sim.softtype(MADE_UP_KEY)
     sim.shot("04-key-typed")
     sim.tap_q(ident="settings.chiefCalls.save")
-    result = wait_label(sim, "settings.chiefCalls.checkResult", ["refused", "reach"], 25)
-    run.check(p, "OpenAI checks the key for real and refuses a made-up one", "refused" in result, result)
+    result = wait_text(sim, ["OpenAI refused", "reach OpenAI"], 25)
+    run.check(p, "OpenAI checks the key for real and refuses a made-up one", "OpenAI refused this key" in result,
+              "OpenAI refused this key" if "OpenAI refused this key" in result else result[-200:])
     sim.shot("05-key-refused")
     run.check(p, "A refused key is not kept", sim.wait(timeout=2, ident="settings.chiefCalls.masked") is None)
 
@@ -166,14 +231,15 @@ def phase_real401(sim, app, run):
     run.check(p, "The real WebRTC call reaches OpenAI, which refuses the key (401)",
               "refused your API key" in all_text, f"status={failure!r} detail={detail!r}")
     sim.shot("11-real-refused")
-    sim.tap_q(ident="chief.call.openSettings")
+    tap_any(sim, idents=("chief.call.openSettings",), labels=("Open Settings",))
     masked = sim.wait(timeout=10, ident="settings.chiefCalls.masked")
     run.check(p, "Open Settings shows the stored key, masked", masked is not None and "0000" in (masked.label or masked.value or ""),
               repr(masked))
     sim.shot("12-settings-masked")
     sim.tap_q(ident="settings.chiefCalls.check")
-    result = wait_label(sim, "settings.chiefCalls.checkResult", ["refused", "reach"], 25)
-    run.check(p, "Check Key asks OpenAI again (refused)", "refused" in result, result)
+    result = wait_text(sim, ["OpenAI refused", "reach OpenAI"], 25)
+    run.check(p, "Check Key asks OpenAI again (refused)", "OpenAI refused this key" in result,
+              "OpenAI refused this key" if "OpenAI refused this key" in result else result[-200:])
     sim.shot("13-check-key")
     sim.tap_q(ident="settings.chiefCalls.remove")
     time.sleep(1)
@@ -206,6 +272,7 @@ def phase_call(sim, app, run):
     seen = {}
     deadline = time.monotonic() + 120
     while time.monotonic() < deadline:
+        dismiss_alerts(sim)
         texts = " ".join(sim.texts())
         status = text_of(sim, "chief.call.status")
         for key, needle in (("listening", "Listening"), ("speaking", "Speaking"), ("thinking", "Thinking"),
@@ -227,9 +294,10 @@ def phase_call(sim, app, run):
     run.check(p, "Chief's reply came back into the call and was spoken", "reply" in seen and "spoke_reply" in seen)
     run.check(p, "end_call hung up after the goodbye", "ended" in seen)
     sim.shot("23-ended")
-    done = sim.wait(timeout=5, ident="chief.call.done")
-    if done:
-        sim.tap_el(done)
+    try:
+        tap_any(sim, idents=("chief.call.done",), labels=("Done",), timeout=8)
+    except LookupError:
+        pass
     time.sleep(1.5)
     sim.record_stop()
     # The task the call sent is in the Chief conversation.
@@ -248,7 +316,7 @@ def phase_hold(sim, app, run):
     video = os.path.join(run.out, "hold.mp4")
     sim.record_start(video)
     open_chief(sim)
-    sim.tap_q(ident="conversation.header.name")
+    tap_any(sim, idents=("conversation.header.name",), labels=("Chief",))
     call = sim.wait(timeout=10, ident="chief.settings.call")
     run.check(p, "Chief info has a Call action", call is not None)
     sim.shot("30-chief-info")
@@ -258,6 +326,7 @@ def phase_hold(sim, app, run):
     reply = None
     deadline = time.monotonic() + 90
     while time.monotonic() < deadline and reply is None:
+        dismiss_alerts(sim)
         if "Chief just replied" in " ".join(sim.texts()):
             reply = True
         time.sleep(0.7)
@@ -308,8 +377,7 @@ def phase_hold(sim, app, run):
     time.sleep(1)
     sim.record_stop()
     # Settings root row and the page with the demo placeholder key.
-    sim.launch(BUNDLE, args=["-cmux-mobile-settings-page", "chiefCalls"], env={"CMUX_MOBILE_MOCK_AUTH": "1", "CMUX_MOBILE_CALL_DEMO": "hold"})
-    time.sleep(3)
+    launch(sim, {"CMUX_MOBILE_CALL_DEMO": "hold"}, args=("-cmux-mobile-settings-page", "chiefCalls"))
     sim.shot("36-settings-chief-calls")
 
 

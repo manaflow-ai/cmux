@@ -78,8 +78,17 @@ public final class VoiceCallSession: Identifiable {
     @ObservationIgnored private let toolbox: any VoiceCallToolbox
     @ObservationIgnored private var config: VoiceCallSessionConfig
     @ObservationIgnored private let now: @Sendable () -> Date
+    /// Called once when the call ends (the controller brings a minimized call's failure back).
+    @ObservationIgnored public var onEnd: (@MainActor (VoiceCallFailure?) -> Void)?
     @ObservationIgnored private var listener: Task<Void, Never>?
-    @ObservationIgnored private var responding = false
+    /// A response is being generated (between `response.created` and `response.done`).
+    @ObservationIgnored private var activeResponse = false
+    /// `response.create`s sent and not yet started: `response.done` of a
+    /// cancelled response must not read as "idle" while one is on its way.
+    @ObservationIgnored private var requestedResponses = 0
+    /// A response.create was refused because one was already running: ask again when it ends.
+    @ObservationIgnored private var needsFollowUp = false
+    private var responding: Bool { activeResponse || requestedResponses > 0 }
     /// Chief messages that arrived while the model was busy, spoken next.
     @ObservationIgnored private var pendingNotes: [String] = []
     /// end_call ran: hang up once Chief's goodbye has played.
@@ -131,6 +140,8 @@ public final class VoiceCallSession: Identifiable {
         }
         // Hung up while connecting: finish already closed the link.
         guard phase == .connecting else { return }
+        // Mute set while connecting holds on the connection that came up.
+        link.setMicrophoneEnabled(!isMuted && !onHold)
         phase = .live
         connectedAt = now()
     }
@@ -170,9 +181,7 @@ public final class VoiceCallSession: Identifiable {
         if responding || chiefSpeaking { interrupt() }
         lines.append(VoiceCallLine(id: "typed-\(UUID().uuidString)", role: .you, text: text, isFinal: true))
         link.send(RealtimeClientEvent.userText(text).data)
-        link.send(RealtimeClientEvent.responseCreate.data)
-        responding = true
-        chiefThinking = true
+        requestResponse()
     }
 
     /// A new message from Chief's agent: Chief's voice tells the user about
@@ -216,7 +225,8 @@ public final class VoiceCallSession: Identifiable {
             // Nothing to show for speech that didn't transcribe.
             lines.removeAll { $0.id == itemID && $0.text.isEmpty }
         case .responseCreated:
-            responding = true
+            requestedResponses = max(0, requestedResponses - 1)
+            activeResponse = true
             chiefThinking = true
         case let .assistantTranscriptDelta(itemID, delta):
             chiefThinking = false
@@ -232,7 +242,12 @@ public final class VoiceCallSession: Identifiable {
         case let .responseDone(summary):
             responseDone(summary)
         case let .error(info):
-            if info.param?.contains("transcription") == true, !triedTranscriptionFallback {
+            if info.code == "conversation_already_has_active_response" {
+                // Our response.create raced the server's own (after the user spoke): what we
+                // added is in the conversation; ask again once that response ends.
+                requestedResponses = max(0, requestedResponses - 1)
+                needsFollowUp = true
+            } else if info.param?.contains("transcription") == true, !triedTranscriptionFallback {
                 triedTranscriptionFallback = true
                 link.send(RealtimeClientEvent.transcriptionModel(VoiceCallSessionConfig.fallbackTranscriptionModel).data)
             }
@@ -242,7 +257,7 @@ public final class VoiceCallSession: Identifiable {
     }
 
     private func responseDone(_ summary: RealtimeResponseSummary) {
-        responding = false
+        activeResponse = false
         // Drop caption lines left open by a cut-off response.
         for index in lines.indices where lines[index].role == .chief && !lines[index].isFinal {
             lines[index].isFinal = true
@@ -255,8 +270,13 @@ public final class VoiceCallSession: Identifiable {
             lines.append(VoiceCallLine(id: "failed-\(UUID().uuidString)", role: .activity, text: reason, isFinal: true))
         }
         guard !summary.functionCalls.isEmpty else {
-            chiefThinking = false
+            if !responding { chiefThinking = false }
             if hangUpAfterSpeech, !chiefSpeaking { finish(nil); return }
+            if needsFollowUp, !responding, !userSpeaking, pendingNotes.isEmpty {
+                needsFollowUp = false
+                requestResponse()
+                return
+            }
             flushNotes()
             return
         }
@@ -304,8 +324,13 @@ public final class VoiceCallSession: Identifiable {
             if !chiefSpeaking { finish(nil) }
             return
         }
+        requestResponse()
+    }
+
+    private func requestResponse() {
         link.send(RealtimeClientEvent.responseCreate.data)
-        responding = true
+        requestedResponses += 1
+        chiefThinking = true
     }
 
     private func flushNotes() {
@@ -315,9 +340,8 @@ public final class VoiceCallSession: Identifiable {
         for note in notes {
             link.send(RealtimeClientEvent.systemNote("Chief replied: \(note)").data)
         }
-        link.send(RealtimeClientEvent.responseCreate.data)
-        responding = true
-        chiefThinking = true
+        needsFollowUp = false
+        requestResponse()
     }
 
     private func upsert(_ itemID: String, role: VoiceCallLine.Role, append: String? = nil, replace: String? = nil, final: Bool) {
@@ -341,6 +365,9 @@ public final class VoiceCallSession: Identifiable {
         listener?.cancel()
         listener = nil
         link.close()
+        let onEnd = onEnd
+        self.onEnd = nil
+        onEnd?(failure)
     }
 
     /// Whether the session config asked for the newer transcription model (tests).
