@@ -1,4 +1,3 @@
-@testable import CmuxNextApp
 import CmuxNextAgentPane
 import CmuxNextCompat
 import Foundation
@@ -7,7 +6,7 @@ import Testing
 /// A report reply starts its acpmux process off the main thread (plans/cmux-next/main-thread-budget.md):
 /// the Feed page's view only awaits the result. Before, `Process.run()` ran on the main thread
 /// inside the view's callback.
-@MainActor @Suite struct FeedReportRepliesTests {
+@MainActor @Suite struct AcpmuxReplySenderTests {
     private final class Recorder: ProcessLaunching {
         let calls = Mutex<[(arguments: [String], onMain: Bool)]>([])
         nonisolated func launch(_ executable: URL, arguments: [String], environment: [String: String]) -> Bool {
@@ -25,7 +24,7 @@ import Testing
 
     @Test func aReplyStartsAcpmuxOffTheMainThread() async {
         let recorder = Recorder()
-        let replies = FeedReportReplies(launcher: recorder)
+        let replies = AcpmuxReplySender(launcher: recorder)
         let sent = await replies.send(session: "s-1", text: "thanks", environment: environment())
         #expect(sent)
         let calls = recorder.calls.withLock { $0 }
@@ -35,7 +34,7 @@ import Testing
 
     @Test func aReplyWithoutASessionStartsNothing() async {
         let recorder = Recorder()
-        let sent = await FeedReportReplies(launcher: recorder).send(session: "", text: "x", environment: environment())
+        let sent = await AcpmuxReplySender(launcher: recorder).send(session: "", text: "x", environment: environment())
         #expect(!sent)
         #expect(recorder.calls.withLock { $0 }.isEmpty)
     }
