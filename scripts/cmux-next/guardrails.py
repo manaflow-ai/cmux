@@ -15,12 +15,24 @@ merge or rebase onto it) never count (check_push). Base debt never blocks a push
 Refusals (rules below, `--list` prints them): each names the rule, why, the right pattern and its escape.
 Skip once: CMUX_GUARDRAILS_SKIP_REASON="<rule>[,<rule>]: <why>" skips only the named rules; say it in your
 report.
+A rule (or warning check) that raises is not applied to that push and prints a `guardrails` warning that names
+it; the other rules still run and refuse (fail open per check, so one broken rule never switches off the rest).
 Warnings (never refuse):
   perf-hot  the push changes a function marked `// perf-hot: <budget> <path-id>` (a trailing comment on its
             declaration line, or in the comment block above it); names the bench from scripts/cmux-next/perf-hot-benches.json to run before
             and after on the fleet.
   owner     the push touches an area in plans/cmux-next/OWNERS.md; names the owner and the doc to read.
-  app-grow  the push grows the CmuxNextApp target or adds a file to it (new features get their own target).
+
+`app-size` is a net count over the push, not a per-line rule, in source lines as CI's check-app-size.sh --base
+counts them (count-swift-code-lines.py's lexer: blank and comment lines never count, either way). It refuses
+when the root (top-level AppDelegate, CmuxNextApp and AppServices(+X).swift) adds more than ROOT_BUDGET lines per
+push (lines moved into it from feature files count; lines moved out are free), and when a new App file is
+neither a move nor the push's one AppServices+<Domain>Host.swift of one-line forwards (outside the budget), so
+feature logic does not become wiring by moving into a root file. It warns (never refuses, for now) when the App
+outside the root or CmuxNextApp as a whole grows (the same total check-app-size.sh --base computes, a split
+file's new imports included), with the bytes added and the package the code goes to. This is the only App-size
+limit in force on a push: CI's check-app-size.sh step is continue-on-error and its absolute cap
+(app-size-baseline.txt) is below the App's size today.
 
   scripts/cmux-next/guardrails.py                    # what HEAD adds over origin/feat-cmux-next
   scripts/cmux-next/guardrails.py --base A --head B
@@ -30,6 +42,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import importlib.util
 import itertools
 import json
 import os
@@ -37,6 +50,7 @@ import re
 import subprocess
 import sys
 import time
+import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -56,7 +70,6 @@ UPSTREAM = "origin/feat-cmux-next"
 OWNERS = "plans/cmux-next/OWNERS.md"
 BENCHES = "scripts/cmux-next/perf-hot-benches.json"
 SKIP_ENV = "CMUX_GUARDRAILS_SKIP_REASON"
-NEW_APP_FILE_MAX = 400  # check-no-godfiles.sh's per-file budget, refused here for new App files at push time
 COMMENT_LINE = re.compile(r"^\s*(//|\*|/\*)")
 ATTRIBUTE_LINE = re.compile(r"^\s*@\w+(\([^)]*\))?\s*$")
 PERF_HOT = re.compile(r"//\s*perf-hot:\s*(?P<budget>\S+)(?:\s+(?P<path>[\w-]+))?")
@@ -164,6 +177,7 @@ class Rule:
     escape: str | None
     find: Callable[[list[FileChange], collections.Counter], list[Added]]  # (changed files, removed texts) -> hits
     scope: tuple[str, ...] = (SOURCES,)  # path prefixes the rule reads (most rules: Sources only)
+    net: bool = False  # a count over the whole push (NetHit buckets), not per added line
 
 
 # (version, 0-based line) -> (the match is debt there, the 1-based opener lines that make it so)
@@ -397,29 +411,339 @@ def in_row(version: Version, index: int) -> tuple[bool, list[int]]:
     return False, []
 
 
-def line_count(lines: list[str]) -> int:
-    """`wc -l` of the text LINES came from (`text.split("\\n")`): a final newline adds no line."""
-    return len(lines) - (1 if lines and lines[-1] == "" else 0)
+# ---------------------------------------------------------------- app-size
+# CmuxNextApp ends as the composition root only (cmuxApp, AppDelegate, AppServices wiring: about 5-10k lines,
+# plans/cmux-next/perf-lead.md "Architecture targets"); every edit in it re-emits the whole module. A line here is
+# a source line as check-app-size.sh --base counts it (count-swift-code-lines.py's lexer: blank and comment lines
+# do not count), so a comment such as a `// main-proof:` reason is neither growth nor credit.
+#
+# The values and the refuse-or-warn split below are agreed by the Performance Lead (session cmux-4f) with session
+# cmux-b6 (2026-10-23): ROOT_BUDGET 30, HOST_FILE_MAX 30, MOVE_RUN 3, MOVE_SHARE 0.8; the root budget and the
+# new-file rules refuse; net growth of the App outside the root (`other`, which replaces the `app-grow` warning) and
+# of the App total (`total`) is a warning that prints the bytes added and the package the code goes to (NetHit.warn).
+# Revisit: turn the growth warning into a refusal once cmux-next-arch-targets has moved the large domains out of
+# CmuxNextApp (until then about two of every three App pushes grow a feature file, below). The perf cron arch report
+# is the backstop meanwhile: it opens the regression issue when the App line count rises. Measured on
+# origin/feat-cmux-next at 2952080b0a5 (CI's lexer, first-parent commits, each commit against its first parent):
+# - ROOT_BUDGET: the wiring of a few domains per push (a stored instance, its construction, passing it on), never
+#   their logic; the `total` warning asks the same push to pay for it with an App shrink. Of the last 600 App commits
+#   (2026-10-20..23), 62 changed root files: net root growth p50 +2, p95 +11, max +41; 61 of 62 are within +30. The
+#   one over (4aa19112632, +41) is folder and harness logic in AppServices+WorkContext.swift, not wiring.
+# - HOST_FILE_MAX: one domain's Host protocol forwards, one member per line; a larger Host protocol is a sign that
+#   the domain still reaches into the App. No AppServices+<Domain>Host.swift exists yet; the four `*Host` protocols
+#   in Sources have 4 to 9 members (BrowserRestoredSessionHost 9), so 30 lines (the opener, its imports and attribute
+#   and its `}` included) is about 3x the largest known Host; a bigger domain splits into two Host files over two
+#   pushes.
+# - MOVE_RUN: one or two lines in a row that match removed text can be chance (`let x = 0`, a shared call); a
+#   moved block is longer. Over 1500 Sources commits (2026-10-19..23): of 133 new files git calls a >= 90% rename,
+#   132 reach MOVE_SHARE at runs of 2 or 3, 129 at 4, 122 at 5; of 1779 plain new files the p95 credited share is
+#   0.19 at 2, 0.14 at 3, 0.10 at 4. 3 is the longest run that still credits every near-pure move run 2 credits.
+# - MOVE_SHARE: a git mv or a split also edits some lines (a renamed type, a changed access level); a mostly
+#   unchanged file is still a move, not new code. Same 1500 commits at MOVE_RUN 3: 0.8 passes 132 of 133 renames
+#   >= 90% similar and 18 of 30 at 80-89%, and passes 23 of 1779 plain new files (splits git does not see as
+#   renames); 0.7 would pass 25 of 30 at 80-89% and 29 plain new files.
+# - MOVE_GENERIC_PER_LINE: a moved specific line usually closes one or two blocks (`}` of an `if` and of its
+#   function); generic lines beyond that are not explained by the run's specific lines.
+# - The `other` and `total` buckets as warnings: in the same 600 App commits, 404 grew feature App files (net +14726
+#   source lines against -2417 shrinks); the App grew +12500 source lines in those four days. A refusal would stop
+#   about two of every three App pushes of that period until they move lines out, so it waits for the domain moves.
+# A source line is the unit (CI's unit): joining statements onto one line lowers the count without removing code,
+# a count dodge this rule cannot see; review rejects it.
+ROOT_BUDGET = 30  # source lines of wiring the root may add per push, moved-in lines included
+HOST_FILE_MAX = 30  # source lines of the push's one new `AppServices+<Domain>Host.swift`, all one-line forwards
+MOVE_RUN = 3  # a moved line counts only in a run of this many consecutive moved source lines
+MOVE_SHARE = 0.8  # a new file is a move (git mv, split) when this share of its non-import source lines is moved
+MOVE_GENERIC_PER_LINE = 2  # generic lines a run credits per specific moved line (closing braces of nested blocks)
+ROOT_FILE = re.compile(r"^(AppDelegate|CmuxNextApp|AppServices)(\+[A-Za-z0-9]+)?\.swift$")  # top level of the App
+HOST_FILE = re.compile(r"^AppServices\+[A-Z][A-Za-z0-9]*Host\.swift$")
+HOST_DECL = re.compile(r"^\s*(@\w+\s+)*extension\s+AppServices\s*:[^{]*\b[A-Z]\w*Host\b")
+IMPORT_LINE = re.compile(r"^\s*(@\w+\s+)*((public|package|internal|private|fileprivate)\s+)?import\s+\S")
+# A Host member: one declaration (KIND); its body, if any, is one brace pair on the same line (checked in host_problem).
+HOST_MEMBER = re.compile(r"^(@\w+(\([^)]*\))?\s+)*((public|package|internal|private|fileprivate|nonisolated|static|class|"
+                         r"final|override|dynamic)\s+)*(?P<kind>func|var|let|subscript|typealias)\b")
+# Bare keywords of a generic line: with braces, punctuation, numbers and attributes they make `}`, `} else {`,
+# `return nil`, `return 0`, `@MainActor`, lines that match a removed line of almost any file.
+GENERIC_WORDS = frozenset(("else", "return", "break", "continue", "default", "nil", "true", "false", "self", "try",
+                           "await", "throws", "async", "case", "fallthrough", "in", "do"))
+TOKEN = re.compile(r"@?\w+|\S")
+DESIGN = "plans/cmux-next/architecture-refactor-DESIGN.md section 4, \"Destination map\""
 
 
-def big_new_app_file(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
-    moved = moved.copy()
-    hits = []
-    for change in changes:
-        total = line_count(change.head_lines)
-        if not (change.is_new and change.path.startswith(APP) and total > NEW_APP_FILE_MAX):
-            continue
-        # The diff runs with --no-renames: a `git mv` (or a split of an existing file) shows as a new file whose
-        # lines another file removes. Only a file that is mostly new lines is new App code.
-        code = [a.text.strip() for a in change.added if a.text.strip()]
-        fresh = 0
-        for key in code:
-            if moved[key] > 0:
-                moved[key] -= 1
+def _load_source_line_flags() -> Callable[[str], list[bool]]:
+    """CI's lexer, count-swift-code-lines.py's `source_line_flags`, from next to this file.
+
+    One lexer, not a copy: the hook runs the installed copy of scripts/cmux-next, which holds both files.
+    """
+    spec = importlib.util.spec_from_file_location("cmux_next_count_swift_code_lines",
+                                                  Path(__file__).with_name("count-swift-code-lines.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.source_line_flags
+
+
+source_line_flags = _load_source_line_flags()
+
+
+@dataclass
+class NetHit(Added):
+    """A hit of a net-count rule: BUCKET names what grew (`root`, `other`, `total`, `new:<path>`), EXCESS how much.
+
+    WARN marks a hit that check() reports as a warning, never a refusal (the `app-size` growth buckets for now).
+    check_push compares a merge's two ranges by bucket, not by line text: a count has no line to intersect.
+    """
+    bucket: str = ""
+    excess: int = 0
+    warn: bool = False
+
+
+@dataclass
+class SourceLine(Added):
+    """An added or removed source line; ORDINAL is its 1-based place among its file version's source lines."""
+    ordinal: int = 0
+
+
+@dataclass
+class AppFile:
+    """One changed App Swift file: its added and removed source lines, and whether it is new and a root file."""
+    path: str
+    is_new: bool
+    root: bool
+    added: list[SourceLine]
+    removed: list[SourceLine]
+
+
+def app_rel(path: str) -> str:
+    return path[len(APP):]
+
+
+def is_root_file(path: str) -> bool:
+    """A composition-root file: AppDelegate, CmuxNextApp or AppServices(+X).swift directly in the App folder.
+
+    Feature folders' `AppServices+Cloud.swift` and the like are feature code, not wiring.
+    """
+    rel = app_rel(path)
+    return "/" not in rel and ROOT_FILE.match(rel) is not None
+
+
+def destination(path: str) -> str:
+    """Where PATH's code goes: the design doc's destination map, named, not copied (a copy drifts from the doc)."""
+    rel = app_rel(path)
+    top = rel.split("/", 1)[0] if "/" in rel else ""
+    return (f"its domain package (the `{top}` folder's row in {DESIGN}; no row: add one)" if top
+            else f"its domain package ({DESIGN})")
+
+
+def app_file(change: FileChange) -> AppFile:
+    """CHANGE's added and removed source lines, each judged on its whole file version by CI's lexer (a line in a
+    block comment or a multi-line string is what it is there)."""
+
+    def source(lines: list[str], changed: list[Added]) -> list[SourceLine]:
+        flags = source_line_flags("\n".join(lines))
+        ordinals = list(itertools.accumulate(map(int, flags)))
+        return [SourceLine(line.path, line.number, line.text, ordinals[line.number - 1]) for line in changed
+                if 0 < line.number <= len(flags) and flags[line.number - 1]]
+
+    return AppFile(change.path, change.is_new, is_root_file(change.path), source(change.head_lines, change.added),
+                   source(change.base_lines, change.removed))
+
+
+def is_generic(key: str) -> bool:
+    """KEY (a stripped line) has only braces, punctuation, numbers, attributes and GENERIC_WORDS: alone it proves no
+    move. A token scan, linear in the line (a regex with a nested repeat backtracks exponentially on a long number).
+    """
+    return all(token.isdigit() or token in GENERIC_WORDS or (token[0] == "@" and len(token) > 1)
+               or not (token[0].isalnum() or token[0] == "_") for token in TOKEN.findall(key))
+
+
+def credit_moves(lines: list[SourceLine], pools: list[collections.Counter]) -> int:
+    """How many of LINES (one file's added source lines, in head order) moved here from POOLS; consumes what it credits.
+
+    A line is moved when its stripped text is in a pool (the first that has it) and it is in a run of at least
+    MOVE_RUN source lines in a row that are all in a pool. A run credits each specific line and at most
+    MOVE_GENERIC_PER_LINE generic ones (is_generic: `}`, `return nil`) per specific one: those match some removed
+    line anywhere, so on their own they prove nothing. What it does not credit goes back to the pools.
+    """
+    credited = 0
+    run: list[tuple[str, int]] = []
+
+    def close() -> None:
+        nonlocal credited
+        specific = sum(1 for key, _ in run if not is_generic(key))
+        qualifies, generic_left = len(run) >= MOVE_RUN and specific > 0, MOVE_GENERIC_PER_LINE * specific
+        for key, source in run:
+            generic = is_generic(key)
+            if qualifies and not generic:
+                credited += 1
+            elif qualifies and generic_left > 0:
+                generic_left -= 1
+                credited += 1
             else:
-                fresh += 1
-        if fresh * 2 > len(code):
-            hits.append(Added(change.path, 1, f"new file, {total} lines, {fresh} of them new (limit {NEW_APP_FILE_MAX})"))
+                pools[source][key] += 1
+        run.clear()
+
+    previous = None
+    for line in lines:
+        key = line.text.strip()
+        source = next((i for i, pool in enumerate(pools) if pool[key] > 0), None)
+        if source is None or (previous is not None and line.ordinal != previous + 1):
+            close()
+        if source is not None:
+            pools[source][key] -= 1
+            run.append((key, source))
+        previous = line.ordinal
+    close()
+    return credited
+
+
+def host_problem(file: AppFile) -> str | None:
+    """Why the new FILE is not a Host conformance file of one-line forwards, or None when it is one.
+
+    Its source lines are imports, attributes and `extension AppServices: <Domain>Host {` blocks whose members are
+    each one `func`, `subscript`, `typealias` or computed `var` on one line with at most one brace pair
+    (`func quit() { quit.run() }`): the forwards a domain's Host protocol needs, never the domain's logic. A member
+    that stores state (any `let`, a `var` with `=` or with no body, e.g. `static var cache = [:]`) is refused: a
+    stored static in an extension is a singleton by another name, not a forward to a domain object.
+    """
+    depth, declared = 0, False
+    for line in file.added:
+        code = code_of(line.text).strip()
+        where = f"line {line.number} (`{code[:60]}`)"
+        if depth == 0:
+            if IMPORT_LINE.match(code) or ATTRIBUTE_LINE.match(code):
+                continue
+            if not (HOST_DECL.match(code) and code.endswith(("{", "{}"))):
+                return f"{where} is outside `extension AppServices: <Domain>Host {{ ... }}`"
+            declared, depth = True, (0 if code.endswith("{}") else 1)
+        elif code == "}":
+            depth = 0
+        elif ATTRIBUTE_LINE.match(code):
+            continue
+        elif (member := HOST_MEMBER.match(code)) is None or ";" in code or not code.count("{") == code.count("}") <= 1:
+            return f"{where} is not a one-line forward"
+        elif member["kind"] == "let" or (member["kind"] == "var" and ("=" in code.split("{", 1)[0] or "{" not in code)):
+            return f"{where} stores state (a `let`, or a `var` with `=` or no body): not a one-line forward"
+    if depth:
+        return "its extension block does not close"
+    return None if declared else "a Host file declares `extension AppServices: <Domain>Host`"
+
+
+def app_size(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    """The App growth a push may not add or is warned about (NetHit per bucket); see the `app-size` rule's text.
+
+    Per push, in source lines: the root adds at most ROOT_BUDGET lines besides the push's one Host conformance
+    file, lines moved into it from feature files included; a new file is refused unless it is a move or that Host
+    file. Growth of the App as a whole (exactly check-app-size.sh --base's count: a split file's new import lines
+    are growth there and here) and of the App outside the root are NetHit.warn hits: warnings, not refusals.
+    Lines moved between feature files (a git mv, a split) and out of the root are not growth; code moved into the
+    root (a Host file too) counts against the root's budget and gives the rest no shrink credit. MOVED (removed
+    lines of every Sources file) is not used: code moved into the App from a package is App growth.
+    """
+    app = [app_file(c) for c in changes if c.path.startswith(APP) and c.path.endswith(".swift")]
+    if not app:
+        return []
+    hits: list[Added] = []
+
+    def removed_pool(files: list[AppFile]) -> collections.Counter:
+        return collections.Counter(r.text.strip() for f in files for r in f.removed)
+
+    root_pool = removed_pool([f for f in app if f.root])
+    other_pool = removed_pool([f for f in app if not f.root])
+    host: AppFile | None = None
+    for file in app:
+        if not file.is_new:
+            continue
+        # A new root file is split from the root; code from elsewhere does not become wiring by moving.
+        moved_lines = credit_moves(file.added, [root_pool] if file.root else [other_pool, root_pool])
+        code = sum(1 for a in file.added if not IMPORT_LINE.match(a.text))
+        if moved_lines and moved_lines >= MOVE_SHARE * code:
+            continue
+        lines = len(file.added)
+        if not (HOST_FILE.match(app_rel(file.path)) and file.root):
+            why = ("only a move or the push's one Host conformance file may be added" if not file.root
+                   else "a new root file is split from the root files or is a Host conformance")
+        elif lines > HOST_FILE_MAX:
+            why = f"a Host conformance file has at most {HOST_FILE_MAX} source lines"
+        elif (problem := host_problem(file)) is not None:
+            why = f"a Host conformance file holds only one-line forwards: {problem}"
+        elif host is not None:
+            why = f"one new Host conformance file per push ({app_rel(host.path)} is this push's)"
+        else:
+            host = file
+            continue
+        number = file.added[0].number if file.added else 1
+        hits.append(NetHit(file.path, number, f"new App file, {lines} source lines ({lines - moved_lines} not "
+                           f"moved), goes to {destination(file.path)}: {why}", f"new:{file.path}", lines))
+
+    root_files = [f for f in app if f.root]
+    other_files = [f for f in app if not f.root]
+
+    def side(files: list[AppFile]) -> tuple[dict[str, list[SourceLine]], collections.Counter]:
+        """(added lines no removed line of the same side explains, per file; lines the side lost)."""
+        removed = collections.Counter(r.text.strip() for f in files for r in f.removed)
+        lost = removed - collections.Counter(a.text.strip() for f in files for a in f.added)
+        own, out = removed.copy(), {}
+        for f in files:
+            rest = []
+            for a in f.added:
+                key = a.text.strip()
+                if own[key] > 0:
+                    own[key] -= 1
+                else:
+                    rest.append(a)
+            out[f.path] = rest
+        return out, lost
+
+    # The Host file is a root file here: what it takes from feature files is moved into the root, not a shrink.
+    root_new, root_lost = side(root_files)
+    other_new, other_lost = side(other_files)
+    credited = {f.path: credit_moves(root_new[f.path], [other_lost]) for f in root_files}
+    credited.update({f.path: credit_moves(other_new[f.path], [root_lost]) for f in other_files})
+    into_root = sum(credited[f.path] for f in root_files)
+    out_of_root = sum(credited[f.path] for f in other_files)
+    new_lines = {**root_new, **other_new}
+    # A root file's moved-in lines are root growth (wiring budget), so only feature files subtract their moves.
+    fresh = {f.path: len(new_lines[f.path]) - (0 if f.root else credited[f.path]) for f in app}
+
+    def net(files: list[AppFile]) -> int:
+        return sum(len(f.added) - len(f.removed) for f in files)
+
+    def net_bytes(files: list[AppFile]) -> int:
+        """UTF-8 bytes of FILES' added source lines minus their removed ones, each with its newline."""
+        return sum(len(line.text.encode()) + 1 for f in files for line in f.added) - sum(
+            len(line.text.encode()) + 1 for f in files for line in f.removed)
+
+    def top(files: list[AppFile]) -> tuple[str, int, str]:
+        """(path, line, summary) of the files with the most added lines no move out of the root explains."""
+        grown = sorted(files, key=lambda f: (-fresh[f.path], f.path))
+        shown = ", ".join(f"{app_rel(f.path)} +{fresh[f.path]} {'added' if f.root else 'new'}" for f in grown[:3]
+                          if fresh[f.path] > 0)
+        first = grown[0]
+        lines = new_lines[first.path] or first.added
+        return first.path, lines[0].number if lines else 1, shown
+
+    # Code moved into the root counts against its wiring budget (a move does not make feature logic wiring); code
+    # moved out of it is free: neutral for the root and the rest. The push's one Host file (one-line forwards
+    # only, host_problem) is outside the budget; what it takes from feature files still gives them no credit.
+    root_net = net(root_files) + out_of_root
+    other_net = net(other_files) + into_root - out_of_root
+    wiring = root_net - (len(host.added) if host else 0)
+    total = net(app)
+    if wiring > ROOT_BUDGET:
+        path, number, shown = top([f for f in root_files if f is not host] or root_files)
+        besides = f" besides {app_rel(host.path)}'s {len(host.added)}" if host else ""
+        hits.append(NetHit(path, number, f"the composition root grows {wiring:+d} source lines{besides}, over its "
+                           f"wiring budget of +{ROOT_BUDGET} per push ({shown})", "root", wiring - ROOT_BUDGET))
+    # Growth warnings, not refusals, until the large domains are out of the App (see the values' comment above).
+    if other_net > 0:
+        path, number, shown = top(other_files)
+        hits.append(NetHit(path, number, f"App outside the root grows {other_net:+d} source lines "
+                           f"({net_bytes(other_files):+d} bytes); move the code to {destination(path)} ({shown})",
+                           "other", other_net, warn=True))
+    if total > 0:
+        path, number, shown = top(app)
+        hits.append(NetHit(path, number, f"CmuxNextApp grows {total:+d} source lines ({net_bytes(app):+d} bytes, as "
+                           f"check-app-size.sh --base counts lines): pay for it by moving as many App lines to "
+                           f"{destination(path)} ({shown})", "total", total, warn=True))
     return hits
 
 
@@ -477,7 +801,7 @@ RULES = (
     Rule("unchecked-sendable", "`@unchecked Sendable` / `nonisolated(unsafe)` without a safety argument",
          "it switches off the data-race checker; without a written argument nobody can review it",
          "an actor, a Sendable value type, or CmuxNextCompat `Mutex` around the state; when it is truly safe, "
-         "say why on the declaration: `// crash-allow: <the safety argument>` (crash_ratchet.py honors it too)",
+         "say why on the declaration: `// crash-allow: <the safety argument>` (crash_ratchet.py counts it as a waived hit: record it with crash_ratchet.py --record-waivers)",
          "// crash-allow: <the safety argument>",
          line_rule(r"@unchecked\s+Sendable\b|\bnonisolated\(unsafe\)", "crash-allow:")),
     Rule("sleep-poll", "A sleep inside a loop (polling)",
@@ -530,11 +854,23 @@ RULES = (
          None,
          line_rule(r"CMUX_BENCH_HOOKS|--config[= ]bench\b", None),
          scope=SHIPPED_BUILD + (".xcconfig", "project.pbxproj")),
-    Rule("app-big-file", f"New CmuxNextApp file over {NEW_APP_FILE_MAX} lines",
-         "the App target re-emits its whole module on every edit (check-app-size.sh) and CI refuses god files",
-         "put the feature in its own target under Packages/macOS/CmuxNext/Sources, one type per file",
+    Rule("app-size", f"CmuxNextApp's composition root grows (in source lines: the root's wiring +{ROOT_BUDGET} per "
+         f"push, moves into the root included, plus one Host file; new App files only as moves; growth of the App "
+         f"and of its feature files warns)",
+         "the App re-emits its whole module on every edit and ends as the composition root only (cmuxApp, "
+         "AppDelegate, AppServices wiring: about 5-10k lines, perf-lead.md \"Architecture targets\")",
+         f"put the logic in its domain package ({DESIGN}); the root (top-level AppDelegate, CmuxNextApp, "
+         f"AppServices(+X).swift) only constructs and passes instances, and the push that adds that wiring should "
+         f"move at least as many lines out of the App (a warning names the growth); a domain's one-line forwards "
+         f"go in one new AppServices+<Domain>Host.swift per push (<= {HOST_FILE_MAX} source lines, only "
+         "`extension AppServices: <Domain>Host { <one-line forwards> }`, no stored `let`/`var`); moves between "
+         "feature files (git mv, a split; its new import lines are growth, as check-app-size.sh counts them) and "
+         "out of the root are not growth, moves into the root count against its budget; blank and comment lines "
+         "never count",
          None,
-         big_new_app_file),
+         app_size,
+         scope=(APP,),
+         net=True),
 )
 
 
@@ -719,22 +1055,15 @@ def owner_warnings(files: list[str], owners: list[tuple[str, list[str], str, str
     return out
 
 
-def app_warnings(changes: dict[str, FileChange]) -> list[str]:
-    # Swift only, like check-app-size.sh: a string catalog or asset change does not grow the module.
-    app = {p: c for p, c in changes.items() if p.startswith(APP) and p.endswith(".swift")}
-    added = sum(len(c.added) for c in app.values())
-    removed = sum(len(c.removed) for c in app.values())
-    new_files = sorted(p for p, c in app.items() if c.is_new)
-    out = []
-    if new_files:
-        out.append(f"adds {len(new_files)} file(s) to CmuxNextApp ({new_files[0]}...): new features get their own target "
-                   "(plans/cmux-next/code-quality.md SW14); the App only shrinks")
-    if added - removed > 0:
-        out.append(f"grows CmuxNextApp by {added - removed} lines (CI's check-app-size.sh cap may refuse it)")
-    return out
-
-
 # ---------------------------------------------------------------- run
+
+def check_failure(name: str, error: Exception) -> str:
+    """The warning for a rule or warning check NAME that raised: the error and where it raised."""
+    frames = traceback.extract_tb(error.__traceback__)
+    where = f" at {Path(frames[-1].filename).name}:{frames[-1].lineno}" if frames else ""
+    return (f"{name} failed ({type(error).__name__}: {error}{where}), so it was not applied to this push "
+            "(fail open); the other rules were. Tell the Performance Lead (PL-guardrails) with this line.")
+
 
 def check(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Added]]], list[tuple[str, str]]]:
     """(refusals [(rule, hits)], warnings [(kind, text)]) for what HEAD adds over BASE."""
@@ -761,18 +1090,30 @@ def check(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Added
     moved = collections.Counter(r.text.strip() for c in files for r in c.removed if r.text.strip())
     refusals = []
     for rule in RULES:
-        hits = rule.find([f for f in files if f.path.startswith(rule.scope) or f.path.endswith(rule.scope)], moved)
+        scoped = [f for f in files if f.path.startswith(rule.scope) or f.path.endswith(rule.scope)]
+        try:
+            hits = rule.find(scoped, moved)
+        except Exception as error:  # fail open for this rule only: a bug in one rule must not switch off the rest
+            warnings.append(("guardrails", check_failure(f"rule {rule.id}", error)))
+            continue
+        warnings += [(rule.id, f"{h.path}:{h.number}: {h.text}") for h in hits if getattr(h, "warn", False)]
+        hits = [h for h in hits if not getattr(h, "warn", False)]
         if hits:
             refusals.append((rule, hits))
     try:
         benches = json.loads(texts[(head, BENCHES)]) if (head, BENCHES) in texts else {}
     except json.JSONDecodeError:
         benches = {}
-    warnings += [("perf-hot", w) for w in perf_hot_warnings(changes, benches)]
+    try:
+        warnings += [("perf-hot", w) for w in perf_hot_warnings(changes, benches)]
+    except Exception as error:  # a broken warning must not switch off the refusals above
+        warnings.append(("guardrails", check_failure("perf-hot", error)))
     if (head, OWNERS) in texts:
         names_list = [f for f in names.split("\n") if f]
-        warnings += [("owner", w) for w in owner_warnings(names_list, parse_owners(texts[(head, OWNERS)]))]
-    warnings += [("app-grow", w) for w in app_warnings(changes)]
+        try:
+            warnings += [("owner", w) for w in owner_warnings(names_list, parse_owners(texts[(head, OWNERS)]))]
+        except Exception as error:  # a broken warning must not switch off the refusals above
+            warnings.append(("guardrails", check_failure("owner", error)))
     return refusals, warnings
 
 
@@ -783,18 +1124,29 @@ def check_push(repo: Path, base: str, head: str, upstream_ref: str = UPSTREAM):
     point. CI never runs these rules, so those lines can carry debt the push did not write (a skip reason, a
     clone with old or no hooks, --no-verify). Rebased or fast-forwarded onto it (its merge base with HEAD
     descends from BASE): the range starts at that merge base. Merged it in (neither descends from the other):
-    a hit counts only when it is also new against that merge base, and the warnings are the branch's own.
+    a hit counts only when it is also new against that merge base, and the warnings are the branch's own
+    plus any rule that failed on the pushed range.
     """
     upstream = git(repo, "merge-base", head, upstream_ref, check=False).strip()
     if not upstream or upstream == base or is_ancestor(repo, upstream, base):
         return check(repo, base, head)
     if is_ancestor(repo, base, upstream):
         return check(repo, upstream, head)
-    pushed, _ = check(repo, base, head)
+    pushed, pushed_warnings = check(repo, base, head)
     branch, warnings = check(repo, upstream, head)
+    # A rule that failed on the pushed range is off for this push even when it ran on the branch's own range.
+    warnings += [w for w in pushed_warnings if w[0] == "guardrails" and w not in warnings]
     own = collections.Counter((rule.id, h.path, h.text.strip()) for rule, hits in branch for h in hits)
     refusals = []
+    branch_hits = {rule.id: hits for rule, hits in branch}
     for rule, hits in pushed:
+        if rule.net:
+            # A count has no line to intersect: a bucket refuses when it is over in both ranges, by the smaller excess.
+            mine = {h.bucket: h for h in branch_hits.get(rule.id, [])}
+            kept = [h if h.excess <= mine[h.bucket].excess else mine[h.bucket] for h in hits if h.bucket in mine]
+            if kept:
+                refusals.append((rule, kept))
+            continue
         kept = []
         for hit in hits:
             key = (rule.id, hit.path, hit.text.strip())

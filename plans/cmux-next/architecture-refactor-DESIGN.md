@@ -72,6 +72,12 @@ Settings is a repository (cmux.json load, watch, apply) plus a schema: the schem
 types go to core with DesignTokens' values, the file repository stays a service; then these edges
 are core edges.
 
+Upward (3, 2026-10-23; edges from core to a service or domain target, which the first count missed):
+WorkspaceNaming -> Bridge, WorkspaceNaming -> Daemon, AgentCursorVisibility -> AgentCursor. Core
+depends on nothing above core, so the types these targets read move down to core (or behind a core
+protocol the higher target conforms to). arch-layers.py lists them, the arch ratchet counts them
+(`layer_upward`) and the pre-push layer gate refuses a new one.
+
 ## 3. Rules every slice keeps
 
 - Behavior-preserving. A move is `git mv` (history follows) plus access changes. Moved symbols

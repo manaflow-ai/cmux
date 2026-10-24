@@ -19,6 +19,14 @@ import { installDragOut } from "./conversation/dragOut";
 import { installPageKey } from "./pageKey";
 import { installRevealSettle } from "../shared/pageReveal";
 
+// The native own-window picker runs in the page's inspector runtime. Keep its report on the
+// normal host protocol so the shared page host and the legacy WKWebView use the same validation.
+(
+  globalThis as typeof globalThis & { __cmuxUiPointerPost?: (params: Record<string, unknown>) => void }
+).__cmuxUiPointerPost = (params) => {
+  void postNative("uiPointer.report", params);
+};
+
 // One transcript snapshot per display frame, however many deltas land in it.
 AcpmuxDirectClient.scheduleFrame = nextFrame;
 document.documentElement.dataset.cmuxWebviewKind = "acpmux-agent-session";
