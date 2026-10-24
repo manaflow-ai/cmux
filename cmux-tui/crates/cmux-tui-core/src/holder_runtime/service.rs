@@ -467,6 +467,14 @@ impl HolderService {
                     service.superseded.store(true, Ordering::Release);
                     return;
                 }
+                if let LinkEnd::Fault(code) = end {
+                    // The holder still runs every terminal and counted no
+                    // crash: the next link takes them back as after a drop.
+                    eprintln!(
+                        "cmux-tui: the terminal holder could not read this daemon's link \
+                         (error code {code}); connecting again"
+                    );
+                }
                 if service.leaving.load(Ordering::Acquire) {
                     // Shutting down: the next daemon re-attaches what this
                     // one left, from this holder or (if it died) not at all.

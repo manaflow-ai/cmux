@@ -76,9 +76,12 @@ pub mod error_code {
     pub const CHAN_IN_USE: u16 = 9;
     /// Another daemon authenticated and took this link's place.
     pub const SUPERSEDED: u16 = 10;
-    /// The holder could not dup a terminal's descriptors for a new daemon
-    /// (it is out of descriptors): it refuses the HELLO and keeps the link
-    /// it has. It never sends a LISTED without the master it lists.
+    /// The holder is out of descriptors. For a HELLO: it could not dup a
+    /// terminal's descriptors for the new daemon, so it refuses the HELLO
+    /// and keeps the link it has (it never sends a LISTED without the
+    /// master it lists). On request kind [`crate::wire::STREAM_FAULT`]: it
+    /// could not take the descriptors the daemon's frame passed, and ends
+    /// that link.
     pub const NO_DESCRIPTORS: u16 = 11;
 }
 
@@ -193,14 +196,17 @@ impl Link {
     }
 }
 
-/// A link another daemon of the session took the place of. Its queued
-/// frames are dropped, as for any link that ends; the frame the socket took
-/// part of is finished, so the stream stays well formed, and ERROR
-/// SUPERSEDED follows as its last frame, whatever was queued. Its daemon
-/// then knows not to take the holder back (two daemons would take it from
-/// each other in turn). Polled for POLLOUT until it is written: at most a
-/// DATA chunk and a header, which the daemon's reader thread drains, or a
-/// write error once that daemon is gone.
+/// A link the holder ends while its daemon is still there to hear why:
+/// another daemon of the session took its place (ERROR SUPERSEDED, so it
+/// does not take the holder back: two daemons would take it from each
+/// other in turn), or its stream could not be read on (ERROR on request
+/// kind [`wire::STREAM_FAULT`]: the holder is out of descriptors, or the
+/// frames were not frames of the wire). Its queued frames are dropped, as
+/// for any link that ends; the frame the socket took part of is finished,
+/// so the stream stays well formed, and the ERROR follows as its last
+/// frame, whatever was queued. Polled for POLLOUT until it is written: at
+/// most a DATA chunk and a header, which the daemon's reader thread drains,
+/// or a write error once that daemon is gone.
 struct Retiring {
     stream: UnixStream,
     bytes: Vec<u8>,
@@ -208,17 +214,15 @@ struct Retiring {
 }
 
 impl Retiring {
-    fn new(link: Link) -> Self {
+    /// `link`'s last bytes: the rest of the frame its socket took part of,
+    /// then ERROR `code` about `request_kind` on channel 0.
+    fn new(link: Link, request_kind: u16, code: u16, message: &str) -> Self {
         let mut bytes = link
             .current
             .filter(|frame| frame.written > 0)
             .map(|frame| frame.bytes[frame.written..].to_vec())
             .unwrap_or_default();
-        let payload = Out::default()
-            .u16(Kind::Hello as u16)
-            .u16(error_code::SUPERSEDED)
-            .bytes(b"another daemon took this holder")
-            .0;
+        let payload = Out::default().u16(request_kind).u16(code).bytes(message.as_bytes()).0;
         bytes.extend_from_slice(&wire::encode(Kind::Error, 0, &payload));
         Self { stream: link.stream, bytes, written: 0 }
     }
@@ -260,6 +264,28 @@ enum LinkDrop {
     Lost,
     /// Another daemon of the session took the holder.
     Superseded,
+    /// Its stream could not be read on ([`wire::Fault`]): the daemon is
+    /// still there and hears why. No strike: it did not die parsing.
+    Faulted,
+}
+
+/// Why reading the link ends it.
+#[derive(Debug)]
+enum LinkBreak {
+    /// The socket ended or failed: the daemon is gone.
+    Lost,
+    /// The stream cannot be read on, with what went wrong.
+    Fault(wire::Fault, String),
+}
+
+impl LinkBreak {
+    /// The break an error reading the link stands for.
+    fn of(error: &io::Error) -> Self {
+        match wire::Fault::of(error) {
+            Some(fault) => Self::Fault(fault, error.to_string()),
+            None => Self::Lost,
+        }
+    }
 }
 
 /// The holder state.
@@ -516,9 +542,9 @@ impl Holder {
         }
         if let Some(index) = link_at
             && fds[index].revents & (libc::POLLIN | libc::POLLHUP | libc::POLLERR) != 0
-            && !self.read_link()
+            && let Err(why) = self.read_link()
         {
-            self.drop_link(LinkDrop::Lost);
+            self.break_link(why);
         }
         // From the back: a handled connection leaves with swap_remove,
         // which moves only connections already handled.
@@ -651,10 +677,8 @@ impl Holder {
     /// ([`Retiring`]), so it does not take the holder back.
     fn promote(&mut self, pending: Pending, version: u16, listing: Listing) {
         if let Some(old) = self.drop_link(LinkDrop::Superseded) {
-            let mut retiring = Retiring::new(old);
-            if !retiring.write() {
-                self.retiring.push(retiring);
-            }
+            let message = "another daemon took this holder";
+            self.retire(Retiring::new(old, Kind::Hello as u16, error_code::SUPERSEDED, message));
         }
         self.links += 1;
         self.link = Some(Link {
@@ -671,15 +695,45 @@ impl Holder {
         });
         self.welcome(version, listing);
         // Frames the daemon sent right behind its HELLO.
-        if !self.drain_link_frames() {
-            self.drop_link(LinkDrop::Lost);
+        if let Err(why) = self.drain_link_frames() {
+            self.break_link(why);
+        }
+    }
+
+    /// Write what a retiring link's socket takes now; poll it for the rest.
+    fn retire(&mut self, mut retiring: Retiring) {
+        if !retiring.write() {
+            self.retiring.push(retiring);
+        }
+    }
+
+    /// End the link reading it found broken. A daemon that is still there
+    /// (a [`LinkBreak::Fault`]) hears why: ERROR `NO_DESCRIPTORS` when the
+    /// holder could not take the descriptors it passed, `BAD_PAYLOAD` when
+    /// its bytes were not frames of the wire, on channel 0 with request
+    /// kind [`wire::STREAM_FAULT`], after the frame its socket had taken
+    /// part of. Only a lost link counts a strike.
+    fn break_link(&mut self, why: LinkBreak) {
+        match why {
+            LinkBreak::Lost => {
+                self.drop_link(LinkDrop::Lost);
+            }
+            LinkBreak::Fault(fault, message) => {
+                let code = match fault {
+                    wire::Fault::Descriptors => error_code::NO_DESCRIPTORS,
+                    wire::Fault::Malformed => error_code::BAD_PAYLOAD,
+                };
+                if let Some(link) = self.drop_link(LinkDrop::Faulted) {
+                    self.retire(Retiring::new(link, wire::STREAM_FAULT, code, &message));
+                }
+            }
         }
     }
 
     /// Forget the link and return it (dropping it closes it). A link that
     /// was lost counts a strike against each terminal it was streaming (the
-    /// poison pill); a DETACH before it ended, or another daemon taking the
-    /// holder, does not.
+    /// poison pill); a DETACH before it ended, another daemon taking the
+    /// holder, or a stream the holder could not read on, does not.
     fn drop_link(&mut self, why: LinkDrop) -> Option<Link> {
         let link = self.link.take()?;
         let now = Instant::now();
@@ -693,41 +747,42 @@ impl Holder {
         Some(link)
     }
 
-    /// Read and handle the link's frames. False when the link is lost.
-    fn read_link(&mut self) -> bool {
-        let Some(link) = self.link.as_mut() else { return true };
+    /// Read and handle the link's frames; an error says why the link ends.
+    fn read_link(&mut self) -> Result<(), LinkBreak> {
+        let Some(link) = self.link.as_mut() else { return Ok(()) };
         match link.reader.fill(link.stream.as_raw_fd()) {
             Ok(true) => {}
-            Ok(false) => return false,
-            Err(error) if error.kind() == io::ErrorKind::WouldBlock => return true,
-            Err(_) => return false,
+            Ok(false) => return Err(LinkBreak::Lost),
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => return Ok(()),
+            Err(error) => return Err(LinkBreak::of(&error)),
         }
         self.drain_link_frames()
     }
 
-    /// Handle every complete frame the link has buffered. False when the
-    /// link is lost.
-    fn drain_link_frames(&mut self) -> bool {
+    /// Handle every complete frame the link has buffered; an error says
+    /// why the link ends.
+    fn drain_link_frames(&mut self) -> Result<(), LinkBreak> {
         loop {
-            let Some(link) = self.link.as_mut() else { return true };
+            let Some(link) = self.link.as_mut() else { return Ok(()) };
             let frame = match link.reader.next_frame() {
                 Ok(Some(frame)) => frame,
-                Ok(None) => return true,
-                Err(_) => return false,
+                Ok(None) => return Ok(()),
+                Err(error) => return Err(LinkBreak::of(&error)),
             };
-            if !self.handle(frame) {
-                return false;
-            }
+            self.handle(frame)?;
         }
     }
 
-    /// Handle one frame from the authenticated daemon. False closes the
+    /// Handle one frame from the authenticated daemon. An error ends the
     /// link.
-    fn handle(&mut self, frame: Frame) -> bool {
+    fn handle(&mut self, frame: Frame) -> Result<(), LinkBreak> {
         let (raw_kind, chan) = (frame.kind, frame.chan);
         let result = match Kind::from_u16(raw_kind) {
             // The link authenticated once, as a pending connection.
-            Some(Kind::Hello) => return false,
+            Some(Kind::Hello) => {
+                let message = "a HELLO on an authenticated link".to_string();
+                return Err(LinkBreak::Fault(wire::Fault::Malformed, message));
+            }
             Some(Kind::Spawn) => self.spawn(frame.chan, &frame.payload),
             Some(Kind::Adopt) => self.adopt(frame),
             Some(Kind::Attach) => self.attach(frame.chan, frame.flags, &frame.payload),
@@ -761,7 +816,7 @@ impl Holder {
             let payload = Out::default().u16(raw_kind).u16(code).bytes(message.as_bytes()).0;
             self.queue(Kind::Error, chan, &payload, Vec::new());
         }
-        true
+        Ok(())
     }
 
     /// The wire version both peers speak, or the error code that refuses

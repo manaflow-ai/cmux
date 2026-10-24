@@ -85,7 +85,10 @@ pub enum Kind {
     Listed = 14,
     /// h->d: `request_kind u16, code u16`, then a UTF-8 message. Code
     /// `SUPERSEDED` on channel 0 (request kind [`Kind::Hello`]): another
-    /// daemon authenticated and took this link's place.
+    /// daemon authenticated and took this link's place. Request kind 0
+    /// ([`STREAM_FAULT`]) on channel 0: the holder could not read the
+    /// daemon's stream on ([`Fault`]; code `NO_DESCRIPTORS` or
+    /// `BAD_PAYLOAD`), and the link ends after it.
     Error = 15,
     /// both: `nonce u64`.
     Ping = 16,
@@ -159,6 +162,10 @@ pub struct Frame {
     pub payload: Vec<u8>,
     pub fds: Vec<OwnedFd>,
 }
+
+/// The request kind of an ERROR about the daemon's stream itself rather
+/// than one of its frames ([`Kind::Error`]): no kind has this value.
+pub const STREAM_FAULT: u16 = 0;
 
 /// [`Kind::Attach`] flag: send the terminal's prologue first.
 pub const FLAG_WITH_PROLOGUE: u16 = 1;
@@ -306,8 +313,8 @@ struct Arrival {
 impl Reader {
     /// Read what the socket has (one `recvmsg`). `Ok(false)` at end of
     /// stream. Descriptors the kernel had to drop (this process is out of
-    /// descriptors) are an error: the frames they belong to cannot be
-    /// served, and the link is lost.
+    /// descriptors) are a [`Fault::Descriptors`] error: the frames they
+    /// belong to cannot be served, and the stream cannot be read on.
     pub fn fill(&mut self, fd: RawFd) -> io::Result<bool> {
         if self.start > 0 {
             self.buf.drain(..self.start);
@@ -336,22 +343,22 @@ impl Reader {
     /// The next complete frame, if one is buffered, with exactly the
     /// descriptors it passed. A bad magic, an oversized length, a frame
     /// whose descriptors did not arrive with its first byte, or descriptors
-    /// no frame states are an error: the stream is lost (never a frame that
-    /// takes another frame's descriptor).
+    /// no frame states are a [`Fault::Malformed`] error: the stream cannot be
+    /// read on (never a frame that takes another frame's descriptor).
     pub fn next_frame(&mut self) -> io::Result<Option<Frame>> {
         let pending = &self.buf[self.start..];
         if pending.len() < HEADER {
             return Ok(None);
         }
         if pending[..4] != MAGIC {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "bad holder frame magic"));
+            return Err(fault(Fault::Malformed, "bad holder frame magic"));
         }
         let kind = u16::from_le_bytes([pending[4], pending[5]]);
         let flags = u16::from_le_bytes([pending[6], pending[7]]);
         let chan = u32::from_le_bytes(pending[8..12].try_into().unwrap_or_default());
         let len = u32::from_le_bytes(pending[12..16].try_into().unwrap_or_default()) as usize;
         if len > MAX_PAYLOAD {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "holder frame too large"));
+            return Err(fault(Fault::Malformed, "holder frame too large"));
         }
         if pending.len() < HEADER + len {
             return Ok(None);
@@ -376,20 +383,67 @@ impl Reader {
                 Some(arrival) if arrival.from <= frame_at && frame_at < arrival.to => {
                     fds.push(arrival.fd);
                 }
-                _ => return Err(mismatch("a link frame did not pass the descriptors it states")),
+                _ => {
+                    let message = "a link frame did not pass the descriptors it states";
+                    return Err(fault(Fault::Malformed, message));
+                }
             }
         }
         // Every frame that starts where a descriptor arrived was taken, and
         // none took it: its sender passed more than it stated.
         if self.fds.front().is_some_and(|arrival| arrival.to <= self.taken) {
-            return Err(mismatch("a link frame passed descriptors it does not state"));
+            let message = "a link frame passed descriptors it does not state";
+            return Err(fault(Fault::Malformed, message));
         }
         Ok(Some(Frame { kind, flags, chan, payload, fds }))
     }
 }
 
-fn mismatch(message: &str) -> io::Error {
-    io::Error::new(io::ErrorKind::InvalidData, message.to_string())
+/// Why a link's stream cannot be read on although the socket still works:
+/// the reader returns it inside the error ([`Fault::of`]). A peer that sees
+/// one did not lose its peer (no crash to count), and tells it why.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Fault {
+    /// This process could not take the descriptors the peer passed (it is
+    /// out of descriptors), so the kernel dropped them: macOS fails the read
+    /// with `EMFILE` and leaves the bytes, Linux delivers the descriptors
+    /// that fit and sets `MSG_CTRUNC`.
+    Descriptors,
+    /// The bytes are not frames of this wire: a bad magic, a frame too
+    /// large, or descriptors that do not match what the frames state.
+    Malformed,
+}
+
+impl Fault {
+    /// The fault a [`Reader`] error stands for; `None` for an error of the
+    /// socket itself (the link ended or broke).
+    pub fn of(error: &io::Error) -> Option<Self> {
+        error.get_ref()?.downcast_ref::<FaultError>().map(|fault| fault.fault)
+    }
+}
+
+/// The payload of a [`Fault`]'s `io::Error`.
+#[derive(Debug)]
+struct FaultError {
+    fault: Fault,
+    message: String,
+}
+
+impl std::fmt::Display for FaultError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for FaultError {}
+
+/// An `io::Error` that [`Fault::of`] reads back as `fault`.
+fn fault(fault: Fault, message: impl Into<String>) -> io::Error {
+    let kind = match fault {
+        Fault::Descriptors => io::ErrorKind::Other,
+        Fault::Malformed => io::ErrorKind::InvalidData,
+    };
+    io::Error::new(kind, FaultError { fault, message: message.into() })
 }
 
 /// Bytes of a control buffer for [`MAX_RECV_FDS`] descriptors.
@@ -476,7 +530,7 @@ fn send_flags() -> libc::c_int {
 
 /// One `recvmsg` of at most `len` bytes into `buf`, with `control` as the
 /// control buffer; descriptors that arrive are returned owned
-/// (close-on-exec). Descriptors the kernel cut off (`MSG_CTRUNC`: this
+/// (close-on-exec). Descriptors the kernel could not hand over (this
 /// process is out of descriptors) are an error.
 ///
 /// # Safety
@@ -503,8 +557,15 @@ unsafe fn recv_with_fds(
             break n as usize;
         }
         let error = io::Error::last_os_error();
-        if error.kind() != io::ErrorKind::Interrupted {
-            return Err(error);
+        match error.raw_os_error() {
+            Some(libc::EINTR) => {}
+            // macOS: no room for the descriptors that came with the bytes.
+            // It dropped them and left the bytes, which now lack them.
+            Some(libc::EMFILE | libc::ENFILE) => {
+                let message = format!("the kernel dropped descriptors the link passed: {error}");
+                return Err(fault(Fault::Descriptors, message));
+            }
+            _ => return Err(error),
         }
     };
     let mut fds = Vec::new();
@@ -526,8 +587,9 @@ unsafe fn recv_with_fds(
         }
     }
     if msg.msg_flags & libc::MSG_CTRUNC != 0 {
+        // Linux: no room for all of them (or more than one read takes).
         // The descriptors that did arrive close with `fds`.
-        return Err(mismatch("the kernel dropped descriptors the link passed"));
+        return Err(fault(Fault::Descriptors, "the kernel dropped descriptors the link passed"));
     }
     Ok((n, fds))
 }

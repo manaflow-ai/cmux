@@ -51,6 +51,12 @@ pub enum LinkEnd {
     /// Another daemon of the session authenticated and took the holder: do
     /// not take it back (two daemons would take turns forever).
     Superseded,
+    /// The holder could not read this daemon's stream on and ended the link
+    /// after telling why (the ERROR code: `NO_DESCRIPTORS` when it ran out
+    /// of descriptors, `BAD_PAYLOAD` when the bytes were not frames of the
+    /// wire). The holder still runs every terminal and counted no crash
+    /// against them: connecting again is safe.
+    Fault(u16),
 }
 
 type SpawnReply = io::Result<Spawned>;
@@ -349,6 +355,8 @@ fn read_loop(
                         && code == crate::holder::error_code::SUPERSEDED
                     {
                         ending = LinkEnd::Superseded;
+                    } else if chan == 0 && request == wire::STREAM_FAULT {
+                        ending = LinkEnd::Fault(code);
                     } else if chan != 0
                         && matches!(refused, Some(Kind::Spawn | Kind::Attach | Kind::Adopt))
                     {

@@ -120,6 +120,14 @@ processes and ~2,000 threads fewer.
   one no frame states, or one the kernel dropped (`MSG_CTRUNC`) ends the link, never a shift of
   every later terminal's master. A holder that cannot dup a terminal's descriptors refuses the
   HELLO (`NO_DESCRIPTORS`) and keeps its link instead of listing the terminal without them.
+  A daemon frame whose descriptors the holder cannot take (it is out of descriptors: macOS fails
+  the read with EMFILE and drops them, measured on macOS 27; Linux sets `MSG_CTRUNC`) or bytes
+  that are not frames end the link with ERROR `NO_DESCRIPTORS` or `BAD_PAYLOAD` on channel 0,
+  request kind 0 (`wire::STREAM_FAULT`), after the frame the socket had taken part of, and count
+  no poison strike (holder-core fix review: before, a silent close counted as a daemon crash, so
+  two reconnects that sent an ADOPT to a holder short of descriptors poisoned its terminals).
+  Tests: `cmux-holder/tests/descriptor_exhaustion.rs` (a holder under a measured low
+  `RLIMIT_NOFILE`).
 - Input: the daemon writes keystrokes to its own master dup directly (one hop less than today);
   WRITE exists for a daemon that lost its dup. The holder leaves the master non-blocking (the flag
   is shared by every dup), so the daemon's writer waits for POLLOUT on WouldBlock.
