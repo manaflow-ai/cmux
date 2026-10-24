@@ -20,6 +20,8 @@ public nonisolated struct TunableDescriptor: Sendable, Identifiable {
     /// The Swift name that holds the default (`MotionSpring.move`), for
     /// "Copy as Swift defaults". Nil uses the key.
     public let codeName: String?
+    /// This declaration's identity (``TunableToken``): copies of the descriptor share it.
+    public let token = TunableToken()
 
     public init(key: String, section: TunableSection, label: String, help: String, kind: TunableKind,
                 defaultSource: DefaultSource, codeName: String? = nil) {

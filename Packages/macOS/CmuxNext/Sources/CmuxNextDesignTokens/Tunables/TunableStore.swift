@@ -29,6 +29,11 @@ public nonisolated final class TunableStore: Observable, Sendable {
         /// a subscript argument is a new object (and, the first time, a runtime type lookup) per
         /// call, 5-10 ms cold on a read path such as a tab switch (cx-8w027.25).
         package var keyPaths: [String: KeyPath<TunableStore, Int> & Sendable] = [:]
+        /// Each registered declaration's Observation key and override, by its identity
+        /// (``TunableToken``): a read hashes a pointer, not the key string.
+        package var slots: [TunableToken: Slot] = [:]
+        /// The registered declarations of each key (normally one), whose slots a write updates.
+        package var tokensByKey: [String: [TunableToken]] = [:]
 
         package init(loading: Bool = false, overrides: [String: TunableValue] = [:], descriptors: [String: TunableDescriptor] = [:], revision: Int = 0, keyPaths: [String: KeyPath<TunableStore, Int> & Sendable] = [:]) {
             self.loading = loading
@@ -37,6 +42,12 @@ public nonisolated final class TunableStore: Observable, Sendable {
             self.revision = revision
             self.keyPaths = keyPaths
         }
+    }
+
+    /// A registered declaration's Observation key (made once) and current override.
+    package struct Slot: Sendable {
+        let keyPath: KeyPath<TunableStore, Int> & Sendable
+        var value: TunableValue?
     }
 
     private let registrar = ObservationRegistrar()
@@ -52,6 +63,8 @@ public nonisolated final class TunableStore: Observable, Sendable {
 
     /// Identity of one key for Observation (never read for its value).
     private subscript(observed key: String) -> Int { 0 }
+    /// Identity of one registered declaration for Observation (never read for its value).
+    private subscript(observedToken token: TunableToken) -> Int { 0 }
 
     /// Changes on every write; the window observes it to refresh lists.
     public var revision: Int {
@@ -70,6 +83,10 @@ public nonisolated final class TunableStore: Observable, Sendable {
             for descriptor in descriptors {
                 state.descriptors[descriptor.key] = descriptor
                 if state.keyPaths[descriptor.key] == nil { state.keyPaths[descriptor.key] = \TunableStore.[observed: descriptor.key] }
+                guard state.slots[descriptor.token] == nil else { continue }
+                state.slots[descriptor.token] = Slot(keyPath: \TunableStore.[observedToken: descriptor.token],
+                                                     value: state.overrides[descriptor.key])
+                state.tokensByKey[descriptor.key, default: []].append(descriptor.token)
             }
         }
     }
@@ -115,6 +132,16 @@ public nonisolated final class TunableStore: Observable, Sendable {
         guard active.load(ordering: .relaxed) else { return nil }
         registrar.access(self, keyPath: keyPath(key))
         return state.withLock { $0.overrides[key] }
+    }
+
+    /// The override of `descriptor`'s tunable, if any, read by its identity (``TunableToken``)
+    /// when the declaration is registered; else by its key (``override(_:)``). Registers an
+    /// Observation dependency on that tunable.
+    public func override(_ descriptor: TunableDescriptor) -> TunableValue? { // perf-hot: 0.01ms tab-switch (every tunable read: rows, tab items)
+        guard active.load(ordering: .relaxed) else { return nil }
+        guard let slot = state.withLock({ $0.slots[descriptor.token] }) else { return override(descriptor.key) }
+        registrar.access(self, keyPath: slot.keyPath)
+        return slot.value
     }
 
     /// Every override, by key.
@@ -201,11 +228,25 @@ public nonisolated final class TunableStore: Observable, Sendable {
                 state.withLock { state in
                     body(&state.overrides)
                     state.revision += 1
+                    // The slots follow the overrides (writes are rare; O(registered declarations)).
+                    for (key, tokens) in state.tokensByKey {
+                        let value = state.overrides[key]
+                        for token in tokens where state.slots[token]?.value != value { state.slots[token]?.value = value }
+                    }
                 }
             }
             return
         }
-        registrar.withMutation(of: self, keyPath: keyPath(key)) { apply(remaining.dropFirst(), body) }
+        let tokenPaths = state.withLock { state in (state.tokensByKey[key] ?? []).compactMap { state.slots[$0]?.keyPath } }
+        notify(tokenPaths[...]) {
+            registrar.withMutation(of: self, keyPath: keyPath(key)) { apply(remaining.dropFirst(), body) }
+        }
+    }
+
+    /// One observation mutation per registered declaration's key path, nested, around `body`.
+    private func notify(_ paths: ArraySlice<KeyPath<TunableStore, Int> & Sendable>, _ body: () -> Void) {
+        guard let path = paths.first else { return body() }
+        registrar.withMutation(of: self, keyPath: path) { notify(paths.dropFirst(), body) }
     }
 
     private func mutate(_ keys: [String], persist: Bool = true, _ body: (inout [String: TunableValue]) -> Void) {

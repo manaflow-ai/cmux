@@ -8,10 +8,10 @@ public import Foundation
 /// let alpha = opacity.value   // the override, else the default
 /// ```
 ///
-/// Reading is a lock and a dictionary lookup (nothing at all in builds
-/// without Debug Settings, where the store never activates), safe from any
-/// thread, and registers an Observation dependency on this one key, so a
-/// view that reads it in a tracked scope updates live.
+/// Reading is a lock and a lookup by the declaration's identity (``TunableToken``, no string
+/// hash; nothing at all in builds without Debug Settings, where the store never activates), safe
+/// from any thread, and registers an Observation dependency on this one tunable, so a view that
+/// reads it in a tracked scope updates live.
 public nonisolated struct Tunable<Value: TunableValueConvertible>: Sendable {
     public let descriptor: TunableDescriptor
     public let defaultValue: Value
@@ -28,7 +28,7 @@ public nonisolated struct Tunable<Value: TunableValueConvertible>: Sendable {
     public var override: Value? { override(in: .shared) }
 
     public func value(in store: TunableStore) -> Value { override(in: store) ?? defaultValue }
-    public func override(in store: TunableStore) -> Value? { store.override(key).flatMap(Value.init(tunableValue:)) }
+    public func override(in store: TunableStore) -> Value? { store.override(descriptor).flatMap(Value.init(tunableValue:)) }
 }
 
 /// A tunable whose default code derives (a density metric): callers pass
@@ -42,7 +42,7 @@ public nonisolated struct DerivedTunable<Value: TunableValueConvertible>: Sendab
 
     public var key: String { descriptor.key }
     public var override: Value? { override(in: .shared) }
-    public func override(in store: TunableStore) -> Value? { store.override(key).flatMap(Value.init(tunableValue:)) }
+    public func override(in store: TunableStore) -> Value? { store.override(descriptor).flatMap(Value.init(tunableValue:)) }
     /// The override, else `computed`.
     public func resolve(_ computed: Value, in store: TunableStore = .shared) -> Value { override(in: store) ?? computed }
 }
