@@ -1036,7 +1036,7 @@ agent's question from the phone".
 | `cmux.option.<i>` | question (one choice) | foreground, authenticationRequired | the app opens, Face ID, signed answer |
 | `cmux.answer` ("Answer…") | question | foreground | the app opens on the question |
 | `cmux.allow.once` | permission | foreground, authenticationRequired | the app opens, Face ID, signed allow. No Always allow beside it: as in the Feed (`phoneOptions`), acpmux refuses a lasting grant from a paired phone |
-| `cmux.allow.always` | permission with no single-use Allow | foreground, authenticationRequired | as the Feed (`phoneOptions`): the agent's own options are offered, so the app opens, Face ID, signed allow, and acpmux answers `remote.lasting_grant_refused` ("Allow for this chat on the Mac") |
+| `cmux.allow.always` | permission with no single-use Allow | foreground, authenticationRequired | as the Feed (`phoneOptions`): the agent's own options are offered, so the app opens, Face ID, signed allow, and acpmux refuses it (`remote.lasting_grant_refused`). Over the link the phone shows "Allow for this chat on the Mac"; through the mailbox the Mac's signed ack is only `refused`, so it shows "Your Mac didn't accept the reply." |
 | `cmux.deny` | permission | destructive, authenticationRequired | background, unsigned reject |
 | `cmux.reply` (text input) | completed, failed, chief | authenticationRequired | background: a prompt to the session, or a Chief message |
 | `cmux.terminal.reply` (text input) | terminal (PR B) | authenticationRequired | background: input to the terminal |
