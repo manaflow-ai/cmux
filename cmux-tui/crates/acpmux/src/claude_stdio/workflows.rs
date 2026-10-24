@@ -17,7 +17,11 @@
 //! the update sends only what changed since the last one: the run's
 //! `phases` when they change, and in `workflowAgents` each agent whose
 //! fields changed, with only those fields (`WorkflowRun::delta`). A client
-//! merges them by `index`.
+//! merges them by the workflow's `subagentSessionId` and the agent's `index`:
+//! a resumed run is a new task, so a new subagent, with the same `runId`.
+//! When the run ends, its last update carries its final usage and every
+//! agent whole (`workflowAgentsFull`), so a reader that never saw the run's
+//! start (a page of recent history) still has each agent.
 
 use super::*;
 use crate::no_panic::JsonExt;
@@ -25,8 +29,7 @@ use serde_json::Map;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-/// The largest workflow journal read for its agent counts (a run has at most
-/// 1,000 agents, two short lines each).
+/// The most of a workflow journal read at once for its agent counts.
 const JOURNAL_BYTES: u64 = 4 << 20;
 
 /// The least time between two updates of a workflow when a progress line
@@ -46,10 +49,31 @@ pub(super) struct WorkflowRun {
     agents: HashMap<u64, (Value, Map<String, Value>)>,
     /// The phases as last sent.
     phases: Vec<Value>,
-    /// The agent counts of the latest snapshot; until one came, the journal's.
+    /// The agent counts of the latest snapshot; until one came, none, and
+    /// the journal's are read (`journal`).
     counts: Option<Value>,
+    /// How far the run's journal was read, and what it counted.
+    journal: JournalTail,
     /// When the last update went out.
     sent: Option<Instant>,
+}
+
+/// What a run's `journal.jsonl` said up to `offset`: how many agents started
+/// and how many returned.
+#[derive(Debug, Default, Clone)]
+struct JournalTail {
+    offset: u64,
+    done: usize,
+    started: usize,
+}
+
+/// The agents and phases one update carries (`WorkflowRun::delta`,
+/// `WorkflowRun::whole`).
+struct Rows {
+    phases: Option<Vec<Value>>,
+    agents: Vec<Value>,
+    /// Every agent, each whole: a client replaces what it had.
+    full: bool,
 }
 
 impl Translator {
@@ -107,9 +131,14 @@ impl Translator {
     /// `subagent_progress`. A workflow's action is its current step
     /// (`<phase>: <agent>`); a subagent's is its progress summary, else its
     /// last tool. A workflow's line with no snapshot that comes within
-    /// `USAGE_EVERY` of its last update sends none.
+    /// `USAGE_EVERY` of its last update sends none. A workflow's end (its
+    /// `task_notification`, or a `task_updated` that ends it) sends its
+    /// final usage and every agent whole, before the end itself
+    /// (`subagent_task`).
     pub(super) async fn subagent_progress(&self, sub: &str, line: &Value) -> Option<Value> {
-        if sub != "task_progress" {
+        let ending =
+            sub == "task_notification" || (sub == "task_updated" && ended_status(line).is_some());
+        if sub != "task_progress" && !ending {
             return None;
         }
         let text = |key: &str| line.get(key).and_then(Value::as_str).filter(|v| !v.is_empty());
@@ -119,20 +148,27 @@ impl Translator {
         };
         let child = self.subagents.lock().await.get(&tool)?.clone();
         let snapshot = line.get("workflow_progress").and_then(Value::as_array);
-        // The journal is read only until the first snapshot gives the counts.
         let (workflow, journal, rows) = {
             let mut runs = self.workflows.lock().await;
             match runs.get_mut(&tool) {
                 Some(run) => {
                     let now = Instant::now();
-                    if snapshot.is_none() && run.sent.is_some_and(|at| now - at < USAGE_EVERY) {
+                    let usage_only = !ending && snapshot.is_none();
+                    if usage_only && run.sent.is_some_and(|at| now - at < USAGE_EVERY) {
                         return None;
                     }
                     run.sent = Some(now);
                     let rows = snapshot.map(|items| run.delta(items));
-                    let journal = run.counts.is_none().then(|| run.dir.clone()).flatten();
+                    let rows = if ending { Some(run.whole()) } else { rows };
+                    // The journal is read only until the first snapshot gives the counts.
+                    let journal = match (&run.counts, &run.dir) {
+                        (None, Some(dir)) => Some((dir.clone(), run.journal.clone())),
+                        _ => None,
+                    };
                     (Some(run.counts.clone()), journal, rows)
                 }
+                // A background agent's end is its state alone.
+                None if ending => return None,
                 None => (None, None, None),
             }
         };
@@ -148,28 +184,41 @@ impl Translator {
             }
         }
         let action = match &workflow {
+            Some(_) if ending => None,
             Some(_) => text("description"),
             None => text("summary").or(text("last_tool_name")),
         };
         if let Some(action) = action {
             update.set("action", json!(action));
         }
-        if let Some((phases, agents)) = rows {
-            if let Some(phases) = phases {
+        if let Some(rows) = rows {
+            if let Some(phases) = rows.phases {
                 update.set("phases", Value::Array(phases));
             }
-            if !agents.is_empty() {
-                update.set("workflowAgents", Value::Array(agents));
+            if !rows.agents.is_empty() {
+                update.set("workflowAgents", Value::Array(rows.agents));
+                if rows.full {
+                    update.set("workflowAgentsFull", json!(true));
+                }
             }
         }
         let counts = match (journal, workflow.flatten()) {
             (_, Some(counts)) => Some(counts),
-            // Off the stdout loop: a big run's journal is megabytes.
-            (Some(dir), None) => tokio::task::spawn_blocking(move || journal_counts(&dir))
-                .await
-                .ok()
-                .flatten()
-                .map(|(done, started)| json!({"done": done, "started": started})),
+            // Off the stdout loop, and only what was written since the last read.
+            (Some((dir, tail)), None) => {
+                let read =
+                    tokio::task::spawn_blocking(move || tail.read(&dir)).await.ok().flatten();
+                match read {
+                    Some(tail) => {
+                        let counts = json!({"done": tail.done, "started": tail.started});
+                        if let Some(run) = self.workflows.lock().await.get_mut(&tool) {
+                            run.journal = tail;
+                        }
+                        Some(counts)
+                    }
+                    None => None,
+                }
+            }
             (None, None) => None,
         };
         if let Some(counts) = counts {
@@ -208,8 +257,9 @@ impl WorkflowRun {
     /// the phases (`{index, title}`) when they changed, and each agent whose
     /// fields changed as its `index` and those fields (one it no longer has
     /// as null). Takes the snapshot's agent counts too: `done` and `started`
-    /// as the journal counts them, with `failed` and `queued` when any.
-    fn delta(&mut self, items: &[Value]) -> (Option<Vec<Value>>, Vec<Value>) {
+    /// as the journal counts them (an agent that failed before it started did
+    /// not start), with `failed` and `queued` when any.
+    fn delta(&mut self, items: &[Value]) -> Rows {
         let (mut phases, mut agents) = (Vec::new(), Vec::new());
         let (mut done, mut failed, mut started, mut queued) = (0, 0, 0, 0);
         for item in items {
@@ -239,16 +289,18 @@ impl WorkflowRun {
                         *seen = item.clone();
                         *sent = fields;
                     }
-                    match sent.get("state").and_then(Value::as_str) {
+                    let state = sent.get("state").and_then(Value::as_str);
+                    let began = sent.contains_key("startedAt")
+                        || matches!(state, Some("running" | "completed"));
+                    match state {
                         Some("queued") => queued += 1,
-                        state => {
-                            started += 1;
-                            match state {
-                                Some("completed") => done += 1,
-                                Some("failed" | "skipped" | "blocked") => failed += 1,
-                                _ => {}
-                            }
-                        }
+                        _ if began => started += 1,
+                        _ => {}
+                    }
+                    match state {
+                        Some("completed") => done += 1,
+                        Some("failed" | "skipped" | "blocked") => failed += 1,
+                        _ => {}
                     }
                 }
                 _ => {}
@@ -267,13 +319,31 @@ impl WorkflowRun {
             counts.set("queued", json!(queued));
         }
         self.counts = Some(counts);
-        (phases, agents)
+        Rows { phases, agents, full: false }
+    }
+
+    /// Every agent as last sent, each whole, and the phases: a run's last
+    /// update, for a reader that has not seen it from its start.
+    fn whole(&self) -> Rows {
+        let mut agents: Vec<(u64, Value)> = self
+            .agents
+            .iter()
+            .map(|(index, (_, sent))| {
+                let mut fields = sent.clone();
+                fields.insert("index".into(), json!(index));
+                (*index, Value::Object(fields))
+            })
+            .collect();
+        agents.sort_by_key(|(index, _)| *index);
+        let phases = (!self.phases.is_empty()).then(|| self.phases.clone());
+        Rows { phases, agents: agents.into_iter().map(|(_, agent)| agent).collect(), full: true }
     }
 }
 
 /// One `workflow_agent` item as the fields acpmux sends: Claude's names as
 /// the subagent model's (`subagents.rs`), its state one of `queued`,
-/// `running`, `completed`, `failed`, `skipped` or `blocked`, and its prompt,
+/// `running`, `completed`, `failed`, `skipped` or `blocked` (or Claude's own
+/// word for a state it adds later), and its prompt,
 /// result, error and action as previews (`preview`). `tokens` is what its
 /// latest request held, as Claude Code's board counts it, not its spend.
 fn agent_fields(item: &Value) -> Map<String, Value> {
@@ -287,8 +357,14 @@ fn agent_fields(item: &Value) -> Map<String, Value> {
         Some("error") if flag("skipped") => "skipped",
         Some("error") if flag("blocked") => "blocked",
         Some("error") => "failed",
-        _ if n("queuedAt").is_some() && n("startedAt").is_none() => "queued",
-        _ => "running",
+        Some("start" | "progress") | None
+            if n("queuedAt").is_some() && n("startedAt").is_none() =>
+        {
+            "queued"
+        }
+        Some("start" | "progress") | None => "running",
+        // A state this acpmux does not know, as Claude names it: never a guess.
+        Some(other) => other,
     };
     let mut out = Map::new();
     out.insert("state".into(), json!(state));
@@ -358,30 +434,75 @@ pub(super) fn stop_reply(acp: &str, ok: bool, resp: &Value) -> Message {
     Message::err(id, RpcError::internal(why))
 }
 
-/// How many of a workflow run's agents returned and how many started, from
-/// the `journal.jsonl` in its transcript dir.
-fn journal_counts(dir: &Path) -> Option<(usize, usize)> {
-    use std::io::Read;
-    let mut bytes = Vec::new();
-    std::fs::File::open(dir.join("journal.jsonl"))
-        .ok()?
-        .take(JOURNAL_BYTES)
-        .read_to_end(&mut bytes)
-        .ok()?;
-    // A cut at the limit may split a character; the lines before it still count.
-    let text = String::from_utf8_lossy(&bytes);
-    let (mut done, mut started) = (0, 0);
-    for line in text.lines() {
-        match serde_json::from_str::<Value>(line)
-            .ok()
-            .as_ref()
-            .and_then(|v| v.get("type"))
-            .and_then(Value::as_str)
-        {
-            Some("started") => started += 1,
-            Some("result") => done += 1,
-            _ => {}
+/// The status a `task_updated` line ends its task with (`patch.status`
+/// `completed`, `failed`, `killed` or `paused`), if it ends it.
+pub(super) fn ended_status(line: &Value) -> Option<&str> {
+    line.pointer("/patch/status")
+        .and_then(Value::as_str)
+        .filter(|status| matches!(*status, "completed" | "failed" | "killed" | "paused"))
+}
+
+impl JournalTail {
+    /// The counts with the journal lines written since `offset` added: whole
+    /// lines only (one still being written is read next time), at most
+    /// `JOURNAL_BYTES` a read, so a big run's journal is read once in all.
+    fn read(mut self, dir: &Path) -> Option<Self> {
+        use std::io::{Read, Seek, SeekFrom};
+        let mut file = std::fs::File::open(dir.join("journal.jsonl")).ok()?;
+        file.seek(SeekFrom::Start(self.offset)).ok()?;
+        let mut bytes = Vec::new();
+        file.take(JOURNAL_BYTES).read_to_end(&mut bytes).ok()?;
+        let whole = match bytes.iter().rposition(|b| *b == b'\n') {
+            Some(end) => end + 1,
+            // One line longer than a read: skip it rather than stall on it.
+            None if bytes.len() as u64 == JOURNAL_BYTES => bytes.len(),
+            None => 0,
+        };
+        bytes.truncate(whole);
+        for line in bytes.split(|b| *b == b'\n') {
+            match serde_json::from_slice::<Value>(line)
+                .ok()
+                .as_ref()
+                .and_then(|v| v.get("type"))
+                .and_then(Value::as_str)
+            {
+                Some("started") => self.started += 1,
+                Some("result") => self.done += 1,
+                _ => {}
+            }
         }
+        self.offset += whole as u64;
+        Some(self)
     }
-    Some((done, started))
+}
+
+#[cfg(test)]
+mod journal_tests {
+    use super::*;
+    use std::io::Write;
+
+    /// The journal is read from where the last read stopped, whole lines only.
+    #[test]
+    fn the_journal_is_read_once_in_all() {
+        let dir = std::env::temp_dir().join(format!("acpmux-wf-tail-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("journal.jsonl");
+        std::fs::write(
+            &path,
+            "{\"type\":\"launched\"}\n{\"type\":\"started\"}\n{\"type\":\"started\"}\n",
+        )
+        .unwrap();
+        let tail = JournalTail::default().read(&dir).unwrap();
+        assert_eq!((tail.started, tail.done), (2, 0));
+        // A line still being written is left for the next read.
+        let mut file = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+        file.write_all(b"{\"type\":\"result\"}\n{\"type\":\"res").unwrap();
+        let tail = tail.read(&dir).unwrap();
+        assert_eq!((tail.started, tail.done), (2, 1));
+        file.write_all(b"ult\"}\n").unwrap();
+        let tail = tail.read(&dir).unwrap();
+        assert_eq!((tail.started, tail.done), (2, 2));
+        assert_eq!(tail.offset, std::fs::metadata(&path).unwrap().len());
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }
