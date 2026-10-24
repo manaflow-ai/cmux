@@ -1,8 +1,10 @@
 import AppKit
 import CmuxNextControl
+import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
+import WebKit
 
 // `debug.page` (DEBUG builds): the generic page verb for every React page
 // (plans/cmux-next/react-pages.md), from the Settings lead's `debug.settings_web`.
@@ -12,11 +14,23 @@ import Foundation
 // showed), the one in the key window first, else the newest. `action`:
 // - `list`: every live page of the id: instance, parked, window number, claim outcome;
 // - `state` (default): page id, URL fragment, language, visible text, control count, computed
-//   html/body backgrounds (the one-backdrop check), `painted` (the document's first frame, with
+//   html/body backgrounds (the one-backdrop check), `render_rate` (WebKit's live preference:
+//   `full`, `near60`, or `unknown` when this WebKit has no such feature; `chromium` names the
+//   engine only, its rate is not read), `display_fps`, `low_power_mode` (macOS's own: WebKit
+//   halves a page's rate in it by itself; `debug.low_power_mode` does not reach it), `painted` (the document's first frame, with
 //   `painted_uptime` in host systemUptime seconds and `painted_ms` on the page clock), `instance`,
 //   `parked`, `window_number` and `claim` (how a pooled host took its last claim: `path`
 //   acknowledged / refused / timedOut / loaded, `ms`) and `in_flight` (the page's calls still
 //   running: id, op, age_ms);
+// - `frames` (`window_ms` default 1000, at most 1500; `scroll_px`, default 0; `selector`?): the
+//   page's own requestAnimationFrame intervals over the window (`PageFrameCadence`: frames,
+//   observed_fps, p50/p95/max_ms, long_frames over 1.5 refreshes (null without display_fps),
+//   intervals_ms, scrolled_px), with `engine`, `render_rate`, `display_fps` and `low_power_mode`,
+//   so one reply says whether a cadence number is valid (scripts/cmux-next/bench-page-cadence.py:
+//   engine webkit on a display above 60 Hz). `scroll_px` > 0 scrolls the element matching
+//   `selector` (default the document's scroller) that far each frame, and `scrolled_px` says how
+//   far it really moved (0: that element does not scroll, as Settings' document does not; its
+//   scroller is `.content`). An invalid selector, or one that matches nothing, is an error;
 // - `snapshot` (`path`, default /tmp/cmux-page-<id>.png): the page as WebKit rendered it;
 // - `command` (`command`, `text`): a dispatcher command (`find`, `focusSearch`, `back`, `forward`,
 //   `reset`) on the page's command stream, as the key dispatcher sends it;
@@ -79,9 +93,25 @@ enum DebugPages {
                 members["window_visible"] = .bool(page.window?.isVisible ?? false)
                 members["window_occluded"] = .bool(!(page.window?.occlusionState.contains(.visible) ?? false))
                 members["frame"] = .string("\(Int(page.frame.width))x\(Int(page.frame.height))")
+                members.merge(rate(page)) { _, new in new }
                 state = .object(members)
             }
             return state
+        case "frames":
+            let cadence: PageFrameCadence
+            do throws(PageFrameCadence.ProbeError) {
+                cadence = try await page.debugFrameCadence(windowMs: params["window_ms"]?.doubleValue ?? 1000,
+                                                           scrollPixels: params["scroll_px"]?.doubleValue ?? 0,
+                                                           selector: params["selector"]?.stringValue,
+                                                           displayFPS: displayFPS(page))
+            } catch {
+                return ["error": .string(error.message)]
+            }
+            guard case .object(var members) = cadence.json else { return ["error": "page not loaded"] }
+            members["engine"] = .string(page.showsChromium ? "chromium" : "webkit")
+            members.merge(rate(page)) { _, new in new }
+            members.merge(identity(page)) { _, new in new }
+            return .object(members)
         case "snapshot":
             let path = params["path"]?.stringValue ?? "/tmp/cmux-page-\(page.pageID).png"
             let written = await page.debugSnapshot(to: URL(fileURLWithPath: path))
@@ -116,6 +146,31 @@ enum DebugPages {
         default:
             return ["error": "unknown action"]
         }
+    }
+
+    /// How fast the page renders, read live: `render_rate` (`full` or `near60` from WebKit's
+    /// PreferPageRenderingUpdatesNear60FPSEnabled, `unknown` for a WebKit without that feature,
+    /// `chromium` for a Chromium page: this names the engine and reads no rate), `display_fps`
+    /// (the highest rate of the page's display, null without a window) and `low_power_mode`
+    /// (macOS's, which WebKit's own throttling follows: half the rate while it is on).
+    @MainActor
+    private static func rate(_ page: PageWebView) -> [String: JSONValue] {
+        let renderRate: String
+        if page.showsChromium {
+            renderRate = "chromium"
+        } else if let near60 = page.webKitView.configuration.preferences.isWebKitFeatureEnabled(WebKitRenderRate.near60FPSFeature) {
+            renderRate = near60 ? "near60" : "full"
+        } else {
+            renderRate = "unknown"
+        }
+        return ["render_rate": .string(renderRate), "display_fps": displayFPS(page).map { .number($0) } ?? .null,
+                "low_power_mode": .bool(ProcessInfo.processInfo.isLowPowerModeEnabled)]
+    }
+
+    /// The highest rate of the display the page is on; nil without a window.
+    @MainActor
+    private static func displayFPS(_ page: PageWebView) -> Double? {
+        page.window?.screen.map { Double($0.maximumFramesPerSecond) }
     }
 
     /// Which live view a probe read.
