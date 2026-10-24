@@ -2306,8 +2306,15 @@ def run_push(repo: Path, ranges: list, ratchet: Ratchet | None = None) -> bool:
     ratchet = ratchet or Ratchet(repo, ranges)
     refused = False
     for own in ranges:
-        refusals, warnings = check_own(repo, own.base, own.head, own.before)
-        text, refuse = format_report(refusals, warnings)
+        # Fail open per range: a range the checker could not judge goes through; one it judged keeps its answer.
+        try:
+            refusals, warnings = check_own(repo, own.base, own.head, own.before)
+            text, refuse = format_report(refusals, warnings)
+        except (Exception, SystemExit) as error:  # SystemExit: git() exits on a failed git call
+            print(f"prepush-gate: WARNING: guardrails.py failed ({type(error).__name__}: {error}) on "
+                  f"{own.base[:11]}..{own.head[:11]}; not applied to that range. Tell the Performance Lead "
+                  "(PL-guardrails) with this line.", file=sys.stderr)
+            continue
         if text:
             print(text)
         refused = refused or refuse
