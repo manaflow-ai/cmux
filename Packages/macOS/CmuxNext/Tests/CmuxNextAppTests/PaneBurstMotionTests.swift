@@ -69,4 +69,30 @@ import Testing
         #expect(frame.rect == shown, "the resize moved a springing pane in its turn: \(shown) -> \(frame.rect)")
         #expect(screen.hasMotion, "the resize snapped the spring to its end")
     }
+
+    /// M3 (PL-burst): a divider drag starting while a close springs elsewhere snaps only the frames the drag moves;
+    /// the close keeps springing.
+    @Test func aDragStartLeavesOtherSpringsRunning() async throws {
+        // Column 0 has two rows (split s0-0); columns 1-3 one each.
+        func screens(without closed: Set<Int>) -> [LayoutScreen] {
+            let kept = (0..<4).filter { !closed.contains($0) }
+            let columns = kept.map { PaneMotionBench.column($0, rows: $0 == 0 ? 2 : 1, width: 1.0 / Double(kept.count)) }
+            return [LayoutScreen(id: "s", name: "s", layout: .columns(columns))]
+        }
+        let harness = PaneMotionBench.Harness(screens(without: []), focused: PaneID("p0-0"))
+        _ = await harness.frame()
+        let screen = try #require(harness.root.screenViews.values.first)
+        harness.model.apply(screens: screens(without: [2]))
+        harness.root.syncWithModel()
+        for _ in 0..<4 { _ = harness.root.advanceFrame(PaneMotionBench.frameBudget) }
+        #expect(try #require(screen.paneFrames[PaneID("p3-0")]).rect != screen.paneFrames[PaneID("p3-0")]?.targetRect)
+        harness.model.setGestureActive(true)
+        harness.model.setSplitRatio(SplitID("s0-0"), ratio: 0.3, transaction: .make(), phase: .changed)
+        harness.root.syncWithModel()
+        let closing = try #require(screen.paneFrames[PaneID("p3-0")])
+        #expect(closing.rect != closing.targetRect, "the drag's start snapped the close in another column to its end")
+        let dragged = try #require(screen.paneFrames[PaneID("p0-0")])
+        #expect(dragged.rect == dragged.targetRect, "the dragged pane does not follow the pointer at once")
+        harness.model.setGestureActive(false)
+    }
 }
