@@ -44,6 +44,10 @@ class FakeApp:
             if self.takes_focus:
                 self.focus = {"workspace": workspace["id"], "pane": pane["id"]}
             return {}
+        if action == "goToWorkspace":
+            workspace = next(w for w in self.workspaces if w["id"] == params["args"]["workspace"])
+            self.focus = {"workspace": workspace["id"], "pane": None}  # shown, but no pane takes focus
+            return {}
         if action == "pane.focus" and target.startswith("pane:"):
             pane_id = target[len("pane:"):]
             owner = next(w for w in self.workspaces for p in w["screens"][0]["panes"] if p["id"] == pane_id)
