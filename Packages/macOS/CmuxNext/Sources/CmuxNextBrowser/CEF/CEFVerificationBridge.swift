@@ -5,10 +5,12 @@ import os
 /// DevTools protocol like `CEFMediaBridge`: the detector runs in its own isolated world on every
 /// new document and calls that world's `cmuxVerify` binding; the call arrives as a
 /// `Runtime.bindingCalled` event (`CEFAgentRelay.deliver` hands it here). A report emits
-/// `.verificationPageWaiting`. The binding is added again when a document commits, as the
-/// media bridge does, since a binding reaches only worlds that exist when it is added. After
-/// each add the bridge calls the detector's ready hook in the existing worlds, so a page found
-/// waiting before its binding existed reports then, with no timer in the page.
+/// `.verificationPageWaiting`. The binding is added again when a document commits and when it
+/// finishes, as the media bridge does, since a binding reaches only worlds that exist when it is
+/// added. Once per document, at `.finished` (after the detector's first check at
+/// DOMContentLoaded), the bridge also calls the detector's ready hook in the existing worlds, so
+/// a page found waiting before its binding existed reports then, with no timer in the page; a
+/// page that shows later reports at its next show.
 final class CEFVerificationBridge {
     /// Weak: the tab owns the relay that owns this bridge.
     private weak var tab: CEFTab?
@@ -39,7 +41,6 @@ final class CEFVerificationBridge {
             ("Page.enable", [:]),
             ("Page.addScriptToEvaluateOnNewDocument", ["source": detector, "worldName": VerificationPageScripts.world, "runImmediately": true]),
             Self.binding,
-            Self.readyCall(),
         ], browser, tab: tab)
         observation = ObservationLoop { [weak self] in self?.documentChanged() }
     }
@@ -54,9 +55,10 @@ final class CEFVerificationBridge {
         run(Self.documentCalls(phase: state.phase), browser, tab: tab)
     }
 
-    /// The DevTools calls for a document that reached `phase`.
+    /// The DevTools calls for a document that reached `phase`: the binding each time, the ready
+    /// call (two round trips) only once the document finished.
     static func documentCalls(phase: BrowserLoadPhase) -> [(String, [String: Any])] {
-        [binding, readyCall()]
+        phase == .finished ? [binding, readyCall()] : [binding]
     }
 
     private func run(_ calls: [(String, [String: Any])], _ browser: Int32, tab: CEFTab) {
