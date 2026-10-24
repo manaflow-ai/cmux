@@ -36,14 +36,15 @@ public struct ChiefSettingsView: View {
     @State private var receipts: Bool
     /// The window's top safe inset (the status bar): Messages' avatar top.
     @State private var windowSafeTop: CGFloat = Self.lastWindowSafeTop
-    /// The header row's top at rest, in the window: where the list put it.
+    /// The header row's top at rest, in the window (the list runs under the
+    /// bar, so this is near the screen's top); -1 until measured.
     @State private var restRowTop: CGFloat = Self.lastRestRowTop
     /// How far the cards are scrolled from rest.
     @State private var scrolled: CGFloat = 0
 
     // Kept across pushes so the next push lays out at once, without a jump.
     @MainActor private static var lastWindowSafeTop: CGFloat = 0
-    @MainActor private static var lastRestRowTop: CGFloat = 0
+    @MainActor private static var lastRestRowTop: CGFloat = -1
 
     public init(session: ChiefSession, onMessage: (() -> Void)? = nil) {
         self.session = session
@@ -72,6 +73,12 @@ public struct ChiefSettingsView: View {
         }
         .listSectionSpacing(ChiefInfoGeometry.sectionGap)
         .scrollContentBackground(.hidden)
+        // Messages' details: the bar floats over the content, and the avatar
+        // sits in the bar's row. The list starts under the bar, so the header
+        // is never clipped to its row.
+        .ignoresSafeArea(.container, edges: .top)
+        // Links and actions in system blue, as Messages' rows; switches green.
+        .tint(Color(uiColor: .systemBlue))
         .background { ChiefInfoBackdrop() }
         .background { WindowSafeTopReader { windowSafeTop = $0; Self.lastWindowSafeTop = $0 } }
         .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y + $0.contentInsets.top } action: { _, now in
@@ -113,11 +120,11 @@ public struct ChiefSettingsView: View {
 
     // MARK: Sections
 
-    /// How far the header reaches up out of its row: from the row's resting
-    /// top to the status bar's bottom, where Messages' avatar starts.
-    private var pull: CGFloat {
-        guard windowSafeTop > 0, restRowTop > 0 else { return 0 }
-        return max(0, restRowTop - windowSafeTop)
+    /// The header's top padding: from the row's resting top down to the
+    /// status bar's bottom, where Messages' avatar starts.
+    private var headerTop: CGFloat {
+        guard windowSafeTop > 0, restRowTop >= 0 else { return windowSafeTop }
+        return max(0, windowSafeTop - restRowTop)
     }
 
     private var header: some View {
@@ -145,22 +152,23 @@ public struct ChiefSettingsView: View {
                     .padding(.top, ChiefInfoGeometry.quickActionsBelowTitle)
             }
             .padding(.horizontal, 16)
+            .padding(.bottom, ChiefInfoGeometry.sectionGap)
             .frame(maxWidth: .infinity)
-            .padding(.top, -pull)
+            .padding(.top, headerTop)
             .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { top in
-                // Measured on the row's own frame (outside the pull), so the
-                // pull does not move what it is measured from.
-                // Only at rest: while scrolling, this and the scroll offset
-                // may arrive in either order within a frame.
-                guard abs(scrolled) < 0.5 else { return }
-                let rest = top
-                guard rest > 0, abs(rest - restRowTop) > 0.5 else { return }
-                restRowTop = rest
-                Self.lastRestRowTop = rest
+                // The row's own frame: the padding is inside it, so it does
+                // not move what it is measured from. Only at rest: while
+                // scrolling, this and the scroll offset may arrive in either
+                // order within a frame.
+                guard abs(scrolled) < 0.5, top >= 0, abs(top - restRowTop) > 0.5 else { return }
+                restRowTop = top
+                Self.lastRestRowTop = top
             }
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
         }
+        // The header's own bottom padding is Messages' 20 pt to the first card.
+        .listSectionSpacing(0)
     }
 
     /// Messages' call / video / mail circles, with Chief's own real actions:
@@ -297,12 +305,14 @@ public struct ChiefSettingsView: View {
     private var notificationsSection: some View {
         Section {
             Toggle("Hide Alerts", isOn: $muted)
+                .tint(Color(uiColor: .systemGreen))
                 .accessibilityIdentifier("chief.settings.hideAlerts")
                 .onChange(of: muted) { _, on in
                     guard on != session.isMuted else { return }
                     session.setMuted(on) { withAnimation { muted = !on } }
                 }
             Toggle("Send Read Receipts", isOn: $receipts)
+                .tint(Color(uiColor: .systemGreen))
                 .accessibilityIdentifier("chief.settings.readReceipts")
                 .onChange(of: receipts) { _, on in
                     guard on != session.sendsReadReceipts else { return }
@@ -556,7 +566,10 @@ struct ChiefQuickAction: View {
 }
 
 /// Reports the window's top safe inset (the status bar), which a pushed
-/// page's own safe area hides under the navigation bar.
+/// page's own safe area hides under the navigation bar, and keeps the back
+/// swipe on: SwiftUI turns the stack's pop gestures off while the screen
+/// under this one (the Chief conversation) hides the bar, and does not
+/// always turn them on again for a page pushed over it.
 struct WindowSafeTopReader: UIViewRepresentable {
     let report: (CGFloat) -> Void
 
@@ -576,11 +589,26 @@ struct WindowSafeTopReader: UIViewRepresentable {
         override func didMoveToWindow() {
             super.didMoveToWindow()
             send()
+            enableBackSwipe()
         }
 
         override func safeAreaInsetsDidChange() {
             super.safeAreaInsetsDidChange()
             send()
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            enableBackSwipe()
+        }
+
+        private func enableBackSwipe() {
+            var responder: UIResponder? = self
+            while let next = responder?.next, !(next is UIViewController) { responder = next }
+            guard let navigation = (responder?.next as? UIViewController)?.navigationController,
+                  navigation.viewControllers.count > 1 else { return }
+            navigation.interactivePopGestureRecognizer?.isEnabled = true
+            if #available(iOS 26.0, *) { navigation.interactiveContentPopGestureRecognizer?.isEnabled = true }
         }
 
         private func send() {

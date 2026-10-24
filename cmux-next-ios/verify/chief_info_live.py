@@ -29,6 +29,7 @@ import datetime
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -217,10 +218,14 @@ def main():  # noqa: C901 - one live scenario
             # The controls still act (the new page only).
             hide = sim.find(ident="chief.settings.hideAlerts")
             if hide:
+                # The switch itself (a tap on the row's label does not toggle, as in Settings).
+                def flip():
+                    x, y, w, h = sim.find(ident="chief.settings.hideAlerts")[0].frame
+                    sim.tap(x + w - 36, y + h / 2); time.sleep(1.5)
                 before = hide[0].value
-                sim.tap_el(hide[0]); time.sleep(1.5)
+                flip()
                 after = sim.find(ident="chief.settings.hideAlerts")[0].value
-                sim.tap_el(sim.find(ident="chief.settings.hideAlerts")[0]); time.sleep(1.5)
+                flip()
                 restored = sim.find(ident="chief.settings.hideAlerts")[0].value
                 result["checks"]["hide_alerts_toggles"] = {"before": before, "after": after, "restored": restored,
                                                            "pass": before != after and before == restored}
@@ -235,6 +240,10 @@ def main():  # noqa: C901 - one live scenario
             # The edge swipe pops back to the conversation.
             sim.drag(2, 450, 330, 450, 0.5, 30, 0.1); time.sleep(1.5)
             result["checks"]["edge_swipe_pops"] = bool(sim.find(ident="conversation.transcript")) and not sim.find(ident="chief.settings")
+            sim.shot(f"{a.label}-after-swipe")
+            if sim.find(ident="chief.settings"):
+                close_info(sim)
+                result["checks"]["back_button_pops"] = bool(sim.find(ident="conversation.transcript")) and not sim.find(ident="chief.settings")
             open_info(sim)
             sim.tap_q(ident="chief.settings.message"); time.sleep(2.0)
             result["checks"]["message_returns_with_keyboard"] = bool(sim.find(ident="conversation.transcript")) and bool(sim.keyboard())
@@ -243,8 +252,13 @@ def main():  # noqa: C901 - one live scenario
             open_info(sim)
             log(f"checks: {json.dumps(result['checks'])}")
 
-        # Disconnected: the rig Mac quits with the page open.
-        mac.quit()
+        # Disconnected: the rig Mac quits with the page open. A graceful
+        # terminate can miss an app LaunchServices does not list for this
+        # session; then the rig's own app and host get SIGTERM.
+        if not mac.quit():
+            for pid in mac.main_pids() + mac.hostd_pids():
+                os.kill(pid, signal.SIGTERM)
+        log(f"rig Mac running after quit: {bool(mac.main_pids())}, host: {bool(mac.hostd_pids())}")
         text, took = wait_disconnected(sim)
         log(f"rig Mac quit; page says {text!r} after {took:.1f} s")
         result["disconnected_after_s"] = round(took, 1)
@@ -253,7 +267,9 @@ def main():  # noqa: C901 - one live scenario
     finally:
         appearance(udid, "light")
         try:
-            mac.quit()
+            if not mac.quit():
+                for pid in mac.main_pids() + mac.hostd_pids():
+                    os.kill(pid, signal.SIGTERM)
         except Exception as e:  # noqa: BLE001
             log(f"quit: {e}")
         json.dump(result, open(os.path.join(out, "results.json"), "w"), indent=2)
