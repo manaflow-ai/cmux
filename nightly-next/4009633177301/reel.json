@@ -1,0 +1,131 @@
+{
+  "version": 1,
+  "build": "4009633177301",
+  "notes": "notes/4009633177301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 24875,
+      "title": "perf(cmux-next): index terminal resource tab lookups",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24808,
+      "title": "cmux NEXT: Cmd-P follows sidebar workspace selection",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24807,
+      "title": "fix: keep Cmd-F arrow keys in the find field",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/24807/6f5e0b41/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "6f5e0b41",
+      "tour": "core"
+    },
+    {
+      "pr": 24871,
+      "title": "cmux-next: expose local session file metadata",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24911,
+      "title": "fix(next): validate xcstrings schema version",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24789,
+      "title": "acpmux: a Claude workflow's phases and agents from its progress snapshots",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24907,
+      "title": "feat(agent-chat): render and fold agent messages",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24895,
+      "title": "feat(next palette): expose focused chat menu actions",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24583,
+      "title": "fast gates: read vp lint's warnings-first summary as run noise, not a finding",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24904,
+      "title": "fix(acpmux): collapse inventory watcher condition",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24894,
+      "title": "feat(next palette): expose agent model and mode actions",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24893,
+      "title": "feat(next palette): expose focused agent turn actions",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24899,
+      "title": "fix(web): gate inline media hover previews",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24902,
+      "title": "fix(chat): align fresh reply fades with host motion",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23745,
+      "title": "cmux NEXT composer: focus is a slightly brighter hairline, no focus rings in the agent pane",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24896,
+      "title": "cmux NEXT composer: click outside releases focus",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24811,
+      "title": "fix(acpmux): surface outbound queue gaps (#21000)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24815,
+      "title": "ci: print a failed run script phase's own output in xcodebuild failures",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24897,
+      "title": "cmux NEXT: keep outside agent links reopenable",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/24897/50a6190c/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "50a6190c",
+      "tour": "core"
+    }
+  ]
+}
