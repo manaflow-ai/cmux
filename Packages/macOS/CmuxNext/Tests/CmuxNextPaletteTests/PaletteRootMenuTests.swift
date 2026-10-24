@@ -1,0 +1,89 @@
+import CmuxNextActions
+@testable import CmuxNextPalette
+import Foundation
+import Testing
+
+@MainActor
+struct PaletteRootMenuTests {
+    private func catalogProvider() throws -> RegistryPaletteProvider {
+        let registry = ActionRegistry.standard()
+        // Exercise the complete catalog rather than one pane's available subset.
+        for descriptor in registry.descriptors {
+            registry.context.formUnion(descriptor.requires)
+            registry.bind(descriptor.id) {}
+        }
+        let palette = PaletteController(registry: registry, sources: PaletteSources(), frecencyPersistence: nil)
+        return try #require(palette.commandsPage().providers.first as? RegistryPaletteProvider)
+    }
+
+    @Test func emptyRootHasABoundedSetOfUsefulIntents() throws {
+        let items = try catalogProvider().makeItems()
+        let visible = items.filter { !$0.hidesWhenQueryEmpty }
+        #expect(visible.count == 138)
+        #expect(RegistryPaletteProvider.rootIntentIDs.count == 130)
+        let actions = Set(visible.compactMap(\.actionID))
+        for id: ActionID in ["newTab", "newTab.default", "newSurface", "closeTab", "renameTab", "splitRight", "openSettings"] {
+            #expect(actions.contains(id), "\(id) remains a direct root intent")
+        }
+        #expect(visible.filter { $0.id.hasPrefix("rootFamily:") }.count == 8)
+    }
+
+    @Test func rootFamilyPagesShowTheirMembersOnEmptyQuery() throws {
+        let items = try catalogProvider().makeItems()
+        for familyID in ["rootFamily:workspace", "rootFamily:tab", "rootFamily:terminal"] {
+            let row = try #require(items.first { $0.id == familyID })
+            guard case .push(let page) = row.primary.effect.resolved() else {
+                Issue.record("\(familyID) does not open a page")
+                continue
+            }
+            let members = page.providers.compactMap { $0 as? StaticPaletteProvider }.flatMap(\.itemsList)
+            #expect(!members.isEmpty, "\(familyID) has no members")
+            #expect(members.allSatisfy { !$0.hidesWhenQueryEmpty }, "\(familyID) members are hidden on its empty page")
+        }
+    }
+
+    @Test func curationPreservesTheCatalogAndOnlyChangesTheRoot() throws {
+        let root = try catalogProvider()
+        let all = RegistryPaletteProvider(registry: root.registry, includeUnbound: true).makeItems()
+        let curated = root.makeItems()
+        #expect(Set(curated.compactMap(\.actionID)) == Set(all.compactMap(\.actionID)))
+        #expect(RegistryPaletteProvider.rootIntentIDs.isSubset(of: Set(all.compactMap(\.actionID))))
+        #expect(all.first { $0.actionID == "history.commands" }?.hidesWhenQueryEmpty == false)
+        #expect(curated.first { $0.actionID == "history.commands" }?.hidesWhenQueryEmpty == true)
+        print("Palette root: \(all.filter { !$0.hidesWhenQueryEmpty }.count) -> \(curated.filter { !$0.hidesWhenQueryEmpty }.count); searchable actions: \(all.compactMap(\.actionID).count)")
+    }
+
+    @Test func unboundAndDebugCommandsNeverEnterTheEmptyRoot() {
+        let registry = ActionRegistry.standard()
+        let provider = RegistryPaletteProvider(registry: registry, includeUnbound: true)
+        provider.curatesEmptyRoot = true
+        let allHidden = provider.makeItems().allSatisfy { $0.hidesWhenQueryEmpty }
+        #expect(allHidden)
+        registry.bind("newSurface") {}
+        let visible = provider.makeItems().filter { !$0.hidesWhenQueryEmpty }
+        #expect(Set(visible.map(\.id)) == Set(["action:newSurface", "rootFamily:tab"]))
+    }
+
+    @Test func everyActionRemovedFromTheRootStillResolvesByNameAndID() throws {
+        let provider = try catalogProvider()
+        let items = provider.makeItems()
+        let removed = items.filter { $0.actionID != nil && $0.hidesWhenQueryEmpty }
+        #expect(removed.count > 400)
+        let ranker = PaletteRanker()
+        if let error = ranker.loadError {
+            Issue.record("Palette ranker failed to load: \(error)")
+            return
+        }
+        var index = PaletteSearchIndex(items: items)
+        let now = Date(timeIntervalSinceReferenceDate: 800_000_000)
+        for item in removed {
+            let id = try #require(item.actionID)
+            for query in [id.rawValue, item.title] {
+                let found = ranker.rank(index: &index, version: 1, query: query, sectionOrders: [],
+                                        frecency: FrecencyStore(), now: now, showsRecent: false)
+                    .flatMap(\.rows).contains { items[$0.index].actionID == id }
+                #expect(found, "Removed root action \(id) resolves from palette search '\(query)'")
+            }
+        }
+    }
+}
