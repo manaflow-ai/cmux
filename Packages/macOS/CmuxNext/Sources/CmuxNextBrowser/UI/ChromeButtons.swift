@@ -223,7 +223,7 @@ final class ChromeIconButton: NSButton {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        hover?.refresh()
+        hover?.ownerDidMoveToWindow()
         updateFill()
     }
 
@@ -316,7 +316,7 @@ class ChromeTextButton: NSButton {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        hover?.refresh()
+        hover?.ownerDidMoveToWindow()
         updateFill()
     }
 

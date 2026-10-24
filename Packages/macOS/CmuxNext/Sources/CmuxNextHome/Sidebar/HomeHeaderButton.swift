@@ -106,6 +106,7 @@ final class HomeHeaderButton: NSButton {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         applyTint()
+        hover.viewDidMoveToWindow()
     }
 
     /// Shown again (itself or an ancestor): a theme change while hidden is drawn now, even one whose
