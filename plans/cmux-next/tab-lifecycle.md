@@ -122,7 +122,12 @@ cmux.json:
   `BeforeUnloadEvent` to the top document, as a close would, if the person
   used it (Chromium and WebKit ask only after a use); a child frame the person
   used reports whether it has a handler, which counts as asking. A connected
-  `RTCPeerConnection` (`web_rtc`) keeps the page and stops it freezing. A page
+  `RTCPeerConnection` (`web_rtc`) keeps the page and stops it freezing, and
+  so does an open USB, HID or serial device or a connected Bluetooth GATT
+  server (`connected_device`; Chrome's kConnectedToUSB/Bluetooth). A child
+  frame the person moved into that has no recorder (Chromium's cross-origin
+  frames) counts as holding their input (`unreadable_frame`) while it is in
+  the document; a frame the page focused itself does not. A page
   whose last answer kept it keeps the benefit of the doubt while it does not
   answer (`PageProbeHistory`). Web Audio and
   capture streams have no element, so a page-world recorder
@@ -190,8 +195,8 @@ Now (`HibernationPlanner.plan`):
   so it does not hold up the rest.
 - Never: shown pages; playing, muted-playing or Picture in Picture media;
   Web Audio; camera, microphone or screen capture; open DevTools; the
-  person's form input or a POST result; a `beforeunload` that asks; a
-  connected WebRTC peer; a running download the tab started (`downloading`);
+  person's form input or a POST result, also in a child frame cmux cannot
+  read; a `beforeunload` that asks; a connected WebRTC peer; an open device; a running download the tab started (`downloading`);
   an agent's browser lease (`agent_lease`, also never frozen) or an agent
   call in the last 30 s; neighbors of a shown tab and hovered tabs; pinned
   tabs and Never Hibernate hosts unless the settings say otherwise.

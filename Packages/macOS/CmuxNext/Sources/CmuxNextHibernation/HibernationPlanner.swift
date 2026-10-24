@@ -85,6 +85,10 @@ package struct HibernationPlanner {
         case beforeUnload = "before_unload"
         /// A connected WebRTC peer connection.
         case webRTC = "web_rtc"
+        /// An open USB, HID or serial device, or a connected Bluetooth GATT server.
+        case connectedDevice = "connected_device"
+        /// The person moved into a child frame whose fields cannot be read (Chromium's cross-origin frames).
+        case unreadableFrame = "unreadable_frame"
         /// An agent chat whose agent works or waits on the person (AgentPageHibernation).
         case agentBusy = "agent_busy"
         /// The acpmux turn watch is down, so no chat's turn is known: every chat counts as busy.

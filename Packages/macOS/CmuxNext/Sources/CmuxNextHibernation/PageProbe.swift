@@ -3,8 +3,8 @@ package import CmuxNextCompat
 /// What the page says right before it freezes or hibernates.
 ///
 /// Keep rules (Lawrence 2026-10-24, CLAUDE.md "Copy Chrome's performance model"): a page with
-/// audio, capture, the person's form input, a `beforeunload` that asks or a WebRTC connection is
-/// never discarded, at any memory pressure. Chrome lets an urgent discard take a page with form
+/// audio, capture, the person's form input (also in a child frame it cannot read), a `beforeunload`
+/// that asks, a WebRTC connection or an open device is never discarded, at any memory pressure. Chrome lets an urgent discard take a page with form
 /// interaction; cmux does not.
 package struct PageProbe: Hashable, Sendable {
     /// Unmuted media playing, media the tab's mute silences, or Picture in Picture.
@@ -21,18 +21,27 @@ package struct PageProbe: Hashable, Sendable {
     package var beforeUnload = false
     /// A connected WebRTC peer connection: a discard would end the call; a freeze would stall it.
     package var webRTC = false
+    /// An open USB, HID or serial device, or a connected Bluetooth GATT server (Chrome's
+    /// kConnectedToUSB and kConnectedToBluetooth): a discard drops the connection.
+    package var connectedDevice = false
+    /// The person moved into a child frame whose fields cannot be read (Chromium's cross-origin
+    /// frames have no recorder): its edits are unknown, so they count as the person's input.
+    package var unreadableFrame = false
     /// False when the page did not answer (a script error, or no reply within the deadline):
     /// only what the tab reported on its own (`BrowserTabState.media`) is known.
     package var answered = true
 
     package init(playingMedia: Bool = false, editedForm: Bool = false, capturing: Bool = false, webAudio: Bool = false,
-                 beforeUnload: Bool = false, webRTC: Bool = false, answered: Bool = true) {
+                 beforeUnload: Bool = false, webRTC: Bool = false, connectedDevice: Bool = false, unreadableFrame: Bool = false,
+                 answered: Bool = true) {
         self.playingMedia = playingMedia
         self.editedForm = editedForm
         self.capturing = capturing
         self.webAudio = webAudio
         self.beforeUnload = beforeUnload
         self.webRTC = webRTC
+        self.connectedDevice = connectedDevice
+        self.unreadableFrame = unreadableFrame
         self.answered = answered
     }
 
@@ -41,14 +50,16 @@ package struct PageProbe: Hashable, Sendable {
         if capturing { return .capturing }
         if playingMedia { return .audio }
         if editedForm { return .formInput }
+        if unreadableFrame { return .unreadableFrame }
         if beforeUnload { return .beforeUnload }
         if webRTC { return .webRTC }
+        if connectedDevice { return .connectedDevice }
         return webAudio ? .webAudio : nil
     }
 
     /// The page does something a freeze stops (it keeps memory and state, so form input and a
     /// `beforeunload` do not count).
-    package var stopsWhenFrozen: Bool { playingMedia || capturing || webAudio || webRTC }
+    package var stopsWhenFrozen: Bool { playingMedia || capturing || webAudio || webRTC || connectedDevice }
 
     /// Why the probed page stays loaded now, or nil when it may hibernate.
     ///

@@ -31,6 +31,15 @@ import Foundation
 ///
 /// WebRTC (`rtc`): the recorder wraps the `RTCPeerConnection` constructors and reports a connected one.
 ///
+/// Devices (`device`): each `open()` of a `USBDevice`, `HIDDevice` or `SerialPort` and each `connect()`
+/// of a `BluetoothRemoteGATTServer` keeps the object weakly; the probe asks whether it is still open
+/// (Chrome keeps such tabs: kConnectedToUSB, kConnectedToBluetooth). Chromium only.
+///
+/// Unreadable frames (`opaque`): when the person moves into a child frame that never reported (it has
+/// no recorder: Chromium's cross-origin frames get none from the DevTools script), the window blurs
+/// with the person's transient activation and the frame element is kept; while it is in the document
+/// and still silent, its edits are unknown and count as the person's input.
+///
 /// A document nobody used whose script fills fields (a docs site's version menu, a wiki's appearance
 /// radios, a `<select>` with no default option) hibernates; those used to stay loaded forever (the
 /// 2026-10-14 hibernation audit: 7 of 20 sites, about 85 MB of renderer each).
@@ -47,13 +56,21 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
     public var beforeUnload: Bool
     /// A connected `RTCPeerConnection` in the tab's frames.
     public var webRTC: Bool
+    /// An open USB, HID or serial device, or a connected Bluetooth GATT server, in the tab's frames.
+    public var connectedDevice: Bool
+    /// The person moved into a child frame the recorder cannot read (no recorder in it: Chromium's
+    /// cross-origin frames), still in the document.
+    public var unreadableFrame: Bool
 
-    public init(audio: Bool = false, capturing: Bool = false, editedForm: Bool? = nil, beforeUnload: Bool = false, webRTC: Bool = false) {
+    public init(audio: Bool = false, capturing: Bool = false, editedForm: Bool? = nil, beforeUnload: Bool = false, webRTC: Bool = false,
+                connectedDevice: Bool = false, unreadableFrame: Bool = false) {
         self.audio = audio
         self.capturing = capturing
         self.editedForm = editedForm
         self.beforeUnload = beforeUnload
         self.webRTC = webRTC
+        self.connectedDevice = connectedDevice
+        self.unreadableFrame = unreadableFrame
     }
 
     /// Unmuted media playing or a video in Picture in Picture (it plays on in
@@ -84,6 +101,9 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
       const contexts = new Set(), streams = new Set(), children = new Map(), fields = new Set(), seen = new WeakSet();
       // Peer connections weakly; this window's beforeunload listeners, each with its capture flags.
       const peers = new Set(), unloadListeners = new Map();
+      // Devices the page opened (USB, HID, serial, Bluetooth GATT), weakly; child frame elements the
+      // person activated that never reported (no recorder in them), weakly.
+      const heldDevices = new Set(), seenDevices = new WeakSet(), opaque = new Set(), seenFrames = new WeakSet();
       // Editing hosts weakly, with the text each held when the person started typing in it.
       const editors = new Set(), started = new WeakMap();
       const live = (stream) => stream.getTracks().some((t) => t.readyState === 'live');
@@ -117,7 +137,18 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
       // `asking`: a discard probe of the top document, which alone runs the handlers.
       const busy = (asking) => {
         const state = { audio: false, capturing: Array.from(streams).some(live), form: false,
-                        unload: asking ? asks() : hasUnloadHandler(), rtc: false };
+                        unload: asking ? asks() : hasUnloadHandler(), rtc: false, device: false, opaque: false };
+        for (const entry of heldDevices) {
+          const handle = entry.ref.deref();
+          if (!handle) { heldDevices.delete(entry); continue; }
+          state.device = state.device || entry.isOpen(handle);
+        }
+        for (const ref of opaque) {
+          const frame = ref.deref();
+          if (!frame || !frame.isConnected) { opaque.delete(ref); continue; }
+          const view = frame.contentWindow;
+          state.opaque = state.opaque || (!!view && !children.has(view));
+        }
         for (const ref of fields) {
           const field = ref.deref();
           if (!field) { fields.delete(ref); continue; }
@@ -148,6 +179,8 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
           state.form = state.form || child.form;
           state.unload = state.unload || child.unload;
           state.rtc = state.rtc || child.rtc;
+          state.device = state.device || child.device;
+          state.opaque = state.opaque || child.opaque;
         }
         return state;
       };
@@ -187,6 +220,49 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
           },
         });
       }
+      // A device connection the page holds (Chrome keeps such tabs: kConnectedToUSB,
+      // kConnectedToBluetooth): each open() or connect() keeps the object; the probe asks whether
+      // it is still open. Chromium only; WebKit has none of these interfaces.
+      const device = (name, open, close, isOpen) => {
+        const proto = typeof window[name] === 'function' ? window[name].prototype : null;
+        // A close changes a child frame's report.
+        wrap(proto, close, {
+          apply(target, self, args) {
+            const result = Reflect.apply(target, self, args);
+            if (result && typeof result.then === 'function') result.then(tell, tell); else tell();
+            return result;
+          },
+        });
+        wrap(proto, open, {
+          apply(target, self, args) {
+            const result = Reflect.apply(target, self, args);
+            const keep = () => {
+              if (self && !seenDevices.has(self)) { seenDevices.add(self); heldDevices.add({ ref: new WeakRef(self), isOpen }); }
+              tell();
+            };
+            if (result && typeof result.then === 'function') result.then(keep, () => {}); else keep();
+            return result;
+          },
+        });
+      };
+      device('USBDevice', 'open', 'close', (d) => d.opened === true);
+      device('HIDDevice', 'open', 'close', (d) => d.opened === true);
+      device('SerialPort', 'open', 'close', (p) => !!(p.readable || p.writable));
+      device('BluetoothRemoteGATTServer', 'connect', 'disconnect', (g) => g.connected === true);
+      // The person moved into a child frame that has no recorder (Chromium's cross-origin frames
+      // get none from the DevTools script): its fields cannot be read, so it counts as holding
+      // the person's input while it is in the document. Activation reaches the parent's window
+      // too, so a frame the page focuses by itself does not count (unless a cmux script call,
+      // which carries a gesture, ran in the last seconds: then the page is kept, the safe side).
+      addEventListener('blur', (event) => {
+        if (event.target !== window) return;
+        const frame = document.activeElement;
+        if (!frame || (frame.tagName !== 'IFRAME' && frame.tagName !== 'FRAME') || seenFrames.has(frame)) return;
+        if (navigator.userActivation?.isActive !== true) return;
+        seenFrames.add(frame);
+        opaque.add(new WeakRef(frame));
+        tell();
+      }, true);
       // This window's own beforeunload listeners (a child frame reports whether it has one).
       for (const [name, add] of [['addEventListener', true], ['removeEventListener', false]]) {
         wrap(window, name, {
@@ -269,20 +345,23 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
         if (!child) return;
         const report = data.cmuxPageBusy;
         children.set(from, { audio: report.audio === true, capturing: report.capturing === true, form: report.form === true,
-                             unload: report.unload === true, rtc: report.rtc === true });
+                             unload: report.unload === true, rtc: report.rtc === true, device: report.device === true,
+                             opaque: report.opaque === true });
         tell();
       });
       // A frame that navigates keeps its window: its new document reports at once, and the
       // old one clears its report when it goes.
       if (window !== parent) {
         post(busy(false));
-        addEventListener('pagehide', () => post({ audio: false, capturing: false, form: false, unload: false, rtc: false }));
+        addEventListener('pagehide', () => post({ audio: false, capturing: false, form: false, unload: false, rtc: false,
+                                                  device: false, opaque: false }));
       }
       Object.defineProperty(window, key, { value: (asking) => busy(asking === true) });
     })();
     """#
 
-    /// The probe's question, in the page's world: `{"audio", "capturing", "form", "unload", "rtc"}` (Bools) as JSON,
+    /// The probe's question, in the page's world: `{"audio", "capturing", "form", "unload", "rtc", "device", "opaque"}`
+    /// (Bools) as JSON,
     /// `{}` when the recorder is missing (a page loaded before it was installed). `asking` runs the
     /// top document's beforeunload handlers (a discard probe); without it `unload` says only whether
     /// the person used a document that has a handler.
@@ -303,6 +382,7 @@ extension BrowserTab {
         }
         return BrowserPageBusy(audio: object["audio"] as? Bool ?? false, capturing: object["capturing"] as? Bool ?? false,
                                editedForm: object["form"] as? Bool, beforeUnload: object["unload"] as? Bool ?? false,
-                               webRTC: object["rtc"] as? Bool ?? false)
+                               webRTC: object["rtc"] as? Bool ?? false, connectedDevice: object["device"] as? Bool ?? false,
+                               unreadableFrame: object["opaque"] as? Bool ?? false)
     }
 }
