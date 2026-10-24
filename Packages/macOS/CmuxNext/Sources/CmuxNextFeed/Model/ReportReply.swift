@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// A person's reply to a report in the reports basket, as the host sends it.
 ///
