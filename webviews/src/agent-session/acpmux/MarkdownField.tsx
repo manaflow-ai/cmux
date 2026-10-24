@@ -137,6 +137,8 @@ export type MarkdownFieldProps = {
   onInlineAttachmentRemove?(id: string): void;
   /// Called when undo restores a previously removed attachment mark.
   onInlineAttachmentRestore?(ids: readonly string[]): void;
+  /// Discards payloads introduced by a same-mark clipboard replacement when that replacement is undone.
+  onInlineAttachmentDiscard?(ids: readonly string[]): void;
   /// Receives attachments copied from this field, together with their insertion mark index.
   onInlineAttachmentPaste?(attachments: ComposerAttachment[], index: number): void;
   /// Starts intake for files before the paste's caption text is inserted, preserving image-then-text order.
@@ -180,6 +182,7 @@ function sameMarkdownFieldProps(previous: MarkdownFieldProps, next: MarkdownFiel
     previous.inlineAttachments === next.inlineAttachments &&
     previous.onInlineAttachmentRemove === next.onInlineAttachmentRemove &&
     previous.onInlineAttachmentRestore === next.onInlineAttachmentRestore &&
+    previous.onInlineAttachmentDiscard === next.onInlineAttachmentDiscard &&
     previous.onInlineAttachmentPaste === next.onInlineAttachmentPaste &&
     previous.onInlinePasteFiles === next.onInlinePasteFiles &&
     previous.onInlineAttachmentExpand === next.onInlineAttachmentExpand &&
@@ -519,6 +522,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     inlineAttachments = [],
     onInlineAttachmentRemove,
     onInlineAttachmentRestore,
+    onInlineAttachmentDiscard,
     onInlineAttachmentPaste,
     onInlinePasteFiles,
     onInlineAttachmentExpand,
@@ -570,6 +574,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   inlineRemoveRef.current = onInlineAttachmentRemove;
   const inlineRestoreRef = useRef(onInlineAttachmentRestore);
   inlineRestoreRef.current = onInlineAttachmentRestore;
+  const inlineDiscardRef = useRef(onInlineAttachmentDiscard);
+  inlineDiscardRef.current = onInlineAttachmentDiscard;
   const inlinePasteRef = useRef(onInlineAttachmentPaste);
   inlinePasteRef.current = onInlineAttachmentPaste;
   const inlineFilesRef = useRef(onInlinePasteFiles);
@@ -639,8 +645,9 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     // A custom inline clipboard replacement can keep the same number of marks. Remember which
     // removed payloads need the same-mark history undo path.
     const sameMarkRemovalIds = new Set<string>();
+    const sameMarkReplacements: { removed: string[]; cloned: string[] }[] = [];
     const deleteInlineAttachment = (editorView: EditorView, id: string): boolean => {
-      const index = inlineAttachmentsRef.current.findIndex((attachment) => attachment.id === id);
+      const index = currentInlineAttachmentIDs().indexOf(id);
       if (index < 0) return false;
       const at = inlineMarkPositions(editorView.state.doc)[index];
       if (at === undefined) return false;
@@ -684,7 +691,11 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
               const historyUndo = isHistoryTransaction(transaction) && undoDepth(next) < undoDepth(previous);
               if (historyUndo && removedInlineIds.length) {
                 const markDelta = newMarks - oldMarks;
-                const count = Math.min(markDelta > 0 ? markDelta : sameMarkRemovalIds.size, removedInlineIds.length);
+                const replacement = markDelta > 0 ? undefined : sameMarkReplacements.pop();
+                const count = Math.min(
+                  markDelta > 0 ? markDelta : (replacement?.removed.length ?? sameMarkRemovalIds.size),
+                  removedInlineIds.length,
+                );
                 if (count <= 0)
                   return {
                     decorations:
@@ -695,6 +706,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                   };
                 const restored = removedInlineIds.splice(removedInlineIds.length - count, count);
                 for (const id of restored) sameMarkRemovalIds.delete(id);
+                if (replacement && replacement.removed.length === count)
+                  queueMicrotask(() => inlineDiscardRef.current?.(replacement.cloned));
                 queueMicrotask(() => inlineRestoreRef.current?.(restored));
               }
               return {
@@ -789,6 +802,11 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                 removedInlineIds.push(...selectedIds);
                 for (const id of selectedIds) sameMarkRemovalIds.add(id);
                 for (const id of selectedIds) inlineRemoveRef.current?.(id);
+                if (selectedIds.length)
+                  sameMarkReplacements.push({
+                    removed: selectedIds,
+                    cloned: cloned.map((attachment) => attachment.id),
+                  });
                 const index = positions.filter((position) => position < from).length;
                 insertPlain(editorView, text);
                 inlinePasteRef.current?.(cloned, index);

@@ -47,9 +47,7 @@ export type PromptBlock =
 /** The replacement character stored in the editor for one inline attachment. */
 export const INLINE_ATTACHMENT_MARK = "\uFFFC";
 
-export type OrderedDraftPart =
-  | { type: "text"; text: string }
-  | { type: "attachment"; attachment: ComposerAttachment };
+export type OrderedDraftPart = { type: "text"; text: string } | { type: "attachment"; attachment: ComposerAttachment };
 
 /** Anthropic's per-image limit. */
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -107,7 +105,7 @@ export async function readAttachments(
 export async function readAttachment(
   file: File,
   allowImages: boolean,
-  id = crypto.randomUUID(),
+  id: string = crypto.randomUUID(),
 ): Promise<ComposerAttachment | AttachmentError> {
   const name = file.name || "file";
   if (isPdf(file)) {
@@ -308,7 +306,10 @@ export function promptText(text: string, attachments: ComposerAttachment[]): str
 export function orderedDraftParts(input: string, chips: readonly ComposerAttachment[]): OrderedDraftPart[] {
   if (!input.includes(INLINE_ATTACHMENT_MARK))
     return input
-      ? [{ type: "text", text: input }, ...chips.map((attachment): OrderedDraftPart => ({ type: "attachment", attachment }))]
+      ? [
+          { type: "text", text: input },
+          ...chips.map((attachment): OrderedDraftPart => ({ type: "attachment", attachment })),
+        ]
       : chips.map((attachment): OrderedDraftPart => ({ type: "attachment", attachment }));
   const parts: OrderedDraftPart[] = [];
   let start = 0;
@@ -337,7 +338,11 @@ function attachmentBlocks(attachment: ComposerAttachment): PromptBlock[] {
   else if (attachment.kind === "link" && attachment.path)
     blocks.push({ type: "resource_link", uri: fileUri(attachment.path), name: attachment.name });
   if (attachment.kind === "image" && attachment.originalPath)
-    blocks.push({ type: "resource_link", uri: fileUri(attachment.originalPath), name: attachment.originalName ?? attachment.name });
+    blocks.push({
+      type: "resource_link",
+      uri: fileUri(attachment.originalPath),
+      name: attachment.originalName ?? attachment.name,
+    });
   return blocks;
 }
 

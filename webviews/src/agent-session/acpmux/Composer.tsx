@@ -5,7 +5,13 @@ import "../../theme/messages.css";
 import type { ConnectKind, OffloadKind } from "./environments";
 import { useEscapingList } from "../../ui/popupHost";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
-import { INLINE_ATTACHMENT_MARK, type AttachmentError, type ComposerAttachment, type DroppedKind, type LinkItem } from "./attachments";
+import {
+  INLINE_ATTACHMENT_MARK,
+  type AttachmentError,
+  type ComposerAttachment,
+  type DroppedKind,
+  type LinkItem,
+} from "./attachments";
 import type { UploadResult } from "./cloudUploads";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
 import type { Project } from "./ProjectChooser";
@@ -535,6 +541,13 @@ export function Composer({
     },
     [setAttachments],
   );
+  const discardAttachments = useCallback(
+    (ids: readonly string[]) => {
+      if (!ids.length) return;
+      setAttachments((items) => items.filter((item) => !ids.includes(item.id)));
+    },
+    [setAttachments],
+  );
   const pasteAttachments = useCallback(
     (added: ComposerAttachment[], insertionIndex: number) => {
       attachmentsRef.current = [
@@ -673,7 +686,7 @@ export function Composer({
         }
       },
     }),
-    [setAttachments, setAttachError],
+    [setAttachments],
   );
   useEffect(() => {
     // The prompt's DOM value is the typed text; a draft never replaces it.
@@ -1624,6 +1637,7 @@ export function Composer({
         codex={snapshot.summary?.family === "codex" || snapshot.summary?.harness === "codex"}
         onRemoveAttachment={removeAttachment}
         onRestoreAttachment={restoreAttachment}
+        onDiscardAttachment={discardAttachments}
         onPasteAttachments={pasteAttachments}
         onPasteFiles={pasteFiles}
         fieldMenu={fieldMenu}
