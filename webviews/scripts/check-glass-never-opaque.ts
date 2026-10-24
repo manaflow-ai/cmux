@@ -302,6 +302,65 @@ export function findOpaqueGlass(srcDir: string = SRC): string[] {
   return found;
 }
 
+// A page the app floats as a menu, picker or popover over the window (Swift
+// `PageEngineOptions(requiresWebKit: .transparentOverlay)`): the host draws Glass.makeOverlayPanel
+// behind the page, so the page's own root (html, body, :root, #root) must let it show. The shared
+// page base paints html with the host's `--cmux-surface-background`, which is the opaque theme
+// surface over an opaque window, so a popup document paints its html transparent itself.
+const ROOT_COMPOUND = /^(?:html|body|:root|#root)(?:\[[^\]]*\]|:[\w-]+(?:\([^)]*\))?)*$/;
+
+// "html" when one selector of the list is the document's root element alone, "root" when one ends
+// in html, body, :root or #root, else null.
+function rootTarget(selector: string): "html" | "root" | null {
+  let target: "html" | "root" | null = null;
+  for (const part of selector.split(",")) {
+    const compounds = part.trim().split(/\s+/);
+    const last = compounds.at(-1) ?? "";
+    if (!ROOT_COMPOUND.test(last)) continue;
+    if (compounds.length === 1 && /^(?:html|:root)/.test(last)) return "html";
+    target = "root";
+  }
+  return target;
+}
+
+/**
+ * Every popup page document (`files`, paths under src/) whose root paints an opaque fill, or whose
+ * html never paints itself transparent, as `file:line: selector { prop: value }` or `file: …`.
+ */
+export function findOpaquePopupPageRoots(files: string[], srcDir: string = SRC): string[] {
+  const all = cssFiles(srcDir).flatMap((file) => parse(relative(srcDir, file), readFileSync(file, "utf8")));
+  tokens = new Map();
+  for (const block of all) {
+    if (inReduce(block)) continue;
+    for (const d of block.decls) {
+      if (d.prop.startsWith("--")) tokens.set(d.prop, [...(tokens.get(d.prop) ?? []), d.value]);
+    }
+  }
+  const found: string[] = [];
+  for (const file of files) {
+    const blocks = all.filter((block) => block.file === file && !inReduce(block));
+    if (blocks.length === 0) {
+      found.push(`${file}: no such stylesheet under src/`);
+      continue;
+    }
+    let clearHtml = false;
+    for (const block of blocks) {
+      const target = rootTarget(block.selector);
+      if (!target) continue;
+      for (const d of block.decls) {
+        if (d.prop !== "background" && d.prop !== "background-color") continue;
+        const kind = classify(d.value);
+        if (kind === "opaque" && !d.allowed)
+          found.push(`${file}:${d.line}: ${block.selector} { ${d.prop}: ${d.value} }`);
+        if (target === "html" && kind === "translucent") clearHtml = true;
+      }
+    }
+    if (!clearHtml)
+      found.push(`${file}: the popup document never paints html transparent (the page base paints the host's surface)`);
+  }
+  return found;
+}
+
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const path = join(dir, entry.name);
