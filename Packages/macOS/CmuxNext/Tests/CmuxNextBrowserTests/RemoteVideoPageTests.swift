@@ -25,7 +25,7 @@ import Testing
         let downloads = FileManager.default.temporaryDirectory
             .appendingPathComponent("cn-remote-video-dl-\(UUID().uuidString.prefix(8).lowercased())", isDirectory: true)
         defer { Task.detached { try? FileManager.default.removeItem(at: downloads) } }
-        let engine = WebKitEngine(downloadsDirectory: downloads)  // the tab holds its engine weakly
+        let engine = WebKitEngine(stores: .inMemory(), downloadsDirectory: downloads)  // the tab holds its engine weakly
         let page = engine.makeWebKitTab()
         defer { page.close() }
         page.delegate = intents
