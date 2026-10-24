@@ -393,6 +393,29 @@ struct SessionSnapshotImportTrustTests {
         #expect(report.truncatedScrollbackCount == 1)
     }
 
+    @Test("imported scrollback is bounded by Unicode scalars, not just characters")
+    func importedScrollbackOfCombiningMarksIsBoundedByScalars() throws {
+        // One grapheme cluster: a base character followed by a run of
+        // combining marks. It counts as a single Character, so a character
+        // bound alone lets every scalar through to the control-string
+        // stripper, which copies the scalars into an array.
+        let marks = String(repeating: "\u{0301}", count: SessionPersistencePolicy.maxScrollbackCharactersPerTerminal * 4 + 10)
+        let original = "e" + marks
+        #expect(original.count == 1)
+        let terminal = SessionTerminalPanelSnapshot(scrollback: original)
+
+        let (restored, report) = SessionSnapshotImportTrust.snapshotForRestore(
+            Self.snapshot(terminal: terminal),
+            source: Self.fileImport
+        )
+
+        let scrollback = try #require(
+            restored.windows.first?.tabManager.workspaces.first?.panels.first?.terminal?.scrollback
+        )
+        #expect(scrollback.unicodeScalars.count <= SessionPersistencePolicy.maxScrollbackCharactersPerTerminal * 4)
+        #expect(report.truncatedScrollbackCount == 1)
+    }
+
     @Test("imported panel fan-out has a global budget")
     func importedPanelFanOutIsBoundedGlobally() throws {
         let panel = Self.panel(terminal: SessionTerminalPanelSnapshot())
