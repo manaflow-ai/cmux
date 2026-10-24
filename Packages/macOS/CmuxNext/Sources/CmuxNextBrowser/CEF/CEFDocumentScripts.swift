@@ -51,7 +51,7 @@ nonisolated struct CEFDocumentScripts: Equatable, Sendable {
         let protectedChannel = BrowserProtectedMedia.channel
         media = [
             Script(world: BrowserMediaState.world,
-                   source: BrowserMediaState.observerScript(post: post.send(mediaChannel, "JSON.stringify(report)"), ready: post.ready(mediaChannel)),
+                   source: BrowserMediaState.observerScript(post: post.send(mediaChannel, "JSON.stringify(message)"), ready: post.ready(mediaChannel)),
                    allFrames: true),
             Script(world: "", source: BrowserMediaState.actionsScript, allFrames: true),
             Script(world: "", source: BrowserPageBusy.recorderScript, allFrames: true),
