@@ -94,7 +94,7 @@ jobs:
   blacksmith-mac:
     name: manual GUI perf (${{ inputs.tip_sha && inputs.tip_sha || 'none' }})
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.tip_sha != '' && inputs.parts != '' && github.repository == 'manaflow-ai/cmux' }}
-    runs-on: ${{ inputs.runner_class || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ inputs.runner_class == 'blacksmith-6vcpu-macos-26' && 'blacksmith-6vcpu-macos-26' || inputs.runner_class == 'blacksmith-12vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || 'blacksmith-6vcpu-macos-26' }}
     permissions:
       contents: read
     timeout-minutes: 180
@@ -110,14 +110,19 @@ jobs:
         env:
           TIP_SHA: ${{ inputs.tip_sha }}
           PARTS: ${{ inputs.parts }}
-          RUNNER_CLASS: ${{ inputs.runner_class || 'blacksmith-6vcpu-macos-26' }}
+          RUNNER_CLASS: ${{ inputs.runner_class == 'blacksmith-6vcpu-macos-26' && 'blacksmith-6vcpu-macos-26' || inputs.runner_class == 'blacksmith-12vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || 'blacksmith-6vcpu-macos-26' }}
+          CI_SHARED_CACHE_DIR: ${{ runner.temp }}/tipguard-cache
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/tipguard-blacksmith"
           mkdir -p "$out"
+          [[ "$TIP_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "tip_sha must be a full lowercase commit SHA" >&2; exit 2; }
+          actual="$(git rev-parse HEAD)"
+          [ "$actual" = "$TIP_SHA" ] || { echo "checkout SHA $actual differs from requested $TIP_SHA" >&2; exit 2; }
+          git merge-base --is-ancestor "$actual" "$GITHUB_SHA" || { echo "requested SHA is not an ancestor of the dispatched feat-cmux-next ref" >&2; exit 2; }
           started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           scripts/measure/split-spring.sh --build-only >"$out/build.log" 2>&1
-          python3 - "$out" "$TIP_SHA" "$RUNNER_CLASS" "$started" <<'PY2'
+          python3 - "$out" "$actual" "$RUNNER_CLASS" "$started" <<'PY2'
           import json, pathlib, sys
           out, sha, runner, started = sys.argv[1:]
           pathlib.Path(out, "receipt.json").write_text(json.dumps({
