@@ -154,4 +154,17 @@ public nonisolated struct Signposter: Sendable {
     public func event(_ name: SignpostName, _ message: String = "") {
         signposter.emitEvent(name.staticName, "\(message, privacy: .public)")
     }
+
+    /// Records one hop of a key press's flow (``SignpostName/keyFlow``), formatted by the log system
+    /// only when something reads it (`hop=<hop> flow=<id> age_us=<age>`).
+    ///
+    /// - Parameters:
+    ///   - hop: The hop's name (`app.key.dispatch`, `app.io_write`, ...).
+    ///   - flow: The key press's flow id.
+    ///   - ageMicroseconds: The key event's age at this hop, or -1.
+    public func flowHop(_ hop: String, flow: UInt64, ageMicroseconds: Int64 = -1) {
+        assert(SignpostName.keyFlow.category == category, "key.flow is not in category \(category)")
+        signposter.emitEvent(SignpostName.keyFlow.staticName,
+                             "hop=\(hop, privacy: .public) flow=\(flow, privacy: .public) age_us=\(ageMicroseconds, privacy: .public)")
+    }
 }
