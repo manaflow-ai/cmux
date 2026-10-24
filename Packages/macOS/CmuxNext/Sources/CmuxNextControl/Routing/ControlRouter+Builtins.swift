@@ -158,6 +158,15 @@ extension ControlRouter {
         return failure
     }
 
+    /// Each op whose work failed, in op order, with its first failure, after all finished.
+    static func workFailures(of opWork: [[ActionWork]]) async -> [(op: Int, failure: ActionWorkFailure)] {
+        var failed: [(op: Int, failure: ActionWorkFailure)] = []
+        for (op, work) in opWork.enumerated() {
+            if let failure = await firstFailure(of: work) { failed.append((op, failure)) }
+        }
+        return failed
+    }
+
     // MARK: - settings
 
     /// Answers from the published cmux.json snapshot when there is one (no
