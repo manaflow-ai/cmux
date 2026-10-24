@@ -29,6 +29,11 @@ if [[ -n "${FAKE_XCODEBUILD_ERRORS:-}" ]]; then
   echo "(1 failure)"
 fi
 if [[ -n "${FAKE_XCODEBUILD_PHASE_FAIL:-}" ]]; then
+  # An earlier run of the same Embed CEF header (an incremental retry): only the
+  # last block under a repeated header is its failure.
+  echo "PhaseScriptExecution Embed\\ CEF /build/Script-2.sh (in target 'App' from project 'App')"
+  echo "stale-cef-attempt"
+  echo ""
   echo "PhaseScriptExecution Bundle\\ acpmux /build/Script-1.sh (in target 'App' from project 'App')"
   echo "    cd /src"
   echo "    export ACTION\\=build"
@@ -222,7 +227,7 @@ grep -Fxq 'cef-line-35' <<<"$cef_section"
 grep -Fxq 'cef-line-7' <<<"$cef_section"
 grep -Fxq 'cmux Helper (Renderer).app: replacing existing signature' <<<"$cef_section"
 grep -Fxq '::error::run script phase failed: Embed CEF' <<<"$cef_section"
-if grep -Eq '^cef-line-6$|export VAR_|bundled acpmux|builtin-copy|/bin/sh -c' <<<"$cef_section"; then
+if grep -Eq '^cef-line-6$|export VAR_|bundled acpmux|builtin-copy|/bin/sh -c|stale-cef-attempt' <<<"$cef_section"; then
   echo "FAIL: a failed phase report holds only that phase's last 30 output lines" >&2
   exit 1
 fi

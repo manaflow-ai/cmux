@@ -152,15 +152,15 @@ report_compiler_crashes() {
 # (nightly-next's Embed CEF red, 2026-10-24, showed nothing else). The phases
 # come from xcodebuild's own "The following build commands failed:" list, never
 # from whichever header came last, so a failure is never pinned on another
-# task. Each listed phase's output is the block under its exact header, up to
-# the next task header or failure line, without the environment dump
+# task. Each listed phase's output is the last block under its exact header,
+# up to the next task header or failure line, without the environment dump
 # xcodebuild puts first; its last 30 lines print for the first 5 failed
 # phases, and every failed phase gets an annotation.
 report_failed_script_phases() {
   local log="$1"
   grep -q '^[[:blank:]]PhaseScriptExecution ' "$log" 2>/dev/null || return 0
   awk '
-    function close_block() { if (cur) { done[cur] = 1; cur = 0 } }
+    function close_block() { cur = 0 }
     NR == FNR {
       if ($0 ~ /^The following build commands failed:/) { listing = 1; next }
       if (listing && $0 ~ /^\([0-9]+ failures?\)/) { listing = 0; next }
@@ -170,7 +170,7 @@ report_failed_script_phases() {
       }
       next
     }
-    ($0 in index_of) && !done[index_of[$0]] { close_block(); cur = index_of[$0]; seen[cur] = 1; next }
+    ($0 in index_of) { cur = index_of[$0]; seen[cur] = 1; count[cur] = 0; next }
     /^Command PhaseScriptExecution failed/ { close_block(); next }
     /^[A-Za-z].* \(in target .* from project .*\)$/ { close_block(); next }
     !cur { next }
