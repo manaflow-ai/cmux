@@ -23,7 +23,17 @@ extension NotificationCenterService {
     /// statuses in 50) costs that workspace only; the workspace set is observed through its
     /// revision, which moves only when a workspace comes or goes (CLAUDE.md "Go past Chrome where
     /// cmux is scripted").
-    func followStatusRuns(_ store: DaemonStore) -> Task<Void, Never> {
+    ///
+    /// - Parameters:
+    ///   - store: The store whose workspaces are followed.
+    ///   - behavior: The notification settings, read once per status examined (tests pass their own).
+    ///   - visibility: Where a run's terminal is for the user; nil reads ``visibility(of:)``.
+    ///   - post: Where each notice goes; nil posts it to the daemon's ledger (``postStatusRun(_:)``).
+    /// - Returns: The follower's task; cancelling it ends every observation it started.
+    func followStatusRuns(_ store: DaemonStore,
+                          behavior: @escaping @MainActor @Sendable () -> StatusBehaviorSettings = { DesignSettings.shared.statusBehavior },
+                          visibility: (@MainActor @Sendable (LocatedTab) -> TerminalVisibility)? = nil,
+                          post: (@MainActor @Sendable (StatusRunNotice) -> Void)? = nil) -> Task<Void, Never> {
         Task { [weak self] in // task-owner: start(services:) keeps the handle in tasks
             // concurrency-allow: one element per status change of a live workspace; this main-actor loop drains it every turn
             let (changes, sink) = AsyncStream<StatusRunChange>.makeStream()
@@ -53,9 +63,12 @@ extension NotificationCenterService {
                 case .status(let id, let status):
                     guard var watch = watches[id] else { continue }
                     self.statusRunVisits += 1
-                    let notices = self.statusRunNotices(in: status.map { [$0] } ?? [], store: store, tracker: &watch.tracker)
+                    let notices = self.statusRunNotices(in: status.map { [$0] } ?? [], store: store, tracker: &watch.tracker,
+                                                        behavior: behavior(), visibility: visibility)
                     watches[id] = watch
-                    for notice in notices { self.postStatusRun(notice) }
+                    for notice in notices {
+                        if let post { post(notice) } else { self.postStatusRun(notice) }
+                    }
                 }
             }
         }
@@ -66,7 +79,7 @@ extension NotificationCenterService {
     /// pass their own); a run whose terminal this client has no tab for counts as not visible.
     func statusRunNotices(in store: DaemonStore, tracker: inout FinishedStatusRunTracker,
                           behavior: StatusBehaviorSettings = DesignSettings.shared.statusBehavior,
-                          visibility: ((LocatedTab) -> TerminalVisibility)? = nil) -> [StatusRunNotice] {
+                          visibility: (@MainActor (LocatedTab) -> TerminalVisibility)? = nil) -> [StatusRunNotice] {
         statusRunNotices(in: store.workspaces.compactMap(\.status), store: store, tracker: &tracker, behavior: behavior, visibility: visibility)
     }
 
@@ -74,7 +87,7 @@ extension NotificationCenterService {
     /// from the keyed follower).
     func statusRunNotices(in statuses: [WorkspaceStatus], store: DaemonStore, tracker: inout FinishedStatusRunTracker,
                           behavior: StatusBehaviorSettings = DesignSettings.shared.statusBehavior,
-                          visibility: ((LocatedTab) -> TerminalVisibility)? = nil) -> [StatusRunNotice] {
+                          visibility: (@MainActor (LocatedTab) -> TerminalVisibility)? = nil) -> [StatusRunNotice] {
         tracker.update(statuses).compactMap { run in
             let located = run.terminal.flatMap { locate(terminal: $0, in: store) }
             let shown = located.map { visibility?($0) ?? self.visibility(of: $0) } ?? .hidden
