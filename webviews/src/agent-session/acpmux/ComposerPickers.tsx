@@ -367,11 +367,17 @@ export function ComposerPickers({
     ownRow?.defaultEffort ?? releaseRows.find((row) => row.defaultEffort !== undefined)?.defaultEffort;
   // A direct profile can declare an alias with `efforts: []` before the joined catalog has retained
   // its `own` marker. Keep that explicit no-level declaration attached to the running release row.
-  const profileDeclaresNoEffort = snapshot.catalog
-    .find((entry) => entry.id === summary?.harness)
-    ?.models.some(
-      (model) => Object.hasOwn(model, "efforts") && Array.isArray(model.efforts) && model.efforts.length === 0,
-    );
+  const profileDeclaresNoEffort =
+    (ownRow?.own?.efforts === true && ownRow.efforts.length === 0) ||
+    snapshot.catalog
+      .find((entry) => entry.id === summary?.harness)
+      ?.models.some(
+        (model) =>
+          model.id === runningModel &&
+          Object.hasOwn(model, "efforts") &&
+          Array.isArray(model.efforts) &&
+          model.efforts.length === 0,
+      );
   const efforts: Choice[] = reasoningChoices(
     effort?.options ?? [],
     {
