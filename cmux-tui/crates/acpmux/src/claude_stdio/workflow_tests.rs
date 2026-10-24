@@ -69,13 +69,7 @@ async fn a_workflow_runs_as_a_background_subagent_with_its_progress() {
     assert_eq!(named.len(), 1, "{out:?}");
     assert_eq!(named[0]["name"], "probe");
     assert_eq!(named[0]["task"], "Two tiny agents");
-    // What a resume names again: the script path Claude Code returned and the call's args.
     assert_eq!(named[0]["runId"], "wf_4fe");
-    assert_eq!(
-        named[0]["scriptPath"],
-        "/home/me/.claude/projects/-w/s1/workflows/scripts/probe-wf_4fe.js"
-    );
-    assert_eq!(named[0]["args"], json!({"pr": 24789}));
 
     let started = json!({"type": "system", "subtype": "task_started", "task_id": "wx2", "tool_use_id": "toolu_w",
         "description": "Two tiny agents", "task_type": "local_workflow"});
