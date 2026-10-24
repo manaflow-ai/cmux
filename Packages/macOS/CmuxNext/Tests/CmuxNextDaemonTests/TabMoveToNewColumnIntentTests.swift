@@ -96,17 +96,46 @@ struct TabMoveToNewColumnIntentTests {
         #expect(store.mirrorViolations.isEmpty)
     }
 
-    /// A pane's only tab: the daemon closes the source pane as it moves the tab, which the stand-in does not
-    /// show yet (no empty pane, no guess): the intent shows nothing and the move waits for the daemon.
-    @Test func aPanesOnlyTabShowsNothingBeforeTheDaemon() throws {
+    /// A pane's only tab: the daemon closes the emptied pane as it moves the tab, and so does the stand-in, in the
+    /// same turn (here the pane is the anchor itself: its column goes, the new one stays); a refusal brings both back.
+    @Test func aPanesOnlyTabClosesItsPaneInTheSameTurnAndARefusalBringsItBack() throws {
         let store = DaemonStore()
         var tree = Self.tree()
         tree.workspaces[0].screens[0].panes[0].tabs = [TabSnapshot(surface: Self.moved)]
         store.apply(snapshot: tree)
         let provisional = ProvisionalPane(moving: Self.moved, columnWidth: 0.5, treeWidth: 0.5)
-        store.intend(Self.intent(provisional), transaction: .generate())
+        let transaction = ClientTransactionID.generate()
+        store.intend(Self.intent(provisional), transaction: transaction)
+        let screen = try #require(store.screen(ScreenID(rawValue: 2)))
+        #expect(screen.panes.map(\.handle) == [provisional.handle], "the emptied pane still shows")
+        #expect(screen.layout.paneIDs == [provisional.handle])
+        #expect(screen.columns.map(\.layout.paneIDs) == [[provisional.handle]])
+        #expect(store.pane(provisional.handle)?.tabs.map(\.surface) == [Self.moved])
+        #expect(store.mirrorViolations.isEmpty)
+
+        store.rejectIntent(transaction)
+        let back = try #require(store.screen(ScreenID(rawValue: 2)))
+        #expect(back.panes.map(\.handle) == [Self.anchor])
+        #expect(back.layout == .leaf(Self.anchor))
+        #expect(back.columns.isEmpty)
         #expect(store.pane(Self.anchor)?.tabs.map(\.surface) == [Self.moved])
-        #expect(store.pane(provisional.handle) == nil)
+        #expect(store.mirrorViolations.isEmpty)
+    }
+
+    /// A tab whose pane keeps another, moved into a new column after a different anchor pane: only the tab moves.
+    @Test func aTabFromAnotherPaneMovesAloneAndItsPaneStays() throws {
+        let store = DaemonStore()
+        var tree = Self.tree()
+        let other = PaneID(rawValue: 5)
+        tree.workspaces[0].screens[0].layout = .split(id: nil, resourceID: nil, direction: .right, ratio: 0.5, a: .leaf(Self.anchor), b: .leaf(other))
+        tree.workspaces[0].screens[0].panes.append(PaneSnapshot(id: other, tabs: [TabSnapshot(surface: SurfaceID(rawValue: 8))]))
+        store.apply(snapshot: tree)
+        let provisional = ProvisionalPane(moving: Self.moved, columnWidth: 0.5, treeWidth: 0.5)
+        store.intend(.splitPane(pane: other, direction: .right, ratio: 0.5, provisional: provisional), transaction: .generate())
+        let screen = try #require(store.screen(ScreenID(rawValue: 2)))
+        #expect(screen.panes.map(\.handle) == [Self.anchor, other, provisional.handle])
+        #expect(store.pane(Self.anchor)?.tabs.map(\.surface) == [Self.kept])
+        #expect(store.pane(provisional.handle)?.tabs.map(\.surface) == [Self.moved])
         #expect(store.mirrorViolations.isEmpty)
     }
 }
