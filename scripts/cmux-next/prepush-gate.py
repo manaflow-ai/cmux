@@ -43,7 +43,7 @@ refuses NEW singletons, unproven MainActor.assumeIsolated, unjustified @unchecke
 nonisolated(unsafe), sleeps in loops, DispatchQueue.main.async, new Notification.Name broadcasts,
 ObservableObject/@Published and store references in list rows, in lines the push adds, and CmuxNextApp
 composition-root growth beyond its wiring budget or a new App file that is not a move (`app-size`, a net
-count) and a new type in an existing App file that is not a move (`app-type`); warns on CmuxNextApp source growth, `// perf-hot:` functions and OWNERS.md areas. Skip one push with
+count) and a new type that is not a move in an existing App file or a moved one (`app-type`); warns on CmuxNextApp source growth, `// perf-hot:` functions and OWNERS.md areas. Skip one push with
 CMUX_GUARDRAILS_SKIP_REASON="<rule>[,<rule>]: <why>" (it skips only the named rules); lines a push only
 brings in from origin/feat-cmux-next (a merge or rebase onto it) never count; --no-guardrails turns it off
 for a manual run.

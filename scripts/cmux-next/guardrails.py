@@ -42,11 +42,12 @@ whole grows (the same total check-app-size.sh --base computes, a split file's ne
 bytes added and the package the code goes to. This is the only App-size
 limit in force on a push: CI's check-app-size.sh step is continue-on-error and its absolute cap
 (app-size-baseline.txt) is below the App's size today.
-`app-type`, its own rule (so a fault in its brace scan turns off only it), refuses a new type in an existing App
-file that is not a move (the new-file rule's god-file dodge), at any depth: top-level, a member of an
-`extension`, or nested with more than PRIVATE_TYPE_MAX source lines; a small private or nested helper and
-`// app-type-allow:` pass, and a helper that stops being one is judged whole. It shares one move pool per push
-with the new-file rule.
+`app-type`, its own rule (so a fault in its brace scan turns off only it), refuses a new type that is not a move
+in an existing App file or in a new App file that passes as a move (the new-file rule's god-file dodge), at any
+depth: top-level, a member of an `extension`, or nested with more than PRIVATE_TYPE_MAX source lines (a type's
+`extension` blocks in its file count toward its size); a small private or nested helper and `// app-type-allow:`
+(on that type only, not the types inside it) pass, and a helper that stops being one is judged whole. It shares
+one move pool per push with the new-file rule (move_pools).
 
   scripts/cmux-next/guardrails.py                    # what HEAD adds over origin/feat-cmux-next
   scripts/cmux-next/guardrails.py --base A --head B
@@ -88,7 +89,9 @@ OWNERS = "plans/cmux-next/OWNERS.md"
 BENCHES = "scripts/cmux-next/perf-hot-benches.json"
 SKIP_ENV = "CMUX_GUARDRAILS_SKIP_REASON"
 COMMENT_LINE = re.compile(r"^\s*(//|\*|/\*)")
-ATTRIBUTE_LINE = re.compile(r"^\s*@\w+(\([^)]*\))?\s*$")
+# An attribute, its arguments holding one level of nested parentheses (`@available(*, message: "use X (new)")`).
+ATTRIBUTE = r"@\w+(?:\((?:[^()]|\([^()]*\))*\))?"
+ATTRIBUTE_LINE = re.compile(rf"^\s*{ATTRIBUTE}\s*$")
 PERF_HOT = re.compile(r"//\s*perf-hot:\s*(?P<budget>\S+)(?:\s+(?P<path>[\w-]+))?")
 DECL = re.compile(r"\b(func|init|deinit|subscript|var)\b")
 
@@ -446,22 +449,27 @@ HOST_MEMBER = re.compile(r"^(@\w+(\([^)]*\))?\s+)*((public|package|internal|priv
 GENERIC_WORDS = frozenset(("else", "return", "break", "continue", "default", "nil", "true", "false", "self", "try",
                            "await", "throws", "async", "case", "fallthrough", "in", "do"))
 TOKEN = re.compile(r"@?\w+|\S")
-# A type declaration (lead decision (b), 2026-10-23; `app-type`): a new one in an existing App file is held to the
-# new-file rule, so the refusal of a new file does not send its type into a god file (CLAUDE.md: one major type
-# per file, nested types included). An `extension` is not a type; a private or fileprivate helper of
+# A type declaration (lead decision (b), 2026-10-23; `app-type`): a new one in an existing App file, or in a new
+# App file that passes as a move, is held to the new-file rule, so the refusal of a new file does not send its type
+# into a god file (CLAUDE.md: one major type per file, nested types included). An `extension` is not a type, but
+# its block counts toward the size of the type it extends in the same file; a private or fileprivate helper of
 # PRIVATE_TYPE_MAX source lines or fewer, and a type nested in another type's body that is that small, stay with
 # the type they serve (CLAUDE.md's "small, closely-bound helpers").
-TYPE_DECL = re.compile(r"^((@\w+(\([^)]*\))?|public|package|internal|private|fileprivate|final|open|nonisolated|"
-                       r"indirect|distributed)\s+)*(?P<kind>struct|class|enum|actor|protocol)\s+"
-                       # `class func`, `class var` and the like declare a member, not a type
-                       r"(?!(func|var|let|subscript|init|deinit|typealias|override|final|static|dynamic|required|"
-                       r"convenience|nonisolated|public|package|internal|private|fileprivate|open)\b)"
-                       r"(?P<name>[A-Za-z_]\w*)")
+TYPE_DECL_BODY = (rf"(({ATTRIBUTE}|public|package|internal|private|fileprivate|final|open|nonisolated|"
+                  r"indirect|distributed)\s+)*(?P<kind>struct|class|enum|actor|protocol)\s+"
+                  # `class func`, `class var` and the like declare a member, not a type
+                  r"(?!(func|var|let|subscript|init|deinit|typealias|override|final|static|dynamic|required|"
+                  r"convenience|nonisolated|public|package|internal|private|fileprivate|open)\b)"
+                  r"(?P<name>[A-Za-z_]\w*)")
+TYPE_DECL = re.compile("^" + TYPE_DECL_BODY)  # on one statement's code (type_scan's code text, split at `;`)
+# may_add_type's cheap test on raw added lines: a declaration after a block comment or an earlier `;` statement
+# too. It may over-match (a comment's words); the scan then decides.
+TYPE_DECL_ANYWHERE = re.compile(r"(?:^|[;/])\s*" + TYPE_DECL_BODY)
 TYPE_ALLOW = re.compile(r"//\s*app-type-allow:\s*\S")
 TYPE_ESCAPE = "// app-type-allow: <why this type must share its file>"
 PRIVATE_TYPE_MAX = 15  # the lead's value (decision (b)): source lines of a private helper type kept in its file
 # A declaration that names the brace scope it opens (type_decls), so a nested type's name is qualified by it.
-SCOPE_DECL = re.compile(r"^((@\w+(\([^)]*\))?|(public|package|internal|private|fileprivate)(\(\w+\))?|final|open|"
+SCOPE_DECL = re.compile(rf"^(({ATTRIBUTE}|(public|package|internal|private|fileprivate)(\(\w+\))?|final|open|"
                         r"nonisolated|static|class|override|mutating|nonmutating|convenience|required|lazy|dynamic|"
                         r"distributed|weak|unowned)\s+)*(?P<kind>extension|func|init|deinit|subscript|var|let|case|"
                         r"typealias|associatedtype|import)\b\s*(?P<name>[A-Za-z_][\w.]*)?")
@@ -597,8 +605,9 @@ def regex_can_start(line: str, index: int) -> bool:
 
 class TypeScan(NamedTuple):
     """type_scan's account of a file version: ROWS per line (brace depth at its start, whether it starts in code,
-    its code braces in order), and PROBLEM, where the braces do not balance (None when they do)."""
-    rows: list[tuple[int, bool, str]]
+    its code braces in order, its code text: comments left out, string and regex contents blanked), and PROBLEM,
+    where the braces do not balance (None when they do)."""
+    rows: list[tuple[int, bool, str, str]]
     problem: str | None
 
 
@@ -611,17 +620,24 @@ def type_scan(lines: list[str]) -> TypeScan:
     regex still open at the end are a PROBLEM: the scan cannot see where types start and end, so app-type warns
     and leaves the file out (never a silent clamp at depth 0).
     """
-    rows: list[tuple[int, bool, str]] = []
+    rows: list[tuple[int, bool, str, str]] = []
     depth, stack, problem = 0, [], None  # frames: [mode, a string's hashes / a comment's nesting / open parens]
     for number, line in enumerate(lines, 1):
-        start, in_code, braces, i = depth, not stack, [], 0
+        start, in_code, braces, i, text = depth, not stack, [], 0, []
         while True:
             mode = stack[-1][0] if stack else "code"
             if mode in ("code", "interp"):
                 match = (INTERP_TOKENS if mode == "interp" else CODE_TOKENS).search(line, i)
                 if match is None:
+                    if mode == "code":
+                        text.append(line[i:])
                     break
-                token, i = match.group(), match.end()
+                token = match.group()
+                if mode == "code":  # the code text: what the file's own statements say, for TYPE_DECL
+                    text.append(line[i:match.start()] + ("" if token == "//" else " " if token == "/*" else
+                                                         '"' if match["quote"] else "/" if token == "/" else
+                                                         "" if match["xregex"] else token))
+                i = match.end()
                 if token == "//":
                     break
                 if token == "/*":
@@ -632,7 +648,10 @@ def type_scan(lines: list[str]) -> TypeScan:
                     stack.append(["xregex", len(match["xregex"])])
                 elif token == "/":
                     regex = BARE_REGEX.match(line, match.start()) if regex_can_start(line, match.start()) else None
-                    i = regex.end() if regex else i
+                    if regex:
+                        i = regex.end()
+                        if mode == "code":
+                            text.append("/")
                 elif token == "{":
                     depth += 1
                     braces.append("{")
@@ -667,11 +686,13 @@ def type_scan(lines: list[str]) -> TypeScan:
                     stack.append(["interp", 0])
                 elif not match.group().startswith("\\"):
                     stack.pop()
+                    if not stack:
+                        text.append('"' if mode in ("string", "multi") else "/")
         strings = [k for k, frame in enumerate(stack) if frame[0] == "string"]
         if strings:  # a one-line string literal cannot go on to the next line
             problem = problem or f"a string literal that does not close on line {number}"
             del stack[strings[0]:]
-        rows.append((start, in_code, "".join(braces)))
+        rows.append((start, in_code, "".join(braces), "".join(text)))
     if stack:
         names = {"block": "block comment", "multi": "multi-line string", "xregex": "regex literal",
                  "interp": "string interpolation"}
@@ -701,36 +722,68 @@ class TypeDecl(NamedTuple):
     parents: tuple[str, ...]
 
 
-def type_decls(lines: list[str], rows: list[tuple[int, bool, str]]) -> list[TypeDecl]:
-    """Every type declared in LINES (type_scan's ROWS), in order: the brace scope stack names each scope a type,
-    an extension or a member (func, init, var) opens, and closes each type at its own `}`."""
-    found: list[list] = []
-    stack: list[tuple[str, str, int | None]] = []  # (kind, label, index in FOUND for a type)
+class ExtensionBlock(NamedTuple):
+    """An `extension NAME { ... }` block of a file version (type_decls): FIRST its first attribute line, END one
+    past its closing `}` (0-based). Its members belong to the type NAME, so a type declared in the same file is
+    judged with them (type_candidates)."""
+    name: str
+    first: int
+    end: int
+
+
+class Scopes(NamedTuple):
+    """type_decls' account of a file version: its TYPES and its EXTENSIONS, each in order."""
+    types: list[TypeDecl]
+    extensions: list[ExtensionBlock]
+
+
+def statements(code: str) -> list[str]:
+    """The `;`-separated statements of a line's code text (type_scan), stripped: `let a = 1; struct Foo {`
+    declares Foo, as `struct Foo {` does."""
+    return [part.strip() for part in code.split(";")]
+
+
+def type_decls(lines: list[str], rows: list[tuple[int, bool, str, str]]) -> Scopes:
+    """Every type and extension block declared in LINES (type_scan's ROWS), in order: the brace scope stack names
+    each scope a type, an extension or a member (func, init, var) opens, and closes each type and extension at its
+    own `}`. A declaration is read from the line's code text, so one after a block comment (`/* x */ struct Foo`)
+    or after an earlier statement (`let a = 1; struct Foo`) counts too."""
+    found: list[list] = []  # a type's fields, or an extension's [name, first, end] (EXTENSION_ROWS holds which)
+    extension_rows: set[int] = set()
+    stack: list[tuple[str, str, int | None]] = []  # (kind, label, index in FOUND for a type or an extension)
     pending: tuple[str, str, int | None] | None = None  # the declaration the next `{` opens
-    for j, (line, (depth, in_code, braces)) in enumerate(zip(lines, rows)):
+
+    def first_line(j: int, depth: int) -> int:
+        first = j
+        while first > 0 and rows[first - 1][:2] == (depth, True) and ATTRIBUTE_LINE.match(rows[first - 1][3]):
+            first -= 1
+        return first
+
+    for j, (depth, in_code, braces, code) in enumerate(rows):
         stored = False
-        if in_code:
-            stripped = line.strip()
-            if (match := TYPE_DECL.match(stripped)) is not None:
-                first = j
-                while first > 0 and rows[first - 1][:2] == (depth, True) and ATTRIBUTE_LINE.match(lines[first - 1]):
-                    first -= 1
-                labels = [label for _, label, _ in stack if label]
-                found.append([".".join(labels + [match["name"]]), match["kind"], j, first, j + 1,
-                              re.search(r"\b(private|fileprivate)\b", stripped[:match.start("kind")]) is not None,
-                              bool(stack), bool(stack) and stack[-1][0] == "extension",
-                              tuple(found[index][0] for _, _, index in stack if index is not None)])
-                pending = ("type", match["name"], len(found) - 1)
-            elif (match := SCOPE_DECL.match(stripped)) is not None:
-                kind, name = match["kind"], match["name"] or match["kind"]
-                if kind == "extension":
-                    pending = ("extension", name, None)
-                elif kind in ("func", "init", "deinit", "subscript"):
-                    pending = ("member", f"{name}()", None)
-                elif kind in ("var", "let"):  # a computed property opens its body on its own line, or not at all
-                    pending, stored = ("member", name, None), True
-                else:
-                    pending = None
+        parts = statements(code) if code.strip() else []
+        typed = next(((part, match) for part in parts if (match := TYPE_DECL.match(part)) is not None), None)
+        if typed is not None:
+            part, match = typed
+            labels = [label for _, label, _ in stack if label]
+            found.append([".".join(labels + [match["name"]]), match["kind"], j, first_line(j, depth), j + 1,
+                          re.search(r"\b(private|fileprivate)\b", part[:match.start("kind")]) is not None,
+                          bool(stack), bool(stack) and stack[-1][0] == "extension",
+                          tuple(found[index][0] for _, _, index in stack
+                                if index is not None and index not in extension_rows)])
+            pending = ("type", match["name"], len(found) - 1)
+        elif parts and (match := SCOPE_DECL.match(parts[0])) is not None:
+            kind, name = match["kind"], match["name"] or match["kind"]
+            if kind == "extension":
+                extension_rows.add(len(found))
+                found.append([name, first_line(j, depth), j + 1])
+                pending = ("extension", name, len(found) - 1)
+            elif kind in ("func", "init", "deinit", "subscript"):
+                pending = ("member", f"{name}()", None)
+            elif kind in ("var", "let"):  # a computed property opens its body on its own line, or not at all
+                pending, stored = ("member", name, None), True
+            else:
+                pending = None
         for brace in braces:
             if brace == "{":
                 stack.append(pending or ("other", "", None))
@@ -738,10 +791,11 @@ def type_decls(lines: list[str], rows: list[tuple[int, bool, str]]) -> list[Type
             else:
                 pending = None
                 if stack and (index := stack.pop()[2]) is not None:
-                    found[index][4] = j + 1
+                    found[index][-1 if index in extension_rows else 4] = j + 1
         if stored:
             pending = None
-    return [TypeDecl(*entry) for entry in found]
+    return Scopes([TypeDecl(*entry) for k, entry in enumerate(found) if k not in extension_rows],
+                  [ExtensionBlock(*entry) for k, entry in enumerate(found) if k in extension_rows])
 
 
 def is_generic(key: str) -> bool:
@@ -857,17 +911,19 @@ def credit_moves(lines: list[SourceLine], pools: list[collections.Counter], expl
     return MoveCredit(moved, rest)
 
 
-def lost_lines(files: list[AppFile], readding: list[AppFile]) -> collections.Counter:
+def lost_lines(files: list[AppFile], readding: list[AppFile],
+               keep: collections.Counter | None = None) -> collections.Counter:
     """The removed source lines of FILES (stripped) that no added line of READDING puts back: what really left.
 
     A specific line removed and added back with the same stripped text (a re-indented block, a line git's -U0
     diff pairs differently) is still there, so it is not lost and cannot be credited as moved anywhere. A generic
     line is lost whenever it is removed: every edit re-adds braces, and credit_moves credits a generic line only
     in a run that a specific moved line proves, never after a line the file's own side explains, and a `}` only
-    when the run opens it.
+    when the run opens it. KEEP (stripped lines) are added lines of READDING that do not put a line back: the
+    placements being judged (app_type's types), which a move into them must still be able to explain.
     """
     removed = collections.Counter(r.text.strip() for f in files for r in f.removed)
-    added = collections.Counter(a.text.strip() for f in readding for a in f.added)
+    added = collections.Counter(a.text.strip() for f in readding for a in f.added) - (keep or collections.Counter())
     return collections.Counter({key: count if is_generic(key) else count - added[key]
                                 for key, count in removed.items() if is_generic(key) or count > added[key]})
 
@@ -905,89 +961,127 @@ def host_problem(file: AppFile) -> str | None:
 
 
 def small_helper(decl: TypeDecl, source: int) -> bool:
-    """DECL is a helper that may stay in its file: PRIVATE_TYPE_MAX source lines or fewer, and private (at any
-    level) or nested in another type's or a function's body (not a member of an `extension`)."""
+    """DECL is a helper that may stay in its file: PRIVATE_TYPE_MAX source lines or fewer (its `extension` blocks
+    in the file included, type_extent), and private (at any level) or nested in another type's or a function's
+    body (not a member of an `extension`)."""
     return source <= PRIVATE_TYPE_MAX and (decl.private or (decl.nested and not decl.in_extension))
 
 
 class TypeCandidate(NamedTuple):
     """A type app_type judges: DECL in FILE's head, its SOURCE lines, the added source LINES a move may explain,
-    and WHOLE when the base held it as a small helper (it is judged over all its lines, not only the added ones)."""
+    WHOLE when the base held it as a small helper (it is judged over all its lines, not only the added ones),
+    EXTENDED when `extension` blocks in the file add to its lines, and OUTER, the judged type it is inside (its
+    body, or an `extension` of it): such a type is judged on the outer's credit, which holds its lines already,
+    so no removed line is drawn twice. OUTER is None for a type that draws from the pools itself."""
     file: AppFile
     decl: TypeDecl
     source: int
     lines: list[SourceLine]
     whole: bool
+    extended: bool
+    outer: str | None
 
 
-def type_candidates(file: AppFile, base_types: list[TypeDecl], head_types: list[TypeDecl]) -> list[TypeCandidate]:
-    """The types of FILE (an existing App file) that must be moves, in head order.
+def type_extent(decl: TypeDecl, extensions: list[ExtensionBlock]) -> list[range]:
+    """DECL's lines in its file (0-based ranges): its own declaration and body, and every `extension` block of it or
+    of a type inside it (`extension T`, `extension T.Inner`) in the same file. A small private type whose body is
+    in extensions (`private struct V: View { var body: some View { content } }` and `extension V { ... }`) is as
+    large as all of them."""
+    return [range(decl.first, decl.end)] + [range(e.first, e.end) for e in extensions
+                                            if e.name == decl.qual or e.name.startswith(decl.qual + ".")]
+
+
+def type_candidates(file: AppFile, base: Scopes, head: Scopes) -> list[TypeCandidate]:
+    """The types of FILE that must be moves, in head order (BASE and HEAD: type_decls of its two versions; a new
+    file has an empty BASE, so each of its types is new).
 
     A type is new when its qualified name is not in the base and its declaration line is added; a new type that
     is a small helper (small_helper) or carries TYPE_ESCAPE passes, and the declaration line of a type renamed in
     place (a base type of the same kind and outer scope that the head no longer has) is the old declaration, not
     new code. A type the base held as a small helper that is one no more (it lost `private`, or grew past
     PRIVATE_TYPE_MAX) is judged whole: the base never judged it, so judging only the lines a push adds would let a
-    helper grow into a major type over a few pushes. A type inside a judged type is judged with it.
+    helper grow into a major type over a few pushes. A type's size and lines are its type_extent: its `extension`
+    blocks in this file count. A type inside a judged type is judged too, on the outer's credit (OUTER); a type
+    inside a small helper that passed is part of that helper's PRIVATE_TYPE_MAX lines; a type inside an escaped
+    type is judged on its own (the escape names one type, not all it holds).
     """
-    def source(flags: list[bool], decl: TypeDecl) -> int:
-        return sum(1 for n in range(decl.first, min(decl.end, len(flags))) if flags[n])
+    def source(flags: list[bool], extent: list[range]) -> int:
+        return sum(1 for r in extent for n in r if n < len(flags) and flags[n])
 
     def parent(decl: TypeDecl) -> str:
         return decl.qual.rpartition(".")[0]
 
-    base: dict[str, TypeDecl] = {}
-    for decl in base_types:
-        base.setdefault(decl.qual, decl)
-    head_names = {decl.qual for decl in head_types}
-    gone = collections.Counter((d.kind, parent(d)) for d in base_types if d.qual not in head_names)
+    def inside(decl: TypeDecl, quals: list[str]) -> str | None:
+        """The innermost of QUALS that DECL is inside (its body, or an extension of it)."""
+        return max((q for q in quals if decl.qual.startswith(q + ".")), key=len, default=None)
+
+    old_types: dict[str, TypeDecl] = {}
+    for decl in base.types:
+        old_types.setdefault(decl.qual, decl)
+    head_names = {decl.qual for decl in head.types}
+    gone = collections.Counter((d.kind, parent(d)) for d in base.types if d.qual not in head_names)
     added = {a.number: a for a in file.added}
-    judged: set[str] = set()
+    judged: list[str] = []
+    helpers: list[str] = []  # small helpers that passed: what they hold is in their PRIVATE_TYPE_MAX lines
     out: list[TypeCandidate] = []
-    for decl in head_types:
-        if judged.intersection(decl.parents):
+    for decl in head.types:
+        outer = inside(decl, judged)
+        helper = inside(decl, helpers)
+        if helper is not None and (outer is None or len(helper) > len(outer)):
             continue
-        size = source(file.head_flags, decl)
-        mine = [added[n + 1] for n in range(decl.first, decl.end) if n + 1 in added]
-        exempt = escaped(file.head_lines, decl.decl, TYPE_ALLOW) or small_helper(decl, size)
-        old = base.get(decl.qual)
+        extent = type_extent(decl, head.extensions)
+        size = source(file.head_flags, extent)
+        mine = sorted((added[n + 1] for r in extent for n in r if n + 1 in added), key=lambda line: line.number)
+        small = small_helper(decl, size)
+        exempt = small or escaped(file.head_lines, decl.decl, TYPE_ALLOW)
+        old = old_types.get(decl.qual)
         if old is None:
             if decl.decl + 1 not in added:  # a scope around it was renamed: not a new declaration
                 continue
-            judged.add(decl.qual)
             if exempt:
+                if small:
+                    helpers.append(decl.qual)
                 continue
             if gone[(decl.kind, parent(decl))] > 0:
                 gone[(decl.kind, parent(decl))] -= 1
                 mine = [a for a in mine if a.number != decl.decl + 1]
-            out.append(TypeCandidate(file, decl, size, mine, False))
-        elif not exempt and small_helper(old, source(file.base_flags, old)):
-            judged.add(decl.qual)
-            out.append(TypeCandidate(file, decl, size, mine, True))
+            out.append(TypeCandidate(file, decl, size, mine, False, len(extent) > 1, outer))
+            judged.append(decl.qual)
+        elif not exempt and small_helper(old, source(file.base_flags, type_extent(old, base.extensions))):
+            out.append(TypeCandidate(file, decl, size, mine, True, len(extent) > 1, outer))
+            judged.append(decl.qual)
+        elif small:
+            helpers.append(decl.qual)
     return out
 
 
 def may_add_type(file: AppFile) -> bool:
-    """FILE's push can add a type app_type refuses: an added line declares a type, or the base has a type that may
-    be a small helper (HELPER_TYPE) a push can grow without touching its declaration. A cheap test (a regex over
-    the added lines and one over the base), so the full scan runs only on such files: a wide rename touches
-    hundreds of files that add no type."""
-    return (any(TYPE_DECL.match(a.text.strip()) for a in file.added)
+    """FILE's push can add a type app_type refuses: an added line declares a type (TYPE_DECL_ANYWHERE: after a block
+    comment or a `;` too), or the base has a type that may be a small helper (HELPER_TYPE) a push can grow without
+    touching its declaration (in its body or in an `extension` of it). A cheap test (a regex over the added lines
+    and one over the base), so the full scan runs only on such files: a wide rename touches hundreds of files that
+    add no type."""
+    return (any(TYPE_DECL_ANYWHERE.search(a.text) for a in file.added)
             or HELPER_TYPE.search("\n".join(file.base_lines)) is not None)
 
 
 def app_type(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
-    """The types existing App files gain that are new code (NetHit per type, bucket `new:<path>:<type>`).
+    """The types App files gain that are new code (NetHit per type, bucket `new:<path>:<type>`).
 
     Judged per type (type_candidates): a type passes when at least MOVE_SHARE of its source lines are moved in
     (credit_moves, the run rule of a new file) or are unchanged lines; a WHOLE candidate passes only when MOVE_SHARE
-    of all its lines are moved in. One pool per push serves every placement in a fixed order: the new files
-    (new_file_pass) take first, then the types in path and head order, so one removed block is credited to one
-    new file or type only. The pools are what each side (root, rest) really loses: removed lines less what
-    existing files add back, the candidates' own lines left out so that a type moved between two existing files,
-    or a nested type lifted in place, still counts. A root file takes from the root's lines first, then the
-    rest's: a type moved into the root is the root budget's to judge (app-size). A file whose braces type_scan
-    cannot follow is left out with a warning (fail open, NetHit.warn). MOVED is not used.
+    of all its lines are moved in. Existing files' types and the types of each new file that new_file_pass passed
+    as a move (a split, or a git mv that `git diff --no-renames` shows as a delete and an add, with edits) are
+    judged: a type added to a moved file is new code as much as one appended to an existing file. A moved file's
+    types are judged on the lines new_file_pass credited there. One pool per push serves every placement in a
+    fixed order: the new files (new_file_pass) take first, then the types in path and head order, so one removed
+    block is credited to one new file or type only. The pools are move_pools, the computation new_file_pass uses,
+    with the drawing types' own lines left out of what puts lines back (KEEP), so that a type moved between two
+    existing files, or a nested type lifted in place, still counts, while a generic line removed is always lost
+    (other files re-add braces too) and a specific line the other side adds back is subtracted. A root file takes
+    from the root's lines first, then the rest's: a type moved into the root is the root budget's to judge
+    (app-size). A file whose braces type_scan cannot follow is left out with a warning (fail open, NetHit.warn).
+    MOVED is not used.
     """
     app = app_files(changes)
     if not app:
@@ -996,45 +1090,57 @@ def app_type(changes: list[FileChange], moved: collections.Counter) -> list[Adde
     hits: list[Added] = []
     candidates: list[TypeCandidate] = []
     for file in app:
-        if file.is_new or file.is_deleted or not may_add_type(file):
+        # A rename adds no line; a new file that is not a move is app-size's refusal (the Host file holds no type).
+        if file.is_deleted or (file.is_new and file.path not in placed.moves) or not may_add_type(file):
             continue
-        scans = {"base": type_scan(file.base_lines), "head": type_scan(file.head_lines)}
+        versions = {"head": file.head_lines} if file.is_new else {"base": file.base_lines, "head": file.head_lines}
+        scans = {side: type_scan(lines) for side, lines in versions.items()}
         problem = next((f"{side}: {scan.problem}" for side, scan in scans.items() if scan.problem), None)
         if problem is not None:
             hits.append(NetHit(file.path, 1, f"could not follow this file's braces ({problem}), so its new types "
                                "were not checked (fail open); tell the Performance Lead (PL-guardrails) with this "
                                "line", f"scan:{file.path}", 0, warn=True))
             continue
-        candidates += type_candidates(file, type_decls(file.base_lines, scans["base"].rows),
-                                      type_decls(file.head_lines, scans["head"].rows))
+        base = Scopes([], []) if file.is_new else type_decls(file.base_lines, scans["base"].rows)
+        candidates += type_candidates(file, base, type_decls(file.head_lines, scans["head"].rows))
     if not candidates:
         return hits
 
-    def text(lines) -> collections.Counter:
-        return collections.Counter(line.text.strip() for line in lines)
-
-    lost = {}
-    for root in (True, False):
-        gone = text(r for f in app if f.root == root for r in f.removed)
-        kept = text(a for f in app if f.root == root and not f.is_new for a in f.added)
-        own = text(line for c in candidates if c.file.root == root for line in c.lines)
-        lost[root] = gone - (kept - own) - placed.taken[root]
+    drawing = [c for c in candidates if c.outer is None and not c.file.is_new]
+    keep = {side: collections.Counter(line.text.strip() for c in drawing if c.file.root == side for line in c.lines)
+            for side in (True, False)}
+    pools = move_pools(app, keep)
+    lost = {side: pools[side] - placed.taken[side] for side in (True, False)}
+    credited: dict[tuple[str, str], set[int]] = {}
     for c in candidates:
-        moved_lines = len(credit_moves(c.lines, [lost[True], lost[False]] if c.file.root
-                                       else [lost[False], lost[True]]).moved)
+        decl = c.decl
+        if c.file.is_new:
+            got = placed.moves[c.file.path]
+        elif c.outer is not None:
+            got = credited[(c.file.path, c.outer)]
+        else:
+            got = {line.number for line in credit_moves(c.lines, [lost[True], lost[False]] if c.file.root
+                                                        else [lost[False], lost[True]]).moved}
+        credited[(c.file.path, decl.qual)] = got
+        moved_lines = sum(1 for line in c.lines if line.number in got)
         fresh = (c.source if c.whole else len(c.lines)) - moved_lines
         if c.source - fresh >= MOVE_SHARE * c.source:
             continue
-        decl = c.decl
-        what = (f"type {decl.qual} in an existing App file is no longer a small private or nested helper, "
-                f"{c.source} source lines ({fresh} not moved)" if c.whole else
-                f"new type {decl.qual} in an existing App file, {c.source} source lines ({fresh} not moved)")
-        own_file = "its own file" + (" (make it internal)" if decl.private else "") + (
-            f" (as an `extension {decl.qual.rpartition('.')[0]}` member)" if decl.nested else "")
-        hits.append(NetHit(c.file.path, decl.first + 1, f"{what}: put it in {destination(c.file.path)}, or in "
-                           f"{own_file} if it must stay in the App (one major type per file, nested types too, "
-                           "CLAUDE.md; a new App file is held to the same move rule). Reviewed escape: "
-                           f"`{TYPE_ESCAPE}`", f"new:{c.file.path}:{decl.qual}", c.source))
+        lines = f"{c.source} source lines" + (" with its `extension` blocks in this file" if c.extended else "")
+        if c.whole:
+            own_file = "its own file" + (" (make it internal)" if decl.private else "") + (
+                f" (as an `extension {decl.qual.rpartition('.')[0]}` member)" if decl.nested else "")
+            text = (f"type {decl.qual} in an existing App file is no longer a small private or nested helper, "
+                    f"{lines} ({fresh} not moved): put it in {destination(c.file.path)}, or move it to {own_file} "
+                    "if it must stay in the App (one major type per file, nested types too, CLAUDE.md; only the "
+                    f"lines it had before this push count as moved there). Reviewed escape: `{TYPE_ESCAPE}`")
+        else:
+            where = "a new App file that is a move" if c.file.is_new else "an existing App file"
+            text = (f"new type {decl.qual} in {where}, {lines} ({fresh} not moved): put it in "
+                    f"{destination(c.file.path)}; a new App file for new code is refused too (app-size); keep it "
+                    f"a private helper of <= {PRIVATE_TYPE_MAX} source lines, or use the reviewed escape "
+                    f"`{TYPE_ESCAPE}`")
+        hits.append(NetHit(c.file.path, decl.first + 1, text, f"new:{c.file.path}:{decl.qual}", c.source))
     return hits
 
 
@@ -1046,32 +1152,43 @@ def app_files(changes: list[FileChange]) -> list[AppFile]:
 @dataclass
 class NewFiles:
     """new_file_pass's result: its refusals, its renames (new file -> the deleted file it renames), the push's one
-    Host file, and TAKEN, the lines the renames and moves took from each side's pool (root: True)."""
+    Host file, TAKEN, the lines the renames and moves took from each side's pool (root: True), and MOVES, each new
+    file it passed as a move (a split, a git mv with edits) -> the head line numbers credit_moves credited there
+    (app_type judges each type of such a file on them)."""
     hits: list[Added]
     twins: dict[str, AppFile]
     host: AppFile | None
     taken: dict[bool, collections.Counter]
+    moves: dict[str, set[int]] = field(default_factory=dict)
+
+
+def move_pools(app: list[AppFile], keep: dict[bool, collections.Counter] | None = None
+               ) -> dict[bool, collections.Counter]:
+    """What a placement (a new file, a new type) may be credited from, per side (root: True): the lines no existing
+    App file puts back (lost_lines; a block re-indented in its file and pasted into a new one is new code; a block
+    moved into an existing file is not also in a new one). An existing file's re-added specific line is taken from
+    its own side's removed lines first, then from the other side's, once (spill). The new files' own lines do not
+    cancel their source; KEEP (per side) are the lines of the placements app_type judges, which do not cancel it
+    either. The one pool computation of both rules (new_file_pass with no KEEP, app_type with its types' lines),
+    so a generic line and a cross-side re-add are counted the same way for a new file and for a type."""
+    keep = keep or {True: collections.Counter(), False: collections.Counter()}
+    files = {side: [f for f in app if f.root == side] for side in (True, False)}
+    existing = {side: [f for f in files[side] if not f.is_new] for side in (True, False)}
+
+    def spill(side: bool) -> collections.Counter:
+        """Specific lines SIDE's existing files add back that SIDE did not remove (its KEEP left out)."""
+        added = collections.Counter(key for f in existing[side] for a in f.added
+                                    if not is_generic(key := a.text.strip())) - keep[side]
+        return added - collections.Counter(r.text.strip() for f in files[side] for r in f.removed)
+
+    return {side: lost_lines(files[side], existing[side], keep[side]) - spill(not side) for side in (True, False)}
 
 
 def new_file_pass(app: list[AppFile]) -> NewFiles:
     """Which new App files of the push (APP, app_files) are renames, moves, its one Host file, or refused new code."""
     hits: list[Added] = []
-    root_files = [f for f in app if f.root]
-    other_files = [f for f in app if not f.root]
-    # What a new file may be credited from: lines no existing App file puts back (a block re-indented in its file
-    # and pasted into a new one is new code; a block moved into an existing file is not also in a new one). An
-    # existing file's re-added line is taken from its own side's removed lines first, then from the other side's,
-    # once. The new files' own lines do not cancel their source, and each new file draws from the pools once, so
-    # two copies of one moved block are one move.
-    def spill(readding: list[AppFile], files: list[AppFile]) -> collections.Counter:
-        """Specific lines READDING adds back that FILES (their own side) did not remove."""
-        added = collections.Counter(key for f in readding for a in f.added if not is_generic(key := a.text.strip()))
-        return added - collections.Counter(r.text.strip() for f in files for r in f.removed)
-
-    existing_root = [f for f in root_files if not f.is_new]
-    existing_other = [f for f in other_files if not f.is_new]
-    root_pool = lost_lines(root_files, existing_root) - spill(existing_other, other_files)
-    other_pool = lost_lines(other_files, existing_other) - spill(existing_root, root_files)
+    pools = move_pools(app)
+    root_pool, other_pool = pools[True], pools[False]
     start = {True: root_pool.copy(), False: other_pool.copy()}
     host: AppFile | None = None
 
@@ -1101,14 +1218,17 @@ def new_file_pass(app: list[AppFile]) -> NewFiles:
             for key in keys(file.added):  # what the rename took, no other new file takes
                 pool[key] -= 1 if pool[key] > 0 else 0
             twins[file.path] = twin
+    moves: dict[str, set[int]] = {}
     for file in new_files:
         if file.path in twins:
             continue
         # The moved share is of non-import source lines on both sides: imports count neither as moved nor as code.
-        moved_lines = len(credit_moves(file.added, [root_pool] if file.root else [other_pool, root_pool],
-                                       bridge=is_import).moved)
+        credited = credit_moves(file.added, [root_pool] if file.root else [other_pool, root_pool],
+                                bridge=is_import).moved
+        moved_lines = len(credited)
         code = sum(1 for a in file.added if not is_import(a.text.strip()))
         if moved_lines and moved_lines >= MOVE_SHARE * code:
+            moves[file.path] = {line.number for line in credited}
             continue
         lines = len(file.added)
         if not (HOST_FILE.match(app_rel(file.path)) and file.root):
@@ -1126,7 +1246,7 @@ def new_file_pass(app: list[AppFile]) -> NewFiles:
         number = file.added[0].number if file.added else 1
         hits.append(NetHit(file.path, number, f"new App file, {lines} source lines ({lines - moved_lines} not "
                            f"moved), goes to {destination(file.path)}: {why}", f"new:{file.path}", lines))
-    return NewFiles(hits, twins, host, {True: start[True] - root_pool, False: start[False] - other_pool})
+    return NewFiles(hits, twins, host, {True: start[True] - root_pool, False: start[False] - other_pool}, moves)
 
 
 def app_size(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
@@ -1327,15 +1447,22 @@ RULES = (
          app_size,
          scope=(APP,),
          net=True),
-    Rule("app-type", "A new type in an existing CmuxNextApp file that is not a move (top-level, a member of an "
-         f"`extension`, or nested in a type or function with more than {PRIVATE_TYPE_MAX} source lines)",
-         "the new-file rule's dodge: a type appended to an existing App file grows a god file and the App instead "
-         "of a package (CLAUDE.md: one major type per file, nested types included)",
-         f"put the type in its domain package ({DESIGN}), or in its own App file if it must stay in the App (a "
-         "new App file must be a move too, so in practice: the package); a private or fileprivate helper, or a "
-         f"type nested in another type's body, of <= {PRIVATE_TYPE_MAX} source lines may stay, and a helper that "
-         "grows past that or loses `private` is judged whole; a type moved in from another App file (or lifted "
-         "out of its outer type) passes",
+    # Known gap (growth stays a warning, see the app-size values' comment; the perf cron arch report is the
+    # backstop): code first added as plain members (of an `extension` of an old type, or of an old type's body)
+    # gets only the growth warning, and a later push that wraps those members in place in a new `struct T { }` is
+    # credited as a move in place. Likewise an `extension` of a small nested helper in ANOTHER file adds to it
+    # unseen: a type's size counts only its own file's `extension` blocks.
+    Rule("app-type", "A new type in a CmuxNextApp file that is not a move (top-level, a member of an "
+         f"`extension`, or nested in a type or function with more than {PRIVATE_TYPE_MAX} source lines, its "
+         "`extension` blocks in the file counted), in an existing file or in a new file that passes as a move",
+         "the new-file rule's dodge: a type appended to an existing App file, or to a file the push moves or "
+         "splits, grows a god file and the App instead of a package (CLAUDE.md: one major type per file, nested "
+         "types included)",
+         f"put the type in its domain package ({DESIGN}): a new App file for new code is refused too (app-size); "
+         f"a private or fileprivate helper, or a type nested in another type's body, of <= {PRIVATE_TYPE_MAX} "
+         "source lines (with its `extension` blocks in the file) may stay, and a helper that grows past that or "
+         "loses `private` is judged whole; a type moved in from another App file (or lifted out of its outer "
+         "type) passes; an escape on a type covers that type only, not the types inside it",
          TYPE_ESCAPE,
          app_type,
          scope=(APP,),
