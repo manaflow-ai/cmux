@@ -56,6 +56,8 @@ import Testing
         /// Held: the follower holds its service weakly and ends with it.
         let service: NotificationCenterService
         let task: Task<Void, Never>
+        /// Every status the follower examined so far.
+        let examinations: StatusExaminationCount
         var examined: AsyncStream<Void>.Iterator
         var posted: AsyncStream<SurfaceID?>.Iterator
 
@@ -66,8 +68,11 @@ import Testing
             settings.runNotifyMinimumSeconds = 10
             settings.runNotifyWhenVisible = false
             let behavior = settings
+            let examinations = StatusExaminationCount()
+            self.examinations = examinations
             self.service = service
             task = service.followStatusRuns(store, behavior: {
+                examinations.count += 1
                 examining.yield()
                 return behavior
             }, visibility: { _ in .hidden }, post: { posting.yield($0.surface) })
@@ -115,11 +120,15 @@ import Testing
         var follower = Follower(store, service: NotificationCenterService())
         defer { follower.task.cancel() }
         await follower.examine(3)
+        let before = follower.examinations.count
         store.apply(snapshot: Self.tree(4, revision: 2))
-        // Only the new workspace is examined: the three others keep their records and watches.
         await follower.examine()
         let notice = try await follower.finish(4, in: store)
         #expect(notice == SurfaceID(rawValue: 4))
+        // Only the new workspace is examined: its first read, its run busy, its run finished. The
+        // three others keep their records and watches. Its notice is posted after every change
+        // queued before it (one queue, in order), so a re-examination of the others is counted.
+        #expect(follower.examinations.count - before == 3, "examined \(follower.examinations.count - before) statuses for one added workspace")
     }
 
     @Test func aRecordReplacedUnderItsIdIsFollowedAsTheNewRecord() async throws {
