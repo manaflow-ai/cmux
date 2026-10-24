@@ -22,32 +22,75 @@ public protocol LoopbackTunnel: Sendable {
     func close()
 }
 
-/// Pulls one tunnel's bytes a read at a time for a client that reads on demand (Open Desktop's
-/// native viewer), returning flow-control credit for each read. One reader per tunnel.
+/// One tunnel's bytes for a client that reads on demand (Open Desktop's native viewer). A pump
+/// drains the tunnel's events as they come, so a burst bigger than the tunnel's own event buffer
+/// (a full-screen update while the client decodes) never cancels the connection; reads take the
+/// bytes in order. Past `limit` buffered bytes the tunnel closes. One reader per tunnel.
 public actor LoopbackTunnelReader {
     private let tunnel: any LoopbackTunnel
-    private var iterator: AsyncStream<LoopbackTunnelEvent>.Iterator?
+    private let limit: Int
+    private var pending: [Data] = []
+    private var buffered = 0
+    private var end: LoopbackTunnelEvent?
+    private var waiter: CheckedContinuation<Void, Never>?
+    private var pump: Task<Void, Never>?
 
-    public init(_ tunnel: any LoopbackTunnel) {
+    public init(_ tunnel: any LoopbackTunnel, limit: Int = 64 << 20) {
         self.tunnel = tunnel
-        iterator = tunnel.events.makeAsyncIterator()
+        self.limit = limit
+    }
+
+    deinit {
+        pump?.cancel()
     }
 
     /// The next bytes; nil at the end of the stream. Throws when the tunnel ended early.
     public func read() async throws -> Data? {
-        guard var events = iterator else { return nil }
-        let event = await events.next(isolation: self)
-        iterator = events
-        switch event {
-        case .data(let data)?:
-            tunnel.consumed(data.count)
-            return data
-        case .closed(let error?)?:
-            iterator = nil
-            throw LoopbackTunnelFailure.other(error)
-        case .eof?, .closed(nil)?, nil:
-            iterator = nil
-            return nil
+        startPump()
+        while pending.isEmpty, end == nil {
+            await withCheckedContinuation { waiter = $0 }
         }
+        if !pending.isEmpty {
+            let data = pending.removeFirst()
+            buffered -= data.count
+            return data
+        }
+        if case .closed(let error?)? = end { throw LoopbackTunnelFailure.other(error) }
+        return nil
+    }
+
+    private func startPump() {
+        guard pump == nil else { return }
+        let events = tunnel.events
+        // task-owner: ends with the tunnel's event stream, or when this reader goes.
+        pump = Task { [weak self] in
+            for await event in events {
+                guard let self, await self.take(event) else { return }
+            }
+            await self?.take(.eof)
+        }
+    }
+
+    /// False once the stream ended (or overflowed), which stops the pump.
+    @discardableResult
+    private func take(_ event: LoopbackTunnelEvent) -> Bool {
+        guard end == nil else { return false }
+        switch event {
+        case .data(let data):
+            tunnel.consumed(data.count)
+            guard !data.isEmpty else { return true }
+            pending.append(data)
+            buffered += data.count
+            if buffered > limit {
+                end = .closed(error: "more than \(limit) bytes waiting")
+                tunnel.close()
+            }
+        case .eof, .closed:
+            end = event
+        }
+        let waiting = waiter
+        waiter = nil
+        waiting?.resume()
+        return end == nil
     }
 }

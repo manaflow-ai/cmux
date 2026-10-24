@@ -80,6 +80,7 @@ cmux cloud new-machine                                      # answers machine_id
 cmux cloud new-workspace                                    # New Cloud Workspace
 cmux cloud open-machine --target machine:vm-…
 cmux cloud open-desktop --target machine:vm-…                # its desktop in a cmux browser tab, over the app's Cloud tunnel
+cmux cloud open-desktop --target machine:vm-… --viewer native # the same desktop in the native remote view pane (development builds)
 cmux cloud new-terminal-on-machine --target machine:vm-…
 cmux cloud rename-machine --target machine:vm-… --name <label>
 cmux cloud resize-machine --target machine:vm-… --size small|medium|large|xlarge

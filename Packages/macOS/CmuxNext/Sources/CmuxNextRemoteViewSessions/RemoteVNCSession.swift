@@ -97,7 +97,9 @@ public final class RemoteVNCSession {
     /// Reconnect or Sign In pressed. After a sign-in failure it asks for the
     /// user name and password first, in a sheet on `window`.
     public func reconnect(in window: NSWindow?) {
-        if case .ended(.signInRequired) = source.status.state {
+        // A Cloud desktop only ever goes over the app's Cloud tunnel: no sign-in sheet, whose
+        // connect would be plain TCP to the record's host.
+        if makeTransport == nil, case .ended(.signInRequired) = source.status.state {
             promptForSignIn(in: window)
         } else {
             connect()

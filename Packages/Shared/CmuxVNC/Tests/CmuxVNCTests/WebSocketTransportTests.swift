@@ -112,7 +112,7 @@ struct WebSocketTransportTests {
         }
     }
 
-    @Test func theClientStreamsThroughWebsockify() async throws {
+    @Test(.timeLimit(.minutes(1))) func theClientStreamsThroughWebsockify() async throws {
         let server = VNCDemoServer(configuration: .init(width: 320, height: 200, framesPerSecond: 30))
         let port = try await server.start()
         defer { server.stop() }

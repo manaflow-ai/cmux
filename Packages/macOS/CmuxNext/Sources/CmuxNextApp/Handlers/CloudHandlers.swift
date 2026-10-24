@@ -183,6 +183,7 @@ enum CloudHandlers {
             throw ActionFailure(message: CloudStrings.desktopUnavailable(title))
         }
         if viewer == "native" {
+            guard RemoteViewAvailability().isAvailable else { throw ActionFailure(message: CloudStrings.desktopUnavailable(title)) }
             guard let record = RemoteViewTabRecord(host: session.machineID.lowercased(), target: .virtual, mode: .control,
                                                    cloudDesktop: true) else {
                 throw ActionFailure(message: CloudStrings.desktopUnavailable(title))
