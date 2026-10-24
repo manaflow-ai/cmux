@@ -84,7 +84,8 @@ struct HangReportCollectorTests {
         // Longest first: 500 ms (sampled after the unload), 400 ms (before it), 300 ms (before it).
         #expect(stalls.map(\.durationMs) == [500, 400, 300])
         #expect(stalls[0].frames.first?.image == "AppKit")
-        #expect(stalls[1].frames.allSatisfy(\.isOther))
+        let unloadedFrames = stalls[1].frames
+        #expect(unloadedFrames.allSatisfy { $0.isOther })
         #expect(stalls[2].frames.first?.image == "AppKit", "resolved before the unload happened")
     }
 
