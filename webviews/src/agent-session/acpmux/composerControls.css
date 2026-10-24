@@ -118,7 +118,6 @@
   margin-top: calc(12px * var(--cmux-interface-scale, 1));
   border-radius: 12px;
   background: color-mix(in srgb, var(--agent-text) 14%, transparent);
-  animation: acpmux-effort-track-in var(--cmux-motion-standard) cubic-bezier(0.2, 0, 0, 1) both;
 }
 .acpmux-effort-fill {
   position: absolute;
@@ -221,17 +220,6 @@
   .acpmux-effort-thumb {
     animation: none;
     transition: none;
-  }
-}
-@keyframes acpmux-effort-track-in {
-  from {
-    opacity: 0;
-    transform: translate3d(-6px, 0, 0) scaleX(0.96);
-    transform-origin: left center;
-  }
-  to {
-    opacity: 1;
-    transform: none;
   }
 }
 /* The approval menu's question above the modes (permissions-menu.png). */
