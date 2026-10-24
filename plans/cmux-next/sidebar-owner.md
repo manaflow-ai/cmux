@@ -435,6 +435,8 @@ the gap, no row left out of place after drop or cancel).
 
 ## Codex follow-up
 
+- 2026-10-24: Leo requested "default just only show the inner tabs on hover and be able to go to and focus them when hovering ovre workspaces." Codex keeps the richer prompt and needs-input card behind the default-off `sidebar.hoverCards.richDetails` toggle. The popover keeps the shared glass, colors and fonts; the rail and Chief sidebar stay as they are.
+
 - 2026-10-23: Codex #24513 follow-up keeps the `inside` Chrome corner inset for a parent group whose rows are only nested groups; the regression test covers the previously unmeasured parent rail.
 
 - 2026-10-23: Leo's 441 follow-up keeps the group rail on the header's left edge and adds only the tapered top cut where the rail leaves the bar.
@@ -442,3 +444,4 @@ the gap, no row left out of place after drop or cancel).
 - 2026-10-23: Follow-up repair keeps the tapered rail mask taller than both old and destination bounds during collapse springs.
 - 2026-10-24: Codex #24700 keeps the two-point rail's left edge straight and gives its right edge a six-point Chrome-style taper into the header, with the view frame clipping retained spring coverage.
 - 2026-10-24: Codex follow-up restores Chrome's plain two-point rail: a six-point header gap and quarter-rounds only on the right corners at both ends, with the left edge square.
+- 2026-10-24: The interactive inner-tab popover keeps its panel alive while the pointer crosses into the card; row focus still follows the shared tab-selection path.

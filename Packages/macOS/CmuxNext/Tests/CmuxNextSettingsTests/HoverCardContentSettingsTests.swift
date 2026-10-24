@@ -11,9 +11,13 @@ struct HoverCardContentSettingsTests {
         let options = snapshot.hoverCards.workspaceCardOptions
         #expect(options == WorkspaceHoverCardOptions())
         #expect(options.layout == .timeline)
+        #expect(!options.showsRichDetails)
         #expect(options.maxRows == 20)
         let layout = try #require(SettingsSchema.descriptor(for: HoverCardSettings.layoutPath))
         #expect(layout.defaultValue == .string("timeline"))
+        let richDetails = try #require(SettingsSchema.descriptor(for: HoverCardSettings.richDetailsPath))
+        #expect(richDetails.kind == .toggle)
+        #expect(richDetails.defaultValue == .bool(false))
         for path in [HoverCardSettings.timingsPath, HoverCardSettings.promptsPath, HoverCardSettings.waitingPath,
                      HoverCardSettings.gitPath, HoverCardSettings.portsPath] {
             let row = try #require(SettingsSchema.descriptor(for: path), "no Settings row for \(path)")
@@ -26,12 +30,14 @@ struct HoverCardContentSettingsTests {
     @Test func cmuxJSONPicksTheLayoutPartsAndLength() {
         let root = JSONValue.object(["sidebar": .object(["hoverCards": .object([
             "layout": .string("log"),
+            "richDetails": .bool(true),
             "maxRows": .number(7),
             "sections": .object(["git": .bool(false), "prompts": .bool(false), "timings": .bool(false)]),
         ])])])
         let snapshot = CmuxConfigSnapshot.parse(root, validDensities: [], validMetrics: [])
         let options = snapshot.hoverCards.workspaceCardOptions
         #expect(options.layout == .log)
+        #expect(options.showsRichDetails)
         #expect(options.maxRows == 7)
         #expect(!options.showsGit && !options.showsPrompts && !options.showsTimings)
         #expect(options.showsWaiting && options.showsPorts)

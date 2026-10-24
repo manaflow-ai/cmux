@@ -170,7 +170,8 @@ public struct SidebarMapping {
                 let title = tabTitle?(tab) ?? (isNewTabPage ? newTabTitle : tab.displayTitle)
                 return SidebarTab(id: TabID(tab.id), title: title,
                                   kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.showsUnread,
-                                  brand: tab.agentBrand, favicon: browserFaces[tab.id]?.favicon)
+                                  brand: tab.agentBrand, favicon: browserFaces[tab.id]?.favicon,
+                                  cwd: tab.cwd.map(shorten), status: StatusMapping.shared.summary(tab).state)
             },
             muted: muted,
             // The store refuses every close of its home workspace (`home_not_closable`).

@@ -21,6 +21,9 @@ public nonisolated struct WorkspaceHoverCardOptions: Sendable, Hashable {
     }
 
     public var layout: Layout = .timeline
+    /// When enabled, keep the richer workspace card with prompts, needs-input state and facts.
+    /// The sidebar defaults to the inner-tab preview; this switch preserves the previous card.
+    public var showsRichDetails = false
     /// Running times: the status's and a command's elapsed time, and the stats line.
     public var showsTimings = true
     /// Prompts the person sent, and starts of work, in the history.
