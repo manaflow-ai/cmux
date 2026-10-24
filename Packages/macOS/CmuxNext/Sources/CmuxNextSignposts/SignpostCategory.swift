@@ -21,6 +21,10 @@ public nonisolated enum SignpostCategory: String, Sendable, CaseIterable {
     case launch
     /// Main-thread spans the stall bench measures (palette open, surface creation).
     case stall
+    /// Burst bench events (`BurstSignposts` in CmuxNextControl, scripts/cmux-next/burst-bench.py): a
+    /// refusal the person saw, a grid sent to a PTY, that terminal's first output after it. Events,
+    /// not intervals; the bench times each against the press before it.
+    case burst
 
     /// The unified-log subsystem every cmux signpost uses.
     public static let subsystem = "com.cmuxterm.app.next"
