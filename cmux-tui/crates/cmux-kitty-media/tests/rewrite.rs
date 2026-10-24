@@ -219,7 +219,8 @@ fn file_over_the_cap_passes_through() {
     let dir = tempfile::tempdir().unwrap();
     let path = temp_file(dir.path(), "huge", &pattern(2_000));
     let input = file_command("a=T,t=f", &path);
-    let mut rewriter = KittyMediaRewriter::with_limits(Limits { max_file_bytes: 1_999, ..Limits::default() });
+    let mut rewriter =
+        KittyMediaRewriter::with_limits(Limits { max_file_bytes: 1_999, ..Limits::default() });
     let mut out = Vec::new();
     rewriter.rewrite(&input, &mut out);
     assert_eq!(out, input);
@@ -307,4 +308,34 @@ fn shared_memory_is_read_then_unlinked() {
     assert_eq!(found[0].0, "a=T,f=32,s=50,v=25,m=1");
     assert_eq!(reassemble(&found), data);
     assert!(!Path::new(&format!("/dev/shm{name}")).exists());
+}
+
+fn rewrite_borrowed_split(input: &[u8], split: usize) -> Vec<u8> {
+    let mut rewriter = KittyMediaRewriter::new();
+    let mut out = Vec::new();
+    for part in [&input[..split], &input[split..]] {
+        let mut scratch = Vec::new();
+        out.extend_from_slice(rewriter.rewrite_borrowed(part, &mut scratch));
+    }
+    rewriter.finish(&mut out);
+    out
+}
+
+#[test]
+fn borrowed_rewrite_matches_and_copies_nothing_without_a_command() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = temp_file(dir.path(), "img.png", &pattern(5_000));
+    let mut input = b"x\x1b[1m\x1b_Xother\x1b\\".to_vec();
+    input.extend(file_command("a=T,f=100,t=f", &path));
+    input.extend_from_slice(b"\x1b_Ga=T,t=d;QUJD\x1b\\y\x1b_");
+    let whole = rewrite_all(&input);
+    for split in 0..=input.len() {
+        assert_eq!(rewrite_borrowed_split(&input, split), whole, "split at {split}");
+    }
+
+    let plain = b"hello \x1b[31mred\x1b[0m\r\n";
+    let mut rewriter = KittyMediaRewriter::new();
+    let mut scratch = Vec::new();
+    let out = rewriter.rewrite_borrowed(plain, &mut scratch);
+    assert!(std::ptr::eq(out, &plain[..]), "plain output is not copied");
 }
