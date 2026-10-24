@@ -88,7 +88,7 @@ final class PageScriptPipeline {
 
     init(evaluate: @escaping @MainActor (String) -> Void,
          render: @escaping @Sendable (JSONValue) async -> String = { envelope in
-             await Self.render(envelope)
+             await PageScriptPipeline.render(envelope)
          }) {
         self.evaluate = evaluate
         self.render = render
