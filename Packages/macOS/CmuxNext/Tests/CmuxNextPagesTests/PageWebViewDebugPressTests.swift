@@ -22,7 +22,7 @@ struct PageWebViewDebugPressTests {
     @Test func pressSendsADevToolsPressAndReleaseAtThePoint() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let hosting = FakeChromiumHosting()
-        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/", chromium: hosting))
+        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/", chromium: hosting, errors: DroppedErrors()))
         view.chromiumClock = PageTestClock.never
         await view.chromiumStart?.value
         let page = try #require(hosting.made.first)
@@ -41,7 +41,7 @@ struct PageWebViewDebugPressTests {
     /// A WebKit page has no DevTools input: the caller clicks it with AppKit events.
     @Test func aWebKitPageIsNotPressed() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
-        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/", chromium: nil))
+        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/", chromium: nil, errors: DroppedErrors()))
         #expect(await view.debugPress(x: 1, y: 1) == false)
         view.close()
     }

@@ -17,7 +17,7 @@ struct PageWebViewChromiumTests {
     }
 
     private func makeView(_ hosting: FakeChromiumHosting) throws -> PageWebView {
-        try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/start", chromium: hosting))
+        try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/start", chromium: hosting, errors: DroppedErrors()))
     }
 
     @Test func thePageShowsInChromiumAfterItsSetup() async throws {
@@ -137,7 +137,7 @@ struct PageWebViewChromiumTests {
         let dynamic = PageDescriptor(id: "test.chromium-dynamic", resource: "chromium-page", namespaces: [], dynamicPrefixes: ["asset"])
         let hosting = FakeChromiumHosting()
         let source = OneResource()
-        let view = try #require(PageWebView(descriptor: dynamic, root: root, routes: [], dynamicResources: source, chromium: hosting))
+        let view = try #require(PageWebView(descriptor: dynamic, root: root, routes: [], dynamicResources: source, chromium: hosting, errors: DroppedErrors()))
         view.chromiumClock = PageTestClock.never
         #expect(view.engineDecision == .chromium)
         await view.chromiumStart?.value

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextErrorJournal
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
@@ -26,11 +27,14 @@ extension InternalPageID {
 @MainActor
 final class ChiefInspectorPageService: InternalPageProvider {
     private weak var services: AppServices?
+    /// Takes the page's console errors (the app's journal).
+    private let errors: any ErrorRecording
     /// The server whose Chief the open tabs inspect.
     private(set) var machineID: String?
 
     init(services: AppServices) {
         self.services = services
+        errors = services.errorJournal.journal
     }
 
     var page: InternalPageID { .chiefInspector }
@@ -55,7 +59,7 @@ final class ChiefInspectorPageService: InternalPageProvider {
             return server?.daemon.connection
         }
         let routes = [PageRoute(prefix: "cmux.chief_inspector.", provider: provider)]
-        return PageWebView(descriptor: .chiefInspector, routes: routes) ?? NSView()
+        return PageWebView(descriptor: .chiefInspector, routes: routes, errors: errors) ?? NSView()
     }
 }
 

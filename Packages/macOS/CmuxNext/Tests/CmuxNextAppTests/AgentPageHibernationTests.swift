@@ -7,6 +7,7 @@ import CmuxNextSettings
 import AppKit
 import Foundation
 import Testing
+import CmuxNextPagesTestSupport
 
 /// cx-x15rz: each agent chat tab's page is a web view with its own web content process (about
 /// 75 MB). A chat hidden past the browser hibernation threshold lets its page go and keeps its
@@ -34,7 +35,7 @@ struct AgentPageHibernationTests {
 
         init() {
             tabs = AgentTabStore(build: nil, registry: ActionRegistry(),
-                                 environment: [AgentPaneSource.devURLVariable: "http://127.0.0.1:9/"], showcase: true)
+                                 environment: [AgentPaneSource.devURLVariable: "http://127.0.0.1:9/"], showcase: true, errors: DroppedErrors())
             tabs.localHost = AgentPageHibernationTests.thisMac
             turns.localHost = AgentPageHibernationTests.thisMac
             turns.watching = true

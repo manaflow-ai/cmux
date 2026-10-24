@@ -79,7 +79,7 @@ final class FileTreePageService: InternalPageProvider {
         }
         let native = AppPageNativeProvider(services: services, page: .files)
         let routes = [PageRoute(prefix: "cmux.files.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
-        guard let page = PageWebView(descriptor: .files, routes: routes) else { return NSView() }
+        guard let page = PageWebView(descriptor: .files, routes: routes, errors: services.errorJournal.journal) else { return NSView() }
         native.anchor = { [weak page] in page }
         tab.page = page
         tabs[key] = tab

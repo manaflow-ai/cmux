@@ -14,7 +14,8 @@ enum ChiefViewsPageTab {
             machineName: { [weak services] daemon in services.flatMap { ControlSessions.machineName(daemon, machines: $0.machines) } },
             openChat: { [weak services] in try services.map(DeepLinkNavigator.init)?.open(DeepLink(.session($0, turn: nil)), background: false) },
             revealTab: { [weak services] in services?.revealTab($0) ?? false },
-            openURL: { [weak services] in services?.home.dock.openLink($0, on: services?.daemon.connection) })
+            openURL: { [weak services] in services?.home.dock.openLink($0, on: services?.daemon.connection) },
+            errors: services.errorJournal.journal)
         services.pages.register(WebPageTab(page, symbol: ChiefViewsPage.symbol, title: ChiefViewsPage.title) {
             ChiefViewsPage(host: host).makeView()
         })

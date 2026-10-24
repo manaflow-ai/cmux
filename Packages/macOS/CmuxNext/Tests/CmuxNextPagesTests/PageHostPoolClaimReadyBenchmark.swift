@@ -4,6 +4,7 @@ import CmuxNextSettings
 import Foundation
 import Testing
 import WebKit
+import CmuxNextPagesTestSupport
 
 /// Claim-to-ready of a Settings page from the parked spare (`CMUX_PAGE_CLAIM_BENCH=<runs>`).
 ///
@@ -53,7 +54,7 @@ struct PageHostPoolClaimReadyBenchmark {
         defer { window.close() }
         var policy = PageHostPool.Policy()
         policy.idleInput = .milliseconds(5)
-        let pool = PageHostPool(policy: policy, activity: { 0 }, isTrackingMenu: { false })
+        let pool = PageHostPool(policy: policy, activity: { 0 }, isTrackingMenu: { false }, errors: DroppedErrors())
         defer { pool.dropSpare(); pool.claimedHosts.forEach(pool.release) }
         pool.follow(window)
         pool.noteLikely()

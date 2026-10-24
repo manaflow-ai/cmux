@@ -4,6 +4,7 @@ import Foundation
 import Testing
 import WebKit
 @testable import CmuxNextAgentPane
+import CmuxNextPagesTestSupport
 
 private actor BenchHost: AgentPaneHostProviding {
     let url: URL
@@ -146,7 +147,7 @@ struct AgentPaneTransportBench {
             let page = directory.appendingPathComponent("index.html")
             try Self.nativePage.write(to: page, atomically: true, encoding: .utf8)
             let model = AgentPaneModel(host: BenchHost(url: server.url))
-            let pane = try #require(AgentPaneView(model: model, source: .bundled(page)))
+            let pane = try #require(AgentPaneView(model: model, source: .bundled(page), errors: DroppedErrors()))
             pane.frame = window.contentView!.bounds
             print("PANE-STAGE awake \(Self.keepAwake(pane.webView))")
             window.contentView!.addSubview(pane)

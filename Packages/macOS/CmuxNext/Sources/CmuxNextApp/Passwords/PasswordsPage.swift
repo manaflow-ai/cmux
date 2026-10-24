@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextErrorJournal
 import CmuxNextIcons
 import CmuxNextPages
 import CmuxNextSettings
@@ -26,10 +27,13 @@ final class PasswordsPageService: InternalPageProvider {
     private weak var services: AppServices?
     /// The store every Passwords tab and the browser profile delete sheet read.
     let store: any PasswordStore
+    /// Takes the page's console errors (the app's journal).
+    private let errors: any ErrorRecording
 
     init(services: AppServices, store: (any PasswordStore)? = nil) {
         self.services = services
         self.store = store ?? Self.makeStore(services)
+        errors = services.errorJournal.journal
     }
 
     /// The DEBUG sample store when `CMUX_NEXT_PASSWORDS_SAMPLE=1` (tagged DEV dogfood), else
@@ -60,7 +64,7 @@ final class PasswordsPageService: InternalPageProvider {
         let native = services.map { AppPageNativeProvider(services: $0, page: .passwords) }
         var routes = [PageRoute(prefix: "cmux.passwords.", provider: provider)]
         if let native { routes.append(PageRoute(prefix: "cmux.app.", provider: native)) }
-        guard let page = PageWebView(descriptor: .passwords, routes: routes) else { return NSView() }
+        guard let page = PageWebView(descriptor: .passwords, routes: routes, errors: errors) else { return NSView() }
         provider.anchor = { [weak page] in page }
         provider.allowExport = { [weak services] in
             services?.settings.map { BrowserPasswordsSetting.current($0).allowExport } ?? false

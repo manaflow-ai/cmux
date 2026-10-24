@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextPages
 import Testing
+import CmuxNextPagesTestSupport
 
 /// The first Settings open after launch (perceived speed, 2026-10-15): the pool parks its
 /// Settings spare in a main window, and it learned of one only when a window became key. A window
@@ -11,7 +12,7 @@ import Testing
     @Test func aMainWindowShownBeforeStartTakesTheSpare() {
         let window = Self.shownWindow()
         defer { window.close() }
-        let pool = PageHostPool(activity: { 0 }, isTrackingMenu: { false })
+        let pool = PageHostPool(activity: { 0 }, isTrackingMenu: { false }, errors: DroppedErrors())
         defer { pool.dropSpare() }
         pool.start(isMainWindow: { $0 === window }, fallback: { _ in nil })
         pool.noteLikely()
@@ -21,7 +22,7 @@ import Testing
     /// The launch window shows once the daemon's workspaces load, after the pool started, and an
     /// app launched in the background never makes it key. A second window leaves the spare where it is.
     @Test func aMainWindowShownAfterStartTakesTheSpare() {
-        let pool = PageHostPool(activity: { 0 }, isTrackingMenu: { false })
+        let pool = PageHostPool(activity: { 0 }, isTrackingMenu: { false }, errors: DroppedErrors())
         defer { pool.dropSpare() }
         pool.start(isMainWindow: { _ in false }, fallback: { _ in nil })
         pool.noteLikely()

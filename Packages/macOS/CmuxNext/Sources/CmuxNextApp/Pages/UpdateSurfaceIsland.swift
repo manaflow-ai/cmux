@@ -141,7 +141,8 @@ extension PageFactory {
         // The island floats over the window's backdrop: a Chromium page cannot be transparent.
         // Window chrome: a first click on See What's New acts while a Chromium page's window has the key.
         let page = PageWebView(descriptor: .changelog, routes: routes, route: "#/surface/\(kind.rawValue)",
-                               options: PageEngineOptions(requiresWebKit: .transparentOverlay, acceptsFirstMouse: true))
+                               options: PageEngineOptions(requiresWebKit: .transparentOverlay, acceptsFirstMouse: true),
+                               errors: services.errorJournal.journal)
         native.anchor = { [weak page] in page }
         notes.anchor = { [weak page] in page }
         return page

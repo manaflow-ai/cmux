@@ -7,6 +7,7 @@ import CmuxNextTabs
 import Foundation
 import Testing
 @testable import CmuxNextApp
+import CmuxNextPagesTestSupport
 
 /// cx-w4bbw: an agent chat tab records the harness its session runs, so the tab bar draws the
 /// agent's brand mark instead of the generic chat glyph, for every way a chat opens: New Agent
@@ -27,7 +28,7 @@ struct AgentTabHarnessOnCreateTests {
 
     private static func agentTabs() -> AgentTabStore {
         let environment = [AgentPaneSource.devURLVariable: "http://127.0.0.1:9"]
-        let tabs = AgentTabStore(build: nil, registry: ActionRegistry.standard(), environment: environment, showcase: true)
+        let tabs = AgentTabStore(build: nil, registry: ActionRegistry.standard(), environment: environment, showcase: true, errors: DroppedErrors())
         tabs.localHost = host
         return tabs
     }

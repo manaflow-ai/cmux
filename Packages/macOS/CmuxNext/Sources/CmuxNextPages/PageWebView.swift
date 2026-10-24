@@ -70,10 +70,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// The app's made-ahead open panel for a page's `<input type="file">`; the app sets it once at startup with
     /// ``chromiumHosting`` (its composition root). Nil: a file input does nothing (tests).
     public static var openPanel: MadeAheadOpenPanel?
-    /// The app's error journal, which every page's console errors go into when they happen
-    /// (``ConsoleErrorCapture``); the app sets it once at startup with ``chromiumHosting`` (its
-    /// composition root), before the first page. Nil: reports go to the unified log only (tests).
-    public static var errorJournal: ErrorJournal?
+    /// Where the page's console errors go when they happen (``ConsoleErrorCapture``, both engines):
+    /// the app's one journal, passed in by whoever makes the page (tests pass their own recorder).
+    let errors: any ErrorRecording
     /// This page's file chooser (its web view holds the UI delegate weakly).
     private var fileChooser: PageOpenPanel?
     var loaded = false
@@ -166,15 +165,17 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     /// Nil when the page is missing from the resource bundle and no root is registered for it
     /// (``PageID/registerBundledRoot(_:for:)``).
+    /// `errors` takes the page's console errors when they happen (the app's journal).
     public convenience init?(descriptor: PageDescriptor, routes: [PageRoute], route: String? = nil,
                              documentAttributes: [String: String] = [:], options: PageEngineOptions = .standard,
-                             surface: SurfaceKind? = nil, dynamicResources: (any PageDynamicResourceSource)? = nil) {
+                             surface: SurfaceKind? = nil, dynamicResources: (any PageDynamicResourceSource)? = nil,
+                             errors: any ErrorRecording) {
         guard let root = Self.servedRoot(for: descriptor) else { return nil }
         let handler = PageSchemeHandler(page: descriptor, root: root, dynamicSource: dynamicResources)
         let host = Self.hostConfiguration(handler: handler, documentAttributes: documentAttributes, options: options)
         self.init(descriptor: descriptor, configuration: host.configuration, inputReadiness: host.inputReadiness,
                   routes: routes, route: route, options: options, surface: surface,
-                  dynamicResources: dynamicResources, pooled: false, load: true)
+                  dynamicResources: dynamicResources, pooled: false, load: true, errors: errors)
     }
 
     /// The root a page is served from without an explicit one: the DEBUG override, else this
@@ -247,27 +248,28 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// the descriptor's dynamic prefixes (a 404 without one).
     ///
     /// `chromium` makes the page's Chromium view when the policy picks Chromium (the app's
-    /// ``chromiumHosting`` by default; tests pass a fake).
+    /// ``chromiumHosting`` by default; tests pass a fake). `errors` takes the page's console errors
+    /// when they happen (the app's journal; tests pass their own recorder).
     public convenience init?(descriptor: PageDescriptor, root: URL, routes: [PageRoute], route: String? = nil,
                              documentAttributes: [String: String] = [:], options: PageEngineOptions = .standard,
                              surface: SurfaceKind? = nil, dynamicResources: (any PageDynamicResourceSource)? = nil,
                              chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting,
-                             errors: (any ErrorRecording)? = nil) {
-        // red-commit stub: `errors` is not used yet (the page reads PageWebView.errorJournal)
+                             errors: any ErrorRecording) {
         guard Self.mayServe(descriptor, from: root) else { return nil }
         let host = Self.hostConfiguration(handler: PageSchemeHandler(page: descriptor, root: root,
                                                                        dynamicSource: dynamicResources),
                                           documentAttributes: documentAttributes, options: options)
         self.init(descriptor: descriptor, configuration: host.configuration, inputReadiness: host.inputReadiness,
                   routes: routes, route: route, options: options, surface: surface,
-                  dynamicResources: dynamicResources, pooled: false, load: true, chromium: chromium)
+                  dynamicResources: dynamicResources, pooled: false, load: true, chromium: chromium, errors: errors)
     }
 
     init(descriptor: PageDescriptor, configuration: WKWebViewConfiguration,
          inputReadiness: PageInputReadiness, routes: [PageRoute], route: String?, options: PageEngineOptions,
          surface: SurfaceKind?, dynamicResources: (any PageDynamicResourceSource)?, pooled: Bool, load: Bool,
-         chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting) {
+         chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting, errors: any ErrorRecording) {
         self.descriptor = descriptor
+        self.errors = errors
         engineOptions = options
         isPooled = pooled
         pooledOwner = nil
@@ -334,7 +336,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         if Self.rendersWhenCovered(ProcessInfo.processInfo.environment) { keepRenderingWhenCovered() }
         #endif
         // Console errors, uncaught errors and rejections go to the error journal (`cmux errors`).
-        ConsoleErrorCapture(page: descriptor.id, journal: Self.errorJournal).install(in: webView.configuration.userContentController)
+        ConsoleErrorCapture(page: descriptor.id, recorder: errors).install(in: webView.configuration.userContentController)
         PagePaintProbe.install(in: webView.configuration.userContentController) { [weak self] in
             self?.notePainted()
         }

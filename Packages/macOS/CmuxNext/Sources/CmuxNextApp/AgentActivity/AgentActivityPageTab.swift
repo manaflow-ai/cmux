@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAgentActivity
 import CmuxNextBrowser
+import CmuxNextErrorJournal
 import CmuxNextIcons
 import CmuxNextPages
 import Foundation
@@ -27,7 +28,9 @@ final class AgentActivityPageTab: BrowserTab {
     @ObservationIgnored let contentView: NSView
     @ObservationIgnored var onNavigate: ((URL) -> Void)?
 
-    init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, source: any AgentActivitySource) {
+    /// `errors` takes the page's console errors (the app's journal).
+    init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, source: any AgentActivitySource,
+         errors: any ErrorRecording) {
         self.id = id
         self.engineKind = engine
         self.profileID = profile
@@ -37,7 +40,8 @@ final class AgentActivityPageTab: BrowserTab {
         let model = AgentActivityModel(source: source)
         self.model = model
         let provider = AgentActivityPageProvider(requests: AgentActivityRequests(model: model, source: source))
-        contentView = PageWebView(descriptor: .agentActivity, routes: [PageRoute(prefix: AgentActivityPageProvider.prefix, provider: provider)])
+        contentView = PageWebView(descriptor: .agentActivity, routes: [PageRoute(prefix: AgentActivityPageProvider.prefix, provider: provider)],
+                                  errors: errors)
             ?? AgentActivityHostView(model: model, source: source)
         model.start()
     }

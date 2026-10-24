@@ -21,7 +21,7 @@ struct PageWebViewDebugHoverTests {
 
     private func chromiumPage(center: String?, hoveredAfter: Bool = true) async throws -> (PageWebView, FakeChromiumPage) {
         let hosting = FakeChromiumHosting()
-        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/", chromium: hosting))
+        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/", chromium: hosting, errors: DroppedErrors()))
         view.chromiumClock = PageTestClock.never
         await view.chromiumStart?.value
         let page = try #require(hosting.made.first)

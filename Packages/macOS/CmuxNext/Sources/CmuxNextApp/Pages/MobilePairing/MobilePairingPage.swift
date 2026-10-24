@@ -51,7 +51,7 @@ final class MobilePairingPageService: InternalPageProvider {
         let native = AppPageNativeProvider(services: services, page: .mobilePairing)
         let routes = [PageRoute(prefix: "cmux.mobilePairing.", provider: provider),
                       PageRoute(prefix: "cmux.app.", provider: native)]
-        guard let page = PageWebView(descriptor: .mobilePairing, routes: routes) else { return NSView() }
+        guard let page = PageWebView(descriptor: .mobilePairing, routes: routes, errors: services.errorJournal.journal) else { return NSView() }
         native.anchor = { [weak page] in page }
         return page
     }

@@ -102,8 +102,9 @@ final class AppServices {
     let updater = UpdaterService()
     /// The file picker made ahead of the click, the app's one: agent panes, page file inputs and Home's "+" take it.
     let openPanel = MadeAheadOpenPanel()
-    /// The error journal (`cmux errors`), the app's one: pages record console errors into it as they happen
-    /// (`PageWebView.errorJournal`), and it reads the logs at launch and at quit. Making it touches no disk.
+    /// The error journal (`cmux errors`), the app's one: every page, pool, agent pane and ``ErrorReporter`` is
+    /// handed it through `init` and records into it as errors happen; it reads the logs at launch and at quit.
+    /// Making it touches no disk.
     private(set) lazy var errorJournal = ErrorJournalService.make(environment: environment)
     /// "Restart cmux-tui to use new features" (plans/cmux-next/server-updates-DESIGN.md).
     private(set) lazy var serverUpdates = ServerUpdatePresenter(daemon: daemon, defaults: .standard,
@@ -263,9 +264,9 @@ final class AppServices {
     /// One prewarmed new tab page per window (instant open).
     private(set) lazy var newTabSpares = NewTabSparePool(services: self)
     /// The spare React page hosts for Settings, History and Cloud.
-    private(set) lazy var pageHostPool = PageHostPool()
+    private(set) lazy var pageHostPool = PageHostPool(errors: errorJournal.journal)
     /// The one icon picker (R94): Set Icon of workspaces, screens, spaces, browser profiles.
-    private(set) lazy var iconPicker = IconPickerService(services: self)
+    private(set) lazy var iconPicker = IconPickerService(services: self, errors: errorJournal.journal)
     /// cmux.json command `actions`, registered as `cmuxConfig.<name>`.
     private(set) lazy var configActions: ConfigActionsController = ConfigActionsController(context: AppActionContext(services: self))  // first read in init (no IUO)
     /// System-wide hot keys for catalog actions marked `isGlobalHotKey`.

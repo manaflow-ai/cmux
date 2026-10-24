@@ -5,6 +5,7 @@ import CmuxNextFocus
 @testable import CmuxNextPages
 import Testing
 import WebKit
+import CmuxNextPagesTestSupport
 
 /// The code editor page (Monaco) gets the VS Code chords while it has the keyboard
 /// (`codeEditorFocused`), resolved as the key dispatcher decides a key-down. Lawrence 2026-10-19:
@@ -94,7 +95,7 @@ import WebKit
         let configuration = WKWebViewConfiguration()
         return PageWebView(descriptor: PageDescriptor(id: id, resource: "keys", namespaces: []), configuration: configuration,
                            inputReadiness: PageInputReadiness(configuration: configuration), routes: [], route: nil,
-                           options: .standard, surface: nil, dynamicResources: nil, pooled: false, load: false, chromium: nil)
+                           options: .standard, surface: nil, dynamicResources: nil, pooled: false, load: false, chromium: nil, errors: DroppedErrors())
     }
 
     /// Shift-Cmd-L opened a browser tab while the editor had the keyboard: the focus model still named

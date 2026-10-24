@@ -6,6 +6,7 @@ import CmuxNextDaemon
 import CmuxNextTabs
 import Foundation
 import Testing
+import CmuxNextPagesTestSupport
 
 /// Leo 2026-10-20: "After nightlies, have the things running, but have the views go back to where
 /// they were." A chat's composer held more than acpmux's draft text: its attachment chips and shell
@@ -21,7 +22,7 @@ struct AgentPaneRelaunchWakeTests {
     /// never loads (a loopback port nobody serves), the wake file of the tag's state directory.
     static func run(file: URL, records: [String: AgentSessionRef]) -> AgentTabStore {
         let tabs = AgentTabStore(build: nil, registry: ActionRegistry(),
-                                 environment: [AgentPaneSource.devURLVariable: "http://127.0.0.1:9/"], showcase: true)
+                                 environment: [AgentPaneSource.devURLVariable: "http://127.0.0.1:9/"], showcase: true, errors: DroppedErrors())
         tabs.localHost = thisMac
         tabs.relaunchWake = AgentPaneRelaunchWake(file: file)
         let tree = DaemonStore()
@@ -95,7 +96,7 @@ struct AgentPaneRelaunchWakeTests {
         let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: [page])])
         store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w", screens: [screen])]))
         let tabs = AgentTabStore(build: nil, registry: ActionRegistry.standard(),
-                                 environment: [AgentPaneSource.devURLVariable: "http://127.0.0.1:9"], showcase: true)
+                                 environment: [AgentPaneSource.devURLVariable: "http://127.0.0.1:9"], showcase: true, errors: DroppedErrors())
         tabs.localHost = Self.thisMac
         tabs.lookup = { key in store.tab(id: key)?.agentSession.map { ($0, store) } }
         let handler = NewTabPageHandler(open: { _, _ in }, jump: { _, _ in }, editShortcut: { _ in })

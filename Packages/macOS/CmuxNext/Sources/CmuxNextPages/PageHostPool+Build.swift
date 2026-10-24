@@ -37,7 +37,7 @@ extension PageHostPool {
             PageWebView.pooledHostRecipe(.settings, options: options)
         }) else { return }
         await Self.nextTurn()
-        let host = measure("pool.makeSpare.create") { PageWebView(recipe: recipe) }
+        let host = measure("pool.makeSpare.create") { PageWebView(recipe: recipe, errors: errors) }
         host.countsTouches = false
         await Self.nextTurn()
         guard isLikely, spare == nil, let content = target?.contentView else {

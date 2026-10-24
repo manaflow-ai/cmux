@@ -8,6 +8,7 @@ import CmuxNextPages
 import CmuxNextSidebar
 @testable import CmuxNextTabs
 import Testing
+import CmuxNextPagesTestSupport
 
 extension MainPaneGutterSuites {
     /// One surface edge (Leo 2026-10-13, the New Tab page on cosmic-gray): a webview pane showed the
@@ -178,7 +179,7 @@ extension MainPaneGutterSuites {
             let file = try Self.page("<html><body></body></html>")
             defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
             let model = AgentPaneModel(host: NoHost(), newTab: AgentPaneNewTab(kind: .agent))
-            let newTab = try #require(AgentPaneView(model: model, source: .bundled(file)))
+            let newTab = try #require(AgentPaneView(model: model, source: .bundled(file), errors: DroppedErrors()))
             let rig = Rig(content: newTab)
             defer { rig.tearDown() }
             try expectOneEdge(rig, content: newTab, "New Tab")
@@ -189,7 +190,7 @@ extension MainPaneGutterSuites {
             let file = try Self.page("<html><body></body></html>")
             defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
             let descriptor = PageDescriptor(id: "test.one-edge", resource: "one-edge", namespaces: [])
-            let page = try #require(PageWebView(descriptor: descriptor, root: file.deletingLastPathComponent(), routes: []))
+            let page = try #require(PageWebView(descriptor: descriptor, root: file.deletingLastPathComponent(), routes: [], errors: DroppedErrors()))
             let rig = Rig(content: page)
             defer { rig.tearDown() }
             try expectOneEdge(rig, content: page, "page pane")
@@ -200,7 +201,7 @@ extension MainPaneGutterSuites {
             let file = try Self.page("<html><body></body></html>")
             defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
             let newTab = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), newTab: AgentPaneNewTab(kind: .agent)),
-                                                    source: .bundled(file)))
+                                                    source: .bundled(file), errors: DroppedErrors()))
             let web = Rig(content: newTab)
             defer { web.tearDown() }
             let plain = NSView()
