@@ -142,7 +142,10 @@ where
                 },
             };
             let Some((method, params)) = next else { continue };
-            handlers.spawn(handler.clone()(method, params));
+            let handler = handler.clone();
+            handlers.spawn(async move {
+                let _ = tokio::time::timeout(WORK_BACKPRESSURE_WAIT, handler(method, params)).await;
+            });
             if handlers.len() >= NOTIFICATION_WORK_LIMIT {
                 let _ = handlers.join_next().await;
             }
@@ -971,6 +974,7 @@ async fn serve_connection_from(
                         Ok(()) => {}
                         Err(mpsc::error::TrySendError::Closed(_)) => break,
                         Err(mpsc::error::TrySendError::Full(params)) => {
+                            cancel_waits.retain(|waiter| !waiter.is_finished());
                             if let Ok(waiter_slot) = cancel_waiters.clone().try_acquire_owned() {
                                 let tx = cancel_tx.clone();
                                 cancel_waits.push(tokio::spawn(async move {
@@ -988,6 +992,7 @@ async fn serve_connection_from(
                     Ok(()) => {}
                     Err(mpsc::error::TrySendError::Closed(_)) => break,
                     Err(mpsc::error::TrySendError::Full(item)) => {
+                        notification_waits.retain(|waiter| !waiter.is_finished());
                         if let Ok(waiter_slot) = notification_waiters.clone().try_acquire_owned() {
                             let tx = notification_tx.clone();
                             notification_waits.push(tokio::spawn(async move {
@@ -1006,16 +1011,28 @@ async fn serve_connection_from(
             }
         }
     }
-    for waiter in notification_waits {
-        waiter.abort();
-    }
-    for waiter in cancel_waits {
-        waiter.abort();
+    let deadline = tokio::time::Instant::now() + WORK_BACKPRESSURE_WAIT;
+    let mut waiters = notification_waits;
+    waiters.extend(cancel_waits);
+    let mut waiters = waiters.into_iter();
+    while let Some(mut waiter) = waiters.next() {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if tokio::time::timeout(remaining, &mut waiter).await.is_err() {
+            waiter.abort();
+            let _ = waiter.await;
+            for waiter in waiters {
+                waiter.abort();
+                let _ = waiter.await;
+            }
+            tracing::debug!(conn = %conn.id, "notification admission waiters did not drain");
+            break;
+        }
     }
     drop(notification_tx);
     drop(cancel_tx);
     let mut notification_worker = notification_worker;
-    if tokio::time::timeout(WORK_BACKPRESSURE_WAIT, &mut notification_worker).await.is_err() {
+    let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+    if tokio::time::timeout(remaining, &mut notification_worker).await.is_err() {
         notification_worker.abort();
         let _ = notification_worker.await;
     }
