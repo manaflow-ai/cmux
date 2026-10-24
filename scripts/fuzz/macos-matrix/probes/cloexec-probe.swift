@@ -3,10 +3,10 @@
 // descriptor with recvmsg and sets FD_CLOEXEC right after (Darwin has no
 // MSG_CMSG_CLOEXEC); a Process child spawned in that window must not inherit it
 // (plans/cmux-next/app-daemon-connection-DESIGN.md 4.3). Run per macOS major by
-// `os-matrix.sh --suite exec:cloexec-probe`; the fleet `cmux` recipe compiles every
-// file in scripts/cmux-next/os-probes into artifacts/os-probes/<name>. Prints one
-// line; exits 0 when the child did not inherit the descriptor, 1 when it did, 2
-// when the probe could not run.
+// `os-matrix.sh --suite exec:cloexec-probe`, which compiles it on the Tart host from
+// the reviewed runner tree. Exit 0 = PASS (the child did not inherit the
+// descriptor), 1 = FAIL (it did), anything else = no verdict; the last stdout line
+// goes to the step log.
 import Foundation
 
 let path = NSTemporaryDirectory() + "cloexec-probe-\(getpid())"
