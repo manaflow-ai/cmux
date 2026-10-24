@@ -9,7 +9,8 @@ import Testing
 /// The expensive part, reading the 367 MiB binary into the page cache, stays off the main thread.
 @Suite struct CEFFrameworkMapThreadTests {
     /// Records the thread each `cmux_shim_load` (the framework dlopen) ran on.
-    final class LoadSpy: @unchecked Sendable { // test-only spy: written once per call from the call's thread, read after
+    enum LoadSpy {
+        // Test-only: written by the one spy call this test makes and read after it returns, never concurrently.
         nonisolated(unsafe) static var onMain: [Bool] = []
     }
 

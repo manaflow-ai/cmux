@@ -119,8 +119,12 @@ final class CEFRuntime {
     private(set) var builtInAdBlockerLoaded = false
     private var terminationObserver: (any NSObjectProtocol)?
     private var switchStorage: [UnsafeMutablePointer<CChar>?] = []
-    /// The off-main library load; every concurrent first tab awaits it.
-    private(set) var loadTask: Task<Result<CEFLoadedLibrary, BootError>, Never>?
+    /// The off-main part of the library load (trust, shim, the binary read);
+    /// every concurrent first tab awaits it. The framework dlopen follows on
+    /// the main thread (``mapFramework(_:)``).
+    private(set) var loadTask: Task<Result<CEFPreparedLibrary, BootError>, Never>?
+    /// The framework mapped on the main thread, once.
+    private var mappedLibrary: Result<CEFLoadedLibrary, BootError>?
     private(set) var preloaded = false
     /// The preload finished mapping the framework (CEF not started yet).
     private(set) var libraryLoaded = false
@@ -185,10 +189,10 @@ final class CEFRuntime {
     }
 
     /// Starts CEF for the first tab without blocking the main thread on the
-    /// library load: `dlopen` of the shim and the 367 MiB framework (seconds
-    /// on a cold disk or after a rebuild, when the code signature is checked
-    /// again) runs on a background thread. Only `CefInitialize`, which Chromium
-    /// requires on the main thread, runs here. Idempotent; concurrent callers
+    /// library read: the shim and the 367 MiB framework binary are read on a
+    /// background thread (seconds on a cold disk or after a rebuild); the
+    /// framework's `dlopen` (``mapFramework(_:)``, #23821) and `CefInitialize`,
+    /// which Chromium requires on the main thread, run here. Idempotent; concurrent callers
     /// share one load.
     /// `trigger` names why CEF starts (`tab`, or a warm start reason).
     func start(
@@ -198,21 +202,21 @@ final class CEFRuntime {
     ) async throws(BrowserEngineError) {
         if let error = startError() { throw error }
         if state == .ready { return }
-        let task: Task<Result<CEFLoadedLibrary, BootError>, Never>
+        let task: Task<Result<CEFPreparedLibrary, BootError>, Never>
         if let loadTask {
             task = loadTask
         } else {
             state = .loading
-            task = Task.detached(priority: .userInitiated) { CEFRuntime.loadLibrary(candidate) }
+            task = Task.detached(priority: .userInitiated) { CEFRuntime.prepareLibrary(candidate) }
             loadTask = task
         }
         // A utility-priority preload may still be running; the await below
         // raises its priority to this task's.
-        let loaded = await task.value
+        let prepared = await task.value
         // Another awaiter finished first, or the app began to quit.
         if let error = startError() { throw error }
         if state == .ready { return }
-        try finishStart(loaded, environment: environment, trigger: trigger)
+        try finishStart(map(prepared), environment: environment, trigger: trigger)
     }
 
     /// Starts mapping the shim and the framework in the background without
@@ -222,11 +226,13 @@ final class CEFRuntime {
         guard state == .idle, loadTask == nil else { return }
         state = .loading
         preloaded = true
-        let task = Task.detached(priority: .utility) { CEFRuntime.loadLibrary(candidate) }
+        let task = Task.detached(priority: .utility) { CEFRuntime.prepareLibrary(candidate) }
         loadTask = task
         Task { [weak self] in
-            _ = await task.value
-            self?.libraryLoaded = true
+            let prepared = await task.value
+            guard let self, self.state == .loading else { return }
+            _ = self.map(prepared)
+            self.libraryLoaded = true
         }
     }
 
@@ -308,12 +314,47 @@ final class CEFRuntime {
         }
     }
 
-    /// Maps the shim and the framework (`cef_load_library`, fork API lookup).
-    /// Thread-safe: plain `dlopen`/`dlsym`, no Chromium code runs yet.
-    nonisolated static func loadLibrary(
+    /// Returns once the load a preload or start began is prepared and mapped
+    /// (at once when none runs).
+    func libraryLoadEnded() async {
+        guard let loadTask else { return }
+        let prepared = await loadTask.value
+        guard state == .loading || state == .ready else { return }
+        _ = map(prepared)
+    }
+
+    /// The main-thread map of a prepared library, once per process (concurrent
+    /// first tabs and a preload share it).
+    private func map(_ prepared: Result<CEFPreparedLibrary, BootError>) -> Result<CEFLoadedLibrary, BootError> {
+        if let mappedLibrary { return mappedLibrary }
+        let result: Result<CEFLoadedLibrary, BootError>
+        switch prepared {
+        case .success(let library): result = Self.mapFramework(library)
+        case .failure(let error): result = .failure(error)
+        }
+        mappedLibrary = result
+        return result
+    }
+
+    /// Prepares and maps in one call, on the main thread (the debug window's
+    /// synchronous start).
+    static func loadLibrary(
         _ candidate: CEFRuntimeLayout?,
         signatureChecker: (any CEFCodeSignatureChecking)? = nil
     ) -> Result<CEFLoadedLibrary, BootError> {
+        switch prepareLibrary(candidate, signatureChecker: signatureChecker) {
+        case .success(let prepared): mapFramework(prepared)
+        case .failure(let error): .failure(error)
+        }
+    }
+
+    /// The off-main part of the load: the trust check, the shim `dlopen` (a
+    /// small library with no allocator of its own), the framework binary read
+    /// into the page cache, and the locale lookup. No Chromium code runs.
+    nonisolated static func prepareLibrary(
+        _ candidate: CEFRuntimeLayout?,
+        signatureChecker: (any CEFCodeSignatureChecking)? = nil
+    ) -> Result<CEFPreparedLibrary, BootError> {
         guard let layout = candidate else { return .failure(.notEmbedded) }
         if case .downloaded(let teamID) = layout.trust {
             guard let teamID else { return .failure(.untrusted("missing Developer ID team")) }
@@ -322,26 +363,51 @@ final class CEFRuntime {
                 return .failure(.untrusted(invalid))
             }
         }
-        let clock = ContinuousClock()
-        let started = clock.now
+        let started = ContinuousClock.now
         let shim: CEFShimLibrary
         let shimABI = CEFShimABI.bundledIdentity()
         do { shim = try CEFShimLibrary.open(layout.shim, expected: shimABI) } catch { return .failure(.shim(error)) }
         // Read the binary before mapping it: `dlopen` holds dyld's loader
         // lock for the whole map, and every main-thread dlopen/dladdr waits
-        // on that lock (CEFFrameworkPrefetch).
+        // on that lock (CEFFrameworkPrefetch); with the pages cached the
+        // main-thread map is short.
         CEFFrameworkPrefetch.readBinary(layout)
+        var prepared = Self.prepared(shim: shim, layout: layout, started: started)
+        prepared.shimABI = shimABI ?? ""
+        // Lists the framework's locale directories here, off the main thread.
+        prepared.locale = CEFLocale.current(frameworkDirectory: layout.frameworkDirectory)
+        return .success(prepared)
+    }
+
+    /// A prepared library of `shim` and `layout` (tests pass a spy shim).
+    nonisolated static func prepared(shim: CEFShimLibrary, layout: CEFRuntimeLayout,
+                                     started: ContinuousClock.Instant = .now) -> CEFPreparedLibrary {
+        CEFPreparedLibrary(shim: shim, shimABI: "", layout: layout, locale: nil, started: started)
+    }
+
+    /// Maps the framework (`cef_load_library`) on the main thread
+    /// (manaflow-ai/cmux#23821). Its static constructors run inside this
+    /// `dlopen`, PartitionAlloc's among them, which swaps the process's
+    /// default malloc zone; on a pool thread the swap raced the main thread's
+    /// own allocations and damaged the heap. Here the main thread does not
+    /// allocate meanwhile, and the binary's pages are already read
+    /// (``prepareLibrary(_:signatureChecker:)``). The rest of the framework's
+    /// files are read off the main thread after the map.
+    @MainActor
+    static func mapFramework(_ prepared: CEFPreparedLibrary) -> Result<CEFLoadedLibrary, BootError> {
+        let layout = prepared.layout
         var message = [CChar](repeating: 0, count: 512)
-        let mapStarted = clock.now
-        guard shim.load(layout.frameworkBinary.path, &message, message.count) == 1 else {
+        let mapStarted = ContinuousClock.now
+        guard prepared.shim.load(layout.frameworkBinary.path, &message, message.count) == 1 else {
             let text = String(decoding: message.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
             return .failure(.framework(text))
         }
-        CEFFrameworkPrefetch.noteMapped(clock.now - mapStarted)
-        CEFFrameworkPrefetch.warm(layout)
-        // Lists the framework's locale directories here, off the main thread.
-        let locale = CEFLocale.current(frameworkDirectory: layout.frameworkDirectory)
-        return .success(CEFLoadedLibrary(shim: shim, shimABI: shimABI ?? "", layout: layout, locale: locale, loadDuration: clock.now - started))
+        CEFFrameworkPrefetch.noteMapped(.now - mapStarted)
+        // task-owner: one read of the framework's other files per process; nothing waits for it
+        Task.detached(priority: .utility) { CEFFrameworkPrefetch.warm(layout) }
+        let locale = prepared.locale ?? CEFLocale.current(frameworkDirectory: layout.frameworkDirectory)
+        return .success(CEFLoadedLibrary(shim: prepared.shim, shimABI: prepared.shimABI, layout: layout, locale: locale,
+                                         loadDuration: .now - prepared.started))
     }
 
     /// The first Chromium window decodes its first image with

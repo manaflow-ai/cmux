@@ -152,7 +152,7 @@ public final class CEFEngine: BrowserEngine {
     /// Returns once the framework load that `preload` started ended (at once
     /// when none runs).
     public func libraryLoadEnded() async {
-        _ = await CEFRuntime.shared.loadTask?.value
+        await CEFRuntime.shared.libraryLoadEnded()
     }
 
     /// Records `name` once in the start marks (the first Chromium page's
