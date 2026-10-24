@@ -28,6 +28,16 @@ import Testing
         }
     }
 
+    /// Engine captures hibernation asked for.
+    @MainActor final class Captures {
+        private(set) var count = 0
+
+        func take() -> CGImage? {
+            count += 1
+            return nil
+        }
+    }
+
     /// A hidden Chromium page's freeze probe can still be out when its hibernation probe starts
     /// (the freeze comes after 30 s, the budget after 60 s, and a busy page answers late). The
     /// freeze probe's end froze the page while the hibernation probe's scripts waited on it, so the
@@ -50,29 +60,60 @@ import Testing
         try await rig.until("the freeze probe, then the hibernation probe, ask") { gate.waiting.count == 2 }
         #expect(recorder.calls.isEmpty, "the page froze before its freeze probe answered (the test's premise)")
 
-        // The freeze probe answers first (an idle page), and its end runs before the hibernation
-        // probe answers.
+        // The freeze probe answers first (an idle page), then the hibernation probe. A freeze at the
+        // freeze probe's end shows in the recorder whenever it ran.
         gate.answer(0)
-        for _ in 0..<4 { await Task.yield() }
-        #expect(!recorder.calls.contains(true), "the page froze while its hibernation probe ran")
         gate.answer(1)
         try await rig.until("the page hibernates") { rig.services.cache.phase(of: key) == .hibernated }
         #expect(!recorder.calls.contains(true), "the page froze while its hibernation probe ran")
     }
 
-    /// The picture a page hibernates with comes from the engine's cheap full-size capture
-    /// (`thumbnail()`: a fast JPEG for Chromium), not the lossless `snapshot()`: a Chromium PNG is
-    /// encoded on the browser's UI thread, the app's main thread (80-140 ms a page), and parsed
-    /// there from megabytes of base64, for a picture the store re-encodes as a JPEG anyway.
-    @Test func theHibernationPictureIsTheEnginesCheapCapture() async throws {
-        _ = NSApplication.shared
-        let services = AppServices(environment: AppEnvironment.current([:]))
-        let hibernation = BrowserHibernation(cache: services.cache)
-        defer { hibernation.stop() }
-        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/")))
-        let picture = await hibernation.capture(tab)
-        #expect(picture != nil, "no picture of the page")
-        #expect(tab.thumbnailCount == 1, "hibernation took the engine's lossless snapshot, not its cheap capture")
-        withExtendedLifetime(services) {}
+    /// The picture a page hibernates with is the one the app already took as the page left the
+    /// screen (`pageDidLeave`, the leave capture's full-size image), not a second engine capture at
+    /// hibernation time: a Chromium capture is encoded on the browser's UI thread, the app's main
+    /// thread (20-35 ms a page even as a fast JPEG, a few pages a pass), and a hidden page often
+    /// pictures blank.
+    @Test func aPageHibernatesWithThePictureItLeftWithAndTakesNoCapture() async throws {
+        let rig = try NeighborTabsWakeTests.Rig(freezes: false)
+        defer { rig.close() }
+        let captures = Captures()
+        rig.hibernation.capture = { _ in captures.take() }
+        let key = try #require(try await rig.pages(["left"]).first)
+        let entry = try #require(rig.services.cache.browsers[key])
+        rig.hibernation.apply(BrowserHibernationSetting(mode: .minutes(30), freezeSeconds: nil))
+        await rig.hibernation.pageDidLeave(key, tab: entry.tab, image: try Self.picture(width: 1200, height: 800),
+                                           version: TabContentCache.pageVersion(entry))
+
+        rig.hibernation.apply(BrowserHibernationSetting(mode: .minutes(0.2 / 60), freezeSeconds: nil))
+        try await rig.until("the page hibernates") { rig.services.cache.phase(of: key) == .hibernated }
+        #expect(captures.count == 0, "hibernation captured the page again (\(captures.count) captures)")
+        #expect(rig.hibernation.snapshotImage(key)?.width == 1200, "the page hibernated without the picture it left with")
+    }
+
+    /// A leave picture of an older page version (it navigated or loaded since) is not the page's
+    /// picture: hibernation captures the page instead.
+    @Test func aLeavePictureOfAnOlderPageVersionIsNotUsed() async throws {
+        let rig = try NeighborTabsWakeTests.Rig(freezes: false)
+        defer { rig.close() }
+        let captures = Captures()
+        rig.hibernation.capture = { _ in captures.take() }
+        let key = try #require(try await rig.pages(["moved"]).first)
+        let entry = try #require(rig.services.cache.browsers[key])
+        rig.hibernation.apply(BrowserHibernationSetting(mode: .minutes(30), freezeSeconds: nil))
+        await rig.hibernation.pageDidLeave(key, tab: entry.tab, image: try Self.picture(width: 1200, height: 800),
+                                           version: TabContentCache.pageVersion(entry) &+ 1)
+
+        rig.hibernation.apply(BrowserHibernationSetting(mode: .minutes(0.2 / 60), freezeSeconds: nil))
+        try await rig.until("the page hibernates") { rig.services.cache.phase(of: key) == .hibernated }
+        #expect(captures.count == 1, "hibernation used a picture of another page version")
+    }
+
+    /// An opaque gray picture of a page.
+    private static func picture(width: Int, height: Int) throws -> CGImage {
+        let context = try #require(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                                             space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
+        context.setFillColor(gray: 0.4, alpha: 1)
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        return try #require(context.makeImage())
     }
 }

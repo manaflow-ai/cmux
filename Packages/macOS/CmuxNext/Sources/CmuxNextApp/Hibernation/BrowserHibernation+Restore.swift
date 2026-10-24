@@ -125,6 +125,10 @@ extension BrowserHibernation {
         if picture.data != nil { snapshots.insert(picture, for: key) } else { cache?.previews.insert(picture.image, for: key) }
     }
 
+    /// The full-size picture the app took as page `key` (`tab`) left the screen, of page version
+    /// `version` (`TabContentCache.pageVersion`). Seam only in this commit: nothing keeps it yet.
+    func pageDidLeave(_ key: String, tab: any BrowserTab, image: CGImage, version: Int) async {}
+
     /// A fresh picture (never one from an earlier sleep). Compressed whole into `snapshots` by
     /// default; with `HibernationTunables.compressedSnapshots` off, decoded and scaled so that
     /// several fit the 32 MB `previews` cache, which refuses a picture larger than itself.
