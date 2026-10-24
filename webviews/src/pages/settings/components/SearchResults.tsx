@@ -4,6 +4,7 @@ import { useSettingsState } from "../context";
 import { filterRows } from "../search";
 import { valueOf } from "../store";
 import { t, text } from "../strings";
+import { CHIEF_PET_ROWS, ChiefPetCard } from "./ChiefPetCard";
 import { GroupList } from "./GroupList";
 
 /**
@@ -36,6 +37,15 @@ export function SearchResults({ query, changedOnly = false }: { query: string; c
       </p>
       {shownCategories(state.host?.dev_build === true).map((category) => {
         const open = category.groups.some((group) => group.rows.some((row) => shown.has(row.key)));
+        const pet = category.id === "chief";
+        const petShown =
+          pet &&
+          category.groups.some((group) => group.rows.some((row) => shown.has(row.key) && CHIEF_PET_ROWS.has(row.key)));
+        const groups = pet
+          ? category.groups
+              .map((group) => ({ ...group, rows: group.rows.filter((row) => !CHIEF_PET_ROWS.has(row.key)) }))
+              .filter((group) => group.rows.length > 0)
+          : category.groups;
         return (
           <section
             className="result-section collapse"
@@ -47,7 +57,8 @@ export function SearchResults({ query, changedOnly = false }: { query: string; c
           >
             <div className="collapse-body">
               <h2 className="result-section-title">{text(category.title)}</h2>
-              <GroupList groups={category.groups} query={query} shown={shown} mounted={mounted} />
+              {petShown && <ChiefPetCard />}
+              <GroupList groups={groups} query={query} shown={shown} mounted={mounted} />
             </div>
           </section>
         );

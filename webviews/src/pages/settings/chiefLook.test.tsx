@@ -6,7 +6,7 @@ import { installDom } from "./testDom";
 
 const restore = installDom();
 afterAll(() => restore());
-const { renderPage, settle } = await import("./testing");
+const { changeValue, renderPage, settle } = await import("./testing");
 
 const look = (container: HTMLElement) => container.querySelector<HTMLElement>('[data-card="chief-pet"]')!;
 
@@ -35,5 +35,16 @@ test("a search result for Bubble Style lands on its row in Look", async () => {
   await settle();
   const row = look(page.container).querySelector<HTMLElement>('[data-row-key="home.chiefBubbleStyle"]')!;
   expect(row.contains(document.activeElement)).toBe(true);
+  page.unmount();
+});
+
+test("search renders Bubble Style in the Look card", async () => {
+  const page = await renderPage({ path: "/settings/chief" });
+  await changeValue(page.container.querySelector<HTMLInputElement>("[data-settings-search]")!, "Bubble Style");
+  await settle();
+  const result = page.container.querySelector<HTMLElement>('[data-search-results] [data-card="chief-pet"]');
+  expect(result).not.toBeNull();
+  expect(result?.querySelector('[data-row-key="home.chiefBubbleStyle"]')).not.toBeNull();
+  expect(page.container.querySelector('[data-search-results] [data-group="settings.group.chiefChat"]')).toBeNull();
   page.unmount();
 });
