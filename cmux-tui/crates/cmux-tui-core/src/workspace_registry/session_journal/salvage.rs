@@ -238,7 +238,7 @@ fn load_and_decode_segment(
         journal_segment_row,
     );
     Ok(match row {
-        Ok(row) => decode_journal_segment(row),
+        Ok(row) => decode_journal_segment(connection, row),
         Err(error) if is_stored_value_error(&error) => Err(error.into()),
         Err(error) => return Err(error.into()),
     })
