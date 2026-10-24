@@ -58,6 +58,10 @@ if "--suite=bench-smoke" in sys.argv:
 if "--suite=open-panel" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "open-panel-bench.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=open-panel"])
+# `--suite=cli-storm`: the CLI storm (bench_cli_storm.py) in a launched app, scripts/cmux-next/cli-storm-session.py.
+if "--suite=cli-storm" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cli-storm-session.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=cli-storm"])
 # `--suite=pane-perf` (through the allowlisted fleet entry scripts/measure/split-spring.sh): the whole pane
 # motion suite instead, scripts/cmux-next/pane-perf-terminal.py, with the same --tag/--app/--out/--json.
 # `--suite=budgets`: every perf budget row, scripts/cmux-next/perf-budgets.py (one table, one gate).
