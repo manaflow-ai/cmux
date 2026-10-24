@@ -200,8 +200,7 @@ export default agentPaneEntry({
           1.8,
         ),
         assistant("The review says SHIP; net-retries is still working.", 1.5),
-        summary(1.5, { status: "completed" }),
-      ]),
+      ], { isWorking: true }),
     },
     "recorded-list": {
       note: "A list_sessions through the cmux server: each sub-session's card with its live state.",
@@ -225,8 +224,7 @@ export default agentPaneEntry({
           1.8,
         ),
         assistant("Three lanes: one working, docs waiting on you, review done.", 1.5),
-        summary(1.5, { status: "completed" }),
-      ]),
+      ], { isWorking: true }),
     },
     started: {
       note: "Five sub-sessions started, each with its state now: tests working (what it does under it, 2 queued), docs waiting on a question (its prompt after), deps waiting for permission, bench failed, lint done. A name opens that chat beside this one.",

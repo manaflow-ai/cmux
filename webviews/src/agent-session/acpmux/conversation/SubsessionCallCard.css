@@ -20,6 +20,11 @@
   user-select: text;
   -webkit-user-select: text;
 }
+.cv-subsession__markdown > .cv-md {
+  --cv-font-size: var(--text-detail);
+  --cv-line-height: var(--text-detail--line-height);
+  color: var(--cv-text-muted);
+}
 .cv-subsession__markdown > .cv-md > :first-child {
   margin-top: 0;
 }
