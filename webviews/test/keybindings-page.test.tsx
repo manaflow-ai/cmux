@@ -466,11 +466,25 @@ test("keys another action has: the recorder says who has them and offers Overwri
   await keys("cmd+w");
   expect(choices()).toBeTruthy();
   expect(title()).toContain("Close Tab");
+  const setsBefore = sets().length;
+  // Return's own release comes while the remove is still running (a slow keybindings.json write):
+  // no second save of the same keys, and no question again.
+  let openGate = () => {};
+  provider.removeGate = new Promise<void>((resolve) => (openGate = resolve));
   await act(async () => {
     provider.press("return");
+    provider.release();
     await Promise.resolve();
   });
   await settle();
+  provider.removeGate = undefined;
+  await act(async () => {
+    openGate();
+    await Promise.resolve();
+  });
+  await settle();
+  expect(sets().length).toBe(setsBefore + 1);
+  expect(choices()).toBeFalsy();
   const ops = provider.calls.map(({ op }) => op);
   const removedAt = ops.lastIndexOf(KeybindingOps.remove);
   expect(removedAt).toBeGreaterThan(-1);

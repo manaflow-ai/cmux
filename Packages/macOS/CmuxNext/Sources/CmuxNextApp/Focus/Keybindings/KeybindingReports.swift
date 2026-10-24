@@ -106,16 +106,18 @@ enum KeybindingReports {
     /// means its own holds. Against another user entry the order depends on
     /// the file each lands in (keybindings.json comes after cmux.json), so
     /// either direction counts.
-    static func conflicts(_ params: [String: JSONValue], registry: ActionRegistry) -> JSONValue {
+    /// `when` is the condition the write would carry (`KeybindingPageWrites.savedWhen`).
+    static func conflicts(_ params: [String: JSONValue], when: WhenClause?, registry: ActionRegistry) -> JSONValue {
         let command = registry.canonicalID(for: ActionID(rawValue: params["command"]?.stringValue ?? ""))
         guard let keys = keys(from: params["key"]?.stringValue ?? "") else { return ["bindings": []] }
-        let when = params["when"]?.stringValue.flatMap { try? WhenClause.parse($0) }
         let entries = RegistryKeyBindings(registry).table.entries
         // A binding the table holds twice (the Chrome tab keys) is one row, as on the page.
         var seen: Set<KeyBinding> = []
         let rows = entries.indices.filter { index in
             let entry = entries[index]
-            guard entry.keys == keys, entry.command != command, entry.source != .ghosttyFallback else { return false }
+            // The user's Ghostty config is read-only here, and in a terminal cmux's action runs
+            // first (`ShortcutNote.ghosttyKeybind`): never one to take keys from.
+            guard entry.keys == keys, entry.command != command, !entry.source.isGhostty else { return false }
             let conflicts = WhenClause.implies(entry.when, when)
                 || (entry.source == .user && WhenClause.implies(when, entry.when))
             return conflicts && seen.insert(entry).inserted

@@ -95,13 +95,14 @@ import Testing
         // Asked before the save: the same answer from `cmux.keybindings.conflicts`.
         let before = ActionRegistry.standard()
         guard case .array(let taken)? = Self.field(
-            KeybindingReports.conflicts(["command": "newWindow", "key": "cmd+0"], registry: before), "bindings") else {
+            KeybindingReports.conflicts(["command": "newWindow", "key": "cmd+0"], when: nil, registry: before), "bindings") else {
             Issue.record("no conflicts reply")
             return
         }
         #expect(Set(taken.compactMap { Self.field($0, "command")?.stringValue }).isSuperset(of: Self.actualSizes))
         guard case .array(let none)? = Self.field(KeybindingReports.conflicts(
-            ["command": "browserZoomReset", "key": "cmd+0", "when": "browserFocused"], registry: before), "bindings") else {
+            ["command": "browserZoomReset", "key": "cmd+0"], when: try? WhenClause.parse("browserFocused"),
+            registry: before), "bindings") else {
             Issue.record("no conflicts reply")
             return
         }

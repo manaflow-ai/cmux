@@ -118,6 +118,8 @@ export class MockKeybindingsProvider implements PageClient {
         this.write(() => this.set(params as SetParams));
         return {} as R;
       case KeybindingOps.remove:
+        // A keybindings.json remove goes through the home daemon: a test can make it wait.
+        if (this.removeGate) await this.removeGate;
         this.write(() => this.remove(params as RemoveParams));
         return {} as R;
       case KeybindingOps.reset:
@@ -342,6 +344,9 @@ export class MockKeybindingsProvider implements PageClient {
     }
     return { bindings };
   }
+
+  /** Set to hold every remove until it resolves (a slow keybindings.json write). */
+  removeGate?: Promise<void>;
 
   /** Keys the mock refuses for any other action, as the app refuses a key another action always
    *  runs (`refused`: key -> that action's title). */

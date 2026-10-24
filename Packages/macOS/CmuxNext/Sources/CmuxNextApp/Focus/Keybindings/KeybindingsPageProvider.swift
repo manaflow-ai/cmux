@@ -42,10 +42,14 @@ final class KeybindingsPageProvider: PageProvider {
         case "cmux.keybindings.conflicts":
             // The entries the keys would take, and the app's refusal of them (`refusal`), before a save.
             let fields = params.objectValue ?? [:]
-            guard case .object(var reply) = KeybindingReports.conflicts(fields, registry: services.registry) else { return [:] }
-            if let settings = services.settings,
-               let refusal = KeybindingPageWrites(registry: services.registry, settings: settings, file: services.keybindingsFile)
-                   .refusal(fields) {
+            let writes = services.settings.map {
+                KeybindingPageWrites(registry: services.registry, settings: $0, file: services.keybindingsFile)
+            }
+            let when = writes.map { $0.savedWhen(fields) }
+                ?? fields["when"]?.stringValue.flatMap { try? WhenClause.parse($0) }
+            guard case .object(var reply) = KeybindingReports.conflicts(fields, when: when, registry: services.registry)
+            else { return [:] }
+            if let refusal = writes?.refusal(fields) {
                 reply["refusal"] = .string(refusal.message)
                 // The action that holds the keys (a system action that always runs, a numbered family).
                 if let owner = refusal.owner {
@@ -80,7 +84,12 @@ final class KeybindingsPageProvider: PageProvider {
         case "cmux.keybindings.recorded":
             let id = UUID()
             recordedListeners[id] = onEvent
-            return PageSubscription { [weak self] in _ = self?.recordedListeners.removeValue(forKey: id) }
+            // The page went away: a recording it started never keeps the window's keys.
+            return PageSubscription { [weak self] in
+                guard let self else { return }
+                recordedListeners[id] = nil
+                if recordedListeners.isEmpty { stopRecording() }
+            }
         case "cmux.keybindings.changed":
             // Fires after a keymap import, an edit (the page's or the socket's) and whenever keybindings.json loads.
             let id = UUID()
@@ -141,6 +150,7 @@ final class KeybindingsPageProvider: PageProvider {
     private func startRecording(resetsOnRelease: Bool) {
         recorder = KeyRecorder()
         self.resetsOnRelease = resetsOnRelease
+        awaitingRelease = false
         sentHeld = ""
         services.keyRouter.keyRecorder = { [weak self] event, window in
             guard let self, let page = self.pageWindow(), window === page || window?.parent === page else { return false }

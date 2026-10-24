@@ -539,8 +539,9 @@ function BindingRow({ binding, strings, selected, editing, recording: rowRecordi
             aria-pressed={recording}
             onClick={(event) => {
               event.stopPropagation();
-              if (recording) store.stopRecording();
-              else void store.changeKeybinding(binding);
+              // While recording, a press here is a press outside the recorder: it already closed
+              // it (and saves its keys); ending the recording now would drop them.
+              if (!recording) void store.changeKeybinding(binding);
             }}
           >
             {recording ? (

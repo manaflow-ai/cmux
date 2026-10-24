@@ -241,6 +241,23 @@ struct KeybindingPageWrites {
         return (ShortcutAssessmentText(registry).refusal(refusal, shortcut: first, id: id), owner)
     }
 
+    /// The `when` the entry `set` writes would carry, for the conflict check before the write
+    /// (`cmux.keybindings.conflicts`): a cmux.json override keeps only the action's own context
+    /// (its `requires`, Home's chat scope), not a default's extra conditions (`!codeEditorFocused`,
+    /// not a terminal); a keybindings.json entry keeps the text sent. As `set` routes them.
+    func savedWhen(_ params: [String: JSONValue]) -> WhenClause? {
+        let sent = params["when"]?.stringValue
+        guard let id = try? command(params) else { return sent.flatMap { try? WhenClause.parse($0) } }
+        let target = (try? entry(id, params["replaces"]?.objectValue)) ?? nil
+        let requiring = WhenClause.requiring(registry.descriptor(for: id)?.requires ?? [])
+        let keys = KeybindingReports.keys(from: params["key"]?.stringValue ?? "") ?? []
+        let toConfig = sent == (target?.when?.text ?? requiring?.text) && target?.source != .app && !isFromFile(target)
+            && keys.count <= 2 && registry.descriptor(for: id)?.shortcutFamily != .digits
+        guard toConfig else { return sent.flatMap { try? WhenClause.parse($0) } }
+        guard KeyBindingDefaults.homeChatScoped.contains(id) else { return requiring }
+        return WhenClause.and([requiring, KeyBindingDefaults.onHomeChats].compactMap { $0 })
+    }
+
     /// The palette recorder's rules (`ActionRegistry.assessShortcut`; one
     /// key of a numbered family, `assessKey`).
     private func assess(_ shortcut: Shortcut, for id: ActionID) throws {

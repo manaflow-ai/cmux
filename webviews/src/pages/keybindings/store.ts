@@ -335,7 +335,9 @@ export class KeybindingsStore {
       display: prompt.display,
       held: "",
     };
-    this.set({ recording: asked });
+    // While the writes run the recorder holds no keys of its own: Return's release (the key
+    // that answered) must not commit these keys a second time.
+    this.set({ recording: { ...asked, key: "" } });
     for (const other of prompt.conflicts) {
       try {
         await this.client?.call(KeybindingOps.remove, {
@@ -497,11 +499,9 @@ export class KeybindingsStore {
     key: string,
   ): Promise<{ conflicts: Binding[]; refusal?: string; owner?: string }> {
     try {
-      const result = await this.client?.call<ConflictsResult>(KeybindingOps.conflicts, {
-        command: binding.command,
-        key,
-        when: binding.when,
-      });
+      // As `set` gets them (setParams), so the app works out the `when` the write would carry.
+      const { idempotency_key: _, ...params } = this.setParams(binding, key, binding.when);
+      const result = await this.client?.call<ConflictsResult>(KeybindingOps.conflicts, params);
       return { conflicts: result?.bindings ?? [], refusal: result?.refusal, owner: result?.owner };
     } catch {
       return { conflicts: [] };
@@ -516,7 +516,10 @@ export class KeybindingsStore {
     // The recorder follows the new keys before the write: the provider's `changed` re-read can
     // land before the write's reply, and must find the row by them.
     const saved: Binding = { ...binding, key, display, unset: false };
-    this.set({ recording: { ...recording, binding: saved }, notice: undefined });
+    // The current state, not the copy the caller held across its awaits (live keys, a followed row).
+    const now = this.snapshot.recording;
+    if (now?.target === "row" && now.row === recording.row)
+      this.set({ recording: { ...now, binding: saved }, notice: undefined });
     if (!same) {
       const params = this.setParams(binding, key, binding.when);
       try {
