@@ -42,8 +42,10 @@ extension TerminalSurfaceView {
             if model.hoveredLink != link { model.hoveredLink = link }
         case .cellSize:
             // Font size changed: re-apply the announced grid at the new cell
-            // size; an owner reports the grid the view now fits.
-            updateSurfaceSize()
+            // size; an owner reports the grid the view now fits. A hidden or
+            // parked terminal (a config reload reaches every warm one) does it
+            // when it is shown (`syncWindowState`), once.
+            if isShown { updateSurfaceSize() }
         case .rendererHealthy(let healthy):
             model.isRendererHealthy = healthy
         case .progress(let progress):
