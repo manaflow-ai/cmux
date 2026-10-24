@@ -1,6 +1,9 @@
-//! Briefs (`hub/dispatch.rs`): steer, list and report one. `dispatch` is in `requests.rs`.
+//! Briefs and tasks (`hub/dispatch.rs`, `hub/tasks.rs`): steer, list and report a brief, give
+//! a session on this daemon a task, and list the tasks a chat gave. `dispatch` is in
+//! `requests.rs`.
 
 use super::*;
+use crate::hub::tasks;
 
 pub(super) async fn steer(
     hub: &Arc<Hub>,
@@ -134,15 +137,34 @@ pub(super) async fn report(
         }
         return Ok(result);
     }
-    let summary = params
-        .get("summary")
-        .or_else(|| params.get("details"))
-        .cloned()
-        .ok_or_else(|| RpcError::invalid_params("summary is required"))?;
     let status = params.get("status").and_then(Value::as_str).unwrap_or("reported");
-    if !["reported", "merged", "running"].contains(&status) {
-        return Err(RpcError::invalid_params("status must be running, reported or merged"));
+    let ended = tasks::RESULT_STATES.contains(&status);
+    if !ended && !["reported", "merged", "running"].contains(&status) {
+        return Err(RpcError::invalid_params(
+            "status must be running, reported, merged, done, blocked or failed",
+        ));
     }
+    let by = conn.caller().map(|id| hub.session_name(id)).unwrap_or_else(|| conn.label());
+    let result = if ended {
+        task_reporter(conn, id, &row)?;
+        let result = tasks::result(&params, status, &by)?;
+        if row["status"] == status && tasks::same_result(&row["result"], &result) {
+            return Ok(
+                json!({"brief":row,"event":crate::hub::dispatch::event("report", &row),"replayed":true}),
+            );
+        }
+        Some(result)
+    } else {
+        None
+    };
+    let summary = match &result {
+        Some(result) => result["summary"].clone(),
+        None => params
+            .get("summary")
+            .or_else(|| params.get("details"))
+            .cloned()
+            .ok_or_else(|| RpcError::invalid_params("summary is required"))?,
+    };
     let row = hub
         .briefs
         .update(id, |r| {
@@ -152,9 +174,153 @@ pub(super) async fn report(
             if let Some(key) = key {
                 r["lastReportKey"] = json!(key);
             }
-            r["reportedBy"] =
-                json!(conn.caller().map(|id| hub.session_name(id)).unwrap_or_else(|| conn.label()));
+            r["reportedBy"] = json!(by);
+            if let Some(result) = &result {
+                r["result"] = result.clone();
+            }
         })
         .ok_or_else(|| RpcError::not_found(format!("no brief {id:?}")))?;
+    if result.is_some() {
+        hub.send_task_result(&row, conn.caller());
+    }
     Ok(json!({"brief":row,"event":crate::hub::dispatch::event("report", &row)}))
+}
+
+/// Refused unless the caller may end task `id` (`row`): its own session, the chat that gave it,
+/// or a client that runs in no session (the person at a shell).
+fn task_reporter(conn: &Conn, id: &str, row: &Value) -> Result<(), RpcError> {
+    let Some(caller) = conn.caller() else { return Ok(()) };
+    if [&row["sessionId"], &row["fromSession"]].iter().any(|owner| owner.as_str() == Some(caller)) {
+        return Ok(());
+    }
+    Err(RpcError::invalid_params(format!(
+        "task {id} is not this session's: only its own session or the chat that gave it ends it"
+    ))
+    .with_data(json!({"reason": "task.not_yours"})))
+}
+
+/// `_acpmux/task_new`: a brief for session `sessionId` on this daemon, sent to it as the caller's
+/// message with the task id first (`hub/tasks.rs`). Returns the task's row at once; the lane's
+/// turn runs on.
+pub(super) async fn task_new(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    params: Value,
+) -> Result<Value, RpcError> {
+    if conn.origin.web_class() {
+        return Err(RpcError::invalid_params("a task is given on this machine's daemon only")
+            .with_data(json!({"reason": "task.remote_refused"})));
+    }
+    if hub.briefs.load_failed() {
+        return Err(RpcError::internal(
+            "brief ledger is unreadable; repair $ACPMUX_HOME/briefs.json before giving a task",
+        ));
+    }
+    let key = session_key(&params)?;
+    let target = hub.resolve(key).map_err(|_| {
+        RpcError::not_found(format!(
+            "no session {key:?} on this daemon; a task for a peer's session is not supported yet"
+        ))
+    })?;
+    let text =
+        |k: &str| params.get(k).and_then(Value::as_str).map(str::trim).filter(|t| !t.is_empty());
+    let title = text("title")
+        .filter(|t| !t.contains('\n'))
+        .ok_or_else(|| RpcError::invalid_params("a task has a one-line title"))?;
+    let idempotency = text("idempotencyKey");
+    let id = loop {
+        let id = format!("t-{}", &uuid::Uuid::new_v4().simple().to_string()[..8]);
+        if hub.briefs.get(&id).is_none() {
+            break id;
+        }
+    };
+    if let Some(existing) = hub.briefs.claim(&id, idempotency) {
+        return Ok(json!({"task": task_row(hub, &existing), "replayed": true}));
+    }
+    let caller = conn.caller();
+    let declared = crate::hub::declared_sender(&params)?;
+    let from = caller
+        .map(|id| hub.session_name(id))
+        .or_else(|| declared.clone())
+        .unwrap_or_else(|| "the person".to_owned());
+    let meta = target.meta();
+    let mut record = json!({
+        "briefId": id, "kind": "task", "title": title, "brief": text("brief").unwrap_or(title),
+        "from": from, "to": meta.name, "target": target.id, "host": "local",
+        "stopCondition": text("stopCondition").unwrap_or("the title is done"),
+        "status": "running", "sessionId": target.id, "createdAt": crate::store::now_ms(),
+        "harness": meta.harness, "model": meta.model_request,
+    });
+    if let Some(caller) = caller {
+        record["fromSession"] = json!(caller);
+    }
+    if let Some(key) = idempotency {
+        record["idempotencyKey"] = json!(key);
+    }
+    let row = hub.briefs.put(record);
+    // The giver's message, as `acpmux send` from it would be (`requests.rs` session/prompt).
+    let provenance = match caller {
+        Some(caller) if caller != target.id => {
+            Some(crate::prompt_provenance::session_message(caller, &from, &target.id))
+        }
+        Some(_) => None,
+        None => declared.map(|name| crate::prompt_provenance::named_sender(&name, &target.id)),
+    };
+    let opts = crate::hub::PromptOptions {
+        prompt_id: Some(format!("task-{id}")),
+        provenance,
+        ..Default::default()
+    };
+    let blocks = vec![json!({"type": "text", "text": tasks::brief_text(&row)})];
+    let (task_hub, client) = (hub.clone(), conn.label());
+    tokio::spawn(async move {
+        if let Err(error) = task_hub.prompt_with(&target, blocks, &client, true, opts).await {
+            task_hub.briefs.update(&id, |r| r["error"] = json!(error.message));
+        }
+    });
+    Ok(json!({"task": task_row(hub, &row)}))
+}
+
+/// `_acpmux/tasks`: the tasks a chat gave (`from`, default the caller's session; `all` for every
+/// task here), open ones first, then newest, each with its lane's state now.
+pub(super) async fn tasks(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    params: Value,
+) -> Result<Value, RpcError> {
+    let from = match params.get("from").and_then(Value::as_str) {
+        Some(key) => Some(hub.resolve(key)?.id.clone()),
+        None if params["all"] == true => None,
+        None => conn.caller().map(str::to_owned),
+    };
+    let open_only = params["open"] == true;
+    let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(100).clamp(1, 500) as usize;
+    let mut rows: Vec<Value> = hub
+        .briefs
+        .list(None, 500)
+        .into_iter()
+        .filter(|row| from.is_none() || row["fromSession"].as_str() == from.as_deref())
+        .filter(|row| !open_only || tasks::open(row))
+        .collect();
+    rows.sort_by_key(|row| {
+        (!tasks::open(row), std::cmp::Reverse(row["createdAt"].as_u64().unwrap_or(0)))
+    });
+    let rows: Vec<Value> = rows.iter().take(limit).map(|row| task_row(hub, row)).collect();
+    Ok(json!({"tasks": rows}))
+}
+
+/// A task as `acpmux task ls` shows it: its brief, its result, and its lane's state now (null
+/// when its session closed or is gone).
+fn task_row(hub: &Hub, row: &Value) -> Value {
+    let session = row["sessionId"].as_str().and_then(|id| hub.resolve(id).ok());
+    let summary = session.as_ref().map(|s| hub.session_summary(s));
+    let lane = summary.as_ref().map_or(Value::Null, crate::hub::views::lane);
+    let status = summary.as_ref().map_or(json!("gone"), |s| s["status"].clone());
+    json!({
+        "taskId": row["briefId"], "title": row["title"], "from": row["from"],
+        "fromSession": row["fromSession"], "to": row["to"], "sessionId": row["sessionId"],
+        "host": row["host"], "status": row["status"], "createdAt": row["createdAt"],
+        "reportedAt": row["reportedAt"], "result": row["result"], "error": row["error"],
+        "lane": lane, "sessionStatus": status,
+    })
 }
