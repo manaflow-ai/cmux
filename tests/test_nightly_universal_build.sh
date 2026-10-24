@@ -1315,6 +1315,9 @@ done
 for expected in \
   "scripts/ci/nightly-next-legacy-target.py next.xml old.xml" \
   "--max-pending-hours 6 --max-same-build-hours 48" \
+  "CURRENT_BUILD_SHA: \${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}" \
+  "source_sha=\$source_sha" \
+  'accepted build $pending_build is not on the live cmux NEXT Nightly feed' \
   '.workflow_run.head_branch == "nightly-next" and .workflow_run.head_repository_id == .workflow_run.repository_id' \
   "for candidate in" \
   "--failure-log failures.txt --max-failures 2" \
@@ -1340,6 +1343,13 @@ for expected in \
   "signed_ok: \${{ steps.attempt.outputs.signed_ok }}" \
   "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-12vcpu-macos-26' }}"; do
   grep -Fq -- "$expected" <<<"$sign_job" || { echo "FAIL: sign-nightly-identity-legacy must contain: $expected"; exit 1; }
+done
+for expected in \
+  "NEXT_BUNDLE_ID: \${{ needs.decide.outputs.bundle_id }}" \
+  "NEXT_COMMIT_SHORT: \${{ needs.legacy-identity-target.outputs.source_sha }}" \
+  "PlistBuddy -c \"Add :SUPublicEDKey string \${NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY}\"" \
+  'python3 scripts/ci/nightly-next-guard.py feed-url "$feed_url"'; do
+  grep -Fq -- "$expected" <<<"$publish_job$sign_job" || { echo "FAIL: parallel NEXT identity preparation must contain: $expected"; exit 1; }
 done
 for expected in \
   "needs: [legacy-identity-target, sign-nightly-identity-legacy]" \

@@ -44,6 +44,10 @@ if "build-nightly-app" not in needs(legacy):
     failures.append("legacy identity targeting must know the current build number")
 if "CURRENT_BUILD_READY" not in legacy or "--candidate-build" not in legacy:
     failures.append("legacy identity targeting must admit the current signed artifact")
+if "CURRENT_BUILD_SHA" not in legacy or "source_sha=$source_sha" not in legacy:
+    failures.append("legacy identity targeting must carry the current build commit into parallel signing")
+if 'accepted build $pending_build is not on the live cmux NEXT Nightly feed' not in legacy:
+    failures.append("legacy identity continuation must require live NEXT feed membership")
 notes_publish = job("publish-release-notes")
 if "id: current" not in notes_publish or "git/ref/tags/$RELEASE_TAG" not in notes_publish:
     failures.append("publish-release-notes must recheck the exact release tag before uploading")

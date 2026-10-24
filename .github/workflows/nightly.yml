@@ -5316,7 +5316,7 @@ jobs:
     # The prepared NEXT artifact is a candidate before the main notarization.
     # The compatibility identity can therefore submit beside the main identity;
     # a pending continuation still uses the published feed path.
-    needs: [decide, build-nightly-app, prepare-nightly-variant]
+    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant]
     if: "always() && !cancelled() && needs.decide.result == 'success' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.environment == 'release-next' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.notary_probe != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.fast_build != 'true' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'"
     # A feed read error must not turn a run that published cmux NEXT red; the
     # macOS job then does not start (it needs this job's success and a build).
@@ -5335,6 +5335,7 @@ jobs:
       pending_run: ${{ steps.target.outputs.pending_run }}
       bundle_run: ${{ steps.target.outputs.bundle_run }}
       source_run: ${{ steps.target.outputs.source_run }}
+      source_sha: ${{ steps.target.outputs.source_sha }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -5353,6 +5354,7 @@ jobs:
           REQUIRED: ${{ vars.NIGHTLY_LEGACY_REQUIRED_COMMITS }}
           DEV_RING: ${{ vars.NIGHTLY_NEXT_DEV_RING == 'on' && 'on' || 'off' }}
           CURRENT_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
+          CURRENT_BUILD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           CURRENT_BUILD_READY: ${{ needs.prepare-nightly-variant.result == 'success' && 'true' || 'false' }}
           CURRENT_RUN: ${{ github.run_id }}
         run: |
@@ -5386,7 +5388,7 @@ jobs:
             cp old-all.xml old.xml
           elif [ -z "$next_nightly" ] && [ "$CURRENT_BUILD_READY" != true ]; then
             echo "### cmux NIGHTLY-identity: no cmux NEXT build is on Nightly yet; the old feed waits (cx-x7hwx)" >> "$GITHUB_STEP_SUMMARY"
-            { echo "action=none"; echo "pending_run="; echo "bundle_run="; echo "source_run="; echo "build="; } >> "$GITHUB_OUTPUT"
+            { echo "action=none"; echo "pending_run="; echo "bundle_run="; echo "source_run="; echo "source_sha="; echo "build="; } >> "$GITHUB_OUTPUT"
             exit 0
           fi
           # A cmux NIGHTLY-identity submission still in Apple's queue is kept by
@@ -5423,6 +5425,10 @@ jobs:
               # only, so a Dev build the old feed already lists would look
               # continuable again; it is stale.
               pending_build="$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["build"])' pending/pending.json || true)"
+              if [ -n "$pending_build" ] && ! grep -q "<sparkle:version>${pending_build}</sparkle:version>" next.xml; then
+                echo "::warning::skipping pending artifact $meta_id of run $meta_run: accepted build $pending_build is not on the live cmux NEXT Nightly feed"
+                continue
+              fi
               if [ -n "$pending_build" ] && grep -q "<sparkle:version>${pending_build}</sparkle:version>" old-all.xml; then
                 echo "pending build $pending_build of run $meta_run is already in the old feed; not continued"
                 break
@@ -5483,10 +5489,13 @@ jobs:
             action=none build="" pending_run="" bundle_run=""
           done
           source_run=""
+          source_sha=""
           if [ "$action" = new ] && [ "$CURRENT_BUILD_READY" = true ] && [ "$build" = "$CURRENT_BUILD" ]; then
             source_run="$CURRENT_RUN"
+            source_sha="$CURRENT_BUILD_SHA"
           fi
           echo "source_run=$source_run" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
           if [ -n "$notes" ]; then
             body="$notes"$'\n'"Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID (requirement: NIGHTLY_LEGACY_REQUIRED_COMMITS=${REQUIRED:-none})"
             if issue="$(./scripts/ci/nightly-next-legacy-failure-issue.sh "$GITHUB_REPOSITORY")"; then
@@ -5707,13 +5716,44 @@ jobs:
         if: steps.order.outputs.skip != 'true' && env.LEGACY_ACTION == 'new' && env.SOURCE_RUN != ''
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          NEXT_BUNDLE_ID: ${{ needs.decide.outputs.bundle_id }}
+          NEXT_APP_NAME: ${{ needs.decide.outputs.app_name }}
+          NEXT_URL_SCHEME: ${{ needs.decide.outputs.url_scheme }}
+          NEXT_FEED_BASE: ${{ needs.decide.outputs.feed_base }}
+          NEXT_MARKETING_VERSION: ${{ needs.build-nightly-app.outputs.daemon_version }}
+          NEXT_COMMIT_SHORT: ${{ needs.legacy-identity-target.outputs.source_sha }}
         run: |
           set -euo pipefail
           archive="$(find prepared-in -type f -name 'cmux-prepared-app.tar.gz' -print -quit)"
           mkdir -p prepared-app next-in
           tar -C prepared-app -xzf "$archive"
-          mv prepared-app/cmux.app "prepared-app/cmux NEXT.app"
-          app="prepared-app/cmux NEXT.app"
+          app="prepared-app/cmux.app"
+          info="$app/Contents/Info.plist"
+          [ -f "$info" ] || { echo "prepared app has no Info.plist" >&2; exit 1; }
+          : "${NEXT_BUNDLE_ID:?missing NEXT bundle id}" "${NEXT_APP_NAME:?missing NEXT app name}" \
+            "${NEXT_URL_SCHEME:?missing NEXT URL scheme}" "${NEXT_FEED_BASE:?missing NEXT feed base}" \
+            "${NEXT_MARKETING_VERSION:?missing NEXT marketing version}" "${NEXT_COMMIT_SHORT:?missing NEXT commit}"
+          feed_url="${NEXT_FEED_BASE}/appcast-arm64.xml"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleName ${NEXT_APP_NAME}" "$info"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName ${NEXT_APP_NAME}" "$info"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier ${NEXT_BUNDLE_ID}" "$info"
+          url_type_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes:1:CFBundleURLName' "$info")"
+          [[ "$url_type_name" == *.auth ]] || { echo "expected auth URL type, found $url_type_name" >&2; exit 1; }
+          /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:1:CFBundleURLSchemes:0 ${NEXT_URL_SCHEME}" "$info"
+          /usr/libexec/PlistBuddy -c "Add :LSEnvironment dict" "$info" >/dev/null 2>&1 || true
+          /usr/libexec/PlistBuddy -c "Delete :LSEnvironment:CMUX_AUTH_CALLBACK_SCHEME" "$info" >/dev/null 2>&1 || true
+          /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUX_AUTH_CALLBACK_SCHEME string ${NEXT_URL_SCHEME}" "$info"
+          /usr/libexec/PlistBuddy -c "Delete :SUPublicEDKey" "$info" >/dev/null 2>&1 || true
+          /usr/libexec/PlistBuddy -c "Delete :SUFeedURL" "$info" >/dev/null 2>&1 || true
+          /usr/libexec/PlistBuddy -c "Add :SUPublicEDKey string ${NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY}" "$info"
+          /usr/libexec/PlistBuddy -c "Add :SUFeedURL string ${feed_url}" "$info"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${NEXT_MARKETING_VERSION}" "$info"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${NIGHTLY_BUILD}" "$info"
+          /usr/libexec/PlistBuddy -c "Delete :CMUXCommit" "$info" >/dev/null 2>&1 || true
+          /usr/libexec/PlistBuddy -c "Add :CMUXCommit string ${NEXT_COMMIT_SHORT}" "$info"
+          python3 scripts/ci/nightly-next-guard.py feed-url "$feed_url"
+          mv "$app" "prepared-app/${NEXT_APP_NAME}.app"
+          app="prepared-app/${NEXT_APP_NAME}.app"
           CMUX_SIGN_MODE=all ./scripts/sign-cmux-bundle.sh \
             "$app" cmux.next-dev.entitlements "$APPLE_SIGNING_IDENTITY"
           create-dmg --no-code-sign "$app" next-in
