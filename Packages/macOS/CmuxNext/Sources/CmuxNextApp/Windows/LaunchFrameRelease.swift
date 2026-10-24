@@ -1,10 +1,13 @@
 import CmuxNextCompat
 
-/// When the launch drops the panes' last frames no pane took (`LaunchFiles.release`): once each of
-/// this Mac's restored windows installed its first content (then every pane they show presented its
-/// selection, `ContentPresentationScheduler.whenIdle`, which `release` waits for), or when the local
-/// daemon is unavailable before the restore. Runs `release` once. `WindowManager` owns one and
-/// forwards its window events to it.
+/// When the launch drops the panes' last frames no pane took (`LaunchFiles.release`), at one launch
+/// end that always comes: once each of this Mac's restored windows that has a workspace to show
+/// installed its first content (then every pane they show presented its selection,
+/// `ContentPresentationScheduler.whenIdle`, which `release` waits for), or when the local daemon is
+/// unavailable, before or after the restore. A window with nothing to show (the launch window whose
+/// workspace the daemon failed to create keeps the startup state) never holds them, and one that
+/// closes counts as done. Runs `release` once. `WindowManager` owns one and forwards its window
+/// events to it.
 @MainActor
 final class LaunchFrameRelease {
     /// A window when the restore ended.
@@ -29,7 +32,7 @@ final class LaunchFrameRelease {
     ///   - release: Drops the frames; called once.
     init(daemonUnavailable: @escaping @MainActor @Sendable () -> Bool, release: @escaping @MainActor () -> Void) {
         self.release = release
-        // task-owner: one observation per launch; it ends at the release or the restore (cancelled there)
+        // task-owner: one observation per launch; it ends at the release (cancelled there)
         unavailableWatch = Task { [weak self] in
             for await unavailable in ObservationStream(daemonUnavailable) where unavailable {
                 self?.releaseNow()
@@ -38,11 +41,12 @@ final class LaunchFrameRelease {
         }
     }
 
-    /// The restore ended with `windows`: the frames go once each local one without content showed it.
+    /// The restore ended with `windows`: the frames go once each local one that has a workspace to
+    /// show and no content yet showed it. The daemon stays watched until then: a window waiting on a
+    /// daemon that goes away never shows its content.
     func restoreEnded(_ windows: [Window]) {
-        unavailableWatch?.cancel()
-        unavailableWatch = nil
-        awaiting = Set(windows.filter { !$0.showsContent && $0.isLocal }.map(\.id))
+        guard !isReleased else { return }
+        awaiting = Set(windows.filter { !$0.showsContent && $0.isLocal && $0.hasWorkspaceToShow }.map(\.id))
         releaseWhenShown()
     }
 
