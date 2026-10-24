@@ -7,14 +7,18 @@ so the installed trusted copy of the gate is what runs. Not on CI (Lawrence 2026
 gates/tests in CI, but you have to run them yourself"): run it yourself after every change to guardrails.py,
 prepush-gate.py's guardrails path or install-git-hooks.sh: python3 tests/test_cmux_next_guardrails.py
 """
+import contextlib
 import dataclasses
+import fcntl
 import importlib.util
+import io
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import types
 import unittest
@@ -79,13 +83,9 @@ CASES = {
     "singleton": ("final class Cache {\n    static let shared = Cache()\n}\n",
                   "final class Cache {\n    // singleton-allow: the process has exactly one memory-pressure source\n"
                   "    static let shared = Cache()\n}\n"),
-    "assume-isolated": ("func f() {\n    MainActor.assumeIsolated { print(1) }\n}\n",
-                        "func f() {\n    MainActor.assumeIsolated { print(1) } // main-proof: observer on queue: .main\n}\n"),
     "unchecked-sendable": ("final class Box: @unchecked Sendable {\n    var x = 0\n}\n",
                            "// crash-allow: x is written once in init, then only read\n"
                            "final class Box: @unchecked Sendable {\n    let x = 0\n}\n"),
-    "sleep-poll": ("func wait() async throws {\n    while !ready() {\n        try await Task.sleep(for: .milliseconds(5))\n    }\n}\n",
-                   "func wait() async throws {\n    try await Task.sleep(for: .seconds(2)) // a minimum display time\n}\n"),
     "main-async": ("func f() {\n    DispatchQueue.main.async { print(1) }\n}\n",
                    "@MainActor func f() {\n    print(1)\n}\n"),
     "broadcast-name": ("extension Notification.Name {\n    static let pagesChanged = Notification.Name(\"pagesChanged\")\n}\n",
@@ -156,6 +156,12 @@ class Fixture(unittest.TestCase):
     def refused(self, *args):
         return [(r.id, [f"{h.path.rsplit('/', 1)[-1]}: {h.text.strip()}" for h in hits]) for r, hits in self.check(*args)[0]]
 
+    def rebase_on(self, files, message="more base debt"):
+        for relative, text in files.items():
+            self.write(relative, text)
+        self.commit(message)
+        self.base = self.git("rev-parse", "HEAD").stdout.strip()
+
     def report(self, skip, refusals):
         os.environ[guardrails.SKIP_ENV] = skip
         try:
@@ -197,17 +203,11 @@ class RuleTests(Fixture):
         before = {
             f"{KIT}/Old.swift": "final class Old {\n    static let shared = Old()\n}\n",
             f"{KIT}/Box.swift": "final class Box: @unchecked Sendable {\n    var x = 0\n}\n",
-            f"{KIT}/Hop.swift": "func f(_ x: Int) {\n    MainActor.assumeIsolated { self.handle(x) }\n}\n",
-            f"{KIT}/Wait.swift": "func wait() async throws {\n    while !ready() {\n"
-                                 "        try await Task.sleep(for: .milliseconds(5))\n    }\n}\n",
         }
         self.rebase_on(before)
         after = {
             f"{KIT}/Old.swift": "final class Old {\n    static let shared = Old(limit: 2)\n}\n",
             f"{KIT}/Box.swift": "final class Box: Equatable, @unchecked Sendable {\n    var x = 0\n}\n",
-            f"{KIT}/Hop.swift": "func f(_ x: Int) {\n    MainActor.assumeIsolated { self.handle(x + 1) }\n}\n",
-            f"{KIT}/Wait.swift": "func wait() async throws {\n    while !ready() {\n"
-                                "        try await Task.sleep(for: .milliseconds(50))\n    }\n}\n",
         }
         for relative, text in after.items():
             self.write(relative, text)
@@ -221,16 +221,6 @@ class RuleTests(Fixture):
         self.commit("edits one singleton and adds another")
         refusals, _ = self.check()
         self.assertEqual([(r.id, len(hits)) for r, hits in refusals], [("singleton", 1)])
-
-    def test_a_one_line_poll_is_refused_and_wakeup_allow_is_its_escape(self):
-        poll = "func wait() async throws {\n    while !ready() { try await Task.sleep(for: .milliseconds(5)) }\n}\n"
-        self.write(f"{KIT}/Added.swift", poll)
-        self.commit("one-line poll")
-        self.assertIn("sleep-poll", [r.id for r, _ in self.check()[0]])
-        self.git("reset", "--quiet", "--hard", self.base)
-        self.write(f"{KIT}/Added.swift", poll.replace("    while", "    // wakeup-allow: the device has no change event\n    while"))
-        self.commit("reviewed poll")
-        self.assertEqual(self.check()[0], [])
 
     def test_stateful_named_singletons_are_refused_and_value_constants_pass(self):
         cases = {
@@ -246,6 +236,112 @@ class RuleTests(Fixture):
                 self.commit("named static")
                 self.assertEqual("singleton" in [r.id for r, _ in self.check()[0]], refused)
 
+    def test_a_named_static_holding_a_reference_instance_is_refused_in_any_container(self):
+        # The pushed tree's declarations decide: an extension takes its type's kind, and a value container (a
+        # namespace enum, a struct) that stores an instance of a class or actor holds runtime state too.
+        self.rebase_on({f"{KIT}/AppModel.swift": "final class AppModel {}\n",
+                        f"{KIT}/NotificationService.swift": "final class NotificationService {}\n",
+                        f"{KIT}/DaemonClient.swift": "public actor DaemonClient {}\n",
+                        f"{KIT}/Style.swift": "struct Style {\n    var size = 1\n}\n",
+                        f"{KIT}/Config.swift": "struct Config {}\n"}, "declarations")
+        cases = {
+            "extension AppModel {\n    static let current = AppModel()\n}\n": True,
+            "enum Env {\n    static let live = NotificationService()\n}\n": True,
+            "struct Deps {\n    static let live: DaemonClient = .init()\n}\n": True,
+            "extension Style {\n    static let compact = Style(size: 2)\n}\n": False,
+            "enum Env {\n    static let current = Config()\n}\n": False,
+            "extension Style {\n    static let standard = Self()\n}\n": False,
+        }
+        start = self.base
+        for text, refused in cases.items():
+            with self.subTest(text=text):
+                self.git("reset", "--quiet", "--hard", start)
+                self.write(f"{KIT}/Added.swift", text)
+                self.commit("named static")
+                self.assertEqual("singleton" in [r for r, _ in self.refused()], refused)
+
+    def test_the_annotated_type_decides_what_a_named_static_stores(self):
+        # `static let live: DaemonClient = <anything>` stores a DaemonClient: a factory, a closure or `.init()` alike.
+        self.rebase_on({f"{KIT}/DaemonClient.swift": "public final class DaemonClient {}\n",
+                        f"{KIT}/Builder.swift": "final class Builder {}\n",
+                        f"{KIT}/Style.swift": "struct Style {\n    var size = 1\n}\n"}, "declarations")
+        cases = {
+            "enum Env {\n    static let live: DaemonClient = DaemonClient.make()\n}\n": True,
+            "enum Env {\n    static let live: DaemonClient = { DaemonClient() }()\n}\n": True,
+            "struct Theme {\n    static let standard: Style = Builder().build()\n}\n": False,  # it stores a Style
+            "enum Env {\n    static let live = DaemonClient()\n}\n": True,  # no annotation: what it constructs
+        }
+        start = self.base
+        for text, refused in cases.items():
+            with self.subTest(text=text):
+                self.git("reset", "--quiet", "--hard", start)
+                self.write(f"{KIT}/Added.swift", text)
+                self.commit("named static")
+                self.assertEqual("singleton" in [r for r, _ in self.refused()], refused)
+
+    def test_a_stored_type_that_becomes_a_class_in_another_file_is_refused(self):
+        # struct -> class of the stored type (or of the extended type) turns an unchanged named static elsewhere
+        # into a stored instance, like the opener change in the same file.
+        start = self.base
+        for before, after, refused in (
+            ("public struct DaemonClient {}\n", "public final class DaemonClient {}\n", True),
+            ("public struct DaemonClient {}\n", "public actor DaemonClient {}\n", True),
+            ("public struct DaemonClient {}\n", "public struct DaemonClient: Sendable {}\n", False),
+            ("public final class DaemonClient {}\n", "public struct DaemonClient {}\n", False),
+            # Declared by the push alone (moved into Sources from another package), or no longer declared.
+            (None, "public final class DaemonClient {}\n", True),
+            (None, "public actor DaemonClient {}\n", True),
+            (None, "public struct DaemonClient {}\n", False),
+            ("public final class DaemonClient {}\n", None, False),
+        ):
+            for user in ("enum Env {\n    static let live = DaemonClient()\n}\n",
+                         "extension DaemonClient {\n    static let current = DaemonClient()\n}\n"):
+                with self.subTest(before=before, after=after, user=user):
+                    self.git("reset", "--quiet", "--hard", start)
+                    declared = {f"{KIT}/DaemonClient.swift": before} if before is not None else {}
+                    self.rebase_on({**declared, f"{KIT}/Env.swift": user}, "a named static")
+                    if after is None:
+                        (self.repo / KIT / "DaemonClient.swift").unlink()
+                    else:
+                        self.write(f"{KIT}/DaemonClient.swift", after)
+                    self.commit("changes the stored type's kind in another file")
+                    refusals = self.refused()
+                    self.assertEqual(refusals != [], refused, refusals)
+                    if refused:
+                        self.assertEqual([(r, [h.split(":")[0] for h in hits]) for r, hits in refusals],
+                                         [("singleton", ["Env.swift"])])
+
+    def test_a_user_grep_config_does_not_hide_the_type_declarations(self):
+        # The type scan reads `git grep -z` hits as `<rev>:<path>` NUL `<line>`. A user's grep.lineNumber or
+        # grep.column adds fields to each hit and color.grep=always adds escape codes; the declarations, and so
+        # the refusals that read them, must be the same.
+        for key, value in (("grep.lineNumber", "true"), ("grep.column", "true"), ("grep.fullName", "true"),
+                           ("color.grep", "always"), ("color.ui", "always")):
+            self.git("config", key, value)
+        self.rebase_on({f"{KIT}/AppModel.swift": "final class AppModel {}\n",
+                        f"{KIT}/NotificationService.swift": "final class NotificationService {}\n",
+                        f"{KIT}/DaemonClient.swift": "public struct DaemonClient {}\n",
+                        f"{KIT}/Env.swift": "enum Env {\n    static let live = DaemonClient()\n}\n"}, "declarations")
+        start = self.base
+        for path, text in ((f"{KIT}/Added.swift", "extension AppModel {\n    static let current = AppModel()\n}\n"),
+                           (f"{KIT}/Added.swift", "enum Deps {\n    static let live = NotificationService()\n}\n"),
+                           (f"{KIT}/DaemonClient.swift", "public final class DaemonClient {}\n")):
+            with self.subTest(text=text):
+                self.git("reset", "--quiet", "--hard", start)
+                self.write(path, text)
+                self.commit("named static")
+                refusals, warnings = self.check()
+                self.assertEqual([r.id for r, _ in refusals], ["singleton"], warnings)
+
+    def test_a_type_scan_hit_in_another_format_stops_the_check(self):
+        # A grep output the scan cannot read (a git that adds a field) is an error the hook warns about (fail
+        # open, visibly), never a scan that silently finds no declarations.
+        index = guardrails.TypeIndex(self.repo, "HEAD")
+        numbered = subprocess.CompletedProcess([], 0, f"HEAD:{KIT}/Old.swift\x001\x00final class Old {{\n".encode(), b"")
+        with mock.patch.object(guardrails.git_batch, "run", return_value=numbered):
+            with self.assertRaises(guardrails.git_batch.GitError):
+                index.at_head()
+
     def test_short_notification_names_in_a_name_extension_are_refused(self):
         for decl in ('Self("pagesChanged")', '.init("pagesChanged")'):
             with self.subTest(decl=decl):
@@ -254,28 +350,84 @@ class RuleTests(Fixture):
                 self.commit("short name")
                 self.assertIn("broadcast-name", [r.id for r, _ in self.check()[0]])
 
-    def test_a_removed_one_shot_delay_does_not_pay_for_a_new_poll(self):
-        self.rebase_on({f"{KIT}/Wait.swift": "func wait() async throws {\n    try await Task.sleep(for: .seconds(2))\n}\n"})
-        self.write(f"{KIT}/Wait.swift", "func wait() async throws {\n    while !ready() {\n"
-                                        "        try await Task.sleep(for: .milliseconds(5))\n    }\n}\n")
-        self.commit("delay -> poll")
-        self.assertEqual(self.refused(), [("sleep-poll", ["Wait.swift: try await Task.sleep(for: .milliseconds(5))"])])
+    # rule id -> (file with justified debt, the escape line) for every rule whose escape sits above the line.
+    ESCAPED = {
+        "singleton": ("final class Hub {\n    // singleton-allow: the process has one memory-pressure source\n"
+                      "    static let shared = Hub()\n}\n", "    // singleton-allow: the process has one memory-pressure source\n"),
+        "unchecked-sendable": ("// crash-allow: x is written once in init, then only read\n"
+                               "final class Box: @unchecked Sendable {\n    let x = 0\n}\n",
+                               "// crash-allow: x is written once in init, then only read\n"),
+        "main-async": ("func f() {\n    // main-async-allow: AppKit's sheet callback API forces a GCD hop\n"
+                       "    DispatchQueue.main.async { print(1) }\n}\n",
+                       "    // main-async-allow: AppKit's sheet callback API forces a GCD hop\n"),
+        "broadcast-name": ("extension Notification.Name {\n    // broadcast-allow: every window must hear a theme change\n"
+                           "    static let themeChanged = Notification.Name(\"themeChanged\")\n}\n",
+                           "    // broadcast-allow: every window must hear a theme change\n"),
+        "row-store": ("import SwiftUI\nstruct WorkspaceRow: View {\n    // row-snapshot-allow: one row, never in a list\n"
+                      "    @Environment(SidebarStore.self) private var store\n    var body: some View { Text(\"x\") }\n}\n",
+                      "    // row-snapshot-allow: one row, never in a list\n"),
+        "generic-class-deinit": ("// generic-class-allow: its target is nonisolated by default\nfinal class Once<T> {\n    var value: T?\n}\n",
+                                 "// generic-class-allow: its target is nonisolated by default\n"),
+    }
 
-    def test_wrapping_an_old_sleep_in_a_new_loop_is_refused(self):
-        delay = "func wait() async throws {\n    try await Task.sleep(for: .seconds(2))\n}\n"
+    def test_removing_only_the_escape_comment_is_new_debt(self):
         start = self.base
-        for name, wrapped in (
-            ("re-indented", "func wait() async throws {\n    while !ready() {\n        try await Task.sleep(for: .seconds(2))\n"
-                            "    }\n}\n"),
-            ("same indent", "func wait() async throws {\n    while !ready() {\n    try await Task.sleep(for: .seconds(2))\n"
-                            "    }\n}\n"),
-        ):
-            with self.subTest(name):
+        for rule, (text, escape) in self.ESCAPED.items():
+            for name, after in (("deleted", text.replace(escape, "")),
+                                ("reworded", text.replace(escape, escape.split("//")[0] + "// reviewed once\n"))):
+                with self.subTest(rule=rule, how=name):
+                    self.git("reset", "--quiet", "--hard", start)
+                    self.rebase_on({f"{KIT}/Escaped.swift": text}, "justified debt")
+                    self.assertEqual(self.refused(guardrails.check, self.base, "HEAD"), [])
+                    self.write(f"{KIT}/Escaped.swift", after)
+                    self.commit(f"{name} the escape only")
+                    self.assertEqual([r for r, _ in self.refused()], [rule])
+
+    def test_editing_the_escape_reason_or_a_line_above_old_debt_adds_none(self):
+        start = self.base
+        for rule, (text, escape) in self.ESCAPED.items():
+            with self.subTest(rule=rule):
                 self.git("reset", "--quiet", "--hard", start)
-                self.rebase_on({f"{KIT}/Wait.swift": delay})
-                self.write(f"{KIT}/Wait.swift", wrapped)
-                self.commit("wraps the delay in a loop")
-                self.assertEqual([rule for rule, _ in self.refused()], ["sleep-poll"])
+                self.rebase_on({f"{KIT}/Escaped.swift": text}, "justified debt")
+                self.write(f"{KIT}/Escaped.swift", text.replace(escape, escape.replace("\n", " (reviewed again)\n")))
+                self.commit("rewords the reason, keeps the escape")
+                self.assertEqual(self.refused(), [])
+        self.git("reset", "--quiet", "--hard", start)
+        self.write(f"{KIT}/Old.swift", "final class Old {\n    // the old cache\n    static let shared = Old()\n}\n")
+        self.commit("a comment above old unescaped debt")
+        self.assertEqual(self.refused(), [], "base debt the push only comments on is not new")
+
+    def test_an_edit_next_to_the_comment_block_above_old_debt_adds_none(self):
+        # Old unescaped debt under a two-line doc comment, a code line above that. The head side reaches the edit
+        # through the comment block; the base side must judge the same unchanged line, or old debt reads as new.
+        start = self.base
+        for rule, (text, escape) in self.ESCAPED.items():
+            indent = escape.split("//")[0]
+            code = f"{indent}func g() {{}}\n" if indent else "let y = 2\n"
+            old = text.replace(escape, f"{code}{indent}/// doc\n{indent}/// more doc\n")
+            edits = {
+                "deletes the code line above the block": old.replace(code, ""),
+                "replaces the code line above the block with a comment": old.replace(code, f"{indent}// gone\n"),
+                "inserts a comment line inside the block": old.replace(f"{indent}/// doc\n",
+                                                                     f"{indent}/// doc\n{indent}/// inserted\n"),
+                "inserts a code line above the block": old.replace(code, f"{code}{code.replace('g', 'h').replace('y', 'z')}"),
+            }
+            for how, after in edits.items():
+                with self.subTest(rule=rule, how=how):
+                    self.git("reset", "--quiet", "--hard", start)
+                    self.rebase_on({f"{KIT}/OldDebt.swift": old}, "old unescaped debt")
+                    self.write(f"{KIT}/OldDebt.swift", after)
+                    self.commit(how)
+                    self.assertEqual(self.refused(), [], "the push only edits next to old debt")
+
+    def test_a_new_block_opened_around_old_debt_adds_none(self):
+        # A context rule judges an unchanged line again when one of its openers changed. The base copy of that
+        # line is judged too: a static of a class that a new nested class now wraps was debt before and after.
+        body = "    let a = 0\n    let b = 0\n    static let live = 1\n}\n"
+        self.rebase_on({f"{KIT}/Cache.swift": "final class Cache {\n" + body}, "old debt")
+        self.write(f"{KIT}/Cache.swift", "final class Cache {\nfinal class Store {\n" + body + "}\n")
+        self.commit("a nested class around the old static")
+        self.assertEqual(self.refused(), [])
 
     def test_a_struct_that_becomes_a_class_around_a_named_static_is_refused(self):
         start = self.base
@@ -291,11 +443,12 @@ class RuleTests(Fixture):
                 self.assertEqual([rule for rule, _ in self.refused()], ["singleton"])
 
     def test_an_edit_of_the_opener_around_old_debt_adds_none(self):
-        poll = "func wait() async throws {\n    while !ready() {\n        try await Task.sleep(for: .milliseconds(5))\n    }\n}\n"
-        self.rebase_on({f"{KIT}/Wait.swift": poll})
+        row = ("import SwiftUI\nstruct EntryRow: View {\n    @Environment(SidebarStore.self) private var store\n"
+               "    var body: some View { Text(\"x\") }\n}\n")
+        self.rebase_on({f"{KIT}/Entry.swift": row})
         self.write(f"{KIT}/Old.swift", "final class Old: Sendable {\n    static let shared = Old()\n}\n")
-        self.write(f"{KIT}/Wait.swift", poll.replace("!ready()", "!isReady()"))
-        self.commit("edits the class and loop lines around old debt")
+        self.write(f"{KIT}/Entry.swift", row.replace("struct EntryRow: View {", "struct EntryRow: View, Equatable {"))
+        self.commit("edits the class and row lines around old debt")
         self.assertEqual(self.refused(), [])
 
     def test_a_view_renamed_to_a_row_around_a_store_is_refused(self):
@@ -352,6 +505,30 @@ class RuleTests(Fixture):
             os.environ.update(saved)
         self.assertEqual(len(markers), 2, markers)
 
+    def test_a_user_inter_hunk_context_does_not_shift_the_line_numbers(self):
+        # diff.interHunkContext joins nearby -U0 hunks with the unchanged lines between them; those must count,
+        # or every line after them is misnumbered (the rules then fail open, the conflict markers move).
+        self.git("config", "diff.interHunkContext", "3")
+        self.rebase_on({f"{KIT}/E.swift": "enum E {\n    static let a = 1\n    static let b = 1\n}\n",
+                        f"{KIT}/Conflict.swift": "let a = 1\nlet b = 1\n"}, "constants")
+        self.write(f"{KIT}/E.swift", "enum E {\n    static let a = 2\n    static let b = 1\n"
+                                     "    static let shared = Box()\n}\n")
+        self.write(f"{KIT}/Conflict.swift", "<<<<<<< HEAD\nlet a = 1\n=======\nlet a = 2\n>>>>>>> topic\nlet b = 1\n")
+        self.commit("an edit and a singleton two lines apart, and a conflict")
+        refusals, warnings = self.check()
+        self.assertEqual([(r.id, [(h.number, h.text.strip()) for h in hits]) for r, hits in refusals],
+                         [("singleton", [(4, "static let shared = Box()")])], warnings)
+        self.assertEqual([w for w in warnings if w[0] == "guardrails"], [])
+        spec = importlib.util.spec_from_file_location("cmux_next_prepush_gate", SOURCE / "scripts/cmux-next/prepush-gate.py")
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        saved = {k: os.environ.pop(k) for k in list(os.environ) if k.startswith("GIT_")}
+        try:
+            markers = gate.conflict_markers(self.repo, self.base, "HEAD")
+        finally:
+            os.environ.update(saved)
+        self.assertEqual(markers, [f"{KIT}/Conflict.swift:1: <<<<<<< HEAD", f"{KIT}/Conflict.swift:5: >>>>>>> topic"])
+
     def test_lines_brought_in_from_feat_cmux_next_never_count(self):
         self.git("checkout", "--quiet", "-b", "topic")
         self.write(f"{KIT}/Topic.swift", "struct Topic {}\n")
@@ -382,6 +559,7 @@ class RuleTests(Fixture):
         self.assertTrue(guardrails.glob_match("A/MotionGate.swift", "A/Motion*.swift"))
         self.assertFalse(guardrails.glob_match("A/Motion/Spring.swift", "A/Motion*.swift"))
         self.assertTrue(guardrails.glob_match("A/B/C/D.swift", "A/**/D.swift"))
+        self.assertTrue(guardrails.glob_match("A/D.swift", "A/**/D.swift"), "`**/` is zero or more folders")
 
     def test_a_moved_line_that_only_gains_an_access_modifier_is_no_new_debt(self):
         (self.repo / "Packages/macOS/CmuxNext/Sources/CmuxNextOther").mkdir(parents=True)
@@ -902,6 +1080,43 @@ class WarningTests(Fixture):
         self.assertFalse(any("removes a perf-hot marker" in w for _, w in warnings), warnings)
         self.assertTrue(any(kind == "perf-hot" for kind, _ in warnings), warnings)
 
+    # ChordTracker.step and KeyBindingTable.step (feat-cmux-next): the signature runs over two lines and the marker
+    # trails the line with the body's `{`.
+    WRAPPED = ("import Foundation\nstruct Chords {\n    var armed = 0\n"
+               "    mutating func step(_ key: Int, window: Int, focus: Int? = nil,\n"
+               "                       first: (Int) -> Int?, canArm: () -> Bool) -> Int { // perf-hot: 0.5ms key-dispatch\n"
+               "        armed += key\n        return armed\n    }\n}\n")
+
+    def test_a_marker_after_a_wrapped_signature_marks_its_function(self):
+        self.rebase_on({f"{KIT}/Chords.swift": self.WRAPPED}, "a wrapped hot signature")
+        self.write(f"{KIT}/Chords.swift", self.WRAPPED.replace("armed += key", "armed += key * 2"))
+        self.commit("changes the hot body")
+        hot = [w for kind, w in self.check()[1] if kind == "perf-hot"]
+        self.assertEqual(len(hot), 1, hot)
+        self.assertIn("Chords.swift:4:", hot[0])
+        self.assertIn("mutating func step", hot[0])
+        self.assertIn("bench-typing.py", hot[0])
+
+    def test_a_marker_that_marks_no_declaration_warns(self):
+        self.write(f"{KIT}/Router.swift", HOT.replace("        count = 0\n", "        count = 0 // perf-hot: 2ms key-dispatch\n"))
+        self.commit("a marker on a statement")
+        hot = [w for kind, w in self.check()[1] if kind == "perf-hot"]
+        self.assertTrue(any("Router.swift:8:" in w and "marks no declaration" in w for w in hot), hot)
+
+    def test_codebase_health_counts_the_markers_the_guardrails_resolve(self):
+        spec = importlib.util.spec_from_file_location("cmux_next_codebase_health", SOURCE / "scripts/cmux-next/codebase-health.py")
+        health = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(health)
+        texts = {f"{KIT}/Chords.swift": self.WRAPPED.split("\n"),
+                 f"{KIT}/Router.swift": HOT.replace("        count = 0\n", "        count = 0 // perf-hot: 2ms key-dispatch\n").split("\n")}
+        coverage = {pid: files for pid, _, files in health.perf_hot_coverage(self.repo, texts)}
+        self.assertEqual(coverage["key-dispatch"], ["CmuxNextKit/Chords.swift", "CmuxNextKit/Router.swift"],
+                         "Router.swift's marked dispatch() counts; its statement marker does not add a second entry")
+        texts[f"{KIT}/Router.swift"] = HOT.replace(" // perf-hot: 2ms key-dispatch", "").replace(
+            "        count = 0\n", "        count = 0 // perf-hot: 2ms key-dispatch\n").split("\n")
+        coverage = {pid: files for pid, _, files in health.perf_hot_coverage(self.repo, texts)}
+        self.assertEqual(coverage["key-dispatch"], ["CmuxNextKit/Chords.swift"], "a marker on a statement marks nothing")
+
     def test_touching_an_owned_area_names_the_owner_and_doc(self):
         self.write(f"{KIT}/Sidebar/Row.swift", "struct R {}\n")
         self.commit("sidebar row")
@@ -911,6 +1126,39 @@ class WarningTests(Fixture):
         self.assertEqual(len(owners), 1, warnings)
         self.assertIn("a590", owners[0])
         self.assertIn("plans/cmux-next/sidebar-owner.md", owners[0])
+
+    def test_the_owned_areas_of_the_plan_warn_with_their_owner(self):
+        # plans/cmux-next/OWNERS.md as it ships: each area perf-lead.md and the lead brief assign has a row whose
+        # globs cover its code paths, so a push there names the owner.
+        self.write("plans/cmux-next/OWNERS.md", (SOURCE / "plans/cmux-next/OWNERS.md").read_text())
+        self.commit("the shipped owner map")
+        self.base = self.git("rev-parse", "HEAD").stdout.strip()
+        expected = {
+            # The typing row names this file; the terminal row only its folder: the most specific row owns it.
+            f"{PKG}/Sources/CmuxNextTerminal/TerminalSurfaceView+Keyboard.swift": ["PL-typing"],
+            f"{PKG}/Sources/CmuxNextTerminal/GhosttyRuntime.swift": ["PL-ghostty"],
+            f"{PKG}/Sources/CmuxNextApp/GhosttyConfigLiveReload.swift": ["PL-ghostty"],
+            "cmux-tui/crates/cmux-tui-core/src/service.rs": ["PL-daemon"],
+            "cmux-tui/crates/cmux-tui-core/src/holder_runtime/sink.rs": ["PL-daemon holder"],
+            "cmux-tui/crates/cmux-holder-v3/src/holder.rs": ["PL-daemon holder"],
+            "cmux-tui/crates/acpmux/src/lib.rs": ["PL-acpmux"],
+            "cmux-tui/crates/acpmux/src/main.rs": ["PL-acpmux"],
+            "scripts/cmux-next/build-acpmux.sh": ["PL-acpmux"],
+            f"{PKG}/Sources/CmuxNextHangReports/HangReportService.swift": ["PL-telemetry"],
+            f"{PKG}/Sources/CmuxNextApp/HangReports/HangReportsController.swift": ["PL-telemetry"],
+            f"{PKG}/Sources/CmuxNextApp/Windows/WindowState.swift": ["PL-switch"],
+            f"{PKG}/Sources/CmuxNextApp/Windows/WindowRegistry+Selection.swift": ["PL-switch"],
+        }
+        for path, owners in expected.items():
+            with self.subTest(path=path):
+                self.git("reset", "--quiet", "--hard", self.base)
+                self.write(path, "// touched\n")
+                self.commit(f"touches {path}")
+                warned = [w for kind, w in self.check()[1] if kind == "owner"]
+                for owner in owners:
+                    self.assertTrue(any(f"owner {owner}" in w for w in warned), (owner, warned))
+                # One file, one owner per area: no second row (a catch-all folder, a duplicate area) names another.
+                self.assertEqual(len(warned), len(owners), warned)
 
     def test_a_typical_push_runs_git_a_fixed_number_of_times(self):
         # The cost that grows with a push is git process starts, so count them instead of timing a busy runner:
@@ -928,15 +1176,221 @@ class WarningTests(Fixture):
             calls.append(args)
             return subprocess.Popen(args, *rest, **kwargs)
 
-        # A stand-in for the module guardrails.py imported, so subprocess's own internals are not counted.
-        guardrails.subprocess = types.SimpleNamespace(run=run, Popen=popen, PIPE=subprocess.PIPE,
-                                                      DEVNULL=subprocess.DEVNULL)
+        # A stand-in for the module guardrails.py and its git helper imported, so subprocess's own internals are
+        # not counted.
+        stand_in = types.SimpleNamespace(run=run, Popen=popen, PIPE=subprocess.PIPE, DEVNULL=subprocess.DEVNULL)
+        guardrails.subprocess = guardrails.git_batch.subprocess = stand_in
         try:
             refusals, _ = self.check()
         finally:
-            guardrails.subprocess = subprocess
+            guardrails.subprocess = guardrails.git_batch.subprocess = subprocess
         self.assertEqual(refusals, [])
         self.assertEqual(len(calls), 3, calls)
+
+    def test_a_merged_push_reads_the_type_declarations_once(self):
+        # Judging a named static in a struct needs the kinds of the types it stores, read with a `git grep` over
+        # Sources (about 1 s on the real tree). A branch that merged feat-cmux-next in is checked over two ranges
+        # with one head: one grep at that head serves both, each base's kinds follow from its diff.
+        self.rebase_on({f"{KIT}/Style.swift": "struct Style {\n    var size = 1\n}\n",
+                        f"{KIT}/Theme.swift": "struct Theme {\n    static let standard = Style()\n}\n"}, "declarations")
+        self.git("checkout", "--quiet", "-b", "topic")
+        self.write(f"{KIT}/Topic.swift", "struct Topic {}\n")
+        self.commit("topic work")
+        pushed = self.git("rev-parse", "HEAD").stdout.strip()
+        self.git("checkout", "--quiet", "feat-cmux-next")
+        self.write(f"{KIT}/Landed.swift", "struct Landed {}\n")
+        self.commit("landed on feat-cmux-next")
+        self.git("checkout", "--quiet", "topic")
+        self.git("merge", "--quiet", "--no-edit", "feat-cmux-next")
+        self.write(f"{KIT}/Theme.swift", "struct Theme {\n    static let standard = Style(size: 2)\n}\n")
+        self.commit("edits a named static of a struct")
+        greps = []
+
+        def run(args, *rest, **kwargs):
+            if "grep" in args:
+                greps.append(args)
+            return subprocess.run(args, *rest, **kwargs)
+
+        stand_in = types.SimpleNamespace(run=run, Popen=subprocess.Popen, PIPE=subprocess.PIPE, DEVNULL=subprocess.DEVNULL)
+        guardrails.subprocess = guardrails.git_batch.subprocess = stand_in
+        try:
+            refusals, _ = self.check(guardrails.check_push, pushed, "HEAD", "feat-cmux-next")
+        finally:
+            guardrails.subprocess = guardrails.git_batch.subprocess = subprocess
+        self.assertEqual(refusals, [])
+        self.assertEqual(len(greps), 1, greps)
+
+
+    def test_an_unrelated_edit_next_to_an_old_named_static_reads_no_type_declarations(self):
+        # A struct's `static let standard = Style()` is judged by Style's kind, read with the ~1 s type grep. An
+        # edit of another line of that struct changes neither the static, its opener nor Style, so it reads none.
+        self.rebase_on({f"{KIT}/Style.swift": "struct Style {\n    var size = 1\n}\n",
+                        f"{KIT}/Theme.swift": "struct Theme {\n    static let standard = Style()\n    var a = 1\n}\n"},
+                       "declarations")
+        self.write(f"{KIT}/Theme.swift", "struct Theme {\n    static let standard = Style()\n    var a = 2\n}\n")
+        self.commit("an unrelated edit")
+        greps = []
+
+        def run(args, *rest, **kwargs):
+            if "grep" in args:
+                greps.append(args)
+            return subprocess.run(args, *rest, **kwargs)
+
+        stand_in = types.SimpleNamespace(run=run, Popen=subprocess.Popen, PIPE=subprocess.PIPE, DEVNULL=subprocess.DEVNULL)
+        guardrails.subprocess = guardrails.git_batch.subprocess = stand_in
+        try:
+            refusals, _ = self.check()
+        finally:
+            guardrails.subprocess = guardrails.git_batch.subprocess = subprocess
+        self.assertEqual(refusals, [])
+        self.assertEqual(greps, [])
+
+class SharedRuleTests(Fixture):
+    """A rule another check owns is judged by that check's own definition, never by a second copy here."""
+
+    def load_ratchet(self):
+        spec = importlib.util.spec_from_file_location("crash_ratchet_for_test", SOURCE / "scripts/cmux-next/crash_ratchet.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_unchecked_sendable_is_refused_exactly_when_the_crash_ratchet_counts_it(self):
+        # CI's crash ratchet (crash_ratchet.py, class `unchecked`) takes `// crash-allow:` on the line or the line
+        # directly above; a push this rule passes must not turn that ratchet red after it lands.
+        ratchet = self.load_ratchet()
+        body = "final class Box: @unchecked Sendable {\n    let x = 0\n}\n"
+        for text in ("// crash-allow: x is written once in init, then only read\n" + body,
+                     body.replace("Sendable {", "Sendable { // crash-allow: x is written once in init"),
+                     "// crash-allow: x is written once in init, then only read\n// and never after\n" + body,
+                     "// crash-allow: x is written once in init, then only read\n@available(macOS 14, *)\n" + body):
+            with self.subTest(text=text):
+                lines = text.split("\n")
+                counted = any("unchecked" in ratchet.swift_line_hits(lines, i) and not ratchet.allowed(lines, i)
+                              for i in range(len(lines)) if not lines[i].lstrip().startswith("//"))
+                self.git("reset", "--quiet", "--hard", self.base)
+                self.write(f"{KIT}/Added.swift", text)
+                self.commit("an unchecked box")
+                self.assertEqual("unchecked-sendable" in [rule for rule, _ in self.refused()], counted)
+
+
+class SleepRuleTests(unittest.TestCase):
+    """check-concurrency.sh's wakeup rule is the one sleep rule (the guardrails no longer copy it): every sleep
+    primitive counts, the injected sleeper CLAUDE.md prescribes too (`try await sleep(delay)`)."""
+
+    MANIFEST = ("// swift-tools-version: 6.2\nimport PackageDescription\n"
+                "let package = Package(name: \"Fixture\", targets: [\n"
+                "    .target(name: \"FixtureUI\", swiftSettings: uiSwiftSettings),\n])\n")
+
+    def scan(self, text):
+        with tempfile.TemporaryDirectory(prefix="cmux-sleep-rule-") as temporary:
+            root = Path(temporary) / "Package"
+            (root / "Sources/FixtureUI").mkdir(parents=True)
+            (root / "Package.swift").write_text(self.MANIFEST)
+            (root / "Sources/FixtureUI/Wait.swift").write_text(text)
+            return subprocess.run(["bash", str(SOURCE / "scripts/cmux-next/check-concurrency.sh"), str(root)],
+                                  text=True, capture_output=True, timeout=60)
+
+    def test_an_injected_sleeper_is_a_sleep(self):
+        for call in ("try await sleep(.milliseconds(50))", "try await self.sleep(delay)", "try? await clockSleep.sleep(delay)",
+                     "do { try await sleep(delay) } catch { return }"):
+            with self.subTest(call=call):
+                result = self.scan(f"func wait(sleep: Sleep) async throws {{\n    while !ready() {{\n        {call}\n    }}\n}}\n")
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn("Wait.swift:3: sleep", result.stdout)
+
+    def test_a_reviewed_wakeup_allow_passes_and_a_thread_sleep_stays_refused(self):
+        allowed = self.scan("func hold(sleep: Sleep) async {\n    // wakeup-allow: one 450 ms press-and-hold delay, cancelled on release\n"
+                            "    do { try await sleep(.milliseconds(450)) } catch { return }\n}\n")
+        self.assertEqual(allowed.returncode, 0, allowed.stdout + allowed.stderr)
+        blocking = self.scan("func spin() {\n    while !done() {\n        Thread.sleep(forTimeInterval: 0.01)\n    }\n}\n")
+        self.assertEqual(blocking.returncode, 1, blocking.stdout + blocking.stderr)
+        self.assertIn("Wait.swift:3: Thread.sleep", blocking.stdout)
+
+    def test_an_injected_sleeper_in_a_task_group_is_a_raced_deadline(self):
+        result = self.scan("func first(sleep: Sleep) async throws {\n    try await withThrowingTaskGroup(of: Void.self) { group in\n"
+                           "        // wakeup-allow: the deadline under test\n"
+                           "        group.addTask { try await sleep(.seconds(1)) }\n        try await group.next()\n    }\n}\n")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("Wait.swift:2: deadline raced in a task group", result.stdout)
+
+
+class BlobReadTests(Fixture):
+    """The file texts come from one `git cat-file --batch`; a failed read must stop the check, not judge lines alone."""
+
+    # A value constant (passes) and an escaped singleton (passes): both need the file's text to be judged.
+    TEXT = ("struct Style {\n    static let standard = Style()\n}\n"
+            "final class Hub {\n    // singleton-allow: the process has one memory-pressure source\n"
+            "    static let shared = Hub()\n}\n")
+
+    def fake_git(self, body):
+        """Put a `git` first on PATH whose `cat-file` runs BODY (sh) and whose other commands are the real git."""
+        real = shutil.which("git")
+        folder = self.root / "fake-bin"
+        folder.mkdir(exist_ok=True)
+        script = folder / "git"
+        script.write_text("#!/bin/sh\nfor arg in \"$@\"; do\n  if [ \"$arg\" = cat-file ]; then\n"
+                          f"{body}\n  fi\ndone\nexec {real} \"$@\"\n")
+        script.chmod(0o755)
+        saved = os.environ["PATH"]
+        os.environ["PATH"] = f"{folder}{os.pathsep}{saved}"
+        self.addCleanup(os.environ.__setitem__, "PATH", saved)
+
+    def test_the_blob_request_never_goes_through_a_pipe(self):
+        # cmux-lawrence hangs on a subprocess with more than about 10 KB of piped stdin (e8b8e40e4e9); a hang
+        # there is a push that never returns. This git refuses a piped request instead of hanging the test.
+        self.fake_git("    if [ -p /dev/stdin ]; then echo 'fake git: piped stdin hangs here' >&2; exit 1; fi")
+        self.write(f"{KIT}/Added.swift", self.TEXT)
+        self.commit("a value constant and an escaped singleton")
+        self.assertEqual(self.refused(), [])
+
+    def test_a_failed_blob_read_stops_the_check_and_the_hook_fails_open(self):
+        self.fake_git("    echo 'fake git: cat-file failed' >&2; exit 1")
+        self.write(f"{KIT}/Added.swift", self.TEXT)
+        self.commit("a value constant and an escaped singleton")
+        with self.assertRaises(Exception):
+            self.check()
+        spec = importlib.util.spec_from_file_location("cmux_next_prepush_gate", SOURCE / "scripts/cmux-next/prepush-gate.py")
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        saved = {k: os.environ.pop(k) for k in list(os.environ) if k.startswith("GIT_")}
+        stderr = io.StringIO()
+        try:
+            with contextlib.redirect_stderr(stderr), contextlib.redirect_stdout(io.StringIO()) as stdout:
+                refused = gate.guardrails(self.repo, [(self.base, "HEAD")], SOURCE / "scripts/cmux-next")
+        finally:
+            os.environ.update(saved)
+            sys.modules[_spec.name] = guardrails
+        self.assertFalse(refused, stdout.getvalue())
+        self.assertIn("guardrails.py failed", stderr.getvalue())
+        self.assertNotIn("[singleton]", stdout.getvalue())
+
+
+class GateWrapperTests(Fixture):
+    """prepush-gate.guardrails(): a checker failure lets through only the range it could not judge."""
+
+    def test_a_failure_on_one_pushed_range_keeps_the_refusal_of_another(self):
+        trusted = self.root / "trusted"
+        trusted.mkdir()
+        (trusted / "guardrails.py").write_text(
+            "def check_push(repo, base, head):\n"
+            "    if head == 'feat-b':\n"
+            "        raise SystemExit('guardrails: git diff failed')\n"
+            "    return ['refusal'], []\n"
+            "check = check_push\n"
+            "def format_report(refusals, warnings):\n"
+            "    return ('[singleton] feat-a adds one', True) if refusals else ('', False)\n")
+        spec = importlib.util.spec_from_file_location("cmux_next_prepush_gate", SOURCE / "scripts/cmux-next/prepush-gate.py")
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        stderr, stdout = io.StringIO(), io.StringIO()
+        try:
+            with contextlib.redirect_stderr(stderr), contextlib.redirect_stdout(stdout):
+                refused = gate.guardrails(self.repo, [(self.base, "feat-a"), (self.base, "feat-b")], trusted)
+        finally:
+            sys.modules[_spec.name] = guardrails
+        self.assertTrue(refused, stderr.getvalue())
+        self.assertIn("[singleton] feat-a adds one", stdout.getvalue())
+        self.assertIn("feat-b", stderr.getvalue(), "the warning names the range it could not judge")
 
 
 class HookTests(Fixture):
@@ -1053,7 +1507,257 @@ class HookTests(Fixture):
         self.assertTrue(link.is_symlink())
         self.assertNotEqual(link.resolve(), before, "each install writes a new copy")
         self.assertTrue((link / "guardrails.py").is_file())
-        self.assertTrue((before / "guardrails.py").is_file(), "the replaced copy stays for a push already running")
+        # Retention is by use, not by age or position: a push holds its copy (the test below); with none running
+        # the replaced copy goes, so copies never pile up.
+        self.assertFalse(before.exists(), "no push holds the replaced copy")
+
+    def install(self):
+        result = subprocess.run(["bash", "scripts/install-git-hooks.sh"], cwd=self.repo, env=self.env, text=True,
+                                capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_a_push_running_on_an_old_checks_copy_keeps_it_through_later_installs(self):
+        # The gate resolves the checks link once. A push that started on a days-old copy and is still in swiftlint
+        # when two other worktrees reinstall (the stale-copy warning asks every agent to) must keep that copy.
+        hooks = self.repo / ".git" / "cmux-git-hooks"
+        link = hooks / "cmux-next-checks"
+        old = link.resolve()
+        days = time.time() - 3 * 86400
+        os.utime(old, (days, days))
+        spec = importlib.util.spec_from_file_location("cmux_next_installed_gate", hooks / "cmux_next_prepush_gate.py")
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        reached, release = threading.Event(), threading.Event()
+
+        class PushedRefs:  # the hook's stdin: the gate blocks here after it resolved its checks copy
+            def read(self):
+                reached.set()
+                release.wait(120)
+                return ""
+
+        result, stderr = {}, io.StringIO()
+
+        def push():
+            with mock.patch.object(sys, "stdin", PushedRefs()), contextlib.redirect_stdout(io.StringIO()):
+                result["code"] = gate.main(["--pre-push", "--repo", str(self.repo), "--trusted-scripts-dir", str(link)])
+
+        with mock.patch.dict(os.environ, self.env, clear=True), contextlib.redirect_stderr(stderr):
+            running = threading.Thread(target=push)
+            running.start()
+            try:
+                self.assertTrue(reached.wait(60), "the gate never read the pushed refs")
+                self.install()
+                self.install()
+                self.assertTrue((old / "guardrails.py").is_file(), "a push is still reading this copy")
+            finally:
+                release.set()
+                running.join(120)
+        self.assertEqual(result.get("code"), 0, stderr.getvalue())
+        self.assertNotIn("not installed", stderr.getvalue())
+        self.install()
+        self.assertFalse(old.exists(), "once no push reads it, the next install removes the old copy")
+        self.assertTrue((link / "guardrails.py").is_file())
+
+    def leftover(self, name, files, in_use, age_seconds=0):
+        """A checks copy (or a half-removed one) in the hook folder: FILES files, `.in-use` when IN_USE."""
+        path = self.repo / ".git" / "cmux-git-hooks" / name
+        path.mkdir()
+        for n in range(files):
+            (path / f"check{n}.py").write_text("x = 1\n")
+        if in_use:
+            (path / ".in-use").touch()
+        if age_seconds:
+            then = time.time() - age_seconds
+            os.utime(path, (then, then))
+        return path
+
+    def test_an_install_waits_for_one_that_is_removing_a_leftover_and_both_finish(self):
+        # post-merge runs the installer in every worktree that pulls a hook change, so two can run together. Install
+        # A is stopped inside its cleanup, at the start of its removal of a killed install's half-removed tree, while
+        # install B starts. B waits for A (and names A's pid) instead of removing that tree too; then both finish
+        # and the leftovers are gone. Without the install lock B removes the tree and A's removal fails.
+        hooks = self.repo / ".git" / "cmux-git-hooks"
+        killed = self.leftover("cmux-next-checks.deleting.1.cmux-next-checks.v1.1", 3, in_use=True)
+        legacy = self.leftover("cmux-next-checks.v2.2", 3, in_use=False, age_seconds=3600)
+        (hooks / "python3-path").unlink()
+        reached, release = self.root / "reached.fifo", self.root / "release.fifo"
+        os.mkfifo(reached)
+        os.mkfifo(release)
+        real = os.path.realpath(shutil.which("python3", path=self.env.get("PATH")))
+        prelude = (
+            "import shutil\n"
+            "_rmtree, _stopped = shutil.rmtree, []\n"
+            "def _stop_once(path, *args, **kwargs):\n"
+            "    if not _stopped:\n"
+            "        _stopped.append(path)\n"
+            f"        with open({str(reached)!r}, 'w') as signal:\n"
+            "            signal.write(path)\n"
+            f"        with open({str(release)!r}) as go:\n"
+            "            go.read()\n"
+            "    return _rmtree(path, *args, **kwargs)\n"
+            "shutil.rmtree = _stop_once\n")
+        stub = self.root / "python-stub"
+        stub.mkdir()
+        (stub / "python3").write_text(
+            f"#!{real} -I\n"
+            "# Stops install A's cleanup (the script it reads from stdin) at its first tree removal.\n"
+            "import os, sys\n"
+            "args = sys.argv[1:]\n"
+            "if args[:2] == ['-I', '-']:\n"
+            f"    args = ['-I', '-c', {prelude!r} + sys.stdin.read(), *args[2:]]\n"
+            f"os.execv({real!r}, [{real!r}, *args])\n")
+        (stub / "python3").chmod(0o755)
+        first = subprocess.Popen(["bash", "scripts/install-git-hooks.sh"], cwd=self.repo, text=True,
+                                 env={**self.env, "PATH": f"{stub}:{self.env['PATH']}"},
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        signal = {}
+        waiter = threading.Thread(target=lambda: signal.setdefault("text", reached.read_text()))
+        waiter.start()
+        waiter.join(120)
+        if waiter.is_alive():
+            first.kill()
+            with open(reached, "w"):
+                pass  # unblocks the waiter
+            self.fail(f"install A never removed a tree: {first.communicate()}")
+        self.assertEqual(os.path.realpath(signal["text"]), os.path.realpath(killed))
+        second = subprocess.Popen(["bash", "scripts/install-git-hooks.sh"], cwd=self.repo, env=self.env, text=True,
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        said, heard = [], threading.Event()
+
+        def listen():
+            for line in second.stderr:
+                said.append(line)
+                if "waiting for it to finish" in line:
+                    heard.set()
+            heard.set()  # B is done (the end of its output) without saying it waits
+
+        reader = threading.Thread(target=listen)
+        reader.start()
+        try:
+            # A bound only for a failure: an install that waits without a word would leave this test hanging.
+            self.assertTrue(heard.wait(120), "install B neither said it waits nor finished")
+            self.assertTrue(killed.exists(), f"install B removed the tree install A is removing: {''.join(said)}")
+            self.assertIn(f"(pid {first.pid}); waiting for it to finish", "".join(said))
+            self.assertIsNone(second.poll(), "install B finished while install A held the lock")
+        finally:
+            with open(release, "w") as go:
+                go.write("go\n")
+            _, err = first.communicate(timeout=300)
+            second.wait(timeout=300)
+            reader.join(300)
+            second.stderr.close()
+        self.assertEqual(first.returncode, 0, err)
+        self.assertEqual(second.returncode, 0, "".join(said))
+        self.assertTrue((hooks / "python3-path").is_file())
+        self.assertFalse(killed.exists())
+        self.assertFalse(legacy.exists())
+        current = (hooks / "cmux-next-checks").resolve()
+        self.assertTrue((current / "guardrails.py").is_file())
+        self.assertTrue((current / ".in-use").is_file())
+
+    def test_a_process_an_install_leaves_running_does_not_hold_the_install_lock(self):
+        # With core.fsmonitor=true, an index read (`git ls-files`) starts `git fsmonitor--daemon run --detach`,
+        # which keeps every fd it inherits and outlives the install. A lock fd it inherits would make every later
+        # install (post-merge runs one on each pull of feat-cmux-next) wait forever. A stub git that detaches a
+        # process the same way stands in for the daemon (the builtin one runs on macOS and Windows only).
+        hooks = self.repo / ".git" / "cmux-git-hooks"
+        pidfile = self.root / "detached.pid"
+        real = os.path.realpath(shutil.which("git", path=self.env.get("PATH")))
+        stub = self.root / "git-stub"
+        stub.mkdir()
+        (stub / "git").write_text(
+            "#!/bin/bash\n"
+            f'if [[ "$1" == ls-files && ! -e "{pidfile}" ]]; then\n'
+            "    sleep 600 </dev/null >/dev/null 2>&1 &\n"
+            f'    echo $! > "{pidfile}"\n'
+            "fi\n"
+            f'exec "{real}" "$@"\n')
+        (stub / "git").chmod(0o755)
+        first = subprocess.run(["bash", "scripts/install-git-hooks.sh"], cwd=self.repo, text=True, capture_output=True,
+                               env={**self.env, "PATH": f"{stub}:{self.env['PATH']}"}, timeout=300)
+        detached = int(pidfile.read_text())
+
+        def stop():
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(detached, 9)
+
+        self.addCleanup(stop)
+        self.assertEqual(first.returncode, 0, first.stderr)
+        os.kill(detached, 0)  # the stand-in daemon outlived the install
+        lock = os.open(hooks / "install.lock", os.O_RDONLY)
+        try:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                self.fail("a process the install left running holds the install lock")
+        finally:
+            os.close(lock)
+        self.install()
+
+    def test_an_install_that_overlaps_another_links_a_copy_with_its_lock_file(self):
+        # Install A is stopped where it first takes a lock (a python3 start, 30-80 ms, in a real run) while install B
+        # runs from start to end. B's cleanup must never remove a copy A is staging: A's linked copy keeps its
+        # `.in-use`, so a push on it holds it.
+        stub = self.root / "python-stub"
+        stub.mkdir()
+        reached, release = self.root / "reached.fifo", self.root / "release.fifo"
+        os.mkfifo(reached)
+        os.mkfifo(release)
+        real = os.path.realpath(shutil.which("python3", path=self.env.get("PATH")))
+        (stub / "python3").write_text(
+            "#!/bin/bash\n"
+            "# Stops install A where it first takes a lock until the test releases it.\n"
+            f'case "$*" in *"fcntl.flock("*) echo reached > "{reached}"; read -r _ < "{release}" ;; esac\n'
+            f'exec "{real}" "$@"\n')
+        (stub / "python3").chmod(0o755)
+        first = subprocess.Popen(["bash", "scripts/install-git-hooks.sh"], cwd=self.repo, text=True,
+                                 env={**self.env, "PATH": f"{stub}:{self.env['PATH']}"},
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        signal = {}
+        waiter = threading.Thread(target=lambda: signal.setdefault("text", reached.read_text()))
+        waiter.start()
+        waiter.join(120)
+        if waiter.is_alive():
+            first.kill()
+            with open(reached, "w"):
+                pass  # unblocks the waiter
+            self.fail(f"install A never took a lock: {first.communicate()}")
+        self.install()  # install B, from start to end, while A waits at its lock
+        with open(release, "w") as go:
+            go.write("go\n")
+        _, err = first.communicate(timeout=300)
+        self.assertEqual(first.returncode, 0, err)
+        current = (self.repo / ".git" / "cmux-git-hooks" / "cmux-next-checks").resolve()
+        self.assertTrue((current / "guardrails.py").is_file())
+        self.assertTrue((current / ".in-use").is_file(), "the linked copy lost its lock file to the other install's cleanup")
+
+    def test_a_sleep_poll_and_an_assume_isolated_are_refused_once_by_the_check_that_owns_them(self):
+        # check-concurrency.sh's wakeup rule owns sleeps (escape `// wakeup-allow:`), crash_ratchet.py owns
+        # assumeIsolated (banned; escape `// main-proof:`). A second refusal here with other advice (`poll-allow:`)
+        # sent agents to an escape the owning check does not honor.
+        self.git("reset", "--quiet", "--hard", "HEAD~1")
+        self.write(f"{PKG}/Package.swift", "// swift-tools-version: 6.2\nimport PackageDescription\n"
+                   "let uiSwiftSettings: [SwiftSetting] = [.defaultIsolation(MainActor.self)]\n"
+                   "let package = Package(name: \"CmuxNext\", targets: [\n"
+                   "    .target(name: \"CmuxNextApp\", swiftSettings: uiSwiftSettings),\n"
+                   "    .target(name: \"CmuxNextKit\", swiftSettings: uiSwiftSettings),\n])\n")
+        self.write(f"{APP}/CmuxNextApp.swift", "import Foundation\nfunc start() { ChildSignalDefaults.installAppSignalPolicy() }\n")
+        self.commit("package")
+        base = self.git("rev-parse", "HEAD").stdout.strip()
+        self.write(f"{KIT}/Poll.swift", "func wait() async throws {\n    while !ready() {\n"
+                   "        try await Task.sleep(for: .milliseconds(5))\n    }\n}\n"
+                   "func hop() {\n    MainActor.assumeIsolated { print(1) }\n}\n")
+        self.commit("a poll and an unproven hop")
+        gate = self.repo / "scripts/cmux-next/prepush-gate.py"
+        result = subprocess.run([sys.executable, "-I", str(gate), "--base", base, "--head", "HEAD"],
+                                cwd=self.repo, env=self.env, text=True, capture_output=True)
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn("Main-thread concurrency", output)
+        self.assertIn("Crash safety", output)
+        self.assertNotIn("[sleep-poll]", output)
+        self.assertNotIn("[assume-isolated]", output)
+        self.assertNotIn("poll-allow", output)
 
     def test_ci_runs_never_apply_the_guardrails(self):
         gate = self.repo / "scripts/cmux-next/prepush-gate.py"
