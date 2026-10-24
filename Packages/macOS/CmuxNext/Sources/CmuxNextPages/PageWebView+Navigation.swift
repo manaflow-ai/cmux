@@ -30,9 +30,16 @@ extension PageWebView {
     /// The document finished loading (either engine).
     func documentFinished() {
         loaded = true
+        refreshDocumentState()
+        resumeLoadWaiters()
+    }
+
+    /// Sends the document the host's whole state: the interface scale, the theme (and with it the
+    /// glass still) and the `data-*` attributes. A new document needs it, and so does a Chromium
+    /// page that thawed after a state script was skipped while it was frozen.
+    func refreshDocumentState() {
         applyUIScale()
         applyTheme(force: true)
         applyLiveDocumentAttributes()
-        resumeLoadWaiters()
     }
 }
