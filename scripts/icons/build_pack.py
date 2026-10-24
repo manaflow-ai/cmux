@@ -34,6 +34,8 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 SOURCE = REPO / "design" / "icons" / "source"
+# An alternate family laid over the pack by Debug Settings `icons.family` (custom: Lucas 2026-10-17).
+SOURCE_CUSTOM = REPO / "design" / "icons" / "source-custom"
 NATIVE = REPO / "Packages" / "macOS" / "CmuxNext" / "Sources" / "CmuxNextIcons"
 WEB = REPO / "webviews" / "src" / "agent-session" / "acpmux" / "icons"
 OUTPUTS = {
@@ -42,6 +44,8 @@ OUTPUTS = {
     "names_swift": NATIVE / "IconName+Members.swift",
     "catalog_swift": NATIVE / "IconName+Catalog.swift",
     "pack_web": WEB / "cmuxIcons.json",
+    "pack_custom_native": NATIVE / "Resources" / "cmux-icons-custom.json",
+    "pack_custom_web": WEB / "cmuxIconsCustom.json",
 }
 NUM = re.compile(r"-?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?")
 ARITY = {"M": 2, "L": 2, "H": 1, "V": 1, "C": 6, "S": 4, "Q": 4, "T": 2, "A": 7, "Z": 0}
@@ -478,9 +482,19 @@ def build():
                      "    nonisolated public static let catalog: [IconName] = [\n"
                      + "\n".join(f"        .{swift_member(e['name'])}," for e in catalog).rstrip(",") + "\n    ]\n}\n")
     pack_text = json.dumps(pack, separators=(",", ":"), ensure_ascii=False) + "\n"
+    custom = {}
+    for path in sorted(SOURCE_CUSTOM.glob("*.json")):
+        for icon in json.loads(path.read_text())["icons"]:
+            if icon["name"] not in icons:
+                raise ValueError(f"custom icon {icon['name']} is not in the pack")
+            custom[icon["name"]] = {"line": layers(icon["line"]), "solid": layers(icon["solid"])}
+    custom_text = json.dumps({"id": "cmux-custom", "version": 1, "grid": 24, "icons": dict(sorted(custom.items()))},
+                             separators=(",", ":"), ensure_ascii=False) + "\n"
     return {
         "pack_native": pack_text,
         "pack_web": pack_text,
+        "pack_custom_native": custom_text,
+        "pack_custom_web": custom_text,
         "catalog_native": json.dumps({"icons": catalog}, indent=1, ensure_ascii=False) + "\n",
         "names_swift": swift,
         "catalog_swift": catalog_swift,

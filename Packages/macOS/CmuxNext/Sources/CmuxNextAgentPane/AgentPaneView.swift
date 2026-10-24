@@ -68,7 +68,7 @@ public final class AgentPaneView: NSView {
     public let inputReadiness: PageInputReadiness
     /// Re-pushes the theme when ui.animationSpeed or Reduce Motion changes, so the
     /// page's `--agent-motion-*` fades follow them (AgentPaneTheme.values).
-    private var motionObservation: Task<Void, Never>?, sessionStatusObservation: Task<Void, Never>?
+    private var motionObservation: Task<Void, Never>?, sessionStatusObservation: Task<Void, Never>?, iconFamilyObservation: Task<Void, Never>?
     /// The theme last pushed to the page (I5: a push only when it changed since then; a page load
     /// pushes again with `force`, a page-host replay or a crash forgets it).
     var deliveredThemeEvent: AgentPageEvent?
@@ -101,6 +101,9 @@ public final class AgentPaneView: NSView {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
     }
+    /// Bounded reports from the app-owned webview UI picker.
+    /// Receives a bounded element report while the debug UI pointer is active.
+    public var uiPointerReport: (@MainActor (JSONValue) -> Void)?
     /// The pane's first frame until its page paints (`AgentPaneView+Loading`).
     public let loadingView = AgentPaneLoadingView()
     public private(set) lazy var redraw = page.map { AgentPageRedraw(page: $0) } ?? AgentPageRedraw(webView: webView) // a chat shown again draws first
@@ -198,6 +201,7 @@ public final class AgentPaneView: NSView {
         }
         self.webView = webView
         super.init(frame: .zero)
+        pageEvents?.onUiPointerReport = { [weak self] value in self?.uiPointerReport?(value) }
         openURL = { [weak self] url, modifiers in
             if let self { LinkRouter.shared.open(url, modifiers: modifiers, from: self) } else { Self.routedOpenURL(url, modifiers) }
         }
@@ -260,6 +264,7 @@ public final class AgentPaneView: NSView {
         Self.logger.info("agent pane webview loading source=\(Self.sourceDescription(source), privacy: .public) bundled=\(Self.bundledPage != nil, privacy: .public)")
         observeMotion()
         observeUIScale()
+        observeIconFamily()
         sessionStatusObservation = AgentPaneSessionStatus.follow(self)
     }
 
@@ -267,6 +272,27 @@ public final class AgentPaneView: NSView {
         switch source {
         case .bundled(let url): return "bundled:\(url.path)"
         case .devServer(let url): return "dev:\(url.absoluteString)"
+        }
+    }
+
+    private func applyIconFamily() {
+        let family = AgentPaneTunables.documentAttributes["icon-family"] ?? ""
+        if let page {
+            page.setDocumentAttribute("icon-family", family)
+        } else {
+            // The old host has no PageWebView live-attribute bridge; update its document
+            // directly so Debug Settings changes reach already-open chats too.
+            evaluateScript("document.documentElement?.setAttribute('data-icon-family', '\(family)');")
+        }
+    }
+
+    private func observeIconFamily() {
+        applyIconFamily()
+        iconFamilyObservation = Task { [weak self] in
+            for await _ in ObservationStream({ IconFamily.tunable.value }) {
+                guard let self else { return }
+                self.applyIconFamily()
+            }
         }
     }
 
@@ -362,6 +388,8 @@ public final class AgentPaneView: NSView {
         rateReapply?.cancel()
         motionObservation?.cancel()
         motionObservation = nil
+        iconFamilyObservation?.cancel()
+        iconFamilyObservation = nil
         sessionStatusObservation?.cancel()
         reduceMotionObserver = nil
         reduceMotionOverrideObserver = nil
