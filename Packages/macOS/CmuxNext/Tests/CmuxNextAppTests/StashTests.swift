@@ -145,6 +145,14 @@ struct StashTests {
         }
     }
 
+    /// Save and Close's confirmation uses the action label, so a destructive warning does not
+    /// make the reversible stash operation look like an ordinary close.
+    @Test func saveAndCloseConfirmationUsesTheActionLabel() {
+        #expect(StashHandlers.confirmationButton(for: "workspace.stash") == "Save and Close Workspace")
+        #expect(StashHandlers.confirmationButton(for: "workspaceGroup.stash") == "Save and Close Group")
+        #expect(StashHandlers.confirmationButton(for: "window.stash") == "Save and Close All Workspaces")
+    }
+
     /// Save and Close Other Tabs on one of several selected tabs keeps every selected tab, as Close
     /// Other Tabs does (`closedByCloseOthers(keepingAll:)`): only the pages outside the selection go.
     @Test func saveAndCloseOtherTabsKeepsTheWholeSelection() async throws {
