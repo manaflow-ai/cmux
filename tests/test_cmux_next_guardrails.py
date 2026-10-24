@@ -408,7 +408,7 @@ class RuleTests(Fixture):
         self.write(f"{APP}/Grown.swift", "struct Grown {}\n")
         self.commit("an App file, so app-size reads the lexer")
         refusals, warnings = self.check(copy.check)
-        self.assertEqual([r.id for r, _ in refusals], ["singleton"])
+        self.assertEqual([r.id for r, _ in refusals], ["main-async"], "the other line rules still refuse")
         failed = [text for kind, text in warnings if kind == "guardrails"]
         self.assertEqual(len(failed), 1, warnings)
         self.assertIn("rule app-size failed (ImportError: a lexer that does not load", failed[0])
