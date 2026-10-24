@@ -143,8 +143,8 @@ import Testing
             let moving = screen.root.advanceFrame(1.0 / 120)
             screen.root.layoutSubtreeIfNeeded()
             guard moving else { break }
-            // The pane's clip: the view the layout puts the terminal's content in.
-            let clip = try #require(screen.session.view.superview)
+            // The terminal's host: it clips the surface and paints the terminal background beside it.
+            let clip: NSView = screen.session.view
             let surface = screen.surface.convert(screen.surface.bounds, to: clip)
             let visible = clip.bounds
             if surface.height > visible.height + 1 {
@@ -173,7 +173,7 @@ import Testing
             let moving = screen.root.advanceFrame(1.0 / 120)
             screen.root.layoutSubtreeIfNeeded()
             guard moving else { break }
-            let clip = try #require(screen.session.view.superview)
+            let clip: NSView = screen.session.view
             let surface = screen.surface.convert(screen.surface.bounds, to: clip)
             let visible = clip.bounds
             if surface.height > visible.height + 1 {
