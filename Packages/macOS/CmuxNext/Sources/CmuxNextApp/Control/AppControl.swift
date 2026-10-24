@@ -15,7 +15,7 @@ import CmuxNextWakeups
 @MainActor
 final class AppControl {
     let watchdog = MainThreadWatchdog()
-    private let frames = FrameBatcher(owner: "Control.frames")
+    private let frames = FrameBatcher(owner: "Control.frames", kind: .budgeted(.automation))
     private let frameProbe = DebugFrameProbe()
     private let mainCPUProbe = DebugMainCPUProbe()
     private let terminalDisplayProbe = DebugTerminalDisplayProbe()
@@ -30,6 +30,9 @@ final class AppControl {
     /// Starts stall and busy detection. Call first thing at launch.
     func startWatchdog() {
         watchdog.start()
+        // Stall records name the scheduled main-thread task they caught; DEBUG and bench launches
+        // also record tasks past their class budget, with a stack (debug.hangs over_budget).
+        watchdog.attach(board: FrameScheduler.app.budget.board)
         watchdog.busy.setHelperSource { AppProcesses.chromiumHelpers() }
         // Input explains CPU use to the busy watchdog (one atomic add per event).
         inputMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown,
@@ -84,6 +87,13 @@ final class AppControl {
         service.router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }])
         service.router.register([
             .mainActor("debug.frames") { [probe = frameProbe] call in .value(probe.handle(call.params)) },
+            // The main-thread scheduler's per-frame budget: tasks, input yields, deferrals, longest task per class.
+            .mainActor("debug.main_budget") { call in
+                let budget = FrameScheduler.app.budget
+                let report = budget.report
+                if call.params["reset"]?.boolValue == true { budget.resetStats() }
+                return .value(report)
+            },
             // Main-thread CPU per frame against a 120 Hz frame (anim-perf-terminal.py).
             .mainActor("debug.main_cpu") { [probe = mainCPUProbe] call in .value(probe.handle(call.params)) },
             // Main-thread time in Ghostty's display passes (bench-terminal-resize.py).
@@ -256,10 +266,11 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugAgentCursor.clickTag(call.params, services: services))
             },
+            // An injected key is input: it runs ahead of queued requests and batches yield to it (MainWorkClass.input).
             .mainActor("debug.key") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugKey.send(call.params, services: services))
-            },
+            }.injectingInput(),
             // The app's resign and become-active path without activating it (DebugAppActivation).
             .mainActor("debug.app_activation") { call in
                 .value(DebugAppActivation.send(call.params))
@@ -354,7 +365,7 @@ final class AppControl {
             .mainActor("debug.view_key") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugViewKey.send(call.params, services: services))
-            },
+            }.injectingInput(),
             .mainActor("debug.focus_ring") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugViewKey.focusRingReport(call.params, services: services))

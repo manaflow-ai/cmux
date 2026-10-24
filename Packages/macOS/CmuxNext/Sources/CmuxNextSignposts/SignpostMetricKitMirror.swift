@@ -43,7 +43,7 @@ public final class SignpostMetricKitMirror: Sendable {
     /// report leaves out (the watchdog reports stalls itself).
     public static func mirrors(_ name: SignpostName) -> Bool {
         switch name {
-        case .motionFrame, .cefPump: false
+        case .motionFrame, .cefPump, .stallMainTask: false
         default: name.category.map { $0 != .stall } ?? false
         }
     }
