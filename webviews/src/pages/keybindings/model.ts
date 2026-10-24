@@ -47,8 +47,35 @@ export function sameKeys(bindings: readonly Binding[], binding: Binding, key: st
       !other.unset &&
       identity(other) !== identity(binding) &&
       keyMatches(other.key, { key, exact: true }) &&
-      (other.when === null || binding.when === null || other.when === binding.when),
+      whenCanOverlap(other.when, binding.when),
   );
+}
+
+type WhenTerm = { key: string; op: "has" | "not" | "==" | "!="; value?: string };
+
+/** One `&&` term of a `when` text, or undefined for one this reading does not know. */
+function whenTerm(text: string): WhenTerm | undefined {
+  const term = text.trim();
+  const compare = /^([\w.]+)\s*(==|!=)\s*'?([^']*)'?$/.exec(term);
+  if (compare) return { key: compare[1], op: compare[2] as "==" | "!=", value: compare[3] };
+  const flag = /^(!?)([\w.]+)$/.exec(term);
+  return flag ? { key: flag[2], op: flag[1] ? "not" : "has" } : undefined;
+}
+
+/** Whether two `when` texts can hold at once: the app's `WhenClause.canOverlap` over the `&&`
+ *  terms (a key and its negation, two values of one key). Anything it does not read (`||`,
+ *  parentheses) can overlap, so the warning errs toward showing. */
+export function whenCanOverlap(a: string | null, b: string | null): boolean {
+  if (a === null || b === null || a === b) return true;
+  if (/[|()]/.test(a + b)) return true;
+  const left = a.split("&&").map(whenTerm);
+  const right = b.split("&&").map(whenTerm);
+  const excludes = (x: WhenTerm, y: WhenTerm) =>
+    x.key === y.key &&
+    ((x.op === "has" && y.op === "not") ||
+      (x.op === "==" && y.op === "==" && x.value !== y.value) ||
+      (x.op === "==" && y.op === "!=" && x.value === y.value));
+  return !left.some((x) => x && right.some((y) => y && (excludes(x, y) || excludes(y, x))));
 }
 
 /** One keycap per modifier and one for the key ("⌃⌥↑" -> ⌃ ⌥ ↑), for the recorder's large caps. */

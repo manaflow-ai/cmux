@@ -258,6 +258,10 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
 
 type RowRecording = Extract<Recording, { target: "row" }>;
 
+/** A press on a recorder button keeps focus where it was (the search field): the button unmounts
+ *  with the recorder, and focus on it would end on nothing. */
+const keepFocus = (event: { preventDefault(): void }) => event.preventDefault();
+
 /** The recorder over a row's keys while it records: the keys so far as large caps, a warning when
  *  another action has them, and Cancel / Save with the keys that press them (the app's recorder
  *  answers Escape and Return; the buttons are the same intents). Focus stays where it was. */
@@ -315,13 +319,19 @@ function Recorder({
         </output>
       )}
       <div className="keys-recorder-actions">
-        <DialogButton dialogKey="escape" className="keys-recorder-button" onClick={() => store.stopRecording()}>
+        <DialogButton
+          dialogKey="escape"
+          className="keys-recorder-button"
+          onMouseDown={keepFocus}
+          onClick={() => store.stopRecording()}
+        >
           {t("keybindings.page.cancel")}
         </DialogButton>
         <DialogButton
           dialogKey="return"
           className="keys-recorder-button keys-recorder-save"
           disabled={!recording.key}
+          onMouseDown={keepFocus}
           onClick={() => store.saveRecording()}
         >
           {t("keybindings.page.save")}
