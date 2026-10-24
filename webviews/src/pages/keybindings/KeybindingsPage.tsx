@@ -124,20 +124,28 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
       <header className="keys-header">
         <h1 className="keys-title">{t("keybindings.page.title")}</h1>
         <div className="keys-search-row">
-          <input
-            className="keys-search"
-            type="search"
-            // Search by keys records in the field itself: its placeholder says so, and how to stop.
-            placeholder={t(searchRecording ? "keybindings.page.recordingPlaceholder" : "keybindings.page.search")}
-            aria-label={t(searchRecording ? "keybindings.page.recordingKeys" : "keybindings.page.search")}
-            value={snap.text}
-            disabled={disconnected}
-            readOnly={searchRecording}
-            ref={focusOnMount}
-            onChange={(event) => store.setText(event.target.value)}
-            onKeyDown={searchKeys}
-            aria-controls="keys-table"
-          />
+          <div className={searchRecording ? "keys-search-field recording" : "keys-search-field"}>
+            <input
+              className="keys-search"
+              type="search"
+              // Search by keys records in the field itself: its placeholder says so, and how to stop.
+              placeholder={t(searchRecording ? "keybindings.page.recordingPlaceholder" : "keybindings.page.search")}
+              aria-label={t(searchRecording ? "keybindings.page.recordingKeys" : "keybindings.page.search")}
+              value={snap.text}
+              disabled={disconnected}
+              readOnly={searchRecording}
+              ref={focusOnMount}
+              onChange={(event) => store.setText(event.target.value)}
+              onKeyDown={searchKeys}
+              aria-controls="keys-table"
+            />
+            {searchRecording && (
+              // The mode, inside the field; how to leave it on hover.
+              <span className="keys-search-badge" title={t("keybindings.page.recordingExit")} aria-hidden="true">
+                {t("keybindings.page.recordingKeys")}
+              </span>
+            )}
+          </div>
           <button
             type="button"
             className={`keys-icon-button keys-record${searchRecording ? " on" : ""}`}

@@ -542,6 +542,9 @@ test("keys another action has: the recorder says who has them and offers Overwri
   expect(field()?.value).toBe("");
   expect(field()?.placeholder).toBe(strings.t("keybindings.page.recordingPlaceholder"));
   expect(field()?.getAttribute("aria-label")).toBe(strings.t("keybindings.page.recordingKeys"));
+  const badge = () => doc.querySelector<HTMLElement>(".keys-search-badge");
+  expect(badge()?.textContent).toBe(strings.t("keybindings.page.recordingKeys"));
+  expect(badge()?.title).toBe(strings.t("keybindings.page.recordingExit"));
   await keys("cmd+shift+p");
   expect(provider.recording).toBe(true);
   expect(doc.querySelector(".keys-record.on")).toBeTruthy();
@@ -562,6 +565,7 @@ test("keys another action has: the recorder says who has them and offers Overwri
   expect(doc.querySelector(".keys-record.on")).toBeNull();
   expect(field()?.value).toBe("cmd+shift+y");
   expect(field()?.placeholder).toBe(strings.t("keybindings.page.search"));
+  expect(badge()).toBeNull();
   await act(async () => store.setText(""));
   await settle();
 
