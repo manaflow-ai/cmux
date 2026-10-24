@@ -14,7 +14,7 @@ use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -48,6 +48,10 @@ pub struct Conn {
     raw_text: bool,
     name: StdMutex<String>,
     out: mpsc::Sender<String>,
+    /// Number of notifications rejected because the reader fell behind.
+    outbound_dropped: AtomicU64,
+    /// A gap marker is already queued (or waiting for one queue slot).
+    outbound_gap_pending: AtomicBool,
     subs: StdMutex<HashMap<String, SubOpts>>,
     /// Server-derived mailbox identities for this connection's local attachments.
     mailbox_bindings: StdMutex<HashMap<String, SessionReceipt>>,
@@ -152,18 +156,33 @@ impl Conn {
     }
 
     fn send(&self, msg: &Message) {
+        let control = matches!(msg, Message::Response { .. });
         let masked = (!self.raw_text).then(|| peer_text::masked(msg)).flatten();
         let msg = masked.as_ref().unwrap_or(msg);
         // No message larger than one frame (`rpc::MAX_MESSAGE_BYTES`): a reply goes as its error,
         // a notification is left out and the client reads again from its last record.
         match msg.bounded_line() {
             Ok(line) => {
-                let _ = self.out.try_send(line);
+                enqueue_outbound(
+                    &self.out,
+                    line,
+                    control,
+                    &self.outbound_dropped,
+                    &self.outbound_gap_pending,
+                );
             }
             Err(bytes) => {
                 tracing::warn!(conn = %self.id, method = ?msg.method(), bytes, "left out a notification too large to send");
-                let _ = self.out.try_send(
-                    Message::notification("_acpmux/lagged", json!({"dropped": 1})).to_line(),
+                enqueue_outbound(
+                    &self.out,
+                    Message::notification(
+                        "_acpmux/lagged",
+                        json!({"dropped": 1, "reason": "message_too_large"}),
+                    )
+                    .to_line(),
+                    false,
+                    &self.outbound_dropped,
+                    &self.outbound_gap_pending,
                 );
             }
         }
@@ -205,6 +224,55 @@ impl Conn {
         } else {
             format!("{n}#{}", self.id.get(..6).unwrap_or(self.id.as_str()))
         }
+    }
+}
+
+/// Keep a small portion of the bounded queue available for replies and the
+/// one gap marker that tells a reader to replay from its last cursor.
+const OUTBOUND_CONTROL_RESERVE: usize = 2;
+
+fn enqueue_outbound(
+    out: &mpsc::Sender<String>,
+    line: String,
+    control: bool,
+    dropped: &AtomicU64,
+    gap_pending: &AtomicBool,
+) {
+    // Notifications are lossy by design when the reader is too slow, but the
+    // final two permits are reserved for the response/control path and its
+    // recovery marker.
+    if !control && out.capacity() <= OUTBOUND_CONTROL_RESERVE {
+        report_outbound_loss(out, dropped, gap_pending);
+        return;
+    }
+    match out.try_send(line) {
+        Ok(()) => {
+            // Let a later queue-pressure episode produce a fresh marker once
+            // the previous marker and backlog have drained.
+            if gap_pending.load(Ordering::Acquire) && out.capacity() > OUTBOUND_CONTROL_RESERVE + 1
+            {
+                gap_pending.store(false, Ordering::Release);
+            }
+        }
+        Err(mpsc::error::TrySendError::Full(_)) => report_outbound_loss(out, dropped, gap_pending),
+        Err(mpsc::error::TrySendError::Closed(_)) => {}
+    }
+}
+
+fn report_outbound_loss(out: &mpsc::Sender<String>, dropped: &AtomicU64, gap_pending: &AtomicBool) {
+    let total = dropped.fetch_add(1, Ordering::Relaxed) + 1;
+    if gap_pending.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    let marker = Message::notification(
+        "_acpmux/lagged",
+        json!({"dropped": total, "reason": "output_queue_full"}),
+    )
+    .to_line();
+    if out.try_send(marker).is_err() {
+        // No permit yet: keep the state retryable so the next dropped event
+        // can publish the marker after the reader drains one frame.
+        gap_pending.store(false, Ordering::Release);
     }
 }
 
@@ -815,6 +883,8 @@ async fn serve_connection_from(
         raw_text,
         name: StdMutex::new(String::new()),
         out,
+        outbound_dropped: AtomicU64::new(0),
+        outbound_gap_pending: AtomicBool::new(false),
         subs: StdMutex::new(HashMap::new()),
         mailbox_bindings: StdMutex::new(HashMap::new()),
         watch_all: AtomicBool::new(false),
@@ -1099,5 +1169,46 @@ mod nodelay_tests {
         assert!(!accepted.nodelay().unwrap(), "a fresh socket has Nagle on");
         tune_ws_socket(&accepted);
         assert!(accepted.nodelay().unwrap());
+    }
+}
+
+#[cfg(test)]
+mod outbound_queue_tests {
+    use super::{Message, enqueue_outbound};
+    use serde_json::json;
+    use std::sync::atomic::{AtomicBool, AtomicU64};
+    use tokio::sync::mpsc;
+
+    #[tokio::test]
+    async fn a_slow_reader_gets_a_gap_signal_without_losing_a_response() {
+        let (out, mut queued) = mpsc::channel(3);
+        out.try_send("queued-before-reader-catches-up\n".to_owned()).unwrap();
+        let dropped = AtomicU64::new(0);
+        let gap_pending = AtomicBool::new(false);
+
+        enqueue_outbound(
+            &out,
+            Message::notification("session/update", json!({"kind": "progress"})).to_line(),
+            false,
+            &dropped,
+            &gap_pending,
+        );
+        enqueue_outbound(
+            &out,
+            Message::ok(json!(7), json!({"status": "complete"})).to_line(),
+            true,
+            &dropped,
+            &gap_pending,
+        );
+
+        assert_eq!(queued.recv().await.as_deref(), Some("queued-before-reader-catches-up\n"));
+        let gap = Message::parse(&queued.recv().await.unwrap()).unwrap();
+        let Message::Notification { method, params } = gap else { panic!("{gap:?}") };
+        assert_eq!(method, "_acpmux/lagged");
+        let params = params.unwrap();
+        assert_eq!(params["reason"], "output_queue_full");
+        assert_eq!(params["dropped"], 1);
+        let response = Message::parse(&queued.recv().await.unwrap()).unwrap();
+        assert!(matches!(response, Message::Response { id, .. } if id == json!(7)));
     }
 }
