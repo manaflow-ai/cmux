@@ -20,6 +20,8 @@ final class FocusEffectApplier: FocusEffectApplying {
     /// The tab whose docked DevTools this window gave focus to.
     private weak var focusedDevTools: (any BrowserDevToolsHosting)?
     private var observers: [MainActorObservation] = []
+    /// When this window may take the keys back from a page window (`reclaimKeyFromPageWindow`).
+    private var reclaimGate = PageKeyReclaimGate()
     /// The panel bubble over this window that has the keyboard (group editor).
     private weak var overlayPanel: NSWindow?
     private var overlayPanelObserver: MainActorObservation?
@@ -35,7 +37,11 @@ final class FocusEffectApplier: FocusEffectApplying {
         for (name, active) in [(NSApplication.didBecomeActiveNotification, true), (NSApplication.didResignActiveNotification, false)] {
             observers.append(MainActorObservation(name, center: center) { [weak self] in
                 self?.controller.focus.send(.appActive(active))
-                if active { self?.reclaimKeyAfterActivation() }
+                if active {
+                    // The activation is its own request: one reclaim for it.
+                    self?.reclaimGate.beginApply()
+                    self?.reclaimKeyAfterActivation()
+                }
             })
         }
         controller.services.input.observeFocus(of: controller)
@@ -55,6 +61,7 @@ final class FocusEffectApplier: FocusEffectApplying {
     }
 
     func apply(_ effects: [FocusEffect], state: FocusState) {
+        reclaimGate.beginApply()
         for effect in effects {
             switch effect {
             case .select(let pane, let tab):
@@ -225,10 +232,15 @@ final class FocusEffectApplier: FocusEffectApplying {
     /// has the keys (a page Chromium activated without a click, e.g. a new
     /// tab's page window; input-spec.md B11): this window takes them back.
     /// Never activates the app (no key window while it is inactive).
+    /// One reclaim per focus apply, never from inside a reclaim's own key change, never for a window
+    /// not on screen or while a menu tracks (`PageKeyReclaimGate`, Hang B).
     private func reclaimKeyFromPageWindow() {
         guard let window = controller.window, let key = NSApp.keyWindow, key !== window,
               ChildWindowKeyRule.shouldReclaim(facts(of: key, in: window)) else { return }
-        window.makeKey()
+        let menuIsTracking = RunLoop.current.currentMode == .eventTracking && NSApp.currentEvent?.type != .leftMouseDragged
+        _ = reclaimGate.reclaim(windowIsShown: window.isVisible && !window.isMiniaturized, menuIsTracking: menuIsTracking) {
+            window.makeKey()
+        }
     }
 
     /// AppKit makes the window that was key at deactivation key again while
