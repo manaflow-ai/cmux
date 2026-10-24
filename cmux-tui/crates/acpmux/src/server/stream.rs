@@ -122,4 +122,52 @@ mod tests {
             .unwrap();
         assert_eq!(n, 0, "the server must close its writer after overload cleanup");
     }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn saturated_notifications_do_not_block_a_later_request() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = Fixture(
+            std::env::temp_dir().join(format!("acpmux-work-fair-{}", uuid::Uuid::new_v4())),
+        );
+        std::fs::create_dir_all(&root.0).unwrap();
+        std::fs::set_permissions(&root.0, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let config = root.0.join("config.json");
+        std::fs::write(&config, "{}").unwrap();
+        std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let mut cfg = Config::load_from_with(&config, &ProfileSources::none()).unwrap();
+        cfg.store.mode = StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, &root.0).unwrap();
+        let hub = Hub::new(cfg, store);
+
+        let slots = Arc::new(Semaphore::new(super::super::NOTIFICATION_WORK_LIMIT));
+        let _held: Vec<_> = (0..super::super::NOTIFICATION_WORK_LIMIT)
+            .map(|_| slots.clone().try_acquire_owned().unwrap())
+            .collect();
+        let admission = WorkAdmission { notification_slots: slots, max_wait: Duration::from_secs(1) };
+        let (server_socket, client_socket) = UnixStream::pair().unwrap();
+        let server = tokio::spawn(serve_stream_with_admission(hub, server_socket, None, admission));
+        let mut client = tokio::io::BufReader::new(client_socket);
+        let notification =
+            Message::notification("session/cancel", serde_json::json!({"sessionId": "missing"}))
+                .to_line();
+        for _ in 0..super::super::NOTIFICATION_WORK_LIMIT {
+            client.get_mut().write_all(notification.as_bytes()).await.unwrap();
+        }
+        client
+            .get_mut()
+            .write_all(Message::request(7, "_acpmux/unknown", serde_json::json!({})).to_line().as_bytes())
+            .await
+            .unwrap();
+        let mut line = String::new();
+        tokio::time::timeout(Duration::from_secs(1), client.read_line(&mut line))
+            .await
+            .unwrap()
+            .unwrap();
+        let reply: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(reply["id"], 7);
+        assert_eq!(reply["error"]["code"], -32601, "{reply}");
+        client.get_mut().shutdown().await.unwrap();
+        tokio::time::timeout(Duration::from_secs(2), server).await.unwrap().unwrap();
+    }
 }

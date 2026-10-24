@@ -20,7 +20,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 #[cfg(unix)]
 use tokio::net::UnixListener;
-use tokio::sync::{OwnedSemaphorePermit, Semaphore, broadcast, mpsc, oneshot};
+use tokio::sync::{Semaphore, broadcast, mpsc, oneshot};
 /// Windows: the daemon socket is `cmux::local_socket` (AF_UNIX with its
 /// same-user checks), in `windows_socket.rs`.
 #[cfg(windows)]
@@ -86,6 +86,7 @@ pub struct Conn {
 // slots so a burst of requests cannot keep a cancel from being admitted.
 const REQUEST_WORK_LIMIT: usize = 64;
 const NOTIFICATION_WORK_LIMIT: usize = 16;
+const NOTIFICATION_QUEUE_LIMIT: usize = 16;
 // A transport reader can itself be stuck forwarding into a full inbound
 // channel, so its close signal alone cannot end an admission wait. Close the
 // overloaded connection if it makes no progress within this bound.
@@ -103,25 +104,6 @@ impl Default for WorkAdmission {
             max_wait: WORK_BACKPRESSURE_WAIT,
         }
     }
-}
-
-async fn notification_slot(
-    slots: Arc<Semaphore>,
-    reader_done: &mut Option<oneshot::Receiver<()>>,
-    max_wait: std::time::Duration,
-) -> Option<OwnedSemaphorePermit> {
-    tokio::time::timeout(max_wait, async {
-        match reader_done {
-            Some(done) => tokio::select! {
-                slot = slots.acquire_owned() => slot.ok(),
-                _ = done => None,
-            },
-            None => slots.acquire_owned().await.ok(),
-        }
-    })
-    .await
-    .ok()
-    .flatten()
 }
 
 impl Conn {
@@ -897,6 +879,26 @@ async fn serve_connection_from(
 
     let fan = fanout::start(hub.clone(), conn.clone());
     let request_slots = Arc::new(Semaphore::new(REQUEST_WORK_LIMIT));
+    let (notification_tx, mut notification_rx) =
+        mpsc::channel::<(String, Value)>(NOTIFICATION_QUEUE_LIMIT);
+    let notification_worker = {
+        let slots = admission.notification_slots.clone();
+        let hub = hub.clone();
+        let conn = conn.clone();
+        tokio::spawn(async move {
+            while let Some((method, params)) = notification_rx.recv().await {
+                let Ok(slot) = slots.clone().acquire_owned().await else {
+                    break;
+                };
+                let hub = hub.clone();
+                let conn = conn.clone();
+                tokio::spawn(async move {
+                    let _slot = slot;
+                    handle_notification(&hub, &conn, &method, params).await;
+                });
+            }
+        })
+    };
 
     while let Some(line) = inbound.recv().await {
         if line.trim().is_empty() {
@@ -952,27 +954,26 @@ async fn serve_connection_from(
             // A read-only machine's notifications (a cancel) change nothing.
             Message::Notification { .. } if conn.auth == ConnAuth::ReadOnlyDevice => {}
             Message::Notification { method: m, params } => {
-                // Notifications have no response id, so dropping one at the
-                // limit would silently lose a cancel. Let the transport's
-                // bounded inbound channel apply backpressure instead. If the
-                // transport reader ends while handlers are stuck, continue to
-                // connection cleanup without waiting for one of their slots.
-                let Some(slot) = notification_slot(
-                    admission.notification_slots.clone(),
-                    &mut reader_done,
-                    admission.max_wait,
-                )
+                // Keep notification admission separate from request handling:
+                // the worker may wait for a notification slot while this loop
+                // continues to admit requests and their replies. The bounded
+                // queue still applies backpressure to a notification flood.
+                let send = notification_tx.send((m, params.unwrap_or(Value::Null)));
+                let accepted = tokio::time::timeout(admission.max_wait, async {
+                    match reader_done.as_mut() {
+                        Some(done) => tokio::select! {
+                            sent = send => sent.is_ok(),
+                            _ = done => false,
+                        },
+                        None => send.await.is_ok(),
+                    }
+                })
                 .await
-                else {
+                .unwrap_or(false);
+                if !accepted {
                     tracing::warn!(conn = %conn.id, "closing a connection blocked on notification work");
                     break;
-                };
-                let hub = hub.clone();
-                let conn = conn.clone();
-                tokio::spawn(async move {
-                    let _slot = slot;
-                    handle_notification(&hub, &conn, &m, params.unwrap_or(Value::Null)).await;
-                });
+                }
             }
             Message::Response { .. } => {
                 // acpmux sends no requests to clients today (permission goes
@@ -980,6 +981,8 @@ async fn serve_connection_from(
             }
         }
     }
+    drop(notification_tx);
+    notification_worker.abort();
     fan.abort();
     conn.media.close_all();
     view::release_all(&hub, &conn);
@@ -1203,54 +1206,5 @@ mod nodelay_tests {
         assert!(!accepted.nodelay().unwrap(), "a fresh socket has Nagle on");
         tune_ws_socket(&accepted);
         assert!(accepted.nodelay().unwrap());
-    }
-}
-
-#[cfg(test)]
-mod notification_limit_tests {
-    use super::{NOTIFICATION_WORK_LIMIT, notification_slot};
-    use std::sync::Arc;
-    use std::time::Duration;
-    use tokio::sync::{Semaphore, oneshot};
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn a_closed_reader_interrupts_notification_backpressure() {
-        let slots = Arc::new(Semaphore::new(NOTIFICATION_WORK_LIMIT));
-        let held: Vec<_> = (0..NOTIFICATION_WORK_LIMIT)
-            .map(|_| slots.clone().try_acquire_owned().unwrap())
-            .collect();
-        let (reader, done) = oneshot::channel();
-        let waiting = tokio::spawn(async move {
-            let mut done = Some(done);
-            notification_slot(slots, &mut done, Duration::from_secs(1)).await
-        });
-        tokio::task::yield_now().await;
-        assert!(!waiting.is_finished(), "all notification slots are held");
-        drop(reader);
-        assert!(
-            tokio::time::timeout(Duration::from_secs(1), waiting).await.unwrap().unwrap().is_none()
-        );
-        drop(held);
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn a_full_notification_limit_has_a_bounded_wait_even_if_reader_is_blocked() {
-        let slots = Arc::new(Semaphore::new(NOTIFICATION_WORK_LIMIT));
-        let _held: Vec<_> = (0..NOTIFICATION_WORK_LIMIT)
-            .map(|_| slots.clone().try_acquire_owned().unwrap())
-            .collect();
-        // Keep the reader signal alive: it may be unable to observe EOF while
-        // the transport's bounded input channel is full.
-        let (_reader, done) = oneshot::channel();
-        let mut done = Some(done);
-        assert!(
-            tokio::time::timeout(
-                Duration::from_secs(1),
-                notification_slot(slots, &mut done, Duration::from_millis(10)),
-            )
-            .await
-            .unwrap()
-            .is_none()
-        );
     }
 }
