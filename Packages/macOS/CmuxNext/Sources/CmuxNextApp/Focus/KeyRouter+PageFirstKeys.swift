@@ -35,13 +35,13 @@ extension KeyRouter {
     }
 
     /// Holds `candidate` until the page of `tab` reports `event` unhandled.
-    func offerToPage(_ event: NSEvent, candidate: Candidate, context: KeyContext, window: String, tab: ObjectIdentifier) {
-        pageFirstOffer.offer(event, PageFirstKeyOffer.Held(candidate: candidate, context: context, window: window, tab: tab))
+    func offerToPage(_ event: NSEvent, candidate: Candidate, context: KeyContext, window: String, tab: AnyObject) {
+        pageFirstOffer.offer(event, PageFirstKeyOffer.Held(candidate: candidate, context: context, window: window), to: tab)
         trace?("dispatcher: the page gets the key first; \(candidate.id.rawValue) runs if it is left unhandled")
     }
 
     /// The page of `tab` did not handle `event`: runs the action held for it. Returns whether one ran.
-    func runUnhandledPageKey(_ event: NSEvent, from tab: ObjectIdentifier) -> Bool {
+    func runUnhandledPageKey(_ event: NSEvent, from tab: AnyObject) -> Bool {
         guard let held = pageFirstOffer.take(event, from: tab) else { return false }
         run(held.candidate, context: held.context, window: held.window)
         return true
