@@ -68,7 +68,8 @@ const NUMBER = [
   "attempt",
 ] as const;
 
-const index = (value: unknown) => (typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined);
+const index = (value: unknown) =>
+  typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined;
 const number = (value: unknown) =>
   typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
 
@@ -92,7 +93,7 @@ export function mergeWorkflowAgents(
   full = false,
 ): ReadonlyMap<number, WorkflowAgent> | undefined {
   if (!Array.isArray(value)) return agents;
-  const next = new Map(full ? [] : agents ?? []);
+  const next = new Map(full ? [] : (agents ?? []));
   for (const entry of value) {
     const at = index(entry?.index);
     if (at === undefined) continue;

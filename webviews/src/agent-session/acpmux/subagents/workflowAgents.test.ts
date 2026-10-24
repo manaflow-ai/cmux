@@ -10,7 +10,10 @@ function feed(fold: SubagentFold, update: any, acpmux: Record<string, unknown> =
   return fold.reduce({ seq, at: seq * 1000, msg }, update);
 }
 const progress = (fields: Record<string, unknown>) =>
-  [{ sessionUpdate: "subagent_progress" }, { subagents: [{ id: "w", parent: null, state: "running", ...fields }] }] as const;
+  [
+    { sessionUpdate: "subagent_progress" },
+    { subagents: [{ id: "w", parent: null, state: "running", ...fields }] },
+  ] as const;
 
 test("each update's agent changes merge by index; null removes a field; a new map each time", () => {
   const first = mergeWorkflowAgents(undefined, [
@@ -31,7 +34,10 @@ test("each update's agent changes merge by index; null removes a field; a new ma
 });
 
 test("a full update replaces the agents", () => {
-  const before = mergeWorkflowAgents(undefined, [{ index: 1, label: "a", tokens: 9 }, { index: 2, label: "b" }]);
+  const before = mergeWorkflowAgents(undefined, [
+    { index: 1, label: "a", tokens: 9 },
+    { index: 2, label: "b" },
+  ]);
   const after = mergeWorkflowAgents(before, [{ index: 1, label: "a", state: "completed" }], true);
   expect([...after!.values()]).toEqual([{ index: 1, label: "a", state: "completed" }]);
 });
@@ -62,14 +68,30 @@ test("the fold keeps a workflow's run, phases, agents and counts, and its pause"
       agents: { done: 0, started: 1, queued: 2 },
     }),
   );
-  feed(fold, ...progress({ workflowAgents: [{ index: 1, state: "failed", error: "503" }], agents: { done: 0, started: 1, failed: 1 } }));
+  feed(
+    fold,
+    ...progress({
+      workflowAgents: [{ index: 1, state: "failed", error: "503" }],
+      agents: { done: 0, started: 1, failed: 1 },
+    }),
+  );
   const agent = fold.all().find((each) => each.id === "w")!;
   expect(agent.runId).toBe("wf_4fe");
   expect([agent.scriptPath, agent.args]).toEqual(["/s/workflows/scripts/probe-wf_4fe.js", { pr: 24789 }]);
   expect(agent.phases).toEqual([{ index: 1, title: "Review" }]);
-  expect(agent.workflowAgents?.get(1)).toEqual({ index: 1, label: "review:#1", state: "failed", phase: "Review", error: "503" });
+  expect(agent.workflowAgents?.get(1)).toEqual({
+    index: 1,
+    label: "review:#1",
+    state: "failed",
+    phase: "Review",
+    error: "503",
+  });
   expect(agent.agents).toEqual({ done: 0, started: 1, failed: 1 });
-  feed(fold, { sessionUpdate: "subagent_state_update" }, { subagents: [{ id: "w", state: "cancelled", reason: "paused" }] });
+  feed(
+    fold,
+    { sessionUpdate: "subagent_state_update" },
+    { subagents: [{ id: "w", state: "cancelled", reason: "paused" }] },
+  );
   const paused = fold.all().find((each) => each.id === "w")!;
   expect([paused.state, paused.paused]).toEqual(["cancelled", true]);
 });

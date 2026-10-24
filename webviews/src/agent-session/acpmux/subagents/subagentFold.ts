@@ -312,7 +312,11 @@ export class SubagentFold {
     agent.scriptPath = text(change.scriptPath) ?? agent.scriptPath;
     if (change.args !== undefined && change.args !== null) agent.args = change.args;
     agent.phases = workflowPhases(change.phases) ?? agent.phases;
-    agent.workflowAgents = mergeWorkflowAgents(agent.workflowAgents, change.workflowAgents, change.workflowAgentsFull === true);
+    agent.workflowAgents = mergeWorkflowAgents(
+      agent.workflowAgents,
+      change.workflowAgents,
+      change.workflowAgentsFull === true,
+    );
     if (change.reason === "paused") agent.paused = true;
     const state = text(change.state);
     // An end the harness reported holds against a progress report that trails it; a spawn or a
