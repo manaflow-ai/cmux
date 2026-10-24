@@ -1522,6 +1522,115 @@ sleep_in_loop = matcher_rule(Matcher(SLEEP, POLL_ALLOW, in_loop))
 row_store = matcher_rule(Matcher(ROW_STORE, ROW_ALLOW, in_row))
 
 
+# ---- action-wait (PL-instant)
+# An action handler that can wait before anything shows: an untyped bind (a `run:` / `invoke:` / `handler:` closure
+# or a trailing closure, on `registry.bind(`, on a bare `bind(` alias or wrapper, split over lines or not), a
+# `.waiting(reason, work)` effect (any reason), and inside a `bindEffect` / `effect:` handler the two shapes that
+# hide a wait behind a typed bind: an unstructured `Task` (the handler starts the remote work itself, so the local
+# change can sit behind an await while it returns `.done`) and a local change after an `await` inside an
+# `ActionConfirmation(send:)` (the change waits for the reply). The call's argument list is read to its closing
+# parenthesis, so a call split over lines counts by what it passes.
+ACTION_BIND = re.compile(r"(?<![\w])(?<!func )bind\(")
+ACTION_WAITING = re.compile(r"\.waiting\((?!\s*(let|var)\b)(?!\s*\w+\s*:)|\bwaitingEffect\(")
+UNTYPED_LABEL = re.compile(r"(invoke|run|handler)\s*:")
+EFFECT_OPENER = re.compile(r"\bbindEffect\(|\beffect\s*:\s*\{")
+SEND_OPENER = re.compile(r"\bsend\s*:\s*\{")
+UNSTRUCTURED_TASK = re.compile(r"(?<![\w.])Task(\.detached)?\s*(\([^)]*\))?\s*\{|(?<![\w.])Task\.detached\b")
+AWAIT = re.compile(r"\bawait\b")
+ACTION_WAIT_CANDIDATE = re.compile("|".join(f"(?:{p.pattern})" for p in (ACTION_BIND, ACTION_WAITING, UNSTRUCTURED_TASK, AWAIT)))
+ACTION_WAIT_ALLOW = re.compile(r"//\s*action-wait-allow:\s*\S")
+DECL_STOP = re.compile(r"\b(func|init|deinit)\b[^{]*\{")
+# A statement after an `await` in a send closure that changes nothing visible: the reply's handling and control flow.
+AFTER_AWAIT_OK = re.compile(r"^\s*(\}|\)|return\b|case\b|default\b|switch\b|guard\b|if\b|else\b|do\b|catch\b|let\b|var\b"
+                            r"|try\s+await\b|await\b|$)")
+
+
+class CallShape(NamedTuple):
+    labels: bool  # a `run:` / `invoke:` / `handler:` argument at the call's top level
+    commas: int  # top-level argument separators
+    trailing: bool  # a trailing closure after the closing parenthesis
+
+
+def call_shape(lines: list[str], index: int, open_pos: int) -> CallShape:
+    """The shape of the call whose `(` is at OPEN_POS of LINES[INDEX]'s code, read to its closing parenthesis."""
+    parens = braces = commas = 0
+    labels = False
+    for j in range(index, len(lines)):
+        code = code_of(lines[j])
+        for i in range(open_pos if j == index else 0, len(code)):
+            c = code[i]
+            if c == "(":
+                parens += 1
+            elif c == ")":
+                parens -= 1
+                if parens == 0:
+                    rest = code[i + 1:].strip()
+                    if not rest and j + 1 < len(lines):
+                        rest = code_of(lines[j + 1]).strip()
+                    return CallShape(labels, commas, rest.startswith("{"))
+            elif c == "{":
+                braces += 1
+            elif c == "}":
+                braces -= 1
+            elif parens == 1 and braces == 0:
+                if c == ",":
+                    commas += 1
+                elif UNTYPED_LABEL.match(code, i) and (i == 0 or not (code[i - 1].isalnum() or code[i - 1] == "_")):
+                    labels = True
+    return CallShape(labels, commas, False)
+
+
+def changes_after_await(lines: list[str], index: int, after: int) -> bool:
+    """Whether the closure holding the `await` that ends at column AFTER of LINES[INDEX] runs a statement after it that
+    is not the reply's handling (a local change that waits for the reply)."""
+    depth = 0
+    for j in range(index, len(lines)):
+        code = code_of(lines[j])
+        start = after if j == index else 0
+        if j > index and depth == 0 and not AWAIT.search(code) and not AFTER_AWAIT_OK.match(code):
+            return True
+        for c in code[start:]:
+            depth += c == "{"
+            depth -= c == "}"
+            if depth < 0:
+                return False
+    return False
+
+
+def action_wait(version: Version, index: int) -> tuple[bool, list[int]]:
+    """Whether line INDEX is an untyped bind, a waiting effect, or a hidden wait inside a typed effect handler."""
+    lines = version.lines
+    code = code_of(lines[index])
+    for match in ACTION_BIND.finditer(code):
+        shape = call_shape(lines, index, match.end() - 1)
+        if shape.labels or shape.trailing:
+            return True, []
+    for match in ACTION_WAITING.finditer(code):
+        if match.group(0).startswith("waitingEffect"):
+            return True, []
+        shape = call_shape(lines, index, match.end() - 1)
+        if shape.commas or shape.trailing:
+            return True, []
+    if "has_effect" not in version.memo:
+        version.memo["has_effect"] = any(EFFECT_OPENER.search(line) for line in lines)
+    if not version.memo["has_effect"]:
+        return False, []
+    task = UNSTRUCTURED_TASK.search(code)
+    if task:
+        openers = enclosing_openers(lines, index, DECL_STOP, code[:task.start()])
+        effects = [n for opener, n in openers if EFFECT_OPENER.search(opener)]
+        if effects:
+            return True, effects
+    wait = AWAIT.search(code)
+    if wait:
+        openers = enclosing_openers(lines, index, DECL_STOP, code[:wait.start()])
+        sends = [k for k, (opener, _) in enumerate(openers) if SEND_OPENER.search(opener)]
+        effects = [k for k, (opener, _) in enumerate(openers) if EFFECT_OPENER.search(opener)]
+        if sends and effects and sends[0] < effects[0] and changes_after_await(lines, index, wait.end()):
+            return True, [openers[effects[0]][1]]
+    return False, []
+
+
 # ---- task-priority (PL-qos)
 # Every off-main task and queue states its priority on purpose (Lawrence's threading items 3 and 5,
 # plans/cmux-next/threading-model.md): a detached Task names `priority:`, a global queue its `qos:`, a new serial
@@ -1601,16 +1710,16 @@ RULES = (
          "// generic-class-allow: <why this class is not main-actor isolated> (`concurrency-allow:` also works)",
          matcher_rule(Matcher(CLASS_DECL, GENERIC_CLASS_ALLOW, implicit_deinit)),
          scope=(SOURCES, TESTS)),
-    Rule("action-wait", "An action handler that can wait: an untyped bind (`invoke:` / `run:` / `handler:` / a trailing closure) "
-         "or a `.waiting` effect",
+    Rule("action-wait", "An action handler that can wait: an untyped bind (`invoke:` / `run:` / `handler:` / a trailing closure, "
+         "on `registry.bind` or a bare `bind` alias), a `.waiting` effect, or inside a `bindEffect` handler a `Task` or a "
+         "local change after an `await` in `ActionConfirmation(send:)`",
          "an untyped handler can start a Task that awaits the daemon before anything shows, and nothing in its type says so: the "
          "action misses its 10 ms budget and the regression is invisible (plans/cmux-next/zero-latency.md, the budget contract)",
          "bind with `effect:` and return what the input's turn changed: `.done`, or `daemon.intentEffect(label, intent) { ... }` "
          "(a store intent shows now; the registry sends, rolls back and reports), or `.applied(ActionConfirmation(...))` with a "
          "rollback; `.waiting(reason, work)` only when no local stand-in can exist (network, another process)",
          "// action-wait-allow: <why nothing can show before the reply>",
-         line_rule(r"\.bind\([^\n]*\b(invoke|run|handler):|\.bind\([^\n]*\)\s*\{\s*(\w+|_)?\s*(,\s*\w+)*\s*in\b"
-                   r"|\.waiting\(\.|\bwaitingEffect\(", "action-wait-allow:")),
+         matcher_rule(Matcher(ACTION_WAIT_CANDIDATE, ACTION_WAIT_ALLOW, action_wait))),
     Rule("bench-hooks-shipped", "The bench configuration in a shipped build's settings",
          "CMUX_BENCH_HOOKS (reload.sh --config bench) keeps the debug.* control commands in an optimized app for "
          "the fleet benches; in a release, nightly or RC build's settings it would ship them to users",

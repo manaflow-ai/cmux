@@ -563,7 +563,21 @@ class RuleTests(Fixture):
     def test_every_untyped_bind_shape_and_a_waiting_effect_are_refused_and_the_escape_passes(self):
         bad = ['registry.bind("a", run: { _ in })', 'registry.bind("a", unavailable: { nil }) { _ in }',
                'registry.bind("a", handler: { })', 'CloudHandlers.bind("a", registry, reason: r) { invocation in }',
-               'return .waiting(.network, work)', 'return daemon.waitingEffect("x") { _ in }']
+               'return .waiting(.network, work)', 'return daemon.waitingEffect("x") { _ in }',
+               # A bare alias or wrapper (BrowserProfileHandlers' local `bind`, AgentPaneActions' `bind(_:invoke:)`).
+               'bind("browserProfile.rename") { invocation in }', 'bind("browserProfile.new") { try create($0) }',
+               'bind(.newAgentChat, invoke: openNewChat)',
+               # A call split over lines, its handler on a later line.
+               'registry.bind(\n        "a",\n        run: { _ in }\n    )',
+               'registry.bind("a",\n        unavailable: { nil }\n    ) { _ in }',
+               # A waiting effect whose reason is a variable.
+               'return .waiting(reason, work)', 'return .waiting(reason) { await work() }',
+               # A typed handler that starts the remote work itself, the local change behind an await.
+               'registry.bindEffect("a", effect: { _ in\n        Task { await daemon.x(); model.apply() }\n        return .done\n    })',
+               'registry.bindEffect("a") { _ in\n        Task.detached(priority: .high) { await daemon.x() }\n        return .done\n    }',
+               # A typed handler whose local change waits for the reply inside the confirmation's send.
+               'registry.bindEffect("a", effect: { _ in\n        .applied(ActionConfirmation(send: {\n'
+               '            let reply = await daemon.x()\n            model.apply(reply)\n            return nil\n        }))\n    })']
         for line in bad:
             with self.subTest(line=line):
                 self.git("reset", "--quiet", "--hard", self.base)
@@ -572,7 +586,19 @@ class RuleTests(Fixture):
                 self.assertIn("action-wait", [r.id for r, _ in self.check()[0]])
         good = ['registry.bindEffect("a", effect: { _ in .done })', 'registry.bindUnavailable("a", reason: "x")',
                 'return .waiting(.network, work) // action-wait-allow: the cloud decides the machine',
-                'registry.bindEffect("a", requires: cap, daemon: d, effect: { _ in .done })']
+                'registry.bindEffect("a", requires: cap, daemon: d, effect: { _ in .done })',
+                # Not an action bind: a key binding, a socket bind, a declaration, other `.waiting` enums.
+                'bind("t", [.command], "tab.new")', 'Darwin.bind(fd, address, length)',
+                'func bind(_ id: ActionID, _ run: @escaping (ActionInvocation) -> Void) {\n    }',
+                'publish { $0.reset(to: .waiting(reason)) }', 'self = .waiting(reason: r, retryInSeconds: 1)',
+                'if case .waiting(let error) = state { print(error) }',
+                # A Task outside any effect handler; an escaped one inside.
+                'Task { await daemon.x() }',
+                'registry.bindEffect("a", effect: { _ in\n        Task { await daemon.x() } // action-wait-allow: fire and forget\n'
+                '        return .done\n    })',
+                # The local change first, the send only handles the reply, and the rollback after it.
+                'registry.bindEffect("a", effect: { _ in\n        model.apply()\n        return .applied(ActionConfirmation(send: {\n'
+                '            let failure = await daemon.x()\n            return failure\n        }, rollback: { _ in model.revert() }))\n    })']
         for line in good:
             with self.subTest(line=line):
                 self.git("reset", "--quiet", "--hard", self.base)
