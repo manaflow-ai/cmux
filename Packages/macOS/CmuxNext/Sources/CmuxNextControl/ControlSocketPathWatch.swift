@@ -33,9 +33,14 @@ import os
 /// socket, `LOCAL_PEERPID`; one kevent at its exit, nothing before): at the exit
 /// `onMissing` runs whether the socket file went or was left behind stale (the
 /// link's restore replaces a stale socket of this user), and the watch follows
-/// whatever is at the path then. A held path with no listener to follow (a
-/// stale socket of another user, which nothing here may remove) keeps the
-/// directory watch, logged once.
+/// whatever is at the path then. A held path with no listener to follow keeps
+/// the directory watch, logged once: a stale socket of another user (which
+/// nothing here may remove), a socket that names no pid, or one whose pid is
+/// not a live process. `LOCAL_PEERPID` reports the socket's last user, not a
+/// guaranteed listener: that process may have exited while one that inherited
+/// the descriptor keeps the socket accepting. A pid whose exit the watch has
+/// already handled is never followed again, so a live socket that keeps
+/// naming it settles on the directory watch instead of following it in a loop.
 ///
 /// Every watch is made and swapped on `queue`, the queue its events run on, so
 /// an event never sees a half-installed watch and no older watch replaces a
@@ -115,6 +120,10 @@ final class ControlSocketPathWatch: Sendable {
     /// The directory watch is on a shared directory, or the path is held there; logged once per watch.
     private let loggedSharedDirectory = Atomic<Bool>(false)
 
+    /// The last holder pid whose exit ``holderEnded(_:)`` handled (0: none). A socket that still
+    /// names it after that exit is held by some other process the pid does not identify.
+    private let endedListener = Atomic<pid_t>(0)
+
     /// On `queue`: watches the entry at the path, or its directory when the entry cannot be
     /// opened (a socket file, nothing there), or for a yielding watch the listener of a live
     /// socket that holds the path; replaces the watch in place. `entryOnly`: keep the current
@@ -131,10 +140,10 @@ final class ControlSocketPathWatch: Sendable {
             let parent = (path as NSString).deletingLastPathComponent
             let shared = Self.isShared(parent.isEmpty ? "." : parent)
             if shared, yieldsToHeldPath, Self.exists(path),
-               case .accepted(let listener?) = ControlSocketServer.probe(path) {
+               case .accepted(let listener?) = ControlSocketServer.probe(path),
+               watchHolder(listener, parent: parent) {
                 // Another app's live socket holds the path: nothing can be made there until its
                 // listener ends, and watching /tmp would wake on every write by any process.
-                watchHolder(listener, parent: parent)
                 return
             }
             descriptor = open(parent.isEmpty ? "." : parent, O_EVTONLY)
@@ -155,15 +164,27 @@ final class ControlSocketPathWatch: Sendable {
     }
 
     /// On `queue`: follows the process `listener`, whose live socket holds the path; its exit
-    /// is the one event that can free the path.
-    private func watchHolder(_ listener: pid_t, parent: String) {
+    /// is the one event that can free the path. False, with nothing installed, when the pid
+    /// identifies no holder to follow: it is not a live process, or its exit was already handled
+    /// while the socket still accepts (a process that inherited the descriptor holds it). The
+    /// caller then keeps the directory watch. Never calls ``watch(entryOnly:)`` itself.
+    private func watchHolder(_ listener: pid_t, parent: String) -> Bool {
+        guard listener != endedListener.load(ordering: .relaxed), Self.isLive(listener) else { return false }
         let watch = DispatchSource.makeProcessSource(identifier: listener, eventMask: .exit, queue: queue)
         // wakeup-allow: one kevent when the holder's listener exits, no timer
-        watch.setEventHandler { [weak self] in self?.holderEnded() }
-        guard install(watch) else { return }
+        watch.setEventHandler { [weak self] in self?.holderEnded(listener) }
+        guard install(watch) else { return true }  // stopped: watches nothing, by design
         noteOnce("socket path watch for \(path) follows pid \(listener), whose live socket holds the path in \(parent); the link is made when it ends")
-        // Ended before the source was armed: no event will say so.
-        if kill(listener, 0) != 0, errno == ESRCH { holderEnded() }
+        // Ended between the check above and the arming: no event may say so. holderEnded's
+        // watch() never follows this pid again, so this runs at most once per pid.
+        if !Self.isLive(listener) { holderEnded(listener) }
+        return true
+    }
+
+    /// `pid` is a process that exists (`kill(pid, 0)` succeeds, or is refused for another
+    /// user's process).
+    private static func isLive(_ pid: pid_t) -> Bool {
+        kill(pid, 0) == 0 || errno == EPERM
     }
 
     /// On `queue`: resumes `watch` and makes it the installed one, cancelling the one before;
@@ -183,12 +204,14 @@ final class ControlSocketPathWatch: Sendable {
         return installed
     }
 
-    /// On `queue`: the listener whose socket held the path ended. Its socket file is gone, or
-    /// left behind stale: either way the restore takes the path now (the link's replaces a
-    /// stale socket of this user and leaves anything else), then the watch follows whatever is
-    /// at the path.
-    private func holderEnded() {
+    /// On `queue`: the listener `listener`, whose socket held the path, ended. Its socket file is
+    /// gone, or left behind stale: either way the restore takes the path now (the link's
+    /// replaces a stale socket of this user and leaves anything else), then the watch follows
+    /// whatever is at the path. A socket there that still names `listener` is not followed
+    /// again (``watchHolder(_:parent:)``), so this never re-enters itself.
+    private func holderEnded(_ listener: pid_t) {
         guard !stopped.load(ordering: .sequentiallyConsistent) else { return }
+        endedListener.store(listener, ordering: .relaxed)
         if Self.exists(path) {
             // Whether it took the path needs no handling here: the watch() below follows what
             // the path holds now.
