@@ -20,18 +20,23 @@ namespace cmux_host {
 inline constexpr size_t kHeaderSize = 64;
 // Longer payloads end the connection: no kind carries more than a URL.
 inline constexpr uint32_t kMaxPayload = 64 * 1024;
+// Seconds a host may take to end after kQuit or EOF before it ends by force
+// (it _exits itself; cmux SIGKILLs it): ChromiumHostFrame.quitLimit.
+inline constexpr int kQuitLimitSeconds = 15;
 
 enum Kind : uint32_t {
   // cmux -> host
   kNavigate = 1,   // payload url
   kGeometry = 2,   // v0 width, v1 height (points), v2 screen x, v3 screen y (bottom left), v4 scale * 1000
+                   // (informational: the host's window takes the scale of the screen it is placed on;
+                   // cmux sends the geometry again when the window moves or changes screen or scale)
   kMouse = 3,      // v0 x, v1 y (points, top left), v2 phase (0 move, 1 down, 2 up, 3 exit), v3 button
                    // (0 left, 1 middle, 2 right), v4 click count, flags = NSEventModifierFlags, t0 event time
   kWheel = 4,      // v0 x, v1 y, v2 dx, v3 dy (pixels), flags, t0
   kKey = 5,        // v0 phase (0 down, 1 up, 2 flags changed), v1 key code, v2 repeat, flags, ch, unmod, t0
   kFocus = 6,      // v0 1 focused, 0 not
   kPing = 7,       // t0 cmux send time; the host answers kPong
-  kStats = 8,      // the host answers kStatsReply
+  kStats = 8,      // seq request id; the host answers kStatsReply with the same seq
   kQuit = 9,
   kEdit = 10,      // v0 0 copy, 1 cut, 2 paste, 3 select all, 4 undo, 5 redo
   // host -> cmux
@@ -40,8 +45,9 @@ enum Kind : uint32_t {
   kAddress = 103,       // payload url (main frame)
   kTitle = 104,         // payload title
   kPong = 105,          // t0 echoed, t1 host receive time
-  kStatsReply = 106,    // v0 input events, v1 p50, v2 p95, v3 p99, v4 max (us from cmux's event time to
-                        // the host's Send*Event on its UI thread), v5 frames refused (unknown kind)
+  kStatsReply = 106,    // seq of the request; v0 input events, v1 p50, v2 p95, v3 p99, v4 max (us from cmux's
+                        // event time to the host's Send*Event on its UI thread, over the last kHopWindow
+                        // events), v5 frames refused (unknown kind)
   kError = 107,         // payload message
   kRendererGone = 108,  // v0 cef_termination_status_t
 };

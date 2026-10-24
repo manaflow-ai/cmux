@@ -26,6 +26,7 @@ import Testing
             var exits: [pid_t: CheckedContinuation<ChromiumHostExit, Never>] = [:]
             var pending: [pid_t: ChromiumHostExit] = [:]
             var launched: AsyncStream<FakeHost>.Continuation?
+            var killed: [pid_t] = []
         }
         private let state = Mutex(State())
         let launches: AsyncStream<FakeHost>
@@ -37,6 +38,7 @@ import Testing
         }
 
         var count: Int { state.withLock { $0.hosts.count } }
+        var killed: [pid_t] { state.withLock { $0.killed } }
 
         func launch(executable: URL, arguments: [String]) throws -> ChromiumHostProcessHandle {
             var toHost: [Int32] = [-1, -1]
@@ -66,6 +68,15 @@ import Testing
         }
 
         func reap(_ pid: pid_t) {}
+
+        /// A SIGKILL: the stand-in host ends with the signal.
+        func kill(_ pid: pid_t) {
+            let host = state.withLock { state -> FakeHost? in
+                state.killed.append(pid)
+                return state.hosts.first { $0.pid == pid }
+            }
+            if let host { end(host, ChromiumHostExit(signal: SIGKILL, status: nil)) }
+        }
 
         /// The host process `host` ends: its wire closes, then its exit is reported.
         func end(_ host: FakeHost, _ exit: ChromiumHostExit) {
@@ -207,6 +218,106 @@ import Testing
         launcher.end(host, ChromiumHostExit(signal: nil, status: 0))
         try await until("idle") { session.phase == .idle }
         #expect(launcher.count == 1)
+    }
+
+    /// Reads the host's frames until one of `kind`; nil when the wire ends first.
+    private func frame(_ kind: ChromiumHostFrame.Kind, from frames: inout AsyncStream<ChromiumHostFrame>.Iterator) async -> ChromiumHostFrame? {
+        while let frame = await frames.next() {
+            if frame.kind == kind { return frame }
+        }
+        return nil
+    }
+
+    @Test func aHostThatIgnoresQuitIsKilledAtTheQuitLimit() async throws {
+        let launcher = FakeLauncher()
+        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher, now: { ContinuousClock.now },
+                                          quitLimit: .milliseconds(20))
+        session.open("https://a.example/")
+        let host = try await nextLaunch(launcher)
+        answer(host, context: 5, address: "https://a.example/")
+        try await until("running") { session.phase == .running }
+        session.close()
+        // The host's UI thread hangs: it never acts on quit and never exits by itself.
+        try await until("idle after the deadline's SIGKILL") { session.phase == .idle }
+        #expect(launcher.killed == [host.pid])
+        #expect(session.exits == ["signal \(SIGKILL)"])
+        #expect(launcher.count == 1)
+    }
+
+    @Test func openWhileTheHostQuitsStartsANewHostAfterItEnds() async throws {
+        let launcher = FakeLauncher()
+        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher, now: { ContinuousClock.now })
+        session.open("https://a.example/")
+        let first = try await nextLaunch(launcher)
+        answer(first, context: 5, address: "https://a.example/")
+        try await until("running") { session.phase == .running }
+        session.close()
+        session.open("https://b.example/")
+        var frames = first.wire.frames.makeAsyncIterator()
+        _ = try #require(await frame(.quit, from: &frames))
+        launcher.end(first, ChromiumHostExit(signal: nil, status: 0))
+        // The quitting host never got the navigation; it went to a fresh host, not a crash restart.
+        #expect(await frame(.navigate, from: &frames) == nil)
+        let second = try await nextLaunch(launcher)
+        let opened = try await firstFrame(of: second)
+        #expect(opened.kind == .navigate)
+        #expect(opened.text == "https://b.example/")
+        #expect(session.restarts == 0)
+        #expect(session.phase == .starting)
+    }
+
+    @Test func aURLLongerThanAFrameIsRefusedWithoutAHost() async throws {
+        let launcher = FakeLauncher()
+        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher, now: { ContinuousClock.now })
+        let long = "data:text/plain," + String(repeating: "a", count: ChromiumHostFrame.maxPayload)
+        #expect(!session.open(long))
+        #expect(launcher.count == 0)
+        #expect(session.phase == .idle)
+        #expect(session.url.isEmpty)
+        #expect(session.lastError?.contains("URL longer than") == true)
+    }
+
+    // Before the fix the waits ignored cancellation and this hung: the limit turns that into a failure.
+    @Test(.timeLimit(.minutes(1))) func aCancelledPingOrStatsRequestReturnsAtOnce() async throws {
+        let launcher = FakeLauncher()
+        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher, now: { ContinuousClock.now })
+        session.open("https://a.example/")
+        let host = try await nextLaunch(launcher)
+        answer(host, context: 5, address: "https://a.example/")
+        try await until("running") { session.phase == .running }
+        // The host never answers: only cancellation ends these waits.
+        let ping = Task { await session.ping(count: 1) }
+        let stats = Task { await session.hostInputStats() }
+        // Both requests are on the wire, so both waiters are registered.
+        var seen: Set<ChromiumHostFrame.Kind> = []
+        var frames = host.wire.frames.makeAsyncIterator()
+        while seen != [.ping, .stats], let frame = await frames.next() {
+            if let kind = frame.kind { seen.insert(kind) }
+        }
+        try #require(seen == [.ping, .stats])
+        ping.cancel()
+        stats.cancel()
+        #expect(await ping.value.isEmpty)
+        #expect(await stats.value == nil)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func aStatsReplyAnswersTheRequestWithItsSeq() async throws {
+        let launcher = FakeLauncher()
+        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher, now: { ContinuousClock.now })
+        session.open("https://a.example/")
+        let host = try await nextLaunch(launcher)
+        answer(host, context: 5, address: "https://a.example/")
+        try await until("running") { session.phase == .running }
+        let stats = Task { await session.hostInputStats() }
+        var frames = host.wire.frames.makeAsyncIterator()
+        let request = try #require(await frame(.stats, from: &frames))
+        var stale = ChromiumHostFrame(.statsReply, v: [1])
+        stale.seq = request.seq &+ 1  // another request's reply
+        host.wire.send(stale)
+        var reply = ChromiumHostFrame(.statsReply, v: [7, 1, 2, 3, 4, 0])
+        reply.seq = request.seq
+        host.wire.send(reply)
+        #expect(await stats.value?["events"] == 7)
     }
 
     @Test func restartPolicy() {
