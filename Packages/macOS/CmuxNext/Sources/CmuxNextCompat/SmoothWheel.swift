@@ -7,8 +7,8 @@ import AppKit
 /// animates it. WebKit's own "Scroll animator" feature does not change that for
 /// wheel events (measured on macOS 27: one 120 px jump either way), so a web
 /// view hands each such notch to ``SmoothWheel/handle(_:in:)``. That keeps the
-/// notch's distance, spreads it over about 150 ms with an exponential ease-out
-/// (notches add up, as in Chrome) and feeds the steps back to WebKit as
+/// notch's distance, spreads it over 150 ms with a cubic ease-out
+/// (notches add up and restart the ease, as in Chrome) and feeds the steps back to WebKit as
 /// continuous, phase-less wheel events. WebKit then does everything else it
 /// does for a pixel scroll: wheel listeners and `preventDefault`, nested
 /// scrollers, scroll snap. No phases are sent, so there is no rubber band or
@@ -55,7 +55,6 @@ public final class SmoothWheel {
     /// Takes `event` when it is a discrete notch (true: the caller drops it).
     /// Any other event passes first the steps still owed, so order is kept.
     public func handle(_ event: NSEvent, in view: NSView) -> Bool {
-        return false
         guard !delivering else { return false }
         guard Self.animates(event) else {
             flush()
@@ -126,33 +125,50 @@ public final class SmoothWheel {
 }
 
 /// The distance a wheel animation still owes, and how fast it pays it:
-/// each frame pays a share `1 - e^(-dt/τ)` of what is left (τ = 45 ms: about
-/// 95% in 135 ms, the length of Chrome's per-notch ease-out), so a fast
-/// series of notches speeds up the way Chrome's does. Whole pixels only; the
+/// Chrome's per-notch ease-out. The distance left (all notches so far) is
+/// paid over ``duration`` on a cubic ease-out, `1 - (1 - t)^3`; a notch that
+/// arrives mid-animation adds to what is left and restarts the curve, which is
+/// what makes a fast series of notches speed up. Whole pixels only; the
 /// fraction carries to the next frame.
 public struct SmoothWheelCurve: Sendable {
-    public static let tau = 0.045
-    private var remaining = 0.0
+    /// Chrome's wheel animation length.
+    public static let duration = 0.15
+    /// What the current ease still owes, and how much of it is paid.
+    private var total = 0.0
+    private var paid = 0.0
+    private var elapsed = 0.0
+    private var carried = 0.0
     public init() {}
 
-    public var isIdle: Bool { abs(remaining) < 0.5 }
+    public var isIdle: Bool { total == 0 && carried == 0 }
 
-    public mutating func add(distance: Double) { remaining += distance }
+    public mutating func add(distance: Double) {
+        total = (total - paid) + distance
+        paid = 0
+        elapsed = 0
+    }
 
     /// Pixels to scroll this frame (sign as the distance added).
     public mutating func advance(seconds: Double) -> Int {
-        let share = remaining
-        // Below one pixel a frame the tail would crawl: take at least one, or all that is left.
-        let step = abs(share) < 1 ? (abs(remaining) <= 1 ? remaining : remaining.sign == .minus ? -1 : 1) : share
-        let whole = step.rounded(.towardZero)
-        remaining -= whole
-        if abs(remaining) < 0.5 { remaining = 0 }
+        guard total != 0 else { return 0 }
+        elapsed = min(Self.duration, elapsed + seconds)
+        let t = elapsed / Self.duration
+        let position = total * (1 - pow(1 - t, 3))
+        let want = position - paid + carried
+        let whole = want.rounded(.towardZero)
+        carried = want - whole
+        paid = position
+        if t >= 1 {
+            let last = Int(whole) + Int(carried.rounded())
+            total = 0; paid = 0; carried = 0; elapsed = 0
+            return last
+        }
         return Int(whole)
     }
 
     /// All that is left, at once.
     public mutating func finish() -> Int {
-        defer { remaining = 0 }
-        return Int(remaining.rounded())
+        defer { total = 0; paid = 0; carried = 0; elapsed = 0 }
+        return Int(((total - paid) + carried).rounded())
     }
 }
