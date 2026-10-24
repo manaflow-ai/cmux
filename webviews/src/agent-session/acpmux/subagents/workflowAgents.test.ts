@@ -55,6 +55,8 @@ test("the fold keeps a workflow's run, phases, agents and counts, and its pause"
     fold,
     ...progress({
       runId: "wf_4fe",
+      scriptPath: "/s/workflows/scripts/probe-wf_4fe.js",
+      args: { pr: 24789 },
       phases: [{ index: 1, title: "Review" }],
       workflowAgents: [{ index: 1, label: "review:#1", state: "running", phase: "Review" }],
       agents: { done: 0, started: 1, queued: 2 },
@@ -63,6 +65,7 @@ test("the fold keeps a workflow's run, phases, agents and counts, and its pause"
   feed(fold, ...progress({ workflowAgents: [{ index: 1, state: "failed", error: "503" }], agents: { done: 0, started: 1, failed: 1 } }));
   const agent = fold.all().find((each) => each.id === "w")!;
   expect(agent.runId).toBe("wf_4fe");
+  expect([agent.scriptPath, agent.args]).toEqual(["/s/workflows/scripts/probe-wf_4fe.js", { pr: 24789 }]);
   expect(agent.phases).toEqual([{ index: 1, title: "Review" }]);
   expect(agent.workflowAgents?.get(1)).toEqual({ index: 1, label: "review:#1", state: "failed", phase: "Review", error: "503" });
   expect(agent.agents).toEqual({ done: 0, started: 1, failed: 1 });

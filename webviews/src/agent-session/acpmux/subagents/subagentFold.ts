@@ -34,6 +34,10 @@ export type Subagent = {
   /// A Claude workflow's run (`wf_…`), which a resume of it names again; its phases and its agents
   /// by index (workflowAgents.ts), from acpmux's `workflow-agents-v1` updates.
   runId?: string;
+  /// What a resume of it names again (`Workflow({scriptPath, resumeFromRunId, args})`): the script
+  /// path Claude Code returned and the call's args, when acpmux sent them (its launch).
+  scriptPath?: string;
+  args?: unknown;
   phases?: WorkflowPhase[];
   workflowAgents?: ReadonlyMap<number, WorkflowAgent>;
   /// A Claude workflow Claude Code paused: its agents stopped, and a resume by `runId` runs it again.
@@ -305,6 +309,8 @@ export class SubagentFold {
       agent.agents = { done, started, ...(failed ? { failed } : {}), ...(queued ? { queued } : {}) };
     }
     agent.runId = text(change.runId) ?? agent.runId;
+    agent.scriptPath = text(change.scriptPath) ?? agent.scriptPath;
+    if (change.args !== undefined && change.args !== null) agent.args = change.args;
     agent.phases = workflowPhases(change.phases) ?? agent.phases;
     agent.workflowAgents = mergeWorkflowAgents(agent.workflowAgents, change.workflowAgents, change.workflowAgentsFull === true);
     if (change.reason === "paused") agent.paused = true;
