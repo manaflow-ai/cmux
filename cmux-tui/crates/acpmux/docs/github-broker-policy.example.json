@@ -1,0 +1,13 @@
+{
+  "enabled": false,
+  "sessions": {
+    "REPLACE_WITH_EXACT_ACPMUX_SESSION_ID": {
+      "repos": {
+        "manaflow-ai/cmux": {
+          "actions": ["read", "issue", "comment", "draft_pr", "push"],
+          "branchPrefixes": ["agent/", "codex/"]
+        }
+      }
+    }
+  }
+}
