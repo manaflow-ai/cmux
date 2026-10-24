@@ -21,11 +21,10 @@ extension AppActionContext {
     func observeRefusals() {
         let registry = registry
         let services = services
-        let burst = BurstSignposts()
         registry.refusalObserver = { reason, quiet in
             Self.logger.notice("action refused: \(reason, privacy: .public)")
             guard Self.showsNotice(quiet: quiet, hasCaller: registry.refusalHasCaller) else { return }
-            burst.refusal()
+            services.burstTrace.mark(.refusal)
             services.refusalHUD.show(reason, in: services.windows.active?.window ?? NSApp.keyWindow)
         }
         // An action's local change was rolled back because the daemon refused it: say so where

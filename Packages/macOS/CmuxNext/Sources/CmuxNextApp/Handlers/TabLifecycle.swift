@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextWakeups
@@ -371,11 +372,14 @@ enum TabLifecycle {
             // Cmd-W while the focus a creation asked for is still on its way (Cmd-D, then Cmd-W at
             // once: its pane may have no controller yet, and the old pane still has the focus): the
             // creation it focuses closes, never the old pane's tab (CancelledCreation).
-            if let content = ctx.focusedContent, case .tab(let id)? = content.focus.state.expectation?.key, content.daemon.cancelCreation(tab: id) { return ctx.services.keyRouter.creationInputCoordinator.drop(tab: id, in: content.contentView.window) }
+            if let content = ctx.focusedContent, case .tab(let id)? = content.focus.state.expectation?.key, content.daemon.cancelCreation(tab: id) {
+                ctx.services.burstTrace.mark(.creationCancelled)
+                return ctx.services.keyRouter.creationInputCoordinator.drop(tab: id, in: content.contentView.window)
+            }
             // A quick Cmd-W after one that emptied its pane closes nothing in the pane the focus
             // landed in (TabCloseGuard.swallowsCmdW, Leo 2026-10-21).
             let now = ProcessInfo.processInfo.systemUptime
-            if invocation.origin == .user, TabCloseGuard.swallowsCmdW(ctx.services, at: now) { return }
+            if invocation.origin == .user, TabCloseGuard.swallowsCmdW(ctx.services, at: now) { return ctx.services.burstTrace.mark(.closeSwallowed) }
             guard let (pane, selected) = ctx.tab(invocation) else { return }
             // A Cmd-W while the last one's close still asks the daemon closes the next tab (TabCloseGuard).
             guard let id = invocation.origin == .user ? TabCloseGuard.cmdWTarget(selected, in: pane.stripModel) : selected else { return }

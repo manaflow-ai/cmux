@@ -48,13 +48,10 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     let events: AsyncStream<TerminalIOEvent>
     private let driver: TerminalAttachDriver<TerminalAttachment>
     private let creatingInput: CreatingTerminalInput?
-    /// The PTY surface this view attaches to (``BurstSignposts``).
+    /// The PTY surface this view attaches to (its ``BurstTrace`` marks name it).
     private let surface: UInt64
-    private let burst: BurstSignposts
-    /// A grid went to the PTY and its first output has not arrived yet (``BurstSignposts``).
-    // A lock, not an actor: set on the main actor per settled resize and claimed by the events
-    // stream on every output, a synchronous compare-and-set where an actor would add a hop per output.
-    private let awaitsFirstOutput: OSAllocatedUnfairLock<Bool>
+    /// The burst bench's grid and first-output marks (nil: none; a Release build compiles them out).
+    private let burstTrace: BurstTrace?
     /// The id of the terminal still being created whose keys go to the daemon by id, nil otherwise.
     var creatingTerminalID: String? { creatingInput?.terminalID }
 
@@ -62,8 +59,10 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     ///   feature that reaches this terminal's machine: every disconnect shows
     ///   "Turned off by your organization" and the endpoint refuses re-attaches.
     /// `gate`: the view of a terminal not created yet attaches only once the gate names it.
+    /// `burstTrace`: where the grids this view sends and its first output after each go while the burst
+    /// bench records (`debug.burst`).
     init(target: Target, visible: Bool = true, gate: TerminalTargetGate? = nil, creatingInput: CreatingTerminalInput? = nil,
-         policyBlocked: @escaping @Sendable () -> Bool = { false },
+         burstTrace: BurstTrace? = nil, policyBlocked: @escaping @Sendable () -> Bool = { false },
          endpoint: @escaping @Sendable () async throws -> DaemonEndpoint) {
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.terminal")
         let surface = target.attachment.surface.rawValue
@@ -101,15 +100,11 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         self.driver = driver
         self.creatingInput = creatingInput
         self.surface = surface
-        let burst = BurstSignposts(), awaitsFirstOutput = OSAllocatedUnfairLock(initialState: false)
-        self.burst = burst
-        self.awaitsFirstOutput = awaitsFirstOutput
+        self.burstTrace = burstTrace
         events = AsyncStream(unfolding: {
             await driver.nextStep().map { step in
                 let event = Self.event(for: step)
-                if case .output = event, awaitsFirstOutput.withLock({ awaits in defer { awaits = false }; return awaits }) {
-                    burst.firstOutput(surface: surface)
-                }
+                if let burstTrace, burstTrace.isArmed, case .output = event { burstTrace.output(surface: surface) }
                 switch event {
                 case .status(.disconnected), .status(.restoring):
                     guard policyBlocked() else { return event }
@@ -173,8 +168,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
 
     /// Called by `ResizeCoordinator` once the size settled.
     @MainActor func applySettled(_ size: CellSize) {
-        burst.ptyGrid(surface: surface, cols: size.cols, rows: size.rows)
-        awaitsFirstOutput.withLock { $0 = true }
+        burstTrace?.gridSent(surface: surface, cols: size.cols, rows: size.rows)
         driver.resize(size)
     }
 

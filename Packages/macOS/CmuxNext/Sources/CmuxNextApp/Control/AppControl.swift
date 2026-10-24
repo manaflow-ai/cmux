@@ -426,6 +426,15 @@ final class AppControl {
             .mainActor("debug.quit") { [weak services] call in
                 .value(services.map { DebugQuit.run(call.params, $0) } ?? .null)
             },
+            // The burst bench's record: refusals, Cmd-W presses that closed nothing by design, terminal grids.
+            .mainActor("debug.burst") { [weak services] call in
+                .value(services.map { services in
+                    services.burstTrace.control(call.params, facts: [
+                        "key_repeat_delay_s": .number(NSEvent.keyRepeatDelay), "key_repeat_interval_s": .number(NSEvent.keyRepeatInterval),
+                        "quick_press_window_s": .number(services.quickPressWindow()),
+                    ])
+                } ?? .null)
+            },
             // Every window's toasts (R96): list, a person's action run, the undo key.
             .mainActor("debug.toast") { [weak services] call in
                 .value(services.map { DebugToast.run(call.params, $0) } ?? .null)
