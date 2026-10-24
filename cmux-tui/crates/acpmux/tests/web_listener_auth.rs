@@ -213,3 +213,21 @@ async fn a_frame_past_sixteen_mib_is_read() {
         }
     }
 }
+
+#[tokio::test]
+async fn a_partial_websocket_upgrade_is_closed_within_the_handshake_deadline() {
+    let port = listener().await;
+    let host = format!("127.0.0.1:{port}");
+    let query = format!("?token={TOKEN}");
+    let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+    let partial = format!(
+        "GET /{query} HTTP/1.1\r\nHost: {host}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n"
+    );
+    stream.write_all(partial.as_bytes()).await.unwrap();
+    let mut buf = [0u8; 256];
+    let closed = tokio::time::timeout(std::time::Duration::from_secs(7), stream.read(&mut buf))
+        .await
+        .expect("the stalled handshake is bounded")
+        .expect("the server closes the stalled handshake");
+    assert_eq!(closed, 0, "a partial upgrade must not receive a protocol response");
+}
