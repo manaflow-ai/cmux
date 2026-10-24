@@ -76,6 +76,7 @@ Environment:
 | `browser-status` | Print whether cmux browser creation and link interception are enabled. |
 | `socket-status` | Print effective automation socket mode and managed source without connecting to the socket; `--json` also reports configured mode, forced-value status, and socket-path observation (`live_enforcement` is intentionally `not_observed`). Works when the listener is off or cmux is not running. |
 | `agent-hibernation` | Enable or disable routine Agent Hibernation. |
+| `claude-account` | List the registered Claude Code accounts (`agents.claudeAccounts`) or move a Claude terminal to one and continue the same conversation. `list` (the default) reads cmux.json without a socket and prints each account's name, config directory (`~/.claude` for the default) and a `(default)` marker; `--json` gives `accounts`, each with `name`, the absolute `config_dir` and `default`. `switch <name> [--workspace <id\|ref\|index>] [--surface <id\|ref\|index>] [--force]` calls `claude_account.switch` for the calling terminal (`CMUX_SURFACE_ID`) unless a target is named; outside cmux a target is required. It refuses while Claude is responding unless `--force`, which stops the response. Prints `OK switched <surface> from <account> to <account>`; when cmux could not type the resume command, it also prints that command to run. `--json` returns `surface_id`, `session_id`, `from`, `to`, `transcript` (`copied`, `refreshed` or `alreadyCurrent`) and `resumed`, plus `resume_command` and `pane_closed` when `resumed` is false. Refusals exit 1 with one of `unknown_account`, `same_account`, `no_claude_session`, `missing_working_directory`, `not_claude`, `remote_unsupported`, `already_switching`, `transcript_unavailable`, `respawn_failed` or `agent_running`. `claude_account.switch` is never forwarded through a `cmux ssh` relay. |
 | `restore` | Replace the CLI with a process restored from structured surface state. |
 | `fork` | Replace the CLI with a provider fork process restored from structured surface state. |
 | `restore-session` | Restore the previously saved cmux session; `--from <channel\|path>` reopens another install's saved session (full trust) or an exported file (untrusted: no automatic resume of custom commands, SSH, or environment from the file) as additional windows, and `--export <path> [--force]` writes this install's saved session to a file. Both require cmux to be running. |
@@ -1092,6 +1093,9 @@ the expected text without connecting to a cmux socket.
 - `cmux browser-status --help` -> `Usage: cmux browser-status [--json]`
 - `cmux agent-hibernation --help` -> `Usage: cmux agent-hibernation <on|off> [--json]`
 - `cmux agent-hibernation --help` -> `cmux agent-hibernation <hibernate|wake> <surface> [--workspace <id|ref|index>] [--json]`
+- `cmux claude-account --help` -> `Usage: cmux claude-account [list] [--json]`
+- `cmux claude-account --help` -> `cmux claude-account switch <name> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--force] [--json]`
+- `cmux claude-account list` -> `~/.claude`
 - `cmux restore --help` -> `Usage: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>`
 - `cmux fork --help` -> `Usage: cmux fork [--surface <id|ref>] <kind> <checkpoint-id>`
 - `cmux restore-session --help` -> `Usage: cmux restore-session`

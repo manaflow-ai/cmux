@@ -671697,6 +671697,655 @@
           }
         }
       }
+    },
+    "cli.claudeAccount.error.agentRunningHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pass --force to stop the response and switch."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدم --force لإيقاف الرد والتبديل."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit --force wird die Antwort gestoppt und gewechselt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa --force para detener la respuesta y cambiar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisez --force pour arrêter la réponse et changer de compte."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--force を指定すると応答を停止して切り替えます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--force를 지정하면 응답을 중지하고 전환합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "加上 --force 可停止响应并切换。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "加上 --force 可停止回應並切換。"
+          }
+        }
+      }
+    },
+    "cli.claudeAccount.error.noTarget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No terminal to switch: run this inside a cmux terminal, or pass --surface."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد طرفية للتبديل: شغّل هذا الأمر داخل طرفية cmux، أو مرّر --surface."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Terminal zum Wechseln: Führen Sie den Befehl in einem cmux-Terminal aus oder geben Sie --surface an."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay ninguna terminal que cambiar: ejecuta esto dentro de una terminal de cmux o pasa --surface."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun terminal à changer : exécutez cette commande dans un terminal cmux ou passez --surface."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切り替えるターミナルがありません。cmux のターミナル内で実行するか、--surface を指定してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전환할 터미널이 없습니다. cmux 터미널 안에서 실행하거나 --surface를 지정하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有可切换的终端：请在 cmux 终端中运行，或传入 --surface。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有可切換的終端機：請在 cmux 終端機中執行，或傳入 --surface。"
+          }
+        }
+      }
+    },
+    "cli.claudeAccount.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "list: print the registered Claude Code accounts (agents.claudeAccounts in cmux.json, plus the default ~/.claude account). Works without a running cmux.\n\nswitch <name>: move a Claude terminal to that account and continue the same conversation there. The terminal restarts under the account and cmux types the resume command. It switches the calling terminal unless --surface or --workspace names another. --force also switches while Claude is responding, which stops the response.\n\n<surface> is a UUID, a ref like surface:3, or an index with --workspace."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "list: يعرض حسابات Claude Code المسجّلة (agents.claudeAccounts في cmux.json، إضافةً إلى الحساب الافتراضي ~/.claude). يعمل دون تشغيل cmux.\n\nswitch <name>: ينقل طرفية Claude إلى ذلك الحساب ويتابع المحادثة نفسها هناك. تُعاد تشغيل الطرفية تحت ذلك الحساب ويكتب cmux أمر الاستئناف. يبدّل الطرفية التي استدعته ما لم يحدد --surface أو --workspace طرفية أخرى. يبدّل --force أيضًا أثناء رد Claude، مما يوقف الرد.\n\n<surface> هو UUID، أو مرجع مثل surface:3، أو فهرس مع --workspace."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "list: zeigt die registrierten Claude-Code-Konten an (agents.claudeAccounts in cmux.json sowie das Standardkonto ~/.claude). Funktioniert ohne laufendes cmux.\n\nswitch <name>: verschiebt ein Claude-Terminal zu diesem Konto und setzt dort dieselbe Unterhaltung fort. Das Terminal startet unter dem Konto neu, und cmux gibt den Fortsetzungsbefehl ein. Gewechselt wird das aufrufende Terminal, sofern --surface oder --workspace kein anderes angibt. Mit --force wird auch gewechselt, während Claude antwortet; die Antwort wird dabei gestoppt.\n\n<surface> ist eine UUID, eine Referenz wie surface:3 oder ein Index mit --workspace."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "list: muestra las cuentas de Claude Code registradas (agents.claudeAccounts en cmux.json, más la cuenta predeterminada ~/.claude). Funciona sin cmux en ejecución.\n\nswitch <name>: mueve una terminal de Claude a esa cuenta y continúa allí la misma conversación. La terminal se reinicia con esa cuenta y cmux escribe el comando de reanudación. Cambia la terminal que lo ejecuta, salvo que --surface o --workspace indiquen otra. --force también cambia mientras Claude está respondiendo, lo que detiene la respuesta.\n\n<surface> es un UUID, una referencia como surface:3 o un índice con --workspace."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "list : affiche les comptes Claude Code enregistrés (agents.claudeAccounts dans cmux.json, plus le compte par défaut ~/.claude). Fonctionne sans que cmux soit lancé.\n\nswitch <name> : déplace un terminal Claude vers ce compte et y poursuit la même conversation. Le terminal redémarre sous ce compte et cmux saisit la commande de reprise. La commande change le terminal appelant, sauf si --surface ou --workspace en désigne un autre. --force change aussi de compte pendant que Claude répond, ce qui arrête la réponse.\n\n<surface> est un UUID, une référence comme surface:3 ou un index avec --workspace."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "list: 登録済みの Claude Code アカウント（cmux.json の agents.claudeAccounts と、既定の ~/.claude アカウント）を表示します。cmux が起動していなくても動作します。\n\nswitch <name>: Claude のターミナルをそのアカウントに移し、同じ会話をそこで続けます。ターミナルはそのアカウントで再起動し、cmux が再開コマンドを入力します。--surface または --workspace で別のターミナルを指定しない限り、呼び出し元のターミナルを切り替えます。--force を指定すると Claude の応答中でも切り替え、その応答は停止します。\n\n<surface> は UUID、surface:3 のような参照、または --workspace と組み合わせたインデックスです。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "list: 등록된 Claude Code 계정(cmux.json의 agents.claudeAccounts와 기본 ~/.claude 계정)을 표시합니다. cmux가 실행 중이 아니어도 동작합니다.\n\nswitch <name>: Claude 터미널을 해당 계정으로 옮기고 같은 대화를 그곳에서 이어 갑니다. 터미널이 해당 계정으로 다시 시작되고 cmux가 재개 명령을 입력합니다. --surface나 --workspace로 다른 터미널을 지정하지 않으면 호출한 터미널을 전환합니다. --force를 지정하면 Claude가 응답 중일 때도 전환하며, 응답은 중지됩니다.\n\n<surface>는 UUID, surface:3 같은 참조, 또는 --workspace와 함께 쓰는 인덱스입니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "list：列出已注册的 Claude Code 账号（cmux.json 中的 agents.claudeAccounts，以及默认的 ~/.claude 账号）。无需运行 cmux 即可使用。\n\nswitch <name>：将 Claude 终端移到该账号，并在那里继续同一段对话。终端会以该账号重新启动，cmux 会输入继续命令。除非 --surface 或 --workspace 指定其他终端，否则切换调用此命令的终端。--force 也会在 Claude 响应时切换，并停止该响应。\n\n<surface> 可以是 UUID、类似 surface:3 的引用，或配合 --workspace 的索引。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "list：列出已註冊的 Claude Code 帳號（cmux.json 中的 agents.claudeAccounts，以及預設的 ~/.claude 帳號）。不需執行 cmux 也能使用。\n\nswitch <name>：將 Claude 終端機移到該帳號，並在那裡繼續同一段對話。終端機會以該帳號重新啟動，cmux 會輸入繼續指令。除非 --surface 或 --workspace 指定其他終端機，否則切換呼叫此指令的終端機。--force 也會在 Claude 回應時切換，並停止該回應。\n\n<surface> 可以是 UUID、像 surface:3 這樣的參照，或搭配 --workspace 的索引。"
+          }
+        }
+      }
+    },
+    "cli.claudeAccount.list.defaultMarker": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(default)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(افتراضي)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(Standard)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(predeterminada)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(par défaut)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "（既定）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(기본)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "（默认）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "（預設）"
+          }
+        }
+      }
+    },
+    "cli.claudeAccount.resumeManually": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux couldn't resume the conversation automatically. To continue it, run this command in that terminal:"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux استئناف المحادثة تلقائيًا. لمتابعتها، شغّل هذا الأمر في تلك الطرفية:"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte die Unterhaltung nicht automatisch fortsetzen. Um sie fortzusetzen, führen Sie diesen Befehl in diesem Terminal aus:"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo reanudar la conversación automáticamente. Para continuarla, ejecuta este comando en esa terminal:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n'a pas pu reprendre la conversation automatiquement. Pour la poursuivre, exécutez cette commande dans ce terminal :"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は会話を自動で再開できませんでした。続けるには、そのターミナルで次のコマンドを実行してください:"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 대화를 자동으로 재개하지 못했습니다. 계속하려면 해당 터미널에서 다음 명령을 실행하세요:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法自动继续对话。如需继续，请在该终端中运行此命令："
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法自動繼續對話。若要繼續，請在該終端機中執行此指令："
+          }
+        }
+      }
+    },
+    "cli.claudeAccount.resumeManuallyPaneClosed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The terminal was closed before cmux could resume the conversation. To continue it, run this command in a terminal:"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أُغلقت الطرفية قبل أن يتمكن cmux من استئناف المحادثة. لمتابعتها، شغّل هذا الأمر في طرفية:"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Terminal wurde geschlossen, bevor cmux die Unterhaltung fortsetzen konnte. Um sie fortzusetzen, führen Sie diesen Befehl in einem Terminal aus:"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La terminal se cerró antes de que cmux pudiera reanudar la conversación. Para continuarla, ejecuta este comando en una terminal:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le terminal a été fermé avant que cmux puisse reprendre la conversation. Pour la poursuivre, exécutez cette commande dans un terminal :"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux が会話を再開する前にターミナルが閉じられました。続けるには、ターミナルで次のコマンドを実行してください:"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 대화를 재개하기 전에 터미널이 닫혔습니다. 계속하려면 터미널에서 다음 명령을 실행하세요:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端在 cmux 继续对话前已关闭。如需继续，请在终端中运行此命令："
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終端機在 cmux 繼續對話前就已關閉。若要繼續，請在終端機中執行此指令："
+          }
+        }
+      }
+    },
+    "cli.claudeAccount.switched": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK switched %1$@ from %2$@ to %3$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK تم تبديل %1$@ من %2$@ إلى %3$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ von %2$@ zu %3$@ gewechselt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ cambiado de %2$@ a %3$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ basculé de %2$@ vers %3$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ を %2$@ から %3$@ に切り替えました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@을(를) %2$@에서 %3$@(으)로 전환함"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK 已将 %1$@ 从 %2$@ 切换到 %3$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK 已將 %1$@ 從 %2$@ 切換到 %3$@"
+          }
+        }
+      }
+    },
+    "cli.claudeAccount.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux claude-account [list] [--json]\n       cmux claude-account switch <name> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--force] [--json]"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux claude-account [list] [--json]\n           cmux claude-account switch <name> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--force] [--json]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux claude-account [list] [--json]\n            cmux claude-account switch <name> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--force] [--json]"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux claude-account [list] [--json]\n     cmux claude-account switch <name> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--force] [--json]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation: cmux claude-account [list] [--json]\n             cmux claude-account switch <name> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--force] [--json]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使い方: cmux claude-account [list] [--json]\n       cmux claude-account switch <name> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--force] [--json]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux claude-account [list] [--json]\n     cmux claude-account switch <name> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--force] [--json]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法: cmux claude-account [list] [--json]\n    cmux claude-account switch <name> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--force] [--json]"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法: cmux claude-account [list] [--json]\n    cmux claude-account switch <name> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--force] [--json]"
+          }
+        }
+      }
+    },
+    "socket.claudeAccountSwitch.agentRunning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude is responding in this terminal. Retry with force to stop the response and switch."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يرد Claude حاليًا في هذه الطرفية. أعد المحاولة مع force لإيقاف الرد والتبديل."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude antwortet gerade in diesem Terminal. Wiederholen Sie den Vorgang mit force, um die Antwort zu stoppen und zu wechseln."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude está respondiendo en esta terminal. Vuelve a intentarlo con force para detener la respuesta y cambiar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude est en train de répondre dans ce terminal. Réessayez avec force pour arrêter la réponse et changer de compte."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude はこのターミナルで応答中です。応答を停止して切り替えるには、force を指定して再試行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude가 이 터미널에서 응답 중입니다. 응답을 중지하고 전환하려면 force를 지정해 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 正在此终端中响应。请加上 force 重试，以停止响应并切换。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 正在此終端機中回應。請加上 force 重試，以停止回應並切換。"
+          }
+        }
+      }
+    },
+    "socket.claudeAccountSwitch.accountRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing or invalid account"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "account مفقود أو غير صالح"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "account fehlt oder ist ungültig"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falta account o no es válido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "account manquant ou invalide"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "account がないか無効です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "account가 없거나 올바르지 않습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "缺少 account 或其无效"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "缺少 account 或其無效"
+          }
+        }
+      }
+    },
+    "socket.claudeAccountSwitch.forceNotBoolean": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "force must be true or false"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن تكون قيمة force إما true أو false"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "force muss true oder false sein"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "force debe ser true o false"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "force doit valoir true ou false"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "force は true または false である必要があります"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "force는 true 또는 false여야 합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "force 必须是 true 或 false"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "force 必須是 true 或 false"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
