@@ -28,14 +28,21 @@ final class CmuxPageFreezing: PageFreezePolicy {
     private(set) var setting: BrowserHibernationSetting = .fallback
     private var hidden: [ObjectIdentifier: Hidden] = [:]
     private let deadline: DemandTimer
-    /// The clock (tests set it).
-    var now: () -> ContinuousClock.Instant = { .now }
+    /// The injected clock's time: how long each page has been hidden, on the deadline's clock.
+    private let now: @Sendable () -> ContinuousClock.Instant
     /// Pages frozen so far (`debug.surfaces`, tests).
     private(set) var frozenCount = 0
 
-    /// - Parameter clock: The deadline's clock (tests pass one they step).
-    init(clock: any Clock<Duration> = ContinuousClock()) {
+    /// The policy on the continuous clock (the app).
+    convenience init() {
+        self.init(clock: ContinuousClock())
+    }
+
+    /// - Parameter clock: The one time source: the hidden times and the deadline (tests pass a clock
+    ///   whose time they step and whose sleeps they end).
+    init<C: Clock>(clock: C) where C.Instant == ContinuousClock.Instant, C.Duration == Swift.Duration {
         deadline = DemandTimer(owner: "CmuxPageFreeze", clock: clock)
+        now = { clock.now }
     }
 
     /// Hidden pages the policy waits on (tests).
@@ -43,9 +50,16 @@ final class CmuxPageFreezing: PageFreezePolicy {
     /// A page is due later and the timer for it runs (tests).
     var hasDeadline: Bool { deadline.isScheduled }
 
+    /// Applies `browser.freezeHiddenTabs`. Off forgets every hidden page and its deadline; after an
+    /// on, a page counts from its next hide, call or push.
     func update(setting: BrowserHibernationSetting) {
         guard setting != self.setting else { return }
         self.setting = setting
+        guard setting.freezeSeconds != nil else {
+            hidden.removeAll()
+            deadline.cancel()
+            return
+        }
         replan()
     }
 
@@ -53,7 +67,9 @@ final class CmuxPageFreezing: PageFreezePolicy {
     /// only moves a page's deadline later, so a pending deadline stays right (it may fire early,
     /// and that pass arms the next); a new page's grace is the longest, so it needs a pass only
     /// when no deadline runs.
+    /// Off (`browser.freezeHiddenTabs` off): nothing is recorded, so a hide costs no pass.
     func hiddenPageWoke(_ page: PageWebView) {
+        guard setting.freezeSeconds != nil else { return }
         let key = ObjectIdentifier(page)
         if let entry = hidden[key] {
             entry.since = now()

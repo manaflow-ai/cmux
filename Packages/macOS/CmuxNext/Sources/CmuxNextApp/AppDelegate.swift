@@ -130,7 +130,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // App-scoped Ghostty actions (quit, toggle_visibility, ...) arrive with no surface.
         TerminalHooks(services: services).install()
         DebugTimings.markLaunch("dfl.bind")
-        startSettingsAndControl(services: services, launch: settingsRead)
+        // One freeze policy for hidden cmux pages: the hibernation applies its setting, the page host
+        // (made below) hands it to every page.
+        let cmuxPages = CmuxPageFreezing()
+        startSettingsAndControl(services: services, launch: settingsRead, cmuxPages: cmuxPages)
         services.newTabSpares.prewarm() // the first agent page loads while the windows build (cx-z9kz0)
         DebugTimings.markLaunch("dfl.settings")
         NSApp.mainMenu = MainMenu.make(registry: services.registry)
@@ -195,12 +198,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // cmux-page:// first-party pages for Chromium, before any window can start it.
         FirstPartyPageSchemes.install()
         // Every cmux page view follows `browser.defaultEngine` (Chromium by default) through this one host.
-        PageWebView.chromiumHosting = ChromiumPageHost(
-            cef: services.cache.cef,
-            preference: { [weak services] in
-                services?.settings?.snapshot.browserDefaultEngine ?? services?.cache.browserTabs.preference.defaultEngine ?? .fallback
-            },
-            keyRouter: services.keyRouter)
+        PageWebView.chromiumHosting = services.makeChromiumPageHost(freezePolicy: cmuxPages)
         DebugTimings.markLaunch("dfl.home_history")
         services.windows.restoreWhenLoaded()
         DebugTimings.markLaunch("dfl.windows")
@@ -244,7 +242,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// cmux-next.json settings and the tagged control socket (`action.list/describe/run`) over the same registry.
-    private func startSettingsAndControl(services: AppServices, launch: SettingsController.LaunchRead) {
+    private func startSettingsAndControl(services: AppServices, launch: SettingsController.LaunchRead,
+                                         cmuxPages: CmuxPageFreezing) {
         let registry = services.registry
         let settings = SettingsController(registry: registry, fileURL: launch.fileURL, launch: launch)
         settings.applyManagedFeaturesNow()
@@ -309,7 +308,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ComputerUseHelperDaemon.shared.follow(settings, disabledByPolicy: { [weak services] in
             services?.registry.disabledFeatures.contains(.computerUse) ?? true
         })
-        services.startHibernation(settings: settings)
+        services.startHibernation(settings: settings, cmuxPages: cmuxPages)
         services.terminalTheme.follow(settings)
         services.themes.start()
         services.themes.followChromeTheme(settings)

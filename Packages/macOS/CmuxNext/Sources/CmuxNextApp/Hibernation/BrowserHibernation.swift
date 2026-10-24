@@ -89,10 +89,9 @@ final class BrowserHibernation {
     var agentPages: AgentPageHibernation? {
         didSet { agentPages?.update(setting: setting, pressure: pressure) }
     }
-    /// Hidden cmux pages in Chromium freeze on the same `browser.freezeHiddenTabs` (CmuxPageFreezing).
-    var cmuxPages: CmuxPageFreezing? {
-        didSet { cmuxPages?.update(setting: setting) }
-    }
+    /// Hidden cmux pages in Chromium freeze on the same `browser.freezeHiddenTabs` (CmuxPageFreezing);
+    /// the page host hands the same policy to every page (`AppServices.makeChromiumPageHost`).
+    let cmuxPages: CmuxPageFreezing
     var restoredCount = 0
     /// Each pane's tab order and shown tab, from its `PaneController`.
     private var neighbors = NeighborTabs()
@@ -130,9 +129,16 @@ final class BrowserHibernation {
     private var probeKeptAt: [String: ContinuousClock.Instant] = [:]
     static let keptBackoff: Double = 60
 
-    init(cache: TabContentCache, lowPower: LowPowerMode = .system) {
+    /// - Parameters:
+    ///   - cache: The tab content cache whose hidden pages hibernate.
+    ///   - cmuxPages: The freeze policy of cmux's own pages, kept on this hibernation's setting
+    ///     (a fresh one by default, for tests of browser tabs only).
+    ///   - lowPower: Low Power Mode, which turns the awake neighbor tabs off.
+    init(cache: TabContentCache, cmuxPages: CmuxPageFreezing = CmuxPageFreezing(), lowPower: LowPowerMode = .system) {
         self.cache = cache
+        self.cmuxPages = cmuxPages
         self.lowPower = lowPower
+        cmuxPages.update(setting: setting)
     }
 
     /// Tabs on each side of a shown tab that stay awake now: the setting, or 0
@@ -180,7 +186,7 @@ final class BrowserHibernation {
         guard setting != self.setting else { return }
         self.setting = setting
         agentPages?.update(setting: setting, pressure: pressure)
-        cmuxPages?.update(setting: setting)
+        cmuxPages.update(setting: setting)
         refreshNeighbors(replans: false)
         replan()
     }

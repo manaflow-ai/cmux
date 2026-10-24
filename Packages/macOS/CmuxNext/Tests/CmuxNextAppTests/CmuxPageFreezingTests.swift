@@ -14,9 +14,11 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct CmuxPageFreezingTests {
-    /// A clock whose sleeps end only when cancelled: the test runs each pass by hand.
+    /// A clock whose time the test steps and whose sleeps end only when cancelled: the test runs
+    /// each pass by hand.
     private struct StalledClock: Clock {
-        var now: ContinuousClock.Instant { .now }
+        let time: TestTime
+        var now: ContinuousClock.Instant { time.now }
         var minimumResolution: Duration { .nanoseconds(1) }
 
         func sleep(until deadline: ContinuousClock.Instant, tolerance: Duration?) async throws {
@@ -29,7 +31,9 @@ struct CmuxPageFreezingTests {
     }
 
     /// The time the policy reads, stepped by the test.
-    private final class TestTime {
+    // Read and stepped only on the main actor: the suite is @MainActor and .serialized, and the
+    // policy reads its clock on the main actor.
+    private final class TestTime: @unchecked Sendable {
         var now = ContinuousClock.now
     }
 
@@ -44,10 +48,7 @@ struct CmuxPageFreezingTests {
     }
 
     private func policy() -> CmuxPageFreezing {
-        let freezing = CmuxPageFreezing(clock: StalledClock())
-        let time = time
-        freezing.now = { time.now }
-        return freezing
+        CmuxPageFreezing(clock: StalledClock(time: time))
     }
 
     /// A started Chromium page that booted (its first message reached the host), in a pane that
@@ -56,7 +57,7 @@ struct CmuxPageFreezingTests {
         let pane = stage.show(NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300)))
         let descriptor = PageDescriptor(id: "test.cmux-page-freezing", resource: "cmux-page-freezing", namespaces: [])
         let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: hosting))
-        view.chromiumClock = StalledClock()
+        view.chromiumClock = StalledClock(time: time)
         pane.addSubview(view)
         await view.chromiumStart?.value
         let page = try #require(hosting.made.first)
@@ -117,20 +118,55 @@ struct CmuxPageFreezingTests {
         view.close()
     }
 
+    /// Off records no hidden page (a hide costs no pass), and turning it off forgets the waiting
+    /// ones; after an on, the next hide counts.
     @Test func offNeverFreezes() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let freezing = policy()
-        var setting = BrowserHibernationSetting.fallback
-        setting.freezeSeconds = nil
-        freezing.update(setting: setting)
+        var off = BrowserHibernationSetting.fallback
+        off.freezeSeconds = nil
         let hosting = FakeChromiumHosting()
         hosting.freezePolicy = freezing
         let (view, page, pane) = try await bootedPage(hosting)
         pane.isHidden = true
+        #expect(freezing.waitingCount == 1)
+        freezing.update(setting: off)
+        #expect(freezing.waitingCount == 0)
+        #expect(!freezing.hasDeadline)
+
+        pane.isHidden = false
+        pane.isHidden = true
+        #expect(freezing.waitingCount == 0)
         pass(after: 1_000, freezing)
         #expect(page.freezes.isEmpty)
         #expect(!freezing.hasDeadline)
+
+        freezing.update(setting: .fallback)
+        pane.isHidden = false
+        pane.isHidden = true
+        #expect(freezing.waitingCount == 1)
+        pass(after: 31, freezing)
+        #expect(page.freezes == [true])
         view.close()
+    }
+
+    /// The app's assembly: the hibernation applies `browser.freezeHiddenTabs` to the same policy the
+    /// app's page host hands to every page. The host was made at launch after the hibernation
+    /// started and the policy was set on it through an optional cast of a host that did not exist
+    /// yet, so no cmux page in the app ever reported to it; the policy is now a required argument
+    /// of the host.
+    @Test func theAppsPageHostHandsEveryPageTheHibernationsPolicy() throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let freezing = policy()
+        let hibernation = BrowserHibernation(cache: services.cache, cmuxPages: freezing)
+        let host = services.makeChromiumPageHost(freezePolicy: freezing)
+        #expect(host.freezePolicy === freezing)
+
+        var setting = BrowserHibernationSetting.fallback
+        setting.freezeSeconds = 120
+        hibernation.apply(setting)
+        #expect(freezing.setting == setting)
     }
 
     /// A page that hid before its first message still boots (a chat's seeded prompt runs at start):
