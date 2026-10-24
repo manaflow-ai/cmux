@@ -27,6 +27,7 @@ export default agentPaneEntry({
   covers: [
     "agent-session/acpmux/conversation/CompactionNote.tsx",
     "agent-session/acpmux/conversation/ToolGroupRow.tsx",
+    "agent-session/acpmux/conversation/ToolText.tsx",
   ],
   keywords: ["spinner", "working", "breathing", "shimmer", "running"],
   variants: {
