@@ -413,4 +413,49 @@ describe("Grok models through xAI keys", () => {
     await responses(request);
     expect(selectedPools).toEqual([["codex", "openai-apikey", "openrouter-apikey"]]);
   });
+
+  test("an identity content-encoding is uncompressed, so a Grok body still selects xAI keys", async () => {
+    accountsToServe = [{ id: "acct-xai", credential: xaiKey }];
+    const request = responsesRequest({ model: "grok-code-fast-1", input: [] });
+    request.headers.set("content-encoding", "identity");
+    await responses(request);
+    expect(selectedPools).toEqual([["xai-apikey"]]);
+  });
+
+  test("a team without an xAI key is told how to add one, not a Codex account", async () => {
+    const grokless = createCodexResponsesProxy({
+      authenticate,
+      select: async () => null,
+      credential: async () => credentialFor(),
+      cooldown: async () => {},
+      hasConfiguredAccount: async () => false,
+    });
+    const response = await grokless(responsesRequest({ model: "grok-code-fast-1", input: [] }));
+    expect(response.status).toBe(403);
+    const { error } = await response.json() as { error: { code: string; message: string } };
+    expect(error.code).toBe("no_account_configured");
+    expect(error.message).toContain("No Grok account");
+    expect(error.message).toContain("`cmux coderouter grok add`");
+    expect(error.message).not.toContain("cr add codex");
+  });
+
+  test("a body that never finishes cannot hold the request past its failover budget", async () => {
+    const stalled = createCodexResponsesProxy({
+      authenticate,
+      select: async () => null,
+      credential: async () => credentialFor(),
+      cooldown: async () => {},
+    }, { upstreamHeadersBudgetMs: 50, capacityHoldBudgetMs: 0 });
+    const request = new Request("https://coderouter.dev/v1/responses", {
+      method: "POST",
+      headers: { authorization: "Bearer crt_token", "content-type": "application/json" },
+      body: new ReadableStream({ start: (controller) => controller.enqueue(new TextEncoder().encode("{\"model\":")) }),
+      duplex: "half",
+    } as RequestInit & { duplex: "half" });
+    const outcome = await Promise.race([
+      stalled(request).then(() => "answered"),
+      Bun.sleep(2_000).then(() => "hung"),
+    ]);
+    expect(outcome).toBe("answered");
+  });
 });
