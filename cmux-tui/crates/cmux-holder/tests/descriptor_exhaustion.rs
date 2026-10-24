@@ -1,0 +1,272 @@
+//! A holder out of descriptors (holder-core review): it refuses what it
+//! cannot pass and keeps serving what it has. The holder runs under a low
+//! `RLIMIT_NOFILE`, set to leave it an exact number of free descriptors, so
+//! each step fails at the point the test names:
+//!
+//! - a HELLO whose listing cannot dup every terminal's master and ring
+//!   segment is refused with `NO_DESCRIPTORS`, and the attached daemon keeps
+//!   its link (before: a LISTED without the master it lists);
+//! - a SPAWN whose custody dups cannot be made fails with `SPAWN_FAILED`,
+//!   its child is killed and reaped, and nothing it opened stays open
+//!   (before: a SPAWNED without the ring segment).
+//!
+//! The free count comes from the holder's own descriptor table, read at
+//! points where it is idle (after a PONG): a probe holder with one daemon
+//! link and no terminal gives the base, and each terminal holds two (its
+//! master and its ring segment). A SPAWN takes four at its peak before the
+//! fork (the PTY pair and the start-report pipe), drops two after it, then
+//! takes the ring segment and the two custody dups.
+
+#![cfg(unix)]
+
+use std::collections::BTreeSet;
+use std::os::unix::process::CommandExt;
+use std::path::{Path, PathBuf};
+use std::process::Child;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+use cmux_holder::SpawnRequest;
+use cmux_holder::client::{Event, HolderClient, launch, launch_with};
+use cmux_holder::holder::error_code;
+
+const TOKEN: [u8; 32] = [0x6d; 32];
+
+fn holder_binary() -> &'static Path {
+    Path::new(env!("CARGO_BIN_EXE_cmux-holder"))
+}
+
+fn temp_dir() -> PathBuf {
+    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let dir = PathBuf::from("/tmp").join(format!(
+        "cmhf-{}-{}",
+        std::process::id(),
+        stamp % 1_000_000_000
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+fn kill(mut holder: Child) {
+    let _ = holder.kill();
+    let _ = holder.wait();
+}
+
+fn shell(chan: u32) -> SpawnRequest {
+    let mut id = [0u8; 16];
+    id[..4].copy_from_slice(&chan.to_le_bytes());
+    SpawnRequest {
+        id,
+        cols: 80,
+        rows: 24,
+        cwd: b"/tmp".to_vec(),
+        argv: vec![
+            b"/bin/sh".to_vec(),
+            b"-c".to_vec(),
+            format!("echo ready-{chan}; exec cat").into_bytes(),
+        ],
+        env: vec![b"PATH=/usr/bin:/bin".to_vec(), b"TERM=xterm-256color".to_vec()],
+        ..SpawnRequest::default()
+    }
+}
+
+/// The holder handled every frame sent before: the events that came
+/// before its PONG.
+fn settle(client: &mut HolderClient, nonce: u64) -> Vec<Event> {
+    client.ping(nonce).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let mut events = Vec::new();
+    loop {
+        match client.next_event(deadline).expect("the holder answers a PING") {
+            Event::Pong { nonce: answered } if answered == nonce => return events,
+            event => events.push(event),
+        }
+    }
+}
+
+/// Wait until `chan`'s output contains `needle`.
+fn wait_output(client: &mut HolderClient, chan: u32, needle: &str) {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let mut text = String::new();
+    while !text.contains(needle) {
+        match client.next_event(deadline) {
+            Ok(Event::Data { chan: from, bytes, .. }) if from == chan => {
+                text.push_str(&String::from_utf8_lossy(&bytes));
+            }
+            Ok(Event::Data { .. } | Event::Pong { .. }) => {}
+            Ok(other) => panic!("terminal {chan}: unexpected {other:?} waiting for {needle:?}"),
+            Err(error) => panic!("terminal {chan}: no {needle:?} in {text:?}: {error}"),
+        }
+    }
+}
+
+/// How many descriptors `pid` has open.
+#[cfg(target_vendor = "apple")]
+fn open_fds(pid: i32) -> usize {
+    let entry = size_of::<libc::proc_fdinfo>();
+    // SAFETY: a null buffer asks how many bytes the list needs.
+    let needed =
+        unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDLISTFDS, 0, std::ptr::null_mut(), 0) };
+    assert!(needed > 0, "list the holder's descriptors: {}", std::io::Error::last_os_error());
+    let mut list: Vec<libc::proc_fdinfo> = Vec::with_capacity(needed as usize / entry + 64);
+    // SAFETY: the buffer has room for `capacity` records; only the count
+    // of records written is read back.
+    let filled = unsafe {
+        libc::proc_pidinfo(
+            pid,
+            libc::PROC_PIDLISTFDS,
+            0,
+            list.as_mut_ptr().cast(),
+            (list.capacity() * entry) as libc::c_int,
+        )
+    };
+    assert!(filled >= 0, "list the holder's descriptors: {}", std::io::Error::last_os_error());
+    filled as usize / entry
+}
+
+#[cfg(not(target_vendor = "apple"))]
+fn open_fds(pid: i32) -> usize {
+    std::fs::read_dir(format!("/proc/{pid}/fd")).unwrap().count()
+}
+
+/// The children of `pid`, zombies included (a child not reaped yet).
+#[cfg(target_vendor = "apple")]
+fn children(pid: i32) -> BTreeSet<i32> {
+    let mut pids = vec![0i32; 1024];
+    // SAFETY: the buffer holds `pids.len()` pids; the call returns how many
+    // it wrote.
+    let count = unsafe {
+        libc::proc_listchildpids(
+            pid,
+            pids.as_mut_ptr().cast(),
+            (pids.len() * size_of::<i32>()) as libc::c_int,
+        )
+    };
+    assert!(count >= 0, "list the holder's children: {}", std::io::Error::last_os_error());
+    pids.truncate(count as usize);
+    pids.into_iter().filter(|child| *child > 0).collect()
+}
+
+#[cfg(not(target_vendor = "apple"))]
+fn children(pid: i32) -> BTreeSet<i32> {
+    let mut found = BTreeSet::new();
+    for entry in std::fs::read_dir("/proc").unwrap().flatten() {
+        let Some(child) = entry.file_name().to_str().and_then(|name| name.parse::<i32>().ok())
+        else {
+            continue;
+        };
+        let Ok(stat) = std::fs::read_to_string(format!("/proc/{child}/stat")) else { continue };
+        // `pid (comm) state ppid ...`; the name may hold spaces or parens.
+        let fields: Vec<&str> =
+            stat.rsplit_once(')').map_or(vec![], |(_, rest)| rest.split_whitespace().collect());
+        if fields.get(1).and_then(|ppid| ppid.parse::<i32>().ok()) == Some(pid) {
+            found.insert(child);
+        }
+    }
+    found
+}
+
+/// A holder whose soft `RLIMIT_NOFILE` is `limit`.
+fn launch_limited(socket: &Path, limit: u64) -> Child {
+    let mut current: libc::rlimit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+    // SAFETY: getrlimit fills one rlimit.
+    assert_eq!(unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut current) }, 0);
+    let low = libc::rlimit { rlim_cur: limit as libc::rlim_t, rlim_max: current.rlim_max };
+    launch_with(holder_binary(), socket, &TOKEN, move |command| {
+        // SAFETY: setrlimit is async-signal-safe; it runs in the forked
+        // child before exec and touches nothing else.
+        unsafe {
+            command.pre_exec(move || {
+                if libc::setrlimit(libc::RLIMIT_NOFILE, &low) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+    })
+    .unwrap()
+}
+
+/// Descriptors a holder has open with one daemon link and no terminal.
+fn base_descriptors(dir: &Path) -> usize {
+    let socket = dir.join("probe.sock");
+    let probe = launch(holder_binary(), &socket, &TOKEN).unwrap();
+    let (mut client, listed) = HolderClient::connect(&socket, &TOKEN).unwrap();
+    assert!(listed.is_empty());
+    settle(&mut client, 0);
+    let base = open_fds(probe.id() as i32);
+    drop(client);
+    kill(probe);
+    base
+}
+
+/// Spawn and attach terminals `1..=count`, each holding its master and its
+/// ring segment once it runs.
+fn spawn_shells(client: &mut HolderClient, count: u32) -> BTreeSet<i32> {
+    let mut pids = BTreeSet::new();
+    for chan in 1..=count {
+        let (pid, _custody) = client.spawn(chan, &shell(chan)).unwrap();
+        client.attach(chan, 0).unwrap();
+        wait_output(client, chan, &format!("ready-{chan}"));
+        pids.insert(pid);
+    }
+    pids
+}
+
+#[test]
+fn a_holder_out_of_descriptors_refuses_a_hello_and_a_spawn_and_keeps_its_link() {
+    const TERMINALS: u32 = 4;
+    let dir = temp_dir();
+    let base = base_descriptors(&dir);
+    // Four free with the terminals running: a listing needs eight, a SPAWN
+    // runs out at its last custody dup.
+    let limit = base + 2 * TERMINALS as usize + 4;
+    let socket = dir.join("h.sock");
+    let holder = launch_limited(&socket, limit as u64);
+    let holder_pid = holder.id() as i32;
+    let (mut client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
+    let shells = spawn_shells(&mut client, TERMINALS);
+    settle(&mut client, 1);
+    let used = open_fds(holder_pid);
+    assert_eq!(used, base + 2 * TERMINALS as usize, "each terminal holds its master and ring");
+
+    // A new daemon's HELLO: its connection takes one, the listing would
+    // take eight. It is refused, and the attached daemon keeps its link.
+    let refused = HolderClient::connect(&socket, &TOKEN)
+        .err()
+        .expect("a holder out of descriptors listed its terminals");
+    let code = format!("code {}", error_code::NO_DESCRIPTORS);
+    assert!(refused.to_string().contains(&code), "refused for another reason: {refused}");
+    client.write(1, b"still-linked\n").unwrap();
+    wait_output(&mut client, 1, "still-linked");
+    settle(&mut client, 2);
+    assert_eq!(open_fds(holder_pid), used, "the refused HELLO left descriptors open");
+
+    // A SPAWN with four free: its PTY and start pipe fit, then its ring
+    // segment and the master's custody dup; the ring's custody dup does not.
+    let failed = client.spawn(TERMINALS + 1, &shell(TERMINALS + 1)).err().expect(
+        "a SPAWN whose custody dups the holder cannot make succeeded (without its ring segment)",
+    );
+    let message = failed.to_string();
+    assert!(message.contains("dup the terminal's descriptors"), "failed elsewhere: {message}");
+    settle(&mut client, 3);
+    assert_eq!(open_fds(holder_pid), used, "the failed SPAWN left descriptors open");
+    // Its child was killed; the holder reaps it like any other.
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while children(holder_pid) != shells {
+        assert!(
+            Instant::now() < deadline,
+            "the failed SPAWN's child was not reaped: {:?} besides {shells:?}",
+            children(holder_pid)
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    client.write(2, b"after-spawn\n").unwrap();
+    wait_output(&mut client, 2, "after-spawn");
+
+    for chan in 1..=TERMINALS {
+        client.close(chan, 200).unwrap();
+    }
+    drop(client);
+    kill(holder);
+    let _ = std::fs::remove_dir_all(&dir);
+}
