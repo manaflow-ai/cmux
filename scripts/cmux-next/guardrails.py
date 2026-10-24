@@ -1525,36 +1525,60 @@ row_store = matcher_rule(Matcher(ROW_STORE, ROW_ALLOW, in_row))
 # ---- action-wait (PL-instant)
 # An action handler that can wait before anything shows: an untyped bind (a `run:` / `invoke:` / `handler:` closure
 # or a trailing closure, on `registry.bind(`, on a bare `bind(` alias or wrapper, split over lines or not), a
-# `.waiting(reason, work)` effect (any reason), and inside a `bindEffect` / `effect:` handler the two shapes that
-# hide a wait behind a typed bind: an unstructured `Task` (the handler starts the remote work itself, so the local
-# change can sit behind an await while it returns `.done`) and a local change after an `await` inside an
-# `ActionConfirmation(send:)` (the change waits for the reply). The call's argument list is read to its closing
-# parenthesis, so a call split over lines counts by what it passes.
+# `.waiting(reason, work)` effect (any reason; a `case` pattern is a match, not a new wait), and inside a
+# `bindEffect` / `effect:` handler the shapes that hide a wait behind a typed bind:
+# - an unstructured `Task` (the handler starts the remote work itself, so the local change can sit behind an await
+#   while it returns `.done`);
+# - a fire-and-forget sender: `ctx.send("label") { ... }`, `daemon.send("label", body)`, `registry.track(task)`.
+#   Each wraps a Task the handler started, so nothing shows until the daemon echoes and the run still counts as
+#   effect-bound (the old `bind(invoke: { ctx.send(...) })` shape under a new name);
+# - an `ActionConfirmation(...)` with no `rollback:`: only a store intent rolls back by itself, and that one is
+#   built by `DaemonService.intentEffect`, never by hand in a handler. Without a rollback the handler either showed
+#   nothing (`send: { await daemon.failure(...) }`: a hidden wait) or leaves its change in place after a failure;
+# - a local change after an `await` inside the confirmation's send closure, or inside a closure the handler binds
+#   first (`let send = { ... }`, ActionEffectTests' shape): the change waits for the reply.
+# A helper the handler calls is out of a line rule's sight: the registry counts those runs at runtime
+# (`ActionRegistry.hiddenWaitRuns`, `debug.action_budget` `hidden_wait_runs`). The call's argument list is read to
+# its closing parenthesis, so a call split over lines counts by what it passes.
 ACTION_BIND = re.compile(r"(?<![\w])(?<!func )bind\(")
 ACTION_WAITING = re.compile(r"\.waiting\((?!\s*(let|var)\b)(?!\s*\w+\s*:)|\bwaitingEffect\(")
 UNTYPED_LABEL = re.compile(r"(invoke|run|handler)\s*:")
+ROLLBACK_LABEL = re.compile(r"rollback\s*:")
 EFFECT_OPENER = re.compile(r"\bbindEffect\(|\beffect\s*:\s*\{")
-SEND_OPENER = re.compile(r"\bsend\s*:\s*\{")
+# The send closure of a confirmation, or a closure the handler binds to a local first (`let send = { ... }`).
+SEND_OPENER = re.compile(r"\bsend\s*:\s*\{|\b(let|var)\s+\w+\s*(:[^=]*)?=\s*\{")
 UNSTRUCTURED_TASK = re.compile(r"(?<![\w.])Task(\.detached)?\s*(\([^)]*\))?\s*\{|(?<![\w.])Task\.detached\b")
+# A fire-and-forget daemon sender (DaemonService.send / AppActionContext.send take the command's label first;
+# a connection's own `$0.send(surface, ...)` inside a command body does not) and a handler-tracked task.
+HIDDEN_SENDER = re.compile(r"\.send\(\s*\"|(?<![\w])(?<!func )track\(")
+CONFIRMATION = re.compile(r"(?<![\w])ActionConfirmation\(")
 AWAIT = re.compile(r"\bawait\b")
-ACTION_WAIT_CANDIDATE = re.compile("|".join(f"(?:{p.pattern})" for p in (ACTION_BIND, ACTION_WAITING, UNSTRUCTURED_TASK, AWAIT)))
+ACTION_WAIT_CANDIDATE = re.compile("|".join(f"(?:{p.pattern})" for p in (ACTION_BIND, ACTION_WAITING, UNSTRUCTURED_TASK,
+                                                                         HIDDEN_SENDER, CONFIRMATION, AWAIT)))
 ACTION_WAIT_ALLOW = re.compile(r"//\s*action-wait-allow:\s*\S")
 DECL_STOP = re.compile(r"\b(func|init|deinit)\b[^{]*\{")
-# A statement after an `await` in a send closure that changes nothing visible: the reply's handling and control flow.
-AFTER_AWAIT_OK = re.compile(r"^\s*(\}|\)|return\b|case\b|default\b|switch\b|guard\b|if\b|else\b|do\b|catch\b|let\b|var\b"
-                            r"|try\s+await\b|await\b|$)")
+# `.waiting(` inside a `case` pattern (`case let .waiting(reason, work):`, `if case .waiting(_, let work) = e`).
+CASE_PATTERN = re.compile(r"\bcase\b[^:=]*$")
+# A statement after an `await` in a send closure that changes nothing visible: the reply's handling, control flow,
+# a log line and an error.
+AFTER_AWAIT_OK = re.compile(r"^\s*(\}|\)|return\b|throw\b|defer\b|case\b|default\b|switch\b|guard\b|if\b|else\b|do\b"
+                            r"|catch\b|let\b|var\b|try\s+await\b|await\b|(\w+\.)*(logger|log)\.\w+\(|$)")
+# An await that binds the failure and leaves on success (`guard let failure = await daemon.failure(...) else {
+# return nil }`): what follows runs only after a failure (its handling), never after the reply applied.
+FAILURE_GUARD = re.compile(r"^\s*guard\s+(let|var)\s+\w+\s*=\s*await\b.*(\.failure\(|\bsend\(\s*\))")
 
 
 class CallShape(NamedTuple):
     labels: bool  # a `run:` / `invoke:` / `handler:` argument at the call's top level
     commas: int  # top-level argument separators
     trailing: bool  # a trailing closure after the closing parenthesis
+    rollback: bool = False  # a `rollback:` argument at the call's top level (ActionConfirmation)
 
 
 def call_shape(lines: list[str], index: int, open_pos: int) -> CallShape:
     """The shape of the call whose `(` is at OPEN_POS of LINES[INDEX]'s code, read to its closing parenthesis."""
     parens = braces = commas = 0
-    labels = False
+    labels = rollback = False
     for j in range(index, len(lines)):
         code = code_of(lines[j])
         for i in range(open_pos if j == index else 0, len(code)):
@@ -1567,7 +1591,7 @@ def call_shape(lines: list[str], index: int, open_pos: int) -> CallShape:
                     rest = code[i + 1:].strip()
                     if not rest and j + 1 < len(lines):
                         rest = code_of(lines[j + 1]).strip()
-                    return CallShape(labels, commas, rest.startswith("{"))
+                    return CallShape(labels, commas, rest.startswith("{"), rollback)
             elif c == "{":
                 braces += 1
             elif c == "}":
@@ -1575,14 +1599,17 @@ def call_shape(lines: list[str], index: int, open_pos: int) -> CallShape:
             elif parens == 1 and braces == 0:
                 if c == ",":
                     commas += 1
-                elif UNTYPED_LABEL.match(code, i) and (i == 0 or not (code[i - 1].isalnum() or code[i - 1] == "_")):
-                    labels = True
-    return CallShape(labels, commas, False)
+                elif i == 0 or not (code[i - 1].isalnum() or code[i - 1] == "_"):
+                    labels = labels or bool(UNTYPED_LABEL.match(code, i))
+                    rollback = rollback or bool(ROLLBACK_LABEL.match(code, i))
+    return CallShape(labels, commas, False, rollback)
 
 
 def changes_after_await(lines: list[str], index: int, after: int) -> bool:
     """Whether the closure holding the `await` that ends at column AFTER of LINES[INDEX] runs a statement after it that
     is not the reply's handling (a local change that waits for the reply)."""
+    if FAILURE_GUARD.match(code_of(lines[index])):
+        return False
     depth = 0
     for j in range(index, len(lines)):
         code = code_of(lines[j])
@@ -1608,6 +1635,8 @@ def action_wait(version: Version, index: int) -> tuple[bool, list[int]]:
     for match in ACTION_WAITING.finditer(code):
         if match.group(0).startswith("waitingEffect"):
             return True, []
+        if CASE_PATTERN.search(code[:match.start()]):
+            continue
         shape = call_shape(lines, index, match.end() - 1)
         if shape.commas or shape.trailing:
             return True, []
@@ -1615,11 +1644,14 @@ def action_wait(version: Version, index: int) -> tuple[bool, list[int]]:
         version.memo["has_effect"] = any(EFFECT_OPENER.search(line) for line in lines)
     if not version.memo["has_effect"]:
         return False, []
-    task = UNSTRUCTURED_TASK.search(code)
-    if task:
-        openers = enclosing_openers(lines, index, DECL_STOP, code[:task.start()])
-        effects = [n for opener, n in openers if EFFECT_OPENER.search(opener)]
-        if effects:
+    def effect_lines(at: int) -> list[int]:
+        return [n for opener, n in enclosing_openers(lines, index, DECL_STOP, code[:at]) if EFFECT_OPENER.search(opener)]
+
+    for hidden in (UNSTRUCTURED_TASK.search(code), HIDDEN_SENDER.search(code)):
+        if hidden and (effects := effect_lines(hidden.start())):
+            return True, effects
+    for match in CONFIRMATION.finditer(code):
+        if not call_shape(lines, index, match.end() - 1).rollback and (effects := effect_lines(match.start())):
             return True, effects
     wait = AWAIT.search(code)
     if wait:
@@ -1711,8 +1743,9 @@ RULES = (
          matcher_rule(Matcher(CLASS_DECL, GENERIC_CLASS_ALLOW, implicit_deinit)),
          scope=(SOURCES, TESTS)),
     Rule("action-wait", "An action handler that can wait: an untyped bind (`invoke:` / `run:` / `handler:` / a trailing closure, "
-         "on `registry.bind` or a bare `bind` alias), a `.waiting` effect, or inside a `bindEffect` handler a `Task` or a "
-         "local change after an `await` in `ActionConfirmation(send:)`",
+         "on `registry.bind` or a bare `bind` alias), a `.waiting` effect, or inside a `bindEffect` handler a `Task`, a "
+         "fire-and-forget sender (`ctx.send(\"...\")`, `daemon.send(\"...\")`, `track(`), an `ActionConfirmation` with no "
+         "`rollback:`, or a local change after an `await` in a send closure",
          "an untyped handler can start a Task that awaits the daemon before anything shows, and nothing in its type says so: the "
          "action misses its 10 ms budget and the regression is invisible (plans/cmux-next/zero-latency.md, the budget contract)",
          "bind with `effect:` and return what the input's turn changed: `.done`, or `daemon.intentEffect(label, intent) { ... }` "

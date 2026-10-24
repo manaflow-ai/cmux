@@ -577,7 +577,20 @@ class RuleTests(Fixture):
                'registry.bindEffect("a") { _ in\n        Task.detached(priority: .high) { await daemon.x() }\n        return .done\n    }',
                # A typed handler whose local change waits for the reply inside the confirmation's send.
                'registry.bindEffect("a", effect: { _ in\n        .applied(ActionConfirmation(send: {\n'
-               '            let reply = await daemon.x()\n            model.apply(reply)\n            return nil\n        }))\n    })']
+               '            let reply = await daemon.x()\n            model.apply(reply)\n            return nil\n        }))\n    })',
+               # A typed handler that fires the daemon command itself (`ctx.send` / `daemon.send` wrap a Task): the
+               # old `bind(invoke: { ctx.send(...) })` under a typed name.
+               'registry.bindEffect("x", effect: { inv in ctx.send("rename-pane") { try await $0.renamePane(h, to: n) }; return .done })',
+               'registry.bindEffect("x", effect: { inv in\n        daemon.send("close-pane", body)\n        return .done\n    })',
+               'registry.bindEffect("x", effect: { inv in\n        registry.track(work)\n        return .done\n    })',
+               # A confirmation with no local change and no rollback: the send is the whole action.
+               'registry.bindEffect("x", effect: { _ in\n        .applied(ActionConfirmation(send: { await daemon.failure("x") { try await $0.x() } }))\n    })',
+               'registry.bindEffect("x", effect: { _ in\n        let send = { await daemon.failure("x") { try await $0.x() } }\n'
+               '        return .applied(ActionConfirmation(send: send))\n    })',
+               # The local change after the await inside a send closure bound to a local first.
+               'registry.bindEffect("x", effect: { _ in\n        let send: @MainActor () async -> ActionWorkFailure? = {\n'
+               '            let reply = await daemon.x()\n            model.apply(reply)\n            return nil\n        }\n'
+               '        return .applied(ActionConfirmation(send: send, rollback: { _ in }))\n    })']
         for line in bad:
             with self.subTest(line=line):
                 self.git("reset", "--quiet", "--hard", self.base)
@@ -598,7 +611,21 @@ class RuleTests(Fixture):
                 '        return .done\n    })',
                 # The local change first, the send only handles the reply, and the rollback after it.
                 'registry.bindEffect("a", effect: { _ in\n        model.apply()\n        return .applied(ActionConfirmation(send: {\n'
-                '            let failure = await daemon.x()\n            return failure\n        }, rollback: { _ in model.revert() }))\n    })']
+                '            let failure = await daemon.x()\n            return failure\n        }, rollback: { _ in model.revert() }))\n    })',
+                # A case pattern over a waiting effect is a match, not a new wait.
+                'switch effect.kind {\n    case let .waiting(reason, work): run(reason, work)\n    default: break\n    }',
+                'if case .waiting(_, let work) = effect.kind { start(work) }',
+                # The store intent: the effect the registry sends; a command body's own `$0.send(surface, ...)`.
+                'registry.bindEffect("x", effect: { _ in\n        daemon.intentEffect("send", intent) { try await $0.send(surface, text: t) }\n    })',
+                # A focus model's `send` (one value, no label) and a page command are not daemon senders.
+                'registry.bindEffect("x", effect: { _ in\n        window.focus.send(.focusPane(key, source: .intent))\n        return .done\n    })',
+                # After the await: a log line, a throw, a defer, and a manual revert that runs only after a failure.
+                'registry.bindEffect("a", effect: { _ in\n        model.apply()\n        return .applied(ActionConfirmation(send: {\n'
+                '            let failure = await daemon.x()\n            logger.info("sent")\n            return failure\n'
+                '        }, rollback: { _ in model.revert() }))\n    })',
+                'registry.bindEffect("a", effect: { _ in\n        model.apply()\n        return .applied(ActionConfirmation(send: {\n'
+                '            defer { done() }\n            guard let failure = await daemon.failure("x", body) else { return nil }\n'
+                '            model.revert()\n            return failure\n        }, rollback: { _ in }))\n    })']
         for line in good:
             with self.subTest(line=line):
                 self.git("reset", "--quiet", "--hard", self.base)
