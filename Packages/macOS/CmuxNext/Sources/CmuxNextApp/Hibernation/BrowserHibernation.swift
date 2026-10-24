@@ -116,6 +116,9 @@ final class BrowserHibernation {
     private var lowPowerObservation: LowPowerModeObservation?
     /// The page's freeze control (a seam for tests; Chromium pages only in the app).
     var freezer: (any BrowserTab) -> (any BrowserFreezing)? = { $0 as? any BrowserFreezing }
+    /// Asks a hidden page for media, capture and form input (``PageProbe/run(_:)``; a seam for
+    /// tests, which decide when each probe answers). The freeze and hibernation probes both use it.
+    var probe: @MainActor (any BrowserTab) async -> PageProbe = { await PageProbe.run($0) }
 
     /// When the person showed each tab lately (at most `focusLimit`, within `focusWindow`).
     private var focusedAt: [String: [ContinuousClock.Instant]] = [:]
@@ -513,8 +516,9 @@ final class BrowserHibernation {
     private func freeze(_ key: String) {
         guard let cache, let tab = cache.browsers[key]?.tab, let page = freezer(tab),
               let generation = cache.lifecycle.record(key)?.generation, freezeProbing.insert(key).inserted else { return }
+        let run = probe
         Task { @MainActor [weak self] in
-            let probe = await PageProbe.run(tab)
+            let probe = await run(tab)
             guard let self, let cache = self.cache else { return }
             self.freezeProbing.remove(key)
             guard cache.browsers[key]?.tab === tab, cache.lifecycle.record(key)?.generation == generation,
@@ -616,8 +620,9 @@ final class BrowserHibernation {
         let tab = entry.tab
         // The probe and the history capture run script: a frozen page runs none.
         thaw(key)
+        let run = probe
         Task { @MainActor [weak self] in
-            let probe = user ? PageProbe() : await PageProbe.run(tab)
+            let probe = user ? PageProbe() : await run(tab)
             let pressure = self?.pressure ?? .normal
             // A page that keeps not answering hibernates only under memory pressure: its form edits are
             // unknown. The freeze probe counts the misses (it runs beside this one and refreezes the page).
