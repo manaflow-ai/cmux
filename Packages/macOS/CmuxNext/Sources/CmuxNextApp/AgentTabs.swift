@@ -345,7 +345,7 @@ final class AgentTabStore {
         let model = AgentPaneModel(
             host: paneHost,
             sessionId: sessions[key] ?? record.session,
-            sideSession: sideSessionTabs[key] == (sessions[key] ?? record.session),
+            sideSession: sideSessionTabs[key].map { $0 == (sessions[key] ?? record.session) } == true,
             seed: seed,
             // A new chat this app opened on another machine shows the same New Tab page (cx-k21v).
             newTab: local || record.host.hasPrefix(AgentTabRemoteStart.registryPrefix) ? newTabPages[key]?.page : nil,
