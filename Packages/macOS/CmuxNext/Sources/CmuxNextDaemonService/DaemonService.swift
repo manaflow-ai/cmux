@@ -61,7 +61,7 @@ public final class DaemonService {
     @ObservationIgnored var endingConnection: DaemonConnection?
     /// The daemon's event batches: visible updates no action of the person caused (the person's own
     /// change shows in the key's turn through an intent), so they run under the visible budget.
-    @ObservationIgnored private let scheduler: FrameBatcher
+    @ObservationIgnored let drainScheduler: FrameBatcher
     @ObservationIgnored public let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.daemon")
     /// The window records of the daemon's launch snapshot, drawn before the
     /// first connection (`LaunchSnapshotWindow`); nil without one.
@@ -78,11 +78,11 @@ public final class DaemonService {
     ///   - echoesPlacementShift: The App passes `SidebarMirror.isLinked`; tests leave it off.
     ///   - mainWork: The app's main-thread scheduler (``MainWorkScheduler``), built at its composition
     ///     root and passed by init; a remote machine's service gets the same one (one main thread, one
-    ///     budget). The service keeps only the batcher it builds on it.
+    ///     budget). The service keeps only the batcher it builds on it (a test passes one it ticks by hand).
     public init(machineID: String = "local", echoesPlacementShift: Bool = false, mainWork: MainWorkScheduler) {
-        scheduler = FrameBatcher(owner: "DaemonStore.drain", budgeted: .visible, on: mainWork)
         self.machineID = machineID
         self.echoesPlacementShift = echoesPlacementShift
+        drainScheduler = FrameBatcher(owner: "DaemonStore.drain", budgeted: .visible, on: mainWork)
         retryWake = RetryWake(owner: "DaemonService.retry \(machineID)")
         // The local daemon's kept tabs restart at its first connect (`relaunchKeptLayoutIfNeeded`).
         keptTabRestarts = isLocal ? .expected : .none
@@ -216,7 +216,7 @@ public final class DaemonService {
         armStartupDeadline()
         observeRetryEvents()
         let wake = retryWake
-        runTask = Task { [weak self, scheduler, logger] in
+        runTask = Task { [weak self, drainScheduler, logger] in
             let clock = self?.startupClock ?? ContinuousClock()
             weak let weakSelf = self
             let onFailure: @Sendable (DaemonError) async -> Void = { error in await weakSelf?.noteStartupFailure(error) }
@@ -245,7 +245,7 @@ public final class DaemonService {
             logger.info("cmux-tui \(identity.version, privacy: .public) session \(identity.session, privacy: .public)")
             // task-owner: one hop to read the endpoint; the store run below owns the connection
             Task { await self.rememberSocket(identity, connection: connection) }
-            await store.run(connection: connection, scheduler: scheduler)
+            await store.run(connection: connection, scheduler: drainScheduler)
         }
     }
 
@@ -282,7 +282,7 @@ public final class DaemonService {
         let clock = startupClock
         var configuration = DaemonConnection.Configuration(retryWake: wake, terminalEnvironment: nil, sessionEvents: true)
         configuration.echoesPlacementShift = echoesPlacementShift
-        runTask = Task { [weak self, scheduler, logger, configuration] in
+        runTask = Task { [weak self, drainScheduler, logger, configuration] in
             weak let weakSelf = self
             var ends = RetryPacer(.firstConnect)
             // wakeup-allow: each iteration runs a connection to its end, then waits in RetryPacer
@@ -325,7 +325,7 @@ public final class DaemonService {
                 }
                 self.didConnect(connection, identity: identity)
                 logger.info("\(machineID, privacy: .public): cmux-tui \(identity.version, privacy: .public) session \(identity.session, privacy: .public)")
-                await store.run(connection: connection, scheduler: scheduler)
+                await store.run(connection: connection, scheduler: drainScheduler)
                 await connection.close()
                 if Task.isCancelled { return }
                 guard await ends.waitAfterFailure(wake: wake, clock: clock) else { return }
