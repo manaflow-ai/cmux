@@ -14,21 +14,27 @@ export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER
 fail() { echo "FAIL: $*" >&2; exit 1; }
 # A generated file whose inputs (the action exports) the edits below never touch.
 gen=web/data/cmux-shortcuts.generated.json
+cap=plans/cmux-next/daemon-capabilities.json
 
 # A remote with one base commit, a clone at it holding a repair commit, and a
 # second clone that pushes "other people's" commits.
 setup() {
+  with_cap="${1:-}"
   rm -rf "$tmp/remote.git" "$tmp/bot" "$tmp/lane"
   git init -q --bare -b feat "$tmp/remote.git"
   git clone -q "$tmp/remote.git" "$tmp/lane" 2>/dev/null
-  (cd "$tmp/lane" && git checkout -q -b feat && mkdir -p web/data && echo src > source.txt && echo old > "$gen" \
+  (cd "$tmp/lane" && git checkout -q -b feat && mkdir -p web/data \
+    && echo src > source.txt && echo old > "$gen" \
+    && if [[ "$with_cap" == cap ]]; then mkdir -p "$(dirname "$cap")" && echo old > "$cap"; fi \
     && git add -A && git commit -q -m base && git push -q origin feat)
   git clone -q --depth=1 -b feat "file://$tmp/remote.git" "$tmp/bot"  # actions/checkout is shallow
   base="$(git -C "$tmp/bot" rev-parse HEAD)"
-  (cd "$tmp/bot" && echo repaired > "$gen" && git commit -q -am "chore(next): base autofix")
+  (cd "$tmp/bot" && echo repaired > "$gen" \
+    && if [[ "$with_cap" == cap ]]; then echo repaired > "$cap"; fi \
+    && git commit -q -am "chore(next): base autofix")
 }
 lane_push() { # <file> <text>
-  (cd "$tmp/lane" && git pull -q --ff-only origin feat && echo "$2" > "$1" && git add -A \
+  (cd "$tmp/lane" && git pull -q --ff-only origin feat && mkdir -p "$(dirname "$1")" && echo "$2" > "$1" && git add -A \
     && git commit -q -m "lane edits $1" && git push -q origin feat)
 }
 remote_tip() { git -C "$tmp/remote.git" rev-parse feat; }
@@ -50,6 +56,15 @@ run > "$tmp/out" || fail "a moved branch did not take the repair: $(cat "$tmp/ou
 [[ "$(remote_show "$gen")" == repaired ]] || fail "the repair's file is not on the branch"
 [[ "$(remote_show source.txt)" == "src v2" ]] || fail "the moved tip's change was lost"
 grep -q "moved" "$tmp/out" || fail "the run does not say the branch moved"
+
+# A capability source move holds the run's export instead of landing a catalog
+# parsed from the older tip.
+setup cap
+lane_push Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonEndpoint.swift "capability source v2"
+moved="$(remote_tip)"
+if run > "$tmp/out" 2>&1; then fail "a capability export made before its source moved was pushed"; fi
+[[ "$(remote_show "$cap")" == old ]] || fail "the stale capability export landed after its source moved"
+grep -qF "$cap" "$tmp/out" || fail "the capability refusal does not name the export: $(cat "$tmp/out")"
 
 # 3. A commit since touched a file the repair writes: nothing is pushed, and the run fails.
 setup

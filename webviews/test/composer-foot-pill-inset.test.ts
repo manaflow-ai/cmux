@@ -15,6 +15,7 @@ const css = readFileSync(join(import.meta.dir, "../src/agent-session/acpmux/comp
   /\/\*[\s\S]*?\*\//g,
   "",
 );
+const baseStyles = readFileSync(join(import.meta.dir, "../src/agent-session/acpmux/styles.css"), "utf8");
 
 /** The declarations of every rule whose selector is exactly `selector`, in source order. */
 function rules(selector: string): string[] {
@@ -68,7 +69,12 @@ test("neighbouring chips on the right keep their labels 8 px apart, as with the 
 
 test("the context ring keeps its place past the model's text", () => {
   const ring = rules(".acpmux-composer-foot .acpmux-context-ring").join(";");
-  expect(ring).toMatch(
-    /margin-inline\s*:\s*calc\(12px - var\(--acpmux-row-inset\)\)\s+calc\(var\(--acpmux-row-inset\) - 4px\)/,
-  );
+  expect(ring).toMatch(/margin-inline-start\s*:\s*4px/);
+});
+
+test("the context ring uses one compact control size in the main and quiet rows", () => {
+  expect(baseStyles).toMatch(/\.acpmux-context-ring\{[^}]*width:22px;height:22px/);
+  const ring = rules(".acpmux-composer-foot .acpmux-context-ring").join(";");
+  expect(ring).toMatch(/width\s*:\s*22px/);
+  expect(ring).toMatch(/height\s*:\s*22px/);
 });

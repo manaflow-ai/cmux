@@ -49,7 +49,7 @@ IO, the IO thread idles in manual mode), one output-lane queue, one transport re
 |---|---|---|---|---|
 | G1 | **A resize frame shows the old text at the new size.** The surface is host-sized (`app:TerminalSurfaceView.swift` `createSurface`, `ghostty_surface_set_host_sized`). Each `set_size` marks the layer for display; Core Animation's display pass calls Ghostty's `displayCallback` → `drawFrame(true)` on the main thread (`gn:src/renderer/Metal.zig:237-241`), which draws the cells the renderer thread built for the *previous* grid (`generic.zig:1996-2140`: no `updateFrame` in that path) and blocks main until the GPU finishes. The reflowed text (reflow preview) comes later from the renderer thread as an async frame, and `setSurfaceCallback` discards an async frame whose size is no longer the host size (`metal/IOSurfaceLayer.zig:172-190`). In a continuous drag most async frames lose that race. | code; fleet frame counts in sec. 5 | **Size-synchronous frames**: `set_size` asks the surface's renderer thread for a frame at the new size with cells rebuilt (preview included) at once; the display pass waits for *that* frame (bounded) instead of drawing stale cells on main. N resizing surfaces then build in parallel on N renderer threads, main waits for the slowest, not the sum, and the CA transaction carries every terminal at its new size with its new text. | PL-ghostty (ghostty-next + `TerminalSurfaceView`) |
 | G2 | **Every grid step of a resize is a full snapshot round trip and up to four whole-scrollback reflows.** App → daemon → host: host `term.resize` reflow #1 (`tui:host_shared/resize.rs:213`), PTY reads stall on `source_order_lock` meanwhile (`:121`); daemon mirror reflow #2 (`pty_surface.rs:580`) and a full render frame (`:632`); the daemon sends a READY snapshot, not an in-band resize (`attach_tap.rs:631-638`, `terminal_snapshot.rs:524`); the app's local-history restore decodes READY twice and reflows its own whole history, reflow #3 (`gn:src/termio/Termio.zig:1148-1310`, `old.resize(.., .reflow = true)` at 1242), **with `hold_frames = true` for the whole restore** (`:1200`, released at `:1213`): no frame draws, and the output lane is blocked, while it runs. 4 socket hops, ~7 thread handoffs per step (code); `ResizeCoordinator` allows one grid in flight (`app:CmuxNextBridge/ResizeCoordinator.swift:13-21`), so the step rate is bounded by this round trip. | code; fleet hold time per step in sec. 5 | App side: the mirror reflows itself at the owner's stream point (`set_grid` already runs in stream order on the lane) without holding frames: reflow off the live terminal, swap under the lock, draw the preview meanwhile. Wire: the resize is an in-band marker at its stream offset plus the 64-row history digest (`gn:src/terminal/history_digest.zig`), a snapshot only on mismatch. Daemon side: one reflow, not two (see G3). | PL-ghostty (app, ghostty-next); daemon/protocol half to PL-daemon |
-| G3 | **Every byte is parsed three times, and the daemon's parse sits on the echo path.** Host parser, daemon mirror, app surface (sec. 1). The host publishes before it parses; the daemon parses first and broadcasts after, under the terminal lock (`tui:surface/hosted_reader/output.rs:30-90`). | code; STRESS has 10 printing terminals | Daemon: broadcast before the mirror parse (the stream offset is recorded under the same lock, so snapshot cuts stay consistent); then drop the daemon mirror: the host is the authority and serves snapshots. 3 parsers become 2 (the app's is needed to draw). | PL-daemon |
+| G3 | **Every byte is parsed three times, and the daemon's parse sits on the echo path.** Host parser, daemon mirror, app surface (sec. 1). The host publishes before it parses; the daemon parses first and broadcasts after, under the terminal lock (`tui:surface/hosted_reader/output.rs:30-90`). | code; STRESS has 10 printing terminals | Agreed with PL-daemon (pty-holder.md D2): the daemon forwards raw bytes before its parse (stream offset under the same lock); the per-terminal host goes away for one VT-free holder of every PTY fd, so the daemon's parser is the one authority outside the app and serves snapshots. 3 parsers become 2 (the app's is needed to draw). Wire: binary attach frames `\xFFCO` + kind u8 + len u32 + stream_offset u64 (kinds: output, grid marker with history digest, JSON event, snapshot READY, snapshot history), capability `attach-binary-output-v1`. | PL-daemon |
 | G4 | **Terminal output goes through the main actor, chunk by chunk.** `TerminalSession` is `@MainActor`; its events task takes every `.output` on main (`app:CmuxNextTerminal/TerminalSession.swift:312-321`, `TypingLatencyProbe.mark(.outputMain)`), then queues it on the lane. 10 busy terminals in STRESS put one main-thread turn per output chunk on the same thread that runs motion frames and key dispatch; every echo waits behind them (bench-typing segment "decoded to main actor"). | code; fleet main wakes/s under output in sec. 5 | Output and in-stream grid/snapshot events go from the transport's decode thread straight to the surface's serial lane (it is already thread-safe and ordered); main sees only lifecycle and status events, coalesced to one turn per frame. | PL-ghostty (app) |
 | G5 | **Output is base64 in JSON on one socket per view.** +33 % bytes, a base64 encode and a JSON serialize in the daemon (`terminal_snapshot.rs:327-329, 509-511`), a JSON parse and base64 decode in the app, per chunk. Coalescing only when the socket writer already holds 2 messages (`attach_tap.rs:643-660`). | code | Length-prefixed binary output frames on the attach stream (the host→daemon hop already is binary, `terminal_host_protocol.rs:730-735`). | PL-daemon (protocol), app decode PL-ghostty |
 | G6 | **Each surface keeps two OS threads and per-surface GPU copies whatever it shows.** Renderer + IO thread per surface even in manual IO (`gn:src/Surface.zig:852-865`, `termio/Manual.zig:1-3`); 3 swap-chain frames each with its own IOSurface target and its own copy of both glyph atlases (`gn:src/renderer/generic.zig:456-484, 2142-2157`, `Metal.zig:37-38`), its own `MTLCommandQueue`. Occlusion does release the swap chain (`generic.zig:1311-1358`) and lowers QoS; every `process_output` still wakes the renderer thread of a hidden surface (`Termio.zig:1823`, early return at `Thread.zig:570`). | code; 172 terminals: 3,300 threads (speed-of-sound sec. 7) | Manual-IO surfaces run no IO thread (their timers move to the renderer loop); glyph atlases are one GPU texture per font grid shared by every surface; hidden surfaces wake nothing (renderer notified only while visible, a dirty flag otherwise). | PL-ghostty (ghostty-next), after G1/G2/G4 |
@@ -106,6 +106,37 @@ or the previous frame unchanged (never a frame with stale text at a new size, ne
 4. G7 measure idle per process, then fix the named owner.
 5. G6 thread and atlas sharing.
 G3, G5, G8 and the daemon half of G2 go to PL-daemon with these citations.
+
+## 4b. Done so far (2026-10-23)
+
+ghostty-next (PR 46, then one GhosttyNextKit pin bump), each with a red test commit first:
+- G1: a new host size draws at once on the renderer thread with rebuilt cells; the display pass
+  presents that frame in its own CA commit (bounded 4 ms futex wait), never draws stale cells on main;
+  no wait while frames are held; hidden surfaces draw nothing in a display pass. Counters
+  `host_display_passes/main_draws/fresh_presents/late_presents`.
+- G2 app half: a local-history restore holds frames only when a READY-only frame would show less.
+- Mirror pixel-only resize: no `Terminal.resize`, mode 2026 survives a drag, `live_epoch` stays, the
+  main thread never waits behind a parsed chunk.
+- G6 part: a hidden surface's output does not wake its renderer per chunk.
+- G7 part: a blink tick of a hidden or steady cursor wakes nothing (agent TUIs hide the cursor).
+- Key to frame: the first frame update of each refresh interval draws at once while the link runs.
+- Bash integration: no fork per command on 5.3, none at start for PROMPT_COMMAND (PR 47, for
+  PL-shell-integration).
+
+cmux: G4 (output off the main actor, `TerminalOutputOffMainTests`), `bench-terminal-resize.py`,
+`debug.terminal_display`.
+
+Open after this batch:
+- G1 evidence: the before run (light drag, d4a404a02ae, mac26 60 Hz) recorded 0 calls of
+  `-[IOSurfaceLayer display]` on main, so in this path Core Animation may not run the layer's display
+  pass and the stale-text frame comes from `contentsGravity` top-left over a held drawable, not from
+  a main-thread draw. The after run's `host_display_passes` / `host_fresh_presents` say which; if
+  passes stay 0, the fresh frame must be presented from `TerminalSurfaceView.setFrameSize` instead
+  (same futex wait, called from the size change, not from a display pass).
+- bash 5.3 `${ }` captures through 2 anonymous temp files in $TMPDIR per command (PS0 hook and the
+  history read): cheaper than a fork, not zero (PL-shell-integration, perf-lead.md row 20).
+- G6 rest (one IO thread fewer per manual surface, shared atlas textures) and G7 per-process idle
+  owner: not started.
 
 ## 5. Measurements
 

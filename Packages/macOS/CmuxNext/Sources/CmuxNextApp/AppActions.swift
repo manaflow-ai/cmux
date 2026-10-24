@@ -115,6 +115,7 @@ enum AppActions {
         IconMenuVisibility.install(registry, context: context)
         TabSelectionTitles(context: context).install(in: registry)
         TopPages.installTabTargetReasons(services)
+        ActionTargetReasons.refuseHeadlessNameEditors(in: registry) { RefusalStrings.nameArgumentRequired }
         HomeRules.install(services)
         TopPages.registerProviders(services)
         context.observeRefusals()

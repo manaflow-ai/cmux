@@ -18,6 +18,7 @@ final class AppControl {
     private let frames = FrameBatcher(owner: "Control.frames")
     private let frameProbe = DebugFrameProbe()
     private let mainCPUProbe = DebugMainCPUProbe()
+    private let terminalDisplayProbe = DebugTerminalDisplayProbe()
     private(set) var service: ControlService?
     private var publisher: ControlSnapshotPublisher?
     private(set) var errorJournal: ErrorJournalService?
@@ -85,6 +86,8 @@ final class AppControl {
             .mainActor("debug.frames") { [probe = frameProbe] call in .value(probe.handle(call.params)) },
             // Main-thread CPU per frame against a 120 Hz frame (anim-perf-terminal.py).
             .mainActor("debug.main_cpu") { [probe = mainCPUProbe] call in .value(probe.handle(call.params)) },
+            // Main-thread time in Ghostty's display passes (bench-terminal-resize.py).
+            .mainActor("debug.terminal_display") { [probe = terminalDisplayProbe] call in .value(probe.handle(call.params)) },
             // Measured animation spans (plans/cmux-next/motion.md).
             .mainActor("debug.motion") { [weak services] call in .value(DebugMotion.handle(call.params, services)) },
             // Launch, palette-open and terminal-creation spans (bench-stalls.py).
@@ -184,6 +187,8 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugScreens.report(services: services))
             },
+            // The action signposts' commit boundary against this macOS's display observers.
+            .mainActor("debug.commit_boundary") { _ in .value(DebugCommitBoundary().report()) },
             // Idle wakeups: ledger, display-link clients, process CPU (idle-wakeups.md).
             .async("debug.wakeups") { call in await DebugWakeups.report(call.params) },
             // Chromium start: trigger (tab or warm reason), timings, footprint.
@@ -276,6 +281,10 @@ final class AppControl {
             .async("debug.omnibar_bench") { [weak services] call in
                 await DebugOmnibarClickBench.run(call.params, services)
             }.withDeadline(.fixed(.seconds(15))),
+            // One file-picker open, click to the frame that shows it (DebugOpenPanelBench).
+            .async("debug.open_panel_bench") { [weak services] call in
+                await DebugOpenPanelBench.run(call.params, services)
+            }.withDeadline(.fixed(.seconds(30))),
             .mainActor("debug.omnibar_type") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugOmnibar.type(call.params, services: services))

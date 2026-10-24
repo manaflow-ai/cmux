@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxConversationCore
+import CmuxMobileArtifacts
 import CmuxConversationUI
 import SwiftUI
 import UIKit
@@ -90,6 +91,16 @@ struct ChiefConversationController: UIViewControllerRepresentable {
 
     private func configure(_ conversation: ConversationViewController) {
         conversation.onBack = back
+        // A file link in a Chief message opens the file preview (read from
+        // Chief's Mac); web links open in Safari as before.
+        conversation.onOpenLink = { [weak session, weak conversation] url in
+            guard let link = FileLink(url: url), let session, let conversation else { return false }
+            // Something is already up (Quick Look, a sheet): the tap does nothing.
+            guard conversation.presentedViewController == nil else { return true }
+            let source = session.fileSource ?? UnavailableArtifactSource()
+            FilePreviewRequest(reference: link.reference, source: source, line: link.line).present(from: conversation)
+            return true
+        }
         // Select mode's Forward opens New Message with the draft, as in the lab.
         conversation.onForward = { [compose] draft in
             compose?.present(forwarding: draft)

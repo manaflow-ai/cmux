@@ -34,6 +34,7 @@ and listing actions their facts. They need the app, sign-in and its private tunn
 ## Machine lifecycle from the Mac
 
 ```sh
+cmux cloud list-machines --json                           # machines (machine_id, target, status, owner)
 cmux cloud new-machine                                    # answers machine_id (or pending)
 cmux cloud new-workspace                                  # a new cloud workspace
 cmux cloud open-machine --target machine:vm-…
@@ -48,6 +49,13 @@ cmux workspace new-on-machine --machine machine:vm-…
 From the CLI or MCP, every machine action needs `--target machine:vm-…`; without it
 the app refuses the run (only a person's own click acts on the machine in front of
 them). The full set is in [the command reference](references/commands.md).
+
+Before creating a machine, check whether it already exists: `cmux cloud list-machines`
+answers the app's own machine list (the sidebar's Cloud machines), each with the
+`target` the other verbs take and its `status` (`paused` for a paused machine). Act on
+it only when it says `loaded: true`: `loaded: false` means the list is not known yet.
+`cmux machine list` also shows them (rows with `kind: "cloud"`), but it cannot tell an
+unloaded list from an empty one.
 
 ## Work inside a machine
 
@@ -86,10 +94,10 @@ The Swift `cmux vm …` family is gone. Its replacements are app actions:
 `cmux cloud exec --command …` (returns the exit code and output), `cmux cloud ssh`
 (opens a terminal), `cmux cloud file-write`, `cmux cloud file-read|files-list|prepare-scp`
 (these return their result to the CLI),
-`cmux cloud pause-machine|resume-machine`, and `cmux cloud domain-list` (listing
-only). These have no CLI path: `vm route|tree|wait|restart|stats|prompt`,
-`vm open <m>:port/<n>`, `vm terminal …` against a machine from the Mac,
-`vm layout|env` from the Mac, domain publishing, and `vm ls --json`. Copy a port
+`cmux cloud pause-machine|resume-machine`, `cmux cloud list-machines` (for `vm ls`),
+and `cmux cloud domain-list` (listing only). These have no CLI path:
+`vm route|tree|wait|restart|stats|prompt`, `vm open <m>:port/<n>`, `vm terminal …`
+against a machine from the Mac, `vm layout|env` from the Mac, and domain publishing. Copy a port
 link from the machine's menu (Copy Machine Link): the copy actions are menu-only. The
 [command reference](references/commands.md#old-vm-verbs-and-their-replacements)
 maps every old verb.

@@ -984,6 +984,15 @@ const ENVELOPE_TOOLS = [
       error: { code: -32602, message: "Invalid params: a title is required.", data: { field: "title", got: "" } },
     }),
   }),
+  // An MCP screenshot: its sentence, and its image in the call's strip instead of base64 JSON.
+  tool("Take a screenshot", "other", "completed", {
+    output: JSON.stringify({
+      content: [
+        { type: "text", text: "Captured the build-times chart." },
+        { type: "image", mimeType: "image/png", data: BUILD_TIMES_PNG },
+      ],
+    }),
+  }),
   tool("Read package.json", "read", "completed", {
     output:
       '{\n  "name": "@cmux/webviews",\n  "private": true,\n  "type": "module",\n  "scripts": {\n    "test": "bun test"\n  }\n}\n',
@@ -1828,6 +1837,23 @@ export default agentPaneEntry({
     "collapsed-run-open": {
       note: "The same line opened: the rows it holds, drawn as they are on their own.",
       snapshot: collapsedRunChat(),
+      play: openFoldedRun,
+    },
+    "collapsed-run-spacing-tight": {
+      note: "Gallery comparison: the tool rows use a 20px line and 2px after the run.",
+      snapshot: collapsedRunChat(),
+      documentAttributes: { "transcript-tool-spacing": "tight" },
+      play: openFoldedRun,
+    },
+    "collapsed-run-spacing-selected": {
+      note: "Selected gallery rhythm: compact 22px tool rows and a 4px gap before the reply, matching the Codex reference.",
+      snapshot: collapsedRunChat(),
+      play: openFoldedRun,
+    },
+    "collapsed-run-spacing-roomy": {
+      note: "Gallery comparison: the prior 26px tool rows and 8px after-run gap.",
+      snapshot: collapsedRunChat(),
+      documentAttributes: { "transcript-tool-spacing": "roomy" },
       play: openFoldedRun,
     },
     "collapsed-run-failed": {

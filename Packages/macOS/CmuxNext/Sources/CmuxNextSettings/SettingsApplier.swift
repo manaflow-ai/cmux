@@ -141,6 +141,15 @@ public final class SettingsApplier {
                 applied.insert(id)
             }
         }
+        // `tabs.commandDigits = tabs`: Cmd-1…9 select tabs and Ctrl-1…9 workspaces (the two trade
+        // keys), unless the user bound either one above; then neither moves, as with the swap above.
+        let digits: [(ActionID, NSEvent.ModifierFlags)] = [("selectSurfaceByNumber", [.command]), ("selectWorkspaceByNumber", [.control])]
+        if snapshot.commandDigits == .tabs, !digits.contains(where: { applied.contains($0.0) }) {
+            for (id, modifiers) in digits {
+                setOverride(Shortcut("1", modifiers: modifiers), for: id)
+                applied.insert(id)
+            }
+        }
         for id in appliedShortcutIDs.subtracting(applied) {
             registry.removeShortcutOverride(for: id)
         }

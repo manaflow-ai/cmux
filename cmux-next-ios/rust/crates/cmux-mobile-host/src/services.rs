@@ -247,6 +247,7 @@ async fn daemon(
         LinePolicy::Daemon(
             DaemonPolicy::new(&peer.device_id).with_agent_tab_host(config.agent_tab_host.clone()),
         ),
+        config.pairing.as_ref().map(|pairing| std::sync::Arc::clone(&pairing.spent_replies)),
         sender,
         receiver,
     )
@@ -274,7 +275,7 @@ async fn chief(
         }),
         None => ChiefPolicy::new(),
     };
-    splice(&path, "chief", LinePolicy::Chief(policy), sender, receiver).await
+    splice(&path, "chief", LinePolicy::Chief(policy), None, sender, receiver).await
 }
 
 /// Splices one phone channel to a daemon socket. Responses and refusals
@@ -283,20 +284,31 @@ async fn splice(
     path: &Path,
     label: &str,
     policy: LinePolicy,
+    spent_replies: Option<std::sync::Arc<crate::mailbox::SpentReplies>>,
     sender: &ChannelSender,
     mut receiver: ChannelReceiver,
 ) -> Result<(), Refusal> {
     // The daemon lane: a phone's new terminal opens in its pane's folder (with_pane_folder).
     let terminal_folders = matches!(policy, LinePolicy::Daemon(_)).then(|| path.to_path_buf());
+    let reply_phone = match &policy {
+        LinePolicy::Daemon(daemon) => Some(daemon.device_id().to_owned()),
+        LinePolicy::Chief(_) => None,
+    };
     let socket = UnixStream::connect(path)
         .await
         .map_err(|e| Refusal::new("unavailable", format!("cmux-tui session {label}: {e}")))?;
     let (daemon_read, mut daemon_write) = socket.into_split();
     let (lines_tx, mut lines_rx) = mpsc::channel::<Vec<u8>>(256);
+    // The daemon lane: the phone's terminal size claims, released when it
+    // leaves on purpose (size_release.rs).
+    let claims = terminal_folders.is_some();
+    let _active = claims.then(crate::size_release::ActiveSplice::begin);
+    let pending = Arc::new(crate::size_release::PendingReleases::default());
 
     // Daemon → phone, whole lines.
     let daemon_lines = lines_tx.clone();
     let reply_policy = policy.clone();
+    let answers = Arc::clone(&pending);
     let mut from_daemon = tokio::spawn(async move {
         let mut reader = BufReader::with_capacity(64 * 1024, daemon_read);
         loop {
@@ -304,6 +316,10 @@ async fn splice(
             match reader.read_until(b'\n', &mut line).await {
                 Ok(0) | Err(_) => return,
                 Ok(_) => {
+                    // hostd's own releases: answered to hostd, not the phone.
+                    if answers.answer(&line) {
+                        continue;
+                    }
                     let Some(line) = reply_policy.reply(line) else { continue };
                     if daemon_lines.send(line).await.is_err() {
                         return;
@@ -315,9 +331,30 @@ async fn splice(
 
     // Phone → daemon, filtered.
     let refusals = lines_tx;
+    let releases = Arc::clone(&pending);
+    let mut stopping = crate::size_release::stopping();
     let mut to_daemon = tokio::spawn(async move {
         let mut pending: Vec<u8> = Vec::new();
-        while let Some(ChannelEvent::Data(bytes)) = receiver.recv().await {
+        let mut sized = crate::size_release::SizeClaims::default();
+        loop {
+            let event = tokio::select! {
+                event = receiver.recv() => event,
+                // hostd is stopping (iPhone connections off, the app quitting).
+                () = async { drop(stopping.wait_for(|stopping| *stopping).await) }, if claims => {
+                    release_claims(&sized, &releases, &mut daemon_write, crate::size_release::ReleaseReason::Stopping).await;
+                    return;
+                }
+            };
+            let bytes = match event {
+                Some(ChannelEvent::Data(bytes)) => bytes,
+                Some(ChannelEvent::Closed(info)) => {
+                    if claims && let Some(reason) = crate::size_release::ReleaseReason::for_close(&info) {
+                        release_claims(&sized, &releases, &mut daemon_write, reason).await;
+                    }
+                    return;
+                }
+                None => return,
+            };
             pending.extend_from_slice(&bytes);
             while let Some(newline) = pending.iter().position(|&b| b == b'\n') {
                 let mut line: Vec<u8> = pending.drain(..=newline).collect();
@@ -340,10 +377,33 @@ async fn splice(
                     }
                     (_, verdict) => verdict,
                 };
+                // A reply to a terminal notification: hostd answers it itself
+                // (the daemon has no such command), into that terminal only.
+                if matches!(verdict, Verdict::Forward)
+                    && let (Some(path), Some(phone)) = (&terminal_folders, &reply_phone)
+                    && is_notification_reply(&line)
+                {
+                    let mut answer = crate::mailbox_apply::answer_notification_reply(
+                        path,
+                        phone,
+                        spent_replies.as_deref(),
+                        &line,
+                    )
+                    .await
+                    .into_bytes();
+                    answer.push(b'\n');
+                    if refusals.send(answer).await.is_err() {
+                        return;
+                    }
+                    continue;
+                }
                 match verdict {
                     Verdict::Forward => {
                         if let Some(path) = &terminal_folders {
                             line = with_pane_folder(path, line).await;
+                        }
+                        if claims {
+                            sized.observe(&line);
                         }
                         line.push(b'\n');
                         if daemon_write.write_all(&line).await.is_err() {
@@ -353,6 +413,9 @@ async fn splice(
                     Verdict::Rewrite(mut line) => {
                         if let Some(path) = &terminal_folders {
                             line = with_pane_folder(path, line).await;
+                        }
+                        if claims {
+                            sized.observe(&line);
                         }
                         line.push(b'\n');
                         if daemon_write.write_all(&line).await.is_err() {
@@ -383,6 +446,24 @@ async fn splice(
             line = lines_rx.recv() => match line {
                 Some(line) => {
                     if sender.send(Bytes::from(line)).await.is_err() {
+                        // The phone is gone (its close frame, a removed phone). Its
+                        // close reaches the phone-to-daemon task, which releases its
+                        // sizes: let that finish (bounded) instead of aborting it,
+                        // or the daemon reads end of file first and holds the grid.
+                        if claims {
+                            let _ = tokio::time::timeout(
+                                crate::size_release::RELEASE_WAIT + std::time::Duration::from_millis(300),
+                                async {
+                                    loop {
+                                        tokio::select! {
+                                            _ = &mut to_daemon => return,
+                                            line = lines_rx.recv() => if line.is_none() { return },
+                                        }
+                                    }
+                                },
+                            )
+                            .await;
+                        }
                         break;
                     }
                 }
@@ -407,6 +488,40 @@ async fn splice(
     to_daemon.abort();
     from_daemon.abort();
     Ok(())
+}
+
+/// Whether `line` is a `notification-reply` request.
+fn is_notification_reply(line: &[u8]) -> bool {
+    serde_json::from_slice::<Value>(line)
+        .ok()
+        .is_some_and(|v| v.get("cmd").and_then(Value::as_str) == Some("notification-reply"))
+}
+
+/// Releases every terminal size the phone claimed on this channel and waits
+/// (at most `RELEASE_WAIT`) for the daemon's answers, keeping the socket open
+/// meanwhile: an end of file the daemon read before a release would be a
+/// dropped view, which holds the grid.
+async fn release_claims(
+    claims: &crate::size_release::SizeClaims,
+    pending: &crate::size_release::PendingReleases,
+    daemon: &mut tokio::net::unix::OwnedWriteHalf,
+    reason: crate::size_release::ReleaseReason,
+) {
+    if claims.is_empty() {
+        return;
+    }
+    let lines = claims.release_lines();
+    tracing::info!(?reason, terminals = lines.len(), "releasing the phone's terminal sizes");
+    let mut batch = Vec::new();
+    for (id, line) in lines {
+        pending.add(id);
+        batch.extend_from_slice(&line);
+        batch.push(b'\n');
+    }
+    if daemon.write_all(&batch).await.is_err() {
+        return;
+    }
+    pending.wait(crate::size_release::RELEASE_WAIT).await;
 }
 
 /// The acpmux WebSocket address and token.
@@ -854,15 +969,6 @@ impl crate::browser_policy::MacPages for ServiceConfig {
             };
             crate::browser_policy::MacView { roots, browser_urls }
         })
-    }
-}
-
-impl ServiceConfig {
-    /// The app's daemon socket (`default_socket`, else the default session's).
-    fn daemon_socket(&self) -> PathBuf {
-        self.default_socket
-            .clone()
-            .unwrap_or_else(|| self.tui_socket_dir.join(format!("{}.sock", self.default_session)))
     }
 }
 

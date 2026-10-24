@@ -44,6 +44,9 @@ public final class AgentSessionDirectory {
         return store
     }
 
+    /// Every chat loaded in this launch (notification previews save their last messages).
+    public var loadedStores: [AgentChatStore] { Array(stores.values) }
+
     public func existingStore(id: String, macID: String = "") -> AgentChatStore? {
         _ = generation
         return stores[Self.key(id: id, macID: macID)]

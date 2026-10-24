@@ -281,6 +281,10 @@ def main():
     parser.add_argument("--max-helper-cpu", type=float, default=1.0)
     parser.add_argument("--no-fail", action="store_true")
     parser.add_argument("--keep-running", action="store_true")
+    parser.add_argument("--env", action="append", default=[], metavar="NAME=VALUE",
+                        help="an extra variable for the app (repeatable; for example a feature's DEV opt-in)")
+    parser.add_argument("--setting", action="append", default=[], metavar="DOTTED.KEY=JSON",
+                        help="a value written to the scratch cmux.json before launch (repeatable)")
     parser.add_argument("--fresh", action="store_true",
                         help="start from an empty daemon session for this tag (removes the tag's saved tabs)")
     args = parser.parse_args()
@@ -302,6 +306,21 @@ def main():
         "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
         "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": os.path.join(scratch, "cmux.json"),
     }
+    for item in args.env:
+        name, _, value = item.partition("=")
+        env[name] = value
+    if args.setting:
+        config: dict = {}
+        for item in args.setting:
+            key, _, raw = item.partition("=")
+            node = config
+            parts = key.split(".")
+            for part in parts[:-1]:
+                node = node.setdefault(part, {})
+            node[parts[-1]] = json.loads(raw)
+        with open(env["CMUX_NEXT_CONFIG_FILE"], "w") as handle:
+            json.dump(config, handle)
+    report_env = {"env": sorted(args.env), "settings": sorted(args.setting)}
     if not args.url:
         page = os.path.join(scratch, "static.html")
         with open(page, "w") as handle:
@@ -309,7 +328,7 @@ def main():
         args.url = "file://" + page
     app = subprocess.Popen([binary], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     socket_path = f"/tmp/cmux-debug-{tag}.sock"
-    report = {"tag": tag, "sha": args.sha, "label": args.label, "app": bundle, "scenarios": {}}
+    report = {"tag": tag, "sha": args.sha, "label": args.label, "app": bundle, "scenarios": {}, **report_env}
     failures = []
     try:
         control = wait_for_socket(socket_path)

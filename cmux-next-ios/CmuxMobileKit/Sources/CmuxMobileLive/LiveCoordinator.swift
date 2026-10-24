@@ -6,6 +6,7 @@ import CmuxMobileChief
 import CmuxMobileDesign
 import CmuxMobileFeed
 import CmuxMobileModel
+import CmuxMobileNotifications
 import CmuxMobileTransport
 import Foundation
 import Observation
@@ -178,6 +179,7 @@ public final class LiveCoordinator {
         secrets: any DeviceSecretStore = KeychainSecretStore(),
         readMarks: FeedReadMarks? = nil,
         pins: MacPins? = nil,
+        push: PushKeys? = nil,
         clock: any Clock<Duration> = ContinuousClock()
     ) {
         self.secrets = secrets
@@ -188,7 +190,9 @@ public final class LiveCoordinator {
         self.identity = identity
         self.userID = userID
         self.deviceName = deviceName
-        pairing = keys.map { LinkPairing(keys: $0, phoneID: identity.link, name: deviceName, pins: pins ?? .forAccount(userID)) }
+        pairing = keys.map {
+            LinkPairing(keys: $0, phoneID: identity.link, name: deviceName, pins: pins ?? .forAccount(userID), push: push)
+        }
         self.clock = clock
         self.transport = transport
         self.relayOnly = relayOnly
@@ -784,6 +788,7 @@ public final class LiveCoordinator {
         forgetMac(id)
         // Its identity pin goes too: a re-added Mac pins its key again.
         (pairing?.pins ?? .standard).forget(id)
+        pairing?.push?.forget(mac: id)
     }
 
     /// Signs Chief question answers for the linked Mac with this phone's

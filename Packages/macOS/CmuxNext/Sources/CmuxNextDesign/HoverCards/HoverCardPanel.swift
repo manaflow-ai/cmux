@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesignTokens
 
 /// Where a card sits relative to its target.
 public enum HoverCardPlacement: Sendable {

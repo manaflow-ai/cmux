@@ -139,11 +139,15 @@ final class SettingsWindowService: InternalPageProvider {
         return "\(route)&workspace=\(id)"
     }
 
-    static func route(section: SettingsSection?, setting: String?) -> String? {
+    /// The Development section (and its keys) exists only in DEV builds: elsewhere a request for
+    /// it opens Settings on the default page (the page hides the category the same way).
+    static func route(section: SettingsSection?, setting: String?, devBuild: Bool = DevTools.isDebugBuild) -> String? {
         if let setting, let descriptor = SettingsSchema.descriptor(for: CmuxConfigFile.keyPath(from: setting)) {
+            guard descriptor.section != .development || devBuild else { return nil }
             return "#/settings/\(descriptor.section.rawValue)?focus=\(descriptor.id)"
         }
-        return section.map { "#/settings/\($0.rawValue)" }
+        guard let section, section != .development || devBuild else { return nil }
+        return "#/settings/\(section.rawValue)"
     }
 
     // MARK: InternalPageProvider
@@ -175,7 +179,7 @@ final class SettingsWindowService: InternalPageProvider {
 
     var rooms: [SettingsListRow]? {
         let local = services.machines.local
-        guard local.supports(DaemonCapabilities.shared.profiles) else { return nil }
+        guard local.supports(DaemonCapabilities.profiles) else { return nil }
         let current = services.windows.active?.state.profileID ?? .defaultProfile
         return local.store.profiles.sorted { $0.index < $1.index }.map { room in
             SettingsListRow.space(id: room.id.rawValue, title: room.name, icon: room.icon, isActive: room.id == current)

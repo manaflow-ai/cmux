@@ -381,7 +381,7 @@ public final class PaletteController {
         }
         content.onRecorderOption = { [weak self] option in self?.shortcutRecorder.choose(option) }
         panel.contentView = content
-        panel.keyHandler = { [weak self] event in self?.handleKeyDown(event) ?? false }
+        panel.keyHandler = { [weak self, weak panel] event in self?.handleKeyDown(event, in: panel) ?? false }
         panel.capturesKeyEquivalents = { [weak self] in self?.model.shortcutRecorder != nil }
         panel.capturesKeyEquivalent = { [weak self] event in
             guard let model = self?.model else { return false }
@@ -432,19 +432,22 @@ public final class PaletteController {
 
     /// Maps a key-down in the panel to a palette command. Returns true when
     /// the event was consumed (so the text field never sees it).
-    func handleKeyDown(_ event: NSEvent) -> Bool {
+    /// `window`: the panel the key went to (the event's own window when nil).
+    func handleKeyDown(_ event: NSEvent, in window: NSWindow? = nil) -> Bool {
+        let window = window ?? event.window
         if model.shortcutRecorder != nil {
             return shortcutRecorder.handle(PaletteShortcutRecorder.shortcut(for: event), keyCode: event.keyCode, event: event)
         }
-        if Self.inputMethodOwns(event) { return false }
+        if Self.inputMethodOwns(event, in: window) { return false }
+        let caret = Self.caret(in: window)
         guard let command = PaletteKeyMap.command(
             for: event,
             actionsMenuOpen: model.actionsMenu != nil,
             queryIsEmpty: model.query.isEmpty,
             registry: registry,
             hierarchical: model.currentPageIsHierarchical,
-            caretAtEnd: Self.caret(in: event.window).atEnd,
-            caretAtStart: Self.caret(in: event.window).atStart,
+            caretAtEnd: caret.atEnd,
+            caretAtStart: caret.atStart,
             selectedTogglesInPlace: model.selectedItem?.primary.togglesInPlace == true
         ) else { return false }
         return model.handle(command)

@@ -1,5 +1,5 @@
 {
-  "_doc": "Layer of every CmuxNext target (plans/cmux-next/architecture-refactor-DESIGN.md section 2). layer = what the target holds today (a target that mixes layers takes its highest one and lists the others in mixes). Read by scripts/cmux-next/arch-layers.py. Edges may only point to the same or a lower layer; core < service < domain < ui < app.",
+  "_doc": "Layer of every CmuxNext target (plans/cmux-next/architecture-refactor-DESIGN.md section 2). layer = what the target holds today (a target that mixes layers takes its highest one and lists the others in mixes). Read by scripts/cmux-next/arch-layers.py (the report) and the pre-push layer gate scripts/cmux-next/arch_rules/layer_gate.py, which refuses a push that adds a Package.swift target missing here or an edge that breaks the order, and by the arch ratchet's layer rows (scripts/cmux-next/arch_counts.py: hard, soft, upward, unplaced). Edges may only point to the same or a lower layer; core < service < domain < ui < app. Every target entry is an object with a string `layer`; an entry without one leaves the target unplaced.",
   "order": ["core", "service", "domain", "ui", "app"],
   "targets": {
     "CCmuxAppFFI": {"layer": "core"},
@@ -13,7 +13,7 @@
     "CmuxNextAgentCursorVisibility": {"layer": "core"},
     "CmuxNextProcessEnvironment": {"layer": "core"},
     "CmuxNextMallocZone": {"layer": "core"},
-    "CmuxNextWorkspaceNaming": {"layer": "core", "plan": "pure rules; drop Design (Tunable moves to DesignTokens)"},
+    "CmuxNextWorkspaceNaming": {"layer": "core"},
 
     "CmuxNextDaemon": {"layer": "service"},
     "CmuxNextDaemonService": {"layer": "service", "plan": "drop AgentPane, Apps, Bridge, Layout: lift the shared types to Core or a protocol seam"},
@@ -51,6 +51,7 @@
     "CmuxNextCLIInstall": {"layer": "service"},
     "CmuxNextHostedChief": {"layer": "service"},
     "CmuxNextDiff": {"layer": "service", "plan": "drop AgentPane, Pages"},
+    "CmuxNextHangReports": {"layer": "service"},
     "CmuxNextHomeEngine": {"layer": "ui", "mixes": ["service", "domain"], "plan": "views (4 NSView) to CmuxNextHome; engine drops Design, Icons, AgentPane"},
 
     "CmuxNextSettings": {"layer": "domain", "plan": "drop Design: its 86 value types move to CmuxNextDesignTokens"},
@@ -58,6 +59,7 @@
     "CmuxNextImportSuggestions": {"layer": "domain"},
     "CmuxNextAgentCursor": {"layer": "domain", "plan": "drop Design (Motion values to DesignTokens)"},
     "CmuxNextNowPlaying": {"layer": "domain", "plan": "drop Sidebar, Browser, AgentPane: protocol seams"},
+    "CmuxNextDevices": {"layer": "domain", "mixes": ["service"], "plan": "the hub client, socket, identity and relay sealing are service; DeviceHub (@MainActor @Observable) is the domain model"},
     "CmuxNextAgentLanes": {"layer": "ui", "mixes": ["domain"], "plan": "lane feed (domain) apart from the Priority view"},
     "CmuxNextHistory": {"layer": "ui", "mixes": ["domain", "service"]},
     "CmuxNextBookmarks": {"layer": "ui", "mixes": ["domain", "service"]},
@@ -84,6 +86,8 @@
     "CmuxNextServer": {"layer": "ui"},
     "CmuxNextRemoteView": {"layer": "ui"},
     "CmuxNextRemoteBrowser": {"layer": "ui"},
+    "CmuxNextRemoteViewSessions": {"layer": "ui", "mixes": ["service"]},
+    "CmuxNextMacScreen": {"layer": "ui", "mixes": ["domain", "service"]},
     "CmuxNextFloating": {"layer": "ui"},
     "CmuxNextPopups": {"layer": "ui"},
     "CmuxNextAgentQuestion": {"layer": "ui"},
@@ -103,7 +107,13 @@
     "CmuxNextPagesTestSupport": {"layer": "ui"},
     "CmuxNextAppPermissions": {"layer": "ui"},
     "CmuxNextTestExitTrace": {"layer": "core"},
+    "CmuxNextSignposts": {"layer": "core"},
+    "CmuxNextDesignTokens": {"layer": "core", "plan": "values only; DesignSettings and ThemeStore go to CmuxNextAppearance (B3)"},
 
     "CmuxNextApp": {"layer": "app", "mixes": ["core", "service", "domain", "ui"], "plan": "composition root only (section 4)"}
-  }
+  },
+  "_exceptions_doc": "Soft edges (service -> domain) the pre-push layer gate (scripts/cmux-next/arch_rules/layer_gate.py) lets in: {\"from\": target, \"to\": target, \"date\": \"YYYY-MM-DD\", \"reason\": why, and the slice that removes it}. Hard edges (to ui or app) and upward edges (core -> service, core -> domain) have no exceptions. The 12 soft edges already on feat-cmux-next are debt, not exceptions: they are listed by arch-layers.py and removed with the Settings split (DESIGN section 2). The arch ratchet's count rule counts the layer_soft total separately: the push that adds an entry here also adds {\"date\", \"row\": \"layer_soft\", \"allow\": 1, \"why\"} to plans/cmux-next/arch-ratchet.json `exceptions`.",
+  "exceptions": [],
+  "_relayered_doc": "Relabels: a push that changes the layer of a target already in `targets` adds one entry here, {\"target\": name, \"from\": old layer, \"to\": new layer, \"date\": \"YYYY-MM-DD\", \"reason\": what changed in the target's code that moves it}, and the same push changes that code (a file under the target's sources); otherwise the pre-push layer gate refuses it and names the edges whose class it changes. The gate always classifies a new edge with the stricter of the two layers, so a relabel lands in its own push before any new edge that needs it. A relabel that only clears a hard or soft edge is that debt renamed: fix the edge instead. Only CmuxNextApp is app.",
+  "relayered": []
 }

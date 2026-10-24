@@ -161,6 +161,10 @@ path = "tests/test_ci_change_areas.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_swift_packages_linux_cache.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_strings_output_encoding.py"
 lane = "linux-guard"
 
@@ -1045,6 +1049,11 @@ path = "tests/test_cmux_next_prepush_gate.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_guardrails.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. The guardrails run only in the local pre-push hook; run python3 tests/test_cmux_next_guardrails.py yourself (about 40 s, git only, no build)."
+
+[[test]]
 path = "tests/test_cmux_next_perf_gate_unlit.py"
 lane = "linux-guard"
 
@@ -1287,10 +1296,6 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_browser_host_release_package.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_browser_host_release_smoke.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1611,10 +1616,6 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_next_canary_mode.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_nightly_next_visual_smoke.py"
 lane = "linux-guard"
 
 [[test]]
