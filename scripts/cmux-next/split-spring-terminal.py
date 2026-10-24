@@ -50,6 +50,13 @@ if "--suite=launch-check" in sys.argv:
 # build in split-spring.sh has run by then). launch-check above reports it itself, in `check`'s own --json shape.
 if "--suite=pane-bench" not in sys.argv:
     require_gui_session("split-spring")
+# `--suite=chromium-host` (scratch ref only): Chromium in process vs the Chromium host app (chromium-host-bench.py).
+if "--suite=chromium-host" in sys.argv:
+    rest = [a for a in sys.argv[1:] if a != "--suite=chromium-host"]
+    named = {k: rest[i + 1] for i, k in enumerate(rest[:-1]) if k in ("--app", "--out", "--json")}
+    extra = [a for a in rest if a.startswith("--count=") or a.startswith("--modes=")]
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "chromium-host-bench.py")
+    os.execv(sys.executable, [sys.executable, suite, "--app", named["--app"], "--out", named["--out"], "--json", named["--json"]] + extra)
 # `--suite=bench-smoke`: one short run of each bench that launches through bench_launch.py (bench-launch-smoke.py).
 if "--suite=bench-smoke" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bench-launch-smoke.py")
