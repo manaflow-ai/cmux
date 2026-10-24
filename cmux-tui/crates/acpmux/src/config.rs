@@ -6,6 +6,8 @@ use std::collections::BTreeMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
+pub mod github_broker;
+
 static HOME_OVERRIDE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 
 /// Set the state directory for this process, below `ACPMUX_HOME` in
@@ -849,6 +851,10 @@ pub struct Config {
     /// (`hub/titles.rs`).
     #[serde(default, skip_serializing_if = "TitlesConfig::is_default")]
     pub titles: TitlesConfig,
+    /// Owner-side GitHub action broker. Disabled unless an owner explicitly
+    /// opts in and supplies a session-scoped policy (`config/github_broker.rs`).
+    #[serde(default, skip_serializing_if = "github_broker::GithubBrokerConfig::is_default")]
+    pub github_broker: github_broker::GithubBrokerConfig,
     /// `coderouterClaudeRoute`: the CodeRouter CLI subcommand that runs
     /// Claude Code through a CodeRouter route. When it is set (env
     /// `ACPMUX_CODEROUTER_CLAUDE_ROUTE` wins) and `coderouter` or `cr` is on

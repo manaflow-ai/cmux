@@ -277,6 +277,8 @@ const OFFER_RESULT_PROMPT = "offer-result-";
 /// `prompt_refused`: acpmux refused a prompt sent now at dispatch (hub/web_control.rs), after it left the
 /// queue; it is not a transcript record, so the pane asks for it by name.
 const QUEUE_KINDS = ["queue_order", "queue_updated", "prompt_refused"];
+/// Owner-daemon GitHub broker decisions: redacted audit rows, never request bodies.
+const GITHUB_BROKER_KINDS = ["github_broker_action"];
 /// acpmux's refusals of an answer to a card it no longer has (hub/secrets.rs): a restart lost it,
 /// or the agent stopped waiting.
 const SECRET_GONE = ["no secret request with that id", "the agent stopped waiting"];
@@ -2311,6 +2313,7 @@ export class AcpmuxDirectClient {
         BOOKMARKS_KIND,
         ...SECRET_KINDS,
         ...(this.localOrigin ? QUEUE_KINDS : []),
+        ...(this.extensions.includes("_acpmux/github_action") ? GITHUB_BROKER_KINDS : []),
       ],
       eventStream: true,
       visible,
@@ -3025,6 +3028,18 @@ export class AcpmuxDirectClient {
             policyUnenforced: { policy: msg.policy, why: opencode ? "ownSettings" : "noAskingMode" },
           });
         }
+      } else if (event.kind === "github_broker_action") {
+        const action = typeof msg.action === "string" ? msg.action : "action";
+        const repo = typeof msg.repo === "string" ? msg.repo : "repository";
+        const status = msg.status === "allowed" ? "allowed" : msg.status === "denied" ? "denied" : "failed";
+        const branch = typeof msg.branch === "string" && msg.branch ? ` on ${msg.branch}` : "";
+        this.rows.set(`github-broker-${event.seq}`, {
+          id: `github-broker-${event.seq}`,
+          version: 1,
+          at: event.at,
+          kind: "notice",
+          text: `GitHub ${status}: ${action} ${repo}${branch}`,
+        });
       } else if (event.kind === "session_offer") {
         // Off by default: off, an offer draws nothing (offer/offersShown.ts).
         const offer = offersShown() ? sessionOffer(msg) : undefined;
