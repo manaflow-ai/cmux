@@ -132,7 +132,7 @@ def main():
     app = BenchApp(opts.app, out=opts.out, window=(40, 40, 1600, 1000))
     stress_module = load_stress()
     try:
-        app.launch(timeout=180, settle=3)
+        app.launch(timeout=180)
         session = Session(app, stress_module)
         for name in opts.sessions.split(","):
             if name == "stress":
