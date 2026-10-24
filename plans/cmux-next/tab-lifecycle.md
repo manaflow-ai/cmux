@@ -98,7 +98,14 @@ cmux.json:
   when shown, when an agent drives it (before the call goes out) and before
   the hibernation probe. Pinned tabs (unless `hibernatePinnedTabs`), excluded
   hosts, open DevTools, capture, playing media and Web Audio stay awake; a
-  page kept for media is asked again after `freezeHiddenTabs`.
+  page kept for media is asked again after `freezeHiddenTabs`. No page freezes
+  while its hibernation probe runs (a freeze probe that ends then leaves it
+  alone: a freeze under the probe's scripts made it "unanswered" and kept it
+  live past the budget, STRESS 2026-10-24); a page the hibernation probe keeps
+  goes back through the freeze plan at once, not at the next unrelated event.
+  The hibernation picture is the engine's cheap full-size capture
+  (`thumbnail()`, Chromium's fast JPEG), not the lossless `snapshot()` PNG
+  that Chromium encodes on the app's main thread (80-140 ms a page).
 
 - Neighbors (plans/cmux-next/neighbor-tabs-DESIGN.md): the tabs beside each
   pane's shown tab (`keepNeighborTabsAwake`, wrapping) never freeze or
