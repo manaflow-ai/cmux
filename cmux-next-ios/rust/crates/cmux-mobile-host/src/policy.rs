@@ -135,6 +135,10 @@ pub static ALLOWED_COMMANDS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| 
         "reopen-saved-tab-group",
         "ack-tab-notifications",
         "notify",
+        // A reply to a terminal notification: its id and the person's text
+        // only (`notification_reply_refusal`). hostd answers it itself
+        // (`mailbox_apply::reply_to_notification`); the daemon never sees it.
+        "notification-reply",
         // Restart Shell: a dead terminal tab of the person's gets its shell
         // again, on this Mac, under the same terminal id; the surface only
         // (`creation_fields`). Verified live (cmux-next-ios/SECURITY.md "Restart Shell").
@@ -222,6 +226,7 @@ fn creation_fields(command: &str) -> Option<HashSet<&'static str>> {
         // folder the record holds; the phone names no program, folder or env.
         "reopen-saved-tab-group" => return Some(["saved", "pane", "transaction"].into_iter().collect()),
         "delete-saved-tab-group" => return Some(["saved"].into_iter().collect()),
+        "notification-reply" => return Some(["notification", "text", "reply_id"].into_iter().collect()),
         "new-tab" | "new-pane" => &["pane"],
         "new-pane-right" => &["pane", "width"],
         "split" => &["pane", "dir"],
@@ -281,6 +286,11 @@ impl DaemonPolicy {
         }
     }
 
+    /// The phone's device id this policy was made for.
+    pub fn device_id(&self) -> &str {
+        self.projection_subject.strip_prefix("ios-device:").unwrap_or(&self.projection_subject)
+    }
+
     /// Lets the phone create agent tabs recorded for `host`.
     pub fn with_agent_tab_host(mut self, host: Option<String>) -> Self {
         self.agent_tab_host = host.filter(|host| !host.is_empty());
@@ -326,6 +336,11 @@ impl DaemonPolicy {
         }
         if (command == "reopen-saved-tab-group" || command == "delete-saved-tab-group")
             && let Some(why) = saved_group_refusal(&object, command == "reopen-saved-tab-group")
+        {
+            return Verdict::Refuse(error_line(id, "forbidden", &why));
+        }
+        if command == "notification-reply"
+            && let Some(why) = notification_reply_refusal(&object)
         {
             return Verdict::Refuse(error_line(id, "forbidden", &why));
         }
@@ -789,6 +804,28 @@ fn web_url(url: &Value) -> bool {
     lower.starts_with("https://") || lower.starts_with("http://") || lower == "about:blank"
 }
 
+/// The longest text a reply to a terminal notification carries, in bytes.
+pub const NOTIFICATION_REPLY_MAX_BYTES: usize = 4096;
+
+/// Why a `notification-reply` is refused: it names one notification (a
+/// ledger id) and carries 1 to 4096 bytes of text.
+fn notification_reply_refusal(object: &Map<String, Value>) -> Option<String> {
+    if object.get("notification").and_then(Value::as_u64).is_none() {
+        return Some("notification-reply names a notification id".into());
+    }
+    if let Some(reply) = object.get("reply_id")
+        && !reply.as_str().is_some_and(|r| {
+            (8..=64).contains(&r.len()) && r.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        })
+    {
+        return Some("reply_id is the reply's id (8 to 64 letters, digits or dashes)".into());
+    }
+    match object.get("text").and_then(Value::as_str) {
+        Some(text) if !text.is_empty() && text.len() <= NOTIFICATION_REPLY_MAX_BYTES => None,
+        _ => Some(format!("notification-reply carries 1 to {NOTIFICATION_REPLY_MAX_BYTES} bytes of text")),
+    }
+}
+
 /// A v12 error response line, keys sorted like the Swift policy.
 pub fn error_line(id: Option<&Value>, code: &str, message: &str) -> String {
     json!({"error": message, "error_code": code, "id": id.cloned().unwrap_or(Value::Null), "ok": false})
@@ -1052,7 +1089,10 @@ mod tests {
         ] {
             assert_eq!(policy().evaluate(line), Verdict::Forward, "{}", String::from_utf8_lossy(line));
         }
-        let line = br#"{"cmd":"notification-reply","id":"m4","notification":1,"text":"y"}"#.as_slice();
+        // A notification's own reply is PR B's narrow command, with only its notification
+        // and text (`notification_reply_takes_only_its_notification_and_text`); a stray
+        // field still refuses it.
+        let line = br#"{"cmd":"notification-reply","id":"m4","notification":1,"text":"y","surface":7}"#.as_slice();
         assert!(matches!(policy().evaluate(line), Verdict::Refuse(_)));
     }
 
@@ -1070,17 +1110,72 @@ mod tests {
         ] {
             assert_eq!(policy().evaluate(line), Verdict::Forward, "{}", String::from_utf8_lossy(line));
         }
-        // Nothing beyond the ledger: replies into a terminal, the activity
-        // stream and the session journal stay refused.
+        // Nothing beyond the ledger: the activity stream and the session
+        // journal stay refused (a reply to a terminal notification is its own
+        // narrow command, `notification_reply_takes_only_its_notification_and_text`).
         for line in [
-            br#"{"cmd":"notification-reply","id":"m5","notification":1,"text":"y"}"#.as_slice(),
-            br#"{"cmd":"subscribe-activity","id":"m6"}"#,
+            br#"{"cmd":"subscribe-activity","id":"m6"}"#.as_slice(),
             br#"{"cmd":"session.journal.subscribe","id":"m7"}"#,
         ] {
             assert!(
                 matches!(policy().evaluate(line), Verdict::Refuse(_)),
                 "{}",
                 String::from_utf8_lossy(line)
+            );
+        }
+    }
+
+    /// A reply to a terminal notification (PROTOCOL.md "Terminal replies"):
+    /// the notification's id and the person's text, nothing else. hostd
+    /// answers it itself (`mailbox_apply::reply_to_notification`): the text
+    /// goes only to the terminal that posted that notification.
+    #[test]
+    fn notification_reply_takes_only_its_notification_and_text() {
+        assert_eq!(
+            policy().evaluate(br#"{"cmd":"notification-reply","id":"m5","notification":1,"text":"y"}"#),
+            Verdict::Forward
+        );
+        let long = format!(
+            r#"{{"cmd":"notification-reply","id":"m6","notification":1,"text":"{}"}}"#,
+            "x".repeat(4097)
+        );
+        let exact = format!(
+            r#"{{"cmd":"notification-reply","id":"m6","notification":1,"text":"{}"}}"#,
+            "x".repeat(4096)
+        );
+        assert_eq!(policy().evaluate(exact.as_bytes()), Verdict::Forward);
+        // The reply's id, so a copy that also went through the mailbox is applied once.
+        assert_eq!(
+            policy().evaluate(
+                br#"{"cmd":"notification-reply","id":"m8","notification":1,"text":"y","reply_id":"0d9f5e2c-7b3a-4e61-8f20-5c4b3a291807"}"#
+            ),
+            Verdict::Forward
+        );
+        assert!(matches!(
+            policy().evaluate(
+                br#"{"cmd":"notification-reply","id":"m8","notification":1,"text":"y","reply_id":"a b"}"#
+            ),
+            Verdict::Refuse(_)
+        ));
+        for line in [
+            // Another field: a surface, a command, raw bytes, a paste flag.
+            br#"{"cmd":"notification-reply","id":"m7","notification":1,"text":"y","surface":3}"#.as_slice(),
+            br#"{"cmd":"notification-reply","id":"m7","notification":1,"text":"y","command":"ls"}"#,
+            br#"{"cmd":"notification-reply","id":"m7","notification":1,"bytes":"bHMK"}"#,
+            br#"{"cmd":"notification-reply","id":"m7","notification":1,"text":"y","paste":false}"#,
+            // Missing or ill-typed fields; empty text.
+            br#"{"cmd":"notification-reply","id":"m7","text":"y"}"#,
+            br#"{"cmd":"notification-reply","id":"m7","notification":"1","text":"y"}"#,
+            br#"{"cmd":"notification-reply","id":"m7","notification":-1,"text":"y"}"#,
+            br#"{"cmd":"notification-reply","id":"m7","notification":1}"#,
+            br#"{"cmd":"notification-reply","id":"m7","notification":1,"text":7}"#,
+            br#"{"cmd":"notification-reply","id":"m7","notification":1,"text":""}"#,
+            long.as_bytes(),
+        ] {
+            assert!(
+                matches!(policy().evaluate(line), Verdict::Refuse(_)),
+                "{}",
+                String::from_utf8_lossy(&line[..line.len().min(120)])
             );
         }
     }
@@ -1462,7 +1557,10 @@ mod tests {
         let start = swift.find("allowedCommands: Set<String> = [").expect("allowlist in Swift");
         let end = start + swift[start..].find("]\n").expect("end of allowlist");
         let swift_commands: HashSet<&str> = swift[start..end].split('"').skip(1).step_by(2).collect();
-        let rust_commands: HashSet<&str> = ALLOWED_COMMANDS.iter().copied().collect();
+        // `notification-reply` is answered by hostd itself, never by the daemon, so
+        // the Mac's own phone lane (an allowlist of daemon commands) leaves it out.
+        let rust_commands: HashSet<&str> =
+            ALLOWED_COMMANDS.iter().copied().filter(|command| *command != "notification-reply").collect();
         assert_eq!(swift_commands, rust_commands);
         let start = swift
             .find("allowedResourceOperations: [String: Set<String>] = [")

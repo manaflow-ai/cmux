@@ -32,7 +32,8 @@ Usage: Prototypes/UiLayerHost/launch.sh [--snapshot PATH | --attach SOCKET] [--w
 Launches the Debug UI-layer host against a read-only JSON projection or an
 explicit cmux NEXT control socket. --attach establishes events.stream first,
 then reads system.identify and snapshot.get; it never sends mutation verbs.
---watch uses fswatch to restart the host after source saves.
+--watch uses the checked-in Swift vnode watcher to restart the host after
+source saves with no third-party watcher dependency.
 EOF
 }
 
@@ -84,30 +85,18 @@ wait_host() {
   return "$status"
 }
 
+if (( watch )); then
+  watch_args=(--package "$package")
+  if [[ -n "$attach" ]]; then
+    watch_args+=(--attach "$attach")
+  else
+    watch_args+=(--snapshot "$snapshot")
+  fi
+  exec swift run --package-path "$package" cmux-ui-layer-watch -- "${watch_args[@]}"
+fi
+
 if (( ! watch )); then
   run_host
   wait_host
   exit $?
 fi
-
-if ! command -v fswatch >/dev/null 2>&1; then
-  echo "--watch requires fswatch; install it or omit --watch" >&2
-  exit 2
-fi
-
-host_pid=0
-stop_host() {
-  if ((host_pid > 0)) && kill -0 "$host_pid" 2>/dev/null; then
-    kill "$host_pid" 2>/dev/null || true
-    wait "$host_pid" 2>/dev/null || true
-  fi
-}
-trap stop_host EXIT INT TERM
-run_host
-while IFS= read -r -d '' changed; do
-  stop_host
-  now="$(timestamp_ns)"
-  echo "ui-layer.reload path=$changed requested_at_ns=$now" >&2
-  run_host
-done < <(fswatch -0 "$package/Package.swift" "$package/Sources")
-wait_host || true
