@@ -1,0 +1,324 @@
+#!/usr/bin/env python3
+"""Reuse the compiled, unsigned cmux NEXT DEV Release app when nothing it is built from changed.
+
+The DEV Release compile (cmux-next.yml, cmux-scheme-compile, push and dev_daily runs on
+feat-cmux-next only) keys its product with `job_input_fingerprint.py dev-release-product`: the
+git object ids of every tree path that can reach the app (the whole tree minus docs, tests and
+other products), the whole cmux-next.yml, Xcode, the SDK, the arch, the cmux-tui tree it bundles
+and RECIPE. The key is content only: no branch, commit or path.
+
+`record` writes `manifest.json` after a compile (or a reuse) uploaded the app as the run's
+`cmux-next-dev-daily-unsigned-<sha>` artifact; the workflow uploads it as the artifact
+`cmux-next-dev-release-product-<key>`. `lookup` finds the newest such record from a trusted run
+(a push or dispatch of cmux-next.yml on feat-cmux-next in this repository), downloads that run's
+app archive, checks its SHA-256 against the record and prints `hit=true` and `archive=`. Signing,
+packaging and publishing still run at the exact SHA (cmux-next-dev-daily.yml stamps CMUXCommit).
+
+Every problem (no record, an untrusted or expired one, a digest mismatch, an API or network
+error, the deadline) is a miss with a reason, and the job compiles. The lookup only runs in the
+DEV lane: GITHUB_WORKFLOW_REF must be cmux-next.yml on refs/heads/feat-cmux-next, so a nightly or
+stable build can never take a reused product (hq#3967).
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import hashlib
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+import zipfile
+from pathlib import Path
+
+SCHEMA = "cmux-next-dev-release-product/v1"
+# Bump to invalidate every recorded product (a change to how the product is built or packed that
+# no keyed input shows). Passed to the fingerprint as `recipe`.
+RECIPE = "dev-release-product-v1"
+RECORD_PREFIX = "cmux-next-dev-release-product-"
+PRODUCT_PREFIX = "cmux-next-dev-daily-unsigned-"
+WORKFLOW_PATH = ".github/workflows/cmux-next.yml"
+BRANCH = "feat-cmux-next"
+TRUSTED_EVENTS = ("push", "workflow_dispatch")
+KEY = re.compile(r"^[0-9a-f]{64}$")
+SHA = re.compile(r"^[0-9a-f]{40}$")
+DIGEST = re.compile(r"^[0-9a-f]{64}$")
+MAX_ARCHIVE_BYTES = 4 * 1024**3
+CANDIDATES = 3
+
+
+class Miss(Exception):
+    """This record (or every record) cannot be used; the message is the reason."""
+
+
+class Api:
+    """The GitHub REST calls the lookup makes. Tests replace it."""
+
+    def __init__(self, token: str, repo: str, base: str, deadline: float):
+        self.token, self.repo, self.base, self.deadline = token, repo, base.rstrip("/"), deadline
+
+    def left(self) -> float:
+        left = self.deadline - time.monotonic()
+        if left <= 1:
+            raise Miss("the lookup ran out of time")
+        return left
+
+    def json(self, path: str) -> dict:
+        request = urllib.request.Request(f"{self.base}/repos/{self.repo}/{path}", headers={
+            "Authorization": f"Bearer {self.token}", "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28"})
+        try:
+            with urllib.request.urlopen(request, timeout=min(20, self.left())) as response:
+                return json.loads(response.read().decode())
+        except (OSError, ValueError, urllib.error.URLError) as error:
+            raise Miss(f"GET {path.split('?')[0]} failed: {error}") from error
+
+    def download(self, url: str, dest: Path) -> None:
+        # curl, not urllib: the artifact URL redirects to blob storage, which refuses the GitHub
+        # token; curl sends a -H header only to the first host. The header goes on stdin, never argv.
+        command = ["curl", "-fsSL", "--retry", "2", "--connect-timeout", "10",
+                   "--max-time", str(int(self.left())), "-H", "@-", "-o", str(dest), url]
+        try:
+            result = subprocess.run(command, input=f"Authorization: Bearer {self.token}\n", text=True,
+                                    capture_output=True, timeout=self.left() + 5)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            raise Miss(f"download failed: {error}") from error
+        if result.returncode != 0:
+            raise Miss(f"download failed (curl {result.returncode}): {result.stderr.strip()[:200]}")
+
+
+def record_name(key: str) -> str:
+    return RECORD_PREFIX + key
+
+
+def lane_guard(env: dict[str, str]) -> None:
+    """Only cmux-next.yml on feat-cmux-next may take a reused product: never nightly or stable."""
+    repo = env.get("GITHUB_REPOSITORY", "")
+    expected = f"{repo}/{WORKFLOW_PATH}@refs/heads/{BRANCH}"
+    if not repo or env.get("GITHUB_WORKFLOW_REF", "") != expected:
+        raise Miss(f"not the DEV lane ({env.get('GITHUB_WORKFLOW_REF') or 'no GITHUB_WORKFLOW_REF'}); "
+                   f"only {WORKFLOW_PATH} on {BRANCH} reuses a product")
+
+
+def trusted_records(artifacts: list[dict], key: str, repository_id: str) -> list[dict]:
+    """Unexpired records of `key` from this repository's feat-cmux-next runs, newest first."""
+    trusted = []
+    for item in artifacts:
+        run = item.get("workflow_run") or {}
+        if item.get("name") != record_name(key) or item.get("expired"):
+            continue
+        if str(run.get("repository_id")) != repository_id or str(run.get("head_repository_id")) != repository_id:
+            continue
+        if run.get("head_branch") != BRANCH or not run.get("id"):
+            continue
+        trusted.append(item)
+    return sorted(trusted, key=lambda item: item.get("created_at") or "", reverse=True)
+
+
+def check_run(run: dict, repo: str) -> None:
+    if run.get("event") not in TRUSTED_EVENTS:
+        raise Miss(f"run {run.get('id')} is a {run.get('event')} run, not a push or dispatch")
+    if run.get("path") != WORKFLOW_PATH or run.get("head_branch") != BRANCH:
+        raise Miss(f"run {run.get('id')} is {run.get('path')} on {run.get('head_branch')}, not {WORKFLOW_PATH} on {BRANCH}")
+    if (run.get("repository") or {}).get("full_name") != repo or (run.get("head_repository") or {}).get("full_name") != repo:
+        raise Miss(f"run {run.get('id')} is not this repository's own")
+
+
+def check_manifest(manifest: dict, key: str, run_id: int) -> None:
+    if manifest.get("schema") != SCHEMA:
+        raise Miss(f"record schema {manifest.get('schema')!r} is not {SCHEMA}")
+    if manifest.get("key") != key:
+        raise Miss("the record names another key")
+    if manifest.get("run_id") != run_id:
+        raise Miss("the record names another run than the one that uploaded it")
+    sha = manifest.get("source_sha", "")
+    if not SHA.match(str(sha)) or manifest.get("product_artifact") != PRODUCT_PREFIX + sha:
+        raise Miss("the record names no product artifact of its commit")
+    if not DIGEST.match(str(manifest.get("archive_sha256", ""))):
+        raise Miss("the record has no archive digest")
+    name = str(manifest.get("archive_name", ""))
+    if not name or "/" in name or name.startswith(".") or not name.endswith(".app.zip"):
+        raise Miss(f"the record's archive name {name!r} is not a plain .app.zip name")
+    size = manifest.get("archive_bytes")
+    if not isinstance(size, int) or not 0 < size <= MAX_ARCHIVE_BYTES:
+        raise Miss(f"the record's archive size {size!r} is out of range")
+
+
+def extract_verified(bundle: Path, manifest: dict, out_dir: Path) -> Path:
+    """Copy the record's archive out of the downloaded artifact zip, checking size and SHA-256."""
+    name = manifest["archive_name"]
+    try:
+        with zipfile.ZipFile(bundle) as artifact:
+            info = artifact.getinfo(name)
+            if info.file_size != manifest["archive_bytes"]:
+                raise Miss(f"the archive is {info.file_size} bytes, the record says {manifest['archive_bytes']}")
+            out_dir.mkdir(parents=True, exist_ok=True)
+            dest = out_dir / name
+            digest = hashlib.sha256()
+            with artifact.open(info) as source, dest.open("wb") as sink:
+                for chunk in iter(lambda: source.read(1 << 20), b""):
+                    digest.update(chunk)
+                    sink.write(chunk)
+    except KeyError as error:
+        raise Miss(f"the product artifact has no {name}") from error
+    except (zipfile.BadZipFile, OSError) as error:
+        raise Miss(f"the product artifact is not a readable zip: {error}") from error
+    if digest.hexdigest() != manifest["archive_sha256"]:
+        dest.unlink(missing_ok=True)
+        raise Miss("the archive's SHA-256 does not match the record (corrupt or replaced)")
+    return dest
+
+
+def read_record(api: Api, item: dict, scratch: Path) -> dict:
+    path = scratch / f"record-{item.get('id')}.zip"
+    api.download(item["archive_download_url"], path)
+    try:
+        with zipfile.ZipFile(path) as record:
+            return json.loads(record.read("manifest.json").decode())
+    except (KeyError, zipfile.BadZipFile, ValueError, OSError) as error:
+        raise Miss(f"record {item.get('id')} has no readable manifest.json: {error}") from error
+
+
+def try_record(api: Api, item: dict, key: str, repo: str, out_dir: Path, scratch: Path) -> dict[str, str]:
+    run_id = int(item["workflow_run"]["id"])
+    check_run(api.json(f"actions/runs/{run_id}"), repo)
+    manifest = read_record(api, item, scratch)
+    check_manifest(manifest, key, run_id)
+    query = urllib.parse.urlencode({"name": manifest["product_artifact"], "per_page": 10})
+    products = [a for a in api.json(f"actions/runs/{run_id}/artifacts?{query}").get("artifacts", [])
+                if a.get("name") == manifest["product_artifact"] and not a.get("expired")]
+    if len(products) != 1:
+        raise Miss(f"run {run_id} has no unexpired {manifest['product_artifact']}")
+    bundle = scratch / f"product-{products[0].get('id')}.zip"
+    api.download(products[0]["archive_download_url"], bundle)
+    try:
+        archive = extract_verified(bundle, manifest, out_dir)
+    finally:
+        bundle.unlink(missing_ok=True)
+    return {"hit": "true", "archive": str(archive), "source_run_id": str(run_id),
+            "source_sha": manifest["source_sha"], "archive_sha256": manifest["archive_sha256"],
+            "compiled_run_id": str(manifest.get("compiled_run_id") or run_id)}
+
+
+def lookup(api: Api, key: str, env: dict[str, str], out_dir: Path) -> dict[str, str]:
+    lane_guard(env)
+    if not KEY.match(key):
+        raise Miss(f"{key!r} is not a product key (the fingerprint gave none)")
+    repository_id = env.get("GITHUB_REPOSITORY_ID", "").strip()
+    if not repository_id:
+        raise Miss("GITHUB_REPOSITORY_ID is not set, so no record can be trusted")
+    query = urllib.parse.urlencode({"name": record_name(key), "per_page": 30})
+    records = trusted_records(api.json(f"actions/artifacts?{query}").get("artifacts", []), key, repository_id)
+    if not records:
+        raise Miss("no product was recorded for these inputs (a product input changed)")
+    reasons = []
+    with tempfile.TemporaryDirectory(prefix="cmux-dev-product-") as scratch:
+        for item in records[:CANDIDATES]:
+            try:
+                return try_record(api, item, key, env["GITHUB_REPOSITORY"], out_dir, Path(scratch))
+            except (Miss, KeyError, TypeError, ValueError) as why:
+                reasons.append(f"run {(item.get('workflow_run') or {}).get('id')}: {why}")
+    raise Miss("; ".join(reasons))
+
+
+def summarize(outputs: dict[str, str], key: str, summary: str | None) -> None:
+    server = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
+    repo = os.environ.get("GITHUB_REPOSITORY", "")
+    if outputs.get("hit") == "true":
+        url = f"{server}/{repo}/actions/runs/{outputs['source_run_id']}"
+        line = (f"DEV Release product: **hit**. Reused the app {url} compiled at `{outputs['source_sha'][:12]}` "
+                f"(key `{key[:16]}`, sha256 `{outputs['archive_sha256'][:16]}`); xcodebuild skipped.")
+        print(f"::notice title=DEV Release product reused::{url} at {outputs['source_sha'][:12]}, key {key[:16]}",
+              file=sys.stderr)
+    else:
+        line = f"DEV Release product: **miss** ({outputs.get('reason', 'unknown')}); compiling."
+        print(f"::notice title=DEV Release product miss::{outputs.get('reason', 'unknown')}", file=sys.stderr)
+    if summary:
+        try:
+            with open(summary, "a", encoding="utf-8") as stream:
+                stream.write(line + "\n")
+        except OSError:
+            pass
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def record(args: argparse.Namespace, env: dict[str, str]) -> dict:
+    if not KEY.match(args.key) or not SHA.match(args.sha):
+        raise SystemExit("record: --key must be 64 hex and --sha 40 hex")
+    archive = Path(args.archive)
+    manifest = {
+        "schema": SCHEMA, "key": args.key, "recipe": RECIPE, "source_sha": args.sha,
+        "run_id": int(env["GITHUB_RUN_ID"]), "run_attempt": int(env.get("GITHUB_RUN_ATTEMPT", "1")),
+        "product_artifact": PRODUCT_PREFIX + args.sha, "archive_name": archive.name,
+        "archive_bytes": archive.stat().st_size, "archive_sha256": sha256_file(archive),
+        "recorded_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
+        # Provenance: where these bytes were compiled. A reuse records the run it took them from.
+        "origin": "reused" if args.reused_from_run else "compiled",
+        "compiled_run_id": int(args.compiled_run or args.reused_from_run or env["GITHUB_RUN_ID"]),
+    }
+    if args.reused_from_run:
+        manifest["reused_from"] = {"run_id": int(args.reused_from_run), "source_sha": args.reused_from_sha}
+    Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+    Path(args.out).write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    return manifest
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    sub = parser.add_subparsers(dest="command", required=True)
+    find = sub.add_parser("lookup", help="print hit=true|false, reason= and archive= for $GITHUB_OUTPUT")
+    find.add_argument("--key", required=True, help="job_input_fingerprint.py dev-release-product's fingerprint")
+    find.add_argument("--out", required=True, help="directory for the verified archive")
+    find.add_argument("--timeout", type=float, default=180, help="seconds for the whole lookup")
+    find.add_argument("--skip", default="", help="a reason to skip the lookup (no_reuse, switched off)")
+    find.add_argument("--summary", default=os.environ.get("GITHUB_STEP_SUMMARY"))
+    rec = sub.add_parser("record", help="write the manifest.json of an uploaded product")
+    rec.add_argument("--key", required=True)
+    rec.add_argument("--sha", required=True, help="the commit this run built (its product artifact's name)")
+    rec.add_argument("--archive", required=True)
+    rec.add_argument("--out", required=True)
+    rec.add_argument("--reused-from-run", default="")
+    rec.add_argument("--reused-from-sha", default="")
+    rec.add_argument("--compiled-run", default="", help="the run that ran xcodebuild for these bytes")
+    args = parser.parse_args(argv)
+    env = dict(os.environ)
+    if args.command == "record":
+        manifest = record(args, env)
+        print(f"record={record_name(args.key)}")
+        print(f"archive_sha256={manifest['archive_sha256']}")
+        return 0
+    outputs: dict[str, str]
+    try:
+        if args.skip:
+            raise Miss(args.skip)
+        api = Api(env.get("GH_TOKEN") or env.get("GITHUB_TOKEN") or "", env.get("GITHUB_REPOSITORY", ""),
+                  env.get("GITHUB_API_URL", "https://api.github.com"), time.monotonic() + args.timeout)
+        if not api.token:
+            raise Miss("no token to read artifacts with")
+        outputs = lookup(api, args.key, env, Path(args.out))
+    except Miss as why:
+        outputs = {"hit": "false", "reason": " ".join(str(why).split())[:500]}
+    except Exception as error:  # noqa: BLE001 - a lookup bug must never fail the compile job
+        outputs = {"hit": "false", "reason": f"lookup error: {type(error).__name__}: {error}"[:500]}
+    summarize(outputs, args.key, args.summary)
+    for name, value in outputs.items():
+        print(f"{name}={value}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
