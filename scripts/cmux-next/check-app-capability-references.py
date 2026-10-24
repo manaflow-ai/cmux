@@ -50,10 +50,12 @@ Rules (each violation names the file and line):
      daemon never serves.
   3. An unservedByBundledDaemon entry the daemon source now defines moves to
      optional.
-  4. A capability is a case of DaemonCapability: a String constant declared in
-     the catalog type (in DaemonEndpoint.swift or an extension in any file) is in
+  4. A capability is a case of DaemonCapability: a static of the catalog type (in
+     DaemonEndpoint.swift or an extension in any file) that is or may be a String
+     (stored or computed, typed String or untyped, or a func returning one) is in
      no list, so the export, check-daemon-capabilities.sh and DaemonCompatibility
-     never see it.
+     never see it, and the gate APIs take any String, so it compiles at a gate.
+     check-daemon-capabilities-fresh.py's catalog_strays finds them for both checks.
 
 Usage: check-app-capability-references.py [--repo ROOT] [--list]
   --list prints every reference (capability, kind, file:line) and exits 0.
@@ -258,13 +260,11 @@ def collect(repo: Path):
         refs.append(Ref(value, LISTED, f"{ENDPOINT}:{endpoint.line(found.start()) if found else 1}"))
     strays: list[str] = []
     for f in files:
+        if CATALOG in f.text:
+            strays += fresh.catalog_strays(f.text, f.rel)
         for pos, name, value, owner in f.constants:
-            where = f"{f.rel}:{f.line(pos)}"
-            if owner in (CATALOG, "DaemonCapabilities"):
-                strays.append(f"{value} ({owner}.{name}, {where})")
-                refs.append(Ref(value, LISTED, where))
-            elif name == "capability" or name.endswith("Capability"):
-                refs.append(Ref(value, GATE, where))
+            if owner != CATALOG and (name == "capability" or name.endswith("Capability")):
+                refs.append(Ref(value, GATE, f"{f.rel}:{f.line(pos)}"))
         for pattern, kind in CALLS:
             # Every call pattern starts with its literal name: a file without
             # it has no match (a substring test is much cheaper than the regex).
@@ -340,8 +340,9 @@ def main() -> int:
     unserved = set(lists["unservedByBundledDaemon"])
     problems: list[str] = []
     for stray in strays:
-        problems.append(f"{stray}: a String constant in the capability catalog is in no list, so no build "
-                        f"checks it; make it a `case` of {CATALOG} in {ENDPOINT} and place it in an arm of `tier`.")
+        problems.append(f"{stray}: a String static of the capability catalog is in no list, so no build checks "
+                        f"it; make it a `case` of {CATALOG} in {ENDPOINT} placed in an arm of `tier`, or give it "
+                        "a non-String type.")
     stubs: dict[str, list[str]] = {}
     for capability in sorted({r.capability for r in refs}):
         sites = [r for r in refs if r.capability == capability]
