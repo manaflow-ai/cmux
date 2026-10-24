@@ -24,10 +24,14 @@ struct NewChatAfterItsDockClosedTests {
             let content = try #require(window.workspaceContent)
             let pane = try #require(window.focusedPane)
             let store = services.daemon.store
-            /// The workspace's agent chats the store made (no provisional stand-in), with their panes.
+            // The launch pane can show the agent New Tab page, a conversation tab without a
+            // session: it is not a chat this test opened, so it is left out of `chats()`.
+            let launchTabs = Set(content.workspace.screens.flatMap(\.panes).flatMap(\.tabs).map(\.id))
+            /// The agent chats Cmd-I made in the workspace (no provisional stand-in), with their panes.
             @MainActor func chats() -> [(tab: TabModel, pane: PaneModel)] {
                 content.workspace.screens.flatMap(\.panes).flatMap { model in
-                    model.tabs.filter { $0.conversation != nil && !ProvisionalTab.isProvisional($0.id) }.map { (tab: $0, pane: model) }
+                    model.tabs.filter { $0.conversation != nil && !ProvisionalTab.isProvisional($0.id) && !launchTabs.contains($0.id) }
+                        .map { (tab: $0, pane: model) }
                 }
             }
             /// Whether the pane's screen has a chat dock column.
@@ -39,7 +43,6 @@ struct NewChatAfterItsDockClosedTests {
                 "chats \(chats().map { "\($0.tab.id)@\($0.pane.handle.rawValue)" }), pane \(pane.pane.handle.rawValue), "
                     + "focused \(String(describing: content.focusedPane?.pane.handle.rawValue)), on its way \(pane.pendingDock)"
             }
-            try #require(chats().isEmpty, "the launch workspace holds no chat")
 
             // Cmd-I: the chat opens hidden here, docks left, and takes the focus there (after
             // the pane is told the dock answered: `dockFinished`, then `focusWhenShown`).
