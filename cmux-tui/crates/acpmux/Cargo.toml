@@ -59,6 +59,9 @@ unicode-normalization.workspace = true
 wait-timeout.workspace = true
 zeroize.workspace = true
 regex = "1"
+# One pass over a text for every secret rule's keywords (src/secret_scan.rs); already in
+# the graph through regex.
+aho-corasick = "1.1"
 # The typed protocol registry (src/protocol): JSON Schema for spec/acpmux-protocol.json.
 schemars = "1"
 # The model catalog fetch (src/catalog/fetch.rs): HTTPS only, through the

@@ -153,6 +153,10 @@ struct Rule {
 
 struct Rules {
     rules: Vec<Rule>,
+    /// Every rule's keywords, matched in one pass over the text (`find`): a rule runs only when
+    /// one of its keywords is in the text, as gitleaks gates it. The pass is overlapping, so a
+    /// keyword inside or across another one is still seen.
+    keywords: Keywords,
     global: Vec<Allow>,
     /// cmux's own: hex (git SHAs, hashes) and UUIDs are ids, not secrets, as the
     /// value of a `NAME=value` whose name does not say secret or password
@@ -285,8 +289,57 @@ static RULES: LazyLock<Rules> = LazyLock::new(|| {
         ..AllowConfig::default()
     })
     .expect("constant pattern"); // crash-allow: constant pattern
-    Rules { rules, global, ids }
+    let keywords = Keywords::of(&rules);
+    Rules { rules, keywords, global, ids }
 });
+
+/// The rules' distinct keywords in one automaton, and each rule's keywords by index into it.
+struct Keywords {
+    automaton: aho_corasick::AhoCorasick,
+    count: usize,
+    of_rule: Vec<Vec<usize>>,
+}
+
+impl Keywords {
+    fn of(rules: &[Rule]) -> Self {
+        let mut distinct: Vec<&str> = Vec::new();
+        let of_rule = rules
+            .iter()
+            .map(|rule| {
+                rule.keywords
+                    .iter()
+                    .map(|k| match distinct.iter().position(|d| *d == k.as_str()) {
+                        Some(at) => at,
+                        None => {
+                            distinct.push(k.as_str());
+                            distinct.len() - 1
+                        }
+                    })
+                    .collect()
+            })
+            .collect();
+        let automaton = aho_corasick::AhoCorasick::builder()
+            .match_kind(aho_corasick::MatchKind::Standard)
+            .build(&distinct)
+            .expect("constant pattern"); // crash-allow: constant pattern
+        Self { automaton, count: distinct.len(), of_rule }
+    }
+
+    /// Which keywords `lower` holds, by index: one overlapping pass.
+    fn present(&self, lower: &str) -> Vec<bool> {
+        let mut hit = vec![false; self.count];
+        for m in self.automaton.find_overlapping_iter(lower) {
+            hit[m.pattern().as_usize()] = true;
+        }
+        hit
+    }
+
+    /// Whether rule `rule` may match a text whose keywords are `hit`: it has none, or one is there.
+    fn gate(&self, rule: usize, hit: &[bool]) -> bool {
+        let keywords = &self.of_rule[rule];
+        keywords.is_empty() || keywords.iter().any(|&k| hit[k])
+    }
+}
 
 static ENTROPY_CANDIDATE: LazyLock<Regex> =
     LazyLock::new(|| compile(r"[A-Za-z0-9+_-]{32,}=*").expect("constant pattern")); // crash-allow: constant pattern
@@ -413,8 +466,9 @@ pub fn find(text: &str) -> Vec<Found> {
     let data: Vec<Range<usize>> = DATA_URI.find_iter(bytes).map(|m| m.range()).collect();
     let inside_data = |r: &Range<usize>| data.iter().any(|d| d.start <= r.start && r.end <= d.end);
     let mut all: Vec<(usize, Found)> = Vec::new();
+    let hit = rules.keywords.present(&lower);
     for (order, rule) in rules.rules.iter().enumerate() {
-        if !rule.keywords.is_empty() && !rule.keywords.iter().any(|k| lower.contains(k.as_str())) {
+        if !rules.keywords.gate(order, &hit) {
             continue;
         }
         for caps in rule.re.captures_iter(bytes) {

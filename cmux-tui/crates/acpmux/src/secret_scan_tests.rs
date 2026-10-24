@@ -353,3 +353,38 @@ fn nosey_parker_examples_are_caught_and_its_negatives_left_alone() {
 /// token's negatives) or values assigned to a password: masking them is right here.
 const MIN_RECALL_PERCENT: usize = 68;
 const MAX_FLAGGED_NEGATIVES: usize = 49;
+
+/// The one-pass keyword gate (`Keywords`) lets exactly the rules through that the per-rule
+/// `contains` check did: for each keyword alone, inside a longer word, run into its neighbours
+/// (a keyword across another one's end), and for no keyword at all.
+#[test]
+fn the_one_pass_keyword_gate_matches_the_contains_gate_for_every_rule() {
+    let rules = &*RULES;
+    let naive = |lower: &str| -> Vec<bool> {
+        rules
+            .rules
+            .iter()
+            .map(|r| r.keywords.is_empty() || r.keywords.iter().any(|k| lower.contains(k.as_str())))
+            .collect()
+    };
+    let mut keywords: Vec<&str> =
+        rules.rules.iter().flat_map(|r| r.keywords.iter().map(String::as_str)).collect();
+    keywords.sort_unstable();
+    keywords.dedup();
+    assert!(keywords.len() > 20, "gitleaks' rules carry keywords: {}", keywords.len());
+    let mut texts: Vec<String> =
+        vec![String::new(), "nothing secret here".into(), keywords.concat()];
+    for k in &keywords {
+        texts.push((*k).to_owned());
+        texts.push(format!("xx{k}yy"));
+    }
+    for pair in keywords.windows(2) {
+        texts.push(format!("{}{}", pair[0], pair[1]));
+    }
+    for text in &texts {
+        let hit = rules.keywords.present(text);
+        let gated: Vec<bool> =
+            (0..rules.rules.len()).map(|i| rules.keywords.gate(i, &hit)).collect();
+        assert_eq!(gated, naive(text), "{text:?}");
+    }
+}

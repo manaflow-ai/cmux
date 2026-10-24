@@ -6,6 +6,7 @@ version = 4
 name = "acpmux"
 version = "1.0.0"
 dependencies = [
+ "aho-corasick",
  "anyhow",
  "base64",
  "clap",
