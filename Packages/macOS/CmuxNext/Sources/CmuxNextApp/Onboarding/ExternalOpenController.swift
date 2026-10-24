@@ -95,6 +95,10 @@ final class ExternalOpenController {
             var arguments: [String: ActionValue] = ["url": .string(url.absoluteString)]
             if isAgent { arguments["background"] = .bool(true) }
             services.registry.perform("link.open", invocation: ActionInvocation(arguments: arguments))
+            // `background` also means no app activation: bringing cmux to the
+            // front here would put the previously focused agent input back
+            // under the next keystroke from the opening app.
+            if isAgent { return }
         } else {
             deliver(route, to: pane)
             windows.bringToFront(controller)
