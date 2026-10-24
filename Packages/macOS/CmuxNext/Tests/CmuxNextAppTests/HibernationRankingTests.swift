@@ -8,8 +8,11 @@ import Testing
 /// one age threshold, and under critical memory pressure every eligible page at once. It now
 /// ranks pages by value (how long hidden, how often the person comes back to them, how much
 /// memory they hold), hibernates the least valuable first, a few per pass, and only after the
-/// idle timeout (30 minutes by default) or under memory pressure.
+/// idle timeout (10 minutes by default, 30 with "moderate") or under memory pressure. These
+/// tests rank at the "moderate" timeout.
 @Suite struct HibernationRankingTests {
+    private let moderate = BrowserHibernationSetting(mode: .moderate)
+
     private func page(_ key: String, minutes: Double, focus: Int = 0, megabytes: UInt64? = nil,
                       downloading: Bool = false, lease: Bool = false) -> HibernationPlanner.Candidate {
         var candidate = HibernationPlanner.Candidate(key: key, hiddenFor: minutes * 60)
@@ -20,9 +23,9 @@ import Testing
         return candidate
     }
 
-    @Test func theDefaultIdleTimeoutIsThirtyMinutes() {
-        #expect(BrowserHibernationSetting.fallback.hiddenMinutes == 30)
-        let plan = HibernationPlanner.plan(.fallback, pressure: .normal, candidates: [
+    @Test func theModerateIdleTimeoutIsThirtyMinutes() {
+        #expect(moderate.hiddenMinutes == 30)
+        let plan = HibernationPlanner.plan(moderate, pressure: .normal, candidates: [
             page("old", minutes: 31), page("young", minutes: 29),
         ])
         #expect(plan.due == ["old"])
@@ -32,7 +35,7 @@ import Testing
     /// Fifty tabs past the timeout do not all close in one pass: a few go, then the next pass.
     @Test func neverAllAtOnce() {
         let candidates = (0..<50).map { page("t\($0)", minutes: 40 + Double($0)) }
-        let plan = HibernationPlanner.plan(.fallback, pressure: .normal, candidates: candidates)
+        let plan = HibernationPlanner.plan(moderate, pressure: .normal, candidates: candidates)
         #expect(plan.due.count == HibernationPlanner.Pace.normal.perPass)
         #expect(plan.due == ["t49", "t48"], "the longest idle go first")
         #expect(plan.nextCheck == HibernationPlanner.Pace.normal.interval)
@@ -40,14 +43,14 @@ import Testing
 
     @Test func criticalPressureStillGoesInBatches() {
         let candidates = (0..<20).map { page("t\($0)", minutes: 2 + Double($0)) }
-        let plan = HibernationPlanner.plan(.fallback, pressure: .critical, candidates: candidates)
+        let plan = HibernationPlanner.plan(moderate, pressure: .critical, candidates: candidates)
         #expect(plan.due.count == HibernationPlanner.Pace.critical.perPass)
         #expect(plan.nextCheck == HibernationPlanner.Pace.critical.interval)
     }
 
     /// A tab the person keeps coming back to outlives one they opened once, hidden as long.
     @Test func frequentlyFocusedTabsHibernateLater() {
-        let plan = HibernationPlanner.plan(.fallback, pressure: .normal, candidates: [
+        let plan = HibernationPlanner.plan(moderate, pressure: .normal, candidates: [
             page("once", minutes: 36, focus: 1), page("often", minutes: 35, focus: 15),
         ])
         #expect(plan.due == ["once"])
@@ -55,7 +58,7 @@ import Testing
 
     /// Under pressure, the page that frees the most memory for the least loss goes first.
     @Test func underPressureTheHeaviestOfEqualPagesGoesFirst() {
-        let plan = HibernationPlanner.plan(.fallback, pressure: .warning, candidates: [
+        let plan = HibernationPlanner.plan(moderate, pressure: .warning, candidates: [
             page("light", minutes: 5, megabytes: 80), page("heavy", minutes: 5, megabytes: 900),
             page("medium", minutes: 5, megabytes: 300),
         ])
@@ -65,7 +68,7 @@ import Testing
     /// Memory pressure relieves itself one page at a time even when none reached the timeout,
     /// and never takes a page the person just left.
     @Test func warningPressureRelievesOnePageAtATime() {
-        let plan = HibernationPlanner.plan(.fallback, pressure: .warning, candidates: [
+        let plan = HibernationPlanner.plan(moderate, pressure: .warning, candidates: [
             page("just-left", minutes: 0.2, megabytes: 2_000), page("a", minutes: 3), page("b", minutes: 6),
         ])
         #expect(plan.due == ["b"])
@@ -74,7 +77,7 @@ import Testing
 
     /// Without pressure, nothing goes before its timeout, however heavy.
     @Test func noPressureNoEarlyHibernation() {
-        let plan = HibernationPlanner.plan(.fallback, pressure: .normal, candidates: [page("heavy", minutes: 10, megabytes: 4_000)])
+        let plan = HibernationPlanner.plan(moderate, pressure: .normal, candidates: [page("heavy", minutes: 10, megabytes: 4_000)])
         #expect(plan.due.isEmpty)
     }
 
@@ -83,14 +86,14 @@ import Testing
     @Test func aRecentlyKeptPageDoesNotBlockRelief() {
         var playing = page("playing", minutes: 20)
         playing.recentlyKept = true
-        let plan = HibernationPlanner.plan(.fallback, pressure: .warning, candidates: [playing, page("quiet", minutes: 5)])
+        let plan = HibernationPlanner.plan(moderate, pressure: .warning, candidates: [playing, page("quiet", minutes: 5)])
         #expect(plan.due == ["quiet"])
-        #expect(HibernationPlanner.plan(.fallback, pressure: .warning, candidates: [playing]).due == ["playing"])
+        #expect(HibernationPlanner.plan(moderate, pressure: .warning, candidates: [playing]).due == ["playing"])
     }
 
     @Test func downloadsAndAgentLeasesNeverHibernate() {
         for pressure in [MemoryPressureLevel.normal, .warning, .critical] {
-            let plan = HibernationPlanner.plan(.fallback, pressure: pressure, candidates: [
+            let plan = HibernationPlanner.plan(moderate, pressure: pressure, candidates: [
                 page("dl", minutes: 500, downloading: true), page("agent", minutes: 500, lease: true),
             ])
             #expect(plan.due.isEmpty, "\(pressure)")

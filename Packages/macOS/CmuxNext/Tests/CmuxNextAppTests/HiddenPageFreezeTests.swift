@@ -5,7 +5,7 @@ import Testing
 
 /// Idle power (msg 2654): a hidden Chromium page keeps its renderer awake about 0.5 to 1.5 times
 /// a second. Freezing it (`Page.setWebLifecycleState frozen`) cut renderer energy by about 90 %
-/// on cmux14, but hibernation only closes a page after 60 minutes hidden. A hidden page freezes
+/// on cmux14, long before hibernation closes the page (10 minutes hidden by default). A hidden page freezes
 /// after `browser.freezeHiddenTabs` seconds (30 by default) and thaws when shown.
 @Suite struct HiddenPageFreezeTests {
     private func candidate(_ key: String, hiddenFor: Double, pinned: Bool = false, host: String? = nil) -> HibernationPlanner.Candidate {

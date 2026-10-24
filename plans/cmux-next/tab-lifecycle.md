@@ -84,7 +84,7 @@ cmux.json:
 
 ```jsonc
 "browser": {
-  "hibernation": "moderate",          // "off" | "moderate" (60 min) | "aggressive" (10 min) | minutes
+  "hibernation": "aggressive",        // "off" | "moderate" (30 min) | "aggressive" (10 min, default) | minutes
   "hibernationExclusions": ["mail.google.com", "*.example.com"],
   "hibernatePinnedTabs": false,
   "freezeHiddenTabs": 30,             // "off" | seconds: hidden Chromium pages freeze (power, msg 2654)
@@ -170,7 +170,7 @@ Now (`HibernationPlanner.plan`):
   doubling of shows in the last hour (at 30 min, 15 shows: 20 min later), plus under memory pressure 1 min per
   100 MB of the page's memory (at most 10 min; sampled from the resource
   source only under pressure, at most every 30 s). Least valuable first.
-- Timeout: `moderate` is 30 min (default), `aggressive` 10 min, or minutes;
+- Timeout: `moderate` is 30 min, `aggressive` 10 min (default), or minutes;
   under pressure at most 10 min.
 - Relief: under warning or critical pressure with no page past the timeout,
   the least valuable page still goes.
