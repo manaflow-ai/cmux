@@ -215,6 +215,26 @@ import Testing
         release.signal()
     }
 
+    @Test func quitNeverWaitsForStartedWorkThatIsNotBlockShutdown() async {
+        let work = BackgroundWork(cpuWidth: 2, label: "test.quit.others")
+        let hang = DispatchSemaphore(value: 0)
+        let started = Started()
+        // Running items that hang, but did not promise quit anything.
+        for behavior in [ShutdownBehavior.continueOnShutdown, .skipOnShutdown] {
+            work.post(.bestEffort, mayBlock: .cpu, shutdown: behavior) {
+                started.signal()
+                hang.wait()
+            }
+        }
+        await started.wait(2)
+        let begin = ContinuousClock.now
+        // An hour's bound: a wait for either item would fail the suite's one-minute limit.
+        #expect(await work.shutdown(within: .seconds(3600)))
+        #expect(ContinuousClock.now - begin < .seconds(5))
+        hang.signal()
+        hang.signal()
+    }
+
     @Test func aQuitWithNothingQueuedDoesNotWait() async {
         let work = BackgroundWork(label: "test.quit.empty")
         work.post(.bestEffort, mayBlock: .files, shutdown: .skipOnShutdown) {}

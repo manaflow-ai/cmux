@@ -146,6 +146,23 @@ final class QuitCoordinator {
     /// quit stays prompt even on a stalled disk; each save is a small atomic JSON write).
     static let saveLimit: Duration = .milliseconds(250)
 
+    /// Quit's wait for the background work it promised: shuts `work` down and waits for every
+    /// ``ShutdownBehavior/blockShutdown`` item (store saves, the rollback keep), never for other items,
+    /// in total at most `limit`. A hung disk never holds quit; a save cut off there leaves the last
+    /// complete file (saves write atomically). Runs after the session ends, so their saves count too.
+    ///
+    /// - Returns: whether every block-shutdown item finished within `limit`.
+    @discardableResult
+    static func drainBackgroundWork(_ work: BackgroundWork, limit: Duration = saveLimit,
+                                    clock: any Clock<Duration> = ContinuousClock()) async -> Bool {
+        let finished = await work.shutdown(within: limit, clock: clock)
+        if !finished {
+            Logger(subsystem: "com.cmuxterm.app.next", category: "app.quit")
+                .error("quit: background saves still running after \(limit); quitting without them")
+        }
+        return finished
+    }
+
     private func complete(_ choice: QuitSessionsChoice, remember: Bool, _ sender: NSApplication) async {
         logger.info("quit choice=\(choice.rawValue, privacy: .public) remember=\(remember)")
         let services = services
@@ -182,11 +199,6 @@ final class QuitCoordinator {
                 await services.cache.browserTabs.flushRecords()
                 await services.windows.prepareForTermination()
                 await services.sidebarSnapshots.flush()
-                // Last: the saves queued on the files lane land (in total at most saveLimit; a hung disk
-                // never holds quit, and a save cut off there leaves the last complete file).
-                if await !services.work.shutdown(within: Self.saveLimit) {
-                    Logger(subsystem: "com.cmuxterm.app.next", category: "app.quit").error("quit: background saves still running after \(Self.saveLimit); quitting without them")
-                }
             },
             endLocalSessions: { await services.daemon.endSessionsAndStop($0) },
             confirmFailures: { [weak self] failures in await self?.confirm(failures) ?? .quitAnyway },
@@ -200,6 +212,7 @@ final class QuitCoordinator {
                 let keep = ChiefHostStop.appAcpmuxEndKeep(chiefUsesAppAcpmux: services.home.chief.home.usesAppAcpmux)
                 return await QuitAgents.end(QuitAgents.environment(services), keep: keep, waitForShutdown: attempts.isRetry())
             },
+            drainBackgroundWork: { _ = await Self.drainBackgroundWork(services.work) },
             stopBrowserEngines: { [weak self, deadline = self.deadline] in
                 // CefShutdown runs on the main thread and can block it for
                 // good: from here the quit ends by a deadline whatever it
