@@ -600,6 +600,7 @@ impl Hub {
             agent: None,
             after_turn: None,
             supersede: None,
+            display_parts: None,
         };
         let (hub, session) = (self.clone(), target.clone());
         let run =

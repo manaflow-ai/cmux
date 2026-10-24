@@ -9,8 +9,13 @@
 use super::{EventFilter, Hub, Session};
 use crate::rpc::RpcError;
 use serde_json::{Value, json};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+
+const MAX_DISPLAY_PARTS: usize = 256;
+const MAX_DISPLAY_NAME: usize = 256;
+const MAX_DISPLAY_MIME: usize = 128;
+const MAX_DISPLAY_RANGE: u64 = 4 * 1024 * 1024;
 
 fn dir() -> PathBuf {
     crate::config::home().join("attachments")
@@ -154,19 +159,43 @@ pub(super) fn keep(blocks: &[Value]) -> Vec<Value> {
 }
 
 /// The prompt's ACP blocks in their original order, with attachment bytes replaced by durable
-/// metadata. The web transcript uses this field to interleave text and attachments after a reload;
-/// `images` is the result of `keep`, so an image is included only when its bytes have a durable id.
-/// No block's base64 payload is copied into the event log.
-pub(super) fn inline_parts(blocks: &[Value], images: &[Value]) -> Vec<Value> {
+/// metadata. The web transcript uses this field to interleave text and attachments after a reload.
+/// Every image gets its content id here even when `keep` could not write its bytes: this preserves
+/// identity across a later image in the same prompt, while the separate `images` field remains the
+/// authoritative list of ids that `_acpmux/attachment` can actually read. No block's base64 payload
+/// is copied into the event log.
+pub(super) fn inline_parts(
+    blocks: &[Value],
+    images: &[Value],
+    display_parts: Option<&Value>,
+) -> Vec<Value> {
     let kept_images: HashSet<&str> =
         images.iter().filter_map(|image| image.get("id").and_then(Value::as_str)).collect();
+    let display = validated_display_parts(display_parts, blocks);
     blocks
         .iter()
-        .filter_map(|block| {
+        .enumerate()
+        .filter_map(|(block_index, block)| {
             let kind = block.get("type").and_then(Value::as_str)?;
+            let display_part = display.get(&block_index);
             match kind {
                 "text" if !crate::prompt_context::is_context(block) => {
                     let text = block.get("text").and_then(Value::as_str)?;
+                    if let Some(display_part) = display_part {
+                        if matches!(
+                            display_part.get("kind").and_then(Value::as_str),
+                            Some("file" | "pasted")
+                        ) {
+                            let mut part = display_part.clone();
+                            part["text"] = Value::String(text.to_owned());
+                            if part.get("kind").and_then(Value::as_str) == Some("pasted")
+                                && part.get("name").is_none()
+                            {
+                                part["name"] = Value::String("Pasted text".into());
+                            }
+                            return Some(part);
+                        }
+                    }
                     let mut part = json!({"kind": "text", "text": text});
                     if block.pointer("/_meta/cmux/pasted").and_then(Value::as_bool) == Some(true) {
                         part["pasted"] = Value::Bool(true);
@@ -176,11 +205,15 @@ pub(super) fn inline_parts(blocks: &[Value], images: &[Value]) -> Vec<Value> {
                 "image" => {
                     let (_, named) = decode(block)?;
                     let id = named.get("id").and_then(Value::as_str)?;
-                    kept_images.contains(id).then(|| {
-                        let mut part = named;
-                        part["kind"] = Value::String("image".into());
-                        part
-                    })
+                    let mut part = named;
+                    part["kind"] = Value::String("image".into());
+                    if !kept_images.contains(id) {
+                        part["persisted"] = Value::Bool(false);
+                    }
+                    if let Some(display_part) = display_part {
+                        copy_display_fields(&mut part, display_part);
+                    }
+                    Some(part)
                 }
                 "document" | "audio" => {
                     let fallback = if kind == "document" { "document" } else { "audio" };
@@ -195,6 +228,9 @@ pub(super) fn inline_parts(blocks: &[Value], images: &[Value]) -> Vec<Value> {
                     if let Some(page_count) = block.get("pageCount").and_then(Value::as_u64) {
                         part["pageCount"] = json!(page_count);
                     }
+                    if let Some(display_part) = display_part {
+                        copy_display_fields(&mut part, display_part);
+                    }
                     Some(part)
                 }
                 "resource_link" => {
@@ -204,12 +240,105 @@ pub(super) fn inline_parts(blocks: &[Value], images: &[Value]) -> Vec<Value> {
                     if let Some(mime_type) = block.get("mimeType").and_then(Value::as_str) {
                         part["mimeType"] = Value::String(mime_type.into());
                     }
+                    if let Some(display_part) = display_part {
+                        copy_display_fields(&mut part, display_part);
+                    }
                     Some(part)
                 }
                 _ => None,
             }
         })
         .collect()
+}
+
+/// Validates the app's display-only prompt metadata. It never accepts bytes, paths, ids or text;
+/// those come from the already-validated ACP blocks and the daemon's own attachment hashes.
+pub(crate) fn validated_display_parts(
+    raw: Option<&Value>,
+    blocks: &[Value],
+) -> HashMap<usize, Value> {
+    let Some(Value::Array(parts)) = raw else { return HashMap::new() };
+    if parts.len() > MAX_DISPLAY_PARTS {
+        return HashMap::new();
+    }
+    let mut validated = HashMap::with_capacity(parts.len());
+    for part in parts {
+        let Some(object) = part.as_object() else { continue };
+        let Some(kind) = object.get("kind").and_then(Value::as_str) else { continue };
+        if !matches!(kind, "text" | "image" | "file" | "document" | "audio" | "pasted") {
+            continue;
+        }
+        let Some(block_index) = object
+            .get("blockIndex")
+            .and_then(Value::as_u64)
+            .and_then(|index| usize::try_from(index).ok())
+        else {
+            continue;
+        };
+        if validated.contains_key(&block_index) {
+            continue;
+        }
+        let Some(block) = blocks.get(block_index) else { continue };
+        let Some(block_type) = block.get("type").and_then(Value::as_str) else { continue };
+        let kind_matches = match kind {
+            "text" | "pasted" => block_type == "text",
+            "file" => matches!(block_type, "text" | "resource_link"),
+            "image" => block_type == "image",
+            "document" => block_type == "document",
+            "audio" => block_type == "audio",
+            _ => false,
+        };
+        if !kind_matches {
+            continue;
+        }
+        let mut out =
+            serde_json::Map::from_iter([(String::from("kind"), Value::String(kind.into()))]);
+        if let Some(name) = object.get("name").and_then(Value::as_str) {
+            if name.is_empty() || name.chars().count() > MAX_DISPLAY_NAME {
+                continue;
+            }
+            out.insert("name".into(), Value::String(name.into()));
+        }
+        if let Some(mime) = object.get("mimeType").and_then(Value::as_str) {
+            if mime.is_empty() || mime.len() > MAX_DISPLAY_MIME {
+                continue;
+            }
+            out.insert("mimeType".into(), Value::String(mime.into()));
+        }
+        for key in ["size", "pageCount"] {
+            if let Some(value) = object.get(key).and_then(Value::as_u64) {
+                out.insert(key.into(), Value::Number(value.into()));
+            }
+        }
+        let start = object.get("start").and_then(Value::as_u64);
+        let end = object.get("end").and_then(Value::as_u64);
+        if start.is_some() != end.is_some()
+            || start.is_some_and(|value| value > MAX_DISPLAY_RANGE)
+            || end.is_some_and(|value| value > MAX_DISPLAY_RANGE)
+        {
+            continue;
+        }
+        if let (Some(start), Some(end)) = (start, end) {
+            let Some(text) = block.get("text").and_then(Value::as_str) else { continue };
+            let text_len = text.encode_utf16().count() as u64;
+            if start > end || end > text_len {
+                continue;
+            }
+            out.insert("start".into(), Value::Number(start.into()));
+            out.insert("end".into(), Value::Number(end.into()));
+        }
+        validated.insert(block_index, Value::Object(out));
+    }
+    validated
+}
+
+fn copy_display_fields(part: &mut Value, display: &Value) {
+    let Some(object) = display.as_object() else { return };
+    for key in ["name", "mimeType", "size", "pageCount", "start", "end"] {
+        if let Some(value) = object.get(key) {
+            part[key] = value.clone();
+        }
+    }
 }
 
 /// The decoded byte count of a document/audio block, without retaining its payload in the event.
@@ -223,13 +352,22 @@ impl Hub {
     /// Records prompt `msg` as the session's `user_message`, naming the images of its `blocks`,
     /// preserving their ordered content metadata, and recording pasted text ranges (`session.rs`,
     /// `mark_pasted`).
-    pub(super) fn append_prompt(&self, session: &Session, mut msg: Value, blocks: &[Value]) {
+    pub(super) fn append_prompt(
+        &self,
+        session: &Session,
+        mut msg: Value,
+        blocks: &[Value],
+        display_parts: Option<&Value>,
+    ) {
         let images = keep(blocks);
         if !images.is_empty() {
             msg["images"] = Value::Array(images);
         }
-        let ordered =
-            inline_parts(blocks, msg.get("images").and_then(Value::as_array).unwrap_or(&[]));
+        let ordered = inline_parts(
+            blocks,
+            msg.get("images").and_then(Value::as_array).unwrap_or(&[]),
+            display_parts,
+        );
         if !ordered.is_empty() {
             msg["inlineParts"] = Value::Array(ordered);
         }
@@ -292,8 +430,8 @@ impl Hub {
 
 #[cfg(test)]
 mod tests {
-    use super::{decode, inline_parts, sniffed_type};
-    use serde_json::json;
+    use super::{decode, inline_parts, sniffed_type, validated_display_parts};
+    use serde_json::{Value, json};
 
     #[test]
     fn a_kept_files_type_comes_from_its_magic_number() {
@@ -389,7 +527,7 @@ mod tests {
             json!({"type": "resource_link", "uri": "attachment://notes.txt", "name": "notes.txt"}),
         ];
 
-        let parts = inline_parts(&blocks, &kept);
+        let parts = inline_parts(&blocks, &kept, None);
         assert_eq!(
             parts.iter().map(|part| part["kind"].as_str().unwrap()).collect::<Vec<_>>(),
             ["text", "image", "text", "document", "file"]
@@ -398,5 +536,54 @@ mod tests {
         assert_eq!(parts[1]["id"], kept[0]["id"]);
         assert_eq!(parts[3]["size"], 5);
         assert!(parts.iter().all(|part| part.get("data").is_none()));
+    }
+
+    #[test]
+    fn inline_parts_preserve_a_failed_middle_image_identity() {
+        let image = |data: &str, name: &str| json!({"type": "image", "mimeType": "image/png", "name": name, "data": data});
+        let first = image("AQID", "first.png");
+        let middle = image("BAUG", "middle.png");
+        let last = image("BwgJ", "last.png");
+        let blocks =
+            vec![first.clone(), json!({"type": "text", "text": "caption"}), middle, last.clone()];
+        let kept = vec![decode(&first).unwrap().1, decode(&last).unwrap().1];
+
+        let parts = inline_parts(&blocks, &kept, None);
+        let ids: Vec<_> =
+            parts.iter().filter_map(|part| part.get("id").and_then(Value::as_str)).collect();
+        assert_eq!(ids.len(), 3, "all image slots retain their content ids");
+        assert_eq!(parts[1]["kind"], "text");
+        assert_eq!(parts[2]["persisted"], false);
+        assert_eq!(parts[3]["id"], kept[1]["id"]);
+    }
+
+    #[test]
+    fn inline_parts_rehydrate_text_file_chip_from_display_metadata() {
+        let blocks = vec![json!({"type": "text", "text": "notes.txt\n```\nbody\n```"})];
+        let display = json!([{"kind": "file", "blockIndex": 0, "name": "notes.txt", "mimeType": "text/plain", "size": 4}]);
+        let parts = inline_parts(&blocks, &[], Some(&display));
+        assert_eq!(
+            parts,
+            vec![
+                json!({"kind": "file", "name": "notes.txt", "mimeType": "text/plain", "size": 4, "text": "notes.txt\n```\nbody\n```"})
+            ]
+        );
+    }
+
+    #[test]
+    fn display_metadata_matches_blocks_and_bounds_ranges() {
+        let blocks = vec![
+            json!({"type": "text", "text": "abcd"}),
+            json!({"type": "image", "mimeType": "image/png", "data": "AQID"}),
+        ];
+        let valid = json!([
+            {"kind": "pasted", "blockIndex": 0, "name": "Pasted text", "start": 1, "end": 3},
+            {"kind": "image", "blockIndex": 1, "name": "one.png"}
+        ]);
+        assert_eq!(validated_display_parts(Some(&valid), &blocks).len(), 2);
+        let wrong_kind = json!([{"kind": "image", "blockIndex": 0}]);
+        assert!(validated_display_parts(Some(&wrong_kind), &blocks).is_empty());
+        let out_of_bounds = json!([{"kind": "pasted", "blockIndex": 0, "start": 1, "end": 5}]);
+        assert!(validated_display_parts(Some(&out_of_bounds), &blocks).is_empty());
     }
 }
