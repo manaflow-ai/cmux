@@ -171,7 +171,12 @@ enum StashHandlers {
     static func prompt(_ id: ActionID, _ invocation: ActionInvocation, _ context: AppActionContext,
                        warn: Bool) async -> DestructiveConfirmation.Prompt? {
         guard let (members, _) = try? workspaces(id, invocation, context), !members.isEmpty else { return nil }
-        return await WorkspaceBulkClose.prompt(members, warn: warn)
+        return await WorkspaceBulkClose.prompt(members, warn: warn, button: confirmationButton(for: id))
+    }
+
+    /// The confirmation button uses the same localized action title as the menu and palette.
+    static func confirmationButton(for id: ActionID) -> String {
+        ActionCatalog.all.first { $0.id == id }?.title ?? ConfirmationStrings.close
     }
 
     // MARK: Running

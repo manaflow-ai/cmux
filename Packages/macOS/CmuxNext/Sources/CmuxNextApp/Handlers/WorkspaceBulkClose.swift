@@ -197,7 +197,7 @@ enum WorkspaceBulkClose {
     /// Asks when a terminal in `members` runs a program (`warn`), or when two
     /// or more close and nothing can undo it (`askWithoutUndo`).
     static func prompt(_ members: [Member], warn: Bool, askWithoutUndo: Bool = false, incognito: Bool = false,
-                       title: String? = nil) async -> DestructiveConfirmation.Prompt? {
+                       title: String? = nil, button: String = ConfirmationStrings.close) async -> DestructiveConfirmation.Prompt? {
         var programs: [String] = []
         if warn { for (workspace, daemon) in members { programs += await DestructiveConfirmation.runningPrograms(in: workspace, on: daemon) } }
         guard let first = members.first, !programs.isEmpty || (askWithoutUndo && members.count > 1) else { return nil }
@@ -212,7 +212,7 @@ enum WorkspaceBulkClose {
         return DestructiveConfirmation.Prompt(
             title: title ?? (members.count == 1 ? ConfirmationStrings.closeWorkspaceTitle(first.0.displayName) : count),
             body: programs.isEmpty ? noUndo : ConfirmationStrings.stillRunning(Set(programs).sorted().joined(separator: ", ")),
-            button: ConfirmationStrings.close, suppresses: programs.isEmpty ? nil : CmuxConfigSnapshot.warnBeforeClosingTabPath)
+            button: button, suppresses: programs.isEmpty ? nil : CmuxConfigSnapshot.warnBeforeClosingTabPath)
     }
 
     static func closedToast(_ count: Int) -> String {
