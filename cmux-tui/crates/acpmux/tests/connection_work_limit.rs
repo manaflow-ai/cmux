@@ -89,3 +89,46 @@ async fn a_request_burst_gets_busy_replies_and_does_not_block_another_connection
     tokio::time::timeout(Duration::from_secs(3), server).await.unwrap().unwrap();
     tokio::time::timeout(Duration::from_secs(3), other).await.unwrap().unwrap();
 }
+
+#[tokio::test(flavor = "current_thread")]
+async fn notification_flood_does_not_delay_a_later_request() {
+    let fixture = fixture();
+    let (tx, inbound) = mpsc::channel(256);
+    let (out, mut replies) = mpsc::channel(8);
+
+    for _ in 0..(16 + 64 + 16) {
+        tx.send(Message::notification("session/update", json!({})).to_line()).await.unwrap();
+    }
+    tx.send(Message::request(1, "_acpmux/unknown", json!({})).to_line()).await.unwrap();
+    drop(tx);
+
+    let server = tokio::spawn(serve_connection(fixture.hub.clone(), inbound, out));
+    let line = tokio::time::timeout(Duration::from_secs(1), replies.recv()).await.unwrap().unwrap();
+    let reply: Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(reply["error"]["code"], -32601, "{reply}");
+    tokio::time::timeout(Duration::from_secs(3), server).await.unwrap().unwrap();
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn cancellation_is_admitted_when_notification_queue_is_full() {
+    let fixture = fixture();
+    let (tx, inbound) = mpsc::channel(256);
+    let (out, mut replies) = mpsc::channel(8);
+
+    for _ in 0..(16 + 64) {
+        tx.send(Message::notification("session/update", json!({})).to_line()).await.unwrap();
+    }
+    tx.send(
+        Message::notification("session/cancel", json!({"sessionId": "missing-session"})).to_line(),
+    )
+    .await
+    .unwrap();
+    tx.send(Message::request(1, "_acpmux/unknown", json!({})).to_line()).await.unwrap();
+    drop(tx);
+
+    let server = tokio::spawn(serve_connection(fixture.hub.clone(), inbound, out));
+    let line = tokio::time::timeout(Duration::from_secs(1), replies.recv()).await.unwrap().unwrap();
+    let reply: Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(reply["error"]["code"], -32601, "{reply}");
+    tokio::time::timeout(Duration::from_secs(3), server).await.unwrap().unwrap();
+}
