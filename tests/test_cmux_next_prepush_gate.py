@@ -205,6 +205,41 @@ class PrePushGateTests(unittest.TestCase):
         self.assertIn("try!", output)
         self.assertNotIn("Old.swift", output, "base debt in an untouched file must not be reported")
 
+    def test_push_that_adds_a_raw_spawn_in_a_daemon_crate_is_refused(self):
+        # Reviews 1 and 2 of pl-holder-11: on macOS a daemon child started any other way than
+        # cmux_process::Command can inherit a PTY master the daemon is receiving on another thread.
+        self.write("cmux-tui/crates/cmux-tui-core/src/fresh.rs",
+                   'pub fn run() { let _ = std::process::Command::new("git").output(); }\n')
+        self.commit("adds a raw spawn to the daemon")
+        before = self.remote_head()
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before, "the raw spawn must not reach origin")
+        self.assertIn("check-no-raw-spawn", output)
+        self.assertIn("fresh.rs", output)
+
+    def test_push_with_a_spawn_through_cmux_process_or_outside_the_daemon_passes(self):
+        self.write("cmux-tui/crates/cmux-tui-core/src/fresh.rs",
+                   'pub fn run() { let _ = cmux_process::Command::new("git").output(); }\n')
+        self.write("cmux-tui/crates/cmux-tui-core/tests/fresh.rs",
+                   '#[test] fn t() { let _ = std::process::Command::new("git").output(); }\n')
+        self.write("cmux-tui/crates/acpmux/src/fresh.rs",
+                   'pub fn run() { let _ = std::process::Command::new("git").output(); }\n')
+        self.commit("spawns through cmux_process, in a test and in another crate")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_the_raw_spawn_guard_rules_hold(self):
+        # The guard's own rule tests (per-file counts, the ratchet, scope), with the pre-push set.
+        result = subprocess.run(["bash", str(SOURCE / "scripts/cmux-next/tests/check-no-raw-spawn.test.sh")],
+                                text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_push_that_names_an_apple_device_in_an_app_intent_is_refused(self):
         # ITMS-90626 (2026-10-20): Apple rejected cmux INTERNAL builds after upload for this text.
         before = self.remote_head()

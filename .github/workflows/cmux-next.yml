@@ -1264,13 +1264,6 @@ jobs:
         continue-on-error: true
         run: python3 -I scripts/cmux-next/check-no-process-scan.py "$GITHUB_WORKSPACE"
 
-      # A hard check (not a style guard): a raw spawn can pass a PTY master or
-      # ring segment the daemon is receiving on another thread (macOS).
-      - name: No raw spawns in the daemon (cmux_process, reviews of pl-holder-11)
-        id: no-raw-spawn
-        continue-on-error: true
-        run: python3 -I scripts/cmux-next/check-no-raw-spawn.py "$GITHUB_WORKSPACE"
-
       - name: No literal state roots (per-build isolation S7, cx-is1kf.8)
         id: state-roots
         continue-on-error: true
@@ -1500,7 +1493,6 @@ jobs:
             bash scripts/cmux-next/tests/check-scrollbars.test.sh
             bash scripts/cmux-next/tests/check-overlay-glass.test.sh
             bash scripts/cmux-next/tests/check-no-process-scan.test.sh
-            bash scripts/cmux-next/tests/check-no-raw-spawn.test.sh
           bash scripts/cmux-next/tests/check-single-omnibar.test.sh
             bash scripts/cmux-next/tests/check-no-swiftui.test.sh
             bash scripts/cmux-next/tests/check-state-roots.test.sh
@@ -1823,7 +1815,6 @@ jobs:
             ${{ steps.single-omnibar.outcome }}|One omnibar (popups, New Tab and tabs share AddressBarView)
             ${{ steps.no-swiftui.outcome }}|No new SwiftUI (macOS UI is AppKit)
             ${{ steps.no-process-scan.outcome }}|No process scanning (holders register themselves, plans/cmux-next/pty-holder.md 4)
-            ${{ steps.no-raw-spawn.outcome }}|No raw spawns in the daemon (cmux_process, reviews of pl-holder-11)
             ${{ steps.state-roots.outcome }}|No literal state roots (per-build isolation S7, cx-is1kf.8)
             ${{ steps.dialog-key-hints.outcome }}|Dialog buttons show their keys (u2647)
             ${{ steps.concurrency.outcome }}|Main-thread concurrency
