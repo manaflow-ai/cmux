@@ -198,28 +198,25 @@ impl Mux {
             self.surface_workspace(surface)
                 .and_then(|workspace| sizing.workspace_size_policies.get(&workspace).cloned())
         };
-        default_of(placement).or_else(|| self.runtime_placements(sizing, runtime).into_iter().find_map(default_of))
+        if sizing.workspace_size_policies.is_empty() {
+            // The common case: no workspace has a default, so no placement
+            // needs looking up (and no surface walk under the sizing lock).
+            return None;
+        }
+        default_of(placement).or_else(|| {
+            let entry = sizing.terminal_sizing.get(&runtime);
+            entry
+                .into_iter()
+                .flat_map(|entry| entry.placements.iter().copied())
+                .find_map(default_of)
+                .or_else(|| self.runtime_placements(runtime).into_iter().find_map(default_of))
+        })
     }
 
     /// Every live placement of terminal `runtime` (each view of it in any
-    /// workspace), the runtime's own surface included: the placements its
-    /// sizing entry already knows, scanning the surfaces only for a
-    /// terminal without one (so the common path never walks every surface
-    /// under the sizing lock).
-    pub(in crate::mux) fn runtime_placements(
-        &self,
-        sizing: &ClientSizingState,
-        runtime: SurfaceId,
-    ) -> Vec<SurfaceId> {
-        if let Some(entry) = sizing.terminal_sizing.get(&runtime)
-            && !entry.placements.is_empty()
-        {
-            let mut placements = entry.placements.iter().copied().collect::<Vec<_>>();
-            if !placements.contains(&runtime) {
-                placements.push(runtime);
-            }
-            return placements;
-        }
+    /// workspace), the runtime's own surface included. Walks the surfaces:
+    /// called only while some workspace has a default.
+    pub(in crate::mux) fn runtime_placements(&self, runtime: SurfaceId) -> Vec<SurfaceId> {
         self.with_state(|state| {
             let mut placements = state
                 .surfaces

@@ -388,7 +388,7 @@ const MOBILE_HOST_NAME: &str = "cmux-mobile-host";
 /// the daemon's own (canonical) executable. Any lookup failure is false (a
 /// daemon with no hostd beside it, such as a development build run from
 /// another folder, has no phone lane that may write the host policy).
-fn is_bundled_mobile_host_path(path: &std::path::Path) -> bool {
+fn is_bundled_mobile_host_path(path: &Path) -> bool {
     static SIBLING: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
     let sibling = SIBLING.get_or_init(|| {
         let own = std::fs::canonicalize(std::env::current_exe().ok()?).ok()?;

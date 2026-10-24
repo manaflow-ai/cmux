@@ -398,6 +398,7 @@ fn host_policy_a_phone_lanes_sub_view_cannot_take_a_devices_place() {
                "capabilities":[SHARED_SIZING_CAPABILITY, HOST_GRID_VIEW_CAPABILITY]}),
     )
     .unwrap();
+    attach_test_view(&rig.mux, phone.client, rig.surface.id, &phone.writer);
     rig.run(
         &phone,
         json!({"cmd":"resize-attached-view","surface":rig.surface.id,"view":"spoof",
