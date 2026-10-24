@@ -2591,6 +2591,11 @@ jobs:
           # Preserve Chief lockfile repairs too: run 37724899486 selected an
           # older published revision and failed cargo build --locked.
           CMUX_TUI_TREE_SAME_PATHS: .github/workflows/nightly.yml Native/OptChat/optchat-chief/Cargo.lock
+          # A commit other than the tip also needs a green Release compile:
+          # run 40070613185 fell back 32 commits to dee35e3f, whose app did not
+          # compile. No such commit in the window fails, listing what it skipped.
+          CMUX_TUI_TREE_REQUIRE_RELEASE_GREEN: "1"
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           # Prints commit=, key=, source_commit=, tip_key=, behind= and
