@@ -475,13 +475,16 @@ fn a_connection_the_holder_cannot_accept_waits_without_spinning_the_holder() {
         "the full holder spun on the connection it could not accept: {used:?} of CPU in {window:?}"
     );
 
-    // Descriptors free: the ballast's ends of file come before the PING,
-    // so the holder dropped them by its PONG. On Linux the waiting
-    // connection is still queued: the holder takes it at the end of that
-    // turn and serves its HELLO.
+    // Descriptors free once the holder read the ballast's ends of file. On
+    // Linux the waiting connection is still queued: the holder takes it at
+    // the end of that turn and serves its HELLO, which takes the holder
+    // from `client` (SUPERSEDED, maybe before a PONG it had queued), so
+    // the WELCOME is what shows it. XNU dropped the waiting connection: the
+    // PONG after the ends of file shows the holder dropped them.
     drop(ballast);
-    settle(&mut client, 4);
-    if cfg!(target_os = "linux") {
+    if cfg!(not(target_os = "linux")) {
+        settle(&mut client, 4);
+    } else {
         waiting.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
         let mut reader = wire::Reader::default();
         let welcome = loop {

@@ -789,7 +789,7 @@ mod tests {
         let (read_end, write_end) =
             unsafe { (OwnedFd::from_raw_fd(ends[0]), OwnedFd::from_raw_fd(ends[1])) };
         assert!(!close_on_exec(&read_end) && !close_on_exec(&write_end), "pipe() sets no flag");
-        let frame = encode_flagged(Kind::Spawned, FLAG_RING, 7, b"spawned");
+        let frame = encode_with_fds(Kind::Spawned, FLAG_RING, 7, b"spawned", 2);
         send_all(sender.as_raw_fd(), &frame, &[raw(&read_end), raw(&write_end)]).unwrap();
 
         let mut reader = Reader::default();
