@@ -38,10 +38,10 @@ import Testing
         let recorder = Recorder(status: 0)
         let replies = AcpmuxReplySender(launcher: recorder, baseEnvironment: ["PATH": "/usr/bin", "ACPMUX_HOME": "/inherited"])
         let environment = environment()
-        let sent = await replies.send(session: "s-1", text: "thanks", environment: environment)
+        let sent = await replies.send(session: "s-1", text: "thanks", promptID: "p-1", environment: environment)
         #expect(sent)
         let calls = recorder.calls.withLock { $0 }
-        #expect(calls.map(\.arguments) == [["send", "s-1", "thanks", "--no-wait", "--no-steer"]])
+        #expect(calls.map(\.arguments) == [["send", "--no-wait", "--no-steer", "--prompt-id", "p-1", "--", "s-1", "thanks"]])
         #expect(calls.first?.executable == environment.executable)
         #expect(calls.first?.environment == ["PATH": "/usr/bin", "ACPMUX_HOME": "/x"], "acpmux's own variables must win over the inherited ones")
         #expect(calls.first?.onMain == false, "the process must never run on the main thread")
@@ -50,17 +50,36 @@ import Testing
     @Test(arguments: [Int32?.some(1), Int32?.some(70), nil])
     func aRefusedFailedOrTimedOutSendIsNotSent(status: Int32?) async {
         let replies = AcpmuxReplySender(launcher: Recorder(status: status), baseEnvironment: [:])
-        let sent = await replies.send(session: "s-1", text: "thanks", environment: environment())
+        let sent = await replies.send(session: "s-1", text: "thanks", promptID: "p-1", environment: environment())
         #expect(!sent, "a send that acpmux did not take (status \(String(describing: status))) counted as sent")
     }
 
     @Test func aReplyWithoutASessionOrAcpmuxRunsNothing() async {
         let recorder = Recorder(status: 0)
         let replies = AcpmuxReplySender(launcher: recorder, baseEnvironment: [:])
-        let noSession = await replies.send(session: "", text: "x", environment: environment())
-        let noAcpmux = await replies.send(session: "s-1", text: "x", environment: nil)
+        let noSession = await replies.send(session: "", text: "x", promptID: "p-1", environment: environment())
+        let noPromptID = await replies.send(session: "s-1", text: "x", promptID: "", environment: environment())
+        let noAcpmux = await replies.send(session: "s-1", text: "x", promptID: "p-1", environment: nil)
         #expect(!noSession)
+        #expect(!noPromptID)
         #expect(!noAcpmux)
         #expect(recorder.calls.withLock { $0 }.isEmpty)
+    }
+
+    /// A reply that looks like a flag is the message: every flag comes before `--`, and the
+    /// session and the text after it, so acpmux's parser never reads the text as an option.
+    /// Before, the text came before the flags with no `--`: "- fix the test first" was an
+    /// unknown argument and "--quiet" changed the command.
+    @Test(arguments: ["- fix the test first", "--quiet", "-n 2", "--prompt-id other"])
+    func aReplyThatLooksLikeAFlagIsSentAfterTheEndOfTheOptions(text: String) async throws {
+        let recorder = Recorder(status: 0)
+        let replies = AcpmuxReplySender(launcher: recorder, baseEnvironment: [:])
+        #expect(await replies.send(session: "s-1", text: text, promptID: "p-1", environment: environment()))
+        let arguments = try #require(recorder.calls.withLock { $0 }.first?.arguments)
+        let end = try #require(arguments.firstIndex(of: "--"), "no -- ends the options")
+        #expect(Array(arguments[(end + 1)...]) == ["s-1", text])
+        #expect(arguments[..<end].allSatisfy { $0 == "send" || $0 == "p-1" || $0.hasPrefix("--") },
+                "an option after the text: \(arguments)")
+        #expect(Array(arguments[..<end].suffix(2)) == ["--prompt-id", "p-1"], "the reply's own id must be passed")
     }
 }

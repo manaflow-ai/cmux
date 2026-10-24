@@ -46,13 +46,13 @@ final class FeedPageService: InternalPageProvider {
         let replies = replies
         // Resolved once at startup: a reply runs no executable lookup or signature check.
         let environment = feed.acpmuxEnvironment
-        return FeedHostView(model: feed.model, layoutOverride: layout) { reportID, reply in
+        return FeedHostView(model: feed.model, layoutOverride: layout) { reply in
             // A report poster's authenticated identity is its ACP session. A
             // human reply intentionally wakes that session, unlike delivery
             // into the reports basket. The feed owner remains the source of
             // report rows; the command is a bounded local adapter for Labs.
             // The process runs off the main thread, to its exit or deadline (AcpmuxReplySender).
-            await replies.send(session: reportID, text: reply, environment: environment)
+            await replies.send(session: reply.session, text: reply.text, promptID: reply.promptID, environment: environment)
         }
     }
 }

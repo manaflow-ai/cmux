@@ -19,6 +19,30 @@ import Testing
         #expect(ContinuousClock.now - started < .seconds(30), "the launcher waited for the child instead of its deadline")
     }
 
+    /// The arguments reach the child one by one and as given (no shell, no splitting), also ones
+    /// that start with `-`: a reply's text after `--` is what acpmux gets. The stub records its argv,
+    /// NUL-separated, in the file its environment names.
+    @Test func theArgumentsReachTheChildAsGiven() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("launcher-argv-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let stub = root.appendingPathComponent("acpmux")
+        let out = root.appendingPathComponent("argv")
+        try Data(#"""
+        #!/bin/sh
+        : > "$ARGV_OUT"
+        for a in "$@"; do printf '%s\0' "$a" >> "$ARGV_OUT"; done
+        """#.utf8).write(to: stub)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: stub.path)
+        let arguments = AcpmuxReplySender.arguments(session: "s-1", text: "- fix the test first", promptID: "p-1")
+            + ["a b", "--quiet", "-", "*"]
+        let status = await ProcessLauncher().run(stub, arguments: arguments, environment: ["ARGV_OUT": out.path])
+        #expect(status == 0)
+        let recorded = try Data(contentsOf: out).split(separator: 0, omittingEmptySubsequences: false).dropLast()
+            .map { String(decoding: $0, as: UTF8.self) }
+        #expect(recorded == arguments)
+    }
+
     @Test func aMissingExecutableIsNotStarted() async {
         let missing = FileManager.default.temporaryDirectory.appendingPathComponent("no-such-\(UUID().uuidString)")
         let status = await ProcessLauncher().run(missing, arguments: [], environment: [:])

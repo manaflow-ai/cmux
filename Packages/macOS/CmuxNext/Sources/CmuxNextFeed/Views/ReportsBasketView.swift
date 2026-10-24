@@ -6,7 +6,7 @@ import SwiftUI
 /// addressed message through the host callback and never mutates the report.
 struct ReportsBasketView: View {
     let model: FeedModel
-    let onReply: (@MainActor (String, String) async -> Bool)?
+    let onReply: (@MainActor (ReportReply) async -> Bool)?
     @Environment(\.feedColors) private var colors
     @State private var selected: String?
     @State private var draft = ""
@@ -15,6 +15,9 @@ struct ReportsBasketView: View {
     @State private var sending: Set<String> = []
     /// The report whose last reply was not sent (its draft stays).
     @State private var notSent: String?
+    /// Each report's last reply that was not sent: the same reply sent again keeps its id, so a
+    /// send that passed its deadline after acpmux queued it is not delivered twice.
+    @State private var unsent: [String: ReportReply] = [:]
 
     private var reports: [FeedReport] { model.reports }
 
@@ -67,6 +70,7 @@ struct ReportsBasketView: View {
                     let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
                     let id = report.id
                     guard !text.isEmpty, let onReply, !sending.contains(id) else { return }
+                    let reply = ReportReply(session: report.sender, text: text, retrying: unsent[id])
                     sending.insert(id)
                     notSent = nil
                     // The host sends off the main thread and answers once acpmux took the reply (or
@@ -74,12 +78,14 @@ struct ReportsBasketView: View {
                     // person typed on or chose another report; a refused one keeps it.
                     // task-owner: one reply send; it ends when the host answers (bounded by its deadline)
                     Task { @MainActor in
-                        let sent = await onReply(report.sender, text)
+                        let sent = await onReply(reply)
                         sending.remove(id)
                         if !sent {
                             notSent = id
-                        } else if selected == id, draft.trimmingCharacters(in: .whitespacesAndNewlines) == text {
-                            draft = ""
+                            unsent[id] = reply
+                        } else {
+                            unsent[id] = nil
+                            if selected == id, draft.trimmingCharacters(in: .whitespacesAndNewlines) == text { draft = "" }
                         }
                     }
                 })
