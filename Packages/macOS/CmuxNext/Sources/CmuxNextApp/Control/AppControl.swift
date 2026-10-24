@@ -468,7 +468,7 @@ final class AppControl {
                         "quick_press_window_s": .number(services.quickPressWindow()),
                         "sequence_playing": .bool(player.isPlaying),
                         "pending_intents": JSONValue(services.daemon.store.pendingIntents.count),
-                        "resize_idle": .bool(ResizeCoordinator.shared.isIdle),
+                        "resize_idle": .bool(services.resizes.isIdle),
                         // The attach machines' own due echoes: a closed view is gone from the cache, so it never waits.
                         "terminals_awaiting_echo": JSONValue(services.cache.terminals.values.filter { $0.io.awaitsEcho }.count),
                     ])
