@@ -359,6 +359,19 @@ def test_same_named_job_in_another_workflow_does_not_admit() -> None:
     assert out["decision"]["action"] == "refuse"
 
 
+def test_tip_without_release_compile_promotes_newest_earlier_green_commit() -> None:
+    # The tip SHA has no exact green Release job, but its immediate parent does.
+    # Promotion should use that parent while retaining the exact-job safety gate.
+    case = scenario(
+        runs=[gate_run(id=8, head_sha=MID)],
+        jobs={"8": GREEN},
+    )
+    out = run(case)
+    assert out["decision"]["action"] == "promote", out
+    assert out["decision"]["sha"] == MID, out
+    assert any("newest green source commit" in note for note in out["notices"]), out["notices"]
+
+
 def test_admission_retries_while_the_index_lags() -> None:
     out = run(scenario(emptyRuns=2))
     assert out["decision"]["action"] == "promote"
