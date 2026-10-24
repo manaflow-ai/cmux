@@ -197,7 +197,7 @@ def move_condition() -> str:
 def substitute(text: str, sha: str) -> str:
     """Evaluate the expressions this test understands for a promotion request."""
     text = re.sub(
-        r"\$\{\{\s*inputs\.promote_nightly_next_sha\s*&&\s*format\('([^']*)',\s*inputs\.promote_nightly_next_sha\)\s*\|\|\s*''\s*\}\}",
+        r"\$\{\{\s*inputs\.promote_nightly_next_sha\s*&&\s*format\('([^']*)',\s*inputs\.promote_nightly_next_sha\)\s*(?:\|\|\s*github\.event_name\s*==\s*'schedule'\s*&&\s*format\('[^']*',\s*github\.event\.schedule\)\s*)?\|\|\s*''\s*\}\}",
         lambda match: match.group(1).replace("{0}", sha),
         text,
     )
