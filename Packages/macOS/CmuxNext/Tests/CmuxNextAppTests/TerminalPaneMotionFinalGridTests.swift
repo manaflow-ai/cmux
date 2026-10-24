@@ -155,6 +155,35 @@ import Testing
         }
         #expect(checked > 3, "the held terminal was taller than its pane on \(checked) frames only")
     }
+
+    /// A full-screen program (the alternate screen) keeps its top-left origin in a pane that grows down:
+    /// its first row is at the top of the moving pane on every frame, even with the cursor on its last row.
+    @Test func aFullScreenProgramRidesTheTopOfAPaneThatGrowsDown() async throws {
+        let screen = Screen(Self.stack, terminal: "p1")
+        defer { screen.close() }
+        try #require(screen.surface.surface != nil, "libghostty created no surface")
+        // The alternate screen with the cursor on its last row; the query's reply says it was parsed.
+        screen.io.send(.output(Data("\u{1b}[?1049h\u{1b}[999;1H~\u{1b}[c".utf8)))
+        await screen.io.nextWrite()
+
+        _ = try #require(screen.model.showPaneClose("p2"), "p2 did not close in the key's turn")
+        screen.root.syncWithModel()
+        var checked = 0
+        for _ in 1...240 {
+            let moving = screen.root.advanceFrame(1.0 / 120)
+            screen.root.layoutSubtreeIfNeeded()
+            guard moving else { break }
+            let clip = try #require(screen.session.view.superview)
+            let surface = screen.surface.convert(screen.surface.bounds, to: clip)
+            let visible = clip.bounds
+            if surface.height > visible.height + 1 {
+                let cut = clip.isFlipped ? visible.minY - surface.minY : surface.maxY - visible.maxY
+                #expect(abs(cut) < 1, "frame \(checked): \(cut) pt of the program's top is cut off")
+                checked += 1
+            }
+        }
+        #expect(checked > 3, "the held terminal was taller than its pane on \(checked) frames only")
+    }
 }
 
 /// A ``TerminalIO`` that records the grids it is asked for, in order with the focus reports the test
