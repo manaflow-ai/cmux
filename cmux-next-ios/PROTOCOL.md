@@ -708,6 +708,10 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   `CLOCK_UPTIME_RAW`, Annex B H.264). hostd runs the rd media engine (frame
   gate, congestion control, FEC, recovery keyframes) itself, so the source
   encodes only when asked.
+  The phone declares `page-tabs-v1` on its `daemon` channel (2026-10-23), so
+  page tabs read as `conversation` with their `page` instead of a blank
+  browser tab: a phone tab shows as a simulator tab, and other page tabs
+  (Settings, the App Store) are not shown on the phone.
 
 A service that ends normally closes its channel with `{code:"eof"}`; a
 refusal uses `unknown_service`, `forbidden`, `bad_request`, `not_found` or

@@ -189,9 +189,8 @@ pub async fn serve(
     result
 }
 
-/// The clock frame capture times are in: monotonic, shared with the Mac app
-/// (`CLOCK_UPTIME_RAW` on macOS, which `clock_gettime_nsec_np` and the app's
-/// `ContinuousClock`-free capture stamp both read), in microseconds.
+/// The clock frame capture times are in: monotonic and shared with the Mac app's
+/// source (`CLOCK_UPTIME_RAW` on macOS, which it reads too), in microseconds.
 pub fn surface_clock_us() -> u64 {
     #[cfg(target_os = "macos")]
     let clock = libc::CLOCK_UPTIME_RAW;
@@ -500,15 +499,19 @@ pub async fn host_session(
             && let Ok(output) = engine.encoded(&request, None, now)
         {
             tracing::warn!("surface: the source did not answer an encode in time");
+            // Its answer may still come: it belongs to no request now and is dropped. The
+            // next frame is an IDR, so a P-frame the phone never got corrupts nothing.
+            flow.late += 1;
+            flow.force_idr = true;
             flow.take(output, &mut to_phone, &mut to_app);
         }
         if flow.in_flight.is_none()
             && let Some(request) = flow.pending.take()
         {
             let kbps = flow.kbps(request.target_kbps, now);
-            to_app.extend(
-                SourceFrame::Json(json!({"t": "encode", "idr": request.force_idr, "kbps": kbps})).encode(),
-            );
+            let idr = request.force_idr || std::mem::take(&mut flow.force_idr);
+            flow.sent_kbps = kbps;
+            to_app.extend(SourceFrame::Json(json!({"t": "encode", "idr": idr, "kbps": kbps})).encode());
             flow.in_flight = Some((request, now + ENCODE_TIMEOUT_US));
         }
         if !to_app.is_empty() && app_write.write_all(&std::mem::take(&mut to_app)).await.is_err() {
@@ -573,6 +576,9 @@ pub async fn host_session(
                     loop {
                         match source_frames.next_frame() {
                             Ok(Some(SourceFrame::AccessUnit { idr, capture_us, annex_b })) => {
+                                if flow.late_answer() {
+                                    continue;
+                                }
                                 let Some((request, _)) = flow.in_flight.take() else { continue };
                                 let encoded = Encoded { access_unit: annex_b, idr, t_capture_us: capture_us };
                                 match engine.encoded(&request, Some(encoded), surface_clock_us()) {
@@ -586,7 +592,8 @@ pub async fn host_session(
                                     flow.newest(engine.damage(0, full, surface_clock_us()));
                                 }
                                 Some("skip") => {
-                                    if let Some((request, _)) = flow.in_flight.take()
+                                    if !flow.late_answer()
+                                        && let Some((request, _)) = flow.in_flight.take()
                                         && let Ok(output) = engine.encoded(&request, None, surface_clock_us())
                                     {
                                         flow.take(output, &mut to_phone, &mut to_app);
@@ -633,8 +640,8 @@ pub async fn host_session(
         }
     };
     // A finger left down on the simulator is lifted where it was when its viewer goes.
-    if let Some(lift) = flow.lift() {
-        let _ = app_write.write_all(&SourceFrame::Json(lift).encode()).await;
+    for line in flow.release() {
+        let _ = app_write.write_all(&SourceFrame::Json(line).encode()).await;
     }
     result
 }
@@ -656,9 +663,27 @@ struct Flow {
     last_touch: (f64, f64),
     /// A bitrate cap after the engine asked to halve it, and until when.
     halved: Option<(u32, u64)>,
+    /// The kbps of the last `encode` sent (what a halving halves).
+    sent_kbps: u32,
+    /// Answers still owed for encodes that timed out: the source answers in order,
+    /// so the next this many answers belong to no request and are dropped.
+    late: u32,
+    /// The next encode asks for an IDR (a frame was lost to a timeout).
+    force_idr: bool,
+    /// Keys the phone holds down on the simulator (released with a finger).
+    held_keys: Vec<String>,
 }
 
 impl Flow {
+    /// Whether this answer belongs to an encode that already timed out.
+    fn late_answer(&mut self) -> bool {
+        if self.late == 0 {
+            return false;
+        }
+        self.late -= 1;
+        true
+    }
+
     fn newest(&mut self, request: Option<EncodeRequest>) {
         if request.is_some() {
             self.pending = request;
@@ -685,33 +710,42 @@ impl Flow {
                 if line["t"] == "touch" {
                     self.last_touch = (line["x"].as_f64().unwrap_or(0.5), line["y"].as_f64().unwrap_or(0.5));
                 }
+                if line["t"] == "key"
+                    && let Some(key) = line["key"].as_str()
+                {
+                    self.held_keys.retain(|held| held != key);
+                    if line["down"] == true {
+                        self.held_keys.push(key.to_owned());
+                    }
+                }
                 to_app.extend(SourceFrame::Json(line).encode());
             }
         }
-        // The engine gave up on input it held behind a gap: a finger down is lifted.
-        if output.release_all
-            && let Some(lift) = self.lift()
-        {
-            to_app.extend(SourceFrame::Json(lift).encode());
+        // The engine gave up on input it held behind a gap: a finger and keys still down are lifted.
+        if output.release_all {
+            for line in self.release() {
+                to_app.extend(SourceFrame::Json(line).encode());
+            }
         }
-        if output.halve_bitrate {
-            let now = surface_clock_us();
-            let current = self.halved.map_or(u32::MAX, |(cap, _)| cap);
-            let base =
-                self.in_flight.as_ref().map_or(current, |(request, _)| request.target_kbps.min(current));
-            self.halved = Some(((base / 2).max(300), now + HALVED_FOR_US));
+        if output.halve_bitrate && self.sent_kbps > 0 {
+            let current = self.halved.map_or(self.sent_kbps, |(cap, _)| cap.min(self.sent_kbps));
+            self.halved = Some(((current / 2).max(300), surface_clock_us() + HALVED_FOR_US));
         }
         self.newest(emit(to_phone, output));
     }
 
-    /// The `touch ended` that lifts a finger still down, at its last point.
-    fn lift(&mut self) -> Option<Value> {
-        if !self.touching {
-            return None;
+    /// The lines that lift a finger still down (at its last point) and release held keys.
+    fn release(&mut self) -> Vec<Value> {
+        let mut lines: Vec<Value> = std::mem::take(&mut self.held_keys)
+            .into_iter()
+            .map(|key| json!({"t": "key", "key": key, "down": false}))
+            .collect();
+        if self.touching {
+            self.touching = false;
+            let (x, y) = self.last_touch;
+            lines.push(json!({"t": "touch", "phase": "ended", "x": x, "y": y}));
         }
-        self.touching = false;
-        let (x, y) = self.last_touch;
-        Some(json!({"t": "touch", "phase": "ended", "x": x, "y": y}))
+        lines
     }
 }
 
@@ -805,6 +839,32 @@ mod tests {
         );
         assert_eq!(input_line(&json!({"e": "button", "button": "siri"}), &mut touching), None);
         assert_eq!(input_line(&json!({"e": "wheel", "x": 0.1, "y": 0.1}), &mut touching), None);
+    }
+
+    #[test]
+    fn a_viewer_that_goes_releases_its_finger_and_keys_and_a_halving_halves_what_was_sent() {
+        let mut flow = Flow {
+            touching: true,
+            last_touch: (0.2, 0.7),
+            held_keys: vec!["Backspace".into()],
+            ..Flow::default()
+        };
+        assert_eq!(
+            flow.release(),
+            vec![
+                json!({"t": "key", "key": "Backspace", "down": false}),
+                json!({"t": "touch", "phase": "ended", "x": 0.2, "y": 0.7}),
+            ]
+        );
+        assert!(flow.release().is_empty());
+        flow.sent_kbps = 4000;
+        let output = Output { halve_bitrate: true, ..Output::default() };
+        flow.take(output, &mut Vec::new(), &mut Vec::new());
+        assert_eq!(flow.kbps(4000, surface_clock_us()), 2000);
+        // Answers owed to timed-out encodes are dropped, in order.
+        flow.late = 1;
+        assert!(flow.late_answer());
+        assert!(!flow.late_answer());
     }
 
     #[test]

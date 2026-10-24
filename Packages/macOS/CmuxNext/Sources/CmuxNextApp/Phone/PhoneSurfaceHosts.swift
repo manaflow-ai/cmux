@@ -76,6 +76,8 @@ final class PhoneSurfaceHosts: MobileHostSurfaceHosting {
                 onExit()
             }
             let port = try await server.start()
+            // The source can stop while it starts (its tab closed): never keep a dead one.
+            guard server.isRunning else { throw Failure.notPhoneTab }
             servers[tab] = server
             Logger(subsystem: "com.cmuxterm.app.next", category: "phone.surface")
                 .info("surface source for \(tab, privacy: .public) streams \(id.description, privacy: .public) on port \(port, privacy: .public)")

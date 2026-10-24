@@ -70,6 +70,9 @@ public final class SimulatorSurfaceServer {
         return try await withCheckedThrowingContinuation { ready.append($0) }
     }
 
+    /// Whether the source still listens (``stop()`` not called, its listener not failed).
+    public var isRunning: Bool { listener != nil }
+
     /// Stops listening and ends every session.
     public func stop() {
         guard listener != nil || !sessions.isEmpty else { return }
@@ -127,7 +130,9 @@ extension SimulatorSurfaceServer {
         private let stale: @MainActor () -> Void
         /// The phone's input, applied one at a time in order: touches and keys at once,
         /// text and buttons through ``PhoneService`` (text a US keyboard cannot type
-        /// is pasted with simctl). Bounded: a flood drops new input, never spawns more.
+        /// is pasted with simctl). Bounded: a flood drops new input, never spawns more. A dropped
+        /// touch `ended` or key up is covered by hostd, which lifts a finger and releases held keys
+        /// when the engine gives up on held input and when the viewer goes.
         private let inputs: AsyncStream<[String: SurfaceSourceValue]>
         private let queue: AsyncStream<[String: SurfaceSourceValue]>.Continuation
         private var applying: Task<Void, Never>?
@@ -258,8 +263,13 @@ extension SimulatorSurfaceServer {
         // MARK: Frames
 
         private func startFrames() {
+            guard stillShown() else { return stale() }
             do {
-                watch = try live.startScreen(udid) { [weak self] surface in self?.frame(surface) }
+                let started = try live.startScreen(udid) { [weak self] surface in self?.frame(surface) }
+                // The first frame arrives inside startScreen and may have ended the session
+                // (its tab stopped showing this simulator): the watch must not outlive it.
+                guard !closed else { return live.stopScreen(started) }
+                watch = started
             } catch {
                 return fail("no live screen for this simulator: \(error)")
             }
@@ -270,9 +280,9 @@ extension SimulatorSurfaceServer {
 
         private func frame(_ surface: IOSurface) {
             guard stillShown() else {
-                    logger.notice("surface source \(self.udid, privacy: .public): its tab no longer shows this simulator")
-                    return stale()
-                }
+                logger.notice("surface source \(self.udid, privacy: .public): its tab no longer shows this simulator")
+                return stale()
+            }
             let first = latest == nil
             latest = surface
             latestAt = Self.now()
@@ -295,6 +305,7 @@ extension SimulatorSurfaceServer {
 
         private func encode(idr: Bool, kbps: Int) {
             damageSent = false
+            guard stillShown() else { return stale() }
             guard let encoder, let surface = latest ?? live.currentSurface(udid) else {
                 return send(SurfaceSourceWire.json(["t": "skip"]))
             }

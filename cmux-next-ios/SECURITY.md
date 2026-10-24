@@ -325,7 +325,8 @@ no new path for a peer and no new trust decision.
   input one event at a time from a bounded queue (256), so a flood cannot
   start more than one `simctl` at once.
 - **Lifetime.** The source stops when its tab closes or shows another phone
-  (checked on every input and frame), and hostd hears `surface_gone`.
+  (checked at the start, on every input, frame and encode), and hostd hears
+  `surface_gone`.
 - **Loopback.** The app's source listens on `127.0.0.1` (accept local only),
   with a per-launch secret it gives hostd over stdin, compared in constant
   time. hostd's own host for each tab is on loopback with its own secret, as
