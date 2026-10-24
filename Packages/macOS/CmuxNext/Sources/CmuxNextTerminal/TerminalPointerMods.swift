@@ -13,10 +13,10 @@ import AppKit
 /// through the app and the program gets no click; its drags and release follow the press.
 /// Anywhere else, and with any other key held, the click stays the program's.
 ///
-/// Without a program on the mouse, Ghostty matches links for Command alone, so Shift-Command (the
-/// browser the link setting does not pick) and Option-Command (a browser profile) matched none.
-/// There a move, and a press on a link with its drags and release, go as Command alone; the open
-/// reads the real keys from the event.
+/// Ghostty matches links for Command alone, so Shift-Command (the browser the link setting does not
+/// pick) and Option-Command (a browser profile) matched none. A move with one of them, and a press on
+/// a link with its drags and release, go as Command alone, or as Command with the Shift override
+/// while the program has the mouse; the open reads the real keys from the event.
 nonisolated struct TerminalPointerMods: Equatable {
     /// What the pointer does.
     enum Phase: Equatable {
@@ -46,9 +46,9 @@ nonisolated struct TerminalPointerMods: Equatable {
         return keys.contains(.command) && keys != .command && keys.isSubset(of: [.command, .shift, .option])
     }
 
-    /// Whether this event goes as Command alone: a chord's link gesture with no program on the mouse.
+    /// Whether this event goes as a link gesture of a Command chord (Shift- or Option-Command).
     func chordGesture(_ flags: NSEvent.ModifierFlags, phase: Phase) -> Bool {
-        guard !captured, Self.commandChord(flags) else { return phase == .followingPress && linkPress && !captured }
+        guard Self.commandChord(flags) else { return phase == .followingPress && linkPress && !captured }
         switch phase {
         case .move: return true
         case .press: return overLink
@@ -69,8 +69,11 @@ nonisolated struct TerminalPointerMods: Equatable {
     /// `flags` with Shift added when ``linkGesture(_:phase:)`` holds, as Command alone when
     /// ``chordGesture(_:phase:)`` does.
     func flags(_ flags: NSEvent.ModifierFlags, phase: Phase) -> NSEvent.ModifierFlags {
+        let chord: NSEvent.ModifierFlags = captured ? [.command, .shift] : .command
+        // A chord first: with Option kept, Ghostty would match no link even with the Shift override.
+        if Self.commandChord(flags), chordGesture(flags, phase: phase) { return chord }
         if linkGesture(flags, phase: phase) { return flags.union(.shift) }
-        if chordGesture(flags, phase: phase) { return flags.subtracting([.shift, .option]).union(.command) }
+        if chordGesture(flags, phase: phase) { return chord }
         return flags
     }
 }

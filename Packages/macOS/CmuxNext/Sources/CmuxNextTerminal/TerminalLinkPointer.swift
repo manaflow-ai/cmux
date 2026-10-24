@@ -56,7 +56,8 @@ import GhosttyNextKit
     func refresh(_ flags: NSEvent.ModifierFlags? = nil, at pressPoint: NSPoint? = nil) {
         let flags = flags ?? heldFlags
         guard pressPoint != nil || !buttonsDown, NSEvent.pressedMouseButtons & ~1 == 0 else { return }
-        guard let view, let surface = view.surface, let point = pressPoint ?? pointerLocation, view.bounds.contains(point) else { return }
+        guard let view, view.isShown, let surface = view.surface, let point = pressPoint ?? pointerLocation,
+              view.bounds.contains(point) else { return }
         let mods = GhosttyInput.mods(view.pointerFlags(flags))
         // Off the grid first: Ghostty forgets its last cell (no report: nothing is pressed).
         ghostty_surface_mouse_pos(surface, -1, -1, mods)
@@ -98,9 +99,21 @@ import GhosttyNextKit
         hoverWrapped(at: point, flags: flags, force: false)
     }
 
+    /// A move event, which AppKit sends only with no button down: any press this view saw has
+    /// ended, even one whose release went elsewhere.
+    func movedWithoutButton() {
+        isPressing = false
+    }
+
     func exited() {
         modifierMonitor.remove()
+        isPressing = false
+        wrappedPress = nil
         clearWrapped()
+        #if DEBUG
+        testPointer = nil
+        testFlags = nil
+        #endif
     }
 
     /// A left press. True: this owns it and Ghostty must not see it.
@@ -132,12 +145,30 @@ import GhosttyNextKit
         return true
     }
 
-    /// Ghostty asked for `cursor` (its `mouse_shape`). True: a wrapped link is under the
-    /// pointer, so the hand stays and `cursor` comes back when the link goes.
+    /// The shape Ghostty asked for while a link it found was under the pointer.
+    private var heldCursor: NSCursor?
+
+    /// Ghostty asked for `cursor` (its `mouse_shape`). True: a link is under the pointer with
+    /// Command held (a wrapped one, or one Ghostty found), so the hand stays and `cursor` comes
+    /// back when the link goes. A program that turns mouse tracking on or off, or sets its own
+    /// pointer shape, otherwise replaces the hand over a link Ghostty underlines.
     func absorbsCursor(_ cursor: NSCursor) -> Bool {
-        guard wrapped != nil else { return false }
-        if cursor != .pointingHand { cursorBeforeWrapped = cursor }
+        guard cursor != .pointingHand else { heldCursor = nil; return false }
+        if wrapped != nil {
+            cursorBeforeWrapped = cursor
+            return true
+        }
+        guard let view, view.session?.model.hoveredLink != nil, view.cursor == .pointingHand,
+              Self.isLinkChord(heldFlags) else { return false }
+        heldCursor = cursor
         return true
+    }
+
+    /// Ghostty reports no link under the pointer now: a shape it asked for meanwhile applies.
+    func linkLeft() {
+        guard let cursor = heldCursor else { return }
+        heldCursor = nil
+        if wrapped == nil { view?.setCursor(cursor) }
     }
 
     // MARK: Wrapped links

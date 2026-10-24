@@ -183,10 +183,15 @@ private nonisolated struct Cells {
         guard !word.characters.isEmpty else { return false }
         let end = endColumn(ofCharacter: word.characters.upperBound - 1)
         if end >= columns - 1 { return true }
-        // A frame border after at most one space: `… url │`.
+        // The row's outer frame border after at most one space: `… url │` with the `│` the row's
+        // last character near the edge. A table's column border (`│ url │ next`) is not one.
         let after = characters[word.characters.upperBound...].drop(while: { $0 == " " })
         let gap = characters[word.characters.upperBound...].prefix(while: { $0 == " " }).count
-        if gap <= 1, let border = after.first, TerminalWrappedLink.isFrameCharacter(border) { return true }
+        if gap <= 1, let border = after.first, TerminalWrappedLink.isFrameCharacter(border),
+           after.dropFirst().allSatisfy(\.isWhitespace),
+           endColumn(ofCharacter: characters.count - after.count) >= columns - 1 - TerminalWrappedLink.edgeSlack {
+            return true
+        }
         return end >= columns - 1 - TerminalWrappedLink.edgeSlack && next.contains { TerminalWrappedLink.continuationMarks.contains($0) }
     }
 

@@ -219,6 +219,9 @@ import Testing
         let margin = ["  see https://example.com/abcd", "  efg/h?i=1"]
         #expect(TerminalWrappedLink.find(rows: margin, firstRow: 0, columns: 32, column: 3, row: 1)?.text
             == "https://example.com/abcdefg/h?i=1")
+        // A table's column border is not the row's frame: the next row's first word stays out.
+        let table = ["│ docs │ https://example.com/a │ ok │", "│ more │ text                  │    │"]
+        #expect(TerminalWrappedLink.find(rows: table, firstRow: 0, columns: 37, column: 12, row: 0) == nil)
         // A VS16 emoji takes two cells, so the URL after it still reaches the edge.
         let emoji = ["⚠️ https://example.com/aaaaaaaa", "bbb/c"]
         #expect(TerminalWrappedLink.find(rows: emoji, firstRow: 0, columns: 31, column: 1, row: 1)?.text

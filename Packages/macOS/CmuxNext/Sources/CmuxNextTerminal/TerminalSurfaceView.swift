@@ -208,6 +208,8 @@ public final class TerminalSurfaceView: NSView {
     public override func viewDidHide() {
         super.viewDidHide()
         isShown = false
+        // A hidden terminal gets no mouseExited: its link hover and modifier watcher end here.
+        linkPointer.exited()
         observeWindow(false)
         updateOcclusion()
     }
@@ -223,6 +225,7 @@ public final class TerminalSurfaceView: NSView {
         let shown = window != nil && !isHiddenOrHasHiddenAncestor && !isParkedOrHasParkedAncestor
         isShown = shown
         observeWindow(shown)
+        if !shown { linkPointer.exited() }
         if shown {
             updateContentScale()
             // A view that joins a pane on a layout spring sends the grid the spring rests at, once; its first

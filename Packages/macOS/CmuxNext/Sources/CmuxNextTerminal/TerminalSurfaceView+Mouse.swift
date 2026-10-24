@@ -29,10 +29,12 @@ extension TerminalSurfaceView {
 
     public override func mouseUp(with event: NSEvent) {
         previousPressureStage = 0
-        defer { linkPressInCapture = false }
+        defer {
+            linkPressInCapture = false
+            if let surface { ghostty_surface_mouse_pressure(surface, 0, 0) }
+        }
         if linkPointer.mouseUp(event) { return }
         sendButton(event, state: GHOSTTY_MOUSE_RELEASE, button: GHOSTTY_MOUSE_LEFT, phase: .followingPress)
-        if let surface { ghostty_surface_mouse_pressure(surface, 0, 0) }
     }
 
     public override func otherMouseDown(with event: NSEvent) {
@@ -55,7 +57,10 @@ extension TerminalSurfaceView {
         super.rightMouseUp(with: event)
     }
 
-    public override func mouseMoved(with event: NSEvent) { sendPosition(event) }
+    public override func mouseMoved(with event: NSEvent) {
+        linkPointer.movedWithoutButton()
+        sendPosition(event)
+    }
     public override func mouseDragged(with event: NSEvent) { sendPosition(event, phase: .followingPress) }
     public override func rightMouseDragged(with event: NSEvent) { sendPosition(event) }
     public override func otherMouseDragged(with event: NSEvent) { sendPosition(event) }
@@ -129,8 +134,8 @@ extension TerminalSurfaceView {
         guard newCursor != cursor else { return }
         cursor = newCursor
         window?.invalidateCursorRects(for: self)
-        if let window, let event = NSApp.currentEvent, event.window === window,
-           bounds.contains(convert(event.locationInWindow, from: nil)) {
+        // The pointer's own location: a key event or a late link-filter answer carries none.
+        if let window, isShown, window.isVisible, bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil)) {
             newCursor.set()
         }
     }

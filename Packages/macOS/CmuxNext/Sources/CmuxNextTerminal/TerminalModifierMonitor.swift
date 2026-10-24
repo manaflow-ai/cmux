@@ -3,7 +3,8 @@ import AppKit
 /// Seam adapter (PATTERNS.md P2): AppKit's local event monitor for modifier changes, delivered
 /// to a main-actor handler. A terminal installs one while the pointer is over it, so Command
 /// pressed or released there reaches it even without focus (a key event goes only to the
-/// focused view), and removes it when the pointer leaves.
+/// focused view), and removes it when the pointer leaves or the view is hidden, parked or leaves its
+/// window. Its handler holds the terminal weakly.
 @MainActor final class TerminalModifierMonitor {
     private var token: Any?
     private let changed: @MainActor (NSEvent.ModifierFlags) -> Void
