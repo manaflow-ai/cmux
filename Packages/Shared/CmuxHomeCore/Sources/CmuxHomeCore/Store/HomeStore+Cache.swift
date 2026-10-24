@@ -38,9 +38,10 @@ extension HomeStore {
         restoreCache()
     }
 
-    /// Writes the coalesced cache batch now (app quit), without stopping.
-    public func flushCache() {
-        viewCache.flush()
+    /// Writes the coalesced cache batch now and waits until it is on disk (the app's quit save
+    /// step), without stopping. The cache actor encodes and writes it; the caller only suspends.
+    public func flushCache() async {
+        await viewCache.flush()
     }
 
     /// Shows what the cache holds before the owner answers. Once per store: the Home list calls it
