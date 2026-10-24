@@ -54,24 +54,47 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     private(set) var isParked = false
     /// When its window parked it (`WindowController.mountedContents` order).
     private(set) var parkedSerial: UInt64 = 0
+    /// Parked and on no screen (not a `sidebar.multiView` companion beside the shown workspace).
+    /// Its tree changes then update the model only: no layout, no view sync, no topology
+    /// (CLAUDE.md "Go past Chrome where cmux is scripted").
+    private(set) var isOffScreen = false
+    /// The latest mapping that came while off screen: applied once, at rest, when it shows.
+    private var deferredApply: LayoutMapping.Result?
 
     /// Parks this content before its window shows another workspace. Its attention rings draw
-    /// nothing while parked, so it stops following them (a global change wakes no parked workspace).
+    /// nothing while parked, so it stops following them (a global change wakes no parked workspace),
+    /// and its layout changes wait until it shows (``apply(_:force:_:_:)``).
     func park(serial: UInt64) {
         parkedSerial = serial
         isParked = true
+        isOffScreen = true
         attentionObservation?.cancel()
     }
 
-    /// Shows this parked content again: its observation kept the tree current, so no re-map or apply;
-    /// the attention rings are read now (this frame) and followed again.
+    /// Shows this parked content again, in this frame: the tree changes it skipped while off screen
+    /// apply now in one step to their final state (its layout view is not live yet, so nothing
+    /// animates a change nobody saw); the attention rings are read now and followed again.
     func unpark() {
         isParked = false
+        comeOnScreen()
         observeAttention()
     }
 
-    /// Parked but on screen beside the shown workspace (`sidebar.multiView`): its attention rings draw, so it follows them.
-    func followAttention() { observeAttention() }
+    /// Parked but on screen beside the shown workspace (`sidebar.multiView`): it lays out what changed
+    /// while it was off screen, and its attention rings draw, so it follows them.
+    func followAttention() {
+        comeOnScreen()
+        observeAttention()
+    }
+
+    private func comeOnScreen() {
+        guard isOffScreen else { return }
+        isOffScreen = false
+        if let pending = deferredApply {
+            deferredApply = nil
+            apply(pending, force: true)
+        }
+    }
 
     /// Installed: one topology (the coordinator restores its pane), whose ring draws in this frame.
     func didShow() {
@@ -202,6 +225,13 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         // Commands translate through the current handles even when the tree is unchanged (the
         // daemon's echo of an optimistic split renumbers only the new pane): no apply then.
         let topologyMoved = adoptHandles(result.handles)
+        // Off screen: the handles stay current (commands translate through them) and an empty
+        // workspace is still repaired; the layout waits for the frame that shows it.
+        if isOffScreen {
+            deferredApply = result
+            repairIfEmpty()
+            return
+        }
         guard appliedTree.update(result, edgeDocks: daemon.supports(DaemonCapabilities.edgeDocks), rows: daemon.supports(DaemonCapabilities.rows)) || force else {
             if topologyMoved {
                 // The one topology of this change (adoptions inside sent none); the focus it lands
