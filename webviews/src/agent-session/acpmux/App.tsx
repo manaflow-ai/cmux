@@ -5574,6 +5574,11 @@ function AcpmuxPane() {
     closeInspector();
     if (artifactCovers) setArtifact(undefined);
   }, [closeDiff, closeInspector, artifactCovers]);
+  // Labs: the chat's workflows head the Inspector's Background tasks (inspector/WorkflowTasks.tsx).
+  const inspectorWorkflows = useMemo(
+    () => (workflows.length > 0 ? { list: workflows, onStop: stopSubagent } : undefined),
+    [workflows, stopSubagent],
+  );
   const inspector = useChatInspector({
     snapshot,
     machineName,
@@ -5588,6 +5593,7 @@ function AcpmuxPane() {
     onStopProcess: stopProcess,
     subagents: cardSubagents,
     sessions: cardSessions,
+    workflows: inspectorWorkflows,
     // A folder opens in the Files tree beside the chat; a remote or cloud chat's folders are not on
     // this Mac.
     onOpenFolder:
