@@ -247,6 +247,17 @@ Plan: scroll becomes a renderer mailbox message (latest viewport offset wins), a
 published from the renderer thread once per frame through a snapshot the main thread reads without the lock.
 Guard, red first: main stall per scroll event < 1 ms with 10 printing terminals.
 
+### Launch: GhosttyRuntime's first use before the first frame (#17587; lead, 2026-10-24)
+
+#17587 names GhosttyRuntime init (~121 ms) as a main-thread stall before the first window frame. The names
+there come from a watchdog that samples a stack ~10 ms into one ~110-130 ms `applicationDidFinishLaunching`
+turn: sample points, not measured costs. Plan: measure `TerminalTimings.runtimePhases` (`ghostty_init`,
+config load, `ghostty_app_new`) on the fleet (bench-stalls.py, Release and Debug), red first: a launch bench
+row that fails while the runtime's first use runs in the turn before the first frame. Move out of the first
+frame what it does not need (create the app and load the config at idle or off main where libghostty allows,
+the first surface waits for it, not the window). cmux-4f rewrites `TerminalLaunchFrames.swift` (launch code,
+on `CmuxNextLaunch.SavedFrameDirectory`); rebase on it before touching launch.
+
 ## 5. Measurements
 
 Filled in as fleet runs land: host, build sha, refresh rate, light and STRESS side by side.
