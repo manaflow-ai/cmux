@@ -106,6 +106,7 @@ extension AgentTabStore {
                 // The store's tab replaces the provisional one in one step, never beside it.
                 ProvisionalTab.created(transaction, surface: created.surface, in: store)
                 if let sequence { store.noteSettled(transaction, at: sequence) } else { store.noteSettledAtNextSnapshot(transaction) }
+                pending.hold = (store, transaction, sequence)
                 if store.creations.wasCancelled(transaction) { throw CancellationError() }
                 // A chat its page started (or the harness acpmux reported) before the store answered binds now.
                 if let started = sessions[created.key], !remote { sendSession(started, for: created.key) }
@@ -157,15 +158,18 @@ extension AgentTabStore {
         // The selection follows the provisional tab to the created one (`moveSelection`).
         if select { pane.selectWhenReported(surface: pending.surface) }
         if hidden {
+            // The store's id is hidden too from the step its tab replaces this one (``tabCreated(_:as:)``).
             pane.pendingDock[pending.key] = pending.key
+            hiddenOpenings[pending.key] = WeakPaneController(value: pane)
             pane.apply(pane.snapshot())
         }
         pane.services.registry.track(Task {
             do {
                 let created = try await pending.value()
                 content?.expectFocus(on: created.surface, generation: intent)
-                // The store's id hides the same chat, until the dock (or its failure) ends both.
-                if hidden, pane.pendingDock[pending.key] != nil { pane.pendingDock[created.key] = pending.key }
+                // A chat bound for its dock moves once the tree holds the store's answer: `then`
+                // finds its tab there, or knows it is already gone (closed before it was located).
+                if hidden { await pending.held() }
                 // A remote store can answer before its tree lists the provisional tab, so the
                 // provisional selection never took: the store's tab is selected now (cx-k21v).
                 if select, !hidden, !daemon.isLocal, pane.stripModel.selectedID?.rawValue != created.key {
@@ -189,6 +193,11 @@ extension AgentTabStore {
     /// that added it, whichever came first): view state and the selection move to it.
     func tabCreated(_ key: String, as created: AgentTabCreated) {
         rekey(key, to: created.key)
+        // A chat opened hidden stays hidden under the store's id in its pane, in this step: the
+        // swap that shows the store's tab is a tree change the pane's observation applies after it.
+        if let pane = hiddenOpenings.removeValue(forKey: key)?.value, pane.pendingDock[key] != nil {
+            pane.pendingDock[created.key] = key
+        }
         moveSelection(key, created.surface)
     }
 
@@ -313,6 +322,7 @@ extension AgentTabStore {
             }
         }
         notices[key] = nil
+        hiddenOpenings[key] = nil
         sessions[key] = nil
         newTabPages[key] = nil
         seeds[key] = nil
@@ -389,6 +399,9 @@ final class AgentTabPending {
     let key: String
     let surface: SurfaceID
     var result: Task<AgentTabCreated, any Error>?
+    /// The store that answered the creation, its transaction and the event sequence read after its reply (nil: the
+    /// connection ended, the next snapshot holds the tab). Set once the store answered.
+    var hold: (store: DaemonStore, transaction: ClientTransactionID, sequence: UInt64?)?
 
     init(key: String, surface: SurfaceID) {
         self.key = key
@@ -399,6 +412,15 @@ final class AgentTabPending {
     func value() async throws -> AgentTabCreated {
         guard let result else { throw CancellationError() }
         return try await result.value
+    }
+
+    /// Returns once the store's tree holds the creation's result (``DaemonStore/whenApplied(_:reaching:_:)``): it
+    /// lists the store's tab from then on, unless the tab was already closed. Returns at once before ``value()`` answered.
+    func held() async {
+        guard let hold else { return }
+        await withCheckedContinuation { continuation in
+            hold.store.whenApplied(hold.transaction, reaching: hold.sequence) { continuation.resume() }
+        }
     }
 }
 

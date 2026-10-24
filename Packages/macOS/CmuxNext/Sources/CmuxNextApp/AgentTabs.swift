@@ -100,6 +100,9 @@ final class AgentTabStore {
     var aliases: [String: String] = [:]
     /// Tabs a live tree has listed: only those can be gone from it.
     var seenLive: Set<String> = []
+    /// The pane each chat opened hidden (bound for a new chat dock) is hidden in, by provisional id, until
+    /// the store's tab replaces it: ``tabCreated(_:as:)`` hides the store's id there in the same step.
+    var hiddenOpenings: [String: WeakPaneController] = [:]
     /// The tree each opened or shown tab belongs to, so a tab closed out of sight (by the CLI,
     /// another client, its pane closing) lets its view state go once that tree is live without it.
     var tabStores: [String: DaemonStore] = [:]

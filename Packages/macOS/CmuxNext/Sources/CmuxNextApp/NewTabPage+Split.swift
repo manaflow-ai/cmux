@@ -106,27 +106,26 @@ extension NewTabPage {
         services.locateTab(key).flatMap { services.paneController(for: $0.1) }
     }
 
-    /// Moves the hidden page `key` to a new pane on `edge` of its pane once the store lists it,
-    /// then shows it there and focuses it. A failed move shows it where it is.
+    /// Moves the hidden page `key` to a new pane on `edge` of its pane, then shows it there and
+    /// focuses it. `openTab` calls it once the tree holds the store's answer
+    /// (``AgentTabPending/held()``), so the tree lists the page now or it is already gone. A failed
+    /// move shows it where it is; a gone page ends the wait for its split and the held keys go on.
     private static func moveToSplit(_ key: String, from source: PaneController, edge: PaneEdge, keys: String?, focuses: Bool) {
         let services = source.services
-        services.registry.track(Task { @MainActor [weak source] in
-            if services.locateTab(key) == nil {
-                for await located in ObservationStream({ services.locateTab(key) != nil }) where located { break }
-            }
-            guard case let (tab, pane)? = services.locateTab(key) else { return nil }
-            TabMoves.toNewSplit(tab, pane: pane, edge: edge, services: services, keepFocus: !focuses) { moved in
-                let input = services.keyRouter.newTabInputCoordinator
-                // A failed move leaves the page unselected in its pane: the held keys go on now.
-                guard let source else { return input.endIncoming(keys, pageMade: false) }
-                source.dockFinished(key)
-                guard moved, let content = source.workspace else { return input.endIncoming(keys, pageMade: false) }
-                if focuses { NewChatPlacement.focusWhenShown(key, in: content, leaving: source.layoutPaneID, services: services) }
-                // The page shows in its new pane: a field that reported ready may take the keys now.
-                input.flushAll()
-            }
-            return nil
-        })
+        let input = services.keyRouter.newTabInputCoordinator
+        guard case let (tab, pane)? = services.locateTab(key) else {
+            source.dockFinished(key)
+            return input.endIncoming(keys, pageMade: false)
+        }
+        TabMoves.toNewSplit(tab, pane: pane, edge: edge, services: services, keepFocus: !focuses) { [weak source] moved in
+            // A failed move leaves the page unselected in its pane: the held keys go on now.
+            guard let source else { return input.endIncoming(keys, pageMade: false) }
+            source.dockFinished(key)
+            guard moved, let content = source.workspace else { return input.endIncoming(keys, pageMade: false) }
+            if focuses { NewChatPlacement.focusWhenShown(key, in: content, leaving: source.layoutPaneID, services: services) }
+            // The page shows in its new pane: a field that reported ready may take the keys now.
+            input.flushAll()
+        }
     }
 
     /// The Open Tabs list picked tab `id`: it moves into the page's pane, where the page was,

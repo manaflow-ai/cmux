@@ -57,28 +57,19 @@ extension NewChatPlacement {
     }
 
     /// Moves new chat `key`, opened hidden in `controller`'s pane, into a new
-    /// left chat dock once the store shows it, then focuses it there. A
-    /// failed move shows it where it is.
+    /// left chat dock, then focuses it there. `openTab` calls it once the tree
+    /// holds the store's answer (``AgentTabPending/held()``), so the tree lists
+    /// the tab now or it is already gone. A failed move shows it where it is; a
+    /// gone tab ends the wait for its dock.
     @MainActor static func dock(_ key: String, from controller: PaneController) {
         let services = controller.services
-        services.registry.track(Task { @MainActor [weak controller] in
-            var found = services.locateTab(key)
-            if found == nil {
-                for await located in ObservationStream({ services.locateTab(key) != nil }) where located {
-                    found = services.locateTab(key)
-                    break
-                }
-            }
-            guard let found else { return nil }
-            let (tab, pane) = found
-            TabMoves.toNewDockColumn(tab, anchor: pane, edge: .left, role: .agentChat, services: services) { moved in
-                guard let controller else { return }
-                controller.dockFinished(key)
-                guard moved, let content = controller.workspace else { return }
-                focusWhenShown(key, in: content, leaving: controller.layoutPaneID, services: services)
-            }
-            return nil
-        })
+        guard case let (tab, pane)? = services.locateTab(key) else { return controller.dockFinished(key) }
+        TabMoves.toNewDockColumn(tab, anchor: pane, edge: .left, role: .agentChat, services: services) { [weak controller] moved in
+            guard let controller else { return }
+            controller.dockFinished(key)
+            guard moved, let content = controller.workspace else { return }
+            focusWhenShown(key, in: content, leaving: controller.layoutPaneID, services: services)
+        }
     }
 
     /// Focuses the pane that shows tab `key` once the layout has it outside
@@ -101,19 +92,13 @@ extension NewChatPlacement {
 }
 
 extension PaneController {
-    /// The tab ids `pendingDock` hides: a provisional id also hides the tab
-    /// the store replaced it with, from the store's first snapshot on.
-    var dockBound: Set<String> {
-        let aliases = services.agentTabs.aliases
-        return Set(pendingDock.keys).union(pendingDock.keys.compactMap { aliases[$0] })
-    }
+    /// The tab ids `pendingDock` hides: a chat's provisional id, and the store's id from the
+    /// step the store's tab replaced it (``AgentTabStore/tabCreated(_:as:)``).
+    var dockBound: Set<String> { Set(pendingDock.keys) }
 
-    /// Chat `key` (its provisional id or the store's) reached its dock, or the move failed: the
-    /// strip may list it again and Cmd-I opens chats again (``DockedAgentChat``). Both of its ids
-    /// go, by the chat each entry names. Matching through `aliases` kept the provisional id: its
-    /// alias is pruned once the store's tab replaced it, before the move answers, so the pane
-    /// kept a chat "on its way" forever and every later Cmd-I in it did nothing once the dock
-    /// closed. Other chats still on their way stay hidden.
+    /// Chat `key` (its provisional id or the store's) reached its dock, the move failed, or the
+    /// chat is gone: the strip may list it again and Cmd-I opens chats again (``DockedAgentChat``).
+    /// Both of its ids go, by the chat each entry names; other chats still on their way stay hidden.
     func dockFinished(_ key: String) {
         let chat = pendingDock[key] ?? key
         pendingDock = pendingDock.filter { $0.value != chat }
