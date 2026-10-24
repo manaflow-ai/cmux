@@ -6617,8 +6617,9 @@ function AcpmuxPane() {
               refused(error, (error as { handedBack?: unknown }).handedBack === true),
             );
           }
-          // A prompt acpmux held goes with the gesture its first send kept.
-          const kept = heldPrompt.take();
+          // A prompt acpmux held goes with the gesture its first send kept; any other into a shown
+          // chat binds its Enter now, before the waits below (direct.ts `bindSendGesture`).
+          const kept = heldPrompt.take() ?? client.bindSendGesture();
           const sessionId = await client.ensureSession().catch((error: unknown) => {
             // A folder harness that waits for Enable or Trust says so on its own card.
             setBlockedHarness(harnessBlock(error));

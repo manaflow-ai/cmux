@@ -3772,13 +3772,28 @@ export class AcpmuxDirectClient {
     if (!ids.length) return;
     await this.request("_acpmux/warm", { sessionIds: ids, limit }).catch(() => undefined);
   }
+  /// The person's Enter (or Send, Retry) is a gesture the host counts once, and only while it is
+  /// fresh. Bound to `promptId` the moment it is sent, before anything waits, it is that prompt's
+  /// alone: a prompt sent behind a running turn or as a steer, right after another, no longer
+  /// loses it to the one before when the host checks both after both key presses. Undefined while
+  /// a chat starts (or none is shown): the start takes the gesture and hands its credit to the
+  /// first prompt (a harness switch's prompts reserve when the switch sends them).
+  bindSendGesture(
+    promptId: string = crypto.randomUUID(),
+  ): { promptId: string; ticket: Promise<string | undefined> } | undefined {
+    if (this.creating || !this.selectedSessionId) return undefined;
+    return { promptId, ticket: reservePromptGesture(promptId) };
+  }
   /// Sends a prompt. `promptId` keys its optimistic row (`local-<promptId>`), so a prompt the
   /// pane drew while a harness started keeps its row once it goes out (harnessSwitch.ts).
   /// `accepted` runs once acpmux took the prompt (its echo or its reply); a refusal comes before
   /// that, and then a caller that passed `accepted` still holds the prompt (the composer keeps
   /// it), so the prompt leaves no bubble and the refusal names its reason in the transcript.
   /// `ticket`: the gesture a send kept for this prompt while acpmux held it for the folder trust
-  /// answer (heldPrompt.ts); it rides as `_meta.cmuxGesture`, and the host strips it.
+  /// answer (heldPrompt.ts); it rides as `_meta.cmuxGesture`, and the host strips it. Without one,
+  /// a send into a shown chat binds the person's Enter or click to this prompt at once
+  /// (``bindSendGesture``), so the frame goes however late the host checks it; a caller that waits
+  /// before sending (App.tsx) binds it first and passes the pending ticket.
   /// `steer`: into the running turn, read when the agent's current step ends; an agent that
   /// cannot steer queues it behind the turn. Nothing sent stops the turn: only Stop does (Leo
   /// 2026-10-20), so no send carries `_meta.acpmux.interrupt`. No send carries
@@ -3789,9 +3804,10 @@ export class AcpmuxDirectClient {
     attachments: ComposerAttachment[] = [],
     promptId: string = crypto.randomUUID(),
     accepted?: () => void,
-    ticket?: string,
+    ticket?: string | Promise<string | undefined>,
     steer = false,
   ): Promise<string | undefined> {
+    const reserved = ticket ?? this.bindSendGesture(promptId)?.ticket;
     // A `data:` image written into the prompt goes as an image, never as text: the bubble, the
     // agent and the chat's compaction never see base64 (inlineImages.ts, Leo 2026-10-20).
     ({ text: input, attachments } = liftInlineImages(input, attachments));
@@ -3929,6 +3945,7 @@ export class AcpmuxDirectClient {
       }, deliveryTiming.failMs),
     );
     this.emit();
+    const gesture = await reserved;
     try {
       await this.request("session/prompt", {
         sessionId,
@@ -3947,7 +3964,7 @@ export class AcpmuxDirectClient {
             ...(context ? { context } : {}),
             ...promptSurfaceMeta(),
           },
-          ...(ticket ? { cmuxGesture: ticket } : {}),
+          ...(gesture ? { cmuxGesture: gesture } : {}),
         },
       });
       accept();
@@ -5550,6 +5567,18 @@ export class AcpmuxDirectClient {
     this.pending.clear();
   }
 }
+
+/// Binds the person's current gesture to prompt `promptId` with the host (`transport.gesture`):
+/// its single-use ticket, good only for a session/prompt with that promptId. Undefined when the
+/// host has no gesture to give (posted input, a script) or no such op: the prompt then goes
+/// without one, and the host decides it as before.
+const reservePromptGesture = (promptId: string): Promise<string | undefined> =>
+  postNative<{ ticket?: string }>("transport.gesture", {
+    intent: { method: "session/prompt", params: { promptId } },
+  }).then(
+    (reply) => reply?.ticket,
+    () => undefined,
+  );
 
 /// The params field that carries a pick's gesture ticket, or nothing without one.
 const gestureMeta = (ticket?: string) => (ticket ? { _meta: { cmuxGesture: ticket } } : {});

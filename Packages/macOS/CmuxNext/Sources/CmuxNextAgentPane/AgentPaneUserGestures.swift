@@ -72,14 +72,21 @@ import CmuxNextCompat
     public nonisolated static let ticketLifetime: TimeInterval = 60
     /// How long a prompt held for the folder trust answer keeps its send's gesture.
     public nonisolated static let heldPromptLifetime: TimeInterval = 600
+    /// The most prompt tickets older than ``lifetime`` one connection keeps (``reserve(connection:intent:paid:)``).
+    nonisolated static let promptTicketsKept = 8
+    /// The most prompt tickets one connection holds at all, however fresh.
+    nonisolated static let promptTicketsMax = 64
 
     struct Ticket {
         var connection: Int
         var intent: AgentPaneGestureIntent
         var at: TimeInterval
+        /// Issue order (two reserves can share a clock reading).
+        var order = 0
     }
 
     private var tickets: [String: Ticket] = [:]
+    private var issued = 0
 
     /// Binds the current gesture to one pick the page sends later (a pick held behind a harness
     /// switch) on `connection`: consumes the gesture and returns a single-use ticket, nil when
@@ -96,8 +103,27 @@ import CmuxNextCompat
         let at = now()
         tickets = tickets.filter { at - $0.value.at <= $0.value.intent.lifetime
             && !($0.value.connection == connection && $0.value.intent.slot == intent.slot) }
+        // Each prompt has its own slot. A typed prompt's frame reaches the relay within moments, so
+        // a ticket older than a live gesture is one waiting on a trust answer, or one a page banked:
+        // past ``promptTicketsKept``, the oldest of those go, so a page cannot keep one per key press
+        // and send them all once the person has gone. Fresh ones always stay (fast typing).
+        if intent.method == "session/prompt" {
+            let prompts = tickets.filter { $0.value.connection == connection && $0.value.intent.method == intent.method }
+            var excess = prompts.count - (Self.promptTicketsKept - 1)
+            for old in prompts.filter({ at - $0.value.at > Self.lifetime }).sorted(by: { $0.value.order < $1.value.order }) {
+                guard excess > 0 else { break }
+                tickets[old.key] = nil
+                excess -= 1
+            }
+            // And never more than ``promptTicketsMax`` in all (a page that reserves and never sends).
+            let left = tickets.filter { $0.value.connection == connection && $0.value.intent.method == intent.method }
+            for old in left.sorted(by: { $0.value.order < $1.value.order }).dropLast(Self.promptTicketsMax - 1) {
+                tickets[old.key] = nil
+            }
+        }
         let ticket = UUID().uuidString
-        tickets[ticket] = Ticket(connection: connection, intent: intent, at: at)
+        issued += 1
+        tickets[ticket] = Ticket(connection: connection, intent: intent, at: at, order: issued)
         lastTicket = ticket
         return ticket
     }
@@ -118,6 +144,11 @@ import CmuxNextCompat
     /// Drops every ticket (a reconnect, the end of a harness switch, the page's release).
     /// A seeded prompt's ticket stays: it belongs to the pane's one seed, not to a connection.
     public func clearTickets() { tickets.removeAll() }
+
+    /// Drops every ticket but the prompts' (a prompt went out: a switch's picks ended with it). A
+    /// prompt's ticket names its own promptId, so a prompt the person sent before this one went
+    /// keeps its Enter.
+    public func clearTicketsKeepingPrompts() { tickets = tickets.filter { $0.value.intent.method == "session/prompt" } }
 
     // MARK: A seeded prompt's ticket (cx-k21v gap 4)
 
