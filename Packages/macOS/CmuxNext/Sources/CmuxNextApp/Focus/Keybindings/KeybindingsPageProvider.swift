@@ -40,7 +40,15 @@ final class KeybindingsPageProvider: PageProvider {
             return KeybindingReports.pageList(params.objectValue ?? [:], registry: services.registry,
                                              heldElsewhere: services.globalHotKeys.conflicts)
         case "cmux.keybindings.conflicts":
-            return KeybindingReports.conflicts(params.objectValue ?? [:], registry: services.registry)
+            // The entries the keys would take, and the app's refusal of them (`refusal`), before a save.
+            let fields = params.objectValue ?? [:]
+            guard case .object(var reply) = KeybindingReports.conflicts(fields, registry: services.registry) else { return [:] }
+            if let settings = services.settings,
+               let refusal = KeybindingPageWrites(registry: services.registry, settings: settings, file: services.keybindingsFile)
+                   .refusal(fields) {
+                reply["refusal"] = .string(refusal)
+            }
+            return .object(reply)
         case "cmux.keybindings.record.start":
             // A row's recorder starts a new shortcut after each release; the search's keeps the chord.
             startRecording(resetsOnRelease: params.objectValue?["target"]?.stringValue == "row")

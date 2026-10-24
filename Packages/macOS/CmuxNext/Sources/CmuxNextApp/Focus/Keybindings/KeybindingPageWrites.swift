@@ -229,6 +229,22 @@ struct KeybindingPageWrites {
         }
     }
 
+    /// The refusal of `key` for `command` before any write (`cmux.keybindings.conflicts`): the
+    /// recorder's rules, as `set` checks them (a key another action always runs, a reserved key).
+    /// Nil when they may be saved; a conflict the person can keep is the page's question, not this.
+    func refusal(_ params: [String: JSONValue]) -> String? {
+        guard let id = try? command(params), let keys = KeybindingReports.keys(from: params["key"]?.stringValue ?? ""),
+              let first = keys.first else { return nil }
+        do {
+            try assess(first, for: id)
+            return nil
+        } catch let error as PageError where error.code == "cmux.keybindings.refused" {
+            return error.message
+        } catch {
+            return nil
+        }
+    }
+
     /// The palette recorder's rules (`ActionRegistry.assessShortcut`; one
     /// key of a numbered family, `assessKey`).
     private func assess(_ shortcut: Shortcut, for id: ActionID) throws {

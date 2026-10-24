@@ -543,6 +543,21 @@
   color: var(--ui-fg);
 }
 
+/* A refused shortcut (Raycast's "Already used by", in cmux's words): the app's reason as the
+   title in the theme's danger red, and the keys it refused tinted the same. */
+.keys-recorder-refusal {
+  display: block;
+  max-width: 280px;
+  font-size: var(--text-body);
+  font-weight: 600;
+  color: var(--cmux-app-danger, #ff453a);
+}
+
+.keys-recorder-keys.refused .keys-recorder-cap {
+  color: var(--cmux-app-danger, #ff453a);
+  background: color-mix(in srgb, var(--cmux-app-danger, #ff453a) 18%, transparent);
+}
+
 .keys-recorder-stroke {
   display: inline-flex;
   gap: 4px;

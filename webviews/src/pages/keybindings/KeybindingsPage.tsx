@@ -365,12 +365,16 @@ function Recorder({
         // The confirm light: a green glow along the glass's top edge, once per save.
         <span key={recording.confirmed} className="keys-recorder-light" aria-hidden="true" />
       )}
-      {!binding.unset && !prompt && (
-        <div className="keys-recorder-hint">{withKeys(t("keybindings.page.recorder.delete"), ["⌫"])}</div>
+      {recording.refusal ? (
+        // Not saved: the app's reason in place of the hint, the keys it refused in red.
+        <output className="keys-recorder-refusal">{recording.refusal}</output>
+      ) : (
+        !binding.unset &&
+        !prompt && <div className="keys-recorder-hint">{withKeys(t("keybindings.page.recorder.delete"), ["⌫"])}</div>
       )}
       <button
         type="button"
-        className={`keys-recorder-keys${live ? " recorded" : ""}`}
+        className={`keys-recorder-keys${live ? " recorded" : ""}${recording.refusal ? " refused" : ""}`}
         aria-label={t("keybindings.page.recorder.edit")}
         aria-live="polite"
         onMouseDown={keepFocus}
@@ -393,7 +397,7 @@ function Recorder({
           <span className="keys-placeholder">{t("keybindings.page.pressKeys")}</span>
         )}
       </button>
-      {!prompt && <div className="keys-recorder-hint">{t("keybindings.page.recorder.edit")}</div>}
+      {!prompt && !recording.refusal && <div className="keys-recorder-hint">{t("keybindings.page.recorder.edit")}</div>}
       {titles.length > 0 && (
         <output className="keys-recorder-conflict">
           <span className="keys-recorder-conflict-label">

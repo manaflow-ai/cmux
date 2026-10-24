@@ -446,6 +446,25 @@ test("keys another action has: the recorder asks Overwrite, Ignore or Cancel bef
     await Promise.resolve();
   });
 
+  // Keys the app refuses (another action always runs them): the recorder says why, in its own
+  // title, never the page's notice; nothing is saved; the next shortcut clears it.
+  provider.refused.set("cmd+q", "Quit");
+  const before = sets().length;
+  await click(row("Go to File")?.querySelector(".keys-key-button"));
+  await keys("cmd+q");
+  expect(recorder()?.querySelector(".keys-recorder-refusal")?.textContent).toContain("Quit");
+  expect(recorder()?.querySelector(".keys-recorder-keys.refused")).toBeTruthy();
+  expect(doc.querySelector(".keys-notice")).toBeNull();
+  expect(sets()).toHaveLength(before);
+  expect(provider.recording).toBe(true);
+  await keys("cmd+shift+y");
+  expect(recorder()?.querySelector(".keys-recorder-refusal")).toBeNull();
+  expect(sets().at(-1)?.params).toMatchObject({ command: "palette.files", key: "cmd+shift+y" });
+  await act(async () => {
+    provider.cancel();
+    await Promise.resolve();
+  });
+
   // Return overwrites: New Tab takes ⌘W and Close Tab keeps no keys.
   await click(row("New Tab")?.querySelector(".keys-key-button"));
   await keys("cmd+w");

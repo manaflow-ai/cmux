@@ -10,6 +10,7 @@ import {
   UNSUPPORTED,
   type Binding,
   type BindingListResult,
+  type ConflictsResult,
   type RecordedEvent,
   type RemoveParams,
   type ResetParams,
@@ -342,10 +343,19 @@ export class MockKeybindingsProvider implements PageClient {
     return { bindings };
   }
 
-  /** `cmux.keybindings.conflicts`: the active entries of other commands new keys would take. */
-  private conflicts(params: { command: string; key: string; when?: string | null }): BindingListResult {
+  /** Keys the mock refuses for any other action, as the app refuses a key another action always
+   *  runs (`refused`: key -> that action's title). */
+  refused = new Map<string, string>();
+
+  /** `cmux.keybindings.conflicts`: the active entries of other commands new keys would take, and
+   *  the refusal of the keys. */
+  private conflicts(params: { command: string; key: string; when?: string | null }): ConflictsResult {
     const { bindings } = this.list();
+    const owner = this.refused.get(normalized(params.key));
     return {
+      ...(owner
+        ? { refusal: `${displayFor(params.key)} is ${owner}, which always runs. Choose another shortcut.` }
+        : {}),
       bindings: bindings.filter(
         (b) =>
           !b.removed &&

@@ -43,6 +43,12 @@ export interface BindingListResult {
   bindings: Binding[];
 }
 
+/** `cmux.keybindings.conflicts`: the entries the keys would take, and the app's refusal of them
+ *  (a key another action always runs), before any write. */
+export interface ConflictsResult extends BindingListResult {
+  refusal?: string;
+}
+
 /** The entry a `set` replaces: the old keys and `when` of the same command. */
 export interface BindingRef {
   key: string;
