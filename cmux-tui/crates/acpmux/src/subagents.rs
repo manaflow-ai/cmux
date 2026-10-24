@@ -15,7 +15,8 @@
 //!   `completed`, `failed`, `cancelled` or `disconnected`. A running one's
 //!   progress adds `tokens`, `toolUses`, `elapsedMs`, `action` and, for a
 //!   Claude workflow (`kind: "workflow"`), `agents: {done, started, failed?,
-//!   queued?}`, its `runId` and, from Claude's progress snapshots, its
+//!   queued?}`, its `runId` and `scriptPath` (what a resume names again)
+//!   and `argsDigest` (a digest of its args, never the args) and, from Claude's progress snapshots, its
 //!   `phases` (`{index, title}`, whole, when they change) and
 //!   `workflowAgents`: each agent that changed, as its `index` and only the
 //!   fields that changed (a removed one null), which a client merges by the
@@ -150,6 +151,8 @@ impl SubagentTree {
                     "action",
                     "agents",
                     "runId",
+                    "scriptPath",
+                    "argsDigest",
                     "phases",
                     "workflowAgents",
                     "workflowAgentsFull",
