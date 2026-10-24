@@ -187,10 +187,18 @@ PLAIN_DEINIT = re.compile(r"^\s*deinit\b")
 # Any class declaration (not `class func` / `class var`); `nonisolated class` is not main-actor.
 CLASS_DECL = re.compile(r"^\s*(@\w+(\([^)]*\))?\s+)*((public|package|internal|private|fileprivate|open|final)\s+)*"
                         r"class\s+(?!(func|var|let|subscript)\b)\w+")
-# A stored handle that stops when released, on the releasing thread (CmuxNextCompat's OwnedTask,
-# CmuxNextWakeups' MainDirectoryWatch): its owner's deinit must not hop to the main actor.
-SELF_ENDING_HANDLE = re.compile(r"^\s*(@\w+\s+)*((public|package|internal|private|fileprivate)(\(set\))?\s+)*"
-                                r"(lazy\s+)?(var|let)\s+\w+\s*:\s*\[?\s*(OwnedTask|MainDirectoryWatch)\b")
+# A stored handle that stops when released, on the releasing thread (CmuxNextCompat's OwnedTask and
+# MainActorObservation, CmuxNextWakeups' MainDirectoryWatch, CmuxNextAgentActivity's
+# AgentActivityLineConnection): its owner's deinit must not hop to the main actor. A stored property
+# holds one when its type annotation names it anywhere (`OwnedTask?`, `[OwnedTask]`,
+# `[String: OwnedTask]`) or, with no annotation, its initial value builds one (`= OwnedTask(...)`,
+# `= [String: OwnedTask]()`).
+# `weak`/`unowned` and `static` properties are not released by the owner's deinit, so they are left out.
+SELF_ENDING_HANDLES = r"(OwnedTask|MainDirectoryWatch|MainActorObservation|AgentActivityLineConnection)"
+SELF_ENDING_HANDLE = re.compile(r"^\s*(@\w+(\([^)]*\))?\s+)*"
+                                r"((public|package|internal|private|fileprivate|nonisolated|final)(\([^)]*\))?\s+)*"
+                                r"(lazy\s+)?(var|let)\s+\w+\s*"
+                                r"(:[^={]*\b" + SELF_ENDING_HANDLES + r"\b|=\s*(\[[^\]=]*)?\b([\w.]+\.)?" + SELF_ENDING_HANDLES + r"\b)")
 TASK_LOCAL_BINDING = re.compile(r"\.withValue\s*\(")
 TASK_LOCAL_HELPER = "CmuxNextActions/TaskLocal+InTask.swift"
 # NSWorkspace.shared.open(x) with one argument, and the Finder reveal calls.
@@ -308,7 +316,8 @@ for dirpath, _, files in os.walk(sources):
                     and not GENERIC_CLASS.match(code)  # the crash-class rule already asks those for one
                     and declares_at_class_depth(lines, index, SELF_ENDING_HANDLE)
                     and not declares_nonisolated_deinit(lines, index) and not allowed(lines, index)):
-                hits.append("main-actor class stores an OwnedTask or MainDirectoryWatch with no `nonisolated deinit` "
+                hits.append("main-actor class stores a self-ending handle (OwnedTask, MainActorObservation, MainDirectoryWatch, "
+                            "AgentActivityLineConnection) with no `nonisolated deinit` "
                             "(its implicit deinit is isolated: the release hops to the main actor, the cx-t7hu trap "
                             "inside an action's task-local scope); declare `nonisolated deinit {}`")
             if is_service and UNOWNED_TASK.search(code) and not allowed(lines, index, TASK_OWNER):

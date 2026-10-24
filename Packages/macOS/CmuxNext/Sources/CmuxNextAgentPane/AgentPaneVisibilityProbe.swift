@@ -9,6 +9,11 @@ import CmuxNextCompat
     var onChange: (@MainActor () -> Void)?
     private var occlusion: MainActorObservation?
 
+    // cx-t7hu: nonisolated, so a release (inside an action's task-local scope, or off the main
+    // thread) runs no runtime hop; an implicit deinit is isolated in this target. The occlusion
+    // observer (a MainActorObservation) is removed on the releasing thread.
+    nonisolated deinit {}
+
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     override func viewDidMoveToWindow() {
