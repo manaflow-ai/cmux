@@ -242,7 +242,9 @@ try:
             rpc("action.run", {"action": "selectWorkspaceByNumber", "args": {"index": index}})
             if quiet_wait(fixture_terminal, 3):
                 break
-    wait_for(fixture_terminal, "the new workspace's terminal", 30)
+    if not wait_for(fixture_terminal, "the new workspace's terminal", 30):
+        print(f"workspace new: {json.dumps(made)[:400]}", flush=True)
+        print(f"snapshot.get: {json.dumps(rpc('snapshot.get'))[:2500]}", flush=True)
     rpc("action.run", {"action": "palette.goToTab", "target": {"kind": "tab", "id": TERMINAL}, "origin": "script"})
     time.sleep(2)  # test harness: the shell starts and reports its cwd
 
