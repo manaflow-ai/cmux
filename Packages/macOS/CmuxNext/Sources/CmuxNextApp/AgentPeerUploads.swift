@@ -1,5 +1,7 @@
 import CmuxNextAgentActivity
 import CmuxNextAgentPane
+import CmuxNextCompat
+import CmuxNextWakeups
 import Foundation
 
 /// Files the person drops or pastes into a chat whose agent runs on an ssh peer (acpmux peering:
@@ -35,6 +37,7 @@ struct AgentPeerUploads {
 
     static func stager(tab: String, services: AppServices) -> AgentPaneUploadStager? {
         guard let target = target(tab: tab, services: services) else { return nil }
+        let work = services.work
         return { request, session in
             batches = batches.filter { $0.value.expires >= Date() }
             guard session == target.session else { return AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine)) }
@@ -59,7 +62,8 @@ struct AgentPeerUploads {
                     // wakeup-allow: one-shot peer stage expiry; a later chunk refreshes the expiry date.
                     try? await Task.sleep(for: .seconds(10 * 60))
                     if let expired = stages[token], expired.expires <= Date() {
-                        stages.removeValue(forKey: token); try? FileManager.default.removeItem(at: expired.file)
+                        stages.removeValue(forKey: token)
+                        work.post(.bestEffort, mayBlock: .files) { try? FileManager.checked.removeItem(at: expired.file) }
                     }
                 }
                 var reply: [String: Any] = ["token": token, "size": size, "chunkSize": 512 * 1024]
@@ -82,7 +86,8 @@ struct AgentPeerUploads {
                     // wakeup-allow: one-shot peer stage expiry; a later chunk refreshes the expiry date.
                     try? await Task.sleep(for: .seconds(10 * 60))
                     if let expired = stages[token], expired.expires <= Date() {
-                        stages.removeValue(forKey: token); try? FileManager.default.removeItem(at: expired.file)
+                        stages.removeValue(forKey: token)
+                        work.post(.bestEffort, mayBlock: .files) { try? FileManager.checked.removeItem(at: expired.file) }
                     }
                 }
                 return AgentPaneReply.success(["offset": stage.received])

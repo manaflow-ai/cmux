@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextSettings
+public import CmuxNextWakeups
 public import Foundation
 public import Observation
 
@@ -184,15 +185,21 @@ public final class AgentPaneModel {
     @ObservationIgnored public var neverPooled = false
     /// What a new chat inherits from the tab it was opened from.
     @ObservationIgnored let seed: AgentPaneSeedSource?
+    /// The blocking-work lanes the pane's file work runs on (a capture's read, scale and removal).
+    @ObservationIgnored let work: BackgroundWork
 
+    /// - Parameter work: the app's blocking-work lanes (`AppServices.work` through the tab store); tests and
+    ///   previews get lanes of their own.
     public init(
         host: any AgentPaneHostProviding,
         sessionId: String? = nil,
         seed: AgentPaneSeedSource? = nil,
         newTab: AgentPaneNewTab? = nil,
         allowsTabConversion: Bool = false,
-        transport: AgentPaneTransport = AgentPaneTransport()
+        transport: AgentPaneTransport = AgentPaneTransport(),
+        work: BackgroundWork = BackgroundWork(label: "com.cmuxterm.next.work.agent-pane")
     ) {
+        self.work = work
         self.allowsTabConversion = allowsTabConversion
         self.host = host
         self.transport = transport
