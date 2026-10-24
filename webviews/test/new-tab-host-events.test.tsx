@@ -8,6 +8,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, useState } from "react";
 import type { Root } from "react-dom/client";
+import type { NewTabWeather } from "../src/agent-session/acpmux/newtab/ambient";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -78,7 +79,15 @@ test("newTabPlaces and newTabWeather host events reach the shown New Tab page in
     expect(shown?.omnibar?.workspaces.map((workspace) => workspace.id)).toEqual(["w9"]);
     expect(shown?.initialKind).toBe("agent");
 
-    const reading = { place: "Berlin", temperature: 18, high: 21, low: 9, code: 2, unit: "celsius", readAt: 1_000 };
+    const reading: NewTabWeather = {
+      place: "Berlin",
+      temperature: 18,
+      high: 21,
+      low: 9,
+      code: 2,
+      unit: "celsius",
+      readAt: 1_000,
+    };
     await act(async () => applyHostEvent({ kind: "newTabWeather", value: reading }));
     expect(shown?.weather).toEqual(reading);
 
