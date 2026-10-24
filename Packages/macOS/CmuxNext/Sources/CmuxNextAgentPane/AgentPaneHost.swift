@@ -217,6 +217,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     private static func verifiedEndpoint(_ environment: AcpmuxEnvironment) async throws -> AcpmuxWebEndpoint {
         let deadline = ContinuousClock.now + .seconds(3)
         var delay: Duration = .milliseconds(100)
+        // wakeup-allow: bounded retry while the daemon recreates its Unix socket; this exits at the deadline or on any non-transient refusal.
         while true {
             do {
                 let result = try await AcpmuxServerPeer.call(socketPath: environment.socketPath, method: "_acpmux/status",
@@ -225,6 +226,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
                 return try AcpmuxStatus(result).endpoint()
             } catch let refusal as AcpmuxServerPeer.Refusal where refusal.isTransientRestart && ContinuousClock.now < deadline {
                 let remaining = deadline - ContinuousClock.now
+                // wakeup-allow: bounded backoff for the transient socket handoff; the deadline limits this sleep to three seconds.
                 try await Task.sleep(for: min(delay, remaining))
                 delay = min(delay * 2, .milliseconds(500))
             }
