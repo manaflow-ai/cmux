@@ -26,7 +26,10 @@ extension CADisplayLink: FrameLink {}
 /// goes away, and for some occluded windows, yet clients such as the daemon
 /// mirror must keep moving. So while any client is active a one-shot stall
 /// deadline runs: when no frame came in time the clients tick anyway, and
-/// after repeated stalls the link is rebuilt.
+/// after repeated stalls the link is rebuilt. Frames do not touch the
+/// deadline (a new timer task per frame cost two cooperative-pool wakes a
+/// frame): when it fires after a frame came, it is armed again for the rest
+/// of the timeout from that frame, about ten arms a second while ticking.
 @MainActor
 public final class FrameScheduler: NSObject {
     public typealias LinkFactory = @MainActor (FrameScheduler) -> (any FrameLink)?
@@ -215,14 +218,28 @@ public final class FrameScheduler: NSObject {
         frameDidFire(timestamp: link.timestamp, refreshInterval: link.targetTimestamp - link.timestamp)
     }
 
-    private func armStall() {
+    private func armStall(after delay: Duration = FrameScheduler.stallTimeout) {
         guard !stall.isScheduled else { return }
         stallTimerArms += 1
-        stall.schedule(after: Self.stallTimeout) { @MainActor [weak self] in self?.frameStalled() }
+        stall.schedule(after: delay) { @MainActor [weak self] in self?.stallTimerFired() }
+    }
+
+    /// Half a millisecond of slack: a timer that fires on its deadline is not early by float rounding.
+    private static let stallSlack: CFTimeInterval = 0.0005
+
+    private func stallTimerFired() {
+        guard !clients.isEmpty else { return }
+        let sinceFrame = mediaTime() - lastLinkFrame
+        let timeout = Double(Self.stallTimeout.components.seconds) + Double(Self.stallTimeout.components.attoseconds) / 1e18
+        guard sinceFrame + Self.stallSlack >= timeout else {
+            // A frame came since the timer was armed: wait out the rest of the timeout from it.
+            armStall(after: .seconds(timeout - sinceFrame))
+            return
+        }
+        frameStalled()
     }
 
     private func frameStalled() {
-        guard !clients.isEmpty else { return }
         stalls += 1
         if stalls >= Self.stallsBeforeRebuild {
             stalls = 0
@@ -240,7 +257,6 @@ public final class FrameScheduler: NSObject {
     /// One display frame (the link's tick; tests call it directly).
     public func frameDidFire(timestamp: CFTimeInterval? = nil, refreshInterval: Double? = nil) {
         lastLinkFrame = timestamp ?? mediaTime()
-        stall.cancel()
         stalls = 0
         deliver(timestamp: timestamp, refreshInterval: refreshInterval)
         if clients.isEmpty { pause() } else { armStall() }
