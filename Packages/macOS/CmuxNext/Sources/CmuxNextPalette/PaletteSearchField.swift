@@ -6,6 +6,22 @@ final class PaletteSearchField: NSTextField {
         get { PaletteSearchFieldCell.self }
         set {}
     }
+
+    // The panel is a detached child window: AppKit can attach this view before the panel becomes
+    // key. Registering the initial responder lets the window-server hand the keys to the query
+    // field during that transition instead of leaving the terminal as the responder.
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if let window, window !== newWindow, window.initialFirstResponder === self {
+            window.initialFirstResponder = nil
+        }
+        super.viewWillMove(toWindow: newWindow)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard let window else { return }
+        window.initialFirstResponder = self
+    }
 }
 
 /// AppKit's text field cell answers an AX client from its own attribute list, which leaves out the
