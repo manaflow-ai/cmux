@@ -138,7 +138,7 @@ pub(super) fn handle_request(
     request: Request,
     writer: &MessageWriter,
 ) -> bool {
-    handle_request_with_cancellation(mux, client, request, writer, None)
+    handle_request_with_cancellation(mux, client, request, writer, None, None)
 }
 
 pub(super) fn handle_request_with_cancellation(
@@ -147,6 +147,7 @@ pub(super) fn handle_request_with_cancellation(
     request: Request,
     writer: &MessageWriter,
     cancellation: Option<&ConnectionCancellation>,
+    acceptance: Option<&RequestAcceptance>,
 ) -> bool {
     let Request { id, stream, mut cmd } = request;
     // Commands that need their client stream read it from the request.
@@ -192,7 +193,14 @@ pub(super) fn handle_request_with_cancellation(
     };
     let shutdown_daemon = matches!(&cmd, Command::ShutdownDaemon { .. });
     let (mut reason, mut retryable, mut details) = (None, None, None);
-    let response = match handle_command_with_cancellation(mux, client, cmd, writer, cancellation) {
+    let response = match handle_command_with_cancellation(
+        mux,
+        client,
+        cmd,
+        writer,
+        cancellation,
+        acceptance,
+    ) {
         Ok(data) => Response {
             id,
             ok: true,
