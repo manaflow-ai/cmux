@@ -369,7 +369,9 @@ extension PaneController {
         let registry = services.registry
         switch target {
         case .tab(let id, let selection):
-            select(id) // one of the selected tabs keeps the selection (TabMultiSelection)
+            // Building the menu chooses nothing: its rows act on `id` (and `selection`), while the
+            // selected tab and the focus stay. Selecting here focused a Chromium page and made its
+            // window key from inside the menu's event (a 10 s hang on macOS 15, #24913).
             return Self.tabMenu(id.rawValue, tab: tab(id), keepsTab: TabPromotion.staysPut(tab: id.rawValue, in: workspace?.workspace),
                                 sameKind: NewTabKind.of(id.rawValue, tab: tab(id), services: services),
                                 registry: registry, selectionPins: selection.count > 1 ? stripModel.pinsAll(selection) : nil).themeRows(in: view.themeScope.fullStrength)
