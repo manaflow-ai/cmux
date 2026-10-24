@@ -51,8 +51,6 @@ public nonisolated struct Signposter: Sendable {
     public static let launch = Signposter(category: .launch)
     /// ``SignpostCategory/stall``.
     public static let stall = Signposter(category: .stall)
-    /// ``SignpostCategory/daemon``.
-    public static let daemon = Signposter(category: .daemon)
 
     /// Whether the log system takes this category's signposts (true unless a logging profile
     /// turns the subsystem off; it does not mean a recorder is attached). Skip work that only

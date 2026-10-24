@@ -555,6 +555,12 @@
       "row": "observer_sites",
       "allow": 4,
       "why": "Honest recount, not a new observer (review 1 of 5a069bc6996, cmux-b6, asked for it): the old computed list of 5a069bc6996 hid 13 observers as 1 site; this commit removes 8 of them and restores the literal loop of its parent (5 window geometry notifications), which the ratchet counts as 5 sites. Counted sites +4, real observers -8."
+    },
+    {
+      "date": "2026-10-24",
+      "row": "global_mutable_statics",
+      "allow": 3,
+      "why": "DyldImageUnloads: _dyld_register_func_for_remove_image takes a C function pointer with no context, so the process-wide removal time and its once-only install flags must be file-scope atomics (one store per unload, read by the hang report collector); there is no instance to inject into a dyld callback."
     }
   ],
   "observer_wrappers": [

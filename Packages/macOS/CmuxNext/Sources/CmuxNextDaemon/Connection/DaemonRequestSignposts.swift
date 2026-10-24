@@ -15,14 +15,17 @@ struct DaemonRequestSignpost {
     let interval: SignpostInterval?
 }
 
-/// The always-on `daemon.request` interval (``Signposter/daemon``): one `os_signpost` begin and end
-/// per request; the message is formatted only while something records.
+/// The always-on `daemon.request` interval (a ``Signposter`` of category `daemon`, held by each
+/// transport): one `os_signpost` begin and end per request; the message is formatted only while
+/// something records.
 struct OSDaemonRequestSignposts: DaemonRequestSignposting {
+    private let signposter = Signposter(category: .daemon)
+
     func begin(method: String, id: UInt64) -> DaemonRequestSignpost {
-        DaemonRequestSignpost(id: id, interval: Signposter.daemon.beginDaemonRequest(method: method, id: id))
+        DaemonRequestSignpost(id: id, interval: signposter.beginDaemonRequest(method: method, id: id))
     }
 
     func end(_ signpost: DaemonRequestSignpost) {
-        if let interval = signpost.interval { Signposter.daemon.end(.daemonRequest, interval) }
+        if let interval = signpost.interval { signposter.end(.daemonRequest, interval) }
     }
 }
