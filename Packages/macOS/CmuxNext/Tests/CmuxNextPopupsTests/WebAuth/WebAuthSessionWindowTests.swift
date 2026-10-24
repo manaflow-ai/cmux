@@ -13,12 +13,20 @@ import Testing
     private let callbackURL = URL(string: "https://app.example.com/done?code=42")!
     private let host = FakeWebAuthHost()
     private let profiles = OffTheRecordProfiles()
+    private let brokers = HeldBrokers()
 
     init() {
         _ = NSApplication.shared // the window activates the app
     }
 
     private nonisolated struct NoChromiumPage: Error {}
+
+    /// Keeps each test's broker for the whole test, as the app does
+    /// (AppDelegate -> handler -> broker): a sign-in window holds its broker
+    /// weakly, and the windows do not hold it.
+    private final class HeldBrokers {
+        var all: [WebAuthSessionBroker] = []
+    }
 
     /// The sign-in windows (the broker's opener) and the broker serving `request`.
     private func begin(_ request: FakeWebAuthRequest) -> (WebAuthSessionWindows, WebAuthSessionBroker) {
@@ -27,6 +35,7 @@ import Testing
             profiles: profiles, signInCallbacks: CEFSignInCallbacks(), contextMenus: BrowserContextMenuBuilder()
         )
         let broker = WebAuthSessionBroker(opener: windows)
+        brokers.all.append(broker)
         broker.begin(request)
         return (windows, broker)
     }
