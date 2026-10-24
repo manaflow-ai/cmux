@@ -156,6 +156,7 @@ async fn a_peer_row_carries_the_health_read_on_connect() {
     assert!(peer["healthAt"].is_u64(), "{peer}");
     let h = &peer["health"];
     assert!(h["ram"]["totalBytes"].as_u64().is_some_and(|t| t > 0), "{peer}");
+    assert!(h["swap"]["totalBytes"].is_u64(), "{peer}");
     assert!(h["disk"]["freeBytes"].as_u64().is_some_and(|f| f > 0), "{peer}");
     assert_eq!(h["liveSessions"], 0, "{peer}");
     assert!(h["pressure"].is_object(), "{peer}");

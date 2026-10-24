@@ -62,6 +62,9 @@ pub(super) async fn host_health(hub: &Hub, origin: Origin) -> Value {
         }
         v["ram"] = ram;
     }
+    if let Some((used, total)) = swap() {
+        v["swap"] = json!({"usedBytes": used, "totalBytes": total});
+    }
     v["pressure"] =
         PRESSURE_KEYS.iter().filter_map(|k| Some((*k, pressure.get(*k)?.clone()))).collect();
     if !origin.web_class() {
@@ -205,6 +208,50 @@ fn ram_total() -> Option<u64> {
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 fn ram_total() -> Option<u64> {
+    None
+}
+
+/// Swap used and total bytes: macOS `vm.swapusage`, Linux `/proc/meminfo`
+/// (`SwapTotal` less `SwapFree`). A host can read fine on pressure while its
+/// swap is nearly full; placement weighs both (`placement.rs`).
+#[cfg(target_os = "macos")]
+fn swap() -> Option<(u64, u64)> {
+    /// `struct xsw_usage` (`sys/sysctl.h`).
+    #[repr(C)]
+    struct XswUsage {
+        total: u64,
+        avail: u64,
+        used: u64,
+        pagesize: u32,
+        encrypted: u32,
+    }
+    let mut u = XswUsage { total: 0, avail: 0, used: 0, pagesize: 0, encrypted: 0 };
+    let mut len = std::mem::size_of::<XswUsage>();
+    // SAFETY: a NUL-terminated name and a writable xsw_usage with its length.
+    let rc = unsafe {
+        libc::sysctlbyname(
+            c"vm.swapusage".as_ptr(),
+            (&mut u as *mut XswUsage).cast(),
+            &mut len,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    (rc == 0).then_some((u.used, u.total))
+}
+
+#[cfg(target_os = "linux")]
+fn swap() -> Option<(u64, u64)> {
+    let text = std::fs::read_to_string("/proc/meminfo").ok()?;
+    let kb = |key: &str| -> Option<u64> {
+        text.lines().find_map(|l| l.strip_prefix(key))?.split_whitespace().next()?.parse().ok()
+    };
+    let (total, free) = (kb("SwapTotal:")?, kb("SwapFree:")?);
+    Some((total.saturating_sub(free) * 1024, total * 1024))
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn swap() -> Option<(u64, u64)> {
     None
 }
 
