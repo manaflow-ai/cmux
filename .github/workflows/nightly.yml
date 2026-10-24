@@ -2137,10 +2137,22 @@ jobs:
             printf '%s\n' '{"schemaVersion": 1, "engines": {}, "browsers": []}' \
               > Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport/Resources/browser-sources.json
           fi
+          swift_defines=""
           if [[ -n "$SWIFT_IMPORT_FLAGS" ]]; then
             [[ "$SWIFT_IMPORT_FLAGS" =~ ^(-DCMUX_NO_[A-Z_]+ ?)+$ ]] || { echo "unexpected import flags: $SWIFT_IMPORT_FLAGS" >&2; exit 1; }
+            swift_defines="$SWIFT_IMPORT_FLAGS"
+          fi
+          if [[ "${BUILD_TRACK:-}" == nightly-next ]]; then
+            # cmux NEXT Nightly carries the main-thread blocking detector, record only
+            # (scripts/cmux-next/lib/nightly-swift-defines.sh, plans/cmux-next/threading-model.md).
+            # shellcheck source=scripts/cmux-next/lib/nightly-swift-defines.sh
+            source scripts/cmux-next/lib/nightly-swift-defines.sh
+            swift_defines="${swift_defines:+$swift_defines }$CMUX_NIGHTLY_NEXT_SWIFT_DEFINES"
+          fi
+          if [[ -n "$swift_defines" ]]; then
+            echo "OTHER_SWIFT_FLAGS defines: $swift_defines"
             # shellcheck disable=SC2016 # $(inherited) is an Xcode build setting, not a shell expansion
-            notary_test_flags=("OTHER_SWIFT_FLAGS=\$(inherited) $SWIFT_IMPORT_FLAGS" build)
+            notary_test_flags=("OTHER_SWIFT_FLAGS=\$(inherited) $swift_defines" build)
           fi
           if [[ "$NIGHTLY_COMPILE_ARCHS" == "arm64" ]]; then
             archs="arm64"

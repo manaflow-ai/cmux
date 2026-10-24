@@ -1698,8 +1698,10 @@ if [[ "$BENCH_HOOKS" -eq 1 ]]; then
   # (check-no-bench-hooks.sh).
   # CMUX_BLOCKING_CHECKS: the main-thread blocking detector records (never traps) so a bench sees the
   # blocking it hits (`debug.blocking`, plans/cmux-next/threading-model.md), as a Nightly would.
-  SWIFT_OTHER_FLAGS+=" -DCMUX_BENCH_HOOKS -DCMUX_BLOCKING_CHECKS"
-  echo "==> bench configuration: Release optimization with -DCMUX_BENCH_HOOKS -DCMUX_BLOCKING_CHECKS (no DEBUG)"
+  # shellcheck source=cmux-next/lib/bench-swift-defines.sh
+  source "$(dirname "${BASH_SOURCE[0]}")/cmux-next/lib/bench-swift-defines.sh"
+  SWIFT_OTHER_FLAGS+=" $CMUX_BENCH_SWIFT_DEFINES"
+  echo "==> bench configuration: Release optimization with $CMUX_BENCH_SWIFT_DEFINES (no DEBUG)"
 fi
 if [[ "$SWIFT_FRONTEND_WORKAROUND" -eq 1 || "${CMUX_SWIFT_FRONTEND_WORKAROUND:-}" == "1" || "${CMUX_SWIFT_DISABLE_GLOBAL_ISEL:-}" == "1" ]]; then
   SWIFT_FRONTEND_WORKAROUND_EFFECTIVE=1
