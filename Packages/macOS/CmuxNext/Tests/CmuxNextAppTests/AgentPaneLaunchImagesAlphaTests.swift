@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAgentPane
 import Foundation
+import CmuxNextWakeups
 import Testing
 @testable import CmuxNextApp
 
@@ -31,7 +32,7 @@ struct AgentPaneLaunchImagesAlphaTests {
     @Test func aTransparentPageComesBackWithItsClearPixels() async throws {
         let directory = Self.directory()
         defer { try? FileManager.default.removeItem(at: directory) }
-        await AgentPaneLaunchImages(directory: directory).save(["tab_a": try Self.image(clear: true)])
+        await AgentPaneLaunchImages(directory: directory).save(["tab_a": try Self.image(clear: true)], on: BackgroundWork())
         #expect(FileManager.default.fileExists(atPath: directory.appending(path: "tab_a@2x.png").path))
         // The next launch's images, decoded off the main thread (SavedFrameDirectory) before the pane takes one.
         let launch = AgentPaneLaunchImages(directory: directory)
@@ -45,7 +46,7 @@ struct AgentPaneLaunchImagesAlphaTests {
     @Test func anOpaquePageStaysAJPEG() async throws {
         let directory = Self.directory()
         defer { try? FileManager.default.removeItem(at: directory) }
-        await AgentPaneLaunchImages(directory: directory).save(["tab_b": try Self.image(clear: false)])
+        await AgentPaneLaunchImages(directory: directory).save(["tab_b": try Self.image(clear: false)], on: BackgroundWork())
         #expect(FileManager.default.fileExists(atPath: directory.appending(path: "tab_b@2x.jpg").path))
         // The next launch's images, decoded off the main thread (SavedFrameDirectory) before the pane takes one.
         let launch = AgentPaneLaunchImages(directory: directory)

@@ -1,3 +1,4 @@
+public import CmuxNextWakeups
 public import Foundation
 
 /// What each agent chat's page held that acpmux does not (``AgentPaneWakeState``: the composer's
@@ -137,11 +138,22 @@ public final class AgentPaneRelaunchWake {
 
     /// Replaces the saved states with `states` (by tab key); with none held the file and the
     /// attachments' files go.
-    public func save(_ states: [String: AgentPaneWakeState]) async {
+    /// - Parameters:
+    ///   - states: What each chat's page held, by tab key.
+    ///   - work: The app's blocking-work lanes: the file and the attachments are written on its file
+    ///     lane, off the cooperative pool; quit waits for it (a person's composer chips).
+    public func save(_ states: [String: AgentPaneWakeState], on work: BackgroundWork) async {
         guard let file, let folder = attachmentsDirectory else { return }
         let held = states.filter { !$0.value.isEmpty }
         let limit = maximumAttachmentBytes
-        await Task.detached { Self.write(held, to: file, attachments: folder, limit: limit) }.value
+        do {
+            try await work.run(.userVisible, mayBlock: .files, shutdown: .blockShutdown) {
+                Self.write(held, to: file, attachments: folder, limit: limit)
+            }
+        } catch {
+            // Only CancellationError: the quit's task was cancelled before the write began; the last
+            // quit's file stays as it was.
+        }
     }
 
     private nonisolated static func write(_ states: [String: AgentPaneWakeState], to file: URL, attachments folder: URL, limit: Int) {

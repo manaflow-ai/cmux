@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxNextDesign
 import CmuxNextLaunch
+public import CmuxNextWakeups
 
 /// The terminals' last frames, saved at quit and drawn over each terminal at launch until its live
 /// content draws (launch-speed-first: "the first frame is never blank"). A terminal pane is held
@@ -108,7 +109,10 @@ public final class TerminalLaunchFrames {
 
     /// Saves the frames of `sessions` on screen, by tab key, replacing the last quit's. A bare
     /// prompt too: it is what the pane showed.
-    public func save(_ sessions: [String: TerminalSession]) async {
+    /// - Parameters:
+    ///   - sessions: The terminals, by tab key.
+    ///   - work: The app's blocking-work lanes: the encode and the writes run on its file lane.
+    public func save(_ sessions: [String: TerminalSession], on work: BackgroundWork) async {
         var frames: [String: NSImage] = [:]
         for (key, session) in sessions where !session.isRenderingSuspended {
             let surface = session.surfaceView
@@ -116,23 +120,28 @@ public final class TerminalLaunchFrames {
                   let frame = await session.snapshotInBackground(maxPixelSize: .greatestFiniteMagnitude) else { continue }
             frames[key] = NSImage(cgImage: frame, size: surface.bounds.size)
         }
-        await save(images: frames)
+        await save(images: frames, on: work)
     }
 
     /// Replaces the saved frames with `images` (by tab key, at their point size).
-    func save(images: [String: NSImage]) async {
+    func save(images: [String: NSImage], on work: BackgroundWork) async {
         guard let directory = self.frames.url else { return }
-        // NSImage stays on the main actor; the JPEG encode and the writes run detached.
+        // NSImage stays on the main actor; the JPEG encode and the writes run on a file lane, off the pool.
         var frames: [String: CGImage] = [:]
         for (key, image) in images where SavedFrameDirectory.isFileSafe(key) && image.size.width > 0 {
             guard let frame = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { continue }
             let scale = max(1, min(3, Int((CGFloat(frame.width) / image.size.width).rounded())))
             frames[SavedFrameDirectory.fileName(key, scale: scale, ext: "jpg")] = frame
         }
-        await Task.detached {
-            SavedFrameDirectory.write(frames.compactMapValues {
-                NSBitmapImageRep(cgImage: $0).representation(using: .jpeg, properties: [.compressionFactor: 0.9])
-            }, to: directory)
-        }.value
+        do {
+            try await work.run(.userVisible, mayBlock: .files) {
+                SavedFrameDirectory.write(frames.compactMapValues {
+                    NSBitmapImageRep(cgImage: $0).representation(using: .jpeg, properties: [.compressionFactor: 0.9])
+                }, to: directory)
+            }
+        } catch {
+            // Only CancellationError (the quit's task was cancelled, or the lanes shut down, before the
+            // write began): nothing was written, and the next launch shows the terminal's loading state.
+        }
     }
 }

@@ -8,6 +8,7 @@ import CmuxNextLaunchFiles
 import Dispatch
 import ImageIO
 import Testing
+import CmuxNextWakeups
 
 /// Leo (launch-speed-first): "the first frame is never blank". A terminal pane is held clear for
 /// launch until its terminal's first live frame: about 150 ms of empty glass on a capture mini with
@@ -32,7 +33,7 @@ import Testing
     static func saved(_ frames: [String: NSImage]) async throws -> URL {
         let directory = FileManager.default.temporaryDirectory.appending(path: "terminal-launch-frames-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        await TerminalLaunchFrames(directory: directory).save(images: frames)
+        await TerminalLaunchFrames(directory: directory).save(images: frames, on: BackgroundWork())
         return directory
     }
 
@@ -159,7 +160,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: state) }
         let size = pane.session.surfaceView.bounds.size
         await TerminalLaunchFrames(directory: TerminalLaunchFrames.directory(beside: state))
-            .save(images: ["tab-1": Self.frame(size, scale: pane.window.backingScaleFactor)])
+            .save(images: ["tab-1": Self.frame(size, scale: pane.window.backingScaleFactor)], on: BackgroundWork())
         let home = ChiefHome(root: state.appending(path: "chief"), isolated: false, buildID: ChiefHome.nightlyBundleID)
         let first = LaunchFiles(state: state, chiefHome: home, mark: { _ in })
         let second = LaunchFiles(state: state, chiefHome: home, mark: { _ in })

@@ -5,6 +5,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextLaunch
 import CmuxNextTabs
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -60,7 +61,7 @@ struct AgentPaneRelaunchWakeTests {
         before.wakeStates["tab_gone"] = AgentPaneWakeState(shell: true, shellText: "rm -rf build")
         before.relaunchWake.read = { page, _ in page === shown ? shownHeld : nil }
         // The quit's window step (every relaunch's quit goes through it).
-        await before.relaunchWake.save(before.relaunchWakeStates())
+        await before.relaunchWake.save(before.relaunchWakeStates(), on: BackgroundWork())
 
         // The next run: each tab's first page gets its chat's composer back with its handshake.
         let after = Self.run(file: file, records: records)
@@ -170,7 +171,7 @@ struct AgentPaneRelaunchWakeTests {
         let page = try #require(before.view(for: "tab_chat"))
         _ = try await Self.ready(page)
         before.relaunchWake.read = { _, _ in held }
-        await before.relaunchWake.save(before.relaunchWakeStates())
+        await before.relaunchWake.save(before.relaunchWakeStates(), on: BackgroundWork())
         let size = try #require(try file.resourceValues(forKeys: [.fileSizeKey]).fileSize, "the quit saved no composer")
         #expect(size < 16 * 1024, "the screenshots' bytes went into the JSON (\(size) bytes)")
         let copies = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
@@ -192,7 +193,7 @@ struct AgentPaneRelaunchWakeTests {
         #expect(attachments.last?["path"] as? String == "/tmp/notes", "a linked folder came back without its path")
 
         // Sent before the next quit: that quit saves nothing, and no copy is left behind.
-        await after.relaunchWake.save([:])
+        await after.relaunchWake.save([:], on: BackgroundWork())
         #expect(!FileManager.default.fileExists(atPath: file.path) && !FileManager.default.fileExists(atPath: folder.path))
     }
 
@@ -211,7 +212,7 @@ struct AgentPaneRelaunchWakeTests {
         shot.replaceSubrange(0..<8, with: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
         let chip = AgentPaneWakeState.Attachment(id: "shot", kind: "image", name: "Screenshot.png", mimeType: "image/png",
                                                  size: Double(shot.count), data: shot.base64EncodedString())
-        await AgentPaneRelaunchWake(file: file).save(["tab_chat": AgentPaneWakeState(attachments: [chip], shell: true, shellText: "ls")])
+        await AgentPaneRelaunchWake(file: file).save(["tab_chat": AgentPaneWakeState(attachments: [chip], shell: true, shellText: "ls")], on: BackgroundWork())
 
         // The launch's read (`LaunchFiles`), begun in `main`: the list only, no chip contents in memory.
         let launch = AgentPaneLaunchReads(state: directory, readOnMain: { _ in })
@@ -249,12 +250,12 @@ struct AgentPaneRelaunchWakeTests {
         let small = AgentPaneWakeState(attachments: [
             AgentPaneWakeState.Attachment(id: "s", kind: "image", name: "s.png", mimeType: "image/png", size: 3, data: "AAAA"),
         ])
-        await store.save(["tab_huge": huge, "tab_small": small])
+        await store.save(["tab_huge": huge, "tab_small": small], on: BackgroundWork())
         let left = try FileManager.default.contentsOfDirectory(atPath: folder.path)
         #expect(left.count == 1, "the dropped tab's files stayed: \(left)")
         let taken = store.take()
         #expect(taken.keys.sorted() == ["tab_small"])
-        #expect(await taken["tab_small"]?.readingBack() == small, "the kept chip did not come back whole")
+        #expect(await taken["tab_small"]?.readingBack(on: BackgroundWork()) == small, "the kept chip did not come back whole")
 
         let inline = ["tab_old": AgentPaneWakeState(attachments: small.attachments, shell: true, shellText: "ls")]
         try JSONEncoder().encode(inline).write(to: file)
@@ -271,13 +272,13 @@ struct AgentPaneRelaunchWakeTests {
         let chip = AgentPaneWakeState.Attachment(id: "a1", kind: "image", name: "shot.png", mimeType: "image/png", size: 3, data: "AAAA")
         let held = AgentPaneWakeState(attachments: [chip])
         let store = AgentPaneRelaunchWake(file: file)
-        await store.save(["tab_hidden": held])
+        await store.save(["tab_hidden": held], on: BackgroundWork())
         let first = store.take()
         #expect(first["tab_hidden"]?.kept != nil, "the launch read the chip's contents")
         // This run's quit: the tab's page was never made, so its state is saved as the launch took it.
-        await store.save(first)
+        await store.save(first, on: BackgroundWork())
         let second = store.take()
-        #expect(await second["tab_hidden"]?.readingBack() == held, "a chip no page asked for was lost at the next quit")
+        #expect(await second["tab_hidden"]?.readingBack(on: BackgroundWork()) == held, "a chip no page asked for was lost at the next quit")
     }
 
     /// A chat whose page holds nothing saves nothing, and with nothing held the file goes.
@@ -287,9 +288,9 @@ struct AgentPaneRelaunchWakeTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let file = directory.appending(path: AgentPaneRelaunchWake.fileName)
         let store = AgentPaneRelaunchWake(file: file)
-        await store.save(["tab_a": AgentPaneWakeState(shell: true, shellText: "ls")])
+        await store.save(["tab_a": AgentPaneWakeState(shell: true, shellText: "ls")], on: BackgroundWork())
         #expect(FileManager.default.fileExists(atPath: file.path), "a held shell command was not saved")
-        await store.save(["tab_a": AgentPaneWakeState()])
+        await store.save(["tab_a": AgentPaneWakeState()], on: BackgroundWork())
         #expect(!FileManager.default.fileExists(atPath: file.path), "an empty composer left a file")
     }
 }

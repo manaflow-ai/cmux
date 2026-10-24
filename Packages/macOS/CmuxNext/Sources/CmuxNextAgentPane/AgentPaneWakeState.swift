@@ -1,3 +1,4 @@
+public import CmuxNextWakeups
 public import Foundation
 import WebKit
 
@@ -67,11 +68,20 @@ public nonisolated struct AgentPaneWakeState: Codable, Sendable, Equatable {
     /// This state with the contents of its ``kept`` chips read back from their files, off the main
     /// actor, within `budget` bytes (a chip whose file is gone or past the budget is left out); itself
     /// when it keeps none.
-    /// - Parameter budget: The most bytes read back for this state's chips.
-    public func readingBack(budget: Int = AgentPaneRelaunchWake.defaultMaximumAttachmentBytes) async -> AgentPaneWakeState {
+    /// - Parameters:
+    ///   - work: The app's blocking-work lanes: the files are read on its file lane, off the cooperative pool.
+    ///   - budget: The most bytes read back for this state's chips.
+    /// - Returns: This state with its chips' contents; itself, still keeping them, when the read was
+    ///   cancelled before it began (the quit's save reads kept chips back itself, so none is lost).
+    public func readingBack(on work: BackgroundWork,
+                            budget: Int = AgentPaneRelaunchWake.defaultMaximumAttachmentBytes) async -> AgentPaneWakeState {
         guard kept != nil else { return self }
         let state = self
-        return await Task.detached { state.readBackNow(budget: budget) }.value
+        do {
+            return try await work.run(.userVisible, mayBlock: .files) { state.readBackNow(budget: budget) }
+        } catch {
+            return self  // CancellationError only: the read never began
+        }
     }
 
     /// ``readingBack(budget:)`` on the calling thread (the quit's save, already off the main actor).

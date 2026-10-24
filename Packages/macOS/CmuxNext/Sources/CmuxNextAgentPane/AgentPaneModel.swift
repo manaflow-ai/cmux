@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextSettings
+public import CmuxNextWakeups
 public import Foundation
 public import Observation
 
@@ -99,9 +100,21 @@ public final class AgentPaneModel {
     /// A `#turn-<turnId>` link's turn the page has not been handed yet; the
     /// next handshake carries it (`revealTurn`) and clears it.
     @ObservationIgnored public var pendingRevealTurn: String?
-    /// What this chat's last page held when it let go (hibernation); the next handshake
-    /// carries it (`wake`) and clears it.
-    @ObservationIgnored public var pendingWake: AgentPaneWakeState?
+    /// What this chat's last page held when it let go (hibernation, or the last quit); the next
+    /// handshake carries it (`wake`) and clears it. Set with ``holdWake(_:readsOn:)``.
+    @ObservationIgnored public internal(set) var pendingWake: AgentPaneWakeState?
+    /// The lanes ``pendingWake``'s kept chips are read back on when the page asks; set with it, so a
+    /// held state that keeps chips always has them.
+    @ObservationIgnored private(set) var wakeReads: BackgroundWork?
+
+    /// Holds `wake` for the page's next `ready`; the contents of the chips it keeps are read on
+    /// `work`'s file lane then, not now (#17587).
+    /// - Parameters:
+    ///   - wake: What the chat's last page held; nil holds nothing.
+    ///   - work: The app's blocking-work lanes.
+    public func holdWake(_ wake: AgentPaneWakeState?, readsOn work: BackgroundWork) {
+        (pendingWake, wakeReads) = (wake, work)
+    }
     /// The state the page's last `ready` took, kept for a quit the page does not answer in time.
     @ObservationIgnored public internal(set) var handedWake: AgentPaneWakeState?
     /// Whether the page has asked for a handshake, so its bridge is up and

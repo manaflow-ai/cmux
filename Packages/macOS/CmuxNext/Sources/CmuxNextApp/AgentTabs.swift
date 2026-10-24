@@ -8,6 +8,7 @@ import CmuxNextDesign
 import CmuxNextLaunch
 import CmuxNextSettings
 import CmuxNextTabs
+import CmuxNextWakeups
 import Observation
 
 /// The pane views of agent chat tabs (the React acpmux pane, CmuxNextAgentPane).
@@ -166,6 +167,8 @@ final class AgentTabStore {
     /// picking the same chat again shows that tab instead of a second one.
     private static let adoptionsDefaultsKey = "cmux.agent-tabs.outside-adoptions"
     private let defaults: UserDefaults
+    /// The app's blocking-work lanes: a relaunched chat's kept chips are read back on them when its page asks.
+    let work: BackgroundWork
     /// The tab resuming each outside chat (`harness:agentSessionId`). Persisted
     /// so a restored tab remains the link target after relaunch.
     var adoptions: [String: String] = [:] {
@@ -227,8 +230,9 @@ final class AgentTabStore {
     /// `settings`, when given, is followed for the page settings (``AgentPanePageSettings``); else from `AppServices.settings`.
     init(build: BuildIdentity?, registry: ActionRegistry, environment: [String: String] = ProcessInfo.processInfo.environment,
          showcase: Bool = false, linkScheme: String? = nil, settings: SettingsController? = nil,
-         openPanel: MadeAheadOpenPanel? = nil, defaults: UserDefaults = .standard) {
+         openPanel: MadeAheadOpenPanel? = nil, defaults: UserDefaults = .standard, work: BackgroundWork = BackgroundWork()) {
         self.defaults = defaults
+        self.work = work
         if let data = defaults.data(forKey: Self.adoptionsDefaultsKey),
            let saved = try? JSONDecoder().decode([String: String].self, from: data) {
             adoptions = saved
@@ -381,7 +385,7 @@ final class AgentTabStore {
             allowsTabConversion: local
         )
         model.pendingRevealTurn = pendingTurns.removeValue(forKey: key)
-        model.pendingWake = wakeStates.removeValue(forKey: key)
+        model.holdWake(wakeStates.removeValue(forKey: key), readsOn: work)
         wire(model, key: key)
         // A page of another machine's chat is never pooled as this Mac's spare (its host is that machine's).
         if !local {

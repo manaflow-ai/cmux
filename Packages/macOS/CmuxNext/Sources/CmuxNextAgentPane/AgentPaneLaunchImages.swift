@@ -1,5 +1,6 @@
 package import AppKit
 package import CmuxNextLaunch
+package import CmuxNextWakeups
 
 /// The agent panes' last pages, saved at quit and drawn under each pane at launch until its live
 /// page paints, so a relaunch never shows an empty agent pane (sweep 4a). One image per tab, named
@@ -74,15 +75,25 @@ package final class AgentPaneLaunchImages {
     }
 
     /// Replaces the saved pages with `images` (by tab key).
-    package func save(_ images: [String: NSImage]) async {
+    /// - Parameters:
+    ///   - images: The pages to save, by tab key.
+    ///   - work: The app's blocking-work lanes: the encode and the writes run on its file lane.
+    package func save(_ images: [String: NSImage], on work: BackgroundWork) async {
         guard let directory = frames.url else { return }
-        // NSImage stays on the main actor; the encode and the writes run detached.
+        // NSImage stays on the main actor; the encode and the writes run on a file lane, off the pool.
         var encoded: [String: CGImage] = [:]
         for (key, image) in images where SavedFrameDirectory.isFileSafe(key) {
             guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil), image.size.width > 0 else { continue }
             let scale = max(1, min(3, Int((CGFloat(cgImage.width) / image.size.width).rounded())))
             encoded[SavedFrameDirectory.fileName(key, scale: scale, ext: cgImage.pageImageExtension)] = cgImage
         }
-        await Task.detached { SavedFrameDirectory.write(encoded.compactMapValues { $0.pageImageData() }, to: directory) }.value
+        do {
+            try await work.run(.userVisible, mayBlock: .files) {
+                SavedFrameDirectory.write(encoded.compactMapValues { $0.pageImageData() }, to: directory)
+            }
+        } catch {
+            // Only CancellationError (the quit's task was cancelled, or the lanes shut down, before the
+            // write began): nothing was written, and the next launch shows the pane's loading state.
+        }
     }
 }
