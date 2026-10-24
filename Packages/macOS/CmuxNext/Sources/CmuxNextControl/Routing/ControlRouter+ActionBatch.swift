@@ -117,26 +117,35 @@ extension ControlRouter {
         var runs: [ControlActionRun] = []
         runs.reserveCapacity(requests.count)
         let size = max(transactionSize, 1)
-        for start in stride(from: 0, to: requests.count, by: size) {
-            let transaction = Array(requests.dropFirst(start).prefix(size))
-            let ran = try await workQueue.run(connection: call.connection, method: call.method, deadline: call.deadline,
-                                              countingFrom: call.engineStartMark) { () throws -> [ControlActionRun] in
-                // The request may have answered `not_run` already: then never run.
-                guard progress.begin(), scope.noting("handler") else { throw expired }
-                // The queue runs this from a run-loop block, where no task is current (cx-bpcj).
-                return ControlCommandScope.$current.withValueInTask(scope) {
-                    var ran: [ControlActionRun] = []
-                    ran.reserveCapacity(transaction.count)
-                    for request in transaction {
-                        let run = executor.performActionTracked(request)
-                        ran.append(run)
-                        guard case .ran = run.outcome else { break }
+        do {
+            for start in stride(from: 0, to: requests.count, by: size) {
+                let transaction = Array(requests.dropFirst(start).prefix(size))
+                let ran = try await workQueue.run(connection: call.connection, method: call.method, deadline: call.deadline,
+                                                  countingFrom: call.engineStartMark) { () throws -> [ControlActionRun] in
+                    // The request may have answered `not_run` already: then never run.
+                    guard progress.begin(), scope.noting("handler") else { throw expired }
+                    // The queue runs this from a run-loop block, where no task is current (cx-bpcj).
+                    return ControlCommandScope.$current.withValueInTask(scope) {
+                        var ran: [ControlActionRun] = []
+                        ran.reserveCapacity(transaction.count)
+                        for request in transaction {
+                            let run = executor.performActionTracked(request)
+                            ran.append(run)
+                            guard case .ran = run.outcome else { break }
+                        }
+                        return ran
                     }
-                    return ran
                 }
+                runs += ran
+                guard ran.count == transaction.count, ran.last.map({ if case .ran = $0.outcome { true } else { false } }) ?? false else { break }
             }
-            runs += ran
-            guard ran.count == transaction.count, ran.last.map({ if case .ran = $0.outcome { true } else { false } }) ?? false else { break }
+        } catch var error as ControlError where !runs.isEmpty {
+            // A later transaction never ran (its deadline passed in the queue, the queue was full)
+            // after earlier ones applied: the batch's answer says how many did, under its key too,
+            // so a retry gets it instead of joining a run that will not come.
+            error = error.atBatchOp(runs.count, applied: runs.count)
+            if let key { idempotency.finish(key, with: .failure(error)) }
+            throw error
         }
         // The last run is the refused one when the batch stopped early.
         let refused = zip(given, runs).enumerated().reversed().first.flatMap { index, pair -> (index: Int, action: String, error: ControlError)? in
