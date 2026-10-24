@@ -104,7 +104,7 @@ export function useComposerKeyboard(focusComposer: () => boolean, page: PageClie
       pressedAt = performance.now();
       clearTimeout(settling);
       settling = undefined;
-      const target = event.target instanceof Node ? event.target : null;
+      const target = event.target && "nodeType" in event.target ? (event.target as Node) : null;
       const active = document.activeElement;
       if (shouldBlurComposerOnPress(target, active)) {
         (active as HTMLElement).blur();
