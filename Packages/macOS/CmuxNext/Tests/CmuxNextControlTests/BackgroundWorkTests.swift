@@ -40,11 +40,13 @@ import Testing
     @Test(arguments: BlockingLane.allCases, WorkPriority.allCases)
     func aMayBlockItemRunsOnItsLaneAtItsQoSNeverOnTheCooperativePool(lane: BlockingLane, priority: WorkPriority) async throws {
         let work = BackgroundWork(cpuWidth: 2, label: "test.work")
-        // From a background-priority task, so the item runs at its own priority, not a boosted one.
-        let seen = try await Task(priority: .background) {
-            try await work.run(priority, mayBlock: lane) { Seen.here() }
-        }.value
+        // Posted, not awaited: an awaiting caller would boost the item to its own priority.
+        let (reports, report) = AsyncStream.makeStream(of: Seen.self)
+        work.post(priority, mayBlock: lane) { report.yield(Seen.here()) }
+        var iterator = reports.makeAsyncIterator()
+        let seen = try #require(await iterator.next())
         #expect(seen.queue.hasPrefix("test.work.\(lane)."), "ran on \(seen.queue)")
+        if lane == .files { #expect(seen.queue == "test.work.files.\(priority)") }
         #expect(!seen.queue.contains("cooperative"))
         #expect(seen.qos == priority.qos.qosClass.rawValue)
     }
@@ -177,15 +179,16 @@ import Testing
         let release = DispatchSemaphore(value: 0)
         let blocked = Started()
         let log = OSAllocatedUnfairLock<[String]>(initialState: [])
-        work.post(.bestEffort, mayBlock: .files) {
+        // Everything at userBlocking, the top level: no await can boost an item past the held slot.
+        work.post(.userBlocking, mayBlock: .files) {
             blocked.signal()
             release.wait()
         }
         await blocked.wait()
-        work.post(.bestEffort, mayBlock: .files, shutdown: .skipOnShutdown) { log.withLock { $0.append("skip") } }
-        work.post(.bestEffort, mayBlock: .files, shutdown: .blockShutdown) { log.withLock { $0.append("save") } }
-        let reader = Task(priority: .utility) {
-            try await work.run(.bestEffort, mayBlock: .files) { log.withLock { $0.append("read") } }
+        work.post(.userBlocking, mayBlock: .files, shutdown: .skipOnShutdown) { log.withLock { $0.append("skip") } }
+        work.post(.userBlocking, mayBlock: .files, shutdown: .blockShutdown) { log.withLock { $0.append("save") } }
+        let reader = Task(priority: .high) {
+            try await work.run(.userBlocking, mayBlock: .files) { log.withLock { $0.append("read") } }
         }
         async let shutdown: Void = work.shutdown()
         await #expect(throws: CancellationError.self) { try await reader.value }
