@@ -23,7 +23,7 @@
 #![cfg(unix)]
 
 use std::collections::BTreeSet;
-use std::os::fd::OwnedFd;
+use std::os::fd::{AsRawFd, OwnedFd};
 use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -33,6 +33,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use cmux_holder::SpawnRequest;
 use cmux_holder::client::{Event, HolderClient, launch, launch_with};
 use cmux_holder::holder::error_code;
+use cmux_holder::wire::{self, Kind, Out};
 
 const TOKEN: [u8; 32] = [0x6d; 32];
 
@@ -168,6 +169,45 @@ fn children(pid: i32) -> BTreeSet<i32> {
         }
     }
     found
+}
+
+/// CPU time `pid` has used, user and system.
+#[cfg(target_vendor = "apple")]
+fn cpu_time(pid: i32) -> Duration {
+    #[repr(C)]
+    struct Timebase {
+        numer: u32,
+        denom: u32,
+    }
+    unsafe extern "C" {
+        fn mach_timebase_info(info: *mut Timebase) -> libc::c_int;
+    }
+    // SAFETY: a zeroed proc_taskinfo is a valid out-buffer of its size.
+    let mut info: libc::proc_taskinfo = unsafe { std::mem::zeroed() };
+    let size = size_of::<libc::proc_taskinfo>() as libc::c_int;
+    // SAFETY: PROC_PIDTASKINFO fills one proc_taskinfo.
+    let filled =
+        unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDTASKINFO, 0, (&raw mut info).cast(), size) };
+    assert_eq!(filled, size, "read the holder's CPU time: {}", std::io::Error::last_os_error());
+    // The task's times are in Mach absolute time units (nanoseconds on Intel).
+    let mut timebase = Timebase { numer: 0, denom: 0 };
+    // SAFETY: fills one timebase.
+    assert_eq!(unsafe { mach_timebase_info(&raw mut timebase) }, 0);
+    let ticks = u128::from(info.pti_total_user + info.pti_total_system);
+    let nanos = ticks * u128::from(timebase.numer) / u128::from(timebase.denom.max(1));
+    Duration::from_nanos(u64::try_from(nanos).unwrap_or(u64::MAX))
+}
+
+#[cfg(not(target_vendor = "apple"))]
+fn cpu_time(pid: i32) -> Duration {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap();
+    // `pid (comm) state ...`: utime and stime are the 14th and 15th fields.
+    let fields: Vec<&str> =
+        stat.rsplit_once(')').map_or(vec![], |(_, rest)| rest.split_whitespace().collect());
+    let ticks: u64 = fields[11].parse::<u64>().unwrap() + fields[12].parse::<u64>().unwrap();
+    // SAFETY: sysconf takes no pointers.
+    let per_second = unsafe { libc::sysconf(libc::_SC_CLK_TCK) }.max(1) as u64;
+    Duration::from_nanos(ticks * 1_000_000_000 / per_second)
 }
 
 /// A holder whose soft `RLIMIT_NOFILE` is `limit`.
@@ -357,6 +397,86 @@ fn a_frame_whose_descriptors_the_holder_cannot_take_ends_the_link_with_an_error_
         client.close(chan, 200).unwrap();
     }
     drop(client);
+    kill(holder);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Holder-core deep review: a holder out of descriptors with a connection
+/// it cannot accept sleeps until one of its descriptors frees, then serves
+/// that connection. On Linux `accept` failing with EMFILE leaves the
+/// connection queued, so the listener stays readable: before, every turn
+/// polled it, failed the accept and polled again at once, and the one loop
+/// that serves every terminal burned a core for as long as the holder was
+/// full. (XNU drops a connection whose accept failed for want of a
+/// descriptor, so there the listener goes quiet by itself and the test is
+/// green either way.) The holder's CPU time across a quiet window is the
+/// measure: a spinning holder is on a core for the whole window, a sleeping
+/// one for a few turns.
+#[test]
+fn a_connection_the_holder_cannot_accept_waits_without_spinning_the_holder() {
+    const BALLAST: usize = 4;
+    /// The quiet window the holder's CPU time is read across: long against
+    /// a few turns and Linux's 10 ms CPU accounting tick, short against
+    /// the ballast's 5 s handshake deadline (which would free them).
+    const WINDOW: Duration = Duration::from_millis(500);
+    let dir = temp_dir();
+    let base = base_descriptors(&dir);
+    // Full once the ballast connections are accepted.
+    let limit = base + BALLAST;
+    let socket = dir.join("h.sock");
+    let holder = launch_limited(&socket, limit as u64);
+    let holder_pid = holder.id() as i32;
+    let (mut client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
+    // Connections that never say HELLO take one descriptor each; queued
+    // before the PING, so the holder accepted them by its PONG.
+    let ballast: Vec<UnixStream> =
+        (0..BALLAST).map(|_| UnixStream::connect(&socket).unwrap()).collect();
+    settle(&mut client, 1);
+    assert_eq!(open_fds(holder_pid), limit, "the holder is not at its limit");
+
+    // A daemon's HELLO the holder has no descriptor to accept: it waits in
+    // the listen queue. The PONG after it shows the holder had a turn with
+    // it queued.
+    let waiting = UnixStream::connect(&socket).unwrap();
+    let hello = Out::default().u16(wire::VERSION).bytes(&TOKEN).0;
+    wire::send_all(waiting.as_raw_fd(), &wire::encode(Kind::Hello, 0, &hello), &[]).unwrap();
+    settle(&mut client, 2);
+    let before = cpu_time(holder_pid);
+    let started = Instant::now();
+    // The measuring window, not a wait for a state: nothing is expected to
+    // happen in it.
+    std::thread::sleep(WINDOW);
+    settle(&mut client, 3);
+    let (used, window) = (cpu_time(holder_pid).saturating_sub(before), started.elapsed());
+    assert!(
+        used < window / 2,
+        "the full holder spun on the connection it could not accept: {used:?} of CPU in {window:?}"
+    );
+
+    // Descriptors free: the ballast's ends of file come before the PING,
+    // so the holder dropped them by its PONG. On Linux the waiting
+    // connection is still queued: the holder takes it at the end of that
+    // turn and serves its HELLO.
+    drop(ballast);
+    settle(&mut client, 4);
+    if cfg!(target_os = "linux") {
+        waiting.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
+        let mut reader = wire::Reader::default();
+        let welcome = loop {
+            if let Some(frame) = reader.next_frame().unwrap() {
+                break frame;
+            }
+            let more =
+                reader.fill(waiting.as_raw_fd()).expect("the waiting HELLO was never answered");
+            assert!(more, "the holder closed the waiting connection unanswered");
+        };
+        assert_eq!(Kind::from_u16(welcome.kind), Some(Kind::Welcome));
+    }
+    // A new connection is served on every platform.
+    let (next, listed) = HolderClient::connect(&socket, &TOKEN).unwrap();
+    assert!(listed.is_empty());
+
+    drop((client, next, waiting));
     kill(holder);
     let _ = std::fs::remove_dir_all(&dir);
 }
