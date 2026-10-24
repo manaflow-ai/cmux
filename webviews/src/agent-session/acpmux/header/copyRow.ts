@@ -33,7 +33,8 @@ export function copyRow(
 
 const text = (row: AcpmuxRow) => row.text?.trim() ?? "";
 /// A prompt the agent got: not one still sending, failed, or queued behind a harness switch.
-const sent = (row: AcpmuxRow) => row.kind === "user" && !row.pending && !row.failed && !row.queued;
+const sent = (row: AcpmuxRow) =>
+  row.kind === "user" && !row.pending && !row.failed && !row.queued && row.incoming?.kind !== "hidden";
 
 /// The answer after the last sent prompt: its text rows, in order.
 function lastResponse(rows: readonly AcpmuxRow[]): string {
@@ -71,7 +72,7 @@ export function conversationMarkdown(rows: readonly AcpmuxRow[]): string {
   for (const row of rows) {
     const body = text(row);
     if (sent(row)) {
-      blocks.push(`**User:**\n${body || "(attachment)"}`);
+      if (body || row.images?.length) blocks.push(`**User:**\n${body || "(attachment)"}`);
     } else if (row.kind === "assistant" && body) {
       blocks.push(`**Assistant:**\n${body}`);
     }

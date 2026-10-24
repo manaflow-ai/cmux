@@ -18,6 +18,15 @@ import Testing
         #expect(Self.copiedText(outcome) == "**User:**\nhello")
     }
 
+    @Test @MainActor func delayedConversationPromiseDoesNotReachThePasteboardAfterSwitch() async {
+        var current = true
+        let outcome = await AgentChatCopyOperations.conversation({
+            current = false
+            return "**User:**\nold chat"
+        }, isCurrent: { current })
+        #expect(outcome == .stale)
+    }
+
     @Test @MainActor func copySessionDetailsActionWritesExplicitMetadata() async {
         let outcome = await AgentChatCopyOperations.details(
             info: { ["name": "sr2/nx-settings", "cwd": "/repo", "agentSessionId": "claude-456"] },

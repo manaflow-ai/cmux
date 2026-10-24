@@ -8,6 +8,12 @@ export type ConversationExportSource = {
   }>;
 };
 
+/** The daemon replaces an oversized event with this marker rather than returning a partial JSON value. */
+export function isOmittedConversationEvent(event: EventRecord): boolean {
+  const omitted = event.msg?._meta?.acpmux?.omitted;
+  return omitted !== undefined && omitted !== null;
+}
+
 /** Reads one complete recorded conversation at the sequence held when export starts. */
 export async function recordedConversationEvents(
   sessionId: string,
@@ -35,7 +41,8 @@ export async function recordedConversationEvents(
         !Number.isSafeInteger(event.seq) ||
         event.seq <= previous ||
         event.seq >= beforeSeq ||
-        (event.sessionId !== undefined && event.sessionId !== sessionId)
+        event.sessionId !== sessionId ||
+        isOmittedConversationEvent(event)
       )
         throw new Error("conversation_export_invalid_history");
       previous = event.seq;

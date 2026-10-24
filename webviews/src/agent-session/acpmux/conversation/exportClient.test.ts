@@ -59,3 +59,62 @@ test("the real client exports through pane-authorized events reads on its connec
     client.close();
   }
 });
+
+test("a reconnect during export invalidates the captured socket", async () => {
+  const { AcpmuxDirectClient } = await import("../direct");
+  const { MockAcpmuxSocket, mockHost } = await import("../mock");
+  const first = new MockAcpmuxSocket(() => Promise.resolve());
+  let release: (() => void) | undefined;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const daemon = first as unknown as { answer(method: string, params: Record<string, unknown>): Promise<unknown> };
+  const answer = daemon.answer.bind(first);
+  daemon.answer = async (method, params) => {
+    if (method === "_acpmux/events") {
+      await pending;
+      return answer(method, params);
+    }
+    return answer(method, params);
+  };
+  const client = await AcpmuxDirectClient.connect(
+    mockHost,
+    () => {},
+    undefined,
+    () => first as unknown as WebSocket,
+  );
+  try {
+    const exportPromise = client.conversationEvents(() => true);
+    const replacement = new MockAcpmuxSocket(() => Promise.resolve());
+    (client as unknown as { socket: WebSocket }).socket = replacement as unknown as WebSocket;
+    release?.();
+    await expect(exportPromise).rejects.toThrow();
+  } finally {
+    client.close();
+  }
+});
+
+test("the exporter rejects a missing session envelope and an omitted oversized event", async () => {
+  const makeSource = (event: EventRecord) => ({
+    detail: async () => ({ lastSeq: 1 }),
+    page: async () => ({ events: [event], hasMore: false }),
+  });
+  const missing = {
+    seq: 1,
+    at: 1792800000000,
+    dir: "mux",
+    kind: "user_message",
+    msg: { text: "missing envelope" },
+  } as EventRecord;
+  const omitted: EventRecord = {
+    sessionId: "chat-1",
+    seq: 1,
+    at: 1792800000000,
+    dir: "mux",
+    kind: "user_message",
+    msg: { _meta: { acpmux: { omitted: { bytes: 5, reason: "too_large" } } } },
+  };
+  const { recordedConversationEvents } = await import("./exportEvents");
+  await expect(recordedConversationEvents("chat-1", makeSource(missing), () => true)).rejects.toThrow();
+  await expect(recordedConversationEvents("chat-1", makeSource(omitted), () => true)).rejects.toThrow();
+});

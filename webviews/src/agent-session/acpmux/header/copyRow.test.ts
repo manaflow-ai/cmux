@@ -43,4 +43,13 @@ describe("conversationMarkdown", () => {
     expect(copied).not.toContain("secret output");
     expect(copied.endsWith("…")).toBe(true);
   });
+
+  test("skips hidden blank bookkeeping and only labels an empty prompt with images", () => {
+    const rows: AcpmuxRow[] = [
+      { id: "hidden", version: 1, at: 1, kind: "user", text: "", incoming: { kind: "hidden" } },
+      { id: "blank", version: 1, at: 2, kind: "user", text: "" },
+      { id: "image", version: 1, at: 3, kind: "user", text: "", images: [{ id: "i", mimeType: "image/png" }] },
+    ];
+    expect(conversationMarkdown(rows)).toBe("**User:**\n(attachment)");
+  });
 });
