@@ -30,4 +30,19 @@ import Testing
         #expect(mods.flags(.command, phase: .move) == .command)
         #expect(mods.flags(.command, phase: .press) == .command)
     }
+
+    /// Without a capture, Shift- and Option-Command go as Command alone while they hover a link,
+    /// press on one and finish that press, so Ghostty matches it; the open reads the real keys.
+    @Test(arguments: [NSEvent.ModifierFlags([.command, .shift]), [.command, .option]])
+    func commandChordsWithoutACaptureMatchLinksAsCommand(_ flags: NSEvent.ModifierFlags) {
+        let off = TerminalPointerMods(captured: false, overLink: false, linkPress: false)
+        #expect(off.flags(flags, phase: .move) == .command)
+        #expect(off.flags(flags, phase: .press) == flags)
+        let on = TerminalPointerMods(captured: false, overLink: true, linkPress: false)
+        #expect(on.flags(flags, phase: .press) == .command)
+        #expect(on.flags(flags, phase: .followingPress) == flags)
+        let pressed = TerminalPointerMods(captured: false, overLink: true, linkPress: true)
+        #expect(pressed.flags(flags, phase: .followingPress) == .command)
+        #expect(pressed.flags([.command, .control], phase: .move) == [.command, .control])
+    }
 }
