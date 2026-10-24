@@ -38,12 +38,18 @@ def api(base: str, token: str, path: str):
         return response.read()
 
 
-def base_reds(repo: str, before: str, base: str, token: str) -> set[str]:
+def base_reds(repo: str, before: str, base: str, token: str) -> set[str] | None:
     payload = json.loads(api(base, token, f"/repos/{repo}/commits/{before}/check-runs?filter=latest&per_page=100"))
     runs = [r for r in payload.get("check_runs", [])
             if str(r.get("name", "")).startswith("cmux-next checks (god files, concurrency, crash safety, l10n)")]
     if not runs:
         raise RuntimeError("previous tip has no cmux-next checks job")
+    # A push can start before the previous tip's checks job has finished.  Leo's
+    # feat-cmux-next rule is that pending and queued base checks never block a
+    # landing, so let the caller classify this push's reds as warning-only until
+    # the next completed tip provides comparable evidence.
+    if runs[0].get("status") != "completed":
+        return None
     details = runs[0].get("details_url", "")
     match = JOB_ID.search(details)
     if not match:
@@ -71,6 +77,12 @@ def main() -> int:
     except (KeyError, OSError, ValueError, RuntimeError, urllib.error.URLError) as error:
         print(f"base-red: unable to read previous tip {args.before}: {error}", file=sys.stderr)
         return 2
+    if previous is None:
+        print(f"base-red: previous tip {args.before} is still pending; current reds are warning-only",
+              file=sys.stderr)
+        for name in sorted(current):
+            print(f"BASE_RED {name}")
+        return 0
     for name in sorted(current):
         if name in previous:
             print(f"BASE_RED {name}")

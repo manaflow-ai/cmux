@@ -358,6 +358,7 @@ class CmuxNextWiring(unittest.TestCase):
                                                             "swift": "true", "swift_canary": "true", "daemon": "true", "generated": "true",
                                                             "tree_state": "ready"}},
                             "push-head-preflight": {"outputs": {"current": "true"}},
+                            "release-compile-fast": {"result": "skipped", "outputs": {"verdict": ""}},
                             # The GUI jobs wait for the shared web bundles (#21189).
                             "web-bundles": {"result": "success"},
                             self.PLACEMENT: {"outputs": outputs}}
@@ -543,7 +544,8 @@ class CmuxNextWiring(unittest.TestCase):
                 context["needs"] = {}  # the skipped placement has no outputs
                 self.assertFalse(str(evaluate(runs_on, context)).startswith("glaeda-"), (name, why))
             # A skipped placement leaves the Mac jobs running (!cancelled()) and its empty output keeps the label.
-            self.assertTrue(evaluate(jobs[name]["if"].replace("!cancelled() && ", ""), self.context()))
+            gate = jobs[name]["if"].replace("always() && ", "").replace("!cancelled() && ", "")
+            self.assertTrue(evaluate(gate, self.context()))
             self.assertEqual(evaluate(runs_on, dict(self.context(), needs={})), on(name, SIDE))
 
     def test_the_watch_marker_follows_the_placement(self):

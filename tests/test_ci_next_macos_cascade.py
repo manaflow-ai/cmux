@@ -532,7 +532,7 @@ class Wiring(unittest.TestCase):
                 # A fork keeps its own route.
                 self.assertEqual(evaluate(runs_on, self.context(fork=True, hosted=f" {name} ")), SMALL)
 
-    def test_a_feat_push_release_compile_takes_the_promotion_mini_unless_the_placement_overflowed_it(self):
+    def test_a_feat_push_release_compile_uses_a_free_fleet_mac_then_blacksmith(self):
         runs_on = self.jobs["release-compile"]["runs-on"]
 
         def push(**outputs: str) -> dict:
@@ -542,11 +542,16 @@ class Wiring(unittest.TestCase):
             context["vars"]["CI_NEXT_PROMOTE_POOL"] = PROMOTE
             return context
 
-        self.assertEqual(evaluate(runs_on, push()), PROMOTE)
-        self.assertEqual(evaluate(runs_on, push(large=" release-compile ")), LARGE)
-        self.assertEqual(evaluate(runs_on, push(small=" release-compile ")), SMALL)
+        # A free owned Mac wins; the Blacksmith pool is the last resort.
+        self.assertEqual(evaluate(runs_on, push(runner="free-owned-mac")), "free-owned-mac")
+        self.assertEqual(evaluate(runs_on, push()), SIDE)
+        self.assertEqual(evaluate(runs_on, push(runner="")), LARGE)
+        self.assertEqual(evaluate(runs_on, push(large=" release-compile ")), SIDE)
+        self.assertEqual(evaluate(runs_on, push(small=" release-compile ")), SIDE)
+        self.assertEqual(evaluate(runs_on, push(runner="", large=" release-compile ")), LARGE)
+        self.assertEqual(evaluate(runs_on, push(runner="", small=" release-compile ")), LARGE)
         # Another job's slot is not the Release compile's.
-        self.assertEqual(evaluate(runs_on, push(large=" cmux-scheme-compile ")), PROMOTE)
+        self.assertEqual(evaluate(runs_on, push(large=" cmux-scheme-compile ")), SIDE)
         self.assertEqual(evaluate(runs_on, self.context("3", BOT, retry=SMALL)), SMALL)
         # Release compile never targets the dedicated nightly runner.
         self.assertNotIn("CI_NIGHTLY_NEXT_TRUSTED_RUNNER", self.jobs["release-compile"]["runs-on"])

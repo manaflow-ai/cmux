@@ -26,10 +26,12 @@ struct TeamSidebar: View {
                 VStack(alignment: .leading, spacing: 0) {
                     // A label only when there is a list to label.
                     if store.teams.count > 1 {
+                        // At the team names' x, past the avatar column (SidebarTeamRow.textLeading).
                         Text("Teams")
                             .font(theme.type.meta)
                             .foregroundStyle(theme.colors.label2)
-                            .padding(.horizontal, theme.metrics.sideMargin)
+                            .padding(.leading, SidebarTeamRow.textLeading)
+                            .padding(.trailing, theme.metrics.sideMargin)
                             .padding(.top, 24)
                             .padding(.bottom, 6)
                     } else {
@@ -141,7 +143,7 @@ struct TeamSidebar: View {
         } label: {
             // Same columns as the team rows: the glyph centered in the 36 pt
             // avatar column, the title at the team name's x.
-            HStack(spacing: 12) {
+            HStack(spacing: SidebarTeamRow.avatarGap) {
                 ZStack {
                     if shell.isFetchingInvite {
                         ProgressView()

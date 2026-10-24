@@ -116,13 +116,10 @@ JOBS = {
                       SWIFT_TEST, web=True),
     "generated-files": Job(MAC_TOOLCHAIN + ("web_bundles",), ("mini", "xcode_app"), GENERATED, web=True,
                            base_inputs=SETTINGS_BASE),
-    # The advisory bundle-notice scan runs after the compile and reads these
-    # top-level and cmux-tui notice inputs, outside the shared scripts/cmux-next
-    # tree. A reuse hit must not skip that scan after one of them changes.
-    "release-compile": Job(MAC_TOOLCHAIN, ("mini", "xcode_app"),
-                            ("LICENSE", "scripts/verify-app-bundle-licenses.sh",
-                             "cmux-tui/build-support/notices", "cmux-tui/rust-toolchain.toml",
-                             "cmux-tui/crates/ghostty-vt-sys/build.rs")),
+    "release-compile": Job(MAC_TOOLCHAIN, ("mini", "xcode_app"), (
+        "LICENSE", "cmux-tui/build-support/notices", "cmux-tui/crates/ghostty-vt-sys/build.rs",
+        "cmux-tui/rust-toolchain.toml", "scripts/verify-app-bundle-licenses.sh",
+    )),
 }
 GRAPH = route.GRAPH
 

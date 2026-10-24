@@ -452,12 +452,8 @@ class Sweep:
             self.summary = summary
             workspace = summary.get("measured")
         else:
-            workspace = self.builder.new_workspace()
-            self.builder.action("splitRight", settle=0.6)
-            panes = [p["id"] for p in self.stress_module.Stress.panes(self.builder.workspace(workspace))]
-            self.builder.focus_pane(panes[0])
-            for kind in ["chromium", "chromium", "webkit", "chat", "terminal"]:
-                self.builder.add_tab(workspace, panes[0], kind)
+            # Shown, and split by pane id (the builder's light session): focus may not follow a new workspace.
+            workspace, panes = self.builder.build_light()
             self.builder.new_workspace()
             self.builder.action("goToWorkspace", {"workspace": workspace})
             wait(lambda: self.builder.focused_workspace() == workspace, 20)
@@ -618,12 +614,7 @@ class Sweep:
         if self.session == "stress":
             workspace = self.builder.build_measured()
         else:
-            workspace = self.builder.new_workspace()
-            self.builder.action("splitRight", settle=0.6)
-            panes = [p["id"] for p in self.stress_module.Stress.panes(self.builder.workspace(workspace))]
-            self.builder.focus_pane(panes[0])
-            for kind in ["chromium", "chromium", "webkit", "chat", "terminal"]:
-                self.builder.add_tab(workspace, panes[0], kind)
+            workspace, _ = self.builder.build_light()
             if base_ws in shape(topology())["workspaces"]:
                 act("closeWorkspace", f"workspace:{base_ws}", origin="script")
         time.sleep(2)  # test script: rebuilt pages load
