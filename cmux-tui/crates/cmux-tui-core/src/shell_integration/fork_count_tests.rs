@@ -29,10 +29,10 @@
 //!
 //! The integrated shell may fork no more than the same shell without the
 //! integration: 0 at startup, and per command 0, except on bash 4.4-5.2,
-//! whose only pre-command hook is Ghostty's PS0 command substitution (a
-//! fork of the shell, whose subshell forks once more for the history read:
-//! 2 per command in the PID gap). Only Linux checks that budget: the
-//! kernel's count would see 1 and miss every fork inside the PS0 subshell.
+//! whose only pre-command hook is Ghostty's PS0 command substitution (one
+//! fork of the shell per command in the PID gap; its subshell reads the
+//! history entry through a file and forks nothing more). Only Linux checks
+//! that budget: the kernel's count would miss a fork inside the PS0 subshell.
 //! A control minimum that only one rep reached is host noise, not a
 //! baseline, and fails the test ("unstable baseline") instead of hiding
 //! forks; on macOS other processes do not change the control (a control
@@ -141,9 +141,10 @@ const READ_COST: u32 = 0;
 const READ_COST: u32 = 1;
 
 /// Forks per command of Ghostty's PS0 hook on bash 4.4-5.2, in the PID gap:
-/// its command substitution, and the history read that subshell forks.
+/// its command substitution only. The history read in that subshell goes
+/// through a file and forks nothing (ghostty-next PR 55; before it, 2).
 #[cfg(not(target_os = "macos"))]
-const BASH_PS0_FORKS: u32 = 2;
+const BASH_PS0_FORKS: u32 = 1;
 
 /// The gate a shell starts behind on macOS: Apple's /bin/bash waits for a
 /// line and then becomes the shell (`exec` keeps the pid), so the fork watch
@@ -498,8 +499,8 @@ fn fork_count_fish_forks_nothing() {
 /// bash forks nothing at startup with any PROMPT_COMMAND, and nothing per
 /// command on bash 5.3 (Ghostty's `$(builtin history 1)` before 72578da forks
 /// once): red at ghostty-next 5555f42 on every Mac. On Linux, bash 4.4-5.2
-/// forks `BASH_PS0_FORKS` per command (Ghostty's PS0 command substitution
-/// and the history read in it), and no more.
+/// forks `BASH_PS0_FORKS` per command (Ghostty's PS0 command substitution;
+/// the history read in it forks nothing), and no more.
 #[test]
 fn fork_count_bash_forks_nothing_at_startup_or_per_command_on_bash_5_3() {
     let Some(bash) = shell_path(Shell::Bash) else {
