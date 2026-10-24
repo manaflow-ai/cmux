@@ -76,7 +76,7 @@ final class TabHoverCardController: HoverCardSource {
         self.coordinator = coordinator
         self.iconCaches = iconCaches
         #if DEBUG
-        HoverCardGallery.register("tabs") { TabHoverCardGallery.cards() }
+        HoverCardGallery.register("tabs") { [iconCaches] in TabHoverCardGallery.cards(iconCaches: iconCaches) }
         #endif
         let source = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
         source.setEventHandler { [weak self] in
