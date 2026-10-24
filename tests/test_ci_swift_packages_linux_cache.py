@@ -2,7 +2,10 @@
 """Keep the Linux SwiftPM build cache rolling instead of per-commit."""
 
 from pathlib import Path
+import os
+import subprocess
 import sys
+import tempfile
 import unittest
 
 
@@ -27,6 +30,48 @@ class SwiftPackagesLinuxCacheTests(unittest.TestCase):
         self.assertIn("${{ steps.key.outputs.toolchain }}", key)
         self.assertIn("${{ matrix.group }}", key)
         self.assertIn("${{ hashFiles('Packages/**/Package.swift', 'Packages/**/Package.resolved') }}", key)
+
+    def test_key_hashes_tracked_manifests_before_generated_build_trees_exist(self):
+        steps = load_yaml(WORKFLOW)["jobs"]["packages"]["steps"]
+        command = next(step["run"] for step in steps if step.get("id") == "key")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            package = root / "Packages/Test package"
+            package.mkdir(parents=True)
+            manifest, resolved = package / "Package.swift", package / "Package.resolved"
+            manifest.write_text("manifest v1")
+            resolved.write_text("resolved v1")
+            subprocess.run(["git", "-C", str(root), "add", "Packages"], check=True)
+            tools = root / "bin"
+            tools.mkdir()
+            swift = tools / "swift"
+            swift.write_text("#!/bin/sh\nprintf 'Swift version 6.2\\n'\n")
+            swift.chmod(0o755)
+            output = root / "output"
+            env = {**os.environ, "PATH": str(tools) + os.pathsep + os.environ["PATH"],
+                   "GITHUB_OUTPUT": str(output)}
+
+            def key():
+                output.write_text("")
+                subprocess.run(["bash", "-e", "-o", "pipefail", "-c", command],
+                               cwd=root, env=env, check=True, capture_output=True)
+                values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+                self.assertIn("manifests", values)
+                return values["manifests"]
+
+            before = key()
+            generated = package / ".build/checkouts/Dependency/Package.swift"
+            generated.parent.mkdir(parents=True)
+            generated.write_text("generated manifest")
+            self.assertEqual(key(), before)
+            (package / "source.swift").write_text("unrelated source")
+            self.assertEqual(key(), before)
+            manifest.write_text("manifest v2")
+            changed = key()
+            self.assertNotEqual(changed, before)
+            resolved.write_text("resolved v2")
+            self.assertNotEqual(key(), changed)
 
     def test_only_successful_pushes_seed_the_immutable_cache(self):
         steps = load_yaml(WORKFLOW)["jobs"]["packages"]["steps"]
