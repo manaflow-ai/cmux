@@ -10,7 +10,7 @@ import CmuxNextWakeups
 @MainActor
 public final class ScrollFitElasticity {
     private weak var scrollView: NSScrollView?
-    private var observers: [FrameChangeObservation] = []
+    private var observers: [MainDeliveryObservation] = []
     private weak var observedDocument: NSView?
 
     /// The elasticity for a document `documentHeight` tall in a clip
@@ -26,7 +26,7 @@ public final class ScrollFitElasticity {
         let clip = scrollView.contentView
         clip.postsFrameChangedNotifications = true
         // Synchronous (no queue): the elasticity is right before the next event (a hop only off main).
-        observers.append(FrameChangeObservation(clip) { [weak self] in self?.update() })
+        observers.append(MainDeliveryObservation(NSView.frameDidChangeNotification, object: clip) { [weak self] in self?.update() })
         update()
     }
 
@@ -45,26 +45,6 @@ public final class ScrollFitElasticity {
         guard let document, document !== observedDocument else { return }
         observedDocument = document
         document.postsFrameChangedNotifications = true
-        observers.append(FrameChangeObservation(document) { [weak self] in self?.update() })
-    }
-}
-
-/// One view's frame-change observer, registered with no queue, that removes itself when released.
-///
-/// Not `MainActorObservation`: that registers on the main queue, so a post off the main thread
-/// would block its thread until main ran the handler. Here a post on main runs `handler` inline
-/// and a post from any other thread hands it to the main queue without waiting (`MainDelivery`).
-/// `NotificationCenter.removeObserver(_:)` is thread-safe, so the deinit runs on any thread.
-private nonisolated final class FrameChangeObservation {
-    private let token: any NSObjectProtocol
-
-    init(_ view: NSView, _ handler: @escaping @MainActor @Sendable () -> Void) {
-        token = NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: view, queue: nil) { _ in
-            MainDelivery().run(handler)
-        }
-    }
-
-    deinit {
-        NotificationCenter.default.removeObserver(token)
+        observers.append(MainDeliveryObservation(NSView.frameDidChangeNotification, object: document) { [weak self] in self?.update() })
     }
 }

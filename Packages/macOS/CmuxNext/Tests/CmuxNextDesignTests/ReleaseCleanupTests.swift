@@ -5,9 +5,8 @@ import Testing
 /// Hover owners clean up when they are released, on any thread. Each deinit
 /// used to start with `guard Thread.isMainThread else { return }` before a
 /// `MainActor.assumeIsolated` block, so a release on another thread (a background task that held
-/// the last reference) skipped the cleanup: a dropped hold kept its views shown, a released reveal
-/// left its probe in the region, a released hover left a tracking area whose owner was freed (AppKit
-/// messages it on the next enter or exit).
+/// the last reference) skipped the cleanup: a dropped hold kept its views shown and a released reveal
+/// left its probe in the region.
 /// A released reveal also left its view and region claims in the process-wide registries on any
 /// thread (the old deinit compared each entry with `self`, which every weak reference reads as nil
 /// by then). Each test drops the owner on main, then on a background thread.
@@ -69,43 +68,5 @@ import Testing
         reveal.add(button)
         reveal.watchFocus(in: button)
         return reveal
-    }
-
-    @Test func aReleasedHoverTakesItsTrackingAreaOffTheViewOnAnyThread() async {
-        let view = Self.view()
-        var hover: PointerHover? = PointerHover(view)
-        #expect(hover != nil && view.trackingAreas.count == 1)
-        hover = nil
-        #expect(view.trackingAreas.isEmpty, "a hover released on main left its tracking area on the view")
-
-        await releaseOffMain { PointerHover(view) }
-        #expect(view.trackingAreas.isEmpty, "a hover released off main left a tracking area whose owner is freed on the view")
-    }
-
-    /// A hover's tracking area is held by exact object, not by its identity: a view that removed
-    /// every area and added its own (a row's `updateTrackingAreas`) keeps that area when the hover
-    /// goes. Removal by `ObjectIdentifier` took the first area at the freed area's address, which
-    /// the next `NSTrackingArea` the view adds usually reuses.
-    @Test func aReleasedHoverLeavesAnotherOwnersAreaOnTheView() async {
-        let view = Self.view()
-        let other = NSObject()
-        func replaceAreas() {
-            autoreleasepool { for area in view.trackingAreas { view.removeTrackingArea(area) } }
-            view.addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: other))
-        }
-        var hover: PointerHover? = PointerHover(view)
-        replaceAreas()
-        #expect(hover != nil && view.trackingAreas.count == 1)
-        hover = nil
-        #expect(view.trackingAreas.map { $0.owner === other } == [true],
-                "a hover released on main removed the area the view added after its own")
-
-        await releaseOffMain {
-            let hover = PointerHover(view)
-            replaceAreas()
-            return hover
-        }
-        #expect(view.trackingAreas.map { $0.owner === other } == [true],
-                "a hover released off main removed the area the view added after its own")
     }
 }

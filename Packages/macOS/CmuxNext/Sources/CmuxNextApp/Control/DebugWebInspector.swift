@@ -13,21 +13,20 @@ import CmuxNextWakeups
 @MainActor
 enum DebugWebInspector {
     private static var counts: [ObjectIdentifier: Int] = [:]
-    private static var observers: [any NSObjectProtocol] = []
+    private static var observers: [MainDeliveryObservation] = []
     private static var started: Double = 0
 
     static func handle(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         let views = pages(services)
         if params["action"]?.stringValue == "start" {
-            observers.forEach(NotificationCenter.default.removeObserver)
             observers.removeAll()
             counts.removeAll()
             started = ProcessInfo.processInfo.systemUptime
             for view in views.flatMap({ [$0.page] + ($0.page.superview?.subviews ?? []) }) {
                 view.postsFrameChangedNotifications = true
                 let id = ObjectIdentifier(view)
-                observers.append(NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: view, queue: nil) { _ in
-                    MainDelivery().run { counts[id, default: 0] += 1 }
+                observers.append(MainDeliveryObservation(NSView.frameDidChangeNotification, object: view) {
+                    counts[id, default: 0] += 1
                 })
             }
         }
