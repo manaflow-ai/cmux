@@ -7823,6 +7823,15 @@
           "aliases": []
         },
         {
+          "id": "agentPane.togglePointerInspector",
+          "title": {
+            "en": "Point at cmux UI"
+          },
+          "shortcut": null,
+          "chord": null,
+          "aliases": []
+        },
+        {
           "id": "palette.quickAgentChat",
           "title": {
             "en": "Start Agent…",

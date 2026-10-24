@@ -41,8 +41,9 @@ Also on every local run (the hook and a plain run; never --commits, never under 
 gains no gate; Lawrence 2026-10-23): "Guardrails" (guardrails.py, plans/cmux-next/codebase-health.md):
 refuses NEW singletons, unproven MainActor.assumeIsolated, unjustified @unchecked Sendable /
 nonisolated(unsafe), sleeps in loops, DispatchQueue.main.async, new Notification.Name broadcasts,
-ObservableObject/@Published, store references in list rows and big new CmuxNextApp files, in lines the
-push adds; warns on `// perf-hot:` functions, OWNERS.md areas and App growth. Skip one push with
+ObservableObject/@Published and store references in list rows, in lines the push adds, and CmuxNextApp
+composition-root growth beyond its wiring budget or a new App file that is not a move (`app-size`, a net
+count); warns on CmuxNextApp source growth, `// perf-hot:` functions and OWNERS.md areas. Skip one push with
 CMUX_GUARDRAILS_SKIP_REASON="<rule>[,<rule>]: <why>" (it skips only the named rules); lines a push only
 brings in from origin/feat-cmux-next (a merge or rebase onto it) never count; --no-guardrails turns it off
 for a manual run.
@@ -652,8 +653,9 @@ def load_guardrails(repo: Path, trusted_scripts: Path | None):
 def guardrails(repo: Path, ranges: list[tuple[str, str]], trusted_scripts: Path | None) -> bool:
     """Print the guardrail warnings and refusals for RANGES; True when they refuse the push.
 
-    The rules are advisory debt checks in every agent's hook: a bug in them (a parse edge, a failed git
-    call) prints a warning and lets the push through instead of blocking every push with a traceback.
+    The rules are advisory debt checks in every agent's hook: a bug in one rule turns off only that rule
+    (guardrails.check warns and runs the rest); a bug outside the rules (a failed load or git call, a parse
+    edge) prints a warning and lets the push through instead of blocking every push with a traceback.
     check_push leaves out what a range only brings in from origin/feat-cmux-next (a merge of it into a branch,
     or a rebase onto it and a force push): CI never runs these rules, so that base can carry debt.
     """
@@ -684,7 +686,9 @@ def stale_hook_warning(repo: Path, trusted_scripts: Path) -> None:
         if not rev_ok(repo, ref):
             continue
         stale = []
-        for name in ("prepush-gate.py", "guardrails.py"):
+        # guardrails.py loads count-swift-code-lines.py (CI's lexer) from the installed copy: an old one counts
+        # source lines unlike CI's check-app-size.sh.
+        for name in ("prepush-gate.py", "guardrails.py", "count-swift-code-lines.py"):
             theirs = subprocess.run(["git", "-C", str(repo), "show", f"{ref}:{SCRIPTS}/{name}"], capture_output=True)
             mine = trusted_scripts / name
             if theirs.returncode == 0 and (not mine.is_file() or mine.read_bytes() != theirs.stdout):
