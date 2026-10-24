@@ -173,7 +173,10 @@ enum DebugLayers {
               (contextClass as AnyObject).responds(to: #selector(QuartzLayerHostingSPI.allContexts)),
               let contexts = (contextClass as AnyObject).perform(#selector(QuartzLayerHostingSPI.allContexts))?
                   .takeUnretainedValue() as? [NSObject] else { return nil }
-        for context in contexts where context.responds(to: contextIdGetter) && context.responds(to: rootLayerGetter) {
+        for context in contexts {
+            // Two checks, not one `&&`: its autoclosure would capture the non-Sendable context.
+            guard context.responds(to: contextIdGetter) else { continue }
+            guard context.responds(to: rootLayerGetter) else { continue }
             let spi = unsafeBitCast(context, to: QuartzLayerHostingSPI.self)
             guard spi.contextId == id else { continue }
             return layerHostCount(spi.layer)
