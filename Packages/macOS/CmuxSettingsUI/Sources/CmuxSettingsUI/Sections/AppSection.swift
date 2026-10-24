@@ -31,6 +31,7 @@ public struct AppSection: View {
     @State private var firstClick: DefaultsValueModel<Bool>
     @State private var focusHistoryIncludesPanesAndTabs: DefaultsValueModel<Bool>
     @State private var equalizeSplitsOnCreate: DefaultsValueModel<Bool>
+    @State private var equalizeSplitsOnDividerDoubleClick: DefaultsValueModel<Bool>
     @State private var fileDrop: DefaultsValueModel<FileDropDefaultBehavior>
     @State private var preferredEditor: DefaultsValueModel<String>
     @State private var openSupported: DefaultsValueModel<Bool>
@@ -74,6 +75,7 @@ public struct AppSection: View {
     @State private var warnCloseAgentSession: DefaultsValueModel<Bool>
     @State private var warnCloseX: DefaultsValueModel<Bool>
     @State private var warnCloseWorkspace: DefaultsValueModel<Bool>
+    @State private var alwaysConfirmCloseWorkspace: DefaultsValueModel<Bool>
     @State private var warnCloseWindow: DefaultsValueModel<Bool>
     @State private var hideCloseButton: DefaultsValueModel<Bool>
     @State private var renameSelects: DefaultsValueModel<Bool>
@@ -105,6 +107,7 @@ public struct AppSection: View {
         _firstClick = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.focusPaneOnFirstClick))
         _focusHistoryIncludesPanesAndTabs = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.focusHistoryIncludesPanesAndTabs))
         _equalizeSplitsOnCreate = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.equalizeSplitsOnCreate))
+        _equalizeSplitsOnDividerDoubleClick = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.equalizeSplitsOnDividerDoubleClick))
         _fileDrop = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.fileDropDefaultBehavior))
         _preferredEditor = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.preferredEditor))
         _openSupported = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.openSupportedFilesInCmux))
@@ -149,6 +152,7 @@ public struct AppSection: View {
         _warnCloseAgentSession = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.warnBeforeClosingAgentSession))
         _warnCloseX = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.warnBeforeClosingTabXButton))
         _warnCloseWorkspace = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.warnBeforeClosingWorkspace))
+        _alwaysConfirmCloseWorkspace = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.alwaysConfirmWorkspaceClose))
         _warnCloseWindow = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.warnBeforeClosingWindow))
         _hideCloseButton = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.hideTabCloseButton))
         _renameSelects = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.renameSelectsExistingName))
@@ -174,7 +178,7 @@ public struct AppSection: View {
             mainCard
         }
         .task {
-            startSettingsObservation([language, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, equalizeSplitsOnCreate, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, fileEditorSyntaxHighlighting, fileEditorLineNumbers, fileEditorIndentGuides, fileEditorCurrentLineHighlight, fileEditorTabWidth, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, paneFlashDoubleBlink, paneFlashOnTyping, paneFlashThemeColor, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundWhenFocused, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseAgentSession, warnCloseX, warnCloseWorkspace, warnCloseWindow, hideCloseButton, renameSelects, paletteAllSurfaces])
+            startSettingsObservation([language, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, equalizeSplitsOnCreate, equalizeSplitsOnDividerDoubleClick, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, fileEditorSyntaxHighlighting, fileEditorLineNumbers, fileEditorIndentGuides, fileEditorCurrentLineHighlight, fileEditorTabWidth, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, paneFlashDoubleBlink, paneFlashOnTyping, paneFlashThemeColor, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundWhenFocused, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseAgentSession, warnCloseX, warnCloseWorkspace, alwaysConfirmCloseWorkspace, warnCloseWindow, hideCloseButton, renameSelects, paletteAllSurfaces])
             await soundAgentCache.loadIfNeeded { await hostActions.notificationSoundAgentOptions() }
             if languageAtAppear == nil { languageAtAppear = language.current }; if telemetryAtAppear == nil { telemetryAtAppear = telemetry.current }
         }
@@ -334,21 +338,10 @@ public struct AppSection: View {
             }
             SettingsCardDivider()
 
-            // Equalize Splits on Create
-            SettingsCardRow(
-                configurationReview: .json("app.equalizeSplitsOnCreate"),
-                String(localized: "settings.app.equalizeSplitsOnCreate", defaultValue: "Equalize Splits on Create"),
-                subtitle: String(localized: "settings.app.equalizeSplitsOnCreate.subtitle", defaultValue: "Splitting a pane makes the panes in that direction equal in size.")
-            ) {
-                Toggle("", isOn: Binding(
-                    get: { equalizeSplitsOnCreate.current },
-                    set: { equalizeSplitsOnCreate.set($0) }
-                ))
-                .labelsHidden()
-                .controlSize(.small)
-                .accessibilityIdentifier("SettingsEqualizeSplitsOnCreateToggle")
-            }
-            SettingsCardDivider()
+            AppSplitSettingsRows(
+                equalizeSplitsOnCreate: equalizeSplitsOnCreate,
+                equalizeSplitsOnDividerDoubleClick: equalizeSplitsOnDividerDoubleClick
+            )
 
             // File Drops
             SettingsCardRow(
@@ -949,6 +942,20 @@ public struct AppSection: View {
                     : String(localized: "settings.app.warnBeforeClosingWorkspace.subtitleOff", defaultValue: "Workspaces close immediately without confirmation. Pinned workspaces still ask.")
             ) {
                 Toggle("", isOn: Binding(get: { warnCloseWorkspace.current }, set: { warnCloseWorkspace.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            SettingsCardDivider()
+
+            // Always Confirm Closing Workspaces
+            SettingsCardRow(
+                configurationReview: .json(catalog.app.alwaysConfirmWorkspaceClose.id),
+                catalog.app.alwaysConfirmWorkspaceClose.userFacing!.title,
+                subtitle: alwaysConfirmCloseWorkspace.current
+                    ? String(localized: "settings.app.alwaysConfirmWorkspaceClose.subtitleOn", defaultValue: "Every workspace close asks first, even when nothing is running.")
+                    : String(localized: "settings.app.alwaysConfirmWorkspaceClose.subtitleOff", defaultValue: "Idle workspaces close without asking. Turn on to protect long-lived workspaces.")
+            ) {
+                Toggle("", isOn: Binding(get: { alwaysConfirmCloseWorkspace.current }, set: { alwaysConfirmCloseWorkspace.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
             }

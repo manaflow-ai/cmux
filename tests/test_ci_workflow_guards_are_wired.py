@@ -44,7 +44,9 @@ INVOKED_PATH = re.compile(r"(?:\./)?(tests(?:_v2)?/[A-Za-z0-9_.-]+\.(?:py|sh))")
 # Guards that are knowingly unwired. Each entry needs a reason and an exit:
 # an allowlist that can be appended to without argument is the failure mode
 # this test exists to prevent.
-UNWIRED: set[str] = set()
+# This regression test is intentionally local-only. The repository contract
+# forbids adding CI gates/tests; run it directly before landing delivery edits.
+UNWIRED: set[str] = {"tests/test_nightly_delivery_concurrency.py"}
 
 
 def tracked_tests() -> list[str]:

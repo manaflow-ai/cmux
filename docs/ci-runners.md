@@ -4,6 +4,13 @@
 
 ## Rules that must never be broken
 
+- Nightlies never use Blacksmith (user decision 2026-10-19). Every
+  `*nightly*.yml` and `*notarization*.yml` job compiles on the trusted minis
+  (`build-nightly-app` on cmux15) or runs on an ephemeral GitHub-hosted image
+  (`ubuntu-24.04`, `macos-26`, `macos-15`): signing, notarization and
+  publishing stay ephemeral. These workflows read no shared runner variable
+  (`LINUX_RUNNER`, `MACOS_RUNNER_*`, ...) and never reach the benchmark mini
+  cmux11s. `tests/test_ci_nightly_off_blacksmith.py` enforces it.
 - CI is minis first. Blacksmith is overflow; do not disable an owned lane to
   make room for a dev build.
 - Every mini must have every pinned Xcode from
@@ -15,7 +22,38 @@
 
 ## Exact-head merging
 
-`gh-merge-green` requires a completed, successful `ci-status` check on the
+`gh-merge-green` is optional. On `feat-cmux-next` a plain
+`gh pr merge --squash --match-head-commit <sha>` under that branch's merge rules
+is fine. When used there, the helper applies a fast gate by default. It waits up to
+`--wait` seconds (2400 by default) for path routing, the fast tier and the
+touched compiles on the exact head, then merges. Whether the change needs the
+routing wait follows the base's `cmux-next.yml` paths filter, not the head's, so a
+pull request can't drop itself from it. It also waits for god-file,
+l10n and concurrency lint and `risk evidence`, and refuses a red one with no
+override or base excuse, as the full gate does. It refuses a completed red in
+the fast lanes, in the web, app size and crash families, or in `ci-status`,
+the Release compile or the swift test, unless the base has the same red. A
+cancelled, timed-out or skipped fast tier refuses even with `--override`. It
+refuses conflict markers and frozen paths, and a pull request from an untrusted
+fork, before it waits for anything, unless `--trust-fork-head <sha>` names its reviewed head. React-apps-check is waited for when
+`detect_ci_change_areas.py` routes a changed file to ci.yml's `web` job, or
+when that job is running. The gate keys on job names, so it refuses when one
+it waits for is no longer a job in the head's `cmux-next.yml`, `ci.yml` or
+`ci-web.yml`. It skips the merged-tree checks (merge cleanliness, the god-file
+check and `vp check`), except for a pull request that changes a path listed in
+`scripts/ci/merge-fast-gate-protected-paths.txt` on the base: workflows, shared CI
+scripts and `gh-merge-green` itself. That one gets every merged-tree check. The full
+suites run after the merge. It prints one `gh-merge-green:` line saying what
+it checked and how long it waited.
+
+On both gates the helper re-reads the pull request just before merging and
+refuses if its head or base changed, since `--match-head-commit` pins only the
+head.
+
+`--full` keeps the wait for every check, as below; every base other than
+`feat-cmux-next` (main and classic) always gets it.
+
+With `--full`, `gh-merge-green` requires a completed, successful `ci-status` check on the
 exact pull-request head. App diffs also require the completed
 `macos / macOS compile admission` check. A missing, queued, stale, or
 unsuccessful check is a refusal, and the helper prints the repair pointer.
@@ -529,7 +567,20 @@ The queue janitor treats an owned label as one more macOS pool. A stale pull
 request run (category b: closed, merged or superseded) is cancelled there on
 every sweep whatever the queue, which frees minis for current work. The other
 categories cancel only while more than `CI_JANITOR_QUEUE_THRESHOLD` jobs queue
-on a pool the run holds, owned pools included. With `CI_PR_POOL_OWNED=1` the
+on a pool the run holds, owned pools included. A lost runner assignment
+(category e: a job queued with no runner for 30 minutes while a newer job on
+exactly its labels was taken, read from GitHub alone, and no other job of its
+run is still unfinished unless lost itself) is cancelled whatever the queue.
+Two cases on 2026-10-21 set the pattern: job 119450713364 (run
+39631559018, glaeda-side-std-xcode-26.6) and job 119458409272 (PR #23694's
+run 39667716636, `cmux-next swift test` on glaeda-gui-std-xcode-26.6), each
+queued for hours with no runner while newer jobs on its labels started. At an
+open pull request's head, a later sweep re-runs the run's failed jobs once
+(and, for ci.yml, dispatches ci-ui-tests.yml for the new attempt), unless a
+newer run of the workflow at that head took over. The janitor leaves an
+attempt a bot started alone at an open pull request's head, so it never
+preempts or extends the owned-pool rescue's attempts, and it never touches
+pushes to main, `rc/*` or feat-cmux-next. With `CI_PR_POOL_OWNED=1` the
 janitor also lists the artifacts of each in-flight attempt-1, same-repository
 pull request CI run or main full-suite dispatch (one request per run, more only past 100 artifacts) to
 read its marker's peak into `committed`. A run's other macOS jobs do not rule

@@ -111,6 +111,10 @@ enum SettingsSearchAliasIndex {
             "settings.search.alias.setting.app.warn-before-closing-workspace",
             defaultValue: "app.warnBeforeClosingWorkspace close workspace confirmation command-shift-w cmd-shift-w running process agent"
         ),
+        "app:always-confirm-workspace-close": localized(
+            "settings.search.alias.setting.app.always-confirm-workspace-close",
+            defaultValue: "app.alwaysConfirmWorkspaceClose always confirm close workspace idle protect confirmation"
+        ),
         "app:warn-before-closing-window": localized(
             "settings.search.alias.setting.app.warn-before-closing-window",
             defaultValue: "app.warnBeforeClosingWindow close window confirmation command-control-w cmd-ctrl-w running process"
