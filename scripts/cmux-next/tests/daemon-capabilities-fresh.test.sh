@@ -113,6 +113,37 @@ write_swift "workspaceGroups,
 if out="$(run)"; then fail "a typed constant in no list passed: $out"; fi
 [[ "$out" == *"orphanTyped"* ]] || fail "the failure does not name the typed constant: $out"
 
+# A computed String static is a constant by another name (`static var orphanComputed: String { ... }`):
+# it is in no list either, and the stored-constant regex never saw it.
+write_swift "workspaceGroups,
+                                       sidebarLayout" "remoteTerminalTabs" '    public static var orphanComputed: String { "orphan-computed-v1" }'
+if out="$(run)"; then fail "a computed String static in no list passed: $out"; fi
+[[ "$out" == *"orphanComputed"* ]] || fail "the failure does not name the computed static: $out"
+
+# A static that returns a String, and an untyped static (its type could be String), fail the same way.
+write_swift "workspaceGroups,
+                                       sidebarLayout" "remoteTerminalTabs" '    static func orphanFunc() -> String { "orphan-func-v1" }
+    static let orphanAlias = Self.workspaceRegistry.rawValue'
+if out="$(run)"; then fail "a String-returning static func and an untyped static passed: $out"; fi
+[[ "$out" == *"orphanFunc"* && "$out" == *"orphanAlias"* ]] || fail "the failure does not name both statics: $out"
+
+# The same in an extension of the catalog in another file: the export, check-daemon-capabilities.sh and
+# DaemonCompatibility never see it, and this check read DaemonEndpoint.swift only.
+write_swift "workspaceGroups,
+                                       sidebarLayout" "remoteTerminalTabs"
+extension_file="$tmp/Packages/macOS/CmuxNext/Sources/CmuxNextApp/DaemonCapability+Orphan.swift"
+mkdir -p "$(dirname "$extension_file")"
+cat > "$extension_file" <<'SWIFT'
+extension DaemonCapability {
+    static var orphanExt: String { "orphan-ext-v1" }
+    static let homeAndPersonal: [String] = homeOnly + personalOnHome
+}
+SWIFT
+if out="$(run)"; then fail "a String static in an extension in another file passed: $out"; fi
+[[ "$out" == *"orphanExt"*"DaemonCapability+Orphan.swift"* ]] || fail "the failure does not name the extension static and its file: $out"
+[[ "$out" != *"homeAndPersonal"* ]] || fail "a typed list in an extension was refused: $out"
+rm "$extension_file"
+
 # A case in no arm of `tier` fails (the compiler refuses it too; the check must not lose it).
 write_swift "workspaceGroups,
                                        sidebarLayout" "remoteTerminalTabs" '    case orphanCase = "orphan-case-v1"'
