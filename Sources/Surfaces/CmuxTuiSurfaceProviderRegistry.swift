@@ -1,5 +1,6 @@
 import CmuxSSHClipboardTrust
 import CmuxCloud
+import CmuxCloudTui
 import CmuxFoundation
 import CmuxSettings
 import CmuxSurfaceCatalogModel
@@ -551,6 +552,8 @@ final class CmuxTuiSurfaceProviderRegistry {
         guard !targets.isEmpty else { return }
         let epoch = accessEpoch
         let generation = refreshGeneration
+        let persistedDevices = await links.persistedDeviceRecords()
+        guard !isRetired, epoch == accessEpoch, generation == refreshGeneration else { return }
         for target in targets {
             let summary: VMSummary
             do {
@@ -575,7 +578,10 @@ final class CmuxTuiSurfaceProviderRegistry {
                 continue
             }
             guard machineTeardowns[registeredMachineID(matching: target.id)] == nil else { continue }
-            await links.setPrivateAddresses([summary.addressIPv4, summary.addressIPv6].compactMap { $0 }, for: summary.id)
+            await links.setPrivateAddresses(
+                [summary.addressIPv4, summary.addressIPv6].compactMap { $0 },
+                for: summary.id, persistedDevice: persistedDevices[summary.id]
+            )
             await links.setOwnerTeam(target.team, for: summary.id)
             guard !isRetired, epoch == accessEpoch, generation == refreshGeneration,
                   providers[summary.id] == nil else { return }
@@ -749,10 +755,14 @@ final class CmuxTuiSurfaceProviderRegistry {
         if allowsBackgroundWork() { await wireGuardHub?.prepareForCloudUse() }
         guard !isRetired, generation == refreshGeneration, isCloudEnabled(), !Task.isCancelled else { return nil }
         let seen = Set(page.vms.map(\.id))
+        let persistedDevices = await links.persistedDeviceRecords()
+        guard !isRetired, generation == refreshGeneration else { return nil }
         // Session restore can precede a successful fleet read. Rehydrate a
         // provider from persisted machine metadata so a restored browser can
         // reconnect instead of being pruned when the first page is empty.
-        await registerPendingRestoredMachines(pageTeamID: pageTeamID, generation: generation)
+        await registerPendingRestoredMachines(
+            pageTeamID: pageTeamID, generation: generation, persistedDevices: persistedDevices
+        )
         // This page is the authoritative positive observation for any receipt
         // it contains. Once observed, normal stale pruning may own that ID.
         pendingMachineCreationIDs.subtract(seen)
@@ -798,7 +808,10 @@ final class CmuxTuiSurfaceProviderRegistry {
                 await teardown.value
                 guard generation == refreshGeneration else { return nil }
             }
-            await links.setPrivateAddresses([summary.addressIPv4, summary.addressIPv6].compactMap { $0 }, for: summary.id)
+            await links.setPrivateAddresses(
+                [summary.addressIPv4, summary.addressIPv6].compactMap { $0 },
+                for: summary.id, persistedDevice: persistedDevices[summary.id]
+            )
             let statusAccepted = await links.setMachineStatus(summary.status, for: registeredID, observedAt: discoveryStartedAt)
             // A delete that ran while that await was suspended bumped the
             // generation; creating a provider now would hand its link and
@@ -828,7 +841,10 @@ final class CmuxTuiSurfaceProviderRegistry {
         return page.vms.compactMap { providers[$0.id] }
     }
 
-    private func registerPendingRestoredMachines(pageTeamID: String?, generation: UInt64) async {
+    private func registerPendingRestoredMachines(
+        pageTeamID: String?, generation: UInt64,
+        persistedDevices: [String: CloudTuiClientPaths.DeviceRecord]
+    ) async {
         guard let catalog else { return }
         for machineID in catalog.pendingRestoredMachineIDs where providers[machineID] == nil {
             let info = catalog.machineInfo(for: .cloud(machineID))
@@ -852,7 +868,9 @@ final class CmuxTuiSurfaceProviderRegistry {
             let address = fetchedSummary?.addressIPv4
                 ?? info?.privateAddress
                 ?? adoptedPrivateAddresses[machineID]
-            await links.setPrivateAddresses([address].compactMap { $0 }, for: machineID)
+            await links.setPrivateAddresses(
+                [address].compactMap { $0 }, for: machineID, persistedDevice: persistedDevices[machineID]
+            )
             await links.setOwnerTeam(ownerTeamID, for: machineID)
             guard !isRetired, generation == refreshGeneration, providers[machineID] == nil else { continue }
             var summary = fetchedSummary ?? VMSummary(

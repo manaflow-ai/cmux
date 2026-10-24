@@ -1,31 +1,18 @@
+import CmuxCloudMachines
 import CmuxFoundation
 import Foundation
 import Security
 
-/// Where the app's headless cmux-tui links keep their client identity, and where the
-/// bundled client lives. Mirrors the CLI's `vmTuiClientStateDir` / `vmTuiDevicesStoreURL`
-/// (`CLI/CMUXCLI+VMTui.swift`) on purpose: the sidebar's links and the pane's
-/// `cmux vm-tui-connect` must present the same device to a machine's daemon, so one
-/// enrollment covers both. The CLI helpers are compiled only into the CLI target, hence
-/// the duplicate paths here.
+/// Where the app's headless cmux-tui links and CLI keep their shared client identity,
+/// device records, and server-advertised attach routes.
 public struct CloudTuiClientPaths: Sendable {
-    /// One enrolled device per machine, as the CLI stores it (`vm-tui-devices.json`).
-    public struct DeviceRecord: Codable, Sendable, Equatable {
-        public let deviceFingerprint: String
-        public let updatedAtUnix: Int
+    /// The shared persisted record used by the app and CLI.
+    public typealias DeviceRecord = CloudTuiDeviceStore.DeviceRecord
 
-        public init(deviceFingerprint: String, updatedAtUnix: Int) {
-            self.deviceFingerprint = deviceFingerprint
-            self.updatedAtUnix = updatedAtUnix
-        }
-    }
+    /// The shared trusted-carrier identity marker.
+    public static let carrierDeviceMarker = CloudTuiDeviceStore.carrierDeviceMarker
 
-    /// Stored in place of a device fingerprint for a machine this Mac reaches over
-    /// the trusted-carrier listener: there is no enrolled device, and the next link
-    /// dials `--carrier` again with no control-plane call. A real fingerprint means
-    /// the Mac enrolled before the machine's daemon served the trusted listener and
-    /// keeps presenting its stored key. Mirrored by the CLI's own store.
-    public static let carrierDeviceMarker = "carrier"
+    private var deviceStore: CloudTuiDeviceStore { CloudTuiDeviceStore(home: home) }
 
     public let home: URL
 
@@ -34,15 +21,9 @@ public struct CloudTuiClientPaths: Sendable {
     }
 
     /// Per-Mac cmux-tui client state (device key, known daemons).
-    public var stateDir: URL {
-        home.appendingPathComponent(".cmuxterm", isDirectory: true)
-            .appendingPathComponent("cmux-tui-client", isDirectory: true)
-    }
+    public var stateDir: URL { deviceStore.stateDir }
 
-    public var devicesStoreURL: URL {
-        home.appendingPathComponent(".cmuxterm", isDirectory: true)
-            .appendingPathComponent("vm-tui-devices.json", isDirectory: false)
-    }
+    public var devicesStoreURL: URL { deviceStore.devicesStoreURL }
 
     public func ensureStateDir() throws {
         try FileManager.default.createDirectory(
@@ -52,13 +33,7 @@ public struct CloudTuiClientPaths: Sendable {
         )
     }
 
-    public func loadDevices() -> [String: DeviceRecord] {
-        guard let data = try? Data(contentsOf: devicesStoreURL),
-              let store = try? JSONDecoder().decode([String: DeviceRecord].self, from: data) else {
-            return [:]
-        }
-        return store
-    }
+    public func loadDevices() -> [String: DeviceRecord] { deviceStore.loadDevices() }
 
     /// This Mac's durable notification client id (`notification.ack` `client_id`),
     /// one per install: `mac-` plus 32 hex digits, minted on first use and kept in
@@ -92,13 +67,19 @@ public struct CloudTuiClientPaths: Sendable {
         loadDevices()[machineID]?.deviceFingerprint
     }
 
+    /// The last server-advertised attach route for a machine, if one exists.
+    public func route(for machineID: String) -> String? {
+        loadDevices()[machineID]?.route
+    }
+
     public func saveDeviceFingerprint(_ fingerprint: String, for machineID: String) {
-        var store = loadDevices()
-        store[machineID] = DeviceRecord(deviceFingerprint: fingerprint, updatedAtUnix: Int(Date().timeIntervalSince1970))
-        guard let data = try? JSONEncoder().encode(store) else { return }
-        try? FileManager.default.createDirectory(at: devicesStoreURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? data.write(to: devicesStoreURL, options: [.atomic])
-        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: devicesStoreURL.path)
+        deviceStore.saveAttachState(deviceFingerprint: fingerprint, for: machineID)
+    }
+
+    /// Persists the device identity and attach route together. The route is
+    /// optional so records written by older builds remain valid migrations.
+    public func saveAttachState(deviceFingerprint: String? = nil, route: String? = nil, for machineID: String) {
+        deviceStore.saveAttachState(deviceFingerprint: deviceFingerprint, route: route, for: machineID)
     }
 
     /// The app and CLI share a local label that never needs hostname resolution.

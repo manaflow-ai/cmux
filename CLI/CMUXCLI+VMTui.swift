@@ -1,4 +1,5 @@
 import CmuxCore
+import CmuxCloudMachines
 import CmuxFoundation
 import Foundation
 
@@ -55,11 +56,6 @@ extension CMUXCLI {
         /// (`defaultFocusForUserOpen`).
         var focus: Bool
     }
-    struct VMTuiDeviceRecord: Codable {
-        let deviceFingerprint: String
-        let updatedAtUnix: Int
-    }
-
     static var vmTuiUsage: String {
         """
         Usage: cmux vm tui <id> [--window <id|ref|index>] [--focus|--no-focus]
@@ -82,42 +78,14 @@ extension CMUXCLI {
 
     // MARK: - local state
 
+    private static var vmTuiDeviceStore: CloudTuiDeviceStore {
+        CloudTuiDeviceStore(home: URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true))
+    }
+
     /// Per-Mac cmux-tui client state (device key, known daemons), separate from any
     /// interactive `cmux-tui` the person uses so machines never share identity.
     static func vmTuiClientStateDir() -> URL {
-        URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
-            .appendingPathComponent(".cmuxterm", isDirectory: true)
-            .appendingPathComponent("cmux-tui-client", isDirectory: true)
-    }
-
-    static func vmTuiDevicesStoreURL() -> URL {
-        URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
-            .appendingPathComponent(".cmuxterm", isDirectory: true)
-            .appendingPathComponent("vm-tui-devices.json", isDirectory: false)
-    }
-
-    /// Stored in place of a device fingerprint for a machine reached over its
-    /// trusted-carrier listener: the next open dials `--carrier` again with no
-    /// control-plane call. Mirrors `CloudTuiClientPaths.carrierDeviceMarker`.
-    static let carrierDeviceMarker = "carrier"
-
-    static func loadVMTuiDevices(from url: URL? = nil) -> [String: VMTuiDeviceRecord] {
-        let storeURL = url ?? vmTuiDevicesStoreURL()
-        guard let data = try? Data(contentsOf: storeURL),
-              let store = try? JSONDecoder().decode([String: VMTuiDeviceRecord].self, from: data) else {
-            return [:]
-        }
-        return store
-    }
-
-    static func saveVMTuiDevice(vmId: String, deviceFingerprint: String, to url: URL? = nil) {
-        let storeURL = url ?? vmTuiDevicesStoreURL()
-        var store = loadVMTuiDevices(from: storeURL)
-        store[vmId] = VMTuiDeviceRecord(deviceFingerprint: deviceFingerprint, updatedAtUnix: Int(Date().timeIntervalSince1970))
-        guard let data = try? JSONEncoder().encode(store) else { return }
-        try? FileManager.default.createDirectory(at: storeURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? data.write(to: storeURL, options: [.atomic])
-        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: storeURL.path)
+        vmTuiDeviceStore.stateDir
     }
 
     /// The client bundled beside this CLI (`Contents/Resources/bin/cmux-tui`, installed by
@@ -312,7 +280,7 @@ extension CMUXCLI {
         client: SocketClient
     ) throws -> VMTuiOpenResult {
         let startedAt = Date()
-        let known = Self.loadVMTuiDevices()[vmId]
+        let known = Self.vmTuiDeviceStore.loadDevices()[vmId]
         // Probe the local client before asking the app for connection data. Its
         // WireGuard capability is mandatory for every Cloud VM route.
         let clientPath = locateCmuxTuiClient()
@@ -353,9 +321,13 @@ extension CMUXCLI {
                     defaultValue: "The Cloud machine is still preparing remote access. Try again shortly."
                 ))
             }
-            // Later opens reuse the private route with no control-plane call.
-            Self.saveVMTuiDevice(vmId: vmId, deviceFingerprint: Self.carrierDeviceMarker)
         }
+        // Later opens reuse the private route with no control-plane call.
+        Self.vmTuiDeviceStore.saveAttachState(
+            deviceFingerprint: known?.deviceFingerprint ?? CloudTuiDeviceStore.carrierDeviceMarker,
+            route: route,
+            for: vmId
+        )
         let networkAddresses: [String: String]? = {
             guard let raw = info["network_addresses"] as? [String: Any] else { return nil }
             let values = raw.compactMapValues { $0 as? String }
