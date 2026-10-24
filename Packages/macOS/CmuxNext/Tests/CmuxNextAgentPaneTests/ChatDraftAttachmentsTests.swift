@@ -40,6 +40,25 @@ struct ChatDraftAttachmentsTests {
         return try JSONDecoder().decode([Chip].self, from: JSONSerialization.data(withJSONObject: value.foundationObject))
     }
 
+    @discardableResult
+    static func keep(_ draft: AgentPaneDraft, for session: String) async throws -> [String] {
+        let encoded = AgentPaneDraftAttachments.json(draft)
+        let reply = try await call("chat.draftAttachments", ["sessionId": .string(session), "draft": encoded])
+        guard case .object(let body) = reply, case .array(let held)? = body["held"] else {
+            Issue.record("no held ids in \(reply)")
+            return []
+        }
+        return held.compactMap { value -> String? in
+            guard case .string(let id) = value else { return nil }
+            return id
+        }
+    }
+
+    static func ordered(_ session: String) async throws -> AgentPaneDraft {
+        let value = try await call("chat.draftAttachments.get", ["sessionId": .string(session), "ordered": .bool(true)])
+        return try #require(AgentPaneDraftAttachments.decodeDraft(value))
+    }
+
     /// A Retina screenshot's worth of PNG.
     static func screenshot(_ index: Int) -> Data {
         Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) + Data(repeating: UInt8(index), count: 1_500_000)
@@ -60,6 +79,149 @@ struct ChatDraftAttachmentsTests {
         let directory = FileManager.default.temporaryDirectory.appending(path: "draft-attachments-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory
+    }
+
+    @Test func anInlineDraftKeepsImageTextImageTextOrderOnTheACPWire() {
+        let first = Chip(id: "image-1", kind: "image", name: "one.png", mimeType: "image/png", size: 3,
+                         data: Data([1, 2, 3]).base64EncodedString())
+        let caption = Chip(id: "caption", kind: "text", name: "caption.txt", mimeType: "text/plain", size: 7,
+                           text: "describe this")
+        let second = Chip(id: "image-2", kind: "image", name: "two.png", mimeType: "image/png", size: 3,
+                          data: Data([4, 5, 6]).base64EncodedString())
+        let draft = AgentPaneDraft(text: "before\u{FFFC}between\u{FFFC}after\u{FFFC}done",
+                                   attachments: [first, caption, second])
+
+        #expect(draft.pieces == [
+            .text("before"), .attachment(first), .text("between"), .attachment(caption),
+            .text("after"), .attachment(second), .text("done"),
+        ])
+        let blocks = draft.acpContentBlocks
+        #expect(blocks.compactMap { $0["type"]?.stringValue } == ["text", "image", "text", "text", "text", "image", "text"])
+        #expect(blocks[0]["text"]?.stringValue == "before")
+        #expect(blocks[2]["text"]?.stringValue == "between")
+        #expect(blocks[3]["text"]?.stringValue == "caption.txt\n```txt\ndescribe this\n```")
+        #expect(blocks[4]["text"]?.stringValue == "after")
+        #expect(blocks[5]["type"]?.stringValue == "image")
+        #expect(blocks[5]["data"]?.stringValue == Data([4, 5, 6]).base64EncodedString())
+        #expect(draft.plainText == "beforebetweenafterdone")
+    }
+
+    @Test func anOrderedDraftPersistsItsTextAndAttachmentFilesWithoutChangingTheOldArrayAPI() async throws {
+        let directory = try Self.directory()
+        defer {
+            AgentPaneDraftAttachments.shared = nil
+            try? FileManager.default.removeItem(at: directory)
+        }
+        AgentPaneDraftAttachments.shared = AgentPaneDraftAttachments(directory: directory)
+        let image = Chip(id: "image", kind: "image", name: "image.png", mimeType: "image/png", size: 3,
+                         data: Data([7, 8, 9]).base64EncodedString())
+        let draft = AgentPaneDraft(text: "look\u{FFFC}now", attachments: [image])
+        #expect(try await Self.keep(draft, for: "ordered") == ["image"])
+
+        let restored = try await Self.ordered("ordered")
+        #expect(restored.text == draft.text)
+        #expect(restored.attachments == draft.attachments)
+        #expect(try await Self.kept("ordered") == draft.attachments)
+    }
+
+    @Test func anOrderedTextOnlyDraftSurvivesWithoutCreatingAttachmentFiles() async throws {
+        let directory = try Self.directory()
+        defer {
+            AgentPaneDraftAttachments.shared = nil
+            try? FileManager.default.removeItem(at: directory)
+        }
+        AgentPaneDraftAttachments.shared = AgentPaneDraftAttachments(directory: directory)
+        let draft = AgentPaneDraft(text: "a caption with no files")
+        #expect(try await Self.keep(draft, for: "text-only").isEmpty)
+
+        let restored = try await Self.ordered("text-only")
+        #expect(restored == draft)
+        let folder = try #require(AgentPaneDraftAttachments.shared?.folder(for: "text-only"))
+        #expect(Self.files(in: folder) == [AgentPaneDraftAttachments.listName])
+    }
+
+    @Test func aMissingAttachmentFileRemovesOnlyItsMarkAndKeepsLaterMarksAligned() async throws {
+        let directory = try Self.directory()
+        defer {
+            AgentPaneDraftAttachments.shared = nil
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let store = AgentPaneDraftAttachments(directory: directory)
+        AgentPaneDraftAttachments.shared = store
+        let first = Chip(id: "first", kind: "image", name: "first.png", mimeType: "image/png", size: 3,
+                         data: Data([1, 2, 3]).base64EncodedString())
+        let missing = Chip(id: "missing", kind: "image", name: "missing.png", mimeType: "image/png", size: 3,
+                           data: Data([4, 5, 6]).base64EncodedString())
+        let last = Chip(id: "last", kind: "image", name: "last.png", mimeType: "image/png", size: 3,
+                        data: Data([7, 8, 9]).base64EncodedString())
+        let draft = AgentPaneDraft(text: "one\u{FFFC}caption\u{FFFC}\u{FFFC}tail", attachments: [first, missing, last])
+        #expect(try await Self.keep(draft, for: "repair") == ["first", "last", "missing"])
+        let folder = try #require(store.folder(for: "repair"))
+        let list = try JSONSerialization.jsonObject(with: Data(contentsOf: folder.appending(path: AgentPaneDraftAttachments.listName))) as? [String: Any]
+        let files = try #require(list?["files"] as? [String: String])
+        let missingFile = try #require(files["missing"])
+        try FileManager.default.removeItem(at: folder.appending(path: missingFile))
+
+        let restored = try await Self.ordered("repair")
+        #expect(restored.attachments.map(\.id) == ["first", "last"])
+        #expect(restored.pieces == [.text("one"), .attachment(first), .text("caption"), .attachment(last), .text("tail")])
+    }
+
+    @Test func aLegacyAttachmentWriteClearsStaleOrderedText() async throws {
+        let directory = try Self.directory()
+        defer {
+            AgentPaneDraftAttachments.shared = nil
+            try? FileManager.default.removeItem(at: directory)
+        }
+        AgentPaneDraftAttachments.shared = AgentPaneDraftAttachments(directory: directory)
+        let ordered = Chip(id: "ordered", kind: "image", name: "ordered.png", mimeType: "image/png", size: 3,
+                           data: Data([1, 2, 3]).base64EncodedString())
+        #expect(try await Self.keep(AgentPaneDraft(text: "stale\u{FFFC}text", attachments: [ordered]), for: "legacy") == ["ordered"])
+        let replacement = Chip(id: "replacement", kind: "image", name: "replacement.png", mimeType: "image/png", size: 3,
+                               data: Data([4, 5, 6]).base64EncodedString())
+        #expect(try await Self.keep([replacement], for: "legacy") == ["replacement"])
+
+        let restored = try await Self.ordered("legacy")
+        #expect(restored.text.isEmpty)
+        #expect(restored.attachments.map(\.id) == ["replacement"])
+    }
+
+    @Test func aChipWithoutRetainedBytesRemovesItsMarkBeforeSaving() async throws {
+        let directory = try Self.directory()
+        defer {
+            AgentPaneDraftAttachments.shared = nil
+            try? FileManager.default.removeItem(at: directory)
+        }
+        AgentPaneDraftAttachments.shared = AgentPaneDraftAttachments(directory: directory)
+        let absent = Chip(id: "absent", kind: "image", name: "absent.png", mimeType: "image/png", size: 3)
+        let image = Chip(id: "last", kind: "image", name: "last.png", mimeType: "image/png", size: 3,
+                         data: Data([1, 2, 3]).base64EncodedString())
+        let draft = AgentPaneDraft(text: "one\u{FFFC}caption\u{FFFC}tail", attachments: [absent, image])
+        #expect(try await Self.keep(draft, for: "unretained") == ["last"])
+        let restored = try await Self.ordered("unretained")
+        #expect(restored.pieces == [.text("onecaption"), .attachment(image), .text("tail")])
+    }
+
+    @Test func aMalformedOrderedDraftIsRejectedWithoutFallingBackAndErasingIt() async throws {
+        let directory = try Self.directory()
+        defer {
+            AgentPaneDraftAttachments.shared = nil
+            try? FileManager.default.removeItem(at: directory)
+        }
+        AgentPaneDraftAttachments.shared = AgentPaneDraftAttachments(directory: directory)
+        let image = Chip(id: "kept", kind: "image", name: "kept.png", mimeType: "image/png", size: 3,
+                         data: Data([1, 2, 3]).base64EncodedString())
+        let original = AgentPaneDraft(text: "keep\u{FFFC}this", attachments: [image])
+        #expect(try await Self.keep(original, for: "malformed") == ["kept"])
+        let malformed = JSONValue.object(["text": .string("bad"), "attachments": .string("not-an-array")])
+        await #expect(throws: PageError.self) {
+            _ = try await Self.call("chat.draftAttachments", [
+                "sessionId": .string("malformed"), "draft": malformed, "attachments": .array([]),
+            ])
+        }
+
+        let restored = try await Self.ordered("malformed")
+        #expect(restored == original)
     }
 
     @Test func aChatsScreenshotsComeBackWhenItShowsAgainOrTheAppRelaunches() async throws {
