@@ -15,6 +15,7 @@ mod column_update;
 mod diagnostics;
 mod dock_columns;
 mod history_agent_fold;
+mod journal_requests_do_not_wait;
 mod journal_roster;
 mod kitty_budget;
 mod kitty_reservation;
