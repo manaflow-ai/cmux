@@ -3095,7 +3095,11 @@ FIXTURES = os.path.join(HERE, "tests", "trace-fixtures")
 
 def check_real_xctrace_exports():
     """Real exports (scripts/cmux-next/trace_fixtures.py on a fleet Mac, one folder per xctrace major): the column
-    tags time_profile_samples, xctrace_signposts, syscall_waits and parse_toc read are the ones xctrace writes."""
+    tags time_profile_samples, xctrace_signposts, syscall_waits and parse_toc read are the ones xctrace writes.
+
+    At least one folder must exist. Each folder present is checked; a missing major is not a failure: the fleet
+    has no macOS 14 or 15 host today (every worker reports macos-26 or macos-27, 2026-10-24), so the Xcode 15 and
+    16 sets are added when such a host exists."""
     folders = sorted(d for d in os.listdir(FIXTURES) if d.startswith("xctrace-")) if os.path.isdir(FIXTURES) else []
     assert folders, f"no real xctrace exports in {FIXTURES} (record them with trace_fixtures.py on a fleet Mac)"
     for folder in folders:
