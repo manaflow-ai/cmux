@@ -1027,13 +1027,16 @@ class WarningTests(Fixture):
         self.commit("the shipped owner map")
         self.base = self.git("rev-parse", "HEAD").stdout.strip()
         expected = {
-            f"{PKG}/Sources/CmuxNextTerminal/TerminalSurfaceView+Keyboard.swift": ["PL-ghostty", "PL-typing"],
+            # The typing row names this file; the terminal row only its folder: the most specific row owns it.
+            f"{PKG}/Sources/CmuxNextTerminal/TerminalSurfaceView+Keyboard.swift": ["PL-typing"],
             f"{PKG}/Sources/CmuxNextTerminal/GhosttyRuntime.swift": ["PL-ghostty"],
             f"{PKG}/Sources/CmuxNextApp/GhosttyConfigLiveReload.swift": ["PL-ghostty"],
             "cmux-tui/crates/cmux-tui-core/src/service.rs": ["PL-daemon"],
             "cmux-tui/crates/cmux-tui-core/src/holder_runtime/sink.rs": ["PL-daemon holder"],
             "cmux-tui/crates/cmux-holder-v3/src/holder.rs": ["PL-daemon holder"],
             "cmux-tui/crates/acpmux/src/lib.rs": ["PL-acpmux"],
+            "cmux-tui/crates/acpmux/src/main.rs": ["PL-acpmux"],
+            "scripts/cmux-next/build-acpmux.sh": ["PL-acpmux"],
             f"{PKG}/Sources/CmuxNextHangReports/HangReportService.swift": ["PL-telemetry"],
             f"{PKG}/Sources/CmuxNextApp/HangReports/HangReportsController.swift": ["PL-telemetry"],
             f"{PKG}/Sources/CmuxNextApp/Windows/WindowState.swift": ["PL-switch"],
@@ -1047,6 +1050,8 @@ class WarningTests(Fixture):
                 warned = [w for kind, w in self.check()[1] if kind == "owner"]
                 for owner in owners:
                     self.assertTrue(any(f"owner {owner}" in w for w in warned), (owner, warned))
+                # One file, one owner per area: no second row (a catch-all folder, a duplicate area) names another.
+                self.assertEqual(len(warned), len(owners), warned)
 
     def test_a_typical_push_runs_git_a_fixed_number_of_times(self):
         # The cost that grows with a push is git process starts, so count them instead of timing a busy runner:
