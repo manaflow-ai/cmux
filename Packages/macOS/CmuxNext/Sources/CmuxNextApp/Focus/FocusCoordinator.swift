@@ -226,10 +226,11 @@ final class FocusCoordinator {
 }
 
 extension FocusEvent.Source {
-    /// Mouse or keyboard from the event AppKit is dispatching, else programmatic (`NSApp.currentEvent`
-    /// stays the last event after its dispatch, so it counts only inside `sendEvent`; cx-3hw0i.2).
+    /// Mouse or keyboard from the event being dispatched now (`InputDispatchContext`: the event given to
+    /// `sendEvent`, or a key the router dispatches itself), else programmatic. Never `NSApp.currentEvent`: it is
+    /// the last event AppKit dequeued and stays after its dispatch (cx-3hw0i.2).
     static var current: FocusEvent.Source {
-        switch (NSApp as? CmuxApplication)?.isHandlingSendEvent() == true ? NSApp.currentEvent?.type : nil {
+        switch (NSApp as? CmuxApplication)?.inputDispatch?.event?.type {
         case .keyDown, .keyUp, .flagsChanged: .keyboard
         case .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp, .otherMouseDown, .otherMouseUp, .leftMouseDragged: .mouse
         default: .programmatic
