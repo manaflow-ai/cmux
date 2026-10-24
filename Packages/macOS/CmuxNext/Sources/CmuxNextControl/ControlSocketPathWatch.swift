@@ -106,8 +106,29 @@ final class ControlSocketPathWatch: Sendable {
     /// and, for a yielding watch's directory watch, the file at the path it cannot follow. One
     /// value: installing any other watch forgets the file.
     private struct InstalledWatch {
-        var source: (any DispatchSourceProtocol)?
+        var source: InstalledSource?
         var heldEntry: FileIdentity?
+    }
+
+    /// The installed watch's source, as the kind it was made: a file system source (the entry or
+    /// its directory) or the process source of a holder's listener.
+    private enum InstalledSource {
+        case file(any DispatchSourceFileSystemObject)
+        case process(any DispatchSourceProcess)
+
+        func resume() {
+            switch self {
+            case .file(let source): source.resume()
+            case .process(let source): source.resume()
+            }
+        }
+
+        func cancel() {
+            switch self {
+            case .file(let source): source.cancel()
+            case .process(let source): source.cancel()
+            }
+        }
     }
 
     init(path: String, queue: DispatchQueue, yieldsToHeldPath: Bool = false, onMissing: @escaping @Sendable () -> Bool) {
@@ -161,12 +182,7 @@ final class ControlSocketPathWatch: Sendable {
         dispatchPrecondition(condition: .onQueue(queue))
         let entry = open(path, O_EVTONLY | O_SYMLINK)
         if entry >= 0 {
-            let watch = DispatchSource.makeFileSystemObjectSource(fileDescriptor: entry, eventMask: [.delete, .rename, .revoke], queue: queue)
-            // wakeup-allow: kqueue event on the entry, no timer; one lstat per event
-            watch.setEventHandler { [weak self] in self?.changed(followingEntry: true) }
-            watch.setCancelHandler { close(entry) }
-            watch.resume()
-            install(watch)
+            install(.entry(entry))
             return
         }
         if entryOnly { return }
@@ -180,15 +196,12 @@ final class ControlSocketPathWatch: Sendable {
             return
         }
         let shared = Self.isShared(directory)
-        let directoryWatch = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor, eventMask: [.write, .rename, .delete], queue: queue)
-        // wakeup-allow: kqueue event on the directory, no timer; one lstat per event (two while a held file is recorded)
-        directoryWatch.setEventHandler { [weak self] in self?.changed(followingEntry: false) }
-        directoryWatch.setCancelHandler { close(descriptor) }
-        // Armed before the path is read below: any change after that read is an event, which
-        // compares the file it finds with the one read here.
-        directoryWatch.resume()
+        // Armed and installed before the path is read below: any change after that read is an
+        // event, which compares the file it finds with the one read here. A watch that follows
+        // the holder, or the restore's own watch(), replaces it; events still queued for it then
+        // never run (a cancelled source calls its handler no more).
+        guard install(.directory(descriptor)) else { return }  // stopped: watches nothing, by design
         guard yieldsToHeldPath, let info = Self.lstatInfo(path) else {
-            install(directoryWatch)
             if shared { noteOnce("socket path watch on shared directory \(directory) for \(path): wakes on every write there") }
             return
         }
@@ -200,23 +213,21 @@ final class ControlSocketPathWatch: Sendable {
             case .accepted(let listener?) where canFollow(listener):
                 // Another app's live socket: nothing can be made there until its listener ends,
                 // and watching /tmp would wake on every write by any process.
-                directoryWatch.cancel()
                 followHolder(listener, parent: directory)
                 return
             case .refused where Self.isOwnSocket(info) && held != restoredStale && !stopped.load(ordering: .sequentiallyConsistent):
                 // A stale socket of this user: exactly what the restore replaces. Once per file:
                 // the watch() after it never gives the same file to the restore again.
-                directoryWatch.cancel()
                 _ = onMissing()
                 watch(restoredStale: held)
                 return
             default:
-                guard install(directoryWatch, heldEntry: held) else { return }
+                guard holdEntry(held) else { return }
                 noteOnce("socket path watch for \(path) keeps the shared directory \(directory): a socket it cannot follow holds the path (\(String(describing: probed))); wakes on every write there")
                 return
             }
         }
-        install(directoryWatch, heldEntry: held)
+        holdEntry(held)
     }
 
     /// `listener`, the pid a live socket at the path names, is a holder to follow: a live process
@@ -230,11 +241,7 @@ final class ControlSocketPathWatch: Sendable {
     /// is the one event that can free the path. Never calls ``watch(entryOnly:restoredStale:)``
     /// itself except through ``holderEnded(_:)`` when the process ended before the arming.
     private func followHolder(_ listener: pid_t, parent: String) {
-        let watch = DispatchSource.makeProcessSource(identifier: listener, eventMask: .exit, queue: queue)
-        // wakeup-allow: one kevent when the holder's listener exits, no timer
-        watch.setEventHandler { [weak self] in self?.holderEnded(listener) }
-        watch.resume()
-        guard install(watch) else { return }  // stopped: watches nothing, by design
+        guard install(.holder(listener)) else { return }  // stopped: watches nothing, by design
         noteOnce("socket path watch for \(path) follows pid \(listener), whose live socket holds the path in \(parent); the link is made when it ends")
         // Ended between canFollow and the arming: no event may say so. holderEnded's watch()
         // never follows this pid again, so this runs at most once per pid.
@@ -247,22 +254,55 @@ final class ControlSocketPathWatch: Sendable {
         kill(pid, 0) == 0 || errno == EPERM
     }
 
-    /// On `queue`: makes the resumed `watch` the installed one, cancelling the one before, with
-    /// `heldEntry` as the file it cannot follow (nil: none); false (and `watch` cancelled) once
-    /// stopped. The caller resumes `watch` before (an inactive source must never be cancelled or
-    /// released); its events run on `queue`, after this install.
+    /// What a watch follows. ``install(_:)`` makes the watch's source from it.
+    private enum Target {
+        /// The entry at the path, opened `O_EVTONLY | O_SYMLINK`: its delete, rename or revoke.
+        case entry(Int32)
+        /// The path's directory, opened `O_EVTONLY`: a write, rename or delete in it.
+        case directory(Int32)
+        /// The process whose live socket holds the path: its exit.
+        case holder(pid_t)
+    }
+
+    /// On `queue`: makes the watch of `target`, resumes it and makes it the installed one,
+    /// cancelling the one before (and forgetting its held file); false (and the new watch
+    /// cancelled) once stopped. Its events run on `queue`, after this install.
     ///
-    /// `sending`: the caller hands over a source it just made and never touches again. A
-    /// dispatch source is not `Sendable`, and the lock's `inout sending` value must stay
-    /// disconnected from the caller; a plain parameter is task-isolated, which Swift 6.3 refuses
-    /// to store there.
+    /// The source is made here, never passed in, and kept as its own kind (``InstalledSource``),
+    /// never as `any DispatchSourceProtocol`. A dispatch source is not `Sendable`: one that came
+    /// in as a parameter (even a `sending` one), or that was converted to that existential
+    /// before the lock, is in the caller's region for Swift's region analysis, and the lock's
+    /// `inout sending` value refuses it at the end of the lock's closure (Swift 6.2 to 6.4:
+    /// "cannot be task-isolated at end of function"). A source made in this function is
+    /// disconnected until the lock takes it.
     @discardableResult
-    private func install(_ watch: sending any DispatchSourceProtocol, heldEntry: FileIdentity? = nil) -> Bool {
+    private func install(_ target: Target) -> Bool {
+        let watch: InstalledSource
+        switch target {
+        case .entry(let descriptor):
+            let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor, eventMask: [.delete, .rename, .revoke], queue: queue)
+            // wakeup-allow: kqueue event on the entry, no timer; one lstat per event
+            source.setEventHandler { [weak self] in self?.changed(followingEntry: true) }
+            source.setCancelHandler { close(descriptor) }
+            watch = .file(source)
+        case .directory(let descriptor):
+            let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor, eventMask: [.write, .rename, .delete], queue: queue)
+            // wakeup-allow: kqueue event on the directory, no timer; one lstat per event (two while a held file is recorded)
+            source.setEventHandler { [weak self] in self?.changed(followingEntry: false) }
+            source.setCancelHandler { close(descriptor) }
+            watch = .file(source)
+        case .holder(let listener):
+            let source = DispatchSource.makeProcessSource(identifier: listener, eventMask: .exit, queue: queue)
+            // wakeup-allow: one kevent when the holder's listener exits, no timer
+            source.setEventHandler { [weak self] in self?.holderEnded(listener) }
+            watch = .process(source)
+        }
+        // Resumed before it is published: an inactive source must never be cancelled or released.
+        watch.resume()
         let done = installed.withLock { current -> Bool in
             guard !stopped.load(ordering: .sequentiallyConsistent) else { return false }
             current.source?.cancel()
-            current.source = watch
-            current.heldEntry = heldEntry
+            current = InstalledWatch(source: watch, heldEntry: nil)
             return true
         }
         if !done { watch.cancel() }
@@ -270,6 +310,18 @@ final class ControlSocketPathWatch: Sendable {
         if done { installs.add(1, ordering: .relaxed) }
         #endif
         return done
+    }
+
+    /// On `queue`, right after a yielding watch installed its directory watch: records `held`,
+    /// the file at the path it cannot follow, on that watch; false once stopped. Events run on
+    /// `queue` too, so none sees the directory watch without it.
+    @discardableResult
+    private func holdEntry(_ held: FileIdentity) -> Bool {
+        installed.withLock { current -> Bool in
+            guard !stopped.load(ordering: .sequentiallyConsistent) else { return false }
+            current.heldEntry = held
+            return true
+        }
     }
 
     /// On `queue`: the listener `listener`, whose socket held the path, ended. Its socket file is
