@@ -35,10 +35,12 @@ import Testing
 
         hoverable = true
         #expect(!hover.isHovering, "the target was read again with no refresh")
+        // global-notice-allow: PointerHover's static index observes AppKit key changes on the default center and has no center seam; posted on main
         NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window)
         #expect(hover.isHovering, "the window becoming key did not recompute its hover")
 
         hoverable = false
+        // global-notice-allow: PointerHover's static index observes AppKit key changes on the default center and has no center seam; posted on main
         NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
         #expect(!hover.isHovering, "the window resigning key did not recompute its hover")
         #expect(changes == [true, false])
@@ -68,6 +70,7 @@ import Testing
         PointerHover.setDebugPointer(Self.center(of: view), in: second)
         #expect(!hover.isHovering, "a refresh of the new window found a target filed under its old window")
 
+        // global-notice-allow: PointerHover's static index observes AppKit key changes on the default center and has no center seam; posted on main
         NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: second)
         #expect(hover.isHovering, "the new window becoming key did not find the view that moved there")
         PointerHover.setDebugPointer(nil, in: second)
