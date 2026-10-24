@@ -1326,7 +1326,9 @@ export function ContextRing({
     document.addEventListener("pointerdown", onPress, true);
     return () => document.removeEventListener("pointerdown", onPress, true);
   }, [pinned]);
-  const full = fraction >= 0.8 ? " acpmux-context-full" : "";
+  // Keep the usage threshold scoped to the details card. The ring is a neutral affordance and
+  // must not inherit a state color from an ancestor, including from older host styles.
+  const cardFull = fraction >= 0.8 ? " acpmux-context-full" : "";
   /// The card's buttons the keyboard reaches (Compact, Details ›).
   const cardButtons = () => [...(card.current?.querySelectorAll<HTMLElement>("button:not(:disabled)") ?? [])];
   /// Leaves the card forward: to whatever the page tabs to after the ring, and the card closes.
@@ -1368,7 +1370,7 @@ export function ContextRing({
     // tooltip-allow: before any usage the inert ring says why; once usage is known the card replaces it.
     <span
       ref={wrapper}
-      className={`acpmux-picker acpmux-context${full}`}
+      className="acpmux-picker acpmux-context"
       title={known ? undefined : t("context.ringTooltipEmpty")}
     >
       <button
@@ -1421,7 +1423,7 @@ export function ContextRing({
       <AnchoredCard
         anchor={shown ? trigger.current : null}
         // AnchoredCard makes it the shared glass hover card (ui-tooltip ui-card ui-glass).
-        className={`acpmux-context-card acpmux-context-pop${breakdown ? " acpmux-context-pop--breakdown" : " acpmux-context-pop--compact"}${full}`}
+        className={`acpmux-context-card acpmux-context-pop${breakdown ? " acpmux-context-pop--breakdown" : " acpmux-context-pop--compact"}${cardFull}`}
         side="top"
         interactive
         ariaLabel={t("context.title")}

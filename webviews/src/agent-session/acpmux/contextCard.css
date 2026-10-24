@@ -79,10 +79,6 @@
   --acpmux-context-segment: color-mix(in srgb, var(--agent-accent) 50%, transparent);
 }
 
-.acpmux-context-card.acpmux-context-full [data-segment] {
-  --acpmux-context-segment: var(--acpmux-warning);
-}
-
 .acpmux-context-card-bar > span,
 .acpmux-context-card-swatch {
   background: var(--acpmux-context-segment);
