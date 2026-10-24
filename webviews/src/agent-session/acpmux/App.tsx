@@ -5664,24 +5664,20 @@ function AcpmuxPane() {
       ].join("\u0000"),
     )
     .join("\u0001");
+  // Labs: a workflow has its card in the transcript and its panel, never a tray row, running or ended.
+  const trayAgents = useMemo(
+    () => (workflowLabsEnabled ? chatAgents.filter((agent) => agent.kind !== "workflow") : chatAgents),
+    [workflowLabsEnabled, chatAgents],
+  );
   const trayList = useMemo(
-    () =>
-      subagentTray
-        ? trayItems(
-            // Labs: a workflow has its card in the transcript and its panel, not a tray line.
-            workflowLabsEnabled ? chatAgents.filter((agent) => agent.kind !== "workflow") : chatAgents,
-            runningCommandList,
-            childSessions,
-            snapshot.isWorking,
-          )
-        : [],
+    () => (subagentTray ? trayItems(trayAgents, runningCommandList, childSessions, snapshot.isWorking) : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runningCommandList is new on every snapshot; its key is not
-    [subagentTray, chatAgents, commandsKey, childSessions, snapshot.isWorking, workflowLabsEnabled],
+    [subagentTray, trayAgents, commandsKey, childSessions, snapshot.isWorking],
   );
   // What ended, behind the tray's bounded status cards; never in its count.
   const trayFinished = useMemo(
-    () => (subagentTray ? finishedTrayItems(chatAgents, childSessions) : []),
-    [subagentTray, chatAgents, childSessions],
+    () => (subagentTray ? finishedTrayItems(trayAgents, childSessions) : []),
+    [subagentTray, trayAgents, childSessions],
   );
   // The turn's tokens so far, said after its time (direct.ts `turnTokens`).
   const turnTokens = snapshot.isWorking ? snapshot.turnTokens : undefined;

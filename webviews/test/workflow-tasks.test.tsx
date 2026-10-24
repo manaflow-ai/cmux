@@ -10,7 +10,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
 import { WorkflowTasks } from "../src/agent-session/acpmux/inspector/WorkflowTasks";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { withSubagentLines } from "../src/agent-session/acpmux/subagents/runningTray";
+import { finishedTrayItems, trayItems, withSubagentLines } from "../src/agent-session/acpmux/subagents/runningTray";
 import { SUBAGENTS } from "../src/agent-session/acpmux/subagents/subagentFold";
 import { SUBAGENT_DONE, WORKFLOW_CARD } from "../src/agent-session/acpmux/subagents/subagentRows";
 import { WorkflowCard } from "../src/agent-session/acpmux/summary/WorkflowCard";
@@ -205,4 +205,24 @@ test("a finished turn's fold keeps the workflow card outside it, where the workf
   // The turn folded its work (the read) but the card is still drawn.
   expect(view.rows.some((row) => row.id === "w1")).toBe(false);
   expect(view.rows.some((row) => row.kind === WORKFLOW_CARD)).toBe(true);
+});
+
+test("with Labs, a workflow is in neither tray list, running or ended (App.tsx trayAgents)", () => {
+  const running = workflowFixture("running", NOW);
+  const finished = workflowFixture("finished", NOW);
+  const plain = {
+    ...finished[0]!,
+    id: "acp-1/toolu_plain",
+    kind: "Explore",
+    name: "Explore",
+    workflowAgents: undefined,
+  };
+  const labs = (agents: typeof running) => agents.filter((agent) => agent.kind !== "workflow");
+  expect(trayItems(labs(running), [], [], true)).toEqual([]);
+  expect(
+    finishedTrayItems(labs([...finished, plain]), []).map((item) => (item.kind === "agent" ? item.agent.id : "")),
+  ).toEqual([plain.id]);
+  // Without Labs, both lists carry it, as before.
+  expect(trayItems(running, [], [], true).length).toBe(1);
+  expect(finishedTrayItems(finished, []).length).toBe(1);
 });
