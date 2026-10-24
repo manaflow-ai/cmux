@@ -3710,8 +3710,18 @@ export function VirtualTranscript({
         <div
           className="acpmux-transcript-after-latest"
           // The dock is absolute over the stage. Keep an after-latest tray in flow above its
-          // measured room so the composer never covers the expansion or its live tail.
-          style={dockHeight > 0 ? { marginBottom: dockHeight } : undefined}
+          // measured room so the composer never covers the expansion or its live tail. If the
+          // bounded tail is taller than the remaining stage, this wrapper owns the scroll instead
+          // of allowing the absolute dock to cover its lower lines.
+          style={
+            dockHeight > 0
+              ? {
+                  marginBottom: dockHeight,
+                  maxHeight: `calc(100% - ${dockHeight}px)`,
+                  overflowY: "auto",
+                }
+              : undefined
+          }
         >
           {afterLatest}
         </div>
