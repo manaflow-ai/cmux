@@ -132,8 +132,20 @@ The remaining ~1 s gap had two candidate causes: a segment lost at the very end 
 | Tail probes 47fcd5e88b69 | **0 of 24** | 580 ms | 21 to 98 ms (median 53) | 182 to 340 |
 
 - The probes fired 3 times in the last tail round, of 11 flicks. They are rare, and only when a send stalls.
+
+**Re-run at the review head (501fc429fb86) on a second, quieter rig**
+- Mac: the same fleet app, moved to mini-cmuxs-mac-mini-2 (load average about 3). Its Claude Code is 2.1.292 through the shared gateway.
+- The move was needed because on mini-cmux11s the phone folds every rig that shares the mini's machine id into one roster entry, and other agents' rigs won it. The Mac app does not pass `CMUX_MOBILE_MACHINE_ID` on to cmux-mobile-host.
+- Simulator: still on mini-3. Path: WireGuard over TURN.
+
+| Build | Fast flicks with a gap ≥ 0.9 s | Largest gap | 200 rows after first report |
+| --- | --- | --- | --- |
+| Merged 0d409f11765a | 2 of 24 (917, 934 ms) | 934 ms | 33 to 73 ms |
+| Tail probes + review fixes 501fc429fb86 | **0 of 24** | 553 ms | 28 to 56 ms |
+
+Across both rigs the merged build stalled in 4 of 48 fast flicks, and the tail-probe build in 0 of 48. Medium flicks moved 203 to 363 rows in both builds.
 - The 180 to 400 ms gaps left in both builds are the fling's last, sparse wheel reports as it decays, not stalls.
 
 **Tests**
 - Red first (ab0bf320c977): `aStalledSendIsFollowedByTailProbes`, `anAnsweredSendSendsNoTailProbe` and `manyUnansweredSendsStillGoOut` do not build without `tailProbeDelay`.
-- Green: CmuxMobileLiveTests (302) and CmuxMobileTransportTests (5) pass on mini-cmux11s in the iOS simulator.
+- Green: CmuxMobileLiveTests (303, with the review's tests) and CmuxMobileTransportTests (5) pass on mini-cmux11s in the iOS simulator.
