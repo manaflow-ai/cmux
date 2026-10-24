@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextLaunch
 import CmuxNextTabs
 import Foundation
 import Testing
@@ -193,6 +194,41 @@ struct AgentPaneRelaunchWakeTests {
         // Sent before the next quit: that quit saves nothing, and no copy is left behind.
         await after.relaunchWake.save([:])
         #expect(!FileManager.default.fileExists(atPath: file.path) && !FileManager.default.fileExists(atPath: folder.path))
+    }
+
+    /// #17587 review: the launch read every chat's composer attachments back from their files and
+    /// base64-encoded them into memory from the top of `main` (up to 128 MB), and the agent tab
+    /// store, made before the first window frame, waited on the main thread for the rest of that
+    /// read. The launch now reads only the small list of chips; a chat's chip contents are read off
+    /// the main thread when its page asks for its state (its `ready` handshake).
+    @Test func theLaunchReadsNoChipContentsTheChatsReadyReadsThem() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "relaunch-wake-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: AgentPaneRelaunchWake.fileName)
+        let records = ["tab_chat": AgentSessionRef(host: Self.thisMac, hostName: "This Mac", session: "s-chat", harness: "claude")]
+        var shot = Data(repeating: 7, count: 2_000_000)
+        shot.replaceSubrange(0..<8, with: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+        let chip = AgentPaneWakeState.Attachment(id: "shot", kind: "image", name: "Screenshot.png", mimeType: "image/png",
+                                                 size: Double(shot.count), data: shot.base64EncodedString())
+        await AgentPaneRelaunchWake(file: file).save(["tab_chat": AgentPaneWakeState(attachments: [chip], shell: true, shellText: "ls")])
+
+        // The launch's read (`LaunchFiles`), begun in `main`: the list only, no chip contents in memory.
+        let launch = AgentPaneLaunchReads(state: directory, readOnMain: { _ in })
+        let taken = launch.wakeStates.take()
+        let state = try #require(taken["tab_chat"], "the launch lost the chat's composer")
+        #expect(state.attachments?.map(\.name) == ["Screenshot.png"])
+        #expect(state.attachments?.first?.data == nil, "the launch read the chip's contents into memory before the first frame")
+
+        // The chat's first page gets the chip whole with its handshake.
+        let tabs = Self.run(file: file, records: records)
+        tabs.wakeStates = taken
+        let page = try #require(tabs.view(for: "tab_chat"))
+        let wake = try #require(try await Self.ready(page)["wake"] as? [String: Any], "the chat came back without its composer")
+        let attachments = try #require(wake["attachments"] as? [[String: Any]])
+        #expect((attachments.first?["data"] as? String).flatMap { Data(base64Encoded: $0) } == shot,
+                "the chip came back without its contents, so it has no thumbnail")
+        #expect(wake["shellText"] as? String == "ls")
     }
 
     /// A tab that does not fit the attachments' cap is not kept, and none of its files stay; the
