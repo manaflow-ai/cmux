@@ -6,7 +6,7 @@ public import CmuxNextDesignTokens
 /// group headers, section items, Home, pane headers). Follows the shared
 /// config live, resolves colors in its theme scope, and stops animating
 /// while its window is occluded, off screen or under Reduce Motion.
-public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
+public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient, WindowOcclusionFollowing {
     public let indicator = StatusIndicatorLayer()
     public private(set) var state: StatusIndicatorState = .idle
     /// The reporter's style hint (`cmux status set --style`); nil uses the
@@ -23,7 +23,7 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
     /// Whether the view follows its own window's occlusion (chrome spinners whose host tracks
     /// none, `spinner()`). Off for hosts that set `isWindowVisible` themselves (the sidebar list).
     public var tracksWindowOcclusion = false {
-        didSet { if tracksWindowOcclusion != oldValue { observeOcclusion() } }
+        didSet { if tracksWindowOcclusion != oldValue { followOcclusion(of: window) } }
     }
 
     /// Draws at the host's size whatever `appearance.statusIndicator.scale` says (chrome spinners
@@ -32,17 +32,9 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
         didSet { if ignoresScaleSetting != oldValue { refresh() } }
     }
 
-    /// Where it hears of its window's occlusion (tests post to their own).
-    public var notificationCenter: NotificationCenter = .default {
-        didSet {
-            guard notificationCenter !== oldValue else { return }
-            stopObservingOcclusion()
-            observeOcclusion()
-        }
-    }
-
-    private var occlusionObserver: MainActorObservation?
-    private weak var observedWindow: NSWindow?
+    /// The window family it follows while `tracksWindowOcclusion` is on and it is in a window: one
+    /// observer per window, not one per spinner (PATTERNS.md P3).
+    private weak var occlusionFamily: WindowOcclusionFamily?
 
     public override init(frame: NSRect) {
         super.init(frame: frame)
@@ -137,30 +129,33 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
         }
     }
 
+    public override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        guard newWindow !== window else { return }
+        followOcclusion(of: newWindow)
+    }
+
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         owesResync = false
-        observeOcclusion()
         if let window { isWindowVisible = window.occlusionState.contains(.visible) }
         refresh()
     }
 
-    /// Watches the current window's occlusion while `tracksWindowOcclusion` is on; a window that
-    /// shows after the view moved into it starts the animation.
-    private func observeOcclusion() {
-        let target = tracksWindowOcclusion ? window : nil
-        guard observedWindow !== target || (target != nil) != (occlusionObserver != nil) else { return }
-        stopObservingOcclusion()
-        observedWindow = target
-        guard let target else { return }
-        let token = MainActorObservation(NSWindow.didChangeOcclusionStateNotification, object: target, center: notificationCenter) { [weak self] in
-            guard let self, let window = self.window else { return }
-            self.isWindowVisible = window.occlusionState.contains(.visible)
-        }
-        occlusionObserver = token
+    /// Its window was covered, minimized, ordered out or came back (only while
+    /// `tracksWindowOcclusion` is on): a window that shows after the view moved into it starts
+    /// the animation.
+    public func windowOcclusionDidChange() {
+        guard let window else { return }
+        isWindowVisible = window.occlusionState.contains(.visible)
     }
 
-    private func stopObservingOcclusion() {
-        occlusionObserver = nil
+    /// Follows the family of `target` while `tracksWindowOcclusion` is on, and none otherwise.
+    private func followOcclusion(of target: NSWindow?) {
+        let family = tracksWindowOcclusion ? target.map { WindowOcclusionFamily.of($0) } : nil
+        guard family !== occlusionFamily else { return }
+        occlusionFamily?.remove(self)
+        occlusionFamily = family
+        family?.add(self)
     }
 }
