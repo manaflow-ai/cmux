@@ -384,6 +384,7 @@ import { BACKGROUND_NOTICE_TEXT, useBackgroundNotice } from "./conversation/back
 import { InstructionsNotice, type InstructionsFailure } from "./header/InstructionsNotice";
 import { FolderChoice, showsFolderChoice } from "./FolderChoice";
 import { type FolderAsk, StartFolderAsk, WorktreeFailure, confirmFolder, newWorktree, pickFolder } from "./startFolder";
+import { NewTabFolderAsk } from "./NewTabFolderAsk";
 import { MissingFolder, chooseChatFolder } from "./missingFolder";
 import { LiveChatChoice } from "./LiveChatChoice";
 import { WatchBanner } from "./WatchBanner";
@@ -7717,6 +7718,30 @@ function AcpmuxPane() {
     send: (text) => addressThread(text),
     focusComposer: () => composerHandle.current?.focus(),
   });
+  // A folder confirmation can be pending while the New Tab stays mounted. Keep the same ask in
+  // that surface too: the regular composer is deliberately hidden behind the New Tab, so leaving
+  // the ask there would strand the prompt with no Use or Cancel action.
+  const confirmPendingFolder = useCallback(() => {
+    if (!pendingFolder) return;
+    const pending = pendingFolder;
+    setFolderAsk(undefined);
+    void confirmFolder(callNative, pending.ask, pending.use).catch((error: unknown) =>
+      setFolderAsk((current) => current ?? { ...pending, error: errorMessage(error) || String(error) }),
+    );
+  }, [callNative, pendingFolder]);
+  const cancelPendingFolder = useCallback(() => {
+    pendingFolder?.cancel?.();
+    setFolderAsk(undefined);
+  }, [pendingFolder]);
+  const folderAskView = pendingFolder ? (
+    <NewTabFolderAsk
+      ask={pendingFolder.ask}
+      current={freshChat && !snapshot.sessionId ? projectDraft : snapshot.summary?.cwd}
+      error={pendingFolder.error}
+      onUse={confirmPendingFolder}
+      onCancel={cancelPendingFolder}
+    />
+  ) : null;
   const asks = hasBottomAsk ? (
     <div className="acpmux-permission acpmux-asks-stack">
       {trustAsk.ask && (trustAsk.ask.state !== "decided" || trustAsk.ask.level === "untrusted") && (
@@ -7932,25 +7957,8 @@ function AcpmuxPane() {
             }}
           />
         </Notice>
-        {pendingFolder ? (
-          <StartFolderAsk
-            ask={pendingFolder.ask}
-            current={freshChat && !snapshot.sessionId ? projectDraft : snapshot.summary?.cwd}
-            error={pendingFolder.error}
-            onUse={() => {
-              // The question closes on the click, so a second click cannot use the folder twice.
-              const pending = pendingFolder;
-              setFolderAsk(undefined);
-              void confirmFolder(callNative, pending.ask, pending.use).catch((error: unknown) =>
-                setFolderAsk((current) => current ?? { ...pending, error: errorMessage(error) || String(error) }),
-              );
-            }}
-            onCancel={() => {
-              pendingFolder.cancel?.();
-              setFolderAsk(undefined);
-            }}
-          />
-        ) : (
+        {!showNewTab && folderAskView}
+        {!pendingFolder && !showNewTab && (
           <Notice
             id="folder-choice"
             tier="hint"
@@ -8486,6 +8494,7 @@ function AcpmuxPane() {
               command={(action) => callNative("chat.send", { text: `/goal ${action}`, attachments: [] })}
             />
           )}
+          {showNewTab && folderAskView}
           {harnessesOpen ? (
             <HarnessesScreen
               catalog={pickerCatalog}
