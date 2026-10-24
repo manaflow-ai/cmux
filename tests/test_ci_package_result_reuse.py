@@ -202,7 +202,7 @@ class WiringTests(unittest.TestCase):
         preflight = self.job.index('"$client" workers', fleet)
         self.assertLess(preflight, dispatch)
         guard = self.job[preflight:dispatch]
-        self.assertIn('2>"$preflight_log"', guard)
+        self.assertIn('>"$preflight_log" 2>&1', guard)
         self.assertIn('grep -Fq "compute.instances.get"', guard)
         self.assertIn("No CI job was dispatched", guard)
         self.assertIn("cmux-ci will report the dispatch result", guard)

@@ -2134,7 +2134,7 @@ jobs:
             exit 69
           }
           trap 'rm -f "$preflight_log"' EXIT
-          if ! "$client" workers >/dev/null 2>"$preflight_log"; then
+          if ! "$client" workers >"$preflight_log" 2>&1; then
             if grep -Fq "compute.instances.get" "$preflight_log"; then
               echo "::error title=Build fleet IAM preflight failed::The fleet controller reported missing compute.instances.get for this dispatch. No CI job was dispatched; grant that permission and rerun."
               exit 69
