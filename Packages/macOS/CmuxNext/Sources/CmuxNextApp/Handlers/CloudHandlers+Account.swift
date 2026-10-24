@@ -59,6 +59,20 @@ extension CloudHandlers {
                 } else {
                     windows.claim(workspaceID: id, in: state, select: false)
                 }
+            },
+            // A person, the CLI or Chief asked for a machine cmux Pro would allow: the
+            // person sees one offer; Upgrade opens the refusal's checkout, else pricing.
+            planRequired: { refusal in
+                // One offer at a time: a repeated create (Retry, the CLI, Chief) adds no second one.
+                guard !cloud.proOfferOpen else { return }
+                let shown = CloudPresenter.offerPro(refusal.message, in: windows.active?.window) { upgraded in
+                    cloud.proOfferOpen = false
+                    guard upgraded else { return }
+                    do { try context.open(refusal.upgradeURL ?? UpgradeToPro.pricingURL) } catch {
+                        cloud.logger.error("cmux Pro upgrade did not open: \(String(describing: error), privacy: .public)")
+                    }
+                }
+                if shown { cloud.proOfferOpen = true }
             }
         )
     }

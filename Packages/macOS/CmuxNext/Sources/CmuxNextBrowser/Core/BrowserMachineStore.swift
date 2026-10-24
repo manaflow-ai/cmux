@@ -32,4 +32,8 @@ public nonisolated enum BrowserNavigationGuard: Int32, Hashable, Sendable {
     /// No loopback web URLs (a normal store in a remote workspace), so this
     /// Mac's localhost is never reached silently.
     case noLoopback = 2
+    /// Any URL but an Open Desktop page (`*.cloud-desktop.localhost`): a tab of
+    /// this Mac that goes there reroutes to that machine's store, never this Mac's
+    /// loopback.
+    case exceptCloudDesktop = 3
 }
