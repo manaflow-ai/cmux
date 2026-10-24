@@ -131,9 +131,9 @@ extension PageWebView {
         bridge.install { [weak self] message in await self?.receive(message) }
         bridge.onMessage = { [weak self] name, body in self?.chromiumMessage(name, body: body) }
         bridge.onFirstMessage = { [weak session] in session?.deadline.cancel() }
-        inputReadiness.inserter = { [weak page] text in
+        inputReadiness.editor = { [weak self, weak page] edit, expectedEpoch in
             guard let page else { return false }
-            return await Self.insert(text, in: page)
+            return await Self.apply(edit, token: self?.inputReadiness.editToken, expectedEpoch: expectedEpoch, in: page)
         }
         chromiumSession = session
         scriptTarget.bridge = bridge
@@ -168,7 +168,7 @@ extension PageWebView {
         chromiumSession = nil
         chromiumUserEventUptime = nil
         chromiumDragFile = nil
-        inputReadiness.inserter = nil
+        inputReadiness.editor = nil
         scriptTarget.bridge = bridge
         engineDecision = .webKit(reason)
         webView.isHidden = false
@@ -183,7 +183,7 @@ extension PageWebView {
         chromiumStart = nil
         chromiumSession?.end()
         chromiumSession = nil
-        inputReadiness.inserter = nil
+        inputReadiness.editor = nil
     }
 
     // MARK: Events
@@ -306,9 +306,9 @@ extension PageWebView {
         return result["value"]
     }
 
-    /// Types `text` into the focused editable element of a Chromium page (``PageInputReadiness``).
-    private static func insert(_ text: String, in page: any PageChromiumPage) async -> Bool {
-        let expression = "(function (text) {\n\(PageInputReadiness.insertScript)\n})(\(JSONValue.string(text).compactText))"
+    /// Makes `edit` in the focused editable element of a Chromium page (``PageInputReadiness``).
+    private static func apply(_ edit: PageInputReadiness.Edit, token: String?, expectedEpoch: Int?, in page: any PageChromiumPage) async -> Bool {
+        let expression = "(function () {\n\(PageInputReadiness.editScript(edit, token: token, expectedEpoch: expectedEpoch))\n})()"
         guard let json = try? await page.devTools("Runtime.evaluate", params: ["expression": expression, "returnByValue": true]) else {
             return false
         }

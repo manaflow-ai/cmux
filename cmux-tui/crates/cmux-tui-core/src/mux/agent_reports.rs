@@ -413,6 +413,10 @@ impl Mux {
         if matches!(agent.state, AgentState::Done) {
             self.forget_agent_prompt(&agent.terminal_id);
         }
+        // Working, idle or done: the agent no longer waits on its question.
+        if !matches!(agent.state, AgentState::Blocked) {
+            self.forget_agent_question(&agent.terminal_id);
+        }
         let agent = AgentRecord { last_prompt: self.agent_prompt(&agent.terminal_id), ..agent };
         if !commit.replayed {
             self.publish_resource_event();

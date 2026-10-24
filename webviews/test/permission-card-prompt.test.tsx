@@ -42,7 +42,7 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { PermissionCard } = await import("../src/agent-session/acpmux/PermissionCard");
 const { translate } = await import("../src/agent-session/acpmux/i18n");
-const { commandPreview, permissionAnswers, permissionKeyAction, permissionTitle, unwrapShell } =
+const { commandPreview, permissionAnswers, permissionKeyAction, permissionScopeText, permissionTitle, unwrapShell } =
   await import("../src/agent-session/acpmux/permissions/prompt");
 
 const SCRIPT = [
@@ -135,6 +135,12 @@ test("the three answers map onto the options offered, and nothing is invented", 
   ).toBe("chat");
 });
 
+test("a permission keeps its concrete scope visible without changing the option ids", () => {
+  const scoped = bash({ scope: { kind: "app", value: "Calculator" } });
+  expect(permissionScopeText(scoped, translate)).toBe("In Calculator");
+  expect(permissionAnswers(scoped.options).allowAlways?.id).toBe("always");
+});
+
 test("keys act only with nothing focused or focus in the card", () => {
   const doc = dom.window.document;
   const card = doc.getElementById("root")!;
@@ -224,6 +230,16 @@ test("the card draws the title, the clamped command and the three buttons, and e
   await card.click(".acpmux-permission-command-toggle");
   expect(card.host.querySelector(".acpmux-permission-command-full")?.textContent).toBe(SCRIPT);
   expect(card.host.querySelector(".acpmux-permission-command-toggle")?.textContent).toBe("Hide full command");
+  await card.unmount();
+});
+
+test("the card labels the scoped target on the card and persistent action", async () => {
+  const card = await mount(bash({ permissionId: "scoped", scope: { kind: "app", value: "Calculator" } }));
+  expect(card.host.querySelector(".acpmux-permission-scope")?.textContent).toBe("In Calculator");
+  const scope = card.host.querySelector<HTMLElement>(".acpmux-permission-scope")!;
+  expect(card.host.querySelector('[aria-label="Always allow"]')?.textContent).toContain("In Calculator");
+  expect(card.host.querySelector('[aria-label="Always allow"]')?.getAttribute("aria-describedby")).toBe(scope.id);
+  expect(card.host.querySelector('[aria-label="Deny"]')?.getAttribute("aria-describedby")).toBe(scope.id);
   await card.unmount();
 });
 

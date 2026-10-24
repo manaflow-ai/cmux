@@ -298,7 +298,7 @@ public nonisolated struct AgentPaneTunables {
             for await on in ObservationStream({ (codexToolRuns.value, turnActionsPlacement.value, liveLineBelow.value) })
             where on != last {
                 last = on
-                ThemeStore.shared.repaintAll()
+                ThemeScope.app.store.repaintAll()
             }
         }
     }

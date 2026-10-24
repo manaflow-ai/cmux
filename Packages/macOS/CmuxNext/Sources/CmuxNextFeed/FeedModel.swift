@@ -12,6 +12,9 @@ public final class FeedModel {
     public private(set) var connection: FeedConnection = .connecting
     /// Owner-confirmed items by id (never written by intents).
     public private(set) var confirmed: [String: FeedItem] = [:]
+    /// Quiet local agent reports, read from the ACPMUX reports mailbox.
+    /// Reports are intentionally separate from owner-confirmed feed items.
+    public private(set) var reports: [FeedReport] = []
     /// Pending intents in send order.
     public private(set) var pending: [FeedIntent] = []
     /// The last refusal, for the panel's notice; cleared on the next send.
@@ -66,6 +69,7 @@ public final class FeedModel {
 
     public func stop() {
         source.stop()
+        reports.removeAll()
     }
 
     // MARK: - Visible state
@@ -187,6 +191,12 @@ public final class FeedModel {
     /// The user dismissed the refusal notice.
     public func clearReject() {
         lastReject = nil
+    }
+
+    /// Replaces the local reports projection after a durable mailbox read.
+    /// This does not alter feed owner state or triage intents.
+    public func replaceReports(_ reports: [FeedReport]) {
+        self.reports = reports.sorted { $0.createdAt > $1.createdAt }
     }
 
     // MARK: - Owner data

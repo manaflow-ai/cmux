@@ -128,6 +128,12 @@ async fn forward_inner(
                 return Err(crate::hub::file_uploads::peer_unsupported(&peer));
             }
         }
+        // The media reader runs on the peer that owns the chat, if it has one (`hub/media_read.rs`).
+        if matches!(m, method::MUX_MEDIA_OPEN | method::MUX_MEDIA_RANGE)
+            && !peer.supports_media_read()
+        {
+            return Err(crate::hub::media_read::peer_unsupported(&peer, m));
+        }
         let mut p = if params.is_null() { json!({}) } else { params.clone() };
         if let Some(obj) = p.as_object_mut() {
             obj.remove("session");

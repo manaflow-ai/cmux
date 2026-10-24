@@ -81,6 +81,7 @@ const turns = Array.from({ length: 30 }, (_, index) => [
   row(`t${index}-answer`, "assistant", `Answer ${index}.\n\nWith a second paragraph so the turn has height.`),
   { ...row(`t${index}-end`, "turnSummary"), status: "completed", durationMs: 1_000 },
 ]).flat();
+const nextFrame = () => new Promise<void>((resolve) => dom.window.requestAnimationFrame(() => resolve()));
 
 test("scrolled up, a button above the composer jumps to the latest message, with dots while a reply streams", async () => {
   const root = createRoot(dom.window.document.getElementById("root")!);
@@ -102,7 +103,10 @@ test("scrolled up, a button above the composer jumps to the latest message, with
 
     // The reader scrolls up: the button shows.
     scroller.scrollTop = 0;
-    await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
+    await act(async () => {
+      scroller.dispatchEvent(new dom.window.Event("scroll"));
+      await nextFrame();
+    });
     expect(button()?.dataset.shown).toBe("");
     expect(button()?.getAttribute("aria-label")).toBe("Jump to latest");
     // The arrow alone does not say what it does: hovering it names it.
@@ -119,7 +123,10 @@ test("scrolled up, a button above the composer jumps to the latest message, with
     jumps.length = 0;
     await act(async () => button()!.click());
     expect(jumps).toEqual([latest]);
-    await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
+    await act(async () => {
+      scroller.dispatchEvent(new dom.window.Event("scroll"));
+      await nextFrame();
+    });
     expect(button()?.dataset.shown).toBeUndefined();
     // Hidden, it is inert: out of the tab order and the accessibility tree.
     expect(button()?.hasAttribute("inert")).toBe(true);
@@ -127,7 +134,10 @@ test("scrolled up, a button above the composer jumps to the latest message, with
     // Scrolled up again, then the transcript changes to one that fits the viewport (another chat):
     // nothing is below, so the button hides without a scroll.
     scroller.scrollTop = 0;
-    await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
+    await act(async () => {
+      scroller.dispatchEvent(new dom.window.Event("scroll"));
+      await nextFrame();
+    });
     expect(button()?.dataset.shown).toBe("");
     await act(async () =>
       root.render(
@@ -166,7 +176,10 @@ test("a keyboard jump hands focus to the composer instead of losing it with the 
     const scroller = doc.querySelector<HTMLElement>(".acpmux-scroll")!;
     const button = doc.querySelector<HTMLButtonElement>(".acpmux-jump-latest")!;
     scroller.scrollTop = 0;
-    await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
+    await act(async () => {
+      scroller.dispatchEvent(new dom.window.Event("scroll"));
+      await nextFrame();
+    });
     expect(button.dataset.shown).toBe("");
 
     // A pointer click (WebKit does not focus the button) leaves focus where the reader had it.
@@ -180,12 +193,18 @@ test("a keyboard jump hands focus to the composer instead of losing it with the 
     // The reader wheels back up first (the jump's glide ends at their input).
     scroller.dispatchEvent(new dom.window.Event("wheel"));
     scroller.scrollTop = 0;
-    await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
+    await act(async () => {
+      scroller.dispatchEvent(new dom.window.Event("scroll"));
+      await nextFrame();
+    });
     expect(button.dataset.shown).toBe("");
     button.focus();
     expect(doc.activeElement).toBe(button);
     await act(async () => button.click());
-    await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
+    await act(async () => {
+      scroller.dispatchEvent(new dom.window.Event("scroll"));
+      await nextFrame();
+    });
     expect(button.hasAttribute("inert")).toBe(true);
     expect(doc.activeElement).toBe(composer);
     elsewhere.remove();

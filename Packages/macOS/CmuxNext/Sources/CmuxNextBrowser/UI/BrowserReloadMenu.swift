@@ -5,8 +5,8 @@ import CmuxNextDesign
 /// Page, and Hard Reload Page for a WebKit tab (the engine that reloads from
 /// origin, as `browserHardReload` does). Each item keeps its target alive
 /// (menu item targets are weak). Rows carry their actions' symbols
-/// (`browserReload`, `browserHardReload`) and the cmux NEXT menu look
-/// (`NSMenu.themeRows(in:)`) in the toolbar's theme.
+/// (`browserReload`, `browserHardReload`) and open as a standard macOS menu
+/// in the toolbar's light or dark look (`NSMenu.themeRows(in:)`).
 @MainActor
 final class BrowserReloadMenu: NSObject {
     private let reloadPage: @MainActor () -> Void
