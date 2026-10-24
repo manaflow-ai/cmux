@@ -37,6 +37,8 @@ def parse(argv=None):
     parser.add_argument("--sessions", default="light,stress")
     parser.add_argument("--rounds", type=int, default=5)
     parser.add_argument("--modes", default="made,fresh,window")
+    parser.add_argument("--sample-seconds", default="")  # diagnostic: `sample` each mode's first opens
+    parser.add_argument("--xctrace", action="store_true")  # diagnostic: one Time Profiler trace of the app
     opts, _unknown = parser.parse_known_args(argv)
     return opts
 
@@ -68,10 +70,10 @@ def measure(app, session, report, opts):
     for mode in opts.modes.split(","):
         runs = []
         sampler = None
-        if os.environ.get("OPEN_PANEL_SAMPLE") and app.process:
+        if opts.sample_seconds and app.process:
             # Diagnostic: every thread's stack each 1 ms over this mode's first opens, blocked waits included.
             sample_path = os.path.join(opts.out, f"sample-{session}-{mode}.txt")
-            sampler = subprocess.Popen(["/usr/bin/sample", str(app.process.pid), os.environ["OPEN_PANEL_SAMPLE"], "1",
+            sampler = subprocess.Popen(["/usr/bin/sample", str(app.process.pid), opts.sample_seconds, "1",
                                         "-file", sample_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         for index in range(opts.rounds):
             # A call that does not answer in 45 s: the app's main thread as it hangs (the quit-time hang of
@@ -134,6 +136,69 @@ def print_main_sample(path, session, mode):
         print("SMP " + line, flush=True)
 
 
+def start_xctrace(app, out):
+    trace = os.path.join(out, "openpanel.trace")
+    log = open(os.path.join(out, "xctrace.log"), "w")
+    recorder = subprocess.Popen(["xcrun", "xctrace", "record", "--template", "Time Profiler", "--attach",
+                                 str(app.process.pid), "--time-limit", "240s", "--output", trace, "--no-prompt"],
+                                stdout=log, stderr=log)
+    time.sleep(6)  # let the recorder attach (a measurement script, not runtime code)
+    return recorder, trace
+
+
+def stop_xctrace(recorder, trace, out):
+    import collections, signal
+    import xml.etree.ElementTree as ET
+    recorder.send_signal(signal.SIGINT)
+    try:
+        recorder.wait(120)
+    except subprocess.TimeoutExpired:
+        recorder.kill()
+    print("OP-PROFILE xctrace log: " + open(os.path.join(out, "xctrace.log"), errors="replace").read()[-600:], flush=True)
+    xml = os.path.join(out, "tp.xml")
+    with open(xml, "w") as f:
+        subprocess.run(["xcrun", "xctrace", "export", "--input", trace, "--xpath",
+                        '/trace-toc/run[@number="1"]/data/table[@schema="time-profile"]'], stdout=f, timeout=600)
+    byid = {}
+    selfw, incl, threads = collections.Counter(), collections.Counter(), collections.Counter()
+    total = 0
+
+    def resolve(e):
+        r = e.get("ref")
+        return byid.get(r, e) if r else e
+    for _event, e in ET.iterparse(xml, events=("end",)):
+        if e.get("id"):
+            byid[e.get("id")] = e
+        if e.tag != "row":
+            continue
+        thread = resolve(e.find("thread")) if e.find("thread") is not None else None
+        tfmt = thread.get("fmt", "") if thread is not None else ""
+        w = e.find("weight")
+        w = resolve(w) if w is not None else None
+        weight = int(w.text) if w is not None and w.text and w.text.isdigit() else 1000000
+        threads[tfmt[:80]] += weight
+        if "Main Thread" not in tfmt:
+            continue
+        bt = e.find("backtrace")
+        bt = resolve(bt) if bt is not None else None
+        if bt is None:
+            continue
+        names = [resolve(f).get("name", "?") for f in bt.findall("frame")]
+        if not names:
+            continue
+        total += weight
+        selfw[names[0]] += weight
+        for n in set(names):
+            incl[n] += weight
+    print(f"OP-PROFILE main-thread on-CPU total_ms={total/1e6:.1f}", flush=True)
+    for n, w in selfw.most_common(30):
+        print(f"OP-PROFILE self {w/1e6:8.1f} ms  {n[:170]}", flush=True)
+    for n, w in incl.most_common(90):
+        print(f"OP-PROFILE incl {w/1e6:8.1f} ms  {n[:170]}", flush=True)
+    for n, w in threads.most_common(12):
+        print(f"OP-PROFILE thread {w/1e6:8.1f} ms  {n}", flush=True)
+
+
 def quit_probe(app, report):
     """Quits the app as a person does (debug.quit) and times it; one that has not ended in 30 s is sampled."""
     if not app.process or app.process.poll() is not None:
@@ -160,11 +225,14 @@ def main(argv=None):
         # No settle sleep (it hid launch work behind a fixed 3 s): the first open of each session is reported on its
         # own row and left out of the percentiles (measure).
         app.launch(timeout=180)
+        recorder = start_xctrace(app, opts.out) if opts.xctrace else None
         for session in opts.sessions.split(","):
             if session == "stress":
                 built = load_stress().Stress(lambda m, p=None, timeout=60: app.rpc(m, p, timeout)).build()
                 report["stress_session"] = built
             measure(app, session, report, opts)
+        if recorder is not None:
+            stop_xctrace(*recorder, opts.out)
     finally:
         quit_probe(app, report)
         app.stop()
