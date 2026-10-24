@@ -38,9 +38,14 @@ export function SearchResults({ query, changedOnly = false }: { query: string; c
       {shownCategories(state.host?.dev_build === true).map((category) => {
         const open = category.groups.some((group) => group.rows.some((row) => shown.has(row.key)));
         const pet = category.id === "chief";
-        const petShown =
-          pet &&
-          category.groups.some((group) => group.rows.some((row) => shown.has(row.key) && CHIEF_PET_ROWS.has(row.key)));
+        const petRows = pet
+          ? new Set(
+              category.groups
+                .flatMap((group) => group.rows)
+                .filter((row) => shown.has(row.key) && CHIEF_PET_ROWS.has(row.key))
+                .map((row) => row.key),
+            )
+          : null;
         const groups = pet
           ? category.groups
               .map((group) => ({ ...group, rows: group.rows.filter((row) => !CHIEF_PET_ROWS.has(row.key)) }))
@@ -57,7 +62,7 @@ export function SearchResults({ query, changedOnly = false }: { query: string; c
           >
             <div className="collapse-body">
               <h2 className="result-section-title">{text(category.title)}</h2>
-              {petShown && <ChiefPetCard changedOnly={changedOnly} />}
+              {petRows && petRows.size > 0 && <ChiefPetCard query={query} visibleRows={petRows} />}
               <GroupList groups={groups} query={query} shown={shown} mounted={mounted} />
             </div>
           </section>

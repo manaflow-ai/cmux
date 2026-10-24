@@ -45,6 +45,8 @@ test("search renders Bubble Style in the Look card", async () => {
   const result = page.container.querySelector<HTMLElement>('[data-search-results] [data-card="chief-pet"]');
   expect(result).not.toBeNull();
   expect(result?.querySelector('[data-row-key="home.chiefBubbleStyle"]')).not.toBeNull();
+  expect(result?.querySelector('[data-row-key="home.chiefBubbleStyle"] mark')?.textContent).toBe("Bubble");
+  expect(result?.querySelectorAll("[data-row-key]")).toHaveLength(1);
   expect(page.container.querySelector('[data-search-results] [data-group="settings.group.chiefChat"]')).toBeNull();
   page.unmount();
 });
@@ -62,5 +64,6 @@ test("Show Only Changed keeps unchanged pet rows out of the Look card", async ()
   expect(result?.querySelector('[data-row-key="home.chiefPetEnabled"]')).toBeNull();
   expect(result?.querySelector('[data-row-key="home.chiefPetMascot"]')).toBeNull();
   expect(result?.querySelectorAll(".chief-pet-choice")).toHaveLength(0);
+  expect(result?.querySelectorAll("[data-row-key]")).toHaveLength(1);
   page.unmount();
 });
