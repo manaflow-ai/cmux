@@ -12,7 +12,6 @@ import { mainToolRunCategory, toolRunSummary, type ToolRunCategory } from "./too
 import { useToolRunLook } from "../toolRunLook";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
-import { useScrollEdges } from "../summary/scrollEdges";
 
 /// The summary's glyph: its main kind of work's, with searches and reads both as the magnifier.
 function runIcon(category: ToolRunCategory | undefined): ReactNode {
@@ -46,7 +45,6 @@ export function ToolRun({
   useFindReveal(items, () => setOpen(true));
   const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
   const list = useId();
-  const edges = useScrollEdges();
   // Read once per run: the row draws again only when its version moves (App.tsx ToolActivityRow),
   // and then only a new list of calls counts again.
   const { summary, main, failures, running } = useMemo(
@@ -85,7 +83,7 @@ export function ToolRun({
       </button>
       {fold.present && (
         <div {...fold.bodyProps}>
-          <div className="cv-tool-run" id={list} ref={edges}>
+          <div className="cv-tool-run" id={list}>
             {children}
           </div>
         </div>
