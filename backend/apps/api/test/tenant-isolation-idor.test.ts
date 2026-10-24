@@ -17,6 +17,13 @@ import { call, callOp, callRead, catalogOps, idsIn, makeTenant, post, samplePara
  * would only report B's own state change.
  */
 const OWN_STATE: ReadonlySet<string> = new Set(["install.sign_out", "install.register", "chief.create", "integration.connect", "team_vm.rebuild", "team_vm.ssh_ca.rotate", "cloud.machine.resize"])
+/**
+ * ACCEPTED RISK R1 (tenant-isolation-DESIGN.md 7): an op that CREATES at a client-chosen id answers `conversation_exists` for an id that exists,
+ * whoever owns it. A creating call with a free id succeeds, so no answer can hide the difference. The id is a 130-bit random value that
+ * is never listed to a non-member; the answer reveals nothing but that an id the caller already holds is taken. Pinned to this exact code,
+ * so any other difference on these ops still fails the sweep.
+ */
+const ACCEPTED_EXISTS: ReadonlySet<string> = new Set(["conversation.import"])
 const GROUPS: Array<string> = []
 let a: Tenant
 let a2: Tenant
@@ -109,7 +116,7 @@ describe("IDOR sweep: B calls every operation with A's ids", { timeout: 300_000 
         if (real.raw.includes("CANARY-A-") || real.raw.includes(a.email)) leaks.push(`${name} (${kind}): ${real.raw.slice(0, 200)}`)
         // Existence oracle: A's real id must be indistinguishable from an unknown id (same status, code, shape).
         const sig = (r: Reply) => `${r.status} ${r.code ?? "ok"}`
-        if (!OWN_STATE.has(name) && (sig(real) !== sig(control) || (real.code === undefined && shape(real.raw) !== shape(control.raw))))
+        if (!OWN_STATE.has(name) && !(ACCEPTED_EXISTS.has(name) && real.code === "conversation_exists") && (sig(real) !== sig(control) || (real.code === undefined && shape(real.raw) !== shape(control.raw))))
           oracle.push(`${name} (${kind}): A-id -> ${sig(real)} ${real.raw.slice(0, 140)} | unknown-id -> ${sig(control)} ${control.raw.slice(0, 140)}`)
         rows.push(`${name}\t${kind}\t${real.status}\t${real.code ?? "ok"}`)
       }

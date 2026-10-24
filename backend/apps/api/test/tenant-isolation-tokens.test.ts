@@ -46,15 +46,17 @@ describe("forged and replayed credentials", { timeout: 120_000 }, () => {
   it("rejects a session token with a foreign signature, a wrong audience, a wrong issuer, an expired time and alg none", async () => {
     const stack = (env as unknown as { STACK_PROJECT_ID: string }).STACK_PROJECT_ID
     const rogue = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair
+    void rogue
+    const stackKey = (await importJWK(JSON.parse((env as unknown as { STACK_TEST_PRIVATE_JWK: string }).STACK_TEST_PRIVATE_JWK) as JWK, "ES256")) as CryptoKey
     const claims = { email: a.email, email_verified: true, name: a.name }
     const sign = (key: CryptoKey, over: { iss?: string; aud?: string; exp?: string | number }) =>
       new SignJWT(claims).setProtectedHeader({ alg: "ES256", kid: "stack-test" }).setIssuer(over.iss ?? `https://api.stack-auth.com/api/v1/projects/${stack}`).setAudience(over.aud ?? stack).setSubject(a.sub).setIssuedAt().setExpirationTime(over.exp ?? "10m").sign(key)
     const forged = [
       await sign(rogue.privateKey, {}),
-      await sign((await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign"])).privateKey, {}),
+      await sign(rogue.privateKey, { iss: "https://api.stack-auth.com/api/v1/projects/other" }),
       await stackSession(a.sub, a.email, a.name, {}, "-5m"),
-      await sign(await importJWK(JSON.parse((env as unknown as { STACK_TEST_PRIVATE_JWK: string }).STACK_TEST_PRIVATE_JWK) as JWK, "ES256"), { aud: "someone-else" }),
-      await sign(await importJWK(JSON.parse((env as unknown as { STACK_TEST_PRIVATE_JWK: string }).STACK_TEST_PRIVATE_JWK) as JWK, "ES256"), { iss: "https://evil.example/api/v1/projects/x" }),
+      await sign(stackKey, { aud: "someone-else" }),
+      await sign(stackKey, { iss: "https://evil.example/api/v1/projects/x" }),
       `${b64u(new TextEncoder().encode(JSON.stringify({ alg: "none", typ: "JWT" })))}.${b64u(new TextEncoder().encode(JSON.stringify({ sub: a.sub, aud: stack })))}.`
     ]
     for (const [i, token] of forged.entries()) {
