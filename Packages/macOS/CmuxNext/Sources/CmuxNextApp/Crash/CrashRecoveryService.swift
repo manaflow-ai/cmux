@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextCrashReporting
 import Foundation
 import os
 import CmuxNextCompat
