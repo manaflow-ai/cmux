@@ -50,7 +50,8 @@ public nonisolated struct AgentPaneDraft: Codable, Sendable, Equatable {
                 continue
             }
             flush()
-            if let attachment = attachments[safe: next] {
+            if attachments.indices.contains(next) {
+                let attachment = attachments[next]
                 result.append(.attachment(attachment))
             }
             next += 1
@@ -98,7 +99,8 @@ public nonisolated struct AgentPaneDraft: Codable, Sendable, Equatable {
         guard let index = attachments.firstIndex(where: { $0.id == id }) else { return }
         let marks = Self.markOffsets(text)
         attachments.remove(at: index)
-        guard marks.count == attachments.count + 1, let location = marks[safe: index] else { return }
+        guard marks.count == attachments.count + 1, marks.indices.contains(index) else { return }
+        let location = marks[index]
         text = (text as NSString).replacingCharacters(in: NSRange(location: location, length: 1), with: "")
     }
 
@@ -215,12 +217,6 @@ public nonisolated struct AgentPaneDraft: Codable, Sendable, Equatable {
     }
 }
 
-private extension Array {
-    subscript(safe index: Index) -> Element? {
-        indices.contains(index) ? self[index] : nil
-    }
-}
-
 /// Each agent chat's unsent composer chips (pasted screenshots, PDFs, files and folders), by
 /// session, in ``directoryName`` beside the launch snapshot: one folder per chat with its chips'
 /// list and their contents as files of their own. Leo 2026-10-20: a draft's text came back and its
@@ -285,7 +281,8 @@ public final class AgentPaneDraftAttachments {
         return await queued(sessionId) {
             guard let draft = Self.decodeDraft(value) else { return nil }
             guard let directory, let folder else { return [] }
-            return Self.write(draft.attachments, text: draft.text, to: folder, in: directory, limit: limit)
+            return Self.write(draft.attachments, text: draft.text, ordered: true,
+                              to: folder, in: directory, limit: limit)
         }
     }
 
@@ -294,7 +291,8 @@ public final class AgentPaneDraftAttachments {
         guard let directory, let folder = folder(for: sessionId) else { return [] }
         let limit = maximumBytes
         return await queued(sessionId) {
-            Self.write(draft.attachments, text: draft.text, to: folder, in: directory, limit: limit)
+            Self.write(draft.attachments, text: draft.text, ordered: true,
+                       to: folder, in: directory, limit: limit)
         }
     }
 
@@ -379,10 +377,45 @@ public final class AgentPaneDraftAttachments {
         guard let saved = saved(in: folder) else { return AgentPaneDraft() }
         var budget = limit
         let attachments = AgentPaneAttachmentFiles.readBack(saved.attachments, files: saved.files ?? [:], in: folder, budget: &budget)
-        return AgentPaneDraft(text: saved.text ?? "", attachments: attachments)
+        let text = repairMarks(saved.text ?? "", original: saved.attachments, restored: attachments)
+        return AgentPaneDraft(text: text, attachments: attachments)
+    }
+
+    /// Removes marks for saved attachments whose bytes could not be restored, preserving the
+    /// remaining attachment-to-mark mapping instead of shifting later thumbnails left.
+    private nonisolated static func repairMarks(_ text: String,
+                                                original: [AgentPaneWakeState.Attachment],
+                                                restored: [AgentPaneWakeState.Attachment]) -> String {
+        guard !original.isEmpty else { return text }
+        var restoredIndices: [Int] = []
+        var used = Set<Int>()
+        for attachment in restored {
+            guard let index = original.indices.first(where: { !used.contains($0) && original[$0].id == attachment.id }) else {
+                continue
+            }
+            used.insert(index)
+            restoredIndices.append(index)
+        }
+        let restoredSet = Set(restoredIndices)
+        var output = String.UnicodeScalarView()
+        var markIndex = 0
+        for scalar in text.unicodeScalars {
+            guard scalar == AgentPaneDraft.attachmentMark else {
+                output.append(scalar)
+                continue
+            }
+            // Extra marks are retained as malformed plain text; marks for known saved attachments
+            // are retained only when that attachment survived the bounded file read.
+            if markIndex >= original.count || restoredSet.contains(markIndex) {
+                output.append(scalar)
+            }
+            markIndex += 1
+        }
+        return String(output)
     }
 
     private nonisolated static func write(_ attachments: [AgentPaneWakeState.Attachment], text: String? = nil,
+                                          ordered: Bool = false,
                                           to folder: URL, in directory: URL, limit: Int) -> [String] {
         let manager = FileManager.default
         let previous = saved(in: folder)
@@ -395,10 +428,9 @@ public final class AgentPaneDraftAttachments {
         }
         do {
             try manager.createDirectory(at: folder, withIntermediateDirectories: true)
-            let keptText = text ?? previous?.text
             let list = try JSONEncoder().encode(Saved(attachments: moved.attachments,
                                                       files: moved.files.isEmpty ? nil : moved.files,
-                                                      text: keptText?.isEmpty == false ? keptText : nil))
+                                                      text: ordered && text?.isEmpty == false ? text : nil))
             try list.write(to: folder.appending(path: listName), options: .atomic)
         } catch {
             try? manager.removeItem(at: folder)

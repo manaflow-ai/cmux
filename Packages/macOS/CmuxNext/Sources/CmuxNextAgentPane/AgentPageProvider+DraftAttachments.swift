@@ -27,11 +27,12 @@ extension AgentPageProvider {
             if let store, let held = await store.keepOrdered(value, for: session) {
                 return .object(["held": .array(held.map(JSONValue.string))])
             }
-            // With no store, preserve the old valid-draft response without decoding on the main
-            // actor; malformed drafts fall through to the legacy attachment-list validation.
+            // A present draft is an explicit ordered write. A malformed one must not fall through
+            // to the legacy list path, which could erase an existing ordered draft.
             if store == nil, await Task.detached { AgentPaneDraftAttachments.decodeDraft(value) != nil }.value {
                 return .object(["held": .array([])])
             }
+            throw PageError.invalidParams(op)
         }
         guard let list = body["attachments"], case .array = list else { throw PageError.invalidParams(op) }
         guard let store else { return .object(["held": .array([])]) }
