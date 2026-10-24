@@ -1,5 +1,6 @@
 @testable import CmuxNextApp
 import CmuxNextBrowser
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -20,7 +21,7 @@ import Testing
         let file = folder.appending(path: "downloads.json")
         try Data(#"{"downloads":[{"filename":"old.zip","status":"finished","received":10}]}"#.utf8).write(to: file)
         let list = BrowserDownloadList()
-        list.history = BrowserDownloadHistory(url: file)
+        list.history = BrowserDownloadHistory(url: file, work: BackgroundWork())
         await list.restore()
         #expect(list.items.count == 1)
         #expect(list.toolbarSummary(forTab: "tab-a").count == 0)
