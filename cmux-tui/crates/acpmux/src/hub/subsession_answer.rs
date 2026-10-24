@@ -387,6 +387,57 @@ mod tests {
         assert!(work.withdrawn.contains("1010"));
     }
 
+    /// A deferred cancel from an older host must not cancel a reused request id
+    /// after a replacement host has started.
+    #[tokio::test]
+    async fn a_withdrawal_from_an_older_host_does_not_cross_incarnations() {
+        let (hub, session, _conn) = hub_with_session().await;
+        hub.append(
+            &session,
+            "mux",
+            "host_started",
+            json!({"incarnation": "new-host"}),
+        );
+        hub.append(
+            &session,
+            "mux",
+            "permission_withdrawn",
+            json!({"agentRequestId": 1011, "incarnation": "old-host"}),
+        );
+        hub.append(
+            &session,
+            "mux",
+            "permission_request",
+            json!({"permissionId": "p-1011", "agentRequestId": 1011, "request": {}}),
+        );
+        let work = hub.open_work(&session, "new-host");
+        let decision = work.permissions.get("1011").and_then(|entry| entry.2.clone());
+        assert_eq!(decision, None);
+        assert!(work.withdrawn.is_empty());
+    }
+
+    /// A deferred cancel is a controller record, not a host entry; it must
+    /// never advance the replacement host's resume cursor.
+    #[tokio::test]
+    async fn a_deferred_withdrawal_does_not_advance_the_resume_cursor() {
+        let (hub, session, _conn) = hub_with_session().await;
+        hub.append(
+            &session,
+            "mux",
+            "host_started",
+            json!({"incarnation": "new-host"}),
+        );
+        hub.append_with_host_seq(
+            &session,
+            "mux",
+            "permission_withdrawn",
+            json!({"agentRequestId": 1012, "incarnation": "old-host"}),
+            Some(900),
+        );
+        let work = hub.open_work(&session, "new-host");
+        assert_eq!(work.last_host_seq, 0);
+    }
+
     /// The rule under the prompt's lock, without the request check before it:
     /// an ancestor's answer counts only on a prompt recorded as a question.
     #[tokio::test]

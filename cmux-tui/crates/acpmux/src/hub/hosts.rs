@@ -42,7 +42,7 @@ pub(super) struct OpenWork {
     pub(super) withdrawn: std::collections::HashSet<String>,
     /// Largest `hostSeq` logged under this incarnation. Every entry kind is
     /// logged in entry order before its ack, so this is the logged prefix.
-    last_host_seq: u64,
+    pub(super) last_host_seq: u64,
     /// The remote floor's marks (`remote_floor.rs`): the turn it cancelled,
     /// who started the last turn, and whether this harness process was given
     /// a lasting grant ("allow always").
