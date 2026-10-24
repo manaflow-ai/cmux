@@ -971,8 +971,9 @@ impl Holder {
     }
 
     /// A starting terminal's child reported ([`pty::Start::poll`]): once
-    /// its program runs, SPAWNED with the custody dups to the link that
-    /// asked; when it could not start, ERROR SPAWN_FAILED with what it
+    /// its program runs, the hang-up of a CLOSE that came meanwhile, and
+    /// SPAWNED with the custody dups to the link that asked; when it could
+    /// not start, ERROR SPAWN_FAILED with what it
     /// could not do, and the terminal is forgotten (the child exits 127, or
     /// is killed when its report could not be read, and is reaped like any
     /// other). The error also goes to a link that attached the terminal
@@ -990,6 +991,12 @@ impl Holder {
         let asked = self.link.as_ref().is_some_and(|link| link.id == starting.link);
         match result {
             Ok(()) => {
+                // A CLOSE came while it started and its SIGKILL is still
+                // due: the program runs now, with its own dispositions (a
+                // child reaped already is not signaled: its pid is free).
+                if terminal.closing && terminal.kill_at.is_some() && !reaped {
+                    terminal.hang_up();
+                }
                 if asked {
                     let payload = Out::default().i32(pid).0;
                     let flags = ring_flag(&starting.custody);
@@ -1165,6 +1172,7 @@ impl Holder {
         let terminal = self.terminal(chan)?;
         // SAFETY: signals this terminal's own process group (its session leader's pid).
         unsafe { libc::killpg(terminal.pid, signal) };
+        terminal.signal_starting_child(signal);
         Ok(())
     }
 
@@ -1188,8 +1196,13 @@ impl Holder {
             }
             return Ok(());
         }
-        pty::signal_terminal(terminal.pid, terminal.master.as_raw_fd(), libc::SIGHUP);
-        pty::signal_terminal(terminal.pid, terminal.master.as_raw_fd(), libc::SIGTERM);
+        // A child that has not run its program yet still has the holder's
+        // signal dispositions (the hang-up ignored) and may lead no group
+        // yet: its hang-up goes once the program runs ([`Self::finish_start`]),
+        // and the grace's SIGKILL reaches it whatever stage it is at.
+        if terminal.starting.is_none() {
+            terminal.hang_up();
+        }
         terminal.kill_at = Some(Instant::now() + Duration::from_millis(u64::from(grace)));
         if !was_closing {
             self.closing += 1;
@@ -1209,6 +1222,7 @@ impl Holder {
             if terminal.kill_at.is_some_and(|at| at <= now) {
                 terminal.kill_at = None;
                 pty::signal_terminal(terminal.pid, terminal.master.as_raw_fd(), libc::SIGKILL);
+                terminal.signal_starting_child(libc::SIGKILL);
             }
         }
     }
@@ -1567,6 +1581,26 @@ impl Terminal {
                     || (sent < end && sent < self.send_limit(credit))
                     || (sent >= end && !self.exit_sent && self.ended())
             })
+    }
+
+    /// Hang up the terminal's groups: SIGHUP, then SIGTERM
+    /// ([`pty::signal_terminal`]).
+    fn hang_up(&self) {
+        for signal in [libc::SIGHUP, libc::SIGTERM] {
+            pty::signal_terminal(self.pid, self.master.as_raw_fd(), signal);
+        }
+    }
+
+    /// Send `signal` to the child itself while it has not run its program
+    /// yet: before its `setsid` it leads no group and the PTY has no
+    /// foreground group, so a group signal misses it (a CLOSE or SIGNAL
+    /// right behind its SPAWN). It is this holder's own child and is not
+    /// reaped yet, so its pid is still its own.
+    fn signal_starting_child(&self, signal: libc::c_int) {
+        if self.starting.is_some() && self.status.is_none() {
+            // SAFETY: signals this holder's own child, not reaped yet.
+            unsafe { libc::kill(self.pid, signal) };
+        }
     }
 
     /// Record a link that ended while it streamed this terminal.
