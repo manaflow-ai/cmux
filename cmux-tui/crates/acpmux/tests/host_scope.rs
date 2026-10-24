@@ -5,8 +5,10 @@
 //! already had theirs, `session_scope.rs`, but a host ends its harness when
 //! it gets SIGTERM), so after
 //! `systemctl --user restart` the same host and harness pids are alive and
-//! the new daemon drives the session again. With `ACPMUX_HOST_SCOPES=0` the
-//! same restart ends them, which shows the test can fail.
+//! the new daemon drives the session again. A pooled host stays in the
+//! unit (it ends with its daemon) until a session takes it; then it moves
+//! and survives too. With `ACPMUX_HOST_SCOPES=0` the same restart ends them,
+//! which shows the test can fail.
 //!
 //! Needs a user systemd manager (a Linux login with linger); without one
 //! each test says so and passes.
@@ -46,9 +48,10 @@ fn scratch(tag: &str) -> PathBuf {
     std::fs::write(
         home.join("config.json"),
         json!({
-            "harnesses": {"fake": {"argv": ["python3", FAKE]}},
+            "harnesses": {"fake": {"argv": ["python3", FAKE]}, "fakeb": {"argv": ["python3", FAKE]}},
             "defaultHarness": "fake",
             "permissionPolicy": "approve-all",
+            "pool": {"debounceMs": 0},
         })
         .to_string(),
     )
@@ -181,6 +184,38 @@ impl Rpc {
         }
     }
 
+    async fn new_session(&mut self, home: &Path, harness: &str) -> String {
+        let created = self
+            .call(
+                "session/new",
+                json!({"cwd": home, "mcpServers": [], "_meta": {"acpmux": {"harness": harness}}}),
+            )
+            .await;
+        created["sessionId"].as_str().expect("session id").to_owned()
+    }
+
+    /// Prewarms `harness` and waits (test polling) until the pool holds it ready.
+    async fn pool_ready(&mut self, home: &Path, harness: &str) {
+        let warmed = self
+            .call("_acpmux/prewarm", json!({"harness": harness, "cwd": home, "wait": true}))
+            .await;
+        assert_eq!(warmed["accepted"], true, "{warmed}");
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            let status = self.call("_acpmux/status", json!({})).await;
+            let ready = status["pool"]["entries"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|e| e["harness"] == harness && e["state"] == "ready");
+            if ready {
+                return;
+            }
+            assert!(Instant::now() < deadline, "{harness} never pooled: {status}");
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    }
+
     async fn prompt(&mut self, session: &str, text: &str) -> Value {
         self.call(
             "session/prompt",
@@ -196,13 +231,7 @@ async fn session_under_unit(tag: &str, scopes: bool) -> (Unit, String, i64, i64)
     let home = scratch(tag);
     let unit = Unit::start(&home, tag, scopes);
     let mut rpc = Rpc::connect(&home).await;
-    let created = rpc
-        .call(
-            "session/new",
-            json!({"cwd": home, "mcpServers": [], "_meta": {"acpmux": {"harness": "fake"}}}),
-        )
-        .await;
-    let session = created["sessionId"].as_str().expect("session id").to_owned();
+    let session = rpc.new_session(&home, "fake").await;
     rpc.prompt(&session, "hi").await;
     let (host, harness) = pids(&home, &session);
     (unit, session, host, harness)
@@ -215,8 +244,7 @@ async fn a_unit_restart_keeps_the_agent_hosts_and_the_new_daemon_reattaches() {
         return;
     }
     let (unit, session, host, harness) = session_under_unit("keep", true).await;
-    let scope = format!("/acpmuxhosts.slice/acpmux-agent-host-{host}.scope");
-    assert!(cgroup(host).trim_end().ends_with(&scope), "host not in its scope: {}", cgroup(host));
+    assert!(in_own_scope(host), "host not in its scope: {}", cgroup(host));
     // The harness is in the host's scope, or in its session's own scope
     // (`session_scope.rs`); never in the daemon's unit.
     assert!(
@@ -233,6 +261,78 @@ async fn a_unit_restart_keeps_the_agent_hosts_and_the_new_daemon_reattaches() {
     assert_eq!(reply["stopReason"], "end_turn", "{reply}");
     assert_eq!(pids(&unit.home, &session), (host, harness), "the session got a new host");
     assert!(alive(host) && alive(harness));
+    drop(rpc);
+    drop(unit);
+    assert!(gone_within(host, Duration::from_secs(10)), "host {host} outlived its deleted home");
+}
+
+/// Whether `pid` is in its own host scope (`acpmux-agent-host-<pid>-<tag>.scope`).
+fn in_own_scope(pid: i64) -> bool {
+    let line = cgroup(pid);
+    let prefix = format!("/acpmuxhosts.slice/acpmux-agent-host-{pid}-");
+    line.lines().any(|l| l.starts_with("0::") && l.contains(&prefix) && l.trim_end().ends_with(".scope"))
+}
+
+/// Waits (test polling, bounded) until `pid` is in its own host scope.
+async fn moves_within(pid: i64, within: Duration) -> bool {
+    let deadline = Instant::now() + within;
+    while !in_own_scope(pid) {
+        if Instant::now() >= deadline {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    true
+}
+
+fn pool_host(home: &Path) -> i64 {
+    let dir = home.join("hosts").join("pool");
+    let found = std::fs::read_dir(&dir)
+        .unwrap()
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .find(|p| p.extension().and_then(|e| e.to_str()) == Some("json"))
+        .expect("a pooled host record");
+    let record: Value = serde_json::from_slice(&std::fs::read(found).unwrap()).unwrap();
+    record["host_pid"].as_i64().unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_pooled_host_moves_when_a_session_takes_it_and_an_untaken_one_ends_with_the_unit() {
+    if !user_manager() {
+        eprintln!("no user systemd manager here: skipped");
+        return;
+    }
+    let home = scratch("pool");
+    let unit = Unit::start(&home, "pool", true);
+    let mut rpc = Rpc::connect(&home).await;
+    rpc.pool_ready(&home, "fakeb").await;
+    let waiting = pool_host(&home);
+    assert!(
+        cgroup(waiting).trim_end().ends_with(&format!("/{}", unit.name)),
+        "a pooled host left the daemon's unit before a session took it: {}",
+        cgroup(waiting)
+    );
+    let taken = rpc.new_session(&home, "fakeb").await;
+    let (host, harness) = pids(&home, &taken);
+    assert_eq!(host, waiting, "the session did not take the pooled host");
+    assert!(moves_within(host, Duration::from_secs(10)).await, "taken host: {}", cgroup(host));
+    assert!(
+        !cgroup(harness).contains(&format!("/{}", unit.name)),
+        "the taken host's harness stayed in the daemon's unit: {}",
+        cgroup(harness)
+    );
+    rpc.pool_ready(&home, "fakeb").await;
+    let untaken = pool_host(&home);
+    drop(rpc);
+
+    unit.restart();
+
+    assert!(gone_within(untaken, Duration::from_secs(10)), "untaken pooled host {untaken} survived");
+    assert!(alive(host) && alive(harness), "the restart ended the taken host or its harness");
+    let mut rpc = Rpc::connect(&unit.home).await;
+    let reply = rpc.prompt(&taken, "again").await;
+    assert_eq!(reply["stopReason"], "end_turn", "{reply}");
+    assert_eq!(pids(&unit.home, &taken), (host, harness), "the session got a new host");
     drop(rpc);
     drop(unit);
     assert!(gone_within(host, Duration::from_secs(10)), "host {host} outlived its deleted home");
