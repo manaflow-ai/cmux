@@ -59,8 +59,16 @@ public final class BackdropImagesPageProvider: PageProvider {
             } catch let refused as BackdropUserImages.ImportError {
                 throw Self.error(refused)
             }
-            defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
-            return ["id": .string(try await use(file))]
+            // The download's folder goes off the main actor (`BackdropUserImages.removeDownload`), used or not.
+            let used: String
+            do {
+                used = try await use(file)
+            } catch {
+                await BackdropUserImages.removeDownload(file)
+                throw error
+            }
+            await BackdropUserImages.removeDownload(file)
+            return ["id": .string(used)]
         case Self.prefix + "remove":
             let selection = try own(params)
             // Removing the background in use would leave every window blank.

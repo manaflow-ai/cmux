@@ -24,8 +24,16 @@ extension SettingsPageProvider {
         guard let file = await museumArt.download(key: key) else {
             throw PageError(code: "cmux.settings.art.download", message: "\(key) could not be downloaded")
         }
-        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
-        return ["id": .string(try await useBackdropImage(file))]
+        // The download's folder goes off the main actor (`BackdropUserImages.removeDownload`), used or not.
+        let used: String
+        do {
+            used = try await useBackdropImage(file)
+        } catch {
+            await BackdropUserImages.removeDownload(file)
+            throw error
+        }
+        await BackdropUserImages.removeDownload(file)
+        return ["id": .string(used)]
     }
 
     /// Copies `url` into the backgrounds folder and makes it the background. The person chose the

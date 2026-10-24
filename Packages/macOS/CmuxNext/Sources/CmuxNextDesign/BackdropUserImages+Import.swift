@@ -52,11 +52,16 @@ nonisolated extension BackdropUserImages {
     /// (``adoptChecked(_:)``) and removes its folder. The download stops as soon as it passes the
     /// cap for what the server says it is (``maximumImageBytes`` for a picture, else
     /// ``maximumVideoBytes``), so a huge file never lands on disk whole.
-    public nonisolated static func download(_ link: URL, configuration: URLSessionConfiguration = .ephemeral) async throws -> URL {
+    ///
+    /// `@concurrent`: the folder, the rename and the size read are file I/O, and a plain async
+    /// function here (NonisolatedNonsendingByDefault) runs on its caller's actor, the main actor
+    /// for the Settings page. `makeFolder` makes the download's folder (tests pass a seam).
+    @concurrent public nonisolated static func download(_ link: URL, configuration: URLSessionConfiguration = .ephemeral,
+                                                        makeFolder: @Sendable (URL) throws -> Void = makeDownloadFolder) async throws -> URL {
         guard isHTTPS(link) else { throw ImportError.notHTTPS }
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-background-\(UUID().uuidString)", isDirectory: true)
         do {
-            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try makeFolder(folder)
             let file = folder.appendingPathComponent("download")
             let mimeType = try await LinkDownload(file: file).run(link, configuration: configuration)
             let named = try named(file, link: link, mimeType: mimeType)
@@ -67,6 +72,19 @@ nonisolated extension BackdropUserImages {
             try? FileManager.default.removeItem(at: folder)
             throw error
         }
+    }
+
+    /// Makes a download's folder (``download(_:configuration:makeFolder:)``'s default).
+    public nonisolated static func makeDownloadFolder(_ folder: URL) throws {
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    }
+
+    /// Removes the folder ``download(_:configuration:makeFolder:)`` put `file` in, off the caller's
+    /// actor (a file removal; the caller is the Settings page on the main actor). `remove` removes
+    /// one folder (tests pass a seam).
+    @concurrent public nonisolated static func removeDownload(_ file: URL,
+                                                              remove: @Sendable (URL) -> Void = { try? FileManager.default.removeItem(at: $0) }) async {
+        remove(file.deletingLastPathComponent())
     }
 
     nonisolated static func isHTTPS(_ url: URL?) -> Bool {
