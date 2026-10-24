@@ -495,7 +495,14 @@ final class BrowserHibernation {
     }
 
     private func freeze(_ key: String, _ page: any BrowserFreezing) {
-        page.setFrozen(true)
+        // The engine refuses a page it still counts visible: it stays awake and is asked again
+        // after `freezeSeconds` (a hidden page's visibility reaches the engine within a frame).
+        guard page.setFrozen(true) else {
+            freezeKeptAt[key] = .now
+            cache?.trace(key, "freeze refused")
+            replan()
+            return
+        }
         frozen.insert(key)
         cache?.trace(key, "frozen")
     }
