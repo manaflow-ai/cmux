@@ -1536,6 +1536,10 @@ command  vm base reset  aliases=-
   arg  --window  kind=option  completion=custom
   arg  --workspace  kind=option  completion=custom
   arg  arguments  kind=argument  completion=-
+command  vm clean  aliases=-
+  arg  --apply  kind=flag  completion=-
+  arg  arguments  kind=argument  completion=-
+  arg  id  kind=argument  completion=custom
 command  vm desktop  aliases=vnc
   arg  --workspace  kind=option  completion=custom
   arg  arguments  kind=argument  completion=-

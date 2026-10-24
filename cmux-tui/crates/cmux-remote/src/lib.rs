@@ -27,6 +27,7 @@ mod mux_input;
 mod mux_lanes;
 pub mod observability;
 mod owner_lock;
+pub mod peer_trust;
 pub mod provider;
 pub mod secret_file;
 pub mod secure_directory;
