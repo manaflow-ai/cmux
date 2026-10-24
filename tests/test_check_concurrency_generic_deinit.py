@@ -153,6 +153,8 @@ class GenericDeinitRule(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("FixtureUI/Ledger+Cursor.swift:2: generic main-actor class with no `nonisolated deinit`",
                       result.stdout)
+        # The finding names the declaration that makes it generic, so a PR that changes only that file owns it.
+        self.assertIn("generic context: Sources/FixtureUI/Ledger.swift:1", result.stdout)
         result = run({"FixtureUI/Ledger.swift": LEDGER, "FixtureUI/Ledger+Cursor.swift": LEDGER_CURSOR_FIXED})
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 

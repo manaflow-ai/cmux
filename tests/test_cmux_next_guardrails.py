@@ -502,6 +502,23 @@ class RuleTests(Fixture):
         self.commit("the cursor's nonisolated deinit goes")
         self.assertEqual(self.refused(), [("generic-class-deinit", ["Ledger+Cursor.swift: final class Cursor {"])])
 
+    def test_making_a_type_generic_counts_the_classes_in_its_extensions_in_untouched_files(self):
+        # The push changes only Ledger.swift (`struct Ledger {` -> `struct Ledger<Entry> {`); the class in
+        # Ledger+Cursor.swift becomes generic by context without its file changing. The push owns it.
+        self.rebase_on({f"{KIT}/Ledger.swift": "struct Ledger {\n    var count = 0\n}\n",
+                        f"{KIT}/Ledger+Cursor.swift": "extension Ledger {\n    final class Cursor {\n"
+                                                      "        var index = 0\n    }\n}\n"})
+        self.write(f"{KIT}/Ledger.swift", "struct Ledger<Entry> {\n    var count = 0\n}\n")
+        self.commit("Ledger becomes generic")
+        self.assertEqual(self.refused(), [("generic-class-deinit", ["Ledger+Cursor.swift: final class Cursor {"])])
+        hit = self.check()[0][0][1][0]
+        self.assertIn("Ledger.swift:1", getattr(hit, "cause", ""))
+        # A generic type that only changes its parameters adds nothing: its extension was already debt.
+        self.rebase_on({})
+        self.write(f"{KIT}/Ledger.swift", "struct Ledger<Entry, Key> {\n    var count = 0\n}\n")
+        self.commit("Ledger gains a parameter")
+        self.assertEqual(self.refused(), [])
+
     def test_editing_a_class_that_already_has_the_debt_adds_none(self):
         # Touching the body of a class that is base debt pairs with the base: base debt never blocks.
         self.rebase_on({f"{KIT}/Box.swift": "@MainActor final class Box<T> {\n    var value: T?\n"
