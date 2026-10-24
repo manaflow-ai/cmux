@@ -35,6 +35,9 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_STEER,
     method::MUX_BRIEFS,
     method::MUX_REPORT,
+    // The broker chooses its configured owner peer explicitly; it must not
+    // bounce through a session prefix or follow a remote chat by accident.
+    method::MUX_GITHUB_ACTION,
     // An agent message is taken back on this daemon only (`hub/withdraw.rs`).
     method::MUX_PROMPT_WITHDRAW,
     // A message to deliver is this daemon's (`outbox.rs`), whatever session it names.

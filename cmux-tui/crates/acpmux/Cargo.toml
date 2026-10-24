@@ -16,6 +16,10 @@ categories = ["command-line-utilities", "development-tools"]
 name = "acpmux"
 path = "src/main.rs"
 
+[[bin]]
+name = "gh"
+path = "src/bin/gh.rs"
+
 [dependencies]
 cmux-chat-index.workspace = true
 cmux-coderouter.workspace = true

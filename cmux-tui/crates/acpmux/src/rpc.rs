@@ -269,6 +269,9 @@ pub mod method {
     pub const MUX_AGENT_PAIR_RESUME: &str = "_acpmux/agent_pair_resume";
     pub const MUX_INFO: &str = "_acpmux/info";
     pub const MUX_EVENTS: &str = "_acpmux/events";
+    /// Execute one owner-side, policy-scoped GitHub action. The request never
+    /// carries a GitHub credential (`github_broker.rs`).
+    pub const MUX_GITHUB_ACTION: &str = "_acpmux/github_action";
     /// Durable inter-session mailbox: send, page/wait, and recipient-only ack.
     pub const MUX_MAIL_SEND: &str = "_acpmux/mail/send";
     pub const MUX_MAIL_READ: &str = "_acpmux/mail/read";
