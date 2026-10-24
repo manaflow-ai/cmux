@@ -113,7 +113,11 @@ impl Unit {
 impl Drop for Unit {
     fn drop(&mut self) {
         // `--collect`: the stopped unit is unloaded, failed or not.
-        let _ = Command::new("systemctl").args(["--user", "stop", &self.name]).status();
+        // A unit whose daemon a test killed is already gone.
+        let _ = Command::new("systemctl")
+            .args(["--user", "stop", &self.name])
+            .stderr(std::process::Stdio::null())
+            .status();
         // No daemon can adopt a host of a deleted home: the hosts end (cx-tumi).
         let _ = std::fs::remove_dir_all(&self.home);
     }
@@ -348,7 +352,10 @@ async fn an_untaken_pooled_host_ends_when_its_daemon_is_killed() {
         .status()
         .expect("systemctl kill");
     assert!(killed.success(), "kill {}: {killed}", unit.name);
-    assert!(gone_within(pooled, Duration::from_secs(10)), "pooled host {pooled} outlived its daemon");
+    assert!(
+        gone_within(pooled, Duration::from_secs(10)),
+        "pooled host {pooled} outlived its daemon"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
