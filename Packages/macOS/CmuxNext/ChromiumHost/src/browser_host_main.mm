@@ -631,8 +631,13 @@ int main(int argc, char* argv[]) {
     SendText(cmux_host::kError, "cef_load_library failed: " + binary);
     return cmux_host::kExitFrameworkLoad;
   }
-  if (auto version = reinterpret_cast<int (*)()>(dlsym(RTLD_DEFAULT, "cmux_cef_api_version"))) g_fork_api = version();
-  g_set_layer_hosting = reinterpret_cast<uint32_t (*)(int, int)>(dlsym(RTLD_DEFAULT, "cmux_browser_set_layer_hosting"));
+  // cef_load_library opens the framework RTLD_LOCAL, so its fork exports are not
+  // visible through RTLD_DEFAULT: reopen the same image by path (as the shim's
+  // BindForkApi does). RTLD_DEFAULT read API 0 and every host exited kExitForkAPI.
+  if (void* image = dlopen(binary.c_str(), RTLD_NOLOAD | RTLD_LAZY)) {
+    if (auto version = reinterpret_cast<int (*)()>(dlsym(image, "cmux_cef_api_version"))) g_fork_api = version();
+    g_set_layer_hosting = reinterpret_cast<uint32_t (*)(int, int)>(dlsym(image, "cmux_browser_set_layer_hosting"));
+  }
   if (g_fork_api < cmux_host::kMinForkAPI || !g_set_layer_hosting) {
     SendText(cmux_host::kError, "Chromium fork API " + std::to_string(g_fork_api) + " is older than the host needs (" +
                                     std::to_string(cmux_host::kMinForkAPI) + ": layer hosting and resize sync)");
