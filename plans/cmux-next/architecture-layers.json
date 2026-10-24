@@ -34,6 +34,7 @@
     "CmuxNextServerHelperDaemon": {"layer": "service"},
     "CmuxNextVSCodeServer": {"layer": "service"},
     "CmuxNextHostPressure": {"layer": "service"},
+    "CmuxNextLaunch": {"layer": "service"},
     "CmuxNextChromiumRuntime": {"layer": "service"},
     "CmuxNextChromiumWarmup": {"layer": "service", "plan": "depend on BrowserCore, not Browser"},
     "CmuxNextControl": {"layer": "service"},
