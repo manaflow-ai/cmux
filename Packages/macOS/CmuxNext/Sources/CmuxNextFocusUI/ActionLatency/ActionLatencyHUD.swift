@@ -112,7 +112,6 @@ package final class ActionLatencyHUD {
         panel.becomesKeyOnlyIfNeeded = true
         panel.isReleasedWhenClosed = false
         let closer = CloseButtonHides { [weak self] in self?.hide() }
-        panel.delegate = closer
         self.closer = closer
         let label = NSTextField(labelWithAttributedString: NSAttributedString())
         label.maximumNumberOfLines = 0
