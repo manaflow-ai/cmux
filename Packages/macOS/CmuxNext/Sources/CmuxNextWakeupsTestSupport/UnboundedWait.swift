@@ -2,8 +2,8 @@ internal import Testing
 
 /// A signal wait of this target was called where nothing bounds it.
 ///
-/// ``ManualClock/waitForSleeper()`` and ``ManualSerialExecutor/waitForJob()`` wait for a signal
-/// with no bound of their own (a bound of their own would be a
+/// ``ManualClock/waitForSleeper()``, ``ManualSerialExecutor/waitForJob()`` and ``waitUntil(_:sourceLocation:)``
+/// wait for a signal with no bound of their own (a bound of their own would be a
 /// timeout that fails falsely on a loaded runner). The current test's time limit is their only
 /// bound: when a regression means the signal never comes, the time limit cancels the test, the wait
 /// ends with `CancellationError`, and the failure names the test. Without a time limit the same
