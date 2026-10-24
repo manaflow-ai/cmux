@@ -437,6 +437,15 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     client.request("_acpmux/peer_add", p).await?
                 }
                 PeerCmd::Ls => client.request("_acpmux/peers", json!({})).await?,
+                PeerCmd::Status { name } => {
+                    let v = client.request("_acpmux/peer_status", json!({"name": name})).await?;
+                    if json_out {
+                        print_json(&v);
+                    } else {
+                        crate::cli::peer_status::print(&v);
+                    }
+                    return Ok(());
+                }
                 PeerCmd::Rm { name } => {
                     client.request("_acpmux/peer_remove", json!({"name": name})).await?
                 }

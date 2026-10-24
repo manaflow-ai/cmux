@@ -884,6 +884,13 @@ pub enum PeerCmd {
     },
     /// List peers and their connection state.
     Ls,
+    /// Each peer's health, asked live: reachable, round trip, disk free,
+    /// load, live sessions and build, this machine first. Run it before
+    /// remote work and after a peer request fails, instead of retrying blind.
+    Status {
+        /// Only this peer.
+        name: Option<String>,
+    },
     /// Remove a peer.
     Rm { name: String },
     /// Pairing tickets for adding a machine with one pasted line: `new`

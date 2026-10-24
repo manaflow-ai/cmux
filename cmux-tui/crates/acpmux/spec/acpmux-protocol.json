@@ -1148,6 +1148,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/peer_status",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/host_health",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/peer_add",
       "params": true,
       "result": true

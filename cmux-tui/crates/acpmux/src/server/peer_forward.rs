@@ -48,6 +48,8 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_HANDOFF_START,
     method::MUX_HANDOFF_DISCARD,
     "_acpmux/peers",
+    "_acpmux/peer_status",
+    "_acpmux/host_health",
     "_acpmux/models",
     crate::catalog::RPC_GET,
     crate::catalog::RPC_REFRESH,
