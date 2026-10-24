@@ -36,12 +36,11 @@ public final class WebKitDriver: DriverCallHandler {
         (events, emitter) = AsyncStream.makeStream(of: DriverEvent.self, bufferingPolicy: .bufferingOldest(8192))
     }
 
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // cx-t7hu: not an isolated deinit (its runtime hop traps when released inside an action's task-local
+    // scope), and no main-thread guard: a release on any thread ends the event stream (the continuation is
+    // Sendable and `finish()` is thread-safe).
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            emitter.finish()
-        }
+        emitter.finish()
     }
 
     public func call(method: String, params json: DriverJSON) async throws(DriverError) -> DriverJSON {

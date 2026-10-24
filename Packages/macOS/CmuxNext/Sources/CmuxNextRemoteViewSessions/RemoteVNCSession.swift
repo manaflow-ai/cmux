@@ -31,13 +31,12 @@ public final class RemoteVNCSession {
         if host == demoHost { demo = VNCDemoServer() }
     }
 
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // cx-t7hu: not an isolated deinit (its runtime hop traps when released inside an action's task-local
+    // scope), and no main-thread guard: a release on any thread cancels the start task (a Task is Sendable)
+    // and stops the demo server (Sendable; `stop()` hops to the server's own queue).
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            demoStart?.cancel()
-            demo?.stop()
-        }
+        demoStart?.cancel()
+        demo?.stop()
     }
 
     /// Connects with the saved sign-in (or none; the host may not need one).

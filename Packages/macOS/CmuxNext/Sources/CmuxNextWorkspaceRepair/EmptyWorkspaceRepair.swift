@@ -90,11 +90,11 @@ public final class EmptyWorkspaceRepair {
     /// it without one (the daemon restarted without its terminals): that one
     /// is repaired. Tests replace it.
     @ObservationIgnored public var isLive: @MainActor () -> Bool
-    @ObservationIgnored private var observation: Task<Void, Never>?
+    @ObservationIgnored private(set) var observation: Task<Void, Never>?
     /// The store observed; weak, the store owns its life.
     @ObservationIgnored private weak var store: DaemonStore?
     /// One pane observation per workspace in the store (`watch`).
-    @ObservationIgnored private var watchers: [ObjectIdentifier: Task<Void, Never>] = [:]
+    @ObservationIgnored private(set) var watchers: [ObjectIdentifier: Task<Void, Never>] = [:]
     /// The live tree epoch whose workspaces were all examined.
     @ObservationIgnored private var checkedTreeEpoch: Int??
     /// Whether each watched workspace had a pane when last examined.
@@ -124,13 +124,11 @@ public final class EmptyWorkspaceRepair {
         observe(store)
     }
 
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // cx-t7hu: not an isolated deinit (its runtime hop traps when released inside an action's task-local
+    // scope), and no main-thread guard: a release on any thread cancels the observations (a Task is Sendable).
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            observation?.cancel()
-            for task in watchers.values { task.cancel() }
-        }
+        observation?.cancel()
+        for task in watchers.values { task.cancel() }
     }
 
     /// One observation per workspace of whether it has a pane, which wakes
