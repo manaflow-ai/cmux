@@ -5,9 +5,12 @@ fix removes, OpenFileLimit).
 
 Launches the tagged Debug app through bench_launch.BenchApp (a failed launch reports its cause; it
 starts the app with launchd's soft limits, as Finder does: 256 open files), opens `--tabs` Chromium tabs on a local page over `--workspaces` workspaces, and after
-every `--every` tabs reads the app's soft open-file limit (its launch log line), its open
-descriptors (lsof), its thread count, resident memory and Chromium helpers, and checks the socket answers. Fails
-(exit 1) when the app stops answering, dies, or reports a soft limit at or below 256.
+every `--every` tabs reads the app's soft open-file limit (the one line the app logs at every
+launch, OpenFileLimit.Report: "cmux: open-file limit A -> B", "... S (kept)", "... stays S (...)"
+or "... unknown (...)"; "unknown" when the log has no such line), its open descriptors (lsof), its
+thread count, resident memory and Chromium helpers, and checks the socket answers. Fails (exit 1)
+when the app stops answering, dies, or logs a soft limit at or below 256; an unknown limit alone
+is reported, not failed.
 
 Not a CI gate: run it yourself on a fleet GUI host, before and after a change:
   nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA -- \\
@@ -16,7 +19,7 @@ or build the app in the step (macOS 27 measure hosts):
   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/split-spring.sh --ref SHA \\
     --arg=--suite=chromium-tab-count --artifact artifacts/split-spring/report.json
 """
-import argparse, glob, json, os, shutil, subprocess, sys, tempfile, time
+import argparse, glob, json, os, re, shutil, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import BenchApp  # noqa: E402
@@ -41,19 +44,26 @@ def action(name, args=None, timeout=60):
     return bench.rpc("action.run", {"action": name, "args": args or {}, "focus": True, "origin": "script"}, timeout=timeout)
 
 
+# The app's launch line (OpenFileLimit.Report.line): raised "A -> B [(...)]", kept "S (kept)",
+# refused "stays S (...)", unreadable "unknown (...)".
+LIMIT_LINE = re.compile(r"^cmux: open-file limit (?:\d+ -> (\d+)|(\d+) \(kept\)|stays (\d+)|unknown)")
+
+
 def open_files(pid):
-    """{soft, open} of the app: its soft limit (launchctl's view of a process: `ulimit` is not readable from
-    outside, so the app's own log line "cmux: open-file limit A -> B" names it) and its open descriptors (lsof)."""
+    """{soft, open} of the app: its soft limit (`ulimit` of another process is not readable from outside, so the
+    app's own launch line names it; None when the log has none or says unknown) and its open descriptors (lsof)."""
     soft = None
     try:
         for line in open(bench.log_path, errors="replace"):
-            if line.startswith("cmux: open-file limit "):
-                soft = int(line.rsplit(" ", 1)[1])
-    except (OSError, ValueError):
+            match = LIMIT_LINE.match(line)
+            if match:
+                found = next((group for group in match.groups() if group), None)
+                soft = int(found) if found else None
+    except OSError:
         pass
     listed = subprocess.run(["lsof", "-n", "-P", "-p", str(pid)], capture_output=True, text=True).stdout.splitlines()
     numbered = [l for l in listed[1:] if len(l.split()) > 3 and l.split()[3][:1].isdigit()]
-    return {"soft": soft if soft is not None else 256, "open": len(numbered)}
+    return {"soft": soft, "open": len(numbered)}
 
 
 def process_stats(pid):
@@ -98,13 +108,13 @@ def main():
             if not alive:
                 failure = f"the app stopped answering at {opened} tabs ({cef.get('error') or 'exited ' + str(bench.process.poll())})"
     soft = ((rows[-1] if rows else {}).get("open_files") or {}).get("soft")
-    if failure is None and (soft is None or soft <= 256):
+    if failure is None and soft is not None and soft <= 256:
         failure = f"the app's soft open-file limit is {soft}"
     crashes = copy_crash_reports(started) if failure else []
     if failure and crashes:
         time.sleep(0)  # reports copied above; a crash report written late is copied by wait_for_crash_report
     result = {"host": os.uname().nodename, "tabs": opts.tabs, "rows": rows, "failure": failure, "crash_reports": crashes,
-              "log": bench.log_path}
+              "soft_limit": soft if soft is not None else "unknown", "log": bench.log_path}
     print("RESULT " + json.dumps({k: v for k, v in result.items() if k != "rows"}), flush=True)
     if opts.json:
         open(opts.json, "w").write(json.dumps(result, indent=1))
