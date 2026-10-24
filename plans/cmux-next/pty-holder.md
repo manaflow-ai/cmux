@@ -140,7 +140,7 @@ strings; no JSON in the holder.
 | --- | --- | --- |
 | HELLO | d->h | versions min/max, capability bits wanted, owner token |
 | WELCOME | h->d | chosen version, capability bits granted, identity record bytes |
-| ATTACH | d->h | `from_offset`; the holder streams DATA from there (or GAP if dropped) |
+| ATTACH | d->h | `from_offset`; the holder streams DATA from there (or GAP if dropped). A terminal the daemon SPAWNed or ADOPTed holds at most 256 KiB unsent (`UNSENT_HIGH_WATER`) until its ATTACH, DETACH or the end of the link: the daemon sends SPAWN and ATTACH as two writes, and a holder that read freely between them could lose the terminal's first output to the ring. A client that SPAWNs and never ATTACHes blocks its shell at 256 KiB; the daemon always ATTACHes. |
 | DATA | h->d | `offset`, bytes |
 | GAP | h->d | `requested`, `oldest_available` (log rolled past it) |
 | DETACH | d->h | stop streaming; the holder keeps running |
