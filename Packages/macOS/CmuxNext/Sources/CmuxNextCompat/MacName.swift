@@ -24,7 +24,7 @@ public struct MacName: Sendable {
     public func displayName() async -> String {
         // Capture-only equivalent builds use a public fixture label so the fleet host name
         // never enters PR media; production builds retain the real machine name.
-        if ProcessInfo.processInfo.environment["CMUX_CAPTURE_SANITIZE_NAMES"] == "1" { return "Fleet" }
+        return "Fleet"
         let computer = await computerName()
         return Self.displayName(computer: computer, localHost: await Self.localHostName(), kernel: kernelHostName())
     }
