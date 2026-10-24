@@ -4,7 +4,7 @@
 .cv-agent-card {
   box-sizing: border-box;
   margin: 4px 0 6px;
-  padding: 6px 12px 8px;
+  padding: 4px 12px 8px;
   border-radius: 12px;
   background: color-mix(in srgb, var(--agent-text, var(--cv-text)) 6%, transparent);
   box-shadow:
@@ -21,9 +21,9 @@
 .cv-agent-card__head {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   min-width: 0;
-  height: 22px;
+  height: 24px;
 }
 .cv-agent-card__icon {
   display: inline-flex;
@@ -73,7 +73,7 @@
   text-underline-offset: 2px;
 }
 .cv-agent-card__doing {
-  margin-inline-start: 22px;
+  margin-inline-start: 24px;
   color: var(--cv-text-muted);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);

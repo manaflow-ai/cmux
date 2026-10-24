@@ -1,10 +1,10 @@
 /* A cmux-subsessions call (SubsessionCallCard.tsx): its sub-sessions' cards (subagents/AgentCard.css)
    and its lines in tool rows' font, height and rhythm. */
 /* What a card adds (a prompt, a reply) and an opened message: at the card's text indent (its icon's
-   16px plus the 6px gap), in the transcript's Markdown at the detail size. */
+   16px plus the 8px gap), in the transcript's Markdown at the detail size. */
 .cv-subsession__cut,
 .cv-subsession__raw {
-  margin-inline-start: 22px;
+  margin-inline-start: 24px;
   min-width: 0;
 }
 .cv-subsession__under {
@@ -42,7 +42,7 @@
   all: unset;
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
   cursor: pointer;
   color: var(--cv-text-muted);
   font-size: var(--text-detail);
