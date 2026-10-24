@@ -3911,6 +3911,11 @@ article.acpmux-row:empty {
 .acpmux-row.acpmux-turnSummary.acpmux-row--last-footer {
   padding-bottom: var(--cv-turn-gap);
 }
+/* A legacy/history turn can end without a footer. Mark only its latest row so the composer keeps
+   the normal turn rhythm without a permanent runway below every turn. */
+.acpmux-row.acpmux-row--last-turn {
+  padding-bottom: var(--cv-turn-gap);
+}
 
 /* A steer the agent has not read yet (PendingSteer.tsx): plain Send now leads the prompt's action
    row, before its receipt, age and message buttons. */

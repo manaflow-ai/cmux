@@ -288,6 +288,9 @@ export type AcpmuxRow = {
   ended?: boolean;
   /// A todo list whose turn has ended: a step left in progress no longer spins (conversation/turns.ts).
   turnEnded?: boolean;
+  /// The final drawn row of a latest turn that has no turnSummary. It keeps the same turn gap as a
+  /// footer without adding a permanent runway under every turn (conversation/turns.ts).
+  lastTurn?: boolean;
   /// The edits an edited-files card merges (their row ids), so Find reaches each (chatFind.ts).
   merged?: string[];
   /// The rows a run absorbed (conversation/turns.ts `mergeShortNotes`): its own, the short note and
@@ -874,9 +877,9 @@ export const isLastFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
       (next.received !== undefined || next.incoming?.kind === "message" || next.incoming?.kind === "notice")));
 /// What the row after a row changes about its height (`beforeFooter`), as one key.
 const rowEdge = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
-  isBeforeFooter(row, next) ? "footer" : isLastFooter(row, next) ? "last" : undefined;
+  isBeforeFooter(row, next) ? "footer" : isLastFooter(row, next) ? "last" : row.lastTurn ? "last-turn" : undefined;
 
-function fallbackRowHeight(row: AcpmuxRow, width: number, beforeFooter = false): number {
+function fallbackRowHeight(row: AcpmuxRow, width: number, beforeFooter = false, lastTurn = false): number {
   const textLines = Math.max(1, Math.ceil((row.text?.length ?? 0) / Math.max(24, Math.floor(width / 8))));
   if (row.kind === "activity") {
     // The edited-files card (conversation/EditedFilesCard.tsx): a 58px head, and 34px for each of the first
@@ -955,7 +958,7 @@ function fallbackRowHeight(row: AcpmuxRow, width: number, beforeFooter = false):
     row.kind === "typing"
   )
     return 37;
-  return 8 + messageBelow(beforeFooter) + chromeHeight(row) + textLines * metrics().lineHeight;
+  return 8 + (lastTurn ? TURN_GAP : messageBelow(beforeFooter)) + chromeHeight(row) + textLines * metrics().lineHeight;
 }
 
 /// A link target the page opens: absolute http and https only (replyHref.ts).
@@ -1088,6 +1091,7 @@ function measuredRowHeight(
   width: number,
   cache: Map<string, PreparedRow>,
   beforeFooter = false,
+  lastTurn = false,
 ): number {
   // A task's result is one 26px line, however long the prompt that brought it (offer/SuggestedTasks.tsx).
   if (row.received) return 26 + MESSAGE_GAP;
@@ -1113,7 +1117,7 @@ function measuredRowHeight(
   // A finished step of only quiet thoughts draws nothing (conversation/ThoughtRow.tsx).
   if (onlyQuietThoughts(row)) return 0;
   // A preview row's text is its address, not prose: the card's height is fixed.
-  if (!row.text || row.kind === PREVIEW) return fallbackRowHeight(row, width, beforeFooter);
+  if (!row.text || row.kind === PREVIEW) return fallbackRowHeight(row, width, beforeFooter, lastTurn);
   let entry = cache.get(row.id);
   if (!entry) {
     entry = { text: "", blocks: [], closedBlocks: [], closedEnd: 0, lexedLength: 0, prepared: new Map() };
@@ -1138,7 +1142,7 @@ function measuredRowHeight(
           ? PASTE_CHIP_HEIGHT
           : Math.max(lineHeight, textHeight(part.text, contentWidth, entry.prepared));
   } else {
-    if (entry.blocks.length === 0) return fallbackRowHeight(row, width, beforeFooter);
+    if (entry.blocks.length === 0) return fallbackRowHeight(row, width, beforeFooter, lastTurn);
     contentHeight = (entry.blocks.length - 1) * BLOCK_GAP;
     for (const block of entry.blocks) contentHeight += blockHeight(block, contentWidth, entry.prepared);
   }
@@ -1146,7 +1150,7 @@ function measuredRowHeight(
   // Chief's draws its own bubble (ChiefPromptBubble.tsx).
   if (row.kind === "user" && row.from !== "chief" && !chiefEnvelope(row.text))
     contentHeight = collapsedPromptHeight(contentHeight, metrics().lineHeight);
-  const height = messageBelow(beforeFooter) + chromeHeight(row) + contentHeight;
+  const height = (lastTurn ? TURN_GAP : messageBelow(beforeFooter)) + chromeHeight(row) + contentHeight;
   return beforeFooter ? height : Math.max(34, height);
 }
 
@@ -1154,7 +1158,7 @@ function measuredRowHeight(
 /// new object), so a long chat's layout measures only the rows that changed since the last one.
 /// The row's edge is kept too: a reply's height changes when its turn's footer arrives after it, and
 /// a footer's when a prompt follows it.
-export type RowHeights = WeakMap<AcpmuxRow, { width: number; height: number; edge?: "footer" | "last" }>;
+export type RowHeights = WeakMap<AcpmuxRow, { width: number; height: number; edge?: "footer" | "last" | "last-turn" }>;
 
 /** DOM-free row geometry. Only visible rows need their React elements painted. */
 export function layoutConversation(
@@ -1198,7 +1202,7 @@ export function layoutConversation(
       height =
         customHeight !== undefined && Number.isFinite(customHeight) && customHeight > 0
           ? customHeight
-          : measuredRowHeight(row, width, cache, edge === "footer");
+          : measuredRowHeight(row, width, cache, edge === "footer", edge === "last-turn");
       known?.set(row, { width, height, edge });
     }
     heights[index] = height;

@@ -122,6 +122,23 @@ test("a footer shaped by turnView, which carries its answer's text, is its 24px 
   expect(heights[footers[1]!]).toBe(48);
 });
 
+test("a latest history turn without a summary keeps the turn gap at the composer", () => {
+  const rows = turnView(
+    [
+      { id: "u", version: 1, at: 1_000, kind: "user", text: "First" },
+      { id: "a", version: 1, at: 2_000, kind: "assistant", text: "Done." },
+    ] as never,
+    new Set(),
+    { now: 3_000 },
+  );
+  const final = rows.at(-1)!;
+  expect(final.kind).toBe("assistant");
+  expect(final.lastTurn).toBe(true);
+  const { heights } = layoutConversation(rows, 720);
+  // The terminal assistant has the same 24px bottom rhythm as a footer, without a row underneath.
+  expect(heights.at(-1)).toBeGreaterThanOrEqual(44);
+});
+
 test("a hidden row after the chat's last footer leaves it the last one", () => {
   const hidden = { id: "h", version: 1, at: 0, kind: "user", text: "", incoming: { kind: "hidden" } };
   const heights = heightsOf([reply("a", "Done."), footer("f"), hidden]);
