@@ -28,8 +28,22 @@ pub(super) async fn agent_prompt(
     turn_id: &str,
     steer: bool,
 ) -> Result<Value, RpcError> {
+    agent_prompt_hook(session, child, params, turn_id, steer, || {}).await
+}
+
+/// The same request, with a synchronous hook after the prompt is written to the child and before
+/// its answer is awaited. The first-message title path uses this gap so a harness title update can
+/// win without waiting for the whole turn.
+pub(super) async fn agent_prompt_hook<F: FnOnce()>(
+    session: &Session,
+    child: &ChildAgent,
+    params: Value,
+    turn_id: &str,
+    steer: bool,
+    on_sent: F,
+) -> Result<Value, RpcError> {
     let mut ended = session.steer_end.subscribe();
-    let request = child.request(method::SESSION_PROMPT, params);
+    let request = child.request_with_hook(method::SESSION_PROMPT, params, on_sent);
     tokio::pin!(request);
     loop {
         tokio::select! {

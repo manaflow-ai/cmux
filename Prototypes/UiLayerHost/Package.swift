@@ -8,5 +8,8 @@ let package = Package(
     name: "UiLayerHost",
     platforms: [.macOS(.v14)],
     products: [.executable(name: "cmux-ui-layer", targets: ["UiLayerHost"])],
-    targets: [.executableTarget(name: "UiLayerHost", path: "Sources/UiLayerHost")]
+    targets: [
+        .executableTarget(name: "UiLayerHost", path: "Sources/UiLayerHost"),
+        .testTarget(name: "UiLayerHostTests", dependencies: ["UiLayerHost"]),
+    ]
 )
