@@ -20,17 +20,40 @@ import CmuxNextSettings
 enum DebugOpenPanelBench {
     private static let frames = BenchFrames()
 
+    // Diagnostic modes (side branch pl-openpanel-probe, not for landing): which sheets stall main, and whether a sheet
+    // with no open animation (`animationResizeTime` 0 on the sheet, on the parent, or NSWindowResizeTime) still does.
+    //   made_noanim   a made-ahead NoAnimOpenPanel (NSOpenPanel subclass, animationResizeTime 0) as a sheet
+    //   save          a made-ahead NSSavePanel as a sheet
+    //   alert         an NSAlert as a sheet (Files, Screenshots)
+    //   plain         a plain NSWindow as a sheet (Home group info, Home sheet, update sheet, SwiftUI .sheet)
+    //   plain_noanim  a NoAnimWindow (animationResizeTime 0) as a sheet
+    //   plain_parent  a plain sheet on a probe parent window whose animationResizeTime is 0 (which window AppKit asks)
+    //   made_default  the made-ahead panel while NSWindowResizeTime is registered as 0.001 (removed after the open)
     static func run(_ params: [String: JSONValue], _ services: AppServices?) async -> JSONValue {
         guard let services else { return .null }
         let mode = params["mode"]?.stringValue ?? "made"
-        guard let window = services.windows.controllers.first?.window else { return .object(["error": .string("no window")]) }
-        guard window.attachedSheet == nil else { return .object(["error": .string("the window already shows a sheet")]) }
+        guard let personWindow = services.windows.controllers.first?.window else { return .object(["error": .string("no window")]) }
+        guard personWindow.attachedSheet == nil else { return .object(["error": .string("the window already shows a sheet")]) }
         let shared = services.openPanel
-        if mode == "made", !shared.isMade {
+        if mode == "made" || mode == "made_default", !shared.isMade {
             shared.warmWhenIdle()
             frames.start()
             _ = await frames.settled(until: { shared.isMade || !shared.isWarming }, start: .now, window: 0, deadline: 8_000)
             _ = frames.stop()
+        }
+        if mode == "made_default" { UserDefaults.standard.register(defaults: ["NSWindowResizeTime": 0.001]) }
+        // Made outside the timed span, as a made-ahead panel is.
+        let noAnimPanel = mode == "made_noanim" ? NoAnimOpenPanel() : nil
+        let savePanel = mode == "save" ? NSSavePanel() : nil
+        var window = personWindow
+        var probeParent: NoAnimWindow?
+        if mode == "plain_parent" {
+            let parent = NoAnimWindow(contentRect: personWindow.frame, styleMask: personWindow.styleMask, backing: .buffered, defer: false)
+            parent.isReleasedWhenClosed = false
+            parent.setFrame(personWindow.frame, display: true)
+            parent.orderFront(nil)
+            probeParent = parent
+            window = parent
         }
         let madeBefore = shared.isMade
         // Quiet frames first, so the click starts from an idle main thread, and the display link keeps ticking into
@@ -39,49 +62,91 @@ enum DebugOpenPanelBench {
         frames.start()
         _ = await frames.settled(until: { true }, start: .now, window: 120, deadline: 1_000)
         let start = ContinuousClock.now
-        guard let panel = mode == "fresh" || mode == "window" ? NSOpenPanel() : shared.panel() else {
-            _ = frames.stop()
-            return .object(["mode": .string(mode), "error": .string("the panel came back dead (no prompt)")])
+        let sheet: NSWindow
+        var alert: NSAlert?
+        switch mode {
+        case "fresh", "window": sheet = NSOpenPanel()
+        case "made_noanim": sheet = noAnimPanel ?? NoAnimOpenPanel()
+        case "save": sheet = savePanel ?? NSSavePanel()
+        case "alert":
+            // dialog-keys-exempt: a probe of the system alert sheet's cost (side branch, never shown to a person)
+            let a = NSAlert()
+            a.messageText = "Probe"
+            a.informativeText = "A sheet the open-panel probe shows and cancels."
+            alert = a
+            sheet = a.window
+        case "plain", "plain_parent": sheet = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 320), styleMask: [.titled], backing: .buffered, defer: false)
+        case "plain_noanim": sheet = NoAnimWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 320), styleMask: [.titled], backing: .buffered, defer: false)
+        default:
+            guard let panel = shared.panel() else {
+                _ = frames.stop()
+                return .object(["mode": .string(mode), "error": .string("the panel came back dead (no prompt)")])
+            }
+            sheet = panel
         }
         let made = ContinuousClock.now
-        if mode == "window" {
+        if mode == "window", let panel = sheet as? NSOpenPanel {
             panel.begin { _ in }
-        } else {
+        } else if let alert {
+            alert.beginSheetModal(for: window) { _ in }
+        } else if let panel = sheet as? NSSavePanel {
             panel.beginSheetModal(for: window) { _ in }
+        } else {
+            window.beginSheet(sheet) { _ in }
         }
         let begun = ContinuousClock.now
         let visible = await frames.settled(until: {
-            panel.isVisible && panel.occlusionState.contains(.visible) && (mode == "window" || window.attachedSheet === panel)
+            sheet.isVisible && sheet.occlusionState.contains(.visible) && (mode == "window" || window.attachedSheet === sheet)
         }, start: start, window: 300, deadline: 10_000)
         let stats = frames.stop()
-        let state: JSONValue = .object([
-            "is_visible": .bool(panel.isVisible),
-            "occlusion_visible": .bool(panel.occlusionState.contains(.visible)),
-            "attached_sheet_is_panel": .bool(window.attachedSheet === panel),
-            "sheet_parent_is_window": .bool(panel.sheetParent === window),
-            "panel_frame": .string(NSStringFromRect(panel.frame)),
-            "window_frame": .string(NSStringFromRect(window.frame)),
-            "window_occlusion_visible": .bool(window.occlusionState.contains(.visible)),
+        let calls: JSONValue = .object([
+            "sheet": .number(Double((sheet as? NoAnimOpenPanel)?.resizeTimeCalls ?? (sheet as? NoAnimWindow)?.resizeTimeCalls ?? -1)),
+            "parent": .number(Double(probeParent?.resizeTimeCalls ?? -1)),
         ])
-        if mode == "window" {
+        if mode == "window", let panel = sheet as? NSOpenPanel {
             panel.cancel(nil)
         } else {
-            window.endSheet(panel, returnCode: .cancel)
+            window.endSheet(sheet, returnCode: .cancel)
         }
         frames.start()
-        _ = await frames.settled(until: { !panel.isVisible && window.attachedSheet == nil }, start: .now, window: 0, deadline: 3_000)
+        _ = await frames.settled(until: { !sheet.isVisible && window.attachedSheet == nil }, start: .now, window: 0, deadline: 3_000)
         _ = frames.stop()
+        probeParent?.close()
+        if mode == "made_default" {
+            var registered = UserDefaults.standard.volatileDomain(forName: UserDefaults.registrationDomain)
+            registered.removeValue(forKey: "NSWindowResizeTime")
+            UserDefaults.standard.setVolatileDomain(registered, forName: UserDefaults.registrationDomain)
+        }
         return .object([
             "mode": .string(mode),
+            "sheet_class": .string(String(describing: type(of: sheet))),
             "made_ahead_before": .bool(madeBefore),
-            "prompt_nil": .bool(panel.prompt == nil),
+            "prompt_nil": .bool((sheet as? NSSavePanel)?.prompt == nil),
             "init_ms": .number(BenchSpans.ms(made - start)),
             "begin_ms": .number(BenchSpans.ms(begun - made)),
             "sync_ms": .number(BenchSpans.ms(begun - start)),
             "visible_ms": visible.map { .number($0) } ?? .null,
             "frames": stats,
-            "state_at_end": state,
+            "resize_time_calls": calls,
         ])
+    }
+}
+
+/// An open panel whose sheet asks for no open animation.
+private final class NoAnimOpenPanel: NSOpenPanel {
+    var resizeTimeCalls = 0
+    override func animationResizeTime(_ newFrame: NSRect) -> TimeInterval {
+        resizeTimeCalls += 1
+        return 0
+    }
+}
+
+/// A window that asks for no resize or sheet animation.
+private final class NoAnimWindow: NSWindow {
+    var resizeTimeCalls = 0
+    override func animationResizeTime(_ newFrame: NSRect) -> TimeInterval {
+        resizeTimeCalls += 1
+        return 0
     }
 }
 
