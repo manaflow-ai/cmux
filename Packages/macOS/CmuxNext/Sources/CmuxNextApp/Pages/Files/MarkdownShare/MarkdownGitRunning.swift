@@ -17,6 +17,8 @@ nonisolated protocol MarkdownGitRunning: Sendable {
 /// editor or agent may hold), stopped at a deadline so a hung filesystem never holds the bar.
 nonisolated struct ProcessMarkdownGitRunner: MarkdownGitRunning {
     var timeout: Duration = .seconds(5)
+    /// Starts the process (`Process.run()`); tests pass one that records where it ran.
+    var launch: @Sendable (Process) throws -> Void = { try $0.run() }
 
     func run(_ arguments: [String], in folder: String) async -> MarkdownGitOutput? {
         guard folder.hasPrefix("/"), !folder.contains("\0") else { return nil }
@@ -29,7 +31,7 @@ nonisolated struct ProcessMarkdownGitRunner: MarkdownGitRunning {
         process.standardInput = FileHandle.nullDevice
         process.environment = ProcessInfo.processInfo.environment.merging(
             ["GIT_OPTIONAL_LOCKS": "0", "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"]) { _, ours in ours }
-        do { try process.run() } catch { return nil }
+        do { try launch(process) } catch { return nil }
         let running = process
         // The raw descriptor crosses into the reading task (a FileHandle is not Sendable); the
         // pipe stays open while `running` holds it as its output.
