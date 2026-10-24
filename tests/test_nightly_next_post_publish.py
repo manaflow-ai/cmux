@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Keep NEXT feed publication independent of slow post-publication checks.
+"""Keep NEXT feed publication independent of the compatibility identity.
 
-The signed arm64 feed is the user-facing readiness boundary. The
-NIGHTLY-identity compatibility lane consumes that publication and may run for
-much longer (or fail independently); it must not become a dependency of
+The signed arm64 artifact is the user-facing readiness boundary. The
+NIGHTLY-identity compatibility lane can submit its own copy while the NEXT
+publication writes the feed; it must not become a dependency of
 ``publish-nightly``.
 """
 
@@ -31,17 +31,19 @@ def needs(job_text: str) -> str:
 failures = []
 publish = job("publish-nightly")
 publish_needs = needs(publish)
-post_jobs = ("legacy-identity-target",)
+compatibility_jobs = ("legacy-identity-target",)
 
-for post_job in post_jobs:
+for post_job in compatibility_jobs:
     if post_job in publish_needs:
         failures.append(f"publish-nightly must not wait for post-publication job {post_job}")
     post = job(post_job)
-    if "publish-nightly" not in needs(post):
-        failures.append(f"{post_job} must depend on publish-nightly")
+    if "prepare-nightly-variant" not in needs(post):
+        failures.append(f"{post_job} must wait for the prepared NEXT artifact")
 legacy = job("legacy-identity-target")
-if "publish-release-notes" not in needs(legacy):
-    failures.append("legacy identity targeting must wait for signed NEXT release notes")
+if "build-nightly-app" not in needs(legacy):
+    failures.append("legacy identity targeting must know the current build number")
+if "CURRENT_BUILD_READY" not in legacy or "--candidate-build" not in legacy:
+    failures.append("legacy identity targeting must admit the current signed artifact")
 notes_publish = job("publish-release-notes")
 if "id: current" not in notes_publish or "git/ref/tags/$RELEASE_TAG" not in notes_publish:
     failures.append("publish-release-notes must recheck the exact release tag before uploading")

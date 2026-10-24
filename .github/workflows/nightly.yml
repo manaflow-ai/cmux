@@ -5313,8 +5313,11 @@ jobs:
   # the old feed's.
   # Linux, seconds; the macOS job starts only when there is work.
   legacy-identity-target:
-    needs: [decide, publish-nightly, publish-release-notes]
-    if: "!cancelled() && needs.decide.result == 'success' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.environment == 'release-next' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.notary_probe != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.fast_build != 'true' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'"
+    # The prepared NEXT artifact is a candidate before the main notarization.
+    # The compatibility identity can therefore submit beside the main identity;
+    # a pending continuation still uses the published feed path.
+    needs: [decide, build-nightly-app, prepare-nightly-variant]
+    if: "always() && !cancelled() && needs.decide.result == 'success' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.environment == 'release-next' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.notary_probe != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.fast_build != 'true' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'"
     # A feed read error must not turn a run that published cmux NEXT red; the
     # macOS job then does not start (it needs this job's success and a build).
     continue-on-error: true
@@ -5331,6 +5334,7 @@ jobs:
       build: ${{ steps.target.outputs.build }}
       pending_run: ${{ steps.target.outputs.pending_run }}
       bundle_run: ${{ steps.target.outputs.bundle_run }}
+      source_run: ${{ steps.target.outputs.source_run }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -5348,6 +5352,9 @@ jobs:
           # NIGHTLY_NEXT_LEGACY_IDENTITY is the only protection.
           REQUIRED: ${{ vars.NIGHTLY_LEGACY_REQUIRED_COMMITS }}
           DEV_RING: ${{ vars.NIGHTLY_NEXT_DEV_RING == 'on' && 'on' || 'off' }}
+          CURRENT_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
+          CURRENT_BUILD_READY: ${{ needs.prepare-nightly-variant.result == 'success' && 'true' || 'false' }}
+          CURRENT_RUN: ${{ github.run_id }}
         run: |
           set -euo pipefail
           curl -fsSL --retry 3 -A "cmux-nightly-legacy/1" -o next-all.xml "${NIGHTLY_NEXT_FEED_BASE}/${LEGACY_APPCAST}"
@@ -5367,14 +5374,19 @@ jobs:
           newest() { sed -n 's#.*<sparkle:version>\([0-9][0-9]*\)</sparkle:version>.*#\1#p' "$1" | sort -n | tail -1; }
           next_nightly="$(newest next.xml)" old_nightly="$(newest old.xml)"
           echo "Nightly: cmux NEXT ${next_nightly:-none}, old feed ${old_nightly:-none}; Dev ring $DEV_RING"
+          candidate_args=()
+          if [ "$CURRENT_BUILD_READY" = true ]; then
+            [[ "$CURRENT_BUILD" =~ ^[0-9]+$ ]] || { echo "invalid current build '$CURRENT_BUILD'" >&2; exit 1; }
+            candidate_args=(--candidate-build "$CURRENT_BUILD" --candidate-url "https://artifact.invalid/${DMG_PREFIX}${CURRENT_BUILD}.dmg")
+          fi
           if [ -n "$next_nightly" ] && [ "$next_nightly" -gt "${old_nightly:-0}" ]; then
             echo "### cmux NIGHTLY-identity: Nightly build $next_nightly is the candidate (cx-x7hwx)" >> "$GITHUB_STEP_SUMMARY"
           elif [ "$DEV_RING" = on ]; then
             cp next-all.xml next.xml
             cp old-all.xml old.xml
-          elif [ -z "$next_nightly" ]; then
+          elif [ -z "$next_nightly" ] && [ "$CURRENT_BUILD_READY" != true ]; then
             echo "### cmux NIGHTLY-identity: no cmux NEXT build is on Nightly yet; the old feed waits (cx-x7hwx)" >> "$GITHUB_STEP_SUMMARY"
-            { echo "action=none"; echo "pending_run="; echo "bundle_run="; echo "build="; } >> "$GITHUB_OUTPUT"
+            { echo "action=none"; echo "pending_run="; echo "bundle_run="; echo "source_run="; echo "build="; } >> "$GITHUB_OUTPUT"
             exit 0
           fi
           # A cmux NIGHTLY-identity submission still in Apple's queue is kept by
@@ -5442,7 +5454,7 @@ jobs:
           action=none build="" pending_run="" bundle_run=""
           for _ in 1 2 3; do
             decision="$(python3 scripts/ci/nightly-next-legacy-target.py next.xml old.xml "$DMG_PREFIX" --max-pending-hours 6 --max-same-build-hours 48 \
-              --failure-log failures.txt --max-failures 2 ${pending_args[@]+"${pending_args[@]}"} ${refuse_args[@]+"${refuse_args[@]}"})"
+              --failure-log failures.txt --max-failures 2 ${candidate_args[@]+"${candidate_args[@]}"} ${pending_args[@]+"${pending_args[@]}"} ${refuse_args[@]+"${refuse_args[@]}"})"
             action="$(sed -n 's/^action=//p' <<<"$decision")"
             build="$(sed -n 's/^build=//p' <<<"$decision")"
             pending_run="$(sed -n 's/^pending_run=//p' <<<"$decision")"
@@ -5470,6 +5482,11 @@ jobs:
             echo "- $note" >> "$GITHUB_STEP_SUMMARY"
             action=none build="" pending_run="" bundle_run=""
           done
+          source_run=""
+          if [ "$action" = new ] && [ "$CURRENT_BUILD_READY" = true ] && [ "$build" = "$CURRENT_BUILD" ]; then
+            source_run="$CURRENT_RUN"
+          fi
+          echo "source_run=$source_run" >> "$GITHUB_OUTPUT"
           if [ -n "$notes" ]; then
             body="$notes"$'\n'"Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID (requirement: NIGHTLY_LEGACY_REQUIRED_COMMITS=${REQUIRED:-none})"
             if issue="$(./scripts/ci/nightly-next-legacy-failure-issue.sh "$GITHUB_REPOSITORY")"; then
@@ -5505,7 +5522,8 @@ jobs:
   # in Apple's queue to recover-nightly-next-notarization) or a
   # nightly_next_continue_only run. A run that publishes nothing still catches
   # the old feed up to an earlier publication.
-  # This lane starts only after the cmux NEXT publication and its notes. No
+  # This lane starts from the signed NEXT artifact and runs beside publication.
+  # A pending continuation still consumes the published recovery artifact. No
   # publication job needs it, and
   # continue-on-error keeps the run's result to cmux NEXT. A failure opens or
   # updates the "cmux NIGHTLY-identity publication failed" issue; the old feed
@@ -5569,6 +5587,9 @@ jobs:
       # The run that holds the continued submission's bundle (the metadata of
       # an accepted submission is re-stored by a later run).
       BUNDLE_RUN: ${{ needs.legacy-identity-target.outputs.bundle_run }}
+      # A new candidate can come directly from this run's signed artifact while
+      # publish-nightly writes the NEXT feed. Continuations keep BUNDLE_RUN.
+      SOURCE_RUN: ${{ needs.legacy-identity-target.outputs.source_run }}
       # Checked again on the app's own commit before anything is submitted to
       # Apple (legacy-identity-target checks the build first).
       REQUIRED: ${{ vars.NIGHTLY_LEGACY_REQUIRED_COMMITS }}
@@ -5657,8 +5678,19 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p next-in
-          gh release download "$CHANNEL_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
-            --pattern "${CHANNEL_DMG_PREFIX}-arm64-${NIGHTLY_BUILD}.dmg" --dir next-in
+          if [ -n "$SOURCE_RUN" ]; then
+            mkdir -p prepared-in
+            gh run download "$SOURCE_RUN" --repo "$GITHUB_REPOSITORY" \
+              --pattern "cmux-next-prepared-app-arm64-*" --dir prepared-in
+          else
+            gh release download "$CHANNEL_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+              --pattern "${CHANNEL_DMG_PREFIX}-arm64-${NIGHTLY_BUILD}.dmg" --dir next-in
+          fi
+          if [ -z "$SOURCE_RUN" ]; then
+            find next-in -maxdepth 1 -name "${CHANNEL_DMG_PREFIX}-arm64-${NIGHTLY_BUILD}.dmg" -print -quit | grep -q .
+          else
+            find prepared-in -type f -name 'cmux-prepared-app.tar.gz' -print -quit | grep -q .
+          fi
 
       - name: Import signing cert
         if: steps.order.outputs.skip != 'true'
@@ -5666,6 +5698,35 @@ jobs:
           APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: ./scripts/ci/signing-keychain.sh create
+
+      # A current run has a prepared app before the main identity enters
+      # Apple's queue. Sign and package that exact app as a temporary NEXT DMG
+      # so the compatibility identity can submit in parallel. The published
+      # DMG path below remains the continuation path for older runs.
+      - name: Prepare current NEXT DMG for the parallel identity
+        if: steps.order.outputs.skip != 'true' && env.LEGACY_ACTION == 'new' && env.SOURCE_RUN != ''
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          set -euo pipefail
+          archive="$(find prepared-in -type f -name 'cmux-prepared-app.tar.gz' -print -quit)"
+          mkdir -p prepared-app next-in
+          tar -C prepared-app -xzf "$archive"
+          mv prepared-app/cmux.app "prepared-app/cmux NEXT.app"
+          app="prepared-app/cmux NEXT.app"
+          CMUX_SIGN_MODE=all ./scripts/sign-cmux-bundle.sh \
+            "$app" cmux.next-dev.entitlements "$APPLE_SIGNING_IDENTITY"
+          create-dmg --no-code-sign "$app" next-in
+          created="$(find next-in -maxdepth 1 -name '*.dmg' -print -quit)"
+          [ -n "$created" ] || { echo "create-dmg produced no DMG" >&2; exit 1; }
+          hdiutil convert "$created" -quiet -format ULMO -ov -o "next-in/${CHANNEL_DMG_PREFIX}-arm64-${NIGHTLY_BUILD}.dmg"
+          rm -f "$created"
+          ./scripts/ci/signing-keychain.sh unlock
+          /usr/bin/codesign --force --timestamp --keychain build.keychain \
+            --sign "$APPLE_SIGNING_IDENTITY" \
+            "next-in/${CHANNEL_DMG_PREFIX}-arm64-${NIGHTLY_BUILD}.dmg"
+          /usr/bin/codesign --verify --verbose=2 \
+            "next-in/${CHANNEL_DMG_PREFIX}-arm64-${NIGHTLY_BUILD}.dmg"
 
       - name: Sign the build as cmux NIGHTLY
         if: steps.order.outputs.skip != 'true' && env.LEGACY_ACTION == 'new'
