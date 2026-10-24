@@ -62,6 +62,15 @@ describe("diffs draw at the regular weight with calm tints", () => {
     }
   });
 
+  test("intra-line diff highlights compute to the emphasis weight", async () => {
+    for (const [name, css] of Object.entries(await surfaces())) {
+      const { weight } = renderRows(css);
+      expect(`${name} [data-diff-span]: ${weight("[data-diff-span]")}`).toBe(
+        `${name} [data-diff-span]: 600`,
+      );
+    }
+  });
+
   test("both surfaces tint a changed row the same low amount, the changed word a step above", async () => {
     const all = Object.values(await surfaces());
     const rows = all.map((css) =>
