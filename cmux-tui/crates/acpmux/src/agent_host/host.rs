@@ -694,14 +694,9 @@ impl State {
             }
         };
         // Keep the raw Claude line in the log under its own kind.
-        let kind = format!(
-            "claude.{}{}",
-            raw.get("type").and_then(Value::as_str).unwrap_or("?"),
-            raw.get("subtype").and_then(Value::as_str).map(|s| format!(".{s}")).unwrap_or_default()
-        );
         self.push(Entry::Tap {
             dir: TapDir::In,
-            msg: Message::notification(&kind, raw.clone()).to_value(),
+            msg: crate::claude_stdio::logged_line(&raw).to_value(),
         });
         let translated = tr.inbound(&raw).await;
         for l in tr.take_stdin_replies().await {

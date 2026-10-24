@@ -178,6 +178,35 @@ fn startup_settings(effort: &str, fast: bool) -> Option<Value> {
     (!settings.is_empty()).then_some(Value::Object(settings))
 }
 
+/// A raw Claude stdout line as the session's event log keeps it, under its
+/// own kind (`claude.<type>[.<subtype>]`). A workflow's `task_progress`
+/// snapshot (`workflow_progress`) repeats every agent of the run so far,
+/// about 1 KB each, and comes with every agent's start and end, so one
+/// 876-agent run would log the better part of a gigabyte: the log keeps how
+/// many items it held (`workflow_progress_items`), and the translated
+/// `subagent_progress` keeps what changed (`workflows.rs`).
+pub fn logged_line(raw: &Value) -> Message {
+    let kind = format!(
+        "claude.{}{}",
+        raw.get("type").and_then(Value::as_str).unwrap_or("?"),
+        raw.get("subtype").and_then(Value::as_str).map(|s| format!(".{s}")).unwrap_or_default()
+    );
+    let snapshot = raw.get("workflow_progress").and_then(Value::as_array);
+    let line = match (raw.as_object(), snapshot) {
+        (Some(fields), Some(items)) => {
+            let mut kept: serde_json::Map<String, Value> = fields
+                .iter()
+                .filter(|(key, _)| *key != "workflow_progress")
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect();
+            kept.insert("workflow_progress_items".into(), json!(items.len()));
+            Value::Object(kept)
+        }
+        _ => raw.clone(),
+    };
+    Message::notification(&kind, line)
+}
+
 /// The model choices offered in pickers before Claude Code's own list answers.
 pub fn models() -> &'static [(String, String)] {
     &MODELS
