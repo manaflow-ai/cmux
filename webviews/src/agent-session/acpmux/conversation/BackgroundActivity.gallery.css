@@ -107,3 +107,8 @@
 .bg-gallery__command > summary,
 .bg-gallery__command > pre,
 .bg-gallery__command > .bg-gallery__tail-foot { grid-column: 1 / -1; }
+
+.bg-gallery__shell--compact .bg-gallery__composer { margin-top: 0; }
+.bg-gallery__command[data-command-state="stopped"] { background: var(--surface-muted); }
+.bg-gallery__command[data-command-state="stopped"] .bg-gallery__status-dot { background: var(--ink-faint); box-shadow: 0 0 0 3px var(--line); }
+.bg-gallery__command[data-command-state="stopped"] .bg-gallery__command-state { color: var(--ink-faint); }
