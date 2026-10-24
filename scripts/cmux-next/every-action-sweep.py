@@ -305,6 +305,49 @@ def tab_kinds(topo):
     return {t["id"]: t.get("kind") for w in topo.get("workspaces") or [] for p in panes_of(w) for t in p.get("tabs") or []}
 
 
+def layout(topo):
+    """What a restore must bring back exactly when ids change (a reopened pane or tab has new ids): the windows, and
+    per workspace each screen's panes in order, each as its column and the multiset of its tab kinds."""
+    return {"windows": sorted(w.get("id") or "" for w in topo.get("windows") or []),
+            "workspaces": {w["id"]: [[[p.get("column"), sorted(t.get("kind") or "?" for t in p.get("tabs") or [])]
+                                      for p in s.get("panes") or [] if not p.get("dock")] for s in w.get("screens") or []]
+                           for w in topo.get("workspaces") or [] if w.get("id")}}
+
+
+def pane_position(topo, workspace, pane):
+    """[screen index, pane index] of `pane` in `workspace`, or None."""
+    ws = next((w for w in topo.get("workspaces") or [] if w.get("id") == workspace), {})
+    for screen_index, screen in enumerate(ws.get("screens") or []):
+        for pane_index, info in enumerate(p for p in screen.get("panes") or [] if not p.get("dock")):
+            if info.get("id") == pane:
+                return [screen_index, pane_index]
+    return None
+
+
+def pane_at(topo, workspace, position):
+    """The id of the pane at `position` ([screen index, pane index]) in `workspace`, or None."""
+    ws = next((w for w in topo.get("workspaces") or [] if w.get("id") == workspace), {})
+    screens = ws.get("screens") or []
+    if not position or position[0] >= len(screens):
+        return None
+    panes = [p for p in screens[position[0]].get("panes") or [] if not p.get("dock")]
+    return panes[position[1]].get("id") if position[1] < len(panes) else None
+
+
+def terminals(topo):
+    """tab id -> terminal id of every terminal tab (a reopen inside the reap grace attaches the same terminal)."""
+    return {t["id"]: t.get("terminal") for w in topo.get("workspaces") or [] for p in panes_of(w)
+            for t in p.get("tabs") or [] if t.get("kind") == "terminal" and t.get("terminal")}
+
+
+def closed_ids():
+    """The closed-history ids (`history.list`, newest first): each one a group `history.reopen` brings back by id.
+    Empty when the app answers with an error: nothing is reopened then, the rebuild path runs."""
+    reply = rpc("history.list", {"kind": "closed", "range": "all", "limit": 5000})
+    entries = reply.get("entries") if isinstance(reply, dict) else None
+    return [e["closed_id"] for e in entries or [] if isinstance(e, dict) and e.get("closed_id")]
+
+
 # ----------------------------------------------------------------------------------------------------------
 # Classification: what runs, through which entrypoint, and what it is checked against.
 
@@ -427,6 +470,8 @@ class Sweep:
         self.rows, self.interactions = [], []
         self.base = {}
         self.builder = None
+        # The closed-history ids just before the measured input (mark_closed); restore() reopens only newer ones.
+        self.closed_mark = None
 
     # Session building.
 
@@ -486,10 +531,15 @@ class Sweep:
                 [t["id"] for t in tabs if t.get("kind") == "page"]
         selected = next((t["id"] for t in tabs if t.get("selected")), pane_info.get("selected_tab"))
         other = next((w["id"] for w in topo.get("workspaces") or [] if w.get("id") != workspace), None)
+        # The busy terminals (STRESS: 10 printing a line every 20 ms) by terminal id: a reopened pane must bring back
+        # the same running terminals, not new idle shells.
+        by_tab = terminals(topo)
+        busy = sorted(by_tab[t] for t in getattr(self.builder, "busy", None) or [] if t in by_tab)
         self.base = {"workspace": workspace, "pane": pane_info.get("id"), "tab": selected, "kinds": kinds, "made": made,
                      "window": focus.get("window"), "other_workspace": other, "shape": shape(topo), "tab_kinds": tab_kinds(topo),
+                     "layout": layout(topo), "pane_at": pane_position(topo, workspace, pane_info.get("id")), "busy": busy,
                      "settings": self.settings()}
-        note(f"every-action: {self.session} base {json.dumps({k: v for k, v in self.base.items() if k not in ('shape', 'settings', 'tab_kinds')})}")
+        note(f"every-action: {self.session} base {json.dumps({k: v for k, v in self.base.items() if k not in ('shape', 'settings', 'tab_kinds', 'layout')})}")
 
     def settings(self):
         reply = rpc("settings.get", {"path": []})
@@ -522,6 +572,10 @@ class Sweep:
 
     # Restore.
 
+    def mark_closed(self):
+        """Records the closed history just before a measured input: restore() reopens only the entries that input made."""
+        self.closed_mark = set(closed_ids())
+
     def restore(self, action_id, toggled):
         if self.app.process and self.app.process.poll() is not None:
             # The app is gone (it quit or crashed): rebuilding through a dead socket would only time out.
@@ -533,7 +587,27 @@ class Sweep:
             reply = rpc("action.run", {"action": action_id, "focus": True})
             if error_of(reply):
                 key = None
-        before, after = self.base["shape"], shape(topology())
+        mark, self.closed_mark = self.closed_mark, None
+        closed = []
+        if mark is not None and self.lost(self.base["shape"], shape(topology())):
+            # The groups the input closed, read before this restore's own closes add theirs. The daemon's closed
+            # history reaches the app on its own event stream, so an entry can land after the topology shows the
+            # close: wait for it. A move (a pane into another workspace) closes nothing, and the bound runs out.
+            closed = wait(lambda: [i for i in closed_ids() if i not in mark], 3.0) or []
+        drift = self.close_new(self.base["shape"])
+        lost = self.lost(self.base["shape"], shape(topology()))
+        if lost:
+            drift.append(f"lost {lost}")
+            self.rebuild(lost, closed)
+        changed = self.restore_settings()
+        if changed:
+            drift.append(f"settings {','.join(changed)[:80]}")
+        self.home()
+        return drift
+
+    def close_new(self, before):
+        """Closes every window, workspace, pane and tab that `before` (a shape) does not have; returns what it closed."""
+        after = shape(topology())
         drift = []
         for window in after["windows"]:
             if window not in before["windows"]:
@@ -556,14 +630,6 @@ class Sweep:
                     if tab not in old[pane]:
                         act("closeTab", f"tab:{tab}", origin="script")
                         drift.append("tab+")
-        lost = self.lost(before, shape(topology()))
-        if lost:
-            drift.append(f"lost {lost}")
-            self.rebuild(lost)
-        changed = self.restore_settings()
-        if changed:
-            drift.append(f"settings {','.join(changed)[:80]}")
-        self.home()
         return drift
 
     def lost(self, before, after):
@@ -581,9 +647,47 @@ class Sweep:
                 missing["tabs"] += sum(1 for t in tabs if t not in now[pane])
         return {k: v for k, v in missing.items() if v}
 
-    def rebuild(self, lost):
-        """Removed objects come back: tabs of the base pane by kind; otherwise the session's measured workspace is rebuilt."""
+    def restored(self):
+        """True when the topology is the base again: the same layout (``layout``) and every busy terminal running."""
+        topo = topology()
+        return layout(topo) == self.base["layout"] and set(self.base["busy"]) <= set(terminals(topo).values())
+
+    def reopen(self, closed):
+        """Reopens exactly `closed` (closed-history ids the measured input made, newest first: the undo order) by id
+        (`history.reopen`, the Recently Closed list's path), never the newest entry of the history (Cmd-Shift-T),
+        which this sweep's own cleanup closes fill. True once the topology is the base again (``restored``); then
+        the base pane is the pane at the base pane's place. Otherwise whatever came back is closed and False."""
+        if not closed:
+            return False
+        for item in closed:
+            reply = act("history.reopen", args={"id": item}, origin="script")
+            if error_of(reply):
+                note(f"every-action: {self.session}: history.reopen {item}: {error_of(reply)}")
+                break
+        else:
+            # action.run answers when the reopen's work settled; the store lays the reopened tabs over later.
+            if wait(self.restored, 10.0):
+                topo = topology()
+                base_ws = self.base["workspace"]
+                pane = pane_at(topo, base_ws, self.base.get("pane_at")) or self.base["pane"]
+                busy = set(self.base["busy"])
+                if busy:
+                    self.builder.busy = [tab for tab, terminal in terminals(topo).items() if terminal in busy]
+                self.builder.focus_pane(pane)
+                self.snapshot_base(base_ws)
+                return True
+        note(f"every-action: {self.session}: reopening {closed} did not give the base back; closing what came back")
+        self.close_new(self.base["shape"])
+        return False
+
+    def rebuild(self, lost, closed=()):
+        """Removed objects come back: the closed groups the input made, reopened by id; else tabs of the base pane
+        by kind; otherwise the session's measured workspace is rebuilt."""
+        if not lost.get("workspaces") and not lost.get("windows") and self.reopen(list(closed)):
+            note(f"every-action: {self.session}: reopened {len(closed)} closed group(s) by id; the base is back ({lost})")
+            return
         before, after = self.base["shape"], shape(topology())
+        lost = self.lost(before, after) or lost
         base_ws = self.base["workspace"]
         only_tabs = set(lost) == {"tabs"} and base_ws in after["workspaces"]
         if only_tabs:
@@ -601,19 +705,6 @@ class Sweep:
                 self.builder.focus_pane(self.base["pane"])
                 self.snapshot_base(base_ws)
                 return
-        # Reopen Closed (Cmd-Shift-T) brings closed panes and tabs back in one step each: much cheaper than a
-        # rebuild of the STRESS grid. The reopened ones have new ids, so the base is taken again by counts.
-        if base_ws in after["workspaces"] and not lost.get("workspaces") and not lost.get("windows"):
-            want = counts({"windows": [], "workspaces": {base_ws: before["workspaces"][base_ws]}, "focus": {}})
-            for _ in range(6):
-                now = counts({"windows": [], "workspaces": {base_ws: shape(topology())["workspaces"].get(base_ws, {})}, "focus": {}})
-                if now["panes"] >= want["panes"] and now["tabs"] >= want["tabs"]:
-                    note(f"every-action: {self.session}: Reopen Closed brought back {lost}")
-                    self.builder.focus_pane(next(iter(shape(topology())["workspaces"][base_ws])))
-                    self.snapshot_base(base_ws)
-                    return
-                act("reopenClosedBrowserPanel", origin="script")
-                time.sleep(0.3)  # test script: the reopened pane or tab lands before the next count
         note(f"every-action: {self.session}: rebuilding after {lost}")
         if self.session == "stress":
             workspace = self.builder.build_measured()
@@ -716,6 +807,7 @@ class Sweep:
         expect = expectation(ident)
         toggled = bool(re.search(TOGGLES, ident)) and not expect
         for attempt in range(opts.repeat):
+            self.mark_closed()
             if not self.show(plan["context"]):
                 row["skipped"] = f"no {plan['context']} tab in the base pane"
                 return row
@@ -735,6 +827,7 @@ class Sweep:
                         if isinstance(sample["reply"], dict) else sample["reply"]
                     key_runs = sample["runs"]
                     drift = self.restore(ident, False) if key_runs else []
+                    self.mark_closed()
                     if not self.show(plan["context"]):
                         break
                     before = shape(topology())
@@ -813,6 +906,7 @@ class Sweep:
     # Non-catalog interactions.
 
     def interaction(self, name, run, **extra):
+        self.mark_closed()
         try:
             result = run()
         except Exception as error:  # a harness failure is a row, not a crash of the sweep
