@@ -16,9 +16,13 @@ import Observation
 /// fetched again until it leaves the small failure memory.
 @Observable
 final class TabFaviconStore {
+    /// By the address as the record or page names it: a strip and the sidebar look up every tab's
+    /// icon on each pass, and a key of a parsed `URL` parsed the address and compared URLs per
+    /// lookup (sweep 2026-10-23: 32 ms in one STRESS column.moveLeft, 130 ms in collapseAll, in
+    /// `URL(string:)` and `URL.==`). The address is parsed only to fetch.
     private struct Key: Hashable {
         var profile: BrowserProfileID
-        var url: URL
+        var address: String
     }
 
     /// Icons per profile and URL. `TabImage` identity is stable per entry,
@@ -40,32 +44,36 @@ final class TabFaviconStore {
     /// (the caller shows a globe) or when there is none. `tab`, the live page the icon is
     /// for, fetches it as that page would (a Chromium tab through its own request context).
     func image(for address: String?, profile: BrowserProfileID, tab: (any BrowserTab)? = nil) -> TabImage? {
-        guard let address, let url = URL(string: address),
-              let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https"
-        else { return nil }
-        let key = Key(profile: profile, url: url)
+        guard let address, Self.isWebAddress(address) else { return nil }
+        let key = Key(profile: profile, address: address)
         if let image = images.peek(key) { return image }
         load(key, tab: tab)
         return nil
     }
 
+    /// An `http:` or `https:` address (the scheme in any case), without parsing it.
+    static func isWebAddress(_ address: String) -> Bool {
+        let head = address.utf8.prefix(8).map { $0 | 0x20 } // ASCII lowercase; ':' and '/' are unchanged
+        return head.starts(with: "http://".utf8) || head.starts(with: "https://".utf8)
+    }
+
     /// The icon at `address` for `profile` when it is already here; never fetches (a list
     /// of every bookmark must not fetch every site's icon).
     func cachedImage(for address: String, profile: BrowserProfileID) -> TabImage? {
-        URL(string: address).flatMap { images.peek(Key(profile: profile, url: $0)) }
+        images.peek(Key(profile: profile, address: address))
     }
 
     /// True while the icon at `address` for `profile` is being fetched.
     func isFetching(_ address: String, profile: BrowserProfileID) -> Bool {
-        guard let url = URL(string: address) else { return false }
-        return pending[Key(profile: profile, url: url)] != nil
+        pending[Key(profile: profile, address: address)] != nil
     }
 
     private func load(_ key: Key, tab: (any BrowserTab)?) {
         guard pending[key] == nil, failed.peek(key) == nil else { return }
+        guard let url = URL(string: key.address) else { return failed.set(true, for: key) }
         pending[key] = Task { [weak self, weak tab, loader] in
             let icon: NSImage?
-            if let tab { icon = await tab.fetchFavicon(key.url) } else { icon = await loader.favicon(at: key.url, profile: key.profile) }
+            if let tab { icon = await tab.fetchFavicon(url) } else { icon = await loader.favicon(at: url, profile: key.profile) }
             guard let self else { return }
             self.pending[key] = nil
             if let cgImage = icon?.cgImage(forProposedRect: nil, context: nil, hints: nil) {
