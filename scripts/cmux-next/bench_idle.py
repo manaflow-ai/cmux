@@ -8,6 +8,10 @@ terminal hosts, and each Chromium helper over --measure seconds after
 --settle seconds of quiet:
 
   terminals        the launch window with its terminal
+  cmux-pages-hidden  Home shown (its cmux pages start in Chromium), then
+                   hidden behind a new workspace; measured once every
+                   Chromium cmux page froze (browser.freezeHiddenTabs,
+                   30 s) or never started (perf-lead.md F3)
   chromium-static  plus one Chromium tab on a static page (selected)
   chromium-hidden  that Chromium tab's workspace is not shown (a new
                    workspace is selected)
@@ -19,11 +23,15 @@ so the bench itself adds no wakeups to the app. When the build has
 `debug.wakeups`, the ledger owners and active frame clients are recorded
 too. Pass criteria (defaults, per process; tune with flags): app and
 daemon < 0.5% CPU and < 5 wakeups/s, each terminal host < 0.2% and < 2/s,
-Chromium helpers < 1% on the static and hidden pages.
+Chromium helpers < 1% on the static and hidden pages. With Home hidden
+(cmux-pages-hidden): no more renderers than cmux pages that started, each
+renderer < 0.05% CPU and < 1 wakeup/s (a frozen hidden Chromium tab measured
+0.2/s, speed-of-sound-DESIGN.md section 7), and every Chromium cmux page frozen
+or not started within the freeze grace.
 
 Usage:
   scripts/cmux-next/bench-idle.sh <tag> [--app PATH] [--measure 60]
-      [--settle 20] [--scenarios terminals,chromium-static,chromium-hidden,minimized]
+      [--settle 20] [--scenarios terminals,cmux-pages-hidden,chromium-static,chromium-hidden,minimized]
       [--url URL] [--out DIR] [--label NAME] [--no-fail] [--keep-running]
 
 Writes artifacts/cmux-next-bench/<sha>-idle-<label>.json; exits 1 when a
@@ -206,6 +214,25 @@ def wait_for(condition, limit_s):
     return False
 
 
+def cmux_pages(control):
+    """[(page id, Chromium lifecycle)] of every cmux page, read without a call into any page
+    (debug.page list), so the probe thaws nothing."""
+    response = control.call("debug.page", {"action": "list"}, timeout=10)
+    pages = (response.get("result") or {}).get("pages") or []
+    return [(page.get("page"), page.get("chromium")) for page in pages]
+
+
+def started_in_chromium(pages):
+    """Pages whose Chromium page started (a renderer may be theirs)."""
+    return [page for page in pages if page[1] in ("seen", "hidden", "frozen")]
+
+
+def awake_hidden(pages):
+    """Chromium pages that started and are neither seen nor frozen (a lifecycle the build does not
+    report counts as awake: a build without the freeze has none)."""
+    return [page for page in pages if page[1] not in ("seen", "frozen", "waiting", "webkit")]
+
+
 def prepare(scenario, control, args, app_pid, bundle):
     """Sets the scenario up; returns a skip reason or None."""
     def refused(response):
@@ -234,6 +261,11 @@ def prepare(scenario, control, args, app_pid, bundle):
         return reason
     if scenario == "chromium-hidden":
         return refused(run_action("newTab"))
+    if scenario == "cmux-pages-hidden":
+        reason = refused(run_action("home.show"))
+        if reason is None and not wait_for(lambda: "cef-renderer" in classify(app_pid, bundle).values(), 90):
+            reason = "no Chromium renderer appeared for Home within 90 s (Home's pages are not Chromium: check debug.cef)"
+        return reason or refused(run_action("newTab"))
     if scenario == "minimized":
         return refused(run_action("minimizeWindow"))
     return None
@@ -241,6 +273,20 @@ def prepare(scenario, control, args, app_pid, bundle):
 
 def criteria(scenario, result, args):
     failures = []
+    if scenario == "cmux-pages-hidden":
+        renderers = [row for row in result["processes"] if row["kind"] == "cef-renderer"]
+        started = result.get("started_pages", 0)
+        if len(renderers) > started:
+            failures.append(f"{scenario}: {len(renderers)} Chromium renderers for {started} started cmux pages")
+        for page, lifecycle in result.get("awake_pages", []):
+            failures.append(f"{scenario}: cmux page {page} still awake while Home is hidden ({lifecycle})")
+        for row in renderers:
+            if row.get("partial"):
+                continue
+            if row["cpu_percent"] > args.max_hidden_renderer_cpu:
+                failures.append(f"{scenario}: renderer {row['pid']} {row['cpu_percent']}% CPU > {args.max_hidden_renderer_cpu}%")
+            if row["wakeups_per_s"] > args.max_hidden_renderer_wakeups:
+                failures.append(f"{scenario}: renderer {row['pid']} {row['wakeups_per_s']} wakeups/s > {args.max_hidden_renderer_wakeups}")
     for row in result["processes"]:
         if row.get("partial"):
             if row["kind"] in ("app", "daemon"):
@@ -270,7 +316,7 @@ def main():
     parser.add_argument("--sha", default="unknown")
     parser.add_argument("--measure", type=float, default=60)
     parser.add_argument("--settle", type=float, default=20)
-    parser.add_argument("--scenarios", default="terminals,chromium-static,chromium-hidden,minimized")
+    parser.add_argument("--scenarios", default="terminals,cmux-pages-hidden,chromium-static,chromium-hidden,minimized")
     parser.add_argument("--url", help="page for the Chromium scenarios (default: a static local file)")
     parser.add_argument("--out")
     parser.add_argument("--label", default="run")
@@ -279,6 +325,12 @@ def main():
     parser.add_argument("--max-host-cpu", type=float, default=0.2)
     parser.add_argument("--max-host-wakeups", type=float, default=2)
     parser.add_argument("--max-helper-cpu", type=float, default=1.0)
+    # A frozen hidden Chromium tab measured 0.2 wakeups/s (speed-of-sound-DESIGN.md section 7) and a
+    # visible static page's floor is about 0.05 % CPU (section 3.1): a frozen renderer stays under both.
+    parser.add_argument("--max-hidden-renderer-cpu", type=float, default=0.05)
+    parser.add_argument("--max-hidden-renderer-wakeups", type=float, default=1.0)
+    parser.add_argument("--freeze-grace", type=float, default=30,
+                        help="browser.freezeHiddenTabs of the run (cmux-pages-hidden waits this long, plus the settle, for every page to freeze)")
     parser.add_argument("--no-fail", action="store_true")
     parser.add_argument("--keep-running", action="store_true")
     parser.add_argument("--env", action="append", default=[], metavar="NAME=VALUE",
@@ -350,8 +402,17 @@ def main():
                 report["scenarios"][scenario] = {"skipped": skipped}
                 print(f"== {scenario}: skipped ({skipped})")
                 continue
+            pages = None
+            if scenario == "cmux-pages-hidden":
+                # Every Chromium cmux page freezes after the grace; the wait ends as soon as none is awake.
+                wait_for(lambda: not awake_hidden(cmux_pages(control)), args.freeze_grace + args.settle)
+                pages = cmux_pages(control)
             time.sleep(args.settle)  # test script: let the scenario settle
             result = measure(app_pid, bundle, args.measure, control)
+            if pages is not None:
+                result["cmux_pages"] = [{"page": page, "chromium": lifecycle} for page, lifecycle in pages]
+                result["started_pages"] = len(started_in_chromium(pages))
+                result["awake_pages"] = awake_hidden(pages)
             report["scenarios"][scenario] = result
             failures += criteria(scenario, result, args)
             print(f"== {scenario}")
