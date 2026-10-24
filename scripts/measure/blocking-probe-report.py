@@ -2,8 +2,8 @@
 """Ranks the main-thread blocking the probe recorded (scripts/measure/blocking-probe/probe.c).
 
 Reads the probe's dumps (TSV, one per app launch: probe-<pid>.tsv) and groups every entry by its first cmux
-frame: the first stack frame in an image of the app bundle (the executable, a Debug build's
-`<name>.debug.dylib`, cmux's own frameworks and dylibs). The probe keys each entry by its first 16 frames, so
+frame: the first stack frame in cmux's own code (the app executable, a Debug build's `<name>.debug.dylib`, and
+frameworks or dylibs named CmuxNext* / cmux*; never a third-party framework such as Sparkle or CEF). The probe keys each entry by its first 16 frames, so
 calls from different cmux call sites are different entries, with exact counts. Frames in the app's images are
 resolved with atos (against a dSYM when the build has one), so a stripped bench build and a Debug build's
 split .debug.dylib name the right function and line. Prints the sites worst first by total main-thread time as Markdown and JSON, with
@@ -26,11 +26,16 @@ parser.add_argument("--launches", type=int, default=0, help="launches the sweep 
 parser.add_argument("--out", required=True)
 opts = parser.parse_args()
 
-# The app bundle's own images by file name: the executable, a Debug build's .debug.dylib, its frameworks.
+# cmux's own images by file name: the executable, a Debug build's .debug.dylib, and frameworks or dylibs named
+# CmuxNext* / cmux* (not third-party ones such as Sparkle or CEF).
 app_images = {}
-for pattern in ("Contents/MacOS/*", "Contents/Frameworks/*.dylib", "Contents/Frameworks/*.framework/Versions/A/*"):
+CMUX_NAME = re.compile(r"^(CmuxNext|cmux|libcmux)", re.I)
+for path in glob.glob(os.path.join(opts.app, "Contents/MacOS/*")):
+    if os.path.isfile(path):
+        app_images.setdefault(os.path.basename(path), path)
+for pattern in ("Contents/Frameworks/*.dylib", "Contents/Frameworks/*.framework/Versions/A/*"):
     for path in glob.glob(os.path.join(opts.app, pattern)):
-        if os.path.isfile(path) and os.access(path, os.X_OK) or path.endswith(".dylib"):
+        if os.path.isfile(path) and CMUX_NAME.match(os.path.basename(path)):
             app_images.setdefault(os.path.basename(path), path)
 dsyms = {os.path.basename(p): p for p in glob.glob(os.path.join(os.path.dirname(opts.app), "*.dSYM/Contents/Resources/DWARF/*"))}
 MODULE = re.compile(r"^\$s(\d+)(\w+)")
@@ -42,7 +47,7 @@ def module_of(symbol):
 
 
 def first_cmux(frames):
-    """(image, offset, symbol) of the first frame in an image of the app bundle; else the first frame."""
+    """(image, offset, symbol) of the first frame in cmux's own images; else the first frame."""
     for frame in frames:
         image, offset, symbol = (frame.split("|") + ["", "", ""])[:3]
         if image in app_images:
