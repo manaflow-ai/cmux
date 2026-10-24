@@ -124,6 +124,24 @@ public nonisolated struct Signposter: Sendable {
         }
     }
 
+    /// ``end(_:_:_:)`` with a public end message (fields known only after the begin, such as who took an
+    /// input event): `message` on a committed end, `commit=missed <message>` on a missed one.
+    ///
+    /// - Parameters:
+    ///   - name: The name the interval began with.
+    ///   - interval: The state ``begin(_:_:)`` returned.
+    ///   - outcome: How the ``CommitBoundary`` fired.
+    ///   - message: Public text (ids and kinds, never user content).
+    public func end(_ name: SignpostName, _ interval: SignpostInterval, _ outcome: CommitBoundary.Outcome, message: String) {
+        switch outcome {
+        case .committed:
+            signposter.endInterval(name.staticName, interval.state, "\(message, privacy: .public)")
+            if let id = interval.metricKitID { mirror.end(name, id: id) }
+        case .missed:
+            signposter.endInterval(name.staticName, interval.state, "commit=missed \(message, privacy: .public)")
+        }
+    }
+
     /// Ends an interval whose synchronous work ran a nested run loop that waited for the person
     /// (an `NSMenu` pop-up, a modal panel): the end carries `loop=nested`, so readers keep it out
     /// of latency rows instead of counting the person's dwell time. Like a missed commit, it is not
