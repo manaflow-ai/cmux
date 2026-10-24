@@ -79,6 +79,10 @@
     "source": "%lld selected",
     "reason": "The word after the count is an adjective (unread, selected, failed, running, waiting) that does not inflect for the count in English; the translations write a label or an invariant form."
   },
+  "server.settings.restart.featuresMore": {
+    "source": "A restart turns on: %1$@ and %2$lld more",
+    "reason": "\"more\" does not agree with the count in English, and every translation writes a form of \"more\" that holds for every count."
+  },
   "server.toast.featuresMore": {
     "source": "Restart %1$@ to use new features: %2$@ and %3$lld more",
     "reason": "\"more\" does not agree with the count in English, and every translation writes a form of \"more\" that holds for every count."
