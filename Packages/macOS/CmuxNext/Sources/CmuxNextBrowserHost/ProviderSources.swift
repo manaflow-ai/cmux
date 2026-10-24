@@ -14,6 +14,14 @@ public protocol ProviderCredentialsSource: AnyObject {
 @MainActor
 public protocol ProviderTabSource: AnyObject {
     var providerTabs: [ProviderTab] { get }
+    /// One tab of ``providerTabs`` (nil: not listed), for a refresh of a few tabs (a tab switch) that
+    /// must not rebuild the whole list.
+    func providerTab(_ targetID: String) -> ProviderTab?
+}
+
+extension ProviderTabSource {
+    /// The default reads the whole list; a source with an index answers in O(1).
+    public func providerTab(_ targetID: String) -> ProviderTab? { providerTabs.first { $0.targetID == targetID } }
 }
 
 /// The extension access of a CEF tab, read inside Observation tracking

@@ -81,6 +81,8 @@ public final class BrowserHostProvider {
 
     // Tab and access state sent on the current connection (`+Tabs`).
     @ObservationIgnored var latestTabs: [ProviderTab] = []
+    /// `latestTabs` positions by target id (``refreshTabs(changed:)``).
+    @ObservationIgnored var latestTabIndex: [String: Int] = [:]
     @ObservationIgnored var latestAccess: [String: ProviderTabAccess] = [:]
     @ObservationIgnored var announced: [String: ProviderTab] = [:]
     @ObservationIgnored var accessSent: [String: AccessKey] = [:]
@@ -180,8 +182,26 @@ public final class BrowserHostProvider {
     }
 
     /// Re-reads the tab list (for state that is not observable: visibility,
-    /// a page created or released).
-    public func refreshTabs(changed: Set<String>? = nil) { observeTabs() }
+    /// a page created or released). `changed`: only these tabs changed (a tab or workspace switch
+    /// shows and hides a few pages): each is read again alone and announced when it differs, O(changed),
+    /// never a walk of every tab of the session. With no host link nothing is read: the link reads the
+    /// list when it connects (`run`).
+    public func refreshTabs(changed: Set<String>? = nil) {
+        guard connection != nil else { return }
+        guard let changed, let tabSource else { return observeTabs() }
+        for targetID in changed {
+            guard let index = latestTabIndex[targetID] else {
+                // A tab the list does not hold yet (or one gone): the whole diff decides.
+                if tabSource.providerTab(targetID) != nil { return observeTabs() }
+                continue
+            }
+            // Gone, or a new URL (its extension access is read again with the list): the whole diff.
+            guard let tab = tabSource.providerTab(targetID), tab.url == latestTabs[index].url else { return observeTabs() }
+            guard tab != latestTabs[index] else { continue }
+            latestTabs[index] = tab
+            announceChange(tab)
+        }
+    }
 
     /// A person pressed a key or clicked in tab `targetID`: when the tab is
     /// leased, the host pauses the lease. Call only from the app's own event
@@ -237,6 +257,7 @@ public final class BrowserHostProvider {
         currentCredentials = credentials
         connection = link
         link.start()
+        trackTabs() // the list as of now: nothing reads it while no host is linked
         sendHello(link, secret: credentials.secret)
         status = .connected
         var frames = link.frames.makeAsyncIterator()
