@@ -467,6 +467,7 @@
 				"$(CMUX_NEXT_OPTCHAT_CHIEF_ARCHS)",
 				"$(CMUX_NEXT_OPTCHAT_CHIEF_INPUT_KEYED)",
 				"$(CMUX_CHIEF_CODEX_CACHE)",
+				"$(HOME)/Library/Caches/cmux-build/chief-codex",
 			);
 			name = "Bundle optchat-chief";
 			outputFileListPaths = (
