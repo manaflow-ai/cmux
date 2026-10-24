@@ -2,7 +2,7 @@
   "_doc": "Architecture counts the pre-push ratchet holds (scripts/cmux-next/arch-ratchet.py; the method is scripts/cmux-next/arch_counts.py, whose docstring defines every row). A push may not raise a ratcheted row's total; when one drops, rerun `scripts/cmux-next/arch-ratchet.py --update`. exceptions: [{\"date\": \"YYYY-MM-DD\", \"row\": \"<row>\", \"allow\": <n>, \"why\": \"...\"}] lets the push that adds the entry raise that row by n; never CI.",
   "method": "arch_counts",
   "method_version": 1,
-  "measured_sha": "4495b5f123656042f1675ec9677914a7c9c4eb95",
+  "measured_sha": "d921153ee740dba76f731d8716c435a3323256fc",
   "measured_date": "2026-10-23",
   "rows": {
     "layer_hard": {
@@ -55,13 +55,13 @@
     "layer_soft": 12,
     "layer_upward": 3,
     "layer_unplaced": 0,
-    "stateful_singletons": 158,
-    "global_mutable_statics": 262,
-    "assume_isolated_outside_adapters": 175,
-    "assume_isolated_total": 235,
+    "stateful_singletons": 155,
+    "global_mutable_statics": 267,
+    "assume_isolated_outside_adapters": 176,
+    "assume_isolated_total": 236,
     "app_broadcast_names": 12,
     "observer_sites": 169,
-    "app_lines": 142081
+    "app_lines": 142752
   },
   "packages": {
     "CmuxNextActions": {
@@ -94,6 +94,7 @@
       "global_mutable_statics": 25,
       "assume_isolated_outside_adapters": 4,
       "assume_isolated_total": 4,
+      "app_broadcast_names": 1,
       "observer_sites": 6
     },
     "CmuxNextAgentUpdates": {
@@ -102,11 +103,11 @@
     },
     "CmuxNextApp": {
       "stateful_singletons": 28,
-      "global_mutable_statics": 69,
-      "assume_isolated_outside_adapters": 50,
-      "assume_isolated_total": 59,
+      "global_mutable_statics": 73,
+      "assume_isolated_outside_adapters": 51,
+      "assume_isolated_total": 60,
       "observer_sites": 58,
-      "app_lines": 142081
+      "app_lines": 142752
     },
     "CmuxNextApps": {
       "stateful_singletons": 1,
@@ -173,8 +174,7 @@
       "layer_soft": 1,
       "stateful_singletons": 1,
       "assume_isolated_outside_adapters": 1,
-      "assume_isolated_total": 1,
-      "app_broadcast_names": 1
+      "assume_isolated_total": 1
     },
     "CmuxNextCookieImport": {
       "observer_sites": 2
@@ -354,7 +354,7 @@
       "layer_hard": 1
     },
     "CmuxNextTabs": {
-      "stateful_singletons": 5,
+      "stateful_singletons": 2,
       "global_mutable_statics": 2,
       "assume_isolated_outside_adapters": 5,
       "assume_isolated_total": 12,
@@ -366,7 +366,7 @@
     },
     "CmuxNextTerminal": {
       "stateful_singletons": 1,
-      "global_mutable_statics": 22,
+      "global_mutable_statics": 23,
       "assume_isolated_outside_adapters": 11,
       "assume_isolated_total": 20,
       "app_broadcast_names": 1,
