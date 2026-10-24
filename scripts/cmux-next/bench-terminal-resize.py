@@ -225,11 +225,21 @@ def idle_cursor():
         # The phase's own new workspace shows one terminal: the one it wrote to.
         row = rows[0] if len(rows) == 1 else None
         return (int(row["counters"].get("frames", 0)) if row else None), len(rows)
+    # At rest first: the counter unchanged for 3 s in a row (at most 20 s), so the frames of the command's
+    # own output (clear, the cursor hide) are not counted as idle frames.
+    settle_start, (last, _) = time.monotonic(), focused_frames()
+    stable_since = time.monotonic()
+    while time.monotonic() - settle_start < 20 and time.monotonic() - stable_since < 3:
+        time.sleep(0.5)  # bench script: polls the counter for the settle, not an app synchronization
+        now, _ = focused_frames()
+        if now != last:
+            last, stable_since = now, time.monotonic()
+    settled_s = round(time.monotonic() - settle_start, 1)
     before, shown = focused_frames()
     time.sleep(opts.idle_s)  # bench script: the measured idle window
     after, shown_after = focused_frames()
     result = {"layout": "idle-cursor", "idle_s": opts.idle_s, "terminals_shown": [shown, shown_after],
-              "frames_before": before, "frames_after": after,
+              "settled_s": settled_s, "frames_before": before, "frames_after": after,
               "note": "the bench window is never key (no activation): Ghostty's blink timer runs only when focused"}
     # No count without exactly one shown terminal with render counters: an error, never a 0.
     if before is None or after is None or before == 0:
