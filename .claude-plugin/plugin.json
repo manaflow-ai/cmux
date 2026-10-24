@@ -1,0 +1,12 @@
+{
+  "name": "cmux",
+  "version": "1.0.0",
+  "description": "Skills for controlling cmux terminal: window/workspace/pane management, browser automation, release workflows, and debug utilities",
+  "author": {
+    "name": "manaflow-ai"
+  },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "homepage": "https://cmux.dev",
+  "license": "AGPL-3.0-or-later",
+  "keywords": ["cmux", "terminal", "browser-automation", "workspaces", "panes", "splits"]
+}
