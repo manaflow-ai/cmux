@@ -136,7 +136,8 @@ const backends = {
 //   cmux browser repl --engine E [--session S] --eval -
 // otherwise PARITY_HOST_BIN (default cmux-browser-host) runs
 //   cmux-browser-host eval [--session S] --engine E -
-// and `close --session S` after a named session.
+// and `close --session S` after a named session. PARITY_HOST_SOCKET names a
+// running host instead of the run's own (scripts/measure/browser-parity-hosts.sh).
 for (const engine of HOST_ENGINES) {
   backends[`host-${engine}`] = async (cells, { scenario }) => {
     const viaCli = process.env.PARITY_HOST_CLI;
@@ -144,7 +145,9 @@ for (const engine of HOST_ENGINES) {
     const env = { ...process.env, CMUX_BROWSER_HOST_ENGINE: engine };
     // The run's own host (lib/parity-host.mjs), one for all scenarios;
     // `cmux browser repl` manages the daemon's host itself.
-    if (!viaCli) env.CMUX_BROWSER_HOST_SOCKET = (await ownHost(bin)).socket;
+    // PARITY_HOST_SOCKET: an existing host (a tagged app daemon's, for the
+    // app engines, whose tabs need the app as the host's provider).
+    if (!viaCli) env.CMUX_BROWSER_HOST_SOCKET = process.env.PARITY_HOST_SOCKET || (await ownHost(bin)).socket;
     return runCliCells(cells, scenario, {
       evalArgv: viaCli
         ? (session) => ["browser", "repl", "--engine", engine, ...(session ? ["--session", session] : []), "--eval", "-"]
