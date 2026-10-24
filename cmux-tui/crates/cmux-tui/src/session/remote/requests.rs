@@ -22,6 +22,7 @@ impl RemoteSession {
             return Err(error.into());
         }
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let command = cmd.get("cmd").and_then(Value::as_str).unwrap_or("").to_owned();
         let progress = Arc::new(AtomicU64::new(0));
         let attach_progress = matches!(deadline, RequestDeadline::Attach)
             .then(|| self.attach_progress.load(Ordering::Acquire));
@@ -32,6 +33,7 @@ impl RemoteSession {
         let message = serde_json::to_string(&cmd)
             .map_err(RemoteRequestError::Encode)
             .map_err(anyhow::Error::new)?;
+        let message = self.translate_outgoing_line(id, &command, &message)?;
         if let Some(Value::String(authority)) = cmd.get_mut("authority") {
             zeroize_string(authority);
         }
@@ -155,6 +157,7 @@ impl RemoteSession {
             return Err(error.into());
         }
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let command = cmd.get("cmd").and_then(Value::as_str).unwrap_or("").to_owned();
         cmd["id"] = json!(id);
         // The local remote bridge replaces eligible sends with compact binary
         // MuxInput packets. Direct/older mux servers ignore this hint and keep
@@ -163,6 +166,7 @@ impl RemoteSession {
         let message = serde_json::to_string(&cmd)
             .map_err(RemoteRequestError::Encode)
             .map_err(anyhow::Error::new)?;
+        let message = self.translate_outgoing_no_reply(&command, &message)?;
         let sequence = self
             .interactive_writer
             .enqueue(message, true)
