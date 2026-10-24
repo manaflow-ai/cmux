@@ -68,6 +68,13 @@ fn never_outside(result: Result<Vec<u8>, RpcError>, original: &[u8]) {
     }
 }
 
+/// A platform may reject a symlink at `openat` (`media.unreadable`) or open the target and let
+/// the descriptor boundary reject it after the fact (`media.outside`). Both outcomes prove that
+/// the target was never served; keep the race test focused on that safety property.
+fn refused_without_following(e: &RpcError) {
+    assert!(matches!(reason(e).as_str(), "media.unreadable" | "media.outside"), "{}", e.message);
+}
+
 #[test]
 fn the_type_comes_from_the_bytes() {
     let mut webp = b"RIFF\0\0\0\0WEBPVP8 ".to_vec();
@@ -191,7 +198,7 @@ fn a_file_swapped_for_a_symlink_is_never_followed() {
     };
     swap();
     let e = s.open("out/clip.mp4", &mut |_| {}).err().unwrap();
-    assert_eq!(reason(&e), "media.unreadable", "{}", e.message);
+    refused_without_following(&e);
     restore();
     let e = s
         .open("out/clip.mp4", &mut |step| {
@@ -201,7 +208,7 @@ fn a_file_swapped_for_a_symlink_is_never_followed() {
         })
         .err()
         .unwrap();
-    assert_eq!(reason(&e), "media.unreadable", "{}", e.message);
+    refused_without_following(&e);
     restore();
     let opened = s
         .open("out/clip.mp4", &mut |step| {
