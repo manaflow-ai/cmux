@@ -278,3 +278,22 @@ fn a_terminal_left_for_the_next_daemon_is_kept_across_a_reconnect_and_a_holder_c
     read_until(&kept.sink, "after-crash");
     assert!(alive(left.pid), "the shell left for the next daemon died");
 }
+
+/// Holder-core deep review: a holder that answers the HELLO, even with a
+/// refusal, runs, so the service never starts a second holder for its
+/// socket. Before, any connect error under a spawn's or a restart's reach
+/// launched one: it exited at once (another holder serves the socket), and
+/// a restart then ended every live terminal as host-lost while the holder
+/// that refused still ran their shells.
+#[test]
+fn a_holder_that_refuses_the_hello_is_not_replaced_by_a_second_holder() {
+    let world = World::new();
+    world.holders.start(&[0x77; 32]).unwrap();
+    let refused = world.service.link().err().expect("a holder of another owner took this daemon");
+    assert!(refused.to_string().contains("refused"), "failed otherwise: {refused}");
+    assert_eq!(
+        world.holders.launches(),
+        1,
+        "the service started a second holder beside the one that answered"
+    );
+}

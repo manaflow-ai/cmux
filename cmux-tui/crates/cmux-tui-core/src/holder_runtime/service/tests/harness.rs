@@ -13,7 +13,7 @@ use std::os::fd::{AsRawFd, RawFd};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -39,16 +39,25 @@ const DEADLINE: Duration = Duration::from_secs(20);
 pub(super) struct Holders {
     socket: PathBuf,
     started: Mutex<Vec<Child>>,
+    /// Every start, the ones that failed too.
+    launches: AtomicUsize,
 }
 
 impl Holders {
     fn new(socket: PathBuf) -> Arc<Self> {
-        Arc::new(Self { socket, started: Mutex::default() })
+        Arc::new(Self { socket, started: Mutex::default(), launches: AtomicUsize::new(0) })
+    }
+
+    /// How many holders were started (by the test or the service), the ones
+    /// that failed to start too.
+    pub(super) fn launches(&self) -> usize {
+        self.launches.load(Ordering::Acquire)
     }
 
     /// Start a holder on the socket and wait until it listens: the
     /// service's launcher.
     pub(super) fn start(&self, token: &[u8; 32]) -> io::Result<()> {
+        self.launches.fetch_add(1, Ordering::AcqRel);
         let mut child = Command::new(std::env::current_exe()?)
             .args([HOLDER_PROCESS_TEST, "--exact", "--nocapture", "--quiet"])
             .env(HOLDER_SOCKET_ENV, &self.socket)
