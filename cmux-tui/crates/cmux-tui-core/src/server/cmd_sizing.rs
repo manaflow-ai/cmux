@@ -330,6 +330,14 @@ pub(super) fn resize_attached_view(
         (Some(lease), None) => lease,
         (None, Some(view)) => {
             validate_relay_view(&view)?;
+            // A phone's lane is never a relay of other people's devices: its
+            // sub-views name no user and no device, so none can take another
+            // device's place in a priority order (host-size-policy-v1).
+            let identity = if mux.is_phone_lane(client) {
+                identity.map(ClientIdentityWire::anonymous)
+            } else {
+                identity
+            };
             let (participant, accepted) = mux.report_terminal_sub_view(
                 surface,
                 client,
@@ -530,6 +538,14 @@ impl Mux {
     /// neither a phone's lane spliced by cmux-mobile-host (its peer at
     /// accept) nor marked `remote` in its client info. A WebSocket, a remote
     /// entry stream, a link peer or an unregistered id is never this Mac.
+    /// Whether `client` is a phone's lane: spliced by this build's
+    /// cmux-mobile-host, or marked `remote` by a phone splice.
+    pub(crate) fn is_phone_lane(&self, client: u64) -> bool {
+        client != 0
+            && (super::origin_gate::is_mobile_host_lane(self, client)
+                || self.client_sizing_identity(client).remote)
+    }
+
     pub(crate) fn is_this_mac_connection(&self, client: u64) -> bool {
         if client == 0 {
             return true;

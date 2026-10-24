@@ -138,7 +138,17 @@ choice. Commands: `get-host-size-policy` and `set-host-size-policy`
 
 A cmux-next daemon that reads the settings file defaults to `smallest` (Fit
 the smallest viewer) for every terminal without an override or workspace
-default; the engine default `latest` applies only before the file is read.
+default; the engine default `latest` applies only before the file is read
+(`get-host-size-policy` then answers `latest` too). Under that default a
+phone that lists `host-grid-view-v1` still narrows the Mac's pane while it
+claims: the handheld ceiling ("Phone viewers") only stops capping a grid the policy
+made larger than the phone, as under Prefer this Mac.
+
+A phone's lane relays no other device: the daemon drops `user_id` and
+`device_id` from the identity of every relay sub-view a phone's lane opens
+(cmux-mobile-host does too), so a sub-view gets its own priority key and no
+`device:` token ranks it. A relay that is one of this host's own
+connections keeps its sub-views' identity.
 
 ## Creation size
 

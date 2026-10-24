@@ -395,14 +395,12 @@ impl Mux {
             .terminal_sizing
             .iter()
             .filter(|(runtime, _)| !sizing.terminal_size_policies.contains_key(runtime))
-            .filter_map(|(runtime, entry)| {
+            .filter_map(|(runtime, _)| {
                 // Any placement in the workspace: a terminal shown there and
                 // elsewhere follows this default too (workspace_default_of).
-                let placement = entry
-                    .placements
-                    .iter()
-                    .copied()
-                    .chain(self.runtime_placements(*runtime))
+                let placement = self
+                    .runtime_placements(&sizing, *runtime)
+                    .into_iter()
                     .find(|placement| self.surface_workspace(*placement) == Some(workspace))?;
                 Some((*runtime, placement))
             })

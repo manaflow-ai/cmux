@@ -230,7 +230,7 @@ public final class TerminalModel {
             break
         case .inputNotSent:
             composerNotice = TerminalConnectionState.inputNotSentNotice
-        case .hostColumns, .hostGridOwner:
+        case .hostGrid, .hostGridOwner:
             break
         }
     }

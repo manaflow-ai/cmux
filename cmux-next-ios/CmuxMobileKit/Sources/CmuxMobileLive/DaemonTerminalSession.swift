@@ -57,6 +57,8 @@ public final class DaemonTerminalSession: TerminalSession {
     /// The Mac terminal's rows (`vt-state`, `resized`), else the size asked for.
     public var remoteRows: Int? { reportedRows ?? lastSize?.rows ?? 24 }
     private var reportedRows: Int?
+    /// The Mac's grid changed since the screen was last told (``TerminalSessionEvent/hostGrid(columns:rows:)``).
+    private var hostGridChanged = false
     /// The Mac terminal's columns (`vt-state`, `resized`); nil before the
     /// first attach. The screen renders this grid when it is not the phone's.
     public var remoteColumns: Int? { reportedColumns }
@@ -664,11 +666,16 @@ public final class DaemonTerminalSession: TerminalSession {
         case .alternateScreen(let on):
             setAlternate(on)
         case .columns(let columns):
-            let changed = reportedColumns != columns
+            // Told with the rows that follow on the same line.
+            if reportedColumns != columns { hostGridChanged = true }
             reportedColumns = columns
-            if changed { handler?(.hostColumns(columns)) }
         case .rows(let rows):
+            if reportedRows != rows { hostGridChanged = true }
             reportedRows = rows
+            if hostGridChanged, let columns = reportedColumns {
+                hostGridChanged = false
+                handler?(.hostGrid(columns: columns, rows: rows))
+            }
             // The Mac answered a size other than the one asked for (another
             // view of this terminal, the Mac's own window, sets the grid): the
             // request was overruled. A reattach then keeps the Mac's size

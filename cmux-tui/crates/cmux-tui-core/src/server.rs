@@ -668,6 +668,11 @@ struct ClientIdentityWire {
 }
 
 impl ClientIdentityWire {
+    /// The same identity without a user or a device id.
+    fn anonymous(self) -> Self {
+        Self { user_id: None, device_id: None, ..self }
+    }
+
     fn is_empty(&self) -> bool {
         self.user_id.is_none()
             && self.display_name.is_none()

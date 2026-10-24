@@ -362,9 +362,15 @@ pub(super) fn set_hello(
 }
 
 /// Records kernel peer identity at accept, before a legacy client can skip hello.
-pub(super) fn set_peer_identity_at_accept(mux: &Mux, client: u64, peer_key: Option<String>) {
+pub(super) fn set_peer_identity_at_accept(
+    mux: &Mux,
+    client: u64,
+    peer_key: Option<String>,
+    peer_token: Option<cmux_link::app_caller::PeerToken>,
+) {
     let local_peer = classify_local_peer(mux, peer_key.as_deref(), peer_session_id);
-    let mobile_host = peer_key.as_deref().and_then(peer_pid).is_some_and(is_bundled_mobile_host);
+    let mobile_host = peer_executable(peer_key.as_deref(), peer_token.as_ref())
+        .is_some_and(|path| is_bundled_mobile_host_path(&path));
     let mut state = mux.control_clients.state.lock().recover_poison();
     if let Some(record) = state.clients.get_mut(&client) {
         record.origin.peer_key = peer_key;
@@ -377,11 +383,12 @@ pub(super) fn set_peer_identity_at_accept(mux: &Mux, client: u64, peer_key: Opti
 /// (`Contents/Resources/bin/cmux-mobile-host` next to `.../bin/cmux-tui`).
 const MOBILE_HOST_NAME: &str = "cmux-mobile-host";
 
-/// Whether live process `pid` runs this build's bundled `cmux-mobile-host`:
-/// its executable, by real path, is the regular file of that name beside the
-/// daemon's own (canonical) executable. Read while the accepted peer is
-/// live, like the terminal ancestry; any lookup failure is false.
-fn is_bundled_mobile_host(pid: u32) -> bool {
+/// Whether `path` (a peer's executable) is this build's bundled
+/// `cmux-mobile-host`: by real path, the regular file of that name beside
+/// the daemon's own (canonical) executable. Any lookup failure is false (a
+/// daemon with no hostd beside it, such as a development build run from
+/// another folder, has no phone lane that may write the host policy).
+fn is_bundled_mobile_host_path(path: &std::path::Path) -> bool {
     static SIBLING: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
     let sibling = SIBLING.get_or_init(|| {
         let own = std::fs::canonicalize(std::env::current_exe().ok()?).ok()?;
@@ -389,31 +396,39 @@ fn is_bundled_mobile_host(pid: u32) -> bool {
         std::fs::metadata(&sibling).ok()?.is_file().then_some(sibling)
     });
     let Some(sibling) = sibling else { return false };
-    process_executable(pid)
-        .and_then(|path| std::fs::canonicalize(path).ok())
-        .is_some_and(|path| &path == sibling)
+    std::fs::canonicalize(path).is_ok_and(|path| &path == sibling)
 }
 
-#[cfg(target_os = "macos")]
-fn process_executable(pid: u32) -> Option<PathBuf> {
-    let pid = libc::c_int::try_from(pid).ok()?;
-    let mut path = [0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
-    // SAFETY: proc_pidpath writes at most `path.len()` bytes and returns the
-    // written byte count (0 on failure).
-    let written = unsafe { libc::proc_pidpath(pid, path.as_mut_ptr().cast(), path.len() as u32) };
-    let written = usize::try_from(written).ok().filter(|written| *written > 0)?;
-    let path = std::str::from_utf8(&path[..written]).ok()?;
-    Some(PathBuf::from(path))
-}
-
-#[cfg(target_os = "linux")]
-fn process_executable(pid: u32) -> Option<PathBuf> {
-    std::fs::read_link(format!("/proc/{pid}/exe")).ok()
-}
-
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
-fn process_executable(_pid: u32) -> Option<PathBuf> {
-    None
+/// The executable of the accepted peer, read so that a process that reused
+/// the peer's pid never answers for it. macOS reads it by the peer's audit
+/// token (the kernel refuses a token whose pid version is stale; exec gives
+/// a process a new pid version). Linux reads `/proc/<pid>/exe` and then
+/// checks the pid still has the start time in the peer key; a process that
+/// exec'd after it connected keeps its pid and start time there, which
+/// PROTOCOL.md lists as the residual risk.
+fn peer_executable(
+    peer_key: Option<&str>,
+    peer_token: Option<&cmux_link::app_caller::PeerToken>,
+) -> Option<PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = peer_key;
+        cmux_link::app_caller::executable_path(peer_token?)
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let _ = peer_token;
+        let (pid, version) = peer_key?.strip_prefix("token:")?.split_once('.')?;
+        let path = std::fs::read_link(format!("/proc/{pid}/exe")).ok()?;
+        let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+        let start = stat.rsplit_once(')')?.1.split_whitespace().nth(19)?;
+        (start == version).then_some(path)
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        let _ = (peer_key, peer_token);
+        None
+    }
 }
 
 /// Whether `client` is a phone's lane spliced by this build's

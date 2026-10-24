@@ -159,11 +159,17 @@ impl Mux {
                     && member.is_some_and(|member| {
                         member.view.is_none() && self.is_this_mac_connection(member.client)
                     });
+                // A relay sub-view names a device only when this Mac relays
+                // it; a sub-view from any other connection is never ranked
+                // by a `device:` token.
+                let trusted_device = member.is_none_or(|member| {
+                    member.view.is_none() || self.is_this_mac_connection(member.client)
+                });
                 (
                     row.participant.id.clone(),
                     row.priority_key.clone(),
                     mac,
-                    row.participant.device_id.clone(),
+                    row.participant.device_id.clone().filter(|_| trusted_device),
                 )
             })
             .collect()
@@ -192,12 +198,28 @@ impl Mux {
             self.surface_workspace(surface)
                 .and_then(|workspace| sizing.workspace_size_policies.get(&workspace).cloned())
         };
-        default_of(placement).or_else(|| self.runtime_placements(runtime).into_iter().find_map(default_of))
+        default_of(placement).or_else(|| self.runtime_placements(sizing, runtime).into_iter().find_map(default_of))
     }
 
     /// Every live placement of terminal `runtime` (each view of it in any
-    /// workspace), the runtime's own surface included.
-    pub(in crate::mux) fn runtime_placements(&self, runtime: SurfaceId) -> Vec<SurfaceId> {
+    /// workspace), the runtime's own surface included: the placements its
+    /// sizing entry already knows, scanning the surfaces only for a
+    /// terminal without one (so the common path never walks every surface
+    /// under the sizing lock).
+    pub(in crate::mux) fn runtime_placements(
+        &self,
+        sizing: &ClientSizingState,
+        runtime: SurfaceId,
+    ) -> Vec<SurfaceId> {
+        if let Some(entry) = sizing.terminal_sizing.get(&runtime)
+            && !entry.placements.is_empty()
+        {
+            let mut placements = entry.placements.iter().copied().collect::<Vec<_>>();
+            if !placements.contains(&runtime) {
+                placements.push(runtime);
+            }
+            return placements;
+        }
         self.with_state(|state| {
             let mut placements = state
                 .surfaces
@@ -244,10 +266,13 @@ impl Mux {
         sizing.note_size_state(runtime, changed);
     }
 
-    /// The host policy in effect: the settings owner's, else the default
-    /// (only before the owner has read the settings file).
+    /// The host policy in effect: the settings owner's, else (only before
+    /// the owner has read the settings file) `latest`, the engine default
+    /// the terminals use until then (`resolved_size_policy`).
     pub fn host_size_policy(&self) -> HostSizePolicy {
-        self.client_sizing.lock().recover_poison().host_policy.clone().unwrap_or_default()
+        self.client_sizing.lock().recover_poison().host_policy.clone().unwrap_or_else(|| {
+            HostSizePolicy { mode: HostSizeMode::Latest, order: Vec::new() }
+        })
     }
 
     /// The participant ids of `surface`'s terminal that are this Mac's views.

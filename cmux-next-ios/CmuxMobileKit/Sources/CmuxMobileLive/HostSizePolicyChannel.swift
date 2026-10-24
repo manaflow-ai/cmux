@@ -39,9 +39,9 @@ public struct HostSizePolicyChannel: Sendable {
             let error = object["error"] as? String ?? "refused"
             // An older Mac: say what to do instead of a raw protocol error.
             if error.contains("unknown command") || error.contains("not available to a phone") {
-                throw LinkError(code: "unsupported", message: "This Mac's cmux is too old to change the terminal size setting from the phone.")
+                throw HostSizePolicyError(message: "This Mac's cmux is too old to change the terminal size setting from the phone.")
             }
-            throw LinkError(code: "refused", message: error)
+            throw HostSizePolicyError.refused(error)
         }
         return object["data"]
     }

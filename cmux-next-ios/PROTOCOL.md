@@ -1110,15 +1110,27 @@ in-process frontend or a local Unix connection that:
 - has no `cmux link` peer record (a WebSocket, a remote-entry stream or a
   link peer is never this Mac, whatever it says it is);
 - was not accepted from this build's bundled `cmux-mobile-host`. At accept
-  the daemon reads the socket peer's executable from its kernel PID
-  (`proc_pidpath`, `/proc/<pid>/exe`) and compares its real path with the
-  `cmux-mobile-host` beside the daemon's own executable
-  (`Contents/Resources/bin/`);
+  the daemon reads the socket peer's executable and compares its real path
+  with the `cmux-mobile-host` beside the daemon's own executable
+  (`Contents/Resources/bin/`). On macOS it reads it by the peer's audit token
+  (`proc_pidpath_audittoken`), which the kernel refuses once the pid carries
+  another pid version (a process that reused the pid, or exec'd since it
+  connected). On Linux it reads `/proc/<pid>/exe` and then checks the pid
+  still has the start time of the peer key, which catches pid reuse but not
+  an exec after connecting;
 - is not marked `remote`. cmux-mobile-host (and the Mac app's Swift
   `DaemonLanePolicy` splice) rewrite every phone's `set-client-info` to carry
   `remote: true` and the link's own device id as `device_id`, so a phone can
   neither pose as this Mac nor as another phone in the order. The mark is
   sticky and never published in `size-state`.
+
+A phone relays no other device, so a relay sub-view it opens
+(`resize-attached-view {view, identity}`) names no user and no device: both
+splices drop `identity.user_id` and `identity.device_id`, and the daemon drops
+them again for a phone's lane (one accepted from hostd or marked `remote`).
+Such a sub-view gets its own priority key and is never ranked by a `device:`
+token. A sub-view relayed by one of this Mac's own connections keeps its
+identity.
 
 ### Who may change it
 
@@ -1130,14 +1142,30 @@ this Mac, the CLI, another machine) may read the policy but gets
 `forbidden` when it writes. The write is stored as the app's own (both keys
 are person-only settings).
 
+The refusal is the daemon error `forbidden: ...`; the phone shows "This Mac's
+cmux doesn't allow changing it from a phone." It also happens where no
+bundled hostd sits beside the daemon (a development daemon started from
+another folder, `CMUX_NEXT_TUI_BIN`, a `~/.local/bin/cmux-tui`), and on Linux
+after an in-place upgrade replaced either binary while it ran: then no phone
+lane may write the policy, and phones still never count as this Mac.
+
 Residual risk: the hostd check trusts the executable path, so another
 process of the same user that runs the bundled `cmux-mobile-host` binary
-itself counts as a phone lane. That binary only forwards lines from an
+itself counts as a phone lane (on Linux also one that exec'd it after
+connecting). That binary only forwards lines from an
 authenticated phone link through its own allowlist, so such a process gains
 nothing it could not already do with the same user's access to the settings
 file. The Mac app's Swift phone splice (`DaemonLaneSplice`) connects from the
 app process without `client-hello`, so a phone on that path can read the
-policy but not change it.
+policy but not change it. That splice has no size release of its own
+("Terminal size claims"): under the default Fit the smallest viewer, a phone
+on it that was killed keeps the Mac's pane at its size until the size lease
+ends (45 s).
+
+`get-host-size-policy` answers the policy in effect: before the daemon's
+settings owner has read the settings file (only at startup, before it
+serves connections) that is the engine default (`latest`), as the terminals
+then use.
 
 ### Commands (cmux-tui daemon, `host-size-policy-v1` in `identify`)
 

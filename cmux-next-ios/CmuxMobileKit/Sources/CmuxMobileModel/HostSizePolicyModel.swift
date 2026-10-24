@@ -1,6 +1,23 @@
 import Foundation
 import Observation
 
+/// Why the Mac did not take a policy change (`set-host-size-policy`).
+public struct HostSizePolicyError: LocalizedError, Equatable, Sendable {
+    public var message: String
+
+    public init(message: String) { self.message = message }
+
+    /// The Mac's refusal: `forbidden` (this Mac's cmux lets no phone change
+    /// the policy: a development build without its bundled phone host, or
+    /// the Mac app's own phone splice) reads as that, any other refusal as
+    /// the Mac's text.
+    public static func refused(_ text: String) -> Self {
+        Self(message: text.hasPrefix("forbidden") ? HostSizePolicyModel.phoneRefusedMessage : text)
+    }
+
+    public var errorDescription: String? { message }
+}
+
 /// One Mac's sizing policy as a page shows it: loaded from the Mac, changed
 /// by the person, saved to the Mac (cmux-next-ios/PROTOCOL.md "Terminal
 /// sizing policy"). The Settings page and the Connected Devices sheet share it.
@@ -30,6 +47,12 @@ public final class HostSizePolicyModel {
     @ObservationIgnored private var confirmed: HostSizePolicy?
     /// The newest choice not sent yet.
     @ObservationIgnored private var queued: HostSizePolicy?
+    /// Bumped when a save starts and when it ends: a reload that read the
+    /// Mac before either answers with an older policy and is dropped.
+    @ObservationIgnored private var saveEpoch = 0
+
+    /// What a Mac that lets no phone change its policy refuses with.
+    public static let phoneRefusedMessage = "This Mac's cmux doesn't allow changing it from a phone."
 
     public init(macID: String, surface: Int? = nil, service: (any TerminalSizingService)?) {
         self.macID = macID
@@ -50,8 +73,16 @@ public final class HostSizePolicyModel {
             return
         }
         if info == nil { load = .loading }
+        let epoch = saveEpoch
         do {
             var fresh = try await service.hostPolicy(macID: macID, surface: surface)
+            if epoch != saveEpoch, let shown = info?.policy {
+                // A save started or ended while this read was out: what the
+                // Mac said is older than what the page shows.
+                fresh.policy = shown
+                load = .loaded(fresh)
+                return
+            }
             if saving || queued != nil, let shown = info?.policy {
                 // A save is under way: keep the person's choice on screen.
                 if confirmed == nil { confirmed = fresh.policy }
@@ -75,7 +106,13 @@ public final class HostSizePolicyModel {
         // A save in flight sends the newest queued choice when it ends.
         guard !saving else { return }
         saving = true
-        defer { saving = false }
+        saveEpoch += 1
+        defer {
+            saving = false
+            saveEpoch += 1
+            // A service that went away leaves nothing waiting to be sent.
+            queued = nil
+        }
         while let next = queued, let service {
             queued = nil
             do {

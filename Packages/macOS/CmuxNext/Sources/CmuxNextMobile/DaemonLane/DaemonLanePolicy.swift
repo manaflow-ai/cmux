@@ -217,6 +217,20 @@ public struct DaemonLanePolicy: Sendable {
             }
             return .rewrite(data)
         }
+        if command == "resize-attached-view", let identity = object["identity"] {
+            // A phone relays no other device: its sub-views name no user and no device, so
+            // none can take another device's place in the Mac's sizing order.
+            var anonymous = object
+            if var fields = identity as? [String: Any] {
+                fields["user_id"] = nil
+                fields["device_id"] = nil
+                anonymous["identity"] = fields
+            }
+            guard let data = try? JSONSerialization.data(withJSONObject: anonymous, options: [.sortedKeys]) else {
+                return .refuse(Self.errorLine(id: id, code: "bad_request", message: "request is not a JSON object"))
+            }
+            return .rewrite(data)
+        }
         return .forward
     }
 

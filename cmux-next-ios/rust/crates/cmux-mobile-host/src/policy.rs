@@ -354,6 +354,9 @@ impl DaemonPolicy {
         if command == "set-client-info" {
             return self.client_info_verdict(object);
         }
+        if command == "resize-attached-view" && object.contains_key("identity") {
+            return sub_view_verdict(object);
+        }
         Verdict::Forward
     }
 
@@ -444,6 +447,20 @@ impl DaemonPolicy {
 /// identifier (the daemon mints `saved_<hex>`), a reopen names its `pane` (a
 /// pane number or a short public id), and `transaction` is 1-128 printable
 /// ASCII characters, as the daemon checks.
+/// A relay sub-view's `identity` from a phone, without `user_id` and
+/// `device_id`: a phone relays no other device, so its sub-views can never
+/// take another device's place in the Mac's sizing order.
+fn sub_view_verdict(mut object: Map<String, Value>) -> Verdict {
+    if let Some(Value::Object(identity)) = object.get_mut("identity") {
+        identity.remove("user_id");
+        identity.remove("device_id");
+    }
+    match serde_json::to_vec(&Value::Object(object)) {
+        Ok(line) => Verdict::Rewrite(line),
+        Err(_) => Verdict::Refuse(error_line(None, "bad_request", "request is not a JSON object")),
+    }
+}
+
 fn saved_group_refusal(object: &Map<String, Value>, reopen: bool) -> Option<String> {
     if !object.get("saved").and_then(Value::as_str).is_some_and(|saved| short_identifier(saved, 128)) {
         return Some("a saved tab group is named by its id".into());
