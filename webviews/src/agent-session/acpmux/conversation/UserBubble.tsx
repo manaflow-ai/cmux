@@ -84,6 +84,7 @@ export function UserBubble({ row, text, pending }: { row: AcpmuxRow; text: strin
         <div className="ui-glass cv-user__bubble selectable">
           {hasOrderedParts ? (
             <InlinePromptContent
+              rowId={row.id}
               parts={orderedParts}
               show={show}
               renderImage={(image) => <SentImage image={image} />}

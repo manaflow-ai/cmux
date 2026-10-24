@@ -185,7 +185,7 @@ export function PromptText({
 }
 
 /// One pasted block: the chip, and the paste under it once opened.
-function PasteChip({
+export function PasteChip({
   rowId,
   index,
   text,

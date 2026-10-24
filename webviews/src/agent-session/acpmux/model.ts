@@ -1160,10 +1160,11 @@ function measuredRowHeight(
     const { lineHeight } = metrics();
     const inlineWidth = Math.max(80, USER_BUBBLE_SHARE * width - USER_BUBBLE_SIDES);
     for (const part of inline) {
-      if (part.kind === "text") inlineHeight += Math.max(lineHeight, textHeight(part.text, inlineWidth, cache.get(row.id)?.prepared ?? new Map()));
-      else inlineHeight += part.kind === "image" ? 124 : 34;
+      if (part.kind === "text")
+        inlineHeight += Math.max(lineHeight, textHeight(part.text, inlineWidth, cache.get(row.id)?.prepared ?? new Map()));
+      else inlineHeight += part.kind === "image" ? 124 : part.kind === "pasted" ? PASTE_CHIP_HEIGHT : 34;
     }
-    const height = messageBelow(beforeFooter) + chromeHeight(row) + collapsedPromptHeight(inlineHeight, lineHeight);
+    const height = messageBelow(beforeFooter) + chromeHeight(row) + inlineHeight;
     return beforeFooter ? height : Math.max(34, height);
   }
   // A preview row's text is its address, not prose: the card's height is fixed.

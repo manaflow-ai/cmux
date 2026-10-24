@@ -1,16 +1,19 @@
 import { memo, type ReactNode } from "react";
 import type { PromptContentPart, PromptImage } from "../model";
 import { FileDoc } from "./icons";
+import { PasteChip } from "./PromptText";
 
 /** The ordered body of a sent prompt. Text stays in the bubble's reading order around attachments. */
 export const InlinePromptContent = memo(function InlinePromptContent({
   parts,
   show,
   renderImage,
+  rowId = "inline",
 }: {
   parts: readonly PromptContentPart[];
   show: (text: string) => string;
   renderImage: (image: PromptImage) => ReactNode;
+  rowId?: string;
 }) {
   return (
     <span className="cv-user__inline-content" data-inline-content="true">
@@ -26,11 +29,13 @@ export const InlinePromptContent = memo(function InlinePromptContent({
         }
         if (part.kind === "image") {
           return (
-            <span key={`image-${part.id}-${index}`} className="cv-user__inline-image">
+            <span key={`image-${part.id}-${index}`} className="cv-user__inline-image" data-kind="image">
               {renderImage(part)}
             </span>
           );
         }
+        if (part.kind === "pasted" && part.text)
+          return <PasteChip key={`paste-${index}`} rowId={rowId} index={index} text={part.text} needle="" onOpen={() => {}} />;
         return <InlineFile key={`${part.kind}-${part.id ?? part.name}-${index}`} part={part} />;
       })}
     </span>

@@ -29,6 +29,7 @@ import { continuesTurn } from "./turnStart";
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
 import {
+  INLINE_ATTACHMENT_MARK,
   orderedDraftParts,
   promptBlocks,
   promptText,
@@ -3871,9 +3872,14 @@ export class AcpmuxDirectClient {
     // No chat took it: the sender gets the prompt back (a started chat's composer let go of it).
     if (!sessionId) throw new Error(translate("error.notOpen"));
     // A paste sent as its own block shows in the bubble as acpmux's echo will have it (pastedText.ts).
-    const sendAttachments = takesAudio(this.summary?.agentCapabilities?.promptCapabilities, this.summary?.configOptions)
-      ? attachments
-      : attachments.filter((attachment) => attachment.kind !== "audio");
+    const supportsAudio = takesAudio(this.summary?.agentCapabilities?.promptCapabilities, this.summary?.configOptions);
+    if (!supportsAudio) {
+      let mark = 0;
+      input = input.replaceAll(INLINE_ATTACHMENT_MARK, () =>
+        attachments[mark++]?.kind === "audio" ? "" : INLINE_ATTACHMENT_MARK,
+      );
+    }
+    const sendAttachments = supportsAudio ? attachments : attachments.filter((attachment) => attachment.kind !== "audio");
     const { text, pasted } = shownPrompt(promptText(input, sendAttachments), sendAttachments);
     const inlineParts = sendAttachments.length ? inlinePromptParts(input, sendAttachments) : undefined;
     const rowId = `local-${promptId}`;
