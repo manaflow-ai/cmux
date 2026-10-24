@@ -35,6 +35,8 @@ export type AgentEvent =
   | { kind: "assistant"; text: string }
   | { kind: "thinking"; text: string }
   | { kind: "tool-start"; toolId: string; name: string; detail?: string }
+  /** A replaceable snapshot of a running tool's title, input, or output. */
+  | { kind: "tool-update"; toolId: string; name?: string; detail?: string; out?: string }
   | { kind: "tool-end"; toolId: string; name?: string; detail?: string; ok?: boolean }
   | { kind: "done"; stats?: string }
   | { kind: "files-changed"; files: ChangedFile[] }
@@ -215,6 +217,17 @@ export function foldEvent(blocks: Block[], evt: AgentEvent): Block[] {
       return [...closeStreaming(blocks), { kind: "thinking", text: evt.text, open: true }];
     case "tool-start":
       return [...closeStreaming(blocks), { kind: "tool", toolId: evt.toolId, name: evt.name || "tool", detail: evt.detail, status: "running" }];
+    case "tool-update":
+      return blocks.map((b) =>
+        b.kind === "tool" && b.toolId === evt.toolId && b.status === "running"
+          ? {
+              ...b,
+              ...(evt.name === undefined ? {} : { name: evt.name }),
+              ...(evt.detail === undefined ? {} : { detail: evt.detail }),
+              ...(evt.out === undefined ? {} : { out: evt.out }),
+            }
+          : b,
+      );
     case "tool-end":
       return blocks.map((b) =>
         b.kind === "tool" && b.toolId === evt.toolId
