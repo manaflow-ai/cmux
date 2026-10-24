@@ -416,7 +416,8 @@ public final class StreamedBrowserModel: BrowserTabState {
 
     /// What a closed stream does next. `evicted`: cmux-mobile-host's host limit
     /// stopped the page; `replaced`: another viewer opened the tab; `stalled`:
-    /// the library's watchdog ended a stream that stopped answering. A dropped
+    /// the library's watchdog ended a stream that stopped answering; `eof`: the
+    /// Mac ended it (its browser host went away) with the link up. A dropped
     /// link reopens when the next link is up (``StreamedBrowserDirectory``).
     static func afterClose(code: String, shown: Bool, autoReopens: Int) -> AfterClose {
         switch code {
@@ -425,7 +426,9 @@ public final class StreamedBrowserModel: BrowserTabState {
             return autoReopens < maxAutoReopens ? .reopen : .offerReopen
         case "replaced":
             return .offerReopen
-        case "stalled":
+        case "stalled", "eof":
+            // `eof`: the Mac ended the stream on a link that is still up (its
+            // browser host exited or crashed); a new open starts a new host.
             return shown ? .reconnect : .waitForView
         default:
             return .waitForLink
