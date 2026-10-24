@@ -56,6 +56,8 @@ enum ClaudeAccountSwitchSocketOutcome: Equatable, Sendable {
             code = "no_claude_session"
         case .refused(.missingWorkingDirectory):
             code = "missing_working_directory"
+        case .refused(.noConversationYet):
+            code = "no_conversation_yet"
         case .notClaude:
             code = "not_claude"
         case .remoteUnsupported:

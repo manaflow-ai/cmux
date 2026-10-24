@@ -43,6 +43,9 @@ public enum ClaudeTranscriptAccountSyncError: Error, Equatable {
 
 /// Copies or refreshes a Claude transcript (and its sidecar directory) from one account config dir
 /// into another so `claude --resume <id>` continues the same conversation under the target account.
+/// A source with no conversation yet is refused before the target is touched, because resuming it
+/// would fail (``ClaudeTranscriptAccountSyncError/transcriptNotFound`` and
+/// ``ClaudeTranscriptAccountSyncError/noConversation``).
 ///
 /// Nothing is ever deleted from the source, and a newer target is never overwritten. The transcript
 /// and the sidecar are each staged as a temporary sibling in the target directory and then swapped
@@ -75,6 +78,11 @@ public struct ClaudeTranscriptAccountSync: Sendable {
             projectsRoot: sourceProjects,
             fileManager: fileManager
         ) else { throw ClaudeTranscriptAccountSyncError.transcriptNotFound }
+        // Checked before the target is looked at: a copy there, even an equally new one, cannot
+        // make a conversation the source does not have resumable.
+        guard try ClaudeTranscriptConversationProbe.containsConversation(atPath: source.path) else {
+            throw ClaudeTranscriptAccountSyncError.noConversation
+        }
 
         let targetProject = ((request.targetConfigDirectory as NSString).appendingPathComponent("projects")
             as NSString).appendingPathComponent(

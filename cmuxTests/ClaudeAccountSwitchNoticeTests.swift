@@ -80,6 +80,7 @@ struct ClaudeAccountSwitchNoticeTests {
         let results: [ClaudeAccountSwitchResult] = [
             .refused(.noClaudeSession),
             .refused(.missingWorkingDirectory),
+            .refused(.noConversationYet),
             .refused(.unknownAccount("ghost")),
             .refused(.sameAccount("work")),
             .notClaude,
@@ -94,6 +95,7 @@ struct ClaudeAccountSwitchNoticeTests {
         #expect(notices == [
             .noClaudeSession,
             .missingWorkingDirectory,
+            .noConversationYet,
             .unknownAccount("ghost"),
             .alreadyOnAccount("work"),
             .notClaude,

@@ -672523,6 +672523,65 @@
           }
         }
       }
+    },
+    "dialog.claudeAccountSwitch.noConversationYet.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Claude session has no messages yet, so there's nothing to continue on another account. Send at least one message, then switch."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تحتوي جلسة Claude هذه على أي رسائل بعد، لذا لا يوجد ما يمكن متابعته على حساب آخر. أرسل رسالة واحدة على الأقل، ثم بدّل الحساب."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Claude-Sitzung enthält noch keine Nachrichten, daher gibt es in einem anderen Konto nichts fortzusetzen. Sende mindestens eine Nachricht und wechsle dann."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta sesión de Claude todavía no tiene mensajes, así que no hay nada que continuar en otra cuenta. Envía al menos un mensaje y luego cambia de cuenta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette session Claude ne contient encore aucun message ; il n'y a donc rien à poursuivre sur un autre compte. Envoyez au moins un message, puis changez de compte."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Claude セッションにはまだメッセージがないため、別のアカウントで続行できる内容がありません。メッセージを 1 つ以上送信してから切り替えてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Claude 세션에는 아직 메시지가 없어 다른 계정에서 이어갈 내용이 없습니다. 메시지를 하나 이상 보낸 뒤 전환하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Claude 会话还没有任何消息，因此没有可在其他账号继续的内容。请至少发送一条消息后再切换。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Claude 工作階段尚無任何訊息，因此沒有可在其他帳號繼續的內容。請至少傳送一則訊息後再切換。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

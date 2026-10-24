@@ -168,6 +168,32 @@ import Testing
         #expect(try Data(contentsOf: URL(fileURLWithPath: dst)) == Data(contentsOf: URL(fileURLWithPath: src)))
     }
 
+    private func syncError(_ request: ClaudeTranscriptAccountSyncRequest) async -> (any Error)? {
+        do {
+            _ = try await ClaudeTranscriptAccountSync().sync(request)
+            return nil
+        } catch {
+            return error
+        }
+    }
+
+    /// The account switch turns a sync that found no conversation, whether Claude Code has not
+    /// created the transcript yet or wrote only metadata, into the no-conversation refusal. Any
+    /// other failure stays an unavailable transcript.
+    @Test func switchRefusesOnlyTheNoConversationFailures() async throws {
+        let root = try makeRoot(); defer { try? fm.removeItem(atPath: root) }
+        let missing = try #require(await syncError(request(root: root, cwd: "/p")))
+        #expect(ClaudeAccountSwitchRefusal(transcriptSyncError: missing) == .noConversationYet)
+
+        try seedSource(root: root, cwd: "/p", body: Self.metadataOnly)
+        let metadataOnly = try #require(await syncError(request(root: root, cwd: "/p")))
+        #expect(ClaudeAccountSwitchRefusal(transcriptSyncError: metadataOnly) == .noConversationYet)
+
+        let unsafeSessionID = try #require(await syncError(request(root: root, cwd: "/p", sid: "../x")))
+        #expect(ClaudeAccountSwitchRefusal(transcriptSyncError: unsafeSessionID) == nil)
+        #expect(ClaudeAccountSwitchRefusal(transcriptSyncError: CocoaError(.fileReadNoPermission)) == nil)
+    }
+
     @Test func rejectsUnsafeSessionID() async throws {
         let root = try makeRoot(); defer { try? fm.removeItem(atPath: root) }
         await #expect(throws: ClaudeTranscriptAccountSyncError.invalidSessionID) {

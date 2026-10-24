@@ -15,7 +15,8 @@ enum ClaudeAccountSwitchResult: Equatable, Sendable {
         ClaudeAccountSwitchManualResume
     )
     /// The planner refused the switch; nothing changed. A session cmux cannot confirm or
-    /// resume also lands here as ``ClaudeAccountSwitchRefusal/noClaudeSession``.
+    /// resume also lands here as ``ClaudeAccountSwitchRefusal/noClaudeSession``, and one with
+    /// no conversation to resume yet as ``ClaudeAccountSwitchRefusal/noConversationYet``.
     case refused(ClaudeAccountSwitchRefusal)
     /// The pane is not running a Claude session.
     case notClaude

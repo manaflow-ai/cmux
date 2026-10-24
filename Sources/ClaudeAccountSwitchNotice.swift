@@ -16,6 +16,8 @@ enum ClaudeAccountSwitchNotice: Equatable, Sendable {
     case noClaudeSession
     /// The conversation's working directory is unknown.
     case missingWorkingDirectory
+    /// Nobody has sent the session a message yet, so there is no conversation to continue.
+    case noConversationYet
     /// The pane is not running Claude.
     case notClaude
     /// The pane runs on another machine.
@@ -46,6 +48,8 @@ enum ClaudeAccountSwitchNotice: Equatable, Sendable {
             self = .noClaudeSession
         case .refused(.missingWorkingDirectory):
             self = .missingWorkingDirectory
+        case .refused(.noConversationYet):
+            self = .noConversationYet
         case .refused(.unknownAccount(let name)):
             self = .unknownAccount(name)
         case .refused(.sameAccount(let name)):
@@ -152,6 +156,11 @@ enum ClaudeAccountSwitchNotice: Equatable, Sendable {
             return String(
                 localized: "dialog.claudeAccountSwitch.missingWorkingDirectory.message",
                 defaultValue: "cmux couldn't find the working directory of this Claude conversation."
+            )
+        case .noConversationYet:
+            return String(
+                localized: "dialog.claudeAccountSwitch.noConversationYet.message",
+                defaultValue: "This Claude session has no messages yet, so there's nothing to continue on another account. Send at least one message, then switch."
             )
         case .notClaude:
             return String(

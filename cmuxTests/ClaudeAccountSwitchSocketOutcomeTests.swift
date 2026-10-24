@@ -64,6 +64,7 @@ struct ClaudeAccountSwitchSocketOutcomeTests {
             (.finished(.refused(.sameAccount("work"))), "same_account"),
             (.finished(.refused(.noClaudeSession)), "no_claude_session"),
             (.finished(.refused(.missingWorkingDirectory)), "missing_working_directory"),
+            (.finished(.refused(.noConversationYet)), "no_conversation_yet"),
             (.finished(.notClaude), "not_claude"),
             (.finished(.remoteUnsupported), "remote_unsupported"),
             (.finished(.alreadySwitching), "already_switching"),

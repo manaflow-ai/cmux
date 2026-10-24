@@ -71,10 +71,11 @@ extension Workspace {
     /// Moves the pane's Claude session to another registered account and resumes it there.
     ///
     /// The transcript is copied into the target account first; if that fails the pane is left
-    /// alone, so a switch never starts a fresh conversation. The surface then respawns with the
-    /// target's account keys (see ``ClaudeAccountSwitchSurfaceEnvironment``), the transcript is
-    /// synced again once the old Claude has exited, and `claude --resume` is typed into the new
-    /// shell once it reports a prompt. A resume that cannot be typed returns
+    /// alone, so a switch never starts a fresh conversation. A session with no conversation yet
+    /// is refused there with ``ClaudeAccountSwitchRefusal/noConversationYet``. The surface then
+    /// respawns with the target's account keys (see ``ClaudeAccountSwitchSurfaceEnvironment``),
+    /// the transcript is synced again once the old Claude has exited, and `claude --resume` is
+    /// typed into the new shell once it reports a prompt. A resume that cannot be typed returns
     /// ``ClaudeAccountSwitchResult/switchedWithoutResume(_:_:_:)`` with the built command. The
     /// pane stays marked as switching until then. Remote panes are refused. Confirming a running
     /// turn is the caller's job; this never asks.
@@ -133,6 +134,11 @@ extension Workspace {
         do {
             preflight = try await sync.sync(request)
         } catch {
+            // A session nobody has sent a message to has nothing to resume, and the resume
+            // would exit with "No conversation found", leaving the pane at a bare shell.
+            if let refusal = ClaudeAccountSwitchRefusal(transcriptSyncError: error) {
+                return .refused(refusal)
+            }
             return .transcriptUnavailable
         }
 

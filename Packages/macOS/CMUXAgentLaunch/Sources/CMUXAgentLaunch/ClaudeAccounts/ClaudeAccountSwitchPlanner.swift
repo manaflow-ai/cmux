@@ -21,6 +21,23 @@ public enum ClaudeAccountSwitchRefusal: Error, Equatable, Sendable {
     case missingWorkingDirectory
     case unknownAccount(String)
     case sameAccount(String)
+    /// The session has no conversation to resume yet: nobody has sent it a message, so Claude
+    /// Code has written no conversation record and `claude --resume` on the target would fail.
+    case noConversationYet
+}
+
+extension ClaudeAccountSwitchRefusal {
+    /// The refusal a failed transcript preflight means, or `nil` when the failure says nothing
+    /// about the conversation (an unusable session id, or an I/O error) and the switch reports
+    /// the transcript as unavailable instead.
+    public init?(transcriptSyncError error: any Error) {
+        switch error as? ClaudeTranscriptAccountSyncError {
+        case .transcriptNotFound?, .noConversation?:
+            self = .noConversationYet
+        case .invalidSessionID?, nil:
+            return nil
+        }
+    }
 }
 
 public enum ClaudeAccountSwitchPlanner {

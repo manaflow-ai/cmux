@@ -5,7 +5,9 @@ import Foundation
 /// unknown account, a pane on another machine, the pane's own account, then a running response
 /// without `force`. A switch that can never happen is refused before the caller is asked to
 /// stop a response, so `agent_running` (and its `--force` hint) only comes back for a switch
-/// that would really go ahead. The result codes are the shared switch's own.
+/// that would really go ahead. The result codes are the shared switch's own. A session with no
+/// conversation yet is left to the shared switch, which reads its transcript: such a session
+/// cannot be mid-response, so it never gets `agent_running` first.
 struct ClaudeAccountSwitchSocketPreflight {
     /// The account the request asked for.
     let accountName: String
