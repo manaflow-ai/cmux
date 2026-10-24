@@ -18,4 +18,19 @@ extension DaemonStore {
         guard liveTabListRevision != nil else { return nil }
         return tab(id: id) != nil
     }
+
+    /// Whether the live tree lists the pane with durable id `id` (``PaneModel/id``); nil while the
+    /// store has no live tree (disconnected or not loaded), when no pane may be called gone.
+    public func liveTreeLists(pane id: String) -> Bool? {
+        guard liveTabListRevision != nil else { return nil }
+        for workspace in workspaces {
+            for screen in workspace.screens {
+                for pane in screen.panes {
+                    livePaneReads += 1
+                    if pane.id == id { return true }
+                }
+            }
+        }
+        return false
+    }
 }
