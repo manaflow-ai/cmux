@@ -268,7 +268,9 @@ enum DebugLayers {
 /// `-[CAContext layer]` and `-[CALayerHost contextId]`. No class conforms; a caller casts an object
 /// it asked `responds(to:)` for the one message it sends.
 @objc private protocol QuartzLayerHostingSPI {
-    static func allContexts() -> [NSObject]?
+    /// `+[CAContext allContexts]`: declared as an instance requirement because `#selector` cannot name a static
+    /// one of a protocol; it is sent to the class object with `perform(_:)`.
+    func allContexts() -> [NSObject]?
     var contextId: UInt32 { get }
     var layer: CALayer? { get }
 }
