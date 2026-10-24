@@ -2031,7 +2031,7 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
         # fallback and is green only on pass, so a fleet error stays red under the gate name;
         # unavailable, or a fast check refused before a verdict, leaves it to the Mac fallback.
         for verdict, result, runs in (("pass", "success", True), ("unavailable", "success", False),
-                                      ("fail", "success", True), ("", "failure", False),
+                                      ("fail", "success", True), ("", "failure", False), ("", "success", False),
                                       ("", "skipped", False), ("", "cancelled", False)):
             with self.subTest(verdict=verdict, result=result):
                 context = {"github.event_name": "push", "github.ref": "refs/heads/feat-cmux-next",
@@ -2058,7 +2058,7 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
         gate = [job for job in jobs.values() if job.get("name") == "cmux-next Release compile (Xcode 26)"]
         self.assertEqual(len(gate), 2)
         for verdict, result in (("pass", "success"), ("unavailable", "success"), ("fail", "success"),
-                                ("", "failure"), ("", "skipped")):
+                                ("", "failure"), ("", "success"), ("", "skipped")):
             with self.subTest(verdict=verdict, result=result):
                 context = {"github.event_name": "push", "github.ref": "refs/heads/feat-cmux-next",
                            "github.repository_owner": "manaflow-ai", "github.repository": "manaflow-ai/cmux",
@@ -2153,7 +2153,7 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
         # A runner hook refusing the fast gate (disk floor, 2026-10-24) fails it with no
         # verdict; the fallback must still compile, or no commit can be promoted.
         context = self.context([], event="push")
-        for result, verdict, runs in (("failure", "", True), ("success", "unavailable", True),
+        for result, verdict, runs in (("failure", "", True), ("success", "", True), ("success", "unavailable", True),
                                       ("success", "fail", False), ("success", "pass", False),
                                       ("cancelled", "", False)):
             with self.subTest(result=result, verdict=verdict):
@@ -2164,6 +2164,7 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
         # Blacksmith route even with a placement mini, and an "unavailable" verdict keeps the mini.
         context["needs.macos-placement.outputs.runner"] = "glaeda-side-std-xcode-26.6"
         for result, verdict, label in (("failure", "", "blacksmith-12vcpu-macos-26"),
+                                       ("success", "", "glaeda-side-std-xcode-26.6"),
                                        ("success", "unavailable", "glaeda-side-std-xcode-26.6")):
             with self.subTest(result=result, verdict=verdict, route=label):
                 context["needs.release-compile-fast.result"] = result
