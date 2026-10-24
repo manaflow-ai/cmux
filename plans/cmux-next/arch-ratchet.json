@@ -490,6 +490,12 @@
         "697207923231265a321d075bd66591e377ba2b7c"
       ],
       "applied_sha": "6c37fe3168afd5e8c75d4b1b242afd2dcd4eaaea"
+    },
+    {
+      "date": "2026-10-24",
+      "row": "global_mutable_statics",
+      "allow": 1,
+      "why": "CrashWatcher's pipe write end: an async-signal-safe fatal-signal handler writes to it, so it cannot live in an injected instance (same as CrashDeadline's semaphore); written once at launch, then only read (#22844)"
     }
   ],
   "observer_wrappers": [
