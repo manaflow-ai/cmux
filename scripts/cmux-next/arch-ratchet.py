@@ -370,6 +370,11 @@ def count_rule(changes: Changes, answered: dict[str, int] | None = None) -> tupl
     refusals: list[tuple[str, str]] = []
     notes: list[str] = []
     dropped: dict[str, int] = {}
+    unknown = delta.unknown()
+    for why in dict.fromkeys(unknown.values()):
+        rows = ", ".join(r for r in counts.ROW_IDS if unknown.get(r) == why)
+        notes.append(f"arch-ratchet: {rows} not judged for this push: {why} at one end and no earlier map parses, "
+                     "so its edges are unknown")
     for row in counts.ROWS:
         total = delta.total(row.id)
         new = delta.unpartnered(row.id) if row.ratchet and row.id in SWAP_ROWS else []

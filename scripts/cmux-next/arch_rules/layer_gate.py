@@ -28,7 +28,9 @@ and refuses only what the push adds:
             changes `package` or a `.targets`/`.dependencies` list after it is built
 
 An edge that is already in the base is never refused (arch-layers.py and the arch_counts layer rows report
-that debt). Test targets are ignored. Each refusal names the edge and both layers, then the fix: lift the
+that debt). A base map that does not parse is judged as the newest earlier map that parses
+(arch_counts.placing_map), the layers the targets held before it broke, so a push that repairs it is still
+refused for a relabel or a target it leaves unplaced. Test targets are ignored. Each refusal names the edge and both layers, then the fix: lift the
 shared type to a core target, or define a protocol seam in the consumer and conform in the App (DESIGN
 sections 2-4). The one escape (a reviewed reason only): the push adds a dated exception for ID to
 plans/cmux-next/arch-ratchet.json's `exceptions` ({"date": "YYYY-MM-DD", "row": "layer-gate", "allow": <n>,
@@ -173,7 +175,8 @@ def refusals(base_manifest: str | None, head_manifest: str | None,
                                         f"and `targets`, {{name: {{\"layer\": ...}}}})",
                         )]
     head, base = counts.parse_manifest(head_manifest), counts.parse_manifest(base_manifest)
-    # A base map that does not parse places nothing: then only the head's layers judge the push.
+    # A base map that does not parse places nothing (check_repo passes the newest earlier map that parses
+    # instead; only when none does): then only the head's layers judge the push.
     base_map = counts.LayerMap.parse(base_layers)
     order = head_map.order
     justified, invalid = relabels(base_map, head_map, base, head, changed)
@@ -306,6 +309,9 @@ def check_repo(repo: Path | str, base: str, head: str, changed: Iterable[str], r
         return []
     specs = [(base, PACKAGE_SWIFT), (head, PACKAGE_SWIFT), (base, LAYERS_JSON), (head, LAYERS_JSON)]
     texts = [read(specs)[spec] for spec in specs] if read else blobs(repo, specs)
+    # A base map that does not parse (it landed past the hook: a GitHub merge, --no-verify) still had a value:
+    # the newest earlier map that parses. The push is judged against it, so a repair cannot relabel or unplace.
+    texts[2] = counts.placing_map(repo, base, texts[2])
     return refusals(*texts, changed=changed)
 
 

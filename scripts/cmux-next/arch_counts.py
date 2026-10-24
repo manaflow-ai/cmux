@@ -92,7 +92,10 @@ hook: ((String) -> Void)?`) and an unproved call have no other key, so their mov
 the move (an injected instance; the call in a seam adapter with its `main-proof:`) or carry a dated exception.
 
 Delta mode (the pre-push hook) reads only the files a range changes, at both ends, and gives the same
-numbers as two full counts subtracted (tests/test_arch_ratchet.py checks it). Statics that keep their
+numbers as two full counts subtracted (tests/test_arch_ratchet.py checks it). At an end whose layer map does
+not parse, the edge rows classify with the newest earlier map that parses (`placing_map`: the value the
+edges had before the map broke, never 0), and layer_unplaced counts every target; only when no earlier map
+parses are that end's edges unknown and the edge rows not judged (delta 0, a note names them). Statics that keep their
 identity at both ends (package, owner and name, types, keyword: left in place, or moved within a package)
 cancel without a type lookup; every other changed static gets its own site, so the swap rule and a refusal
 see exactly the statics the range changed. For those, and for types whose
@@ -182,6 +185,7 @@ ROWS = (
 )
 ROW_IDS = tuple(row.id for row in ROWS)
 LAYER_ROWS = ("layer_hard", "layer_soft", "layer_upward", "layer_unplaced")
+EDGE_ROWS = ("layer_hard", "layer_soft", "layer_upward")
 
 SYS_STATEFUL = frozenset({
     "UserDefaults", "URLSession", "NotificationCenter", "OperationQueue", "NSWindow", "NSPanel",
@@ -1505,6 +1509,16 @@ class Layers:
     upward: list[tuple[str, str, str, str]]
     unplaced: list[str]
     error: str | None = None  # why the layer map does not parse (then every target is unplaced)
+    # When the map does not parse: whether an earlier map that parses classified the edges (`placing_map`).
+    edges_from_earlier: bool = False
+
+    def edges_unknown(self) -> str | None:
+        """Why the edge rows (EDGE_ROWS) have no value here, or None when they do.
+
+        A map that does not parse places nothing; its edges are classified by the newest earlier map that
+        parses (`placing_map`), the value the edges had before it broke. Only when no earlier map parses
+        either are its edges unknown (not 0), and a delta over such an end does not judge the edge rows."""
+        return f"{LAYERS_JSON} does not parse ({self.error})" if self.error and not self.edges_from_earlier else None
 
     def sites(self) -> list[Site]:
         out = [Site("layer_hard", MANIFEST, 0, f"{a} ({la}) -> {b} ({lb})", (f"edge:{a}->{b}",))
@@ -1526,18 +1540,50 @@ class Layers:
         return rows
 
 
-def layers(manifest_raw: str | None, layers_raw: str | None) -> Layers:
-    """The layer edges of a manifest under a layers json (`parse_manifest`, `LayerMap`, `edge_class`)."""
+def layers(manifest_raw: str | None, layers_raw: str | None, earlier_raw: str | None = None) -> Layers:
+    """The layer edges of a manifest under a layers json (`parse_manifest`, `LayerMap`, `edge_class`).
+
+    EARLIER_RAW is the newest earlier map that parses (`placing_map`), for a LAYERS_RAW that does not: it
+    classifies the edges then. layer_unplaced reads LAYERS_RAW as it is (a broken map places no target)."""
     if manifest_raw is None or layers_raw is None:
         return Layers([], [], [], [])
     manifest = parse_manifest(manifest_raw)
     placed = LayerMap.parse(layers_raw)
+    classifier = placed
+    if placed.error and earlier_raw is not None:
+        earlier = LayerMap.parse(earlier_raw)
+        classifier = earlier if not earlier.error else placed
     found: dict[str, list[tuple[str, str, str, str]]] = {kind: [] for kind in EDGE_CLASSES}
     for source, dep in sorted(manifest.edges()):
-        kind = placed.classify(source, dep)
+        kind = classifier.classify(source, dep)
         if kind is not None:
-            found[kind].append((source, placed.placed(source), dep, placed.placed(dep)))
-    return Layers(found["hard"], found["soft"], found["upward"], sorted(placed.unmapped(manifest)), placed.error)
+            found[kind].append((source, classifier.placed(source), dep, classifier.placed(dep)))
+    return Layers(found["hard"], found["soft"], found["upward"], sorted(placed.unmapped(manifest)), placed.error,
+                  classifier is not placed)
+
+
+def placing_map(repo: Path | str, rev: str, text: str | None) -> str | None:
+    """TEXT (LAYERS_JSON at REV) when it parses or is absent; else the newest LAYERS_JSON that parses in a commit
+    before REV that changed it (the map's value before it broke), or None when none does.
+
+    A broken map lands only past the hook (a GitHub merge, --no-verify): the layer gate refuses a head map that
+    does not parse. The counts and the gate then judge that end by the layers the targets held before it broke,
+    never by an empty map (every edge 0, every relabel unseen)."""
+    if text is None or not LayerMap.parse(text).error:
+        return text
+    git = Git(Path(repo))
+    tips = [f"{rev}^@"]
+    while True:
+        # One commit at a time: the walk stops at the first map that parses (usually the first one).
+        sha = git.run("rev-list", "-1", *tips, "--", LAYERS_JSON, check=False).strip()
+        if not sha:
+            return None
+        found = git.read([(sha, LAYERS_JSON)])[(sha, LAYERS_JSON)]
+        if found is None:
+            return None  # the map did not exist before it broke
+        if not LayerMap.parse(found).error:
+            return found
+        tips = [f"{sha}^@"]
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -1788,6 +1834,8 @@ class Counts:
 
     rows: dict[str, collections.Counter]
     sites: dict[str, list[Site]]
+    # {row: why} for rows this count has no value for (Layers.edges_unknown); a delta does not judge them.
+    unknown: dict[str, str] = dataclasses.field(default_factory=dict)
 
     @classmethod
     def empty(cls) -> "Counts":
@@ -1813,6 +1861,9 @@ def count_facts(counts: Counts, facts: FileFacts, table: TypeTable) -> None:
 
 
 def count_layers(counts: Counts, lay: Layers) -> None:
+    why = lay.edges_unknown()
+    if why:
+        counts.unknown.update(dict.fromkeys(EDGE_ROWS, why))
     for row, counter in lay.per_package().items():
         counts.rows[row].update(counter)
     for s in lay.sites():
@@ -1829,8 +1880,10 @@ def count_texts(texts: dict[str, str], manifest_raw: str | None, layers_raw: str
     return count_file_facts(facts, manifest_raw, layers_raw)
 
 
-def count_file_facts(facts: list[FileFacts], manifest_raw: str | None, layers_raw: str | None) -> tuple[Counts, Layers]:
-    """(counts, layers) of every file's FACTS and the manifest (count_texts and full_count)."""
+def count_file_facts(facts: list[FileFacts], manifest_raw: str | None, layers_raw: str | None,
+                     earlier_layers: str | None = None) -> tuple[Counts, Layers]:
+    """(counts, layers) of every file's FACTS and the manifest (count_texts and full_count). EARLIER_LAYERS is
+    `placing_map`'s answer for a LAYERS_RAW that does not parse."""
     index: dict[str, list[Decl]] = collections.defaultdict(list)
     for f in facts:
         for d in f.decls:
@@ -1839,7 +1892,7 @@ def count_file_facts(facts: list[FileFacts], manifest_raw: str | None, layers_ra
     counts = Counts.empty()
     for f in facts:
         count_facts(counts, f, table)
-    lay = layers(manifest_raw, layers_raw)
+    lay = layers(manifest_raw, layers_raw, earlier_layers)
     count_layers(counts, lay)
     return counts, lay
 
@@ -1855,7 +1908,8 @@ def full_count(repo: Path, rev: str = "HEAD", cache: bool = True) -> tuple[str, 
         found = store.facts(items, git.read_blobs)
         meta = git.read([(sha, p) for p in COUNT_INPUTS])
         facts = [found.get(item) or analyze(item[1], "") for item in items]
-        counts, lay = count_file_facts(facts, meta[(sha, MANIFEST)], meta[(sha, LAYERS_JSON)])
+        counts, lay = count_file_facts(facts, meta[(sha, MANIFEST)], meta[(sha, LAYERS_JSON)],
+                                       placing_map(repo, sha, meta[(sha, LAYERS_JSON)]))
     finally:
         store.flush()
     return sha, counts, lay
@@ -2063,10 +2117,18 @@ class Delta:
     analyzed: int = 0  # files analyze() read in this count
     cached: int = 0  # files whose facts came from FactsCache
 
+    def unknown(self) -> dict[str, str]:
+        """{row: why} for rows an end has no value for: the delta does not judge them (0, no sites)."""
+        return {**self.after.unknown, **self.before.unknown}
+
     def total(self, row: str) -> int:
+        if row in self.before.unknown or row in self.after.unknown:
+            return 0
         return sum(self.after.rows[row].values()) - sum(self.before.rows[row].values())
 
     def by_package(self, row: str) -> dict[str, int]:
+        if row in self.before.unknown or row in self.after.unknown:
+            return {}
         keys = set(self.after.rows[row]) | set(self.before.rows[row])
         out = {k: self.after.rows[row][k] - self.before.rows[row][k] for k in sorted(keys)}
         return {k: v for k, v in out.items() if v}
@@ -2076,6 +2138,9 @@ class Delta:
         global by name or by type, the same broadcast literal, the same edge) or, for a site without keys,
         its text. A move, a rename or a retyped global has a partner; a site that replaces a removed one of
         another identity (a swap) has none: it is debt the push adds, whatever the total does."""
+        if row in self.before.unknown or row in self.after.unknown:
+            return []
+
         def ids(s: Site) -> set[str]:
             return set(s.keys) or {"text:" + s.text}
 
@@ -2095,6 +2160,8 @@ class Delta:
 
     def new_sites(self, row: str) -> list[Site]:
         """HEAD sites whose (file, text) BASE does not have, falling back to text alone (moves)."""
+        if row in self.before.unknown or row in self.after.unknown:
+            return []
         old = collections.Counter(s.text for s in self.before.sites[row])
         out = []
         for s in self.after.sites[row]:
@@ -2219,8 +2286,9 @@ def _delta(git: Git, base: str, head: str, worktree: Path | None, dirty_proc: su
     layer_files = [p for p in COUNT_INPUTS if any(p == q for _, q in files)]
     if layer_files:
         texts = git.read([(r, p) for r in (base, head) for p in COUNT_INPUTS])
-        count_layers(before, layers(texts[(base, MANIFEST)], texts[(base, LAYERS_JSON)]))
-        count_layers(after, layers(texts[(head, MANIFEST)], texts[(head, LAYERS_JSON)]))
+        for r, counts in ((base, before), (head, after)):
+            count_layers(counts, layers(texts[(r, MANIFEST)], texts[(r, LAYERS_JSON)],
+                                        placing_map(git.repo, r, texts[(r, LAYERS_JSON)])))
     if not changed:
         return Delta(base, head, files, before, after)
     ends = {(r, p): blobs.get((r, p)) for r in (base, head) for p in changed}
