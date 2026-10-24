@@ -41,7 +41,7 @@ import {
   needsYouCards,
   recentChatCards,
   screenRows,
-  createStrip,
+  inStrip,
   shellEntry,
   shortHost,
   stepSelection,
@@ -473,11 +473,10 @@ export function NewTabScreen(props: Props) {
             ...(props.suggestionOrder ? { order: props.suggestionOrder } : {}),
           })
         : [],
-    [touched, shell, text, omnibar, home, ask, creates, commandQuery, props.suggestionOrder],
+    // `nt`: a create row's name is matched in the pane's language.
+    [touched, shell, text, omnibar, home, ask, creates, commandQuery, props.suggestionOrder, nt],
   );
   const rows = text !== dismissed ? suggested : [];
-  // The create actions the rows don't list, as one quiet strip under them (screenModel.ts).
-  const strip = createStrip(rows, creates, props.suggestionOrder);
   // New tabs or pages from the host can shorten the rows under a highlight.
   const current = selected === undefined ? defaultSelection(rows) : rows.findIndex((row) => rowKey(row) === selected);
   const pick = (index: number) => {
@@ -1456,7 +1455,8 @@ export function NewTabScreen(props: Props) {
           >
             {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
             <div ref={attachList} className="nt-rows" id="nt-rows" role="listbox" aria-label={nt("suggestions")}>
-              {rows.map((row, index) => (
+              {rows.map((row, index) =>
+                inStrip(row) ? null : (
                 <div
                   key={rowKey(row)}
                   id={`nt-row-${index}`}
@@ -1488,29 +1488,41 @@ export function NewTabScreen(props: Props) {
                     {index === current && <kbd>↵</kbd>}
                   </span>
                 </div>
-              ))}
+                ),
+              )}
+              {rows.some(inStrip) && (
+                // The create actions the rows don't list (screenModel.ts): options still, so the arrow
+                // keys and the native popup reach them, drawn as one quiet line.
+                // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+                <div className="nt-create-strip" role="group" aria-label={nt("create.label")}>
+                  {rows.map((row, index) =>
+                    inStrip(row) ? (
+                      <div
+                        key={rowKey(row)}
+                        id={`nt-row-${index}`}
+                        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+                        role="option"
+                        tabIndex={-1}
+                        aria-selected={index === current}
+                        data-type={row.type}
+                        className={index === current ? "nt-create-strip-item is-selected" : "nt-create-strip-item"}
+                        onMouseMove={() => {
+                          if (index === current) return;
+                          pick(index);
+                        }}
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                          activate(row);
+                        }}
+                      >
+                        <RowGlyph kind={rowGlyph(row)} />
+                        <span className="nt-row-title">{rowTitle(nt, row)}</span>
+                      </div>
+                    ) : null,
+                  )}
+                </div>
+              )}
             </div>
-            {strip.length > 0 && (
-              // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-              <div className="nt-create-strip" role="group" aria-label={nt("create.label")}>
-                {strip.map((kind) => (
-                  <button
-                    key={kind}
-                    type="button"
-                    tabIndex={-1}
-                    className="nt-create-strip-item"
-                    data-kind={kind}
-                    onMouseDown={(event) => {
-                      event.preventDefault();
-                      activate({ type: "create", kind });
-                    }}
-                  >
-                    <RowGlyph kind={kind === "chat" ? "agent" : kind} />
-                    <span>{rowTitle(nt, { type: "create", kind })}</span>
-                  </button>
-                ))}
-              </div>
-            )}
           </Popover>
         )}
       </div>

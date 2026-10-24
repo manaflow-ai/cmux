@@ -21,6 +21,12 @@ test("keywords and questions both put Ask first and the web search last", () => 
   expect(screenRows("how do ff work", { omnibar, ask }).map((row) => row.type)).toEqual(["ask", "search"]);
 });
 
+test("with no agent, plain text searches first and an address leads with the web search still last", () => {
+  expect(screenRows("ff", { omnibar }).map((row) => row.type)).toEqual(["search", "workspace"]);
+  const visited = { ...omnibar, history: [{ url: "https://github.com/x" }] };
+  expect(screenRows("github.com", { omnibar: visited }).map((row) => row.type)).toEqual(["open", "history", "search"]);
+});
+
 test("an address opens first", () => {
   expect(screenRows("reddit.com", { omnibar, ask })[0]?.type).toBe("open");
 });
@@ -144,11 +150,12 @@ test("Return on a question asks the composer's agent", async () => {
   expect(calls[0]?.slice(0, 3)).toEqual(["ask", "claude", "why is ff slow?"]);
 });
 
-test("Up wraps to the web search for a miss, and Return takes it", async () => {
+test("Down reaches the web search for a miss, and Return takes it", async () => {
   const calls: unknown[][] = [];
   const field = await render(calls);
   await type(field, "ff");
-  await key(field, "ArrowUp");
+  await key(field, "ArrowDown");
+  await key(field, "ArrowDown");
   expect(selected()).toBe("Search the web for ff");
   await key(field, "Enter");
   expect(calls).toEqual([["search", "ff"]]);

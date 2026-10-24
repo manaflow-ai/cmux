@@ -29,7 +29,8 @@ export type ScreenRow =
   /// The text as a prompt to `harness`, named `agent` (its `model` when known).
   | { type: "ask"; text: string; harness: string; agent: string; model?: string }
   /// A create action (cx-ag5.7): New terminal, New browser tab or New chat, as under the field.
-  | { type: "create"; kind: CreateKind };
+  /// `strip`: drawn in the quiet strip under the rows, not as a row; still in the arrow keys' order.
+  | { type: "create"; kind: CreateKind; strip?: true };
 
 /// What a create row opens, in the order the rows list them.
 export type CreateKind = "terminal" | "browser" | "chat";
@@ -72,8 +73,8 @@ const SUBSTRING_MATCH_LENGTH = 3;
 /// no agent, plain text searches. One row per page: a page an open tab shows is that tab ("Switch
 /// to tab"), and addresses compare without their tracking parameters. The create actions (Leo
 /// 2026-10-18: one Down or one click away while the list shows) end the list outside the cap:
-/// `chat` lists all three; `intent` only the ones the text names ("new", "term"), the others in the
-/// strip under the rows (createStrip); `minimal` none.
+/// `chat` lists all three as rows; `intent` lists the ones the text names ("new", "term") as rows
+/// and the others as `strip` rows, one quiet line under the rows; `minimal` none.
 export function screenRows(
   text: string,
   context: {
@@ -87,20 +88,19 @@ export function screenRows(
   const rows = navigationRows(text, context);
   if (!rows.length) return rows;
   const order = context.order ?? DEFAULT_SUGGESTION_ORDER;
-  const create = context.create ?? [];
-  const listed = order === "chat" ? create : order === "intent" ? create.filter((kind) => namesCreate(text, kind)) : [];
-  return [...rows, ...listed.map((kind): ScreenRow => ({ type: "create", kind }))];
+  const create = order === "minimal" ? [] : (context.create ?? []);
+  if (order === "chat") return [...rows, ...create.map((kind): ScreenRow => ({ type: "create", kind }))];
+  const named = create.filter((kind) => namesCreate(text, kind));
+  return [
+    ...rows,
+    ...named.map((kind): ScreenRow => ({ type: "create", kind })),
+    ...create.filter((kind) => !named.includes(kind)).map((kind): ScreenRow => ({ type: "create", kind, strip: true })),
+  ];
 }
 
-/// The create actions the `intent` order draws as one quiet strip under the rows instead of three
-/// rows: the ones `rows` does not list. None for the other orders.
-export function createStrip(
-  rows: readonly ScreenRow[],
-  create: readonly CreateKind[],
-  order: SuggestionOrder = DEFAULT_SUGGESTION_ORDER,
-): CreateKind[] {
-  if (order !== "intent" || !rows.length) return [];
-  return create.filter((kind) => !rows.some((row) => row.type === "create" && row.kind === kind));
+/// Whether `row` is drawn in the strip under the rows.
+export function inStrip(row: ScreenRow): boolean {
+  return row.type === "create" && row.strip === true;
 }
 
 function navigationRows(
@@ -126,8 +126,8 @@ function navigationRows(
   const fit = (lead: ScreenRow[]) => ranked(rest).slice(0, Math.min(cap, MAX_SUGGESTIONS - lead.length - search.length));
   // No agent to ask: a question or a word is searched, an address still opens first.
   if (!ask.length) {
-    const lead = top ? [top, ...search] : search;
-    return [...lead, ...fit(lead)];
+    if (!top) return [...search, ...fit(search)];
+    return [top, ...fit([top]), ...search];
   }
   const lead = top ? (order === "chat" ? [...ask, top] : [top, ...ask]) : ask;
   return [...lead, ...fit(lead), ...search];
