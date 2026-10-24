@@ -43,6 +43,8 @@ export type DiffViewerOptions = {
   layout: "split" | "unified" | "auto";
   lineNumbers: boolean;
   showBackgrounds: boolean;
+  /** The floating Stage all / Revert all bar (`diff.showBulkActions`, Settings only). */
+  showBulkActions: boolean;
   wordDiffs: boolean;
   wordWrap: boolean;
 };

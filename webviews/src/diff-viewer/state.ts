@@ -179,6 +179,7 @@ export function defaultDiffViewerOptions(payload: DiffViewerPayload): Omit<DiffV
     richPreview: false,
     lineNumbers: true,
     showBackgrounds: true,
+    showBulkActions: true,
     wordDiffs: payload.transport?.kind === "page",
     wordWrap: false,
   };
