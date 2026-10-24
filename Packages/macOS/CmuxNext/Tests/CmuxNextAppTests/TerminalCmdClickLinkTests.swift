@@ -1,4 +1,5 @@
 import AppKit
+@testable import CmuxNextApp
 @testable import CmuxNextTerminal
 import Foundation
 import GhosttyNextKit
@@ -74,12 +75,17 @@ import Testing
             try await Task.sleep(for: .milliseconds(150))
         }
 
-        /// Mouse presses (SGR) the program read since `start`.
-        @MainActor func presses(since start: Int) async throws -> Int {
+        /// Left-button presses and releases (SGR) the program read since `start`; motion
+        /// (any-motion tracking) and wheel reports do not count.
+        @MainActor func clicks(since start: Int) async throws -> (presses: Int, releases: Int) {
             try await Task.sleep(for: .milliseconds(300))
             let text = io.writes.dropFirst(start).map { String(decoding: $0, as: UTF8.self) }.joined()
-            // Left-button presses only: motion reports (any-motion tracking) end in `M` too.
-        return text.matches(of: try Regex(#"\x1b\[<0;\d+;\d+M"#)).count
+            var presses = 0, releases = 0
+            for match in text.matches(of: try Regex(#"\x1b\[<(\d+);\d+;\d+([Mm])"#)) {
+                guard let code = Int(match.output[1].substring ?? ""), code & (32 | 64) == 0, code & 3 == 0 else { continue }
+                if match.output[2].substring == "M" { presses += 1 } else { releases += 1 }
+            }
+            return (presses, releases)
         }
     }
 
@@ -130,12 +136,29 @@ import Testing
         let start = h.io.writes.count
         h.session.clickLinkForTesting(column: 13, row: 2)
         #expect(h.opens.texts == ["https://example.com/tui"])
-        #expect(try await h.presses(since: start) == 0, "the program saw the Cmd-click")
+        let linkClick = try await h.clicks(since: start)
+        #expect(linkClick.presses == 0 && linkClick.releases == 0, "the program saw the Cmd-click: \(linkClick)")
 
         let plain = h.io.writes.count
         try await h.hover(4, 4, [])
         h.session.clickLinkForTesting(column: 4, row: 4, flags: [])
-        #expect(try await h.presses(since: plain) == 1, "a plain click no longer reaches the program")
+        let plainClick = try await h.clicks(since: plain)
+        #expect(plainClick.presses == 1 && plainClick.releases == 1, "a plain click no longer reaches the program whole: \(plainClick)")
+    }
+
+    /// A Cmd-press on plain text belongs to the program: a drag onto a link and the release
+    /// there reach it too, so it never keeps a pressed button, and no link opens.
+    @Test func aCmdPressOffALinkReachesTheProgramWholeEvenWhenReleasedOnALink() async throws {
+        let h = try Harness()
+        defer { h.close() }
+        try await h.output(Self.mouseModes + "\u{1b}[3;3HPlain: https://example.com/tui\u{1b}[5;3Hplain text", showing: "plain text")
+        try await h.wait { h.session.surfaceView.surface.map(ghostty_surface_mouse_captured) == true }
+        try await h.hover(4, 4)
+        let start = h.io.writes.count
+        h.session.dragForTesting(from: (4, 4), to: (13, 2))
+        let drag = try await h.clicks(since: start)
+        #expect(drag.presses == 1 && drag.releases == 1, "the program lost half of a Cmd-drag: \(drag)")
+        #expect(h.opens.texts.isEmpty, "a drag that began off a link opened one")
     }
 
     @Test func anOSC8HyperlinkOpensItsTargetInAMouseReadingProgram() async throws {
@@ -162,5 +185,43 @@ import Testing
         try await h.hover(10, 1)
         h.session.clickLinkForTesting(column: 10, row: 1)
         #expect(h.opens.texts == [url, url])
+    }
+
+    @Test func aPrintedPathKeepsItsLineAndColumn() {
+        let code = TerminalLinkResolver.location("src/app.ts:3:5")
+        #expect(code?.line == 3 && code?.column == 5)
+        let note = TerminalLinkResolver.location("\"notes/todo.md:12\",")
+        #expect(note?.line == 12 && note?.column == nil)
+        #expect(TerminalLinkResolver.location("README.md") == nil)
+        #expect(TerminalLinkResolver.location("localhost:3000/docs") == nil)
+        #expect(TerminalLinkResolver.location("https://example.com:8080") == nil)
+    }
+
+    @Test func onlyAWordBrokenAtTheEdgeJoinsTheNextRow() {
+        // 30 columns: the first row's URL fills the row.
+        let wrapped = ["  https://example.com/aaaaaaaa", "  bbbb/c?d=1 and more"]
+        #expect(TerminalWrappedLink.find(rows: wrapped, firstRow: 0, columns: 30, column: 3, row: 1)?.text
+            == "https://example.com/aaaaaaaabbbb/c?d=1")
+        #expect(TerminalWrappedLink.find(rows: wrapped, firstRow: 0, columns: 30, column: 3, row: 1)?.segments.count == 2)
+        // The URL ends well before the edge: the next row's word is not part of it.
+        let short = ["  see https://example.com/x", "  next"]
+        #expect(TerminalWrappedLink.find(rows: short, firstRow: 0, columns: 40, column: 3, row: 1) == nil)
+        #expect(TerminalWrappedLink.find(rows: short, firstRow: 0, columns: 40, column: 10, row: 0) == nil)
+        // A frame border after the URL does not stop the join.
+        let framed = ["│ https://example.com/aaaaaa │", "│ bbb.html                   │"]
+        #expect(TerminalWrappedLink.find(rows: framed, firstRow: 0, columns: 30, column: 10, row: 0)?.text
+            == "https://example.com/aaaaaabbb.html")
+        // Two cells short of the edge: prose on the next row stays out; a URL's own continuation
+        // (it carries `/`, `?`, `=`) joins, for a program that keeps a right margin.
+        let prose = ["  see https://example.com/abcd", "  and more text"]
+        #expect(TerminalWrappedLink.find(rows: prose, firstRow: 0, columns: 32, column: 10, row: 0) == nil)
+        #expect(TerminalWrappedLink.find(rows: prose, firstRow: 0, columns: 32, column: 2, row: 1) == nil)
+        let margin = ["  see https://example.com/abcd", "  efg/h?i=1"]
+        #expect(TerminalWrappedLink.find(rows: margin, firstRow: 0, columns: 32, column: 3, row: 1)?.text
+            == "https://example.com/abcdefg/h?i=1")
+        // A VS16 emoji takes two cells, so the URL after it still reaches the edge.
+        let emoji = ["⚠️ https://example.com/aaaaaaaa", "bbb/c"]
+        #expect(TerminalWrappedLink.find(rows: emoji, firstRow: 0, columns: 31, column: 1, row: 1)?.text
+            == "https://example.com/aaaaaaaabbb/c")
     }
 }

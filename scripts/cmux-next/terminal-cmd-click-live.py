@@ -110,8 +110,13 @@ def click(column, row, keys=("command",)):
     return links().get("opened") or []
 
 
+SHOTS = []
+
+
 def snapshot(name):
-    path = os.path.join(opts.out, f"{name}.png")
+    """A window snapshot, numbered in the order taken (the frames of the run's video)."""
+    SHOTS.append(name)
+    path = os.path.join(opts.out, f"{len(SHOTS):02d}-{name}.png")
     windows = rpc("debug.window_list").get("windows") or []
     params = {"path": path}
     if windows:
@@ -177,12 +182,12 @@ termios.tcsetattr(fd, termios.TCSADRAIN, saved)
 
 
 def presses():
-    """Mouse presses the TUI read (SGR `ESC [ < b ; x ; y M`)."""
+    """Left-button presses and releases the TUI read (SGR `ESC [ < 0 ; x ; y M|m`)."""
     try:
         data = open(TUI_LOG, "rb").read().decode("latin-1")
     except OSError:
         return 0
-    return len(re.findall(r"\x1b\[<0;\d+;\d+M", data))
+    return len(re.findall(r"\x1b\[<0;\d+;\d+[Mm]", data))
 
 
 APP = opts.app or next(iter(sorted(glob.glob(os.path.expanduser(
@@ -248,12 +253,13 @@ try:
 
     # 1. The pointer rests on the URL; Command goes down; then the click.
     hover(3, 0, keys=())
+    snapshot("plain-shell-pointer-no-command")
     links(modifiers=["command"])
     settle()
     state = links()
     check(state.get("hovered") == "https://example.com/plain-shell",
           f"Command pressed with the pointer still shows the link ({state.get('hovered')!r})")
-    snapshot("01-plain-shell-cmd-hover")
+    snapshot("plain-shell-command-down")
     opened = click(3, 0)
     check(opened == ["system:https://example.com/plain-shell"], f"Cmd-click on the first cell opens the URL ({opened})")
     links(modifiers=[])
@@ -281,7 +287,7 @@ try:
     state = links()
     check(state.get("hovered") == "https://example.com/plain-shell",
           f"Command pressed over a terminal without focus shows the link ({state.get('hovered')!r})")
-    snapshot("02-unfocused-cmd-hover")
+    snapshot("unfocused-command-down")
     opened = click(3, 0)
     check(opened == ["system:https://example.com/plain-shell"], f"Cmd-click in a terminal without focus opens the URL ({opened})")
     links(modifiers=[])
@@ -293,14 +299,16 @@ try:
     layout = wait_for(lambda: os.path.exists(LAYOUT) and json.load(open(LAYOUT)), "the fixture TUI draws", 30)
     layout = layout or {}
     time.sleep(1)  # test harness: the TUI's frame draws
-    snapshot("03-tui")
+    snapshot("tui")
 
     # 5. Cmd-hover on a URL in the program.
     col, row = layout.get("plain", [12, 2])
+    hover(col, row, keys=())
+    snapshot("tui-pointer-no-command")
     state = hover(col, row)
     check(state.get("hovered") == "https://example.com/tui-plain", f"Cmd-hover in a mouse-reading program finds the URL ({state.get('hovered')!r})")
     check(state.get("pointingHand") is True, f"the pointer shows the pointing hand ({state.get('pointingHand')!r})")
-    snapshot("04-tui-cmd-hover")
+    snapshot("tui-cmd-hover")
 
     # 6. Cmd-click opens; the program sees no press. A plain click still reaches it.
     before = presses()
@@ -313,19 +321,22 @@ try:
     before = presses()
     click(tcol, trow, keys=())
     time.sleep(0.5)  # test harness: the report reaches the program through the daemon
-    check(presses() > before, f"a plain click still reaches the program ({presses() - before} new)")
+    check(presses() - before == 2, f"a plain click still reaches the program, press and release ({presses() - before} new)")
 
     # 7. OSC 8.
     col, row = layout.get("osc8", [12, 4])
     hover(col, row)
+    snapshot("tui-osc8-hover")
     opened = click(col, row)
     check(opened == ["system:https://example.com/osc8-target"], f"Cmd-click on an OSC 8 link opens its target ({opened})")
 
     # 8. The URL the program broke onto rows itself.
     (c1, r1), (c2, r2) = layout.get("wrapped", [[4, 6], [4, 7]])
+    hover(c1 + 20, r1)
+    snapshot("tui-wrapped-hover-first-row")
     state = hover(c2, r2)
     check(state.get("wrapped") == LONG_URL, f"Cmd-hover on the second row reports the whole URL ({(state.get('wrapped') or '')[:50]!r})")
-    snapshot("05-tui-wrapped-hover")
+    snapshot("tui-wrapped-hover-second-row")
     opened = click(c2, r2)
     check(opened == [f"system:{LONG_URL}"], f"Cmd-click on the second row opens the whole URL ({[o[:60] for o in opened]})")
     hover(c1 + 20, r1)
@@ -337,14 +348,14 @@ try:
     hover(col, row)
     settle()
     state = links()
-    snapshot("06-tui-path-hover")
+    snapshot("tui-path-hover")
     opened = click(col, row)
     expected = f"file:{os.path.join(REPO, 'src', 'app.ts')}:3:5"
     check(any(os.path.realpath(entry[5:].rsplit(":", 2)[0]) == os.path.join(REPO, "src", "app.ts") for entry in opened if entry.startswith("file:")),
           f"Cmd-click on src/app.ts:3:5 opens the file ({opened}; hovered {state.get('hovered')!r})")
     check(any(entry.endswith(":3:5") for entry in opened), f"the file opens at line 3, column 5 ({opened}, want {expected})")
     time.sleep(2)  # test harness: the editor page loads
-    snapshot("07-editor-at-line")
+    snapshot("editor-at-line")
     send("q")
 finally:
     with open(os.path.join(opts.out, "report.json"), "w") as f:

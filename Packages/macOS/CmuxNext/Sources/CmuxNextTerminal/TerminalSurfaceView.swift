@@ -80,14 +80,16 @@ public final class TerminalSurfaceView: NSView {
     var leadSurrogate: UTF16.CodeUnit?
     var lastPerformKeyEventTimestamp: TimeInterval?
     var previousPressureStage = 0
-    /// The left press went to Ghostty as a link click in a program that has the mouse
-    /// (``TerminalPointerMods``): its drags and release go the same way.
+    /// The left press went to Ghostty as a link click, in a program that has the mouse or with
+    /// Shift- or Option-Command (``TerminalPointerMods``): its drags and release go the same way.
     var linkPressInCapture = false
 
     /// Keyboard copy mode (``TerminalCopyMode``).
     private(set) lazy var copyMode = TerminalCopyMode(view: self)
     /// Ghostty's clipboard reads and confirmations (``TerminalClipboardRequests``).
     private(set) lazy var clipboardRequests = TerminalClipboardRequests(view: self)
+    /// Cmd-hover and Cmd-click on links beyond Ghostty's own (``TerminalLinkPointer``).
+    private(set) lazy var linkPointer = TerminalLinkPointer(view: self)
 
     // MARK: Lifecycle
 
