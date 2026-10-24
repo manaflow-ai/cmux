@@ -76,7 +76,7 @@ final class Fresh {
 NEW_CLEAN = """import Foundation
 struct Fresh {
     func load(_ url: URL) async throws -> Data {
-        try await Task.detached { try Data(contentsOf: url) }.value
+        try await Task.detached(priority: .utility) { try Data(contentsOf: url) }.value
     }
 }
 """

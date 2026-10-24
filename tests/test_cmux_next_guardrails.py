@@ -488,11 +488,13 @@ class RuleTests(Fixture):
         self.git("checkout", "--quiet", "topic")
         self.git("merge", "--quiet", "--no-edit", "feat-cmux-next")
         self.write(f"{KIT}/Own.swift", "func own() {\n    DispatchQueue.main.async { print(2) }\n}\n")
+        # app-size sees only App files: a comment line (no growth) puts one in the branch's own range.
+        self.write(f"{APP}/Landed.swift", "struct Landed {}\n// the branch's note\n")
         self.commit("the branch's own main hop")
         original = next(r for r in guardrails.RULES if r.id == "app-size")
 
-        def only_pushed(changes, moved):  # Own.swift is in the branch's range, not in what it pushed before
-            if not any(c.path.endswith("/Own.swift") for c in changes):
+        def only_pushed(changes, moved):  # Landed.swift's note is in the branch's range, not in what it pushed before
+            if not any(c.path.endswith("/Landed.swift") for c in changes):
                 raise RuntimeError("boom")
             return original.find(changes, moved)
 
