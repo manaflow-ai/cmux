@@ -98,6 +98,10 @@ public protocol BrowserTab: AnyObject, Observable, Sendable {
 
     /// Tears the page down. Pending prompts are dismissed. Idempotent.
     func close()
+
+    /// The zoom per site this tab's chrome follows (its engine's ``BrowserSharedStores``). The
+    /// default is nil: the chrome keeps the tab's own zoom.
+    var siteZoomLevels: SiteZoomLevels? { get }
 }
 
 extension BrowserTab {
@@ -112,6 +116,7 @@ extension BrowserTab {
 
     public func markAgentDriven() {}
     public var isAgentDriven: Bool { false }
+    public var siteZoomLevels: SiteZoomLevels? { nil }
     public func setPasswordFillAllowedByProfile(_ allowed: Bool) {}
 
     public func zoomIn() { setZoom(BrowserZoom.zoomIn(from: state.zoom)) }

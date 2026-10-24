@@ -55,6 +55,7 @@ final class TabContentCache {
     /// Pages revealed since their last hide: the next hide captures their
     /// thumbnail (`TabContentCache+Lifecycle`).
     var shownPages: Set<String> = []
+    /// Over the Chromium engine's stores, so both engines share them (``BrowserSharedStores``).
     let webKit: WebKitEngine
     let cef: CEFEngine
     /// Pages visited in the default browser profile, shared by its omnibars for suggestions and
@@ -138,11 +139,11 @@ final class TabContentCache {
     ///   - fileInput: answers a WebKit browser tab's file input (the App's made-ahead panel; tests pass a stand-in).
     ///   - afterFrame: runs work once the current pass's frame committed (a stand-in's page follows the key's
     ///     frame); tests pass one that collects the work or runs it at once.
-    init(daemon: DaemonService, cef: CEFEngine = CEFEngine(), fileInput: any WebFileInputAnswering,
+    init(daemon: DaemonService, cef: CEFEngine = CEFEngine(stores: .inMemory(), signInCallbacks: CEFSignInCallbacks()), fileInput: any WebFileInputAnswering,
          afterFrame: @escaping (@escaping @MainActor () -> Void) -> Void = { AfterFrameCommit().run($0) }) {
         self.daemon = daemon
         self.cef = cef
-        webKit = WebKitEngine(fileInput: fileInput)
+        webKit = WebKitEngine(fileInput: fileInput, stores: cef.stores)
         self.afterFrame = afterFrame
         browserTabs = BrowserTabService(daemon: daemon, cef: cef)
         wireNotices()
@@ -372,7 +373,7 @@ final class TabContentCache {
         page.delegate = pageRequests
         if page.engineKind == .cef { page.keyRouter = keyRouter }
         (page as? CEFTab)?.devToolsObserver = self
-        let incognito = OffTheRecordProfiles.shared.isOffTheRecord(page.profileID) ? incognitoMemory : nil
+        let incognito = cef.stores.offTheRecord.isOffTheRecord(page.profileID) ? incognitoMemory : nil
         let entry = BrowserEntry(tab: page, suggestionEngine: suggestionEngine(forPage: page),
                                  history: incognito?.history ?? history(for: page.profileID))
         pageRequests.routeOmnibarOpens(of: entry.chrome, page: page)

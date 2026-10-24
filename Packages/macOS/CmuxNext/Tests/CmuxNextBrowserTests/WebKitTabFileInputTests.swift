@@ -54,7 +54,7 @@ import Testing
         for file in chosen { try Data("cmux".utf8).write(to: file) }
 
         let answerer = Answerer(answer: chosen)
-        let engine = WebKitEngine(fileInput: answerer)  // the tab holds its engine weakly
+        let engine = WebKitEngine(fileInput: answerer, stores: .inMemory())  // the tab holds its engine weakly
         let page = engine.makeWebKitTab()
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled],
                               backing: .buffered, defer: false)

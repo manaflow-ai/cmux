@@ -46,7 +46,7 @@ public final class WebKitProfileStore {
     private var proxies: [BrowserProfileID: BrowserProfileProxy] = [:]
 
     public init(factory: any WebsiteDataStoreFactory = SystemWebsiteDataStoreFactory(),
-                offTheRecord: OffTheRecordProfiles = .shared) {
+                offTheRecord: OffTheRecordProfiles) {
         self.factory = factory
         self.offTheRecord = offTheRecord
         offTheRecord.observeEnd { [weak self] profile in self?.stores[profile] = nil }

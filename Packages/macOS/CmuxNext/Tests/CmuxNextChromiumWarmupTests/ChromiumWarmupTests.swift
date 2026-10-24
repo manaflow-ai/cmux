@@ -13,7 +13,7 @@ import Testing
 
     func warmup(trackingMenu: @escaping @MainActor () -> Bool = { false }) -> ChromiumWarmup {
         let clock = clock
-        return ChromiumWarmup(engine: CEFEngine(layout: nil), now: { clock.now }, isTrackingMenu: trackingMenu)
+        return ChromiumWarmup(engine: CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks()), now: { clock.now }, isTrackingMenu: trackingMenu)
     }
 
     @Test func anUnavailableEngineNeverWarms() {
