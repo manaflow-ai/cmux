@@ -2939,10 +2939,8 @@ class TabManager: ObservableObject {
             ) else { return }
         }
 
-        for panelId in plan.panelIds {
-            plan.workspace.markCloseHistoryEligible(panelId: panelId)
-            _ = plan.workspace.closePanel(panelId, force: true)
-        }
+        let tabIds = plan.panelIds.compactMap { plan.workspace.surfaceIdFromPanelId($0) }
+        plan.workspace.closeTabsAfterConfirmation(tabIds, force: true)
     }
 
     func closeCurrentWorkspaceWithConfirmation() {
