@@ -61,9 +61,17 @@ public final class HomeStore {
     @ObservationIgnored var liveRowReads: Set<String> = []
 
     @ObservationIgnored public let source: any HomeSource
-    // Every input of `transcript(for:)` drops its cache when it changes.
-    @ObservationIgnored var mirror = HomeMirror() { didSet { transcriptCache.removeAll() } }
-    @ObservationIgnored var log = IntentLog() { didSet { transcriptCache.removeAll() } }
+    // Every input of `transcript(for:)` drops its cache when it changes. Both are the owner state
+    // the client cache holds: a write to what it holds schedules a cache write
+    // (`ownerStateChanged`); typing, connection and row changes schedule none.
+    @ObservationIgnored var mirror = HomeMirror() {
+        didSet { transcriptCache.removeAll(); ownerStateChanged() }
+    }
+    @ObservationIgnored var log = IntentLog() {
+        didSet { transcriptCache.removeAll(); ownerStateChanged() }
+    }
+    /// `mirror.cacheChanges` and `log.cacheChanges` at the last cache write scheduled or restored.
+    @ObservationIgnored var cachedOwnerState = (mirror: UInt64(0), log: UInt64(0))
     @ObservationIgnored private var eventTask: Task<Void, Never>?
     @ObservationIgnored var resendTask: Task<Void, Never>?
     @ObservationIgnored var pendingResends: [HomeIntent] = []
@@ -311,7 +319,6 @@ public final class HomeStore {
     func bumpTranscript(_ id: ConversationID) {
         transcriptCache[id] = nil
         transcriptVersion[id, default: 0] += 1
-        scheduleCacheWrite()
     }
 
     struct UploadJob {
@@ -339,10 +346,10 @@ public final class HomeStore {
     }
 
     /// Rows from the mirror, the log and who types. Equal rows are not assigned: an assignment
-    /// notifies every observer of `rows` even when nothing changed.
+    /// notifies every observer of `rows` even when nothing changed. Rows are not in the client
+    /// cache, so a rebuild writes nothing (the mirror and the log schedule their own writes).
     func rebuildRows() {
         let next = mirror.inboxRows(log: log, typing: Set(typing.keys))
         if next != rows { rows = next }
-        scheduleCacheWrite()
     }
 }
