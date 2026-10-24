@@ -346,20 +346,25 @@ export class HoverBridge {
   move(point: Point): void {
     this.pointer = point;
     if (this.held) return;
+    if (this.state === "waiting") {
+      // Motion within the trigger is still deliberate hover; only motion outside the safe union
+      // cancels the dwell.
+      if (this.trigger.size > 0 || this.inSafeZone(point)) return;
+      this.clearTimer();
+      this.state = "idle";
+      return;
+    }
     if (this.trigger.size > 0 || this.state === "idle" || this.inSafeZone(point)) {
       this.clearTimer();
       return;
     }
-    if (this.state === "waiting") {
-      this.clearTimer();
-      this.state = "idle";
-    } else if (this.state === "open") this.scheduleClose();
+    if (this.state === "open") this.scheduleClose();
   }
 
   /** Refreshes portal geometry while the pointer is in the connector gap. */
   update(rects: { trigger?: Rect; card?: Rect }): void {
-    if (rects.trigger) this.triggerRect = rects.trigger;
-    if (rects.card) this.cardRect = rects.card;
+    if ("trigger" in rects) this.triggerRect = rects.trigger;
+    if ("card" in rects) this.cardRect = rects.card;
   }
 
   /** A menu opened by the card is an explicit hold until it closes. */
