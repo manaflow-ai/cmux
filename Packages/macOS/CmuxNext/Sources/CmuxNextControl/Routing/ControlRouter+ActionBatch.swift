@@ -1,33 +1,35 @@
 import CmuxNextActions
 public import CmuxNextSettings
 import Foundation
+import CmuxNextCompat
+public import CmuxNextWakeups
 
 /// `action.batch`: many app actions in one request (CLAUDE.md "Go past Chrome where cmux is
-/// scripted": a burst of scripted changes is one request and one main-thread task, not one per op).
+/// scripted": a burst of scripted changes is one request, and it never stands between the person's
+/// input and its frame).
 ///
 /// Params: `ops`, an array of `action.run` param objects (`action` or `cli_name` with `cli`,
 /// `target`, `args`, `focus`, `background`, `origin`); and for the whole batch `wait` (default
-/// true), `idempotency_key`, `split` (default false), `after` (read barrier) and `caller`. Any
-/// other batch-level member (an op's `origin` or `target` put there) is `invalid_params`, `not_run`.
+/// true), `idempotency_key`, `after` (read barrier) and `caller`. Any other batch-level member
+/// (an op's `origin` or `target` put there) is `invalid_params`, `not_run`.
 ///
 /// - Every op is resolved and validated off the main actor before any runs. One invalid op
 ///   refuses the whole batch: `not_run`, with `data.op` its index.
-/// - The ops run in order in one main-actor work item, an automation task of the main-thread
-///   scheduler. What the app owns (selection, focus, settings, app-local state) changes in that
-///   one task, so it shows together. What the session daemon owns (a daemon tab renamed, a
-///   column made, a close) the task only sends: it shows as the daemon's echoes arrive and the
-///   store applies them, which can take more than one frame and more than one store publish.
+/// - The ops run in order, in slices: each slice is one automation task of the main-thread
+///   scheduler and runs ops while ``MainFrameBudget`` lets the automation class run (at least one
+///   op), so a slice never holds the main thread past the class's per-frame budget plus one op, and
+///   a person's pending key or click is dispatched between two slices, before the rest of the batch.
+///   No op count is tuned: a long batch only takes more frames.
+/// - When the executor stages changes (``ControlActionExecutor/stageChanges(scope:until:)``), the stage opens
+///   before the first slice and commits after the last one (or where the batch ended), so what it
+///   holds back shows once, not slice by slice.
 /// - Not all-or-nothing: a handler that refuses at run time stops the batch there. The ops before
-///   it stay applied (`data.applied` counts them), the rest never run. The same holds for a later transaction
-///   of `split: true` that never ran (its deadline passed in the queue, the queue was full):
-///   that answer is never `not_run`. The daemon work an op started (a rename, a close) fails
-///   after the ops after it ran, so it does not stop them: the answer names the first op whose
-///   work failed (`data.op`, with its own action), every such op (`data.failed`) and how many ops
-///   ran (`data.applied`); an earlier failure answers before a later refusal.
-/// - Bounded: at most ``ControlRouter/Configuration/batchOpLimit`` ops. A larger batch is
-///   `batch_too_large` (`not_run`, naming the limit) unless `split` is true, which runs it as
-///   consecutive work items of at most the limit each, in order. Neither way rolls back: a
-///   transaction here is one main-actor work item, not all-or-nothing.
+///   it stay applied (`data.applied` counts them), the rest never run. The same holds for a later
+///   slice that never ran (its deadline passed in the queue, the queue was full): that answer is
+///   never `not_run`. The daemon work an op started (a rename, a close) fails after the ops after
+///   it ran, so it does not stop them: the answer names the first op whose work failed (`data.op`,
+///   with its own action), every such op (`data.failed`) and how many ops ran (`data.applied`); an
+///   earlier failure answers before a later refusal.
 /// - With `wait`, the reply comes after every daemon command of every op replied and a snapshot
 ///   reflects them (as `action.run`).
 ///
@@ -50,15 +52,6 @@ extension ControlRouter {
             throw ControlError.invalidParams(ControlStrings.format("control.error.unknownParam", "%1$@ does not take params.%2$@", call.method, unknown))
         }
         let ops = try Self.batchOps(call.params)
-        let split = try Self.batchSplit(call.params)
-        let limit = configuration.batchOpLimit
-        if !split, ops.count > limit {
-            throw ControlError(code: "batch_too_large",
-                               message: ControlStrings.format("control.error.batchTooLarge",
-                                                              "action.batch takes at most %1$lld ops in one transaction (got %2$lld); send several batches, or split: true to apply it as consecutive transactions",
-                                                              limit, ops.count),
-                               data: ["ops": JSONValue(ops.count), "limit": JSONValue(limit)])
-        }
         let catalog = call.snapshot.catalog
         let caller = try ControlCaller(call.params)
         var given: [(action: ControlActionInfo, request: ControlActionRequest)] = []
@@ -73,7 +66,7 @@ extension ControlRouter {
         }
         let key = try Self.idempotencyKey(call.params)
         return try await keyed(key, fingerprint: .batch(given.map(\.request)), call: call) {
-            try await self.executeBatch(given, key: key, transactionSize: split ? limit : given.count, call: call)
+            try await self.executeBatch(given, key: key, call: call)
         }
     }
 
@@ -103,21 +96,10 @@ extension ControlRouter {
     }
 
     /// Members that apply to the whole batch: an op that carries one is refused.
-    static let batchLevelMembers = ["wait", "idempotency_key", "after", "caller", "split"]
-
-    /// `params.split`: true applies more than ``ControlRouter/Configuration/batchOpLimit`` ops as
-    /// consecutive transactions (work items) of at most the limit each; false (the default)
-    /// refuses such a batch.
-    static func batchSplit(_ params: [String: JSONValue]) throws -> Bool {
-        guard let value = params["split"], !value.isNull else { return false }
-        guard let flag = value.boolValue else {
-            throw ControlError.invalidParams(ControlStrings.text("control.error.batchSplitShape", "split must be true or false"))
-        }
-        return flag
-    }
+    static let batchLevelMembers = ["wait", "idempotency_key", "after", "caller"]
 
     private func executeBatch(_ given: [(action: ControlActionInfo, request: ControlActionRequest)], key: String?,
-                              transactionSize: Int, call: ControlCall) async throws -> JSONValue {
+                              call: ControlCall) async throws -> JSONValue {
         var requests: [ControlActionRequest] = []
         requests.reserveCapacity(given.count)
         for (index, op) in given.enumerated() {
@@ -134,38 +116,40 @@ extension ControlRouter {
         let expired = ControlError.timeout(call.method, after: max(call.deadline - .now, .zero))
         var runs: [ControlActionRun] = []
         runs.reserveCapacity(requests.count)
-        let size = max(transactionSize, 1)
-        // Why a later transaction never ran, when earlier ones applied.
+        let frames = frameSource
+        let sliceLimit = workQueue.limits.frameBudget
+        // Why a later slice never ran, when earlier ones applied.
         var cutShort: ControlError?
+        // The batch's changes show once, when its last slice ran (or it ended early).
+        // Mutex: set once inside the queue's synchronous main-actor work closure and read after it; no actor hop fits there.
+        let stage = Mutex<(@MainActor @Sendable () -> Void)?>(nil)
         do {
-            for start in stride(from: 0, to: requests.count, by: size) {
-                let transaction = Array(requests.dropFirst(start).prefix(size))
+            while runs.count < requests.count {
+                let remaining = Array(requests.dropFirst(runs.count))
                 let ran = try await workQueue.run(connection: call.connection, method: call.method, deadline: call.deadline,
                                                   countingFrom: call.engineStartMark) { () throws -> [ControlActionRun] in
                     // The request may have answered `not_run` already: then never run.
                     guard progress.begin(), scope.noting("handler") else { throw expired }
+                    if stage.withLock({ $0 == nil }) {
+                        let commit = executor.stageChanges(scope: scope, until: call.deadline)
+                        stage.withLock { $0 = commit }
+                    }
                     // The queue runs this from a run-loop block, where no task is current (cx-bpcj).
                     return ControlCommandScope.$current.withValueInTask(scope) {
-                        var ran: [ControlActionRun] = []
-                        ran.reserveCapacity(transaction.count)
-                        for request in transaction {
-                            let run = executor.performActionTracked(request)
-                            ran.append(run)
-                            guard case .ran = run.outcome else { break }
-                        }
-                        return ran
+                        Self.batchSlice(remaining, executor: executor, budget: frames.mainFrameBudget, limit: sliceLimit)
                     }
                 }
                 runs += ran
-                guard ran.count == transaction.count, ran.last.map({ if case .ran = $0.outcome { true } else { false } }) ?? false else { break }
+                guard ran.last.map({ if case .ran = $0.outcome { true } else { false } }) ?? false else { break }
             }
         } catch let error as ControlError where !runs.isEmpty {
-            // A later transaction never ran (its deadline passed in the queue, the queue was full)
-            // after earlier ones applied: the batch ends there, as at a refusal. Its answer says
-            // how many ops applied and that the request did run (never `not_run`, which a client
-            // reads as safe to send again: the applied ops would run twice).
+            // A later slice never ran (its deadline passed in the queue, the queue was full) after
+            // earlier ones applied: the batch ends there, as at a refusal. Its answer says how many
+            // ops applied and that the request did run (never `not_run`, which a client reads as
+            // safe to send again: the applied ops would run twice).
             cutShort = error.atBatchOp(runs.count, applied: runs.count).ranInPart()
         }
+        if let commit = stage.withLock({ $0 }) { await MainActor.run { commit() } }
         // The last run is the refused one when the batch stopped early.
         let refused = zip(given, runs).enumerated().reversed().first.flatMap { index, pair -> (index: Int, action: String, error: ControlError)? in
             guard let error = ControlError.actionOutcome(pair.1.outcome, action: pair.0.action.id) else { return nil }
@@ -242,6 +226,30 @@ extension ControlRouter {
             return .object(immediate)
         }
         return try await settling.value.get()
+    }
+}
+
+extension ControlRouter {
+    /// One slice of a batch, on the main actor: `requests` in order while the automation class may
+    /// still run this frame (``MainFrameBudget/mayRun(_:)``: its budget not spent and no person's
+    /// input pending), and at least one. Without the app's budget (tests, tools) the slice stops at
+    /// `limit` of main-thread time. Stops after a run that did not run its action.
+    @MainActor
+    static func batchSlice(_ requests: [ControlActionRequest], executor: any ControlActionExecutor,
+                           budget: MainFrameBudget?, limit: Duration) -> [ControlActionRun] {
+        let started = ContinuousClock.now
+        var ran: [ControlActionRun] = []
+        for request in requests {
+            let run = executor.performActionTracked(request)
+            ran.append(run)
+            guard case .ran = run.outcome else { break }
+            if let budget {
+                if !budget.mayRun(.automation) { break }
+            } else if ContinuousClock.now - started >= limit {
+                break
+            }
+        }
+        return ran
     }
 }
 

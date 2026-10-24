@@ -373,7 +373,7 @@ def app_rename_load(plan, rng):
                        "wait": False, "focus": False, "origin": "script"}))
 
 
-# One action.batch transaction: ControlRouter.batchOpLimit, the most one transaction takes.
+# Ops per action.batch: a script's burst (the app runs it in budgeted slices; there is no op limit).
 BATCH_OPS = 64
 
 
