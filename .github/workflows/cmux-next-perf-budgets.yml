@@ -57,6 +57,18 @@ name: cmux-next perf cron
 on:
   workflow_dispatch:
     inputs:
+      tip_sha:
+        description: "Exact feat-cmux-next SHA for a direct Blacksmith macOS measurement"
+        required: false
+        default: ""
+      parts:
+        description: "Comma-separated GUI parts (transcript-scroll,sidebar,startup); manual Blacksmith mode only"
+        required: false
+        default: ""
+      runner_class:
+        description: "Blacksmith macOS runner class; rows are compared only within this class"
+        required: false
+        default: "blacksmith-6vcpu-macos-26"
       yield_mode:
         description: "queued: yield while a nightly or dev build waits for a runner (default); running: also while one runs"
         required: false
@@ -75,7 +87,81 @@ concurrency:
 env:
   YIELD_MODE: ${{ inputs.yield_mode || vars.CMUX_NEXT_PERF_CRON_YIELD || 'queued' }}
 
+# A manual tip_sha+parts dispatch is a direct, warning-only Blacksmith macOS
+# measurement. It bypasses the opportunistic cmux20-bench plan; receipts carry
+# runner_class so rows from unlike hardware are never compared.
 jobs:
+  blacksmith-mac:
+    name: manual GUI perf (${{ inputs.tip_sha && inputs.tip_sha || 'none' }})
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.tip_sha != '' && inputs.parts != '' && github.repository == 'manaflow-ai/cmux' }}
+    runs-on: ${{ inputs.runner_class || 'blacksmith-6vcpu-macos-26' }}
+    permissions:
+      contents: read
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.tip_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+
+      - name: Run the exact tip's GUI parts
+        env:
+          TIP_SHA: ${{ inputs.tip_sha }}
+          PARTS: ${{ inputs.parts }}
+          RUNNER_CLASS: ${{ inputs.runner_class || 'blacksmith-6vcpu-macos-26' }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/tipguard-blacksmith"
+          mkdir -p "$out"
+          started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          scripts/measure/split-spring.sh --build-only >"$out/build.log" 2>&1
+          python3 - "$out" "$TIP_SHA" "$RUNNER_CLASS" "$started" <<'PY2'
+          import json, pathlib, sys
+          out, sha, runner, started = sys.argv[1:]
+          pathlib.Path(out, "receipt.json").write_text(json.dumps({
+              "sha": sha, "runner_class": runner, "started_at": started,
+              "build_log": "build.log", "parts": []}, indent=2) + "\n")
+          PY2
+          IFS=',' read -r -a requested <<<"$PARTS"
+          for part in "${requested[@]}"; do
+            case "$part" in
+              transcript-scroll) args=(--app-cache --vdisplay=120 --suite=budgets --only=panes) ;;
+              sidebar) args=(--app-cache --vdisplay=120 --suite=budgets --only=sidebar) ;;
+              startup) args=(--app-cache --vdisplay=120 --suite=launch --profile empty --mode warm --runs 5 --timeout 20) ;;
+              *) echo "unsupported part: $part" >&2; exit 2 ;;
+            esac
+            part_dir="$out/$part"
+            mkdir -p "$part_dir"
+            part_started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            scripts/measure/split-spring.sh "${args[@]}" --out "$part_dir" >"$part_dir/run.log" 2>&1
+            part_finished="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            PART="$part" PART_STARTED="$part_started" PART_FINISHED="$part_finished" python3 - "$out/receipt.json" "$part_dir" <<'PY2'
+          import json, os, pathlib, sys
+          receipt = pathlib.Path(sys.argv[1]); part_dir = pathlib.Path(sys.argv[2])
+          doc = json.loads(receipt.read_text())
+          doc["parts"].append({"name": os.environ["PART"], "started_at": os.environ["PART_STARTED"],
+                               "finished_at": os.environ["PART_FINISHED"],
+                               "report": str(part_dir.relative_to(receipt.parent) / "report.json"),
+                               "log": str(part_dir.relative_to(receipt.parent) / "run.log")})
+          receipt.write_text(json.dumps(doc, indent=2) + "\n")
+          PY2
+          done
+          echo "### manual Blacksmith GUI perf" >>"$GITHUB_STEP_SUMMARY"
+          echo "SHA: $TIP_SHA" >>"$GITHUB_STEP_SUMMARY"
+          echo "runner class: $RUNNER_CLASS" >>"$GITHUB_STEP_SUMMARY"
+          cat "$out/receipt.json" >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Keep exact receipts and rows
+        if: always()
+        uses: actions/upload-artifact@043fb46a1d93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: tipguard-blacksmith-${{ inputs.tip_sha }}-${{ inputs.runner_class || 'blacksmith-6vcpu-macos-26' }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/tipguard-blacksmith
+          retention-days: 90
+          if-no-files-found: warn
+
   plan:
     name: perf cron plan
     if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' }}
