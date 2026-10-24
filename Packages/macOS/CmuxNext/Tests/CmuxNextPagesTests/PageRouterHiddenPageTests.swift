@@ -33,8 +33,10 @@ struct PageRouterHiddenPageTests {
         for index in 1...100 { provider.emit?(["n": .number(Double(index))]) }
         #expect(recorder.sends.isEmpty, "a hidden page got \(recorder.sends.count) script evaluations")
 
+        #expect(router.heldCount == 100)
         router.isPageHidden = false
         #expect(recorder.sends.count == 1)
+        #expect(router.heldCount == 0)
         let batch = try #require(recorder.sends.first)
         #expect(batch.compactMap { $0["seq"]?.doubleValue } == (1...100).map(Double.init))
         #expect(batch.compactMap { $0["data"]?["n"]?.doubleValue } == (1...100).map(Double.init))
@@ -105,6 +107,27 @@ struct PageRouterHiddenPageTests {
         second.close()
         second.isPageHidden = false
         #expect(secondRecorder.sends.isEmpty)
+    }
+
+    /// A busy stream behind another tab costs one `send` per ``PageRouter/heldLimit`` events, not
+    /// unbounded memory.
+    @Test func aBusyHiddenStreamGoesInBatchesOfTheLimit() async throws {
+        let (router, provider, recorder) = try await subscribed()
+        router.isPageHidden = true
+        for index in 0..<(PageRouter.heldLimit * 2 + 3) { provider.emit?(["n": .number(Double(index))]) }
+        #expect(recorder.sends.map(\.count) == [PageRouter.heldLimit, PageRouter.heldLimit])
+        #expect(router.heldCount == 3)
+    }
+
+    /// A page whose owner paces its own events (the agent pane) never holds them.
+    @Test func aPageThatPacesItsOwnEventsIsNotHeld() async throws {
+        let paced = PageDescriptor(id: "cmux.paced-test", resource: "paced-test", namespaces: ["cmux.paced-test."],
+                                   holdsEventsWhileHidden: false)
+        let (router, provider, recorder) = try await subscribed(paced)
+        router.isPageHidden = true
+        #expect(!router.holdsEvents)
+        provider.emit?(["n": 1])
+        #expect(recorder.sends.map(\.count) == [1])
     }
 
     /// The batch is one script; each envelope runs in its own `try`, so one page error drops none.
