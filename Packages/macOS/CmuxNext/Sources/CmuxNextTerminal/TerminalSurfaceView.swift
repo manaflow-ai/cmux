@@ -52,10 +52,12 @@ public final class TerminalSurfaceView: NSView {
         session?.surfaceDidReport(grid: report, pixelWidth: cells.width, pixelHeight: cells.height, final: true)
     }
 
-    /// The pane's layout spring landed: the final grid no longer stands in for the view's. The reflow
-    /// preview is left as it is until the view's next size (its landing layout may come after this call).
+    /// The pane's layout spring landed: the final grid no longer stands in for the view's, and the surface
+    /// takes its host's area again (a landing at another size reports that grid). The reflow preview is
+    /// left as it is until the view's next size.
     func endPaneMotion() {
         geometry.motionLanded()
+        (superview as? TerminalHostView)?.releaseSurfaceHold()
         if isHeldGridPending { updateSurfaceSize() }
     }
 
