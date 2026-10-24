@@ -1347,6 +1347,7 @@ let package = Package(
         .testTarget(
             name: "CmuxNextDesignTests",
             dependencies: [
+                "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextDesignTokens",
                 "CmuxNextWakeupsTestSupport",
