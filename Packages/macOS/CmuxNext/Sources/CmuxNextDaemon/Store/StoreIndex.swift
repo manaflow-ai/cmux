@@ -41,6 +41,13 @@ import Foundation
     /// An order change inside a pane, or of the workspaces, noted by its
     /// writer (`noteTabOrderChanged`).
     private var tabOrderChanged = false
+    /// The unread tabs by workspace, kept with the tabs' indexing (``UnreadTabLedger``); one ledger
+    /// for the store's life, so a rebuild keeps its observers.
+    let unread: UnreadTabLedger
+
+    init(unread: UnreadTabLedger = UnreadTabLedger()) {
+        self.unread = unread
+    }
 
     private enum Keys {
         case workspace(handle: WorkspaceHandle, key: WorkspaceKey?, id: String, resource: ResourceID?)
@@ -91,7 +98,8 @@ import Foundation
     /// Indexes `workspaces` only (snapshot apply; the one O(tree) write).
     mutating func rebuild(_ workspaces: [WorkspaceModel]) {
         let counted = indexedRecords
-        self = StoreIndex()
+        unread.reset()
+        self = StoreIndex(unread: unread)
         indexedRecords = counted
         for workspace in workspaces { insert(workspace) }
         tabOrderChanged = true
@@ -141,6 +149,7 @@ import Foundation
         remove(tab)
         add(tab, .tab(surface: tab.surface, id: tab.id, terminal: tab.terminalID, resource: tab.resourceID,
                       terminalResource: tab.terminalResourceID), parent: pane)
+        unread.track(tab, in: screen(holding: pane).flatMap(workspace(holding:)))
     }
 
     /// Drops `record` (a workspace, screen, pane or tab) and its subtree.
@@ -151,6 +160,7 @@ import Foundation
     private mutating func remove(id: ObjectIdentifier) {
         guard let entry = entries.removeValue(forKey: id) else { return }
         tabMembership ^= entry.membership
+        if let tab = entry.record as? TabModel { unread.untrack(tab) }
         for child in entry.children { remove(id: child) }
         if let parent = entry.parent { entries[parent]?.children.remove(id) }
         unkey(entry.keys, entry.record)

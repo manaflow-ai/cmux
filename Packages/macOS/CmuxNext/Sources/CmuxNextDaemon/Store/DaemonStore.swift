@@ -219,6 +219,9 @@ public final class DaemonStore: StateResourceQueries {
         return index.tabsByID[id] ?? index.tabsByResource[ResourceID(rawValue: id)]
     }
     public func tabGroup(_ id: TabGroupID) -> TabGroupModel? { index.tabGroupsByID[id] }
+    /// The `conv_` ids that unread conversation tabs show (``UnreadTabLedger``): kept as tabs
+    /// change, so a read walks no tabs.
+    public var unreadConversationIDs: Dictionary<String, Int>.Keys { index.unread.conversations.keys }
     public func group(_ id: WorkspaceGroupID) -> WorkspaceGroupModel? { groups.first { $0.id == id } }
     public func profile(_ id: ProfileID) -> ProfileModel? { profiles.first { $0.id == id } }
 
