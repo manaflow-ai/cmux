@@ -169,6 +169,9 @@ public struct LiveCallScreen: View {
                 .padding(.vertical, 16)
             }
             .scrollIndicators(.hidden)
+            // The newest caption stays in view when the keyboard opens or closes.
+            .defaultScrollAnchor(.bottom)
+            .defaultScrollAnchor(.bottom, for: .sizeChanges)
             .mask(LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.08),
                                          .init(color: .black, location: 0.94), .init(color: .clear, location: 1)],
                                  startPoint: .top, endPoint: .bottom))

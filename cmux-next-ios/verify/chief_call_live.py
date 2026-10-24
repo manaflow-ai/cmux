@@ -257,7 +257,11 @@ def phase_real401(sim, app, run):
     sim.tap_q(ident="settings.chiefCalls.remove")
     time.sleep(1)
     sim.shot("14-remove-confirm")
-    sim.tap_q(label="Remove Key", kind="Button", timeout=8)
+    # Two buttons read Remove Key: the row, and the dialog's (a popover above the row on iOS 26).
+    row = sim.find(ident="settings.chiefCalls.remove")
+    buttons = [e for e in sim.find(label="Remove Key") if not row or abs(e.frame[1] - row[0].frame[1]) > 4]
+    if buttons:
+        sim.tap_el(buttons[0])
     field = sim.wait(timeout=8, ident="settings.chiefCalls.keyField")
     run.check(p, "Remove Key deletes it", field is not None)
     sim.shot("15-removed")
@@ -345,21 +349,22 @@ def phase_hold(sim, app, run):
         time.sleep(0.7)
     time.sleep(6)  # the spoken reply finishes
     sim.shot("31-live-after-reply")
-    sim.tap_q(ident="chief.call.minimize")
-    pill = sim.wait(timeout=8, ident="chief.call.pill")
+    tap_any(sim, idents=("chief.call.minimize",), labels=("Minimize Call",))
+    pill = sim.wait(timeout=8, ident="chief.call.pill") or sim.wait(timeout=4, label="Call with Chief. Opens the call.")
     run.check(p, "Minimize leaves the call running as a pill over the app", pill is not None)
     sim.shot("32-pill")
     if pill:
         sim.tap_el(pill)
-    run.check(p, "The pill brings the call back", sim.wait(timeout=8, ident="chief.call.captions") is not None)
-    sim.tap_q(ident="chief.call.keyboard")
-    draft = sim.wait(timeout=6, ident="chief.call.draft")
+    run.check(p, "The pill brings the call back", sim.wait(timeout=8, label="End") is not None)
+    tap_any(sim, idents=("chief.call.keyboard",), labels=("Keyboard",))
+    draft = (sim.wait(timeout=6, ident="chief.call.draft") or sim.wait(timeout=2, kind="TextView")
+             or sim.wait(timeout=2, kind="TextField"))
     if draft:
         sim.tap_el(draft)
         time.sleep(1)
         sim.softtype("Also open a PR when they pass")
         sim.shot("33-typing")
-        sim.tap_q(ident="chief.call.sendDraft")
+        tap_any(sim, idents=("chief.call.sendDraft",), labels=("Send",))
     got = None
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline and not got:
@@ -367,26 +372,26 @@ def phase_hold(sim, app, run):
             got = True
         time.sleep(0.5)
     run.check(p, "A typed message is a turn Chief answers", bool(got))
-    sim.tap_q(ident="chief.call.keyboard")
+    tap_any(sim, idents=("chief.call.keyboard",), labels=("Keyboard",))
     time.sleep(1)
-    speaker = sim.wait(timeout=4, ident="chief.call.speaker")
+    speaker = sim.wait(timeout=4, ident="chief.call.speaker") or sim.wait(timeout=2, label="Speaker")
     if speaker:
         sim.tap_el(speaker)
-    mute = sim.wait(timeout=4, ident="chief.call.mute")
+    mute = sim.wait(timeout=4, ident="chief.call.mute") or sim.wait(timeout=2, label="Mute")
     if mute:
         sim.tap_el(mute)
     time.sleep(1)
     status = text_of(sim, "chief.call.status")
-    mute = sim.wait(timeout=4, ident="chief.call.mute")
-    speaker = sim.wait(timeout=4, ident="chief.call.speaker")
+    mute = sim.wait(timeout=4, ident="chief.call.mute") or sim.wait(timeout=2, label="Mute")
+    speaker = sim.wait(timeout=4, ident="chief.call.speaker") or sim.wait(timeout=2, label="Speaker")
     run.check(p, "Mute and Speaker toggle", mute is not None and mute.value == "On" and speaker is not None and speaker.value == "Off",
               f"mute={getattr(mute, 'value', None)} speaker={getattr(speaker, 'value', None)} status={status!r}")
     sim.shot("34-muted-earpiece")
-    sim.tap_q(ident="chief.call.end")
-    ended = wait_label(sim, "chief.call.status", ["ended"], 10)
-    run.check(p, "End hangs up", "ended" in ended, ended)
+    tap_any(sim, idents=("chief.call.end",), labels=("End",))
+    ended = wait_text(sim, ["Call ended"], 10)
+    run.check(p, "End hangs up", "Call ended" in ended)
     sim.shot("35-ended")
-    sim.tap_q(ident="chief.call.done")
+    tap_any(sim, idents=("chief.call.done",), labels=("Done",))
     time.sleep(1)
     sim.record_stop()
     # Settings root row and the page with the demo placeholder key.
