@@ -131,3 +131,36 @@ async fn a_steer_answered_meanwhile_is_not_reported_withdrawn() {
     assert!(result_of(&msgs, 9).is_none(), "the withdraw answered twice: {msgs:?}");
     assert!(result_of(&msgs, 2).is_none(), "the steer answered twice: {msgs:?}");
 }
+
+/// A lost Claude answer and a withdrawal reply can race without holding the translator's
+/// `pending` and `steers` locks in opposite order.
+#[tokio::test]
+async fn a_lost_answer_and_withdrawal_reply_complete_together() {
+    let t = std::sync::Arc::new(Translator::new("acp-1".into(), "default", "haiku", "default"));
+    let steer = waiting_steer(&t).await;
+    let Outbound::Lines(asked) = t.outbound(&withdraw(9, "p-steer")).await else { panic!() };
+    let failed_t = std::sync::Arc::clone(&t);
+    let reply_t = std::sync::Arc::clone(&t);
+    let failed =
+        tokio::spawn(
+            async move { failed_t.fail_pending("the agent's answer was too large").await },
+        );
+    let replied =
+        tokio::spawn(async move { reply_t.inbound(&cancel_answer(&asked[0], true)).await });
+    let (failed, replied) = tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        tokio::join!(failed, replied)
+    })
+    .await
+    .expect("lost answer and withdrawal reply deadlocked");
+    let failed = failed.expect("fail_pending task panicked");
+    let replied = replied.expect("withdrawal task panicked");
+    assert!(
+        result_of(&failed, 2).is_some() || result_of(&replied, 2).is_some(),
+        "{failed:?} {replied:?}"
+    );
+    assert!(
+        result_of(&failed, 9).is_some() || result_of(&replied, 9).is_some(),
+        "{failed:?} {replied:?}"
+    );
+    let _ = steer;
+}

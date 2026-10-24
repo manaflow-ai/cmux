@@ -506,10 +506,13 @@ impl Translator {
     /// are dropped: used when Claude's answer cannot be carried (a line over
     /// the agent host's frame limit), so no turn waits forever.
     pub async fn fail_pending(&self, message: &str) -> Vec<Message> {
-        // Held throughout: a steer `outbound` adds meanwhile keeps its line, and a withdraw
-        // (`steer_withdraw.rs`) is either answered here or finds no steer to ask for.
-        let mut steers = self.steers.lock().await;
+        // Drain pending replies before taking the steers lock. A withdrawal reply removes its
+        // pending entry before it inspects the steers, so holding steers while awaiting pending
+        // would invert the lock order used by the withdrawal path.
         let mut ids: Vec<String> = self.pending.lock().await.drain().map(|(id, _)| id).collect();
+        // Hold steers while clearing its prompt-id index: an outbound steer either keeps both
+        // records or waits until the stale index has been cleared.
+        let mut steers = self.steers.lock().await;
         ids.extend(steers.drain(..).map(|(_, id)| id));
         self.steer_lines.lock().await.clear();
         drop(steers);
