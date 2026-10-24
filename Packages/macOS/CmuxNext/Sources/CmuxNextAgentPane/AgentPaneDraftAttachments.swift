@@ -275,6 +275,20 @@ public final class AgentPaneDraftAttachments {
         }
     }
 
+    /// Decodes and keeps an ordered draft off the main actor in the chat's existing write queue.
+    /// Nil means the page sent a malformed draft; a valid draft with no writable directory still
+    /// answers an empty held list, matching the attachment-only path.
+    public func keepOrdered(_ value: JSONValue, for sessionId: String) async -> [String]? {
+        let directory = self.directory
+        let folder = folder(for: sessionId)
+        let limit = maximumBytes
+        return await queued(sessionId) {
+            guard let draft = Self.decodeDraft(value) else { return nil }
+            guard let directory, let folder else { return [] }
+            return Self.write(draft.attachments, text: draft.text, to: folder, in: directory, limit: limit)
+        }
+    }
+
     /// Keeps an ordered draft while retaining the old attachment-only storage API for older pages.
     public func keep(_ draft: AgentPaneDraft, for sessionId: String) async -> [String]? {
         guard let directory, let folder = folder(for: sessionId) else { return [] }

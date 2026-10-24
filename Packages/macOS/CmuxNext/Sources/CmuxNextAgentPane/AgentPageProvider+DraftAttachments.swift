@@ -23,10 +23,15 @@ extension AgentPageProvider {
             let kept = await store.attachments(for: session)
             return await Task.detached { AgentPaneDraftAttachments.json(kept) }.value
         }
-        if let value = body["draft"], let draft = AgentPaneDraftAttachments.decodeDraft(value) {
-            guard let store else { return .object(["held": .array([])]) }
-            guard let held = await store.keep(draft, for: session) else { throw PageError.invalidParams(op) }
-            return .object(["held": .array(held.map(JSONValue.string))])
+        if let value = body["draft"] {
+            if let store, let held = await store.keepOrdered(value, for: session) {
+                return .object(["held": .array(held.map(JSONValue.string))])
+            }
+            // With no store, preserve the old valid-draft response without decoding on the main
+            // actor; malformed drafts fall through to the legacy attachment-list validation.
+            if store == nil, await Task.detached { AgentPaneDraftAttachments.decodeDraft(value) != nil }.value {
+                return .object(["held": .array([])])
+            }
         }
         guard let list = body["attachments"], case .array = list else { throw PageError.invalidParams(op) }
         guard let store else { return .object(["held": .array([])]) }
