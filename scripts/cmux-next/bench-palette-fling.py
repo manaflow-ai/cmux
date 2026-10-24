@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Command Palette fling bench (perf-lead row 23 test plan step 5: hover follows the pointer, no
+"""Command Palette fling bench (perf-lead row 29 test plan step 5: hover follows the pointer, no
 dropped frames), with no real input.
 
 A fleet worker has no Post Event (Accessibility) grant, so a harness that moves the real pointer

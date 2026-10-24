@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""WebKit page frame cadence bench (perf-lead row 23: every scroll at full refresh).
+"""WebKit page frame cadence bench (perf-lead row 29: every scroll at full refresh).
 
 Each run launches the tagged build the way bench-stalls.py does (no activation, windows on the last
 screen, a scratch cmux.json with `browser.defaultEngine: webkit`: a default build opens Settings,
-History and Cloud in Chromium, where row 23 changes nothing), from an empty session (the tag's
+History and Cloud in Chromium, where row 29 changes nothing), from an empty session (the tag's
 saved daemon session is removed first: a relaunch otherwise restored the last run's 60 workspaces,
 and STRESS grew 65 -> 125 -> ... -> 305), optionally builds the STRESS session
 (perf-stress-session.py, in a 1600 x 1000 window: the default 1100 x 720 window had no room for
@@ -13,9 +13,9 @@ page's scroller a few pixels per frame.
 
 The two rates, inside one build (`debug.low_power_mode` overrides Low Power Mode for the app):
 
-  near60   Low Power Mode on: WebKit's default, the behavior before row 23 (expected on 120 Hz:
+  near60   Low Power Mode on: WebKit's default, the behavior before row 29 (expected on 120 Hz:
            about 16.7 ms, every interval long)
-  full     Low Power Mode off: row 23 (expected on 120 Hz: about 8.3 ms, 0 long frames)
+  full     Low Power Mode off: row 29 (expected on 120 Hz: about 8.3 ms, 0 long frames)
 
 Default mode (creation): each launch measures one rate, and sets Low Power Mode before it opens the
 page, so the page is made at that rate. Every launch drops the page pool's spare first
@@ -46,7 +46,7 @@ full-rate leg that renders slower is a result, its long frames count). In --live
 did not apply is reported, not refused: that is what --live measures. A STRESS session that is not
 the standard shape (stress-standard.py: 60 new workspaces besides the launch's first, 12 or more
 measured panes, no refusal without a stand-in) is reported with every
-leg (`stress_standard: false`). On a 60 Hz display both rates read the same: judge row 23 on a
+leg (`stress_standard: false`). On a 60 Hz display both rates read the same: judge row 29 on a
 120 Hz host. Several tags (different builds) run interleaved, so machine load affects them alike:
 
   scripts/cmux-next/bench-page-cadence.py --tag mytag --runs 6 [--stress] [--live] [--json out.json]
@@ -271,7 +271,7 @@ def one_run(tag, opts, legs):
             metrics.update(session)
             metrics["leg"] = label
             if "error" not in metrics and metrics["engine"] != "webkit":
-                metrics["error"] = "the page is not WebKit: this run measures nothing for row 23"
+                metrics["error"] = "the page is not WebKit: this run measures nothing for row 29"
             results[label] = metrics
         return results
     finally:
@@ -296,7 +296,7 @@ def main():
     parser.add_argument("--runs", type=int, default=6,
                         help="launches per tag (creation mode: one rate each, so 6 gives 3 per rate)")
     parser.add_argument("--rate", action="append", choices=sorted(RATES),
-                        help="the rates to measure (default both: near60 is the base behavior, full is row 23)")
+                        help="the rates to measure (default both: near60 is the base behavior, full is row 29)")
     parser.add_argument("--live", action="store_true",
                         help="measure the live Low Power Mode switch with the page on screen, both directions")
     parser.add_argument("--page", default="cmux.settings")
@@ -339,7 +339,7 @@ def main():
             if opts.stress and not all(r.get("stress_standard") for r in valid):
                 print("  STRESS not the standard shape in some runs: see stress_shape in the run lines")
             if max(fps) <= 60:
-                print("  display at 60 Hz or less: near60 and full render alike here; judge row 23 on 120 Hz")
+                print("  display at 60 Hz or less: near60 and full render alike here; judge row 29 on 120 Hz")
             for key in ("p50_ms", "p95_ms", "max_ms", "observed_fps", "long_frames", "scrolled_px"):
                 values = [r[key] for r in valid if isinstance(r.get(key), (int, float))]
                 if values:

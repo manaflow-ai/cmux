@@ -311,7 +311,7 @@ final class AppControl {
                                                                       pointsPerFrame: params["px"]?.doubleValue ?? 24,
                                                                       pointerFraction: params["pointer"]?.doubleValue ?? 0.5)
                 else { return ["error": "the palette is not open"] }
-                let number = { (value: Double?) -> JSONValue in value.map { .number($0) } ?? .null }
+                let number = { (value: Double?) -> CmuxNextSettings.JSONValue in value.map { .number($0) } ?? .null }
                 return .object([
                     "frames": .number(Double(report.intervalsMs.count)), "p50_ms": number(report.intervalPercentileMs(0.5)),
                     "p95_ms": number(report.intervalPercentileMs(0.95)), "max_ms": number(report.intervalPercentileMs(1)),
