@@ -366,6 +366,29 @@ class RuleTests(Fixture):
             os.environ.update(saved)
         self.assertEqual(len(markers), 2, markers)
 
+    def test_a_user_inter_hunk_context_does_not_shift_the_line_numbers(self):
+        # diff.interHunkContext joins nearby -U0 hunks with the unchanged lines between them; those must count,
+        # or every line after them is misnumbered (the rules then fail open, the conflict markers move).
+        self.git("config", "diff.interHunkContext", "3")
+        self.rebase_on({f"{KIT}/E.swift": "func f() {\n    print(1)\n    print(2)\n}\n",
+                        f"{KIT}/Conflict.swift": "let a = 1\nlet b = 1\n"}, "plain code")
+        self.write(f"{KIT}/E.swift", "func f() {\n    print(0)\n    print(2)\n    DispatchQueue.main.async { }\n}\n")
+        self.write(f"{KIT}/Conflict.swift", "<<<<<<< HEAD\nlet a = 1\n=======\nlet a = 2\n>>>>>>> topic\nlet b = 1\n")
+        self.commit("an edit and a main hop two lines apart, and a conflict")
+        refusals, warnings = self.check()
+        self.assertEqual([(r.id, [(h.number, h.text.strip()) for h in hits]) for r, hits in refusals],
+                         [("main-async", [(4, "DispatchQueue.main.async { }")])], warnings)
+        self.assertEqual([w for w in warnings if w[0] == "guardrails"], [])
+        spec = importlib.util.spec_from_file_location("cmux_next_prepush_gate", SOURCE / "scripts/cmux-next/prepush-gate.py")
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        saved = {k: os.environ.pop(k) for k in list(os.environ) if k.startswith("GIT_")}
+        try:
+            markers = gate.conflict_markers(self.repo, self.base, "HEAD")
+        finally:
+            os.environ.update(saved)
+        self.assertEqual(markers, [f"{KIT}/Conflict.swift:1: <<<<<<< HEAD", f"{KIT}/Conflict.swift:5: >>>>>>> topic"])
+
     def test_lines_brought_in_from_feat_cmux_next_never_count(self):
         self.git("checkout", "--quiet", "-b", "topic")
         self.write(f"{KIT}/Topic.swift", "struct Topic {}\n")
