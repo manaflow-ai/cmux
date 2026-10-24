@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextWakeups
@@ -70,7 +71,9 @@ final class NewTabSparePool {
     private let warmTimer = DemandTimer(owner: "NewTabSparePool.warm")
     private let fitTimer = DemandTimer(owner: "NewTabSparePool.fit")
     private var inputMonitor: Any?
-    private var memoryPressure: (any DispatchSourceMemoryPressure)?
+    /// The app's memory pressure events; a warning or critical level drops the spare.
+    private let memoryPressure: MemoryPressureEvents
+    private var pressureObservation: MainActorHandlerRegistration<MemoryPressureLevel>?
     private var usedThisSession = false
     private var windowObservers: [any NSObjectProtocol] = []
     private(set) var openings: [Opening] = []
@@ -79,8 +82,9 @@ final class NewTabSparePool {
 
     /// In place of ``AgentTabs/makeSpare(_:)`` (WebKit's first load, on the main thread): tests stall it.
     var makeSpare: ((AgentPaneNewTab) -> AgentPaneView?)?
-    init(services: AppServices) {
+    init(services: AppServices, memoryPressure: MemoryPressureEvents) {
         self.services = services
+        self.memoryPressure = memoryPressure
     }
 
 
@@ -334,13 +338,10 @@ final class NewTabSparePool {
     }
 
     private func watchMemoryPressure() {
-        guard memoryPressure == nil else { return }
-        let source = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
-        source.setEventHandler { [weak self] in
-            MainActor.assumeIsolated { self?.dropAll() } // main-proof: dispatch source on queue: .main
+        guard pressureObservation == nil else { return }
+        pressureObservation = memoryPressure.observe { [weak self] level in
+            if level != .normal { self?.dropAll() }
         }
-        source.resume()
-        memoryPressure = source
     }
 }
 
