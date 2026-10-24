@@ -11,6 +11,7 @@ import { useVirtualTurns } from "../hooks/useVirtualTurns";
 import { Check, Chevron, CopyIcon, EllipsisIcon, PinwheelSpinner } from "./icons";
 import { HintTooltip } from "./Tooltips";
 import { activityRowLabel, compactTurnGroups, groupTurns, summarizeTurnActivity, type TurnGroup } from "../turns";
+import { agentMessageFoldedByDefault } from "./agentMessageFormat";
 
 export type ToolBlockVariant = "card" | "inline" | "rail" | "oneliner" | "terminal";
 export const TOOL_BLOCK_VARIANT: ToolBlockVariant = "inline";
@@ -672,10 +673,25 @@ export function agentMessageLabel(from: string, languages?: readonly string[]): 
 
 /** A cmux agent message the agent received, shown with its sender. */
 export function AgentMessageRow({ message }: { message: { from: string; body: string } }) {
+  const foldByDefault = agentMessageFoldedByDefault(message.body);
+  const [expanded, setExpanded] = useState(false);
+  const collapsed = foldByDefault && !expanded;
   return (
-    <div className="msg agent-message">
-      <div className="agent-message-from">{agentMessageLabel(message.from)}</div>
-      <div className="body selectable">{message.body}</div>
+    <div className="msg agent-message" data-folded={collapsed ? "true" : undefined}>
+      <div className="agent-message-from" role="heading" aria-level={4}>{agentMessageLabel(message.from)}</div>
+      <DisclosureMotion open={!collapsed} className="agent-message-disclosure">
+        {() => <div className="body selectable"><ChatMarkdown text={message.body} /></div>}
+      </DisclosureMotion>
+      {foldByDefault ? (
+        <button
+          type="button"
+          className="agent-message-toggle"
+          aria-expanded={!collapsed}
+          onClick={() => setExpanded((current) => !current)}
+        >
+          {collapsed ? "Show more" : "Show less"}
+        </button>
+      ) : null}
     </div>
   );
 }
