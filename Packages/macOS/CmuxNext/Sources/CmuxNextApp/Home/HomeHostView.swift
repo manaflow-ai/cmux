@@ -58,7 +58,7 @@ final class HomeHostView: NSView {
         transcript = HomeNativeTranscriptView(store: service.homeStore, conversation: id, me: service.homeSource.me.id,
                                               diagrams: service.diagrams, openPanel: services.openPanel)
         control = HomeChiefControl(services: services, conversation: id, muxHome: HomeBrainHost.muxHome(tag: services.environment.tag))
-        settings = HomeChiefSettingsPopover(content: HomeChiefSettingsView(muxHome: control.brainHome, source: control.engineSource()))
+        settings = HomeChiefSettingsPopover(content: HomeChiefSettingsView(muxHome: control.brainHome, source: control.engineSource(), work: control.services.work))
         petRows = ChiefPetSettingsRows(settings: { [weak services] in services?.settings }, homes: services.chiefPetHomes,
                                        picks: services.chiefMascotPicks)
         super.init(frame: .zero)
@@ -397,7 +397,7 @@ final class HomeHostView: NSView {
     private func pictureStore() -> (avatars: HomeChiefAvatars, chief: String)? {
         guard !control.isCloud else { return nil }
         let avatars = HomeChiefAvatars(muxHome: HomeBrainHost.muxHome(tag: control.services.environment.tag),
-                                       registry: DaemonChiefAvatarRegistry(connection: control.connection))
+                                       registry: DaemonChiefAvatarRegistry(connection: control.connection), work: control.services.work)
         return (avatars, HomeChiefAvatars.chiefID(named: control.named))
     }
 
@@ -419,7 +419,7 @@ final class HomeHostView: NSView {
             let avatar = if let store {
                 await store.avatars.headerAvatar(chief: store.chief, fallback: fallback)
             } else {
-                await HomeChiefAvatars.headerAvatar(files: files, fallback: fallback)
+                await HomeChiefAvatars.headerAvatar(files: files, fallback: fallback, work: control.services.work)
             }
             // A read for the Chief or the character shown before (another came in since) is dropped.
             guard let self, control.brainHome == home,
