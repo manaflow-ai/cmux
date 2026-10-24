@@ -18,9 +18,9 @@ public import WebKit
 //   was asked); once it said it booted, no page message is being handled and it stayed unseen for
 //   the hibernation's grace, the policy freezes it (``PageFreezePolicy``, ``freezeWhileHidden()``).
 //   While it is frozen nothing goes into it and nothing thaws it but a need: its streams' events
-//   wait by their ``PageStreamFreezing`` (the newest state goes at the thaw), the theme, scale,
-//   attribute and glass scripts are sent again at the thaw, and only an event that cannot wait, a
-//   host call or a script, a show or the owner thaws it.
+//   fold by their ``PageStreamFreezing`` (one event per key goes at the thaw), the theme, scale,
+//   attribute and glass scripts are sent again at the thaw, and only the person's input to it
+//   (``PageStreamFreezing/input``), a host call or a script, a show or the owner thaws it.
 //
 // A view in an alpha-0 container that is not a ``ParkingContainer`` (the New Tab spare's parking, a
 // paint hold) counts as shown: it must draw at its size before it is adopted.
@@ -145,7 +145,7 @@ extension PageWebView {
         if ended, chromiumSession === session { noteHiddenActivity(session) }
     }
 
-    /// The host is about to reach into the page (a call, a script, an event that cannot wait): a
+    /// The host is about to reach into the page (a call, a script, the person's input): a
     /// frozen page thaws, and an unseen page's grace starts again.
     func wake(_ session: PageChromiumSession) {
         thaw(session)
