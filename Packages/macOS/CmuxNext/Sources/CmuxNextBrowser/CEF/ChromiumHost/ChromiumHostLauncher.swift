@@ -134,7 +134,9 @@ nonisolated struct ChromiumHostLauncher: ChromiumHostLaunching {
         return await withCheckedContinuation { continuation in
             // DispatchSource process source: the carve-out for a child's exit (no Foundation async
             // API for a posix_spawn'ed pid); it never reaps, so the zombie stays until reap(_:).
-            let queue = DispatchQueue(label: "com.cmuxterm.chromium-host.exit.\(pid)")
+            // userInitiated: the exit restarts the page a person is looking at (the event handler's waitid
+            // returns at once once the exit is posted, so it holds this QoS only briefly).
+            let queue = DispatchQueue(label: "com.cmuxterm.chromium-host.exit.\(pid)", qos: .userInitiated)
             let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: queue)
             // One-shot resume guard (the lock carve-out): the exit event and the check after arming race.
             let done = Mutex(false)
