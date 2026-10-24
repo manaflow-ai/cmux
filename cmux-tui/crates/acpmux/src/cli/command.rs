@@ -3,6 +3,8 @@
 use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
 
+pub use crate::cli::command_host::{PeerCmd, TicketCmd};
+
 #[derive(Parser)]
 #[command(name = "acpmux", version = concat!(env!("CARGO_PKG_VERSION"), " (", env!("ACPMUX_BUILD"), ")"), about = "tmux for coding-agent harnesses: Claude Code, Codex, OpenCode, pi, Gemini", long_about = None, after_help = "Agents: `acpmux guide` (also --guide, --skill) prints the full guide for driving acpmux from a script or another agent.")]
 pub struct Cli {
@@ -868,142 +870,6 @@ pub enum DaemonCmd {
         #[arg(long)]
         refresh: bool,
     },
-}
-
-#[derive(Subcommand)]
-pub enum PeerCmd {
-    /// Add a peer. URL is ws://host:port, wss://…, or ssh://host (tunnel
-    /// opened by acpmux; token read from the remote config). Sessions appear
-    /// as NAME/session.
-    Add {
-        name: String,
-        /// Default: ssh://NAME, the machine's one daemon as your ssh config reaches it.
-        url: Option<String>,
-        #[arg(long)]
-        token: Option<String>,
-    },
-    /// List peers and their connection state.
-    Ls,
-    /// Remove a peer.
-    Rm { name: String },
-    /// Pairing tickets for adding a machine with one pasted line: `new`
-    /// mints one, `ls` lists tickets and paired machines, `revoke` ends one.
-    #[command(subcommand)]
-    Ticket(TicketCmd),
-    /// Redeem a pairing ticket from another machine and pair in its role
-    /// (the install script runs this with the pasted ticket).
-    Join {
-        ticket: String,
-        /// This machine's name on the other one (default: the host name's first label).
-        #[arg(long)]
-        name: Option<String>,
-        /// The other machine's peer name here (default: its name in the ticket).
-        #[arg(long)]
-        peer_name: Option<String>,
-        /// A daemon-role ticket: the wss:// URL (or ws:// to a loopback host)
-        /// the other machine reaches this daemon at.
-        #[arg(long)]
-        advertise: Option<String>,
-    },
-    /// Install this binary and a daemon on a machine over ssh, then add it as a peer.
-    Setup {
-        /// ssh target, e.g. cmux-lawrence or user@host
-        host: String,
-        /// Peer name (default: the host's first label).
-        #[arg(long)]
-        name: Option<String>,
-        /// Port the remote daemon listens on (loopback; tunnelled over ssh).
-        #[arg(long, default_value_t = 47811)]
-        port: u16,
-    },
-    /// Copy this binary to an ssh peer (or every one with --all) and restart
-    /// its daemon. The previous binary is kept and put back when the
-    /// restarted daemon does not answer with the new build; a daemon under a
-    /// hand-written acpmux unit is moved to acpmux.service, agents kept.
-    Update {
-        name: Option<String>,
-        #[arg(long)]
-        all: bool,
-        /// Push DIR/acpmux-<target> instead, the target from the peer's
-        /// `uname -sm` (x86_64-unknown-linux-musl, aarch64-unknown-linux-musl,
-        /// aarch64-apple-darwin, x86_64-apple-darwin).
-        #[arg(long, value_name = "DIR")]
-        binary_dir: Option<PathBuf>,
-        /// Leave a peer alone while one of its sessions runs a turn or waits
-        /// on a permission (but the session this command runs in).
-        #[arg(long)]
-        if_idle: bool,
-    },
-    /// Add a machine in one go: check ssh, install this build, start the
-    /// daemon, copy harness profiles and peer to it (and, with --reverse,
-    /// back). One line per step.
-    Enroll {
-        /// ssh target, e.g. huge-blue or user@host
-        host: String,
-        /// Peer name (default: the host's first label).
-        #[arg(long)]
-        name: Option<String>,
-        /// A harness profile to copy (repeatable).
-        #[arg(long = "harness", value_name = "ID")]
-        harnesses: Vec<String>,
-        /// The remote binary to install; another than ~/.local/bin/acpmux
-        /// (the app's ~/.local/bin/cmux-tui) gets that path linked to it.
-        #[arg(long, default_value = "~/.local/bin/acpmux")]
-        remote_binary: String,
-        /// Also register this machine as a peer on the host (peer-back). Off
-        /// by default: two daemons that list each other relay one another's
-        /// sessions both ways.
-        #[arg(long)]
-        reverse: bool,
-    },
-    /// Check a machine (a peer name or an ssh host) step by step; --fix
-    /// repairs what fails. Without --fix nothing changes.
-    Doctor {
-        target: String,
-        #[arg(long)]
-        fix: bool,
-        /// A harness profile to check (repeatable).
-        #[arg(long = "harness", value_name = "ID")]
-        harnesses: Vec<String>,
-        #[arg(long, default_value = "~/.local/bin/acpmux")]
-        remote_binary: String,
-        /// Also check (and with --fix, add) this machine as a peer on the host.
-        #[arg(long)]
-        reverse: bool,
-    },
-    /// The tailnet's machines that could be added, marking those already peers.
-    Candidates {
-        /// Also try key-only ssh to each online machine.
-        #[arg(long)]
-        probe: bool,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum TicketCmd {
-    /// Mint a single-use ticket; prints the line to run on the new machine.
-    New {
-        /// daemon (this machine drives the new one), client (the new one
-        /// drives this one) or read-only (the new one only watches).
-        #[arg(long, default_value = "client")]
-        role: String,
-        /// How long the ticket lives: 900, 15m or 2h (at most 24h).
-        #[arg(long, default_value = "15m")]
-        ttl: String,
-        /// The wss:// URL the new machine dials (default: this daemon's
-        /// listener, when it listens on loopback).
-        #[arg(long)]
-        url: Option<String>,
-        /// A note shown in `ticket ls`.
-        #[arg(long)]
-        label: Option<String>,
-    },
-    /// Tickets and paired machines (no secrets).
-    #[command(alias = "list")]
-    Ls,
-    /// Revoke a ticket, or a paired machine by id or name; its open
-    /// connections close at once.
-    Revoke { id: String },
 }
 
 #[derive(Args)]

@@ -120,7 +120,7 @@ Five everyday commands, three groups for the rest:
 | `ls` | Sessions on every host, as `host/name` for remote ones. |
 | `attach [NAME] [--plain]` | TUI on one session, or a plain text stream. |
 | `web [--no-open] [--rotate-token]` | Print the dashboard URL and open it; `--rotate-token` replaces the token first. |
-| `host setup HOST` / `host update [--all] [--if-idle] [--binary-dir DIR]` / `host add NAME [URL]` / `host ls` / `host rm NAME` | Remote daemons. `setup` installs over ssh; URL is `ssh://host`, `ws://…`, or `wss://…` (default `ssh://NAME`: the machine's one daemon as your ssh config reaches it). `ls` names an `ssh://` entry with a user or another port as not the canonical endpoint. |
+| `host setup HOST [--no-auto-update]` / `host update [--all] [--if-idle] [--binary-dir DIR]` / `host self-update` / `host add NAME [URL]` / `host ls` / `host rm NAME` | Remote daemons. `setup` installs over ssh; URL is `ssh://host`, `ws://…`, or `wss://…` (default `ssh://NAME`: the machine's one daemon as your ssh config reaches it). `ls` names an `ssh://` entry with a user or another port as not the canonical endpoint. |
 | `host enroll HOST [--harness ID]… [--reverse]` / `host doctor NAME\|HOST [--fix] [--reverse]` | Add a machine step by step (reach, install, daemon, harness, peer, peer-back, identity), one JSON line per step with `--json`; `peer-back` (this machine as the host's peer) runs only with `--reverse`; `doctor` changes nothing without `--fix`. |
 | `session info\|cancel\|stop\|rename\|fork\|set\|allow\|deny\|export\|import\|tail NAME …` | Everything about one session. |
 | `daemon run\|status\|shutdown\|config\|harnesses\|reload\|models\|schema` | The daemon itself. |
@@ -794,10 +794,17 @@ binary only once it runs on the peer, keeps the binary it replaces as `~/.local/
 not answer with the new build. A daemon that runs under a hand-written `acpmux*.service` unit is
 moved to the standard `acpmux.service` (its home, socket and drop-ins carried over, agents kept).
 A cmux Cloud VM is never updated this way (`cloudMachine`): `cmux link machine update --to-bundled` owns it.
-One update of a host runs at a time: `host update`, `host setup` and `host enroll --fix` take the
-host's update lock (a lease in `~/.acpmux`, kept by the update's connection; it needs `flock` or
-`perl` on the host), and one that finds it held changes nothing (`host update`: `updateRunning`). Every step checks the lease on the host first,
-so an update whose connection dropped stops (`lockLost`). The updates reach the daemon through the
+A Linux host that runs `acpmux.service` also gets `acpmux-update.timer` from `host setup` and
+`host update`: every 15 minutes it runs `acpmux host self-update`, which downloads the newest
+daemon-tested feat-cmux-next build (`cmux-tui/channels/feat-cmux-next.json` on files.cmux.com)
+when the installed binary differs, checks its sha256 and updates the daemon the same way, rollback
+included. A build pushed by hand is replaced by the channel's at the next run;
+`host setup --no-auto-update` (the file `~/.acpmux/no-auto-update`) keeps a host off the timer.
+One update of a host runs at a time: the timer, `host update`, `host setup` and `host enroll --fix`
+take the host's update lock (a lease in `~/.acpmux`, kept by the update's connection or the timer's
+process; it needs `flock` or `perl` on the host), and one that finds it held changes nothing
+(`host update`: `updateRunning`). Every step checks the lease on the host first, so an update whose
+connection dropped stops (`lockLost`). The updates reach the daemon through the
 `ACPMUX_HOME` and `ACPMUX_SOCKET` that `acpmux.service` and its drop-ins set.
 `--json` reports each peer's `outcome`: `updated`, `current`, `busy`, `needsBinary`,
 `rolledBack` or `failed`. `host setup` needs ssh + scp access and a Mac or Linux box with `launchctl`
