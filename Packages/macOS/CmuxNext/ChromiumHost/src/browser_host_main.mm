@@ -16,7 +16,10 @@
 // Launched by cmux (ChromiumHostLauncher) with the wire on fd 3 (frames from cmux) and fd 4 (frames to cmux):
 //   <host> --framework=<CEF framework dir> --subprocess=<base helper exe>
 //          --root-cache=<dir> [--log-file=<path>] [--cef-switch=<name[=value]>]...
-// EOF on fd 3 (cmux quit or crashed) closes the page and ends the host.
+// EOF on fd 3 (cmux quit or crashed) closes the page and ends the host; the
+// wire is read from before CefInitialize, and a host that has not ended
+// kQuitLimitSeconds after EOF or kQuit _exits, so a hung UI thread or a hung
+// CefInitialize never leaves an orphaned host behind.
 
 #import <AppKit/AppKit.h>
 #include <dlfcn.h>
@@ -27,8 +30,12 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <mutex>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "include/base/cef_callback.h"
@@ -83,8 +90,33 @@ NSRect g_screen_rect = NSZeroRect;
 std::string g_pending_url;
 uint32_t g_context = 0;
 bool g_hosting_scheduled = false;
+// The host input hops of the last kHopWindow events (a ring), and how many in all.
+constexpr size_t kHopWindow = 8192;
 std::vector<uint32_t> g_hop_us;
+size_t g_hop_next = 0;
+uint64_t g_hop_events = 0;
 int g_refused_frames = 0;
+
+// Ends the process kQuitLimitSeconds after the first call, if it has not
+// ended by then. Any thread: the reader arms it at EOF, the UI thread at kQuit.
+std::atomic<bool> g_quit_deadline_armed{false};
+void ArmQuitDeadline() {
+  if (g_quit_deadline_armed.exchange(true)) return;
+  std::thread([] {
+    std::this_thread::sleep_for(std::chrono::seconds(cmux_host::kQuitLimitSeconds));
+    _exit(0);  // no atexit handlers or destructors: they could wait on the hung thread
+  }).detach();
+}
+
+// Frames read before Chromium's UI thread exists (CefInitialize still runs),
+// and whether the wire ended meanwhile. Guarded by g_early_mutex (reader and
+// UI thread); g_ui_ready flips once, in OnContextInitialized.
+std::mutex g_early_mutex;
+bool g_ui_ready = false;
+bool g_early_eof = false;
+std::vector<std::pair<cmux_host::Header, std::string>> g_early;
+// More early frames than cmux's own backlog (ChromiumHostConnection.frameBacklog) is a flood.
+constexpr size_t kEarlyFrameLimit = 4096;
 
 void Send(cmux_host::Header h, const std::string& payload = std::string()) {
   if (g_to_cmux < 0) return;
@@ -108,13 +140,16 @@ void SendText(uint32_t kind, const std::string& text) {
 }
 
 void CloseHost() {
+  ArmQuitDeadline();
   if (g_closing) return;
   g_closing = true;
   if (g_browser) {
     g_browser->GetHost()->CloseBrowser(true);  // OnBeforeClose quits the loop
-  } else {
+  } else if (!g_creating) {
     CefQuitMessageLoop();
   }
+  // else: a browser is being created; OnAfterCreated closes it, and its
+  // OnBeforeClose quits the loop (CefShutdown never runs with a live browser).
 }
 
 void TryHosting();
@@ -134,6 +169,8 @@ void TryHosting() {
   uint32_t id = g_set_layer_hosting(g_browser->GetIdentifier(), 1);
   if (!id) return;  // the next tracker read, load state or geometry asks again
   g_context = id;
+  // Hosted: the page's pixels are in the context now (the state before this fix).
+  if (g_parent) g_parent.alphaValue = 1;
   cmux_host::Header h;
   h.kind = cmux_host::kContext;
   h.v[0] = static_cast<int32_t>(id);
@@ -185,6 +222,11 @@ void PlaceWindow() {
     g_parent = [[ChromiumHostParentView alloc] initWithFrame:NSMakeRect(0, 0, g_screen_rect.size.width,
                                                                          g_screen_rect.size.height)];
     g_parent.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    // No pixels before the page is hosted: until cmux_browser_set_layer_hosting
+    // gives a context, Chromium draws into this window, which floats above
+    // every app on every Space. A view's alpha, not the window's, so the
+    // window server's occlusion state (which Chromium reads) stays visible.
+    g_parent.alphaValue = 0;
     g_window.contentView = g_parent;
     [g_window orderFrontRegardless];
   } else if (!NSEqualRects(g_window.frame, g_screen_rect)) {
@@ -203,6 +245,11 @@ class Client : public CefClient, public CefLifeSpanHandler, public CefDisplayHan
   void OnAfterCreated(CefRefPtr<CefBrowser> browser) override {
     g_browser = browser;
     g_creating = false;
+    if (g_closing) {
+      // kQuit or EOF came while the browser was being created (CloseHost).
+      browser->GetHost()->CloseBrowser(true);
+      return;
+    }
     ScheduleHosting();
   }
   void OnBeforeClose(CefRefPtr<CefBrowser> browser) override {
@@ -266,7 +313,15 @@ uint32_t CefFlags(uint64_t ns, int buttons) {
 
 void RecordHop(uint64_t event_time) {
   const uint64_t now = Now();
-  if (event_time && now > event_time) g_hop_us.push_back(static_cast<uint32_t>((now - event_time) / 1000));
+  if (!event_time || now <= event_time) return;
+  const uint32_t hop = static_cast<uint32_t>((now - event_time) / 1000);
+  ++g_hop_events;
+  if (g_hop_us.size() < kHopWindow) {
+    g_hop_us.push_back(hop);
+  } else {
+    g_hop_us[g_hop_next] = hop;
+    g_hop_next = (g_hop_next + 1) % kHopWindow;
+  }
 }
 
 // The modifier key a flags-changed key code belongs to.
@@ -338,7 +393,7 @@ void HandleInput(const cmux_host::Header& h) {
   RecordHop(h.t0);
 }
 
-void SendStats() {
+void SendStats(uint32_t seq) {
   std::vector<uint32_t> sorted = g_hop_us;
   std::sort(sorted.begin(), sorted.end());
   auto at = [&sorted](double q) -> int32_t {
@@ -348,7 +403,8 @@ void SendStats() {
   };
   cmux_host::Header h;
   h.kind = cmux_host::kStatsReply;
-  h.v[0] = static_cast<int32_t>(sorted.size());
+  h.seq = seq;
+  h.v[0] = static_cast<int32_t>(std::min<uint64_t>(g_hop_events, INT32_MAX));
   h.v[1] = at(0.5);
   h.v[2] = at(0.95);
   h.v[3] = at(0.99);
@@ -360,6 +416,7 @@ void SendStats() {
 void HandleFrame(cmux_host::Header h, std::string payload) {
   switch (h.kind) {
     case cmux_host::kNavigate:
+      if (g_closing) break;
       g_pending_url = payload;
       if (g_browser) {
         g_browser->GetMainFrame()->LoadURL(payload);
@@ -405,7 +462,7 @@ void HandleFrame(cmux_host::Header h, std::string payload) {
       break;
     }
     case cmux_host::kStats:
-      SendStats();
+      SendStats(h.seq);
       break;
     case cmux_host::kQuit:
       CloseHost();
@@ -428,7 +485,15 @@ bool ReadAll(int fd, void* buffer, size_t length) {
   return true;
 }
 
-// Blocking reads on a thread of its own; every frame runs on the UI thread.
+// Input needs a browser, which cannot exist before the UI thread does: such
+// a frame is dropped early, as HandleFrame drops it without a browser.
+bool NeedsBrowser(uint32_t kind) {
+  return kind == cmux_host::kMouse || kind == cmux_host::kWheel || kind == cmux_host::kKey ||
+         kind == cmux_host::kEdit;
+}
+
+// Blocking reads on a thread of its own, from before CefInitialize; every
+// frame runs on the UI thread (held in g_early until it exists).
 void ReadWire(int fd) {
   for (;;) {
     uint8_t raw[cmux_host::kHeaderSize];
@@ -436,7 +501,26 @@ void ReadWire(int fd) {
     if (!ReadAll(fd, raw, sizeof raw) || !cmux_host::Decode(raw, &h)) break;
     std::string payload(h.payload, '\0');
     if (h.payload && !ReadAll(fd, payload.data(), h.payload)) break;
+    {
+      std::lock_guard<std::mutex> lock(g_early_mutex);
+      if (!g_ui_ready) {
+        if (NeedsBrowser(h.kind)) continue;
+        if (g_early.size() >= kEarlyFrameLimit) break;  // a flood: end as at EOF
+        g_early.emplace_back(h, std::move(payload));
+        continue;
+      }
+    }
     CefPostTask(TID_UI, base::BindOnce(&HandleFrame, h, std::move(payload)));
+  }
+  // EOF (cmux quit or died) or a broken wire: end within the quit limit,
+  // even when the UI thread or CefInitialize never gets to it.
+  ArmQuitDeadline();
+  {
+    std::lock_guard<std::mutex> lock(g_early_mutex);
+    if (!g_ui_ready) {
+      g_early_eof = true;  // OnContextInitialized closes the host
+      return;
+    }
   }
   CefPostTask(TID_UI, base::BindOnce(&CloseHost));
 }
@@ -474,7 +558,13 @@ class App : public CefApp, public CefBrowserProcessHandler {
     ready.v[0] = g_fork_api;
     ready.v[1] = static_cast<int32_t>(getpid());
     Send(ready);
-    std::thread(ReadWire, kFromCmux).detach();
+    // The early frames run as posted tasks, as every later frame does; posted
+    // under the lock, so the reader's next frame is posted after them.
+    std::lock_guard<std::mutex> lock(g_early_mutex);
+    g_ui_ready = true;
+    for (auto& frame : g_early) CefPostTask(TID_UI, base::BindOnce(&HandleFrame, frame.first, std::move(frame.second)));
+    g_early.clear();
+    if (g_early_eof) CefPostTask(TID_UI, base::BindOnce(&CloseHost));
   }
 
  private:
@@ -521,6 +611,9 @@ int main(int argc, char* argv[]) {
     SendText(cmux_host::kError, "Chromium fork API " + std::to_string(g_fork_api) + " has no layer hosting (needs 26)");
     return 66;
   }
+  // Reads the wire from here (after the framework load, which needs this to
+  // be the only thread), so EOF ends a host even while CefInitialize hangs.
+  std::thread(ReadWire, kFromCmux).detach();
 
   const std::string root = Arg(args, "root-cache");
   CefSettings settings;

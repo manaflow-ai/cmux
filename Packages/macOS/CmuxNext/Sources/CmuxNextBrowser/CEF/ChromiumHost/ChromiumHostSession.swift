@@ -13,7 +13,13 @@ import Observation
 /// ``ChromiumHostRestartPolicy`` decides whether a new host starts with the
 /// saved page.
 ///
-/// Tests pass a ``ChromiumHostLaunching`` stand-in and a clock.
+/// Ending on purpose (``close()``) sends `quit` and SIGKILLs a host that has
+/// not ended ``ChromiumHostFrame/quitLimit`` later (a hung UI thread never
+/// reads `quit`); an ``open(_:)`` meanwhile waits for that exit and then
+/// starts a new host. When cmux itself ends, the host reads EOF and ends
+/// itself within the same limit (browser_host_main.mm).
+///
+/// Tests pass a ``ChromiumHostLaunching`` stand-in, a clock and a short quit limit.
 @MainActor @Observable
 public final class ChromiumHostSession {
     public enum Phase: Equatable, Sendable {
@@ -45,14 +51,21 @@ public final class ChromiumHostSession {
     private let launcher: any ChromiumHostLaunching
     private let policy: ChromiumHostRestartPolicy
     private let now: () -> ContinuousClock.Instant
+    private let quitLimit: Duration
     private var connection: ChromiumHostConnection?
     private var startedAt: ContinuousClock.Instant?
     private var isFirstStart = true
+    /// ``close()`` sent `quit` to the running host; its exit does not restart it.
     private var closing = false
+    /// ``open(_:)`` came while the host was quitting: start a new host when it has ended.
+    private var reopenWhenEnded = false
+    /// SIGKILLs the quitting host at the quit limit; cancelled when it ends.
+    private var quitDeadline: Task<Void, Never>?
     private var geometry: ChromiumHostGeometry?
     private var seq: UInt32 = 0
     private var pongs: [UInt32: CheckedContinuation<ChromiumHostFrame?, Never>] = [:]
-    private var statsWaiters: [CheckedContinuation<ChromiumHostFrame?, Never>] = []
+    /// Stats requests by `seq`, which the host's reply echoes.
+    private var statsWaiters: [UInt32: CheckedContinuation<ChromiumHostFrame?, Never>] = [:]
     private var tasks: [Task<Void, Never>] = []
 
     public init(configuration: ChromiumHostConfiguration) {
@@ -60,15 +73,18 @@ public final class ChromiumHostSession {
         launcher = ChromiumHostLauncher()
         policy = ChromiumHostRestartPolicy()
         now = { ContinuousClock.now }
+        quitLimit = ChromiumHostFrame.quitLimit
         wireView()
     }
 
     init(configuration: ChromiumHostConfiguration, launcher: any ChromiumHostLaunching,
-         policy: ChromiumHostRestartPolicy = ChromiumHostRestartPolicy(), now: @escaping () -> ContinuousClock.Instant) {
+         policy: ChromiumHostRestartPolicy = ChromiumHostRestartPolicy(), now: @escaping () -> ContinuousClock.Instant,
+         quitLimit: Duration = ChromiumHostFrame.quitLimit) {
         self.configuration = configuration
         self.launcher = launcher
         self.policy = policy
         self.now = now
+        self.quitLimit = quitLimit
         wireView()
     }
 
@@ -80,22 +96,46 @@ public final class ChromiumHostSession {
         }
     }
 
-    /// Loads `url`, starting a host when none runs.
-    public func open(_ url: String) {
+    /// Loads `url`, starting a host when none runs. While the host quits
+    /// (after ``close()``), a new host starts once it has ended.
+    ///
+    /// - Returns: false, with ``lastError`` set, when `url` is longer than a
+    ///   frame carries (``ChromiumHostFrame/maxPayload``): the host would refuse
+    ///   the frame and end, and every restart would load the same URL again.
+    @discardableResult
+    public func open(_ url: String) -> Bool {
+        let navigate = ChromiumHostFrame(.navigate, payload: Array(url.utf8))
+        guard ChromiumHostConnection.fits(navigate) else {
+            lastError = "URL longer than \(ChromiumHostFrame.maxPayload) bytes"
+            return false
+        }
         self.url = url
-        closing = false
         if connection == nil {
+            closing = false
             isFirstStart = true
             start()
+        } else if closing {
+            reopenWhenEnded = true
         } else {
-            send(ChromiumHostFrame(.navigate, payload: Array(url.utf8)))
+            send(navigate)
         }
+        return true
     }
 
-    /// Ends the host on purpose (no restart).
+    /// Ends the host on purpose (no restart): sends `quit`, and SIGKILLs a
+    /// host that has not ended ``ChromiumHostFrame/quitLimit`` later.
     public func close() {
+        reopenWhenEnded = false
+        guard let connection, !closing else { return }
         closing = true
-        send(ChromiumHostFrame(.quit))
+        if !send(ChromiumHostFrame(.quit)) { return }  // send ended the host already
+        let launcher = launcher, pid = pid, limit = quitLimit
+        // A bounded, cancellable deadline (CLAUDE.md carve-out): hostEnded cancels it.
+        quitDeadline = Task { [weak self] in
+            do { try await Task.sleep(for: limit) } catch { return }
+            guard let self, self.connection === connection else { return }
+            launcher.kill(pid)
+        }
     }
 
     /// SIGKILL to the host this session started (the crash check); its pid, or 0 when none runs.
@@ -103,7 +143,7 @@ public final class ChromiumHostSession {
     @discardableResult
     public func killHost() -> Int32 {
         guard pid > 0, connection != nil else { return 0 }
-        Darwin.kill(pid, SIGKILL)
+        launcher.kill(pid)
         return pid
     }
 
@@ -116,11 +156,16 @@ public final class ChromiumHostSession {
             let sent = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
             var frame = ChromiumHostFrame(.ping, t0: sent)
             frame.seq = id
-            let pong = await withCheckedContinuation { continuation in
-                pongs[id] = continuation
-                if !send(frame) { pongs.removeValue(forKey: id)?.resume(returning: nil) }
+            let pong = await withTaskCancellationHandler {
+                await withCheckedContinuation { continuation in
+                    guard !Task.isCancelled else { return continuation.resume(returning: nil) }
+                    pongs[id] = continuation
+                    if !send(frame) { pongs.removeValue(forKey: id)?.resume(returning: nil) }
+                }
+            } onCancel: {
+                Task { @MainActor [weak self] in self?.pongs.removeValue(forKey: id)?.resume(returning: nil) }
             }
-            guard pong != nil else { break }
+            guard pong != nil, !Task.isCancelled else { break }
             samples.append(Double(clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - sent) / 1_000)
         }
         return samples
@@ -129,9 +174,18 @@ public final class ChromiumHostSession {
     /// The host's input timing: from each event's time in cmux to the host's
     /// `Send*Event` on its UI thread, in microseconds.
     public func hostInputStats() async -> [String: Int]? {
-        let reply = await withCheckedContinuation { continuation in
-            statsWaiters.append(continuation)
-            if !send(ChromiumHostFrame(.stats)) { statsWaiters.removeLast().resume(returning: nil) }
+        seq &+= 1
+        let id = seq
+        let reply = await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard !Task.isCancelled else { return continuation.resume(returning: nil) }
+                statsWaiters[id] = continuation
+                var frame = ChromiumHostFrame(.stats)
+                frame.seq = id
+                if !send(frame) { resumeStatsWaiter(id) }
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.resumeStatsWaiter(id) }
         }
         guard let reply else { return nil }
         return ["events": Int(reply.v[0]), "p50_us": Int(reply.v[1]), "p95_us": Int(reply.v[2]),
@@ -178,7 +232,7 @@ public final class ChromiumHostSession {
                 // The wire ended. A host that broke the protocol (a bad frame, a
                 // flood) is still alive: end it, so its exit restarts it by the policy.
                 // Its pid cannot be reused yet: an ended host stays a zombie until hostEnded reaps it.
-                if connection.endedByProtocolError, let self, self.connection === connection { Darwin.kill(handle.pid, SIGKILL) }
+                if connection.endedByProtocolError, let self, self.connection === connection { launcher.kill(handle.pid) }
             },
             Task { [weak self] in
                 let exit = await launcher.exit(of: handle.pid)
@@ -206,7 +260,7 @@ public final class ChromiumHostSession {
         case .pong:
             pongs.removeValue(forKey: frame.seq)?.resume(returning: frame)
         case .statsReply:
-            if !statsWaiters.isEmpty { statsWaiters.removeFirst().resume(returning: frame) }
+            statsWaiters.removeValue(forKey: frame.seq)?.resume(returning: frame)
         case .error:
             lastError = frame.text
         case .rendererGone:
@@ -228,11 +282,20 @@ public final class ChromiumHostSession {
         exits.append(exit.description)
         for waiter in pongs.values { waiter.resume(returning: nil) }
         pongs = [:]
-        statsWaiters.forEach { $0.resume(returning: nil) }
-        statsWaiters = []
+        for waiter in statsWaiters.values { waiter.resume(returning: nil) }
+        statsWaiters = [:]
+        quitDeadline?.cancel()
+        quitDeadline = nil
         let ranFor = startedAt.map { now() - $0 } ?? .zero
         if closing {
-            phase = .idle
+            closing = false
+            if reopenWhenEnded {
+                reopenWhenEnded = false
+                isFirstStart = true
+                start()
+            } else {
+                phase = .idle
+            }
         } else if policy.restarts(ranFor: ranFor, isFirstStart: isFirstStart) {
             restarts += 1
             isFirstStart = false
@@ -247,9 +310,13 @@ public final class ChromiumHostSession {
     /// hostEnded reaps it, so the kill reaches only this host.
     @discardableResult
     private func send(_ frame: ChromiumHostFrame) -> Bool {
-        guard let connection else { return false }
+        guard let connection, ChromiumHostConnection.fits(frame) else { return false }
         if connection.send(frame) { return true }
-        if pid > 0 { Darwin.kill(pid, SIGKILL) }
+        launcher.kill(pid)
         return false
+    }
+
+    private func resumeStatsWaiter(_ id: UInt32) {
+        statsWaiters.removeValue(forKey: id)?.resume(returning: nil)
     }
 }

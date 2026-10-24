@@ -26,7 +26,8 @@ public final class ChromiumHostPrototype {
     }
 
     /// `debug.chromium_host` {op: open {url, pane?, focus?} | close | kill | report}:
-    /// `container` is the pane content view `open` shows the page over.
+    /// `container` is the pane content view `open` shows the page over; `focus`
+    /// (false unless the call asks) makes the page first responder.
     public func handle(op: String?, url: String?, over container: NSView?, focus: Bool) -> [String: Any] {
         switch op {
         case "open":
@@ -63,7 +64,7 @@ public final class ChromiumHostPrototype {
             session.view.frame = container.bounds
             container.addSubview(session.view, positioned: .above, relativeTo: nil)
         }
-        session.open(url)
+        guard session.open(url) else { return report }  // lastError says why
         if focus { container.window?.makeFirstResponder(session.view) }
         return report
     }

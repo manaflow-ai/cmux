@@ -56,6 +56,27 @@ import Testing
         ChromiumHostConnection(readFD: handle.readFD, writeFD: handle.writeFD).close()
     }
 
+    @Test func aConnectionDroppedWithoutCloseEndsTheWire() async throws {
+        var pair: [Int32] = [-1, -1]
+        #expect(socketpair(AF_UNIX, SOCK_STREAM, 0, &pair) == 0)
+        var back: [Int32] = [-1, -1]
+        #expect(socketpair(AF_UNIX, SOCK_STREAM, 0, &back) == 0)
+        defer { [pair[1], back[0]].forEach { _ = Darwin.close($0) } }
+        // cmux's end reads back[1] and writes pair[0]; the test plays the host on pair[1] and back[0].
+        do {
+            let connection = ChromiumHostConnection(readFD: back[1], writeFD: pair[0])
+            #expect(connection.send(ChromiumHostFrame(.ping)))
+        }
+        // The connection is gone (its reader thread does not keep it): the host reads its frame, then EOF.
+        var byte = [UInt8](repeating: 0, count: ChromiumHostFrame.headerSize)
+        #expect(read(pair[1], &byte, byte.count) == ChromiumHostFrame.headerSize)
+        var poller = pollfd(fd: pair[1], events: Int16(POLLIN), revents: 0)
+        // Bound of a test wait: EOF arrives at once after the fix; before it the connection never ended.
+        let readable = poll(&poller, 1, 10_000)
+        #expect(readable == 1)
+        if readable == 1 { #expect(read(pair[1], &byte, byte.count) == 0) }
+    }
+
     @Test func aHostThatStopsReadingEndsTheConnection() async throws {
         let launcher = ChromiumHostLauncher()
         // Never reads fd 3.

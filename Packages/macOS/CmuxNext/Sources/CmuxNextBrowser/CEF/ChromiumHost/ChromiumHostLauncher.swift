@@ -32,12 +32,22 @@ nonisolated protocol ChromiumHostLaunching: Sendable {
     func exit(of pid: pid_t) async -> ChromiumHostExit
     /// Reaps an ended `pid` (after ``exit(of:)`` returned).
     func reap(_ pid: pid_t)
+    /// SIGKILL to `pid`, a host this launcher started and nobody reaped yet
+    /// (so the pid is still that host's, never a reused one).
+    func kill(_ pid: pid_t)
 }
 
 /// Starts a host with `posix_spawn`: one stream `socketpair` per direction
 /// (cmux to host on the host's fd 3, host to cmux on its fd 4), stdin from
 /// /dev/null, stdout and stderr as cmux's, and no other descriptor of cmux
 /// (`POSIX_SPAWN_CLOEXEC_DEFAULT`).
+///
+/// All four socket descriptors are close-on-exec from the moment each pair
+/// exists (macOS has no `SOCK_CLOEXEC`), so another child that cmux forks
+/// meanwhile without `POSIX_SPAWN_CLOEXEC_DEFAULT` (a `forkpty` terminal)
+/// never inherits a wire end: a stray copy of cmux's write end would keep the
+/// host from reading EOF after cmux dies. The spawn's `dup2` to fds 3 and 4
+/// clears the flag on the host's copies only.
 nonisolated struct ChromiumHostLauncher: ChromiumHostLaunching {
     enum LaunchError: Error, Equatable {
         case socketPair(Int32)
@@ -50,13 +60,14 @@ nonisolated struct ChromiumHostLauncher: ChromiumHostLaunching {
         var toHost: [Int32] = [-1, -1]
         var fromHost: [Int32] = [-1, -1]
         guard socketpair(AF_UNIX, SOCK_STREAM, 0, &toHost) == 0 else { throw LaunchError.socketPair(errno) }
+        toHost.forEach { _ = fcntl($0, F_SETFD, FD_CLOEXEC) }
         guard socketpair(AF_UNIX, SOCK_STREAM, 0, &fromHost) == 0 else {
             let error = errno
             toHost.forEach { _ = Darwin.close($0) }
             throw LaunchError.socketPair(error)
         }
+        fromHost.forEach { _ = fcntl($0, F_SETFD, FD_CLOEXEC) }
         for fd in [toHost[0], fromHost[0]] {
-            _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
             // A write after the host died fails with EPIPE instead of a SIGPIPE.
             var noSigPipe: Int32 = 1
             _ = setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
@@ -112,5 +123,10 @@ nonisolated struct ChromiumHostLauncher: ChromiumHostLaunching {
         var status: Int32 = 0
         var result = waitpid(pid, &status, WNOHANG)
         while result < 0 && errno == EINTR { result = waitpid(pid, &status, WNOHANG) }
+    }
+
+    func kill(_ pid: pid_t) {
+        guard pid > 0 else { return }
+        _ = Darwin.kill(pid, SIGKILL)
     }
 }

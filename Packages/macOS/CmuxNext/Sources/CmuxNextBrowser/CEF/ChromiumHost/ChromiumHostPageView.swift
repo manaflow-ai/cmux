@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 import QuartzCore
 
 /// A page of a Chromium host app in a cmux pane (prototype behind
@@ -22,6 +23,9 @@ public final class ChromiumHostPageView: NSView {
     private var remote: CALayer?
     private var tracking: NSTrackingArea?
     private var lastGeometry: ChromiumHostGeometry?
+    /// The window's moves and screen changes: they move the page on screen
+    /// without changing this view's frame, and the host's window must follow.
+    private var windowObservations: [MainActorObservation] = []
 
     public override init(frame: NSRect) {
         super.init(frame: frame)
@@ -66,8 +70,23 @@ public final class ChromiumHostPageView: NSView {
         reportGeometry()
     }
 
+    public override func setFrameOrigin(_ newOrigin: NSPoint) {
+        super.setFrameOrigin(newOrigin)
+        reportGeometry()
+    }
+
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        windowObservations = window.map { window in
+            [NSWindow.didMoveNotification, NSWindow.didChangeScreenNotification].map { name in
+                MainActorObservation(name, object: window) { [weak self] in self?.reportGeometry() }
+            }
+        } ?? []
+        reportGeometry()
+    }
+
+    public override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
         reportGeometry()
     }
 
