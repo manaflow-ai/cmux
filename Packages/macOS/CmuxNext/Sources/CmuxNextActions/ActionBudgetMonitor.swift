@@ -208,8 +208,8 @@ public final class ActionBudgetMonitor {
 
     /// The runs a reader hears, as they are recorded: only over-budget runs, or every run when
     /// `everyRun` (the HUD). Ends, and the monitor forgets it, when the iterating task is cancelled:
-    /// at once when the cancel runs on the main thread (the HUD's hide), else on the next main-actor
-    /// turn, and in any case at the next run delivered to it after its stream ended.
+    /// on the next main-actor turn, or at the first run delivered to it after its stream ended,
+    /// whichever comes first (so no later run builds a sample for it).
     /// Runs the reader has not taken yet are kept up to its buffer (`bufferingNewest`); a run that
     /// does not fit is counted in ``droppedSampleCount``.
     ///
@@ -220,13 +220,7 @@ public final class ActionBudgetMonitor {
         nextReader &+= 1
         let (stream, continuation) = AsyncStream<ActionTimingSample>.makeStream(bufferingPolicy: .bufferingNewest(capacity))
         continuation.onTermination = { [weak self] _ in
-            // A cancel on the main thread (the usual reader, the HUD, cancels there) forgets the
-            // reader in that turn, so no run after it builds a sample for a reader that is gone.
-            if pthread_main_np() != 0 {
-                MainActor.assumeIsolated { self?.removeReader(id) }
-            } else {
-                Task { @MainActor in self?.removeReader(id) }
-            }
+            Task { @MainActor in self?.removeReader(id) }
         }
         readers[id] = Reader(continuation: continuation, everyRun: everyRun)
         if everyRun { everyRunReaders += 1 }

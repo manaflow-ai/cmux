@@ -50,8 +50,8 @@ public final class MainTaskBoard: Sendable {
     private let hookState = Atomic<Int>(0)
     private let spanSequence = Atomic<UInt32>(0)
     /// The open entries (scheduled tasks and action spans), oldest first; the last is published.
-    // Main thread only: every writer (begin, end, beginSpan, endSpan) runs on the main thread by
-    // contract, and no other thread reads it (the watchdog reads only the atomics above).
+    // crash-allow: main thread only: every writer (begin, end, beginSpan, endSpan) runs on the main
+    // thread by contract, and no other thread reads it (the watchdog reads only the atomics above).
     private nonisolated(unsafe) var open: [Entry] = []
 
     /// One open task or span as published.
