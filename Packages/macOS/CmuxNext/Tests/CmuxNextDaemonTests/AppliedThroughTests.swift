@@ -70,6 +70,60 @@ struct AppliedThroughTests {
         #expect(store.connectionState == .disconnected("socket closed"))
     }
 
+    /// A reconnect of the same connection object: the sequence read after the reply is the next link's
+    /// (serial 2) and the store applies link 1's drop after the wait began. That drop ends link 1's waits only;
+    /// the wait for link 2's sequence holds once the store reaches it (the new link's snapshot).
+    @Test func aDropOfTheLastLinkKeepsAWaitForTheNextLinksSequence() async {
+        let store = DaemonStore()
+        let epoch = store.connectionEpoch
+        let next = DaemonEventEnvelope.sequence(serial: 2, index: 5)
+        let waiting = Task { await store.appliedThrough(next, since: epoch) }
+        await Task.yield()
+        #expect(store.appliedWaiters.count == 1, "the wait is inside the store before the drop")
+        let drop = DaemonEventEnvelope.sequence(serial: 1, index: DaemonEventEnvelope.lastIndex)
+        store.apply(batch: [DaemonEventEnvelope(sequence: drop, event: .disconnected(reason: "socket closed"))])
+        #expect(store.appliedWaiters.count == 1, "link 1's drop ended a wait for link 2's sequence")
+        store.advanceAppliedSequence(to: next)
+        #expect(store.appliedWaiters.isEmpty, "the store reached the sequence but the wait still waits")
+        waiting.cancel()
+        #expect(await waiting.value, "a wait for the next link's sequence did not hold once the store reached it")
+    }
+
+    /// A snapshot that fails past its retry budget leaves the store below the sequence until the next daemon
+    /// event, which an idle daemon never sends: the wait ends then, not held, instead of keeping (say) close
+    /// workspace's lane busy. A wait taken while the store has given up asks for one snapshot, and ends not held
+    /// when that fails too.
+    @Test func aWaitTheStoreGaveUpCatchingUpOnEndsNotHeld() async {
+        let store = DaemonStore()
+        let connection = Self.unstartedConnection()
+        let running = Task { await store.run(connection: connection) }
+        await Task.yield()
+        #expect(store.driver != nil, "the store mirrors the connection")
+        _ = store.apply(.connected(DaemonIdentity(generation: "resync-spent"), generationChanged: true))
+        // No timed retry: the first failed snapshot spends the budget (the connection never started, so every
+        // snapshot fails at once).
+        store.resyncPacer = RetryPacer(RetryPolicy(initial: .milliseconds(1), maximum: .milliseconds(1), timedRetries: 0))
+        let epoch = store.connectionEpoch
+        let waiting = Task { await store.appliedThrough(Self.pending, since: epoch) }
+        await Task.yield()
+        #expect(store.appliedWaiters.count == 1, "the wait is inside the store before the snapshot fails")
+        await store.refresh()
+        #expect(store.needsResync, "the snapshot's retry budget is spent")
+        #expect(store.appliedWaiters.isEmpty, "a wait the store gave up on still waits for an event")
+        waiting.cancel()
+        #expect(await waiting.value == false, "a wait the store gave up on counted as held")
+
+        let later = Task { await store.appliedThrough(Self.pending, since: store.connectionEpoch) }
+        await Task.yield()
+        #expect(store.isResyncing, "a wait taken while the store has given up did not ask for a snapshot")
+        await store.refresh()
+        #expect(store.appliedWaiters.isEmpty, "a wait taken while the store has given up still waits")
+        later.cancel()
+        #expect(await later.value == false)
+        await connection.close()
+        await running.value
+    }
+
     /// The connection changed between reading the sequence and waiting (here a drop of the store's connection
     /// before a wait for a later one): not held, at once.
     @Test func aConnectionChangeBeforeTheWaitIsNotAHeldBarrier() async {
