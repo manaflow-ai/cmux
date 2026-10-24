@@ -560,6 +560,23 @@ EXPECTED_REFUSALS = {
     "palette.disableBrowser": "can be changed only by you",
     "palette.enableBrowser": "can be changed only by you",
 }
+# Setup each sample needs that the session's base lacks (the light base pane holds one tab in one column, its
+# workspace one screen): action.run steps in order, on the focused base pane, just before the sample's `before`
+# shape. What they make is an extra the restore closes like any other (close_new). Without them the rows timed the
+# daemon's refusal (sweep 2026-10-24, macOS 27 light): Move Tab to New Column "a pane's only tab cannot be split out
+# of that pane", Move Column Left "no scrolling column on that side", Move Column Right "already at the edge", Move
+# Screen to Workspace "a workspace's last screen cannot be moved out of it".
+PREPARE = {
+    # A second tab (selected): the moved tab leaves a pane that keeps the base tab.
+    "tab.moveToNewColumn": [("newSurface", {})],
+    # A new column right of the base, focused: it moves left past the base.
+    "column.moveLeft": [("newColumn", {})],
+    # A new column right of the base, then the focus back on the base: the base moves right past it.
+    "column.moveRight": [("newColumn", {}), ("column.focusLeft", {})],
+    # A second screen, shown: it moves out and the base screen stays.
+    "screen.moveToWorkspace": [("screen.new", {})],
+}
+
 # Actions whose effect is state no restore sees (not a topology object, not a setting, not a TOGGLES re-run): the
 # inverse the restore runs after each sample, before anything else. The fits write the daemon tab record's
 # extra.emulation (BrowserDeviceHandlers: browser.tab.emulate on the focused tab); a session's tabs start with no fit
@@ -1403,6 +1420,10 @@ class Sweep:
             if info and info.get("available") is False and not plan["args"]:
                 why = info.get("context_reason") or info.get("unavailable_reason") or "context"
                 return None, f"unavailable here: {why}", "gap"
+            for step, args in PREPARE.get(ident, ()):
+                err = error_of(act(step, args=args, focus=True))
+                if err:
+                    return None, f"setup {step} failed: {err}"[:200], "gap"
             start, why = self.focus_start(ident)
             return (start, None, None) if why is None else (None, why, "state")
 
@@ -1461,6 +1482,15 @@ class Sweep:
                 row["expected_refusal"] = err[:160]
                 check = "refused"
             sample["check"] = check
+            if check == "wrong":
+                # The step log carries the report when the step fails (its artifacts do not come back): say what changed.
+                c0, c1 = counts(before), counts(shape(after_topo))
+                reply = sample["reply"] if isinstance(sample["reply"], dict) else {"reply": str(sample["reply"])[:120]}
+                detail = {"entry": entry, "expect": expectation(ident, entry), "before": c0, "after": c1,
+                          "reply": {k: reply.get(k) for k in ("handled_by", "action", "refused_action", "error", "reply") if reply.get(k)},
+                          "focus": [before.get("focus"), shape(after_topo).get("focus")]}
+                row.setdefault("wrong", []).append(detail)
+                note(f"every-action: {self.session} {ident} wrong: {json.dumps(detail, default=str)[:400]}")
             if result_ms is not None:
                 sample["result_ms"] = result_ms
             checks.append(check)
