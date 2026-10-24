@@ -7,7 +7,7 @@ use crate::rpc::Message;
 use std::collections::VecDeque;
 use std::os::fd::AsRawFd;
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixListener;
 use tokio::process::Command;
 use tokio::sync::mpsc;
@@ -222,9 +222,25 @@ fn pooled_without_owner(pooled: bool, last_owner: Option<u64>) -> bool {
 /// a quiet period passes.
 const DRAIN_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);
 
+/// Encoded frames to one connection's writer (`super::encode_frame`).
+#[derive(Clone)]
+struct FrameTx(mpsc::UnboundedSender<Arc<[u8]>>);
+
+impl FrameTx {
+    /// Encodes and sends `frame`; an error when the connection is gone or the frame is
+    /// over the limit (the writer used to stop at such a frame; the owner is dropped).
+    fn send(&self, frame: HostFrame) -> Result<(), ()> {
+        self.send_encoded(super::encode_frame(&frame).ok_or(())?)
+    }
+
+    fn send_encoded(&self, bytes: Arc<[u8]>) -> Result<(), ()> {
+        self.0.send(bytes).map_err(|_| ())
+    }
+}
+
 struct Controller {
     id: u64,
-    tx: mpsc::UnboundedSender<HostFrame>,
+    tx: FrameTx,
     /// Entries flow only after `Resume`.
     resumed: bool,
 }
@@ -232,7 +248,9 @@ struct Controller {
 struct State {
     record: HostRecord,
     spec: SpawnSpec,
-    entries: VecDeque<(u64, Entry, usize)>,
+    /// Retained entries as their encoded frames: encoded once in `push`, sent as is
+    /// (live and on resume), weighed by their size.
+    entries: VecDeque<(u64, Arc<[u8]>, usize)>,
     weight: usize,
     next_h: u64,
     acked_h: u64,
@@ -242,7 +260,7 @@ struct State {
     stderr_done: bool,
     leader_code: Option<Option<i32>>,
     /// Connections that have not said `Hello` yet.
-    pending_conns: Vec<(u64, mpsc::UnboundedSender<HostFrame>)>,
+    pending_conns: Vec<(u64, FrameTx)>,
     controller: Option<Controller>,
     /// Unbounded: a harness that stops reading never blocks the loop; what
     /// waits here is bounded by the controller, which waits for answers.
@@ -523,10 +541,11 @@ impl Started {
                     let (mut rd, mut wr) = stream.into_split();
                     // Unbounded: the retained entries already bound it, and a
                     // slow owner must not be dropped (it would never return).
-                    let (tx, mut rx) = mpsc::unbounded_channel::<HostFrame>();
+                    let (tx, mut rx) = mpsc::unbounded_channel::<Arc<[u8]>>();
+                    let tx = FrameTx(tx);
                     tokio::spawn(async move {
-                        while let Some(frame) = rx.recv().await {
-                            if write_frame(&mut wr, &frame).await.is_err() {
+                        while let Some(bytes) = rx.recv().await {
+                            if wr.write_all(&bytes).await.is_err() || wr.flush().await.is_err() {
                                 break;
                             }
                         }
@@ -604,17 +623,26 @@ impl State {
     fn push(&mut self, entry: Entry) {
         self.next_h += 1;
         let h = self.next_h;
-        let weight = entry.weight();
         if matches!(entry, Entry::Exit { .. }) {
             self.exit_h = Some(h);
         }
+        // One serialization per entry: the bytes are sent and kept (perf100: the entry was
+        // serialized to weigh it, copied to send it and serialized again to write it).
+        let bytes = super::encode_frame(&super::EntryFrame::Entry { h, e: &entry })
+            .or_else(|| {
+                // Over the frame limit: kept as a stderr note, as a writer stop would lose it.
+                let line = format!("[entry {h} over the frame limit dropped]");
+                super::encode_frame(&super::EntryFrame::Entry { h, e: &Entry::Err { line } })
+            })
+            .unwrap_or_else(|| Arc::from(&[][..]));
+        let weight = bytes.len() + 32;
         if let Some(c) = self.controller.as_ref().filter(|c| c.resumed)
-            && c.tx.send(HostFrame::Entry { h, e: entry.clone() }).is_err()
+            && c.tx.send_encoded(bytes.clone()).is_err()
         {
             // The connection closed; the next owner resumes from the buffer.
             self.controller = None;
         }
-        self.entries.push_back((h, entry, weight));
+        self.entries.push_back((h, bytes, weight));
         self.weight += weight;
     }
 
@@ -650,7 +678,7 @@ impl State {
     async fn end_background_shells(&mut self) {
         if let Some(tr) = self.translator.clone() {
             for m in tr.end_background_shells().await {
-                self.push(Entry::In { msg: m.to_value() });
+                self.push(Entry::In { msg: m.into_value() });
             }
         }
     }
@@ -703,14 +731,14 @@ impl State {
             } else if let Some(tr) = self.translator.clone() {
                 if claude_answer {
                     for m in tr.fail_pending("agent answer was over the size limit").await {
-                        self.push(Entry::In { msg: m.to_value() });
+                        self.push(Entry::In { msg: m.into_value() });
                     }
                 }
             } else if let Ok(v) = serde_json::from_str::<Value>(&line)
                 && let Some(id) = v.get("id").filter(|_| v.get("method").is_none())
             {
                 let err = crate::rpc::RpcError::internal("agent answer was over the size limit");
-                self.push(Entry::In { msg: Message::err(id.clone(), err).to_value() });
+                self.push(Entry::In { msg: Message::err(id.clone(), err).into_value() });
             }
             return;
         }
@@ -725,7 +753,7 @@ impl State {
             if let Some(kind) = crate::codex_app_server::tap_kind(&raw) {
                 self.push(Entry::Tap {
                     dir: TapDir::In,
-                    msg: Message::notification(&kind, raw.clone()).to_value(),
+                    msg: Message::notification(&kind, raw.clone()).into_value(),
                 });
             }
             self.codex_out(cx.from_server(&raw));
@@ -733,7 +761,7 @@ impl State {
         }
         let Some(tr) = self.translator.clone() else {
             match Message::parse(&line) {
-                Ok(m) => self.push(Entry::In { msg: m.to_value() }),
+                Ok(m) => self.push(Entry::In { msg: m.into_value() }),
                 Err(_) => self.push(Entry::Err { line: format!("[non-json stdout] {line}") }),
             }
             return;
@@ -751,16 +779,18 @@ impl State {
             raw.get("type").and_then(Value::as_str).unwrap_or("?"),
             raw.get("subtype").and_then(Value::as_str).map(|s| format!(".{s}")).unwrap_or_default()
         );
+        // Translated first, so the raw line moves into its record instead of being
+        // copied; the raw record still comes first.
+        let translated = tr.inbound(&raw).await;
         self.push(Entry::Tap {
             dir: TapDir::In,
-            msg: Message::notification(&kind, raw.clone()).to_value(),
+            msg: Message::notification(&kind, raw).into_value(),
         });
-        let translated = tr.inbound(&raw).await;
         for l in tr.take_stdin_replies().await {
             self.write_claude_line(l);
         }
         for m in translated {
-            self.push(Entry::In { msg: m.to_value() });
+            self.push(Entry::In { msg: m.into_value() });
         }
     }
 
@@ -894,14 +924,11 @@ impl State {
             ControllerFrame::Resume { after } => {
                 // The controller logged everything through `after`.
                 self.drop_through(after);
-                let backlog: Vec<HostFrame> = self
-                    .entries
-                    .iter()
-                    .map(|(h, e, _)| HostFrame::Entry { h: *h, e: e.clone() })
-                    .collect();
+                let backlog: Vec<Arc<[u8]>> =
+                    self.entries.iter().map(|(_, bytes, _)| bytes.clone()).collect();
                 let Some(c) = self.controller.as_mut() else { return };
-                for frame in backlog {
-                    if c.tx.send(frame).is_err() {
+                for bytes in backlog {
+                    if c.tx.send_encoded(bytes).is_err() {
                         self.controller = None;
                         return;
                     }
