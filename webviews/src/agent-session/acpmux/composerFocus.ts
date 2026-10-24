@@ -21,6 +21,20 @@ export const COMPOSER_READY_EVENT = "acpmux-composer-ready";
 export const ACTIVATION_SETTLE_MS = 120;
 export const PRESS_WINDOW_MS = 400;
 
+/**
+ * A pointer press outside the composer should release its editor focus. Most transcript rows are
+ * not focusable, so relying on the browser's default focus transfer leaves the caret active after
+ * a click on the chat. Keep this predicate separate so the capture-phase handler and its boundary
+ * behavior stay testable without mounting the whole pane.
+ */
+export function shouldBlurComposerOnPress(target: Node | null, active: Element | null): boolean {
+  if (!target || !active || !active.closest(".acpmux-composer-box")) return false;
+  // Do not use `instanceof Element`: a pointer can come from an embedded document, and tests
+  // create nodes in their own DOM realm. The DOM node type is stable across those boundaries.
+  const targetElement = target.nodeType === 1 ? (target as Element) : target.parentElement;
+  return targetElement?.closest(".acpmux-composer-box") == null;
+}
+
 export type KeyLike = {
   key: string;
   metaKey: boolean;
@@ -86,7 +100,7 @@ export function useComposerKeyboard(focusComposer: () => boolean, page: PageClie
     };
     let pressedAt = Number.NEGATIVE_INFINITY;
     let settling: ReturnType<typeof setTimeout> | undefined;
-    const onPress = () => {
+    const onPress = (event: PointerEvent) => {
       pressedAt = performance.now();
       clearTimeout(settling);
       settling = undefined;
