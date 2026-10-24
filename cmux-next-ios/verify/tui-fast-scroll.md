@@ -107,3 +107,33 @@ The failing tests were committed first, in c48dac2c4673:
 - `TerminalTUIScrollTests` and `TerminalTUIScrollSurfaceTests` (the byte-level check: a slow drag of 2 rows is exactly 2 SGR reports, a fast one 6) did not build without the fix.
 - `inputDoesNotWaitForTheLastReply` failed with base Sources ("[1 bytes]" against three sends).
 - `oneTurnsInputIsOneSend` failed with base Sources ("[10 bytes, 40 bytes]" against one 50-byte send).
+
+## Follow-up: tail probes and 64 unanswered sends (feat-cmux-next-ios-tui-scroll-tail)
+
+The remaining ~1 s gap had two candidate causes: a segment lost at the very end of a flick, with nothing behind it to produce duplicate ACKs; and a lost reply holding back the 8-send cap.
+
+**Change**
+- A `send` that stays unanswered for 150 ms, with no write or answer since, gets three `ping`s behind it on the same channel, twice at most per stall.
+- The pings' segments, or their replies for a lost reply, bring the duplicate ACKs that retransmit the loss at once instead of after the 1 s RTO.
+- Nothing typed is sent twice.
+- The cap on unanswered sends rises from 8 to 64, about a second of scroll frames.
+
+**Rig**
+- The simulator moved off the laptop to mini-cmuxs-mac-mini-3 (load average 7 to 11). It is driven through an ssh shim for `axe` and `simctl`.
+- The Mac stays on mini-cmux11s, the only cmux mini with a Claude Code login. The link is WireGuard over TURN.
+- One idle Claude Code process (a 400-line session) ran for the whole A/B. Only the phone build changed between rounds.
+- The earlier A/Bs relaunched Claude Code each round, and that typed the launch command into the running Claude Code as a prompt: Claude Code was working and streaming during those flicks. The stall counts in the A/B table above are confounded by that.
+
+**Interleaved A/B, 3 rounds, 24 fast flicks and 9 medium flicks per build**
+
+| Build | Fast flicks with a gap ≥ 0.9 s | Largest gap | Fast flick, 200 rows after first report | Medium flick, rows moved |
+| --- | --- | --- | --- | --- |
+| Merged 0d409f11765a (8 unanswered, no probe) | 2 of 24 (910, 976 ms) | 976 ms | 12 to 125 ms (median 50) | 168 to 307 |
+| Tail probes 47fcd5e88b69 | **0 of 24** | 580 ms | 21 to 98 ms (median 53) | 182 to 340 |
+
+- The probes fired 3 times in the last tail round, of 11 flicks. They are rare, and only when a send stalls.
+- The 180 to 400 ms gaps left in both builds are the fling's last, sparse wheel reports as it decays, not stalls.
+
+**Tests**
+- Red first (ab0bf320c977): `aStalledSendIsFollowedByTailProbes`, `anAnsweredSendSendsNoTailProbe` and `manyUnansweredSendsStillGoOut` do not build without `tailProbeDelay`.
+- Green: CmuxMobileLiveTests (302) and CmuxMobileTransportTests (5) pass on mini-cmux11s in the iOS simulator.
