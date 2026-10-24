@@ -1666,7 +1666,7 @@ export default agentPaneEntry({
       },
     },
     "reasoning-codex": {
-      note: "Play: Codex keeps its bolt just left of the mic (Leo 2026-10-21), an outline glyph; the model button's menu has no Fast mode row; a click on the bolt sends Fast.",
+      note: "Play: Codex keeps Fast in the model button's menu with the model and effort; the action row has only the mic and Send.",
       snapshot: withSummary(chat(finished, { harness: "codex", model: "gpt-6-astra", title: "Codex reasoning" }), {
         configOptions: [
           {
@@ -1678,7 +1678,7 @@ export default agentPaneEntry({
           {
             id: "fast-mode",
             category: "model_config",
-            currentValue: "off",
+            currentValue: "on",
             options: [
               { value: "off", name: "Off", description: "Default speed, normal usage" },
               { value: "on", name: "On", description: "1.5x speed, increased usage" },
@@ -1687,17 +1687,13 @@ export default agentPaneEntry({
         ],
       }),
       play: async (ctx) => {
-        const bolt = { selector: ".acpmux-composer-actions .acpmux-fast" };
-        await ctx.waitFor(() => ctx.document.querySelector(bolt.selector));
-        if (ctx.find(bolt).getAttribute("aria-pressed") !== "false") throw new Error("the bolt must start off");
-        if (!ctx.find(bolt).nextElementSibling?.querySelector(".acpmux-mic"))
-          throw new Error("the bolt must sit just left of the mic");
+        await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-fast"));
         await openModelMenu(ctx);
-        if (ctx.document.querySelector(".acpmux-quick-menu .acpmux-quick-fast"))
-          throw new Error("Codex's Fast mode is the bolt, not a menu row as well");
-        await ctx.press("Escape");
-        await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-quick-menu"));
-        await ctx.click(bolt);
+        const fast = ctx.document.querySelector(".acpmux-quick-menu .acpmux-quick-fast");
+        if (fast?.getAttribute("aria-checked") !== "true")
+          throw new Error("Codex Fast mode must be a checked row of the model menu");
+        if (!ctx.document.querySelector(".acpmux-composer-actions .acpmux-mic"))
+          throw new Error("the action row must keep the mic without a speed button");
       },
     },
     "model-menu-keyboard": {
