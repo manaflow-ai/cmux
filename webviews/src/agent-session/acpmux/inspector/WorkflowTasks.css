@@ -89,18 +89,20 @@
 }
 /* A dot per agent: done is filled, running is the accent, queued is an outline, failed is red.
    Fixed size, so a change of state never moves the rows. */
+/* The dots are glyphs, not controls: their size and gap are their own, off the spacing scale. */
 .acpmux-workflow-dots {
+  --acpmux-workflow-dot: 6px;
+  --acpmux-workflow-dot-gap: 3px;
   display: flex;
   flex-wrap: wrap;
+  gap: var(--acpmux-workflow-dot-gap);
   padding: 0 8px;
   margin-bottom: 2px;
 }
-/* A glyph, not a control: sized by its width, spaced by its margin. */
 .acpmux-workflow-dot {
   flex: none;
-  width: 6px;
-  aspect-ratio: 1;
-  margin: 0 3px 3px 0;
+  width: var(--acpmux-workflow-dot);
+  height: var(--acpmux-workflow-dot);
   box-sizing: border-box;
   border-radius: 1.5px;
   border: 1px solid color-mix(in oklab, var(--agent-muted) 70%, transparent);
