@@ -17,10 +17,11 @@ package nonisolated struct AgentPaneLaunchReads: Sendable {
 
     /// Starts every read now.
     /// - Parameters:
-    ///   - state: The build's state directory, where the files are saved.
+    ///   - state: The build's state directory, where the files are saved; nil reads nothing (a
+    ///     services graph built outside the launch).
     ///   - readOnMain: Hears `launch_read_on_main.<file>` when a take waited on the main thread.
-    package init(state: URL, readOnMain: @escaping @Sendable (String) -> Void) {
-        pageImages = SavedFrameDirectory(url: AgentPaneLaunchImages.directory(beside: state),
+    package init(state: URL?, readOnMain: @escaping @Sendable (String) -> Void) {
+        pageImages = SavedFrameDirectory(url: state.map(AgentPaneLaunchImages.directory(beside:)),
                                          maximumBytes: AgentPaneLaunchImages.maximumBytes, name: "agent_page_images")
         let draftsFile = AgentUnsentDrafts.file(in: state)
         unsentDrafts = LaunchRead("unsent_drafts", readOnMain: readOnMain) { AgentUnsentDrafts.read(draftsFile) }
