@@ -64,6 +64,17 @@ import Testing
         }
     }
 
+    /// The release Loading Indicator choice remains available for users who choose it, while the
+    /// default agent-working path keeps the shared spinner even when a style hint is present.
+    @Test func pulsingDotRemainsAnExplicitLoadingChoice() {
+        #expect(StatusIndicatorStyle.allCases.contains(.dot))
+        #expect(StatusIndicatorConfig().settings.style == .arc)
+        let busy = StatusIndicatorPlan.make(.busy, style: .dot, animates: true, set: .codex, working: .spinner)
+        #expect(busy.glyph == .dot && busy.animation == .pulse)
+        let working = StatusIndicatorPlan.make(.working, style: .dot, animates: true, set: .codex, working: .spinner)
+        #expect(working.glyph == .arc && working.animation == .spin)
+    }
+
     @Test func noLookMakesAPulsingOrWavingDot() {
         for look in StatusWorkingLook.allCases {
             for host in Self.hosts {
@@ -81,7 +92,7 @@ import Testing
 
     /// Drawn into the real layer with loops running, no look's work mark loops its opacity, and the
     /// spinner really turns (so the opacity check cannot pass because nothing ran at all).
-    @Test func noDrawnWorkMarkLoopsItsOpacity() {
+    @Test func noDrawnWorkMarkLoopsItsOpacityOrScale() {
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
         for look in StatusWorkingLook.allCases {
@@ -93,7 +104,7 @@ import Testing
                     let plan = host.plan(.working, config, hint)
                     indicator.apply(plan, config: config)
                     let label = "\(look) \(host) hint \(String(describing: hint))"
-                    #expect(Self.opacityLoops(under: indicator.layer) == [], "\(label)")
+                    #expect(Self.opacityOrScaleLoops(under: indicator.layer) == [], "\(label)")
                     if look == .spinner, plan.animation != nil {
                         #expect(indicator.runningAnimation == .spin, "\(label)")
                         #expect(Self.rotationLoops(under: indicator.layer) > 0, "\(label): the spinner does not turn")
@@ -153,6 +164,13 @@ import Testing
     /// The keys of repeating `opacity` animations on `layer` and the layers under it (masks included).
     static func opacityLoops(under layer: CALayer?) -> [String] {
         loops(under: layer) { $0 == "opacity" }
+    }
+
+    /// The working mark may rotate, but never repeats opacity or scale forever.
+    static func opacityOrScaleLoops(under layer: CALayer?) -> [String] {
+        loops(under: layer) { keyPath in
+            keyPath == "opacity" || keyPath?.contains("scale") == true
+        }
     }
 
     /// How many repeating rotations run on `layer` and the layers under it.

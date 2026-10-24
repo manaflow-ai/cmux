@@ -508,16 +508,17 @@ input[type="submit"] {
    infinite` inside `prefers-reduced-motion: no-preference`, never their own keyframes. */
 :root {
   --cmux-spinner-period: 900ms;
-  --cmux-breath-period: 2.4s;
+  --cmux-shimmer-period: 2.4s;
+  --cmux-skeleton-period: 2.4s;
 }
 @keyframes cmux-spin {
   to {
     transform: rotate(360deg);
   }
 }
-/* WORKING-LOOK: agent work's calm mark, a dot that breathes (opacity only), one breath per
-   `--cmux-breath-period`, on the same shared clock, so many working rows breathe as one. */
-@keyframes cmux-breathe {
+/* A loading skeleton's placeholder blocks: never agent work, which is the spinner on every surface;
+   its pulse has its own keyframe and period. */
+@keyframes cmux-skeleton-pulse {
   0%,
   100% {
     opacity: 1;
@@ -544,7 +545,8 @@ input[type="submit"] {
     transform: translateX(-100%);
   }
 }
-/* WORKING-LOOK "shimmer": a light band crosses the words of a working row, once per breath. */
+/* WORKING-LOOK "shimmer": a light band crosses the words of a working row, once per
+   `--cmux-shimmer-period`. */
 @keyframes cmux-shimmer {
   from {
     background-position: 100% 0;

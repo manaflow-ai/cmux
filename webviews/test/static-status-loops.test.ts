@@ -3,8 +3,8 @@
 // `data-status-indicators="static"` on the root: the app's WebTheme bootstrap sets it from the theme
 // payload (`statusIndicators`), which this test runs as the app does, and under it, or under Reduce
 // Motion, no web loop may run: the mic's wait pulse, the model picker and harness spinners, the
-// floating chat's breathing dot, the Thinking sweep, the todo list's spinner, the Jump to Latest
-// dots and Home's "writing" pulse.
+// floating chat's breathing dot, the Thinking sweep, the todo list's spinner, the static Jump to
+// Latest arrow and Home's "writing" pulse.
 // The diff viewer does not get the pane's theme, so its spinners stop under Reduce Motion alone.
 // Static also gives the color-only marks a shape each.
 // This loads the real stylesheets in Chromium and lists the animations that never end.
@@ -52,7 +52,7 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
     `<span class="acpmux-mp-refresh-spinner"></span><span class="acpmux-harness-spinner"></span>` +
     `<span class="acpmux-floating-status" data-status="streaming"></span>` +
     `<div class="cv-md"><span class="cv-thinking">Thinking</span></div>` +
-    `<button class="acpmux-jump-latest" data-shown data-working><span class="acpmux-jump-latest__dots"><i></i><i></i><i></i></span></button>` +
+    `<button class="acpmux-jump-latest" data-shown><span class="acpmux-jump-latest__arrow">↓</span></button>` +
     `<ul class="cv-plan"><li class="cv-plan__item" data-status="in_progress"><span class="cv-plan__mark"></span></li></ul>` +
     `<span class="cv-spinner"></span>` +
     working +
@@ -120,25 +120,64 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
     expect(running.some((loop) => loop.startsWith("cv-plan__mark") && loop.endsWith("cmux-spin"))).toBe(true);
     // The running rows' spinner (compaction, tool runs) too: it once had no rule and never turned.
     expect(running.some((loop) => loop.startsWith("cv-spinner") && loop.endsWith("cmux-spin"))).toBe(true);
-    // Agent work breathes by default (WORKING-LOOK), as its whole mark (SPINNERS-OFF-MAIN: the svg box
-    // gets a compositor layer, the dot inside it does not).
-    expect(running.some((loop) => loop.startsWith("cv-spinner ") && loop.endsWith("cmux-breathe"))).toBe(true);
+    // Agent work uses the shared spinner by default; no working mark runs the breathing keyframe.
+    expect(running.filter((loop) => loop.startsWith("cv-spinner ") && loop.endsWith("cmux-spin")).length).toBe(2);
+    expect(running.some((loop) => loop.startsWith("cv-spinner ") && loop.endsWith("cmux-breathe"))).toBe(false);
   });
 
-  test("each working look runs its own loop on agent work, and loading keeps the spinner", async () => {
-    const looks: Record<string, string[]> = {};
-    for (const look of ["breathe", "shimmer", "spinner"]) {
+  /** Infinite opacity or scale animations running on a working mark, including its children. */
+  async function workingMarkPulseLoops(p: Page): Promise<string[]> {
+    return p.evaluate(() =>
+      document
+        .getAnimations()
+        .filter(
+          (animation) => animation.effect?.getTiming().iterations === Infinity && animation.playState === "running",
+        )
+        .flatMap((animation) => {
+          const effect = animation.effect as KeyframeEffect | null;
+          const target = effect?.target as Element | null;
+          if (!effect || !target?.closest(".cv-spinner[data-working]")) return [];
+          const props = new Set(
+            effect
+              .getKeyframes()
+              .flatMap((frame) => [
+                "opacity" in frame ? "opacity" : "",
+                "scale" in frame || (typeof frame.transform === "string" && frame.transform.includes("scale"))
+                  ? "scale"
+                  : "",
+              ])
+              .filter(Boolean),
+          );
+          return [...props]
+            .filter((property) => property === "opacity" || property === "scale")
+            .map((property) => `${target.getAttribute("class")} ${property}`);
+        }),
+    );
+  }
+
+  test("agent work defaults to the spinner and no working mark pulses", async () => {
+    const looks: Record<string, { loops: string[]; pulses: string[] }> = {};
+    for (const look of ["(none)", "breathe", "shimmer", "spinner", "pulse"]) {
       const p = await page(`${desktop}${pane}`, `<span class="cv-spinner"></span>${working}`, "no-preference");
-      await p.evaluate((value) => {
-        document.documentElement.dataset.workingLook = value;
-        return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-      }, look);
-      looks[look] = (await loops(p)).map((loop) => loop.replace(/\s+/g, " ")).sort();
+      if (look !== "(none)") {
+        await p.evaluate((value) => {
+          document.documentElement.dataset.workingLook = value;
+          return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        }, look);
+      }
+      looks[look] = {
+        loops: (await loops(p)).map((loop) => loop.replace(/\s+/g, " ")).sort(),
+        pulses: (await workingMarkPulseLoops(p)).sort(),
+      };
       await p.close();
     }
-    expect(looks.breathe).toEqual(["cv-spinner cmux-breathe", "cv-spinner cmux-spin"]);
-    expect(looks.shimmer).toEqual(["cv-spinner cmux-spin", "cv-tool__text cmux-shimmer"]);
-    expect(looks.spinner).toEqual(["cv-spinner cmux-spin", "cv-spinner cmux-spin"]);
+    for (const look of ["(none)", "breathe", "spinner", "pulse"]) {
+      expect(looks[look]).toEqual({
+        loops: ["cv-spinner cmux-spin", "cv-spinner cmux-spin"],
+        pulses: [],
+      });
+    }
+    expect(looks.shimmer).toEqual({ loops: ["cv-spinner cmux-spin", "cv-tool__text cmux-shimmer"], pulses: [] });
   });
 
   test("Static status indicators stop every pane loop", async () => {
