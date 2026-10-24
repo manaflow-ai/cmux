@@ -2,14 +2,16 @@
 // several Retina screenshots never blocks typing (Leo, 2026-10-24: "they freeze the composer").
 // The bundled page starts `image-worker.js` from its own origin, as the code highlighter does
 // (conversation/highlightPool.ts); the Vite dev server serves the module itself. Where no worker
-// starts, or one stops answering, the work runs on the page as before.
+// starts, the work runs on the page as before; a worker that stops answering fails its jobs and is
+// replaced, never handing them to the page.
 import { usesHighlightWorker } from "../conversation/highlightPool";
 import { prepareImage, thumbnailOf, type PreparedImage, type Thumb } from "./imageWork";
 
 /// The worker's file, beside the bundled page.
 export const IMAGE_WORKER_FILE = "image-worker.js";
-/// A job the worker has not answered in this long is done on the page instead.
-export const IMAGE_JOB_DEADLINE_MS = 20_000;
+/// A job the worker has not answered in this long fails, and the worker is replaced (a test may
+/// shorten it).
+export const imageJobDeadline = { ms: 20_000 };
 
 export type ImageJob =
   | { id: number; kind: "prepare"; file: Blob }
@@ -18,9 +20,12 @@ export type ImageJob =
 export type ImageJobResult = { id: number; value: PreparedImage | Thumb | undefined; unsupported?: boolean };
 type Job = ImageJob extends infer J ? (J extends ImageJob ? Omit<J, "id"> : never) : never;
 
+/// The worker; null where none can serve this page (the page does the work, as before workers).
 let worker: Worker | null | undefined;
 let nextId = 1;
-const waiting = new Map<number, (value: PreparedImage | Thumb | undefined, failed?: boolean) => void>();
+/// Each job the worker holds, with the worker it went to: a late event of a worker already
+/// replaced never touches its successor's jobs.
+const waiting = new Map<number, { worker: Worker; settle(value: PreparedImage | Thumb | undefined, onPage?: boolean): void }>();
 
 function startWorker(): Worker | null {
   if (worker !== undefined) return worker;
@@ -35,13 +40,15 @@ function startWorker(): Worker | null {
       ? new Worker(new URL(IMAGE_WORKER_FILE, location.href), { type: "module" })
       : new Worker(new URL("./imageWorker.ts", import.meta.url), { type: "module" });
     started.onmessage = ({ data }: MessageEvent<ImageJobResult>) => {
-      if (data.unsupported) return stopWorker();
-      const settle = waiting.get(data.id);
+      if (data.unsupported) return stopWorker(started, "page");
+      const job = waiting.get(data.id);
+      if (job?.worker !== started) return;
       waiting.delete(data.id);
-      settle?.(data.value);
+      job.settle(data.value);
     };
-    // A worker that could not start (or crashed): every job it held, and every later one, runs here.
-    started.onerror = () => stopWorker();
+    // A worker that could not start: no worker serves this page, so its jobs and every later one
+    // run on the page, as they did before workers.
+    started.onerror = () => stopWorker(started, "page");
     worker = started;
   } catch {
     worker = null;
@@ -49,12 +56,17 @@ function startWorker(): Worker | null {
   return worker;
 }
 
-function stopWorker() {
-  worker?.terminate();
-  worker = null;
-  const settles = [...waiting.values()];
-  waiting.clear();
-  for (const settle of settles) settle(undefined, true);
+/// Ends `stopped` if it is still the worker. `page`: no worker can serve this page, its jobs run
+/// here. `fresh`: it stopped answering; its jobs fail (never rerun on the page, where a Retina
+/// screenshot would stall typing) and the next job starts a new worker.
+function stopWorker(stopped: Worker, then: "page" | "fresh") {
+  stopped.terminate();
+  if (worker === stopped) worker = then === "page" ? null : undefined;
+  for (const [id, job] of waiting) {
+    if (job.worker !== stopped) continue;
+    waiting.delete(id);
+    job.settle(undefined, then === "page");
+  }
 }
 
 function here(job: Job): Promise<PreparedImage | Thumb | undefined> {
@@ -67,12 +79,14 @@ function run(job: Job): Promise<PreparedImage | Thumb | undefined> {
   const id = nextId++;
   return new Promise((resolve) => {
     const deadline = setTimeout(() => {
-      // A worker that answers nothing is wedged: the page takes over from here.
-      if (waiting.has(id)) stopWorker();
-    }, IMAGE_JOB_DEADLINE_MS);
-    waiting.set(id, (value, failed) => {
-      clearTimeout(deadline);
-      resolve(failed ? here(job) : value);
+      if (waiting.has(id)) stopWorker(started, "fresh");
+    }, imageJobDeadline.ms);
+    waiting.set(id, {
+      worker: started,
+      settle: (value, onPage) => {
+        clearTimeout(deadline);
+        resolve(onPage ? here(job) : value);
+      },
     });
     started.postMessage({ ...job, id });
   });

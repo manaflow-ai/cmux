@@ -168,4 +168,28 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
     expect(stall).toBeLessThan(MAX_STALL_MS);
     await page.close();
   });
+
+  // Leo, 2026-10-24: "a 5.2mb heif image froze the composer and i had to relaunch". An iPhone photo
+  // is converted to JPEG or PNG in the worker, never on the page. (Chromium has no HEIF decoder, so
+  // here it goes as a file; the app's WebKit decodes it in the worker.)
+  test("a 5.2 MB HEIF photo never blocks typing", async () => {
+    const page = await newChat();
+    await page.locator(".acpmux-composer-prompt [contenteditable]").click();
+    await page.evaluate(() => {
+      const bytes = new Uint8Array(5.2 * 1024 * 1024);
+      for (let at = 0; at < bytes.length; at += 65536) crypto.getRandomValues(bytes.subarray(at, at + 65536));
+      bytes.set([0, 0, 0, 0x18, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69, 0x63], 0);
+      (window as unknown as { screenshots: File[] }).screenshots = [new File([bytes], "IMG_0412.HEIC", { type: "image/heic" })];
+    });
+    await pasteScreenshots(page);
+    // Its tile is there at once.
+    expect(await page.locator(".acpmux-attachment").count()).toBe(1);
+    await page.keyboard.type(" a photo from my phone", { delay: 20 });
+    await page.waitForFunction(() => !document.querySelector(".acpmux-attachment-pending"));
+    const stall = await longestStall(page);
+    console.log(`a 5.2 MB HEIF: longest main-thread stall ${stall.toFixed(0)} ms`);
+    expect(await promptText(page)).toBe(" a photo from my phone");
+    expect(stall).toBeLessThan(50);
+    await page.close();
+  });
 });
