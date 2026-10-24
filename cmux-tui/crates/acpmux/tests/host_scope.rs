@@ -1,7 +1,9 @@
 //! A restart of the daemon's systemd unit never ends its agent hosts
 //! (cmuxterm-hq#3763). The daemon runs as a transient user service with the
 //! default `KillMode=control-group`, the unit that ended every agent on
-//! huge-blue; the hosts it starts move into their own scopes, so after
+//! huge-blue; the hosts it starts move into their own scopes (harnesses
+//! already had theirs, `session_scope.rs`, but a host ends its harness when
+//! it gets SIGTERM), so after
 //! `systemctl --user restart` the same host and harness pids are alive and
 //! the new daemon drives the session again. With `ACPMUX_HOST_SCOPES=0` the
 //! same restart ends them, which shows the test can fail.
@@ -212,9 +214,11 @@ async fn a_unit_restart_keeps_the_agent_hosts_and_the_new_daemon_reattaches() {
     let (unit, session, host, harness) = session_under_unit("keep", true).await;
     let scope = format!("/acpmuxhosts.slice/acpmux-agent-host-{host}.scope");
     assert!(cgroup(host).trim_end().ends_with(&scope), "host not in its scope: {}", cgroup(host));
+    // The harness is in the host's scope, or in its session's own scope
+    // (`session_scope.rs`); never in the daemon's unit.
     assert!(
-        cgroup(harness).trim_end().ends_with(&scope),
-        "the harness started outside the host's scope: {}",
+        !cgroup(harness).contains(&format!("/{}", unit.name)),
+        "the harness started in the daemon's unit: {}",
         cgroup(harness)
     );
 
