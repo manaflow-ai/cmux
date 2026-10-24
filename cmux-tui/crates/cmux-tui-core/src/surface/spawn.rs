@@ -270,6 +270,11 @@ impl Surface {
                     );
                     let mut buf = [0u8; 64 * 1024];
                     let mut shell_marks = crate::prompt_mode_reset::ShellMarks::default();
+                    // File-medium Kitty images become in-band data here, so
+                    // viewers on other machines get them. A command still
+                    // held at end of stream is unterminated and does nothing.
+                    let mut kitty_media = cmux_kitty_media::KittyMediaRewriter::new();
+                    let mut kitty_scratch = Vec::new();
                     // The PTY master is blocking, so WouldBlock should not
                     // happen; if it does, retries are spaced instead of the
                     // old fixed 1 ms (1 kHz) poll.
@@ -304,6 +309,11 @@ impl Surface {
                             }
                             Err(_) => break,
                         };
+                        let read = buf.get(..n).unwrap_or(&buf);
+                        let output = kitty_media.rewrite_borrowed(read, &mut kitty_scratch);
+                        if output.is_empty() {
+                            continue;
+                        }
                         let mut scroll_changed = None;
                         let mut title_update = None;
                         let terminal_notifications;
@@ -324,14 +334,14 @@ impl Surface {
                                 .expect("valid local terminals expose cursor activity");
                             let normalized = crate::prompt_mode_reset::write_output(
                                 &mut term,
-                                &buf[..n],
+                                output,
                                 &mut shell_marks,
                             );
                             #[cfg(unix)]
                             if let Some(sink) = parsed_sink.as_ref() {
                                 sink.confirm_parsed();
                             }
-                            terminal_notifications = pty.observe_terminal_output(&buf[..n]);
+                            terminal_notifications = pty.observe_terminal_output(output);
                             finished_commands = pty.observe_shell_marks(&mut term, || {
                                 mux.upgrade()
                                     .is_some_and(|mux| mux.terminal_command_history_enabled())

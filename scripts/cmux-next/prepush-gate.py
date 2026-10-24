@@ -43,7 +43,7 @@ refuses NEW singletons, unproven MainActor.assumeIsolated, unjustified @unchecke
 nonisolated(unsafe), sleeps in loops, DispatchQueue.main.async, new Notification.Name broadcasts,
 ObservableObject/@Published and store references in list rows, in lines the push adds, and CmuxNextApp
 composition-root growth beyond its wiring budget or a new App file that is not a move (`app-size`, a net
-count); warns on CmuxNextApp source growth, `// perf-hot:` functions and OWNERS.md areas. Skip one push with
+count) and a new type that is not a move in an existing App file or a moved one (`app-type`); warns on CmuxNextApp source growth, `// perf-hot:` functions and OWNERS.md areas. Skip one push with
 CMUX_GUARDRAILS_SKIP_REASON="<rule>[,<rule>]: <why>" (it skips only the named rules); lines a push only
 brings in from origin/feat-cmux-next (a merge or rebase onto it) never count; --no-guardrails turns it off
 for a manual run.
@@ -190,6 +190,11 @@ def rev_ok(repo: Path, rev: str) -> bool:
                           capture_output=True).returncode == 0
 
 
+def is_ancestor(repo: Path, older: str, newer: str) -> bool:
+    return subprocess.run(["git", "-C", str(repo), "merge-base", "--is-ancestor", older, newer],
+                          capture_output=True).returncode == 0
+
+
 def default_base(repo: Path, head: str) -> str:
     for ref in DEFAULT_BASE_REFS:
         if rev_ok(repo, ref):
@@ -207,10 +212,14 @@ def pushed_ranges(repo: Path, lines: list[str]) -> list[tuple[str, str]]:
         if len(parts) != 4 or parts[1] == ZERO_SHA:
             continue  # a deletion pushes no code
         local_sha, remote_sha = parts[1], parts[3]
+        base = default_base(repo, local_sha)
         if remote_sha != ZERO_SHA and rev_ok(repo, remote_sha):
-            base = git(repo, "merge-base", local_sha, remote_sha, check=False).decode().strip() or remote_sha
-        else:
-            base = default_base(repo, local_sha)
+            pushed_before = git(repo, "merge-base", local_sha, remote_sha, check=False).decode().strip() or remote_sha
+            # After a rebase, the branch's old merge-base with its own remote head is the old
+            # base, so every upstream commit the rebase brought in would count as the push's.
+            # The newer of the two bases bounds only the commits that are new on this branch.
+            if is_ancestor(repo, base, pushed_before):
+                base = pushed_before
         ranges.append((base, local_sha))
     return ranges
 

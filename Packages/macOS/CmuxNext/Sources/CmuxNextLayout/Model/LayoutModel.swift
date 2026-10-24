@@ -50,6 +50,13 @@ public final class LayoutModel {
     public var focusFollowsMouse: Bool {
         focusFollowsMouseOverride ?? (followsDesignMetrics ? DesignSettings.shared.focusFollowsMouse : false)
     }
+    /// Pins `layout.scrollModifier` (tests, the demo); nil follows cmux.json.
+    public var scrollModifierOverride: LayoutScrollModifier?
+    /// Which scroll moves the layout (cmux.json `layout.scrollModifier`, `LayoutRootView+Scroll`):
+    /// the override, else the live setting while `followsDesignMetrics` is on, else `.command`.
+    public var scrollModifier: LayoutScrollModifier {
+        scrollModifierOverride ?? (followsDesignMetrics ? DesignSettings.shared.layoutScrollModifier : .command)
+    }
     /// Column centering mode: the override, else the live setting
     /// while `followsDesignMetrics` is on, else `.never`.
     public var centerFocusedColumn: CenterFocusedColumn {

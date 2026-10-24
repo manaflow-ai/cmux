@@ -10,6 +10,7 @@ import PackageDescription
 // Dependency direction (no cycles, no upward imports):
 //   CmuxNextApp -> every feature module
 //   CmuxNextBridge -> Daemon, Layout, Sidebar, Tabs (App-layer mapping, testable)
+//   CmuxNextBrowserCore -> Compat, Wakeups (the browser's engine-neutral values and protocols; Browser re-exports it)
 //   CmuxNextTabs, Sidebar, Layout, Browser -> CmuxNextDesign; Tabs, Sidebar -> CmuxNextIcons; Palette -> Design, Actions
 //   Feature UI modules never import CmuxNextDaemon; the App maps daemon state into their view models.
 //   CmuxNextTerminal -> CmuxNextTerminalGeometry, CmuxNextCopyMode (pure), CmuxGhosttyKit (binary)
@@ -165,8 +166,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-baaef75ede8be6e9848546b907dd1c8afb82620b/CCmuxAppFFI.xcframework.zip",
-    checksum: "603406bb46fbe3fff156ca22eaf80766ae0ddf313eeca112b0d47390d26614b1"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-8e5bbb825874bd9ef0923a01c941348bf242d9c7/CCmuxAppFFI.xcframework.zip",
+    checksum: "4905984c126fd513b61d981613a392bdd95e459983522819e870111f59746e43"
 )
 
 let package = Package(
@@ -1330,7 +1331,9 @@ let package = Package(
         ),
         .target(
             name: "CmuxNextActions",
-            dependencies: ["CmuxNextSignposts"],
+            // Wakeups: the main-thread task board, where an action run is published as a span so the
+            // watchdog samples a run past its 10 ms budget (ActionBudgetMonitor).
+            dependencies: ["CmuxNextSignposts", "CmuxNextWakeups"],
             resources: [
                 .process("AccountsActions.xcstrings"),
                 .process("ActionCatalog.xcstrings"),
@@ -1467,9 +1470,17 @@ let package = Package(
             ],
             swiftSettings: uiSwiftSettings
         ),
+        // The browser's engine-neutral half: tab and engine values, intents, capability protocols, omnibox
+        // and page-info models; no views, no engine (plans/cmux-next/architecture-refactor-DESIGN.md
+        // section 8). CmuxNextBrowser depends on it and re-exports it.
+        .target(
+            name: "CmuxNextBrowserCore",
+            dependencies: ["CmuxNextCompat", "CmuxNextWakeups"],
+            swiftSettings: uiSwiftSettings
+        ),
         .target(
             name: "CmuxNextBrowser",
-            dependencies: ["CmuxNextCompat", "CmuxNextWakeups", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextRemoteFetch", "CmuxNextRemoteLayer"],
+            dependencies: ["CmuxNextBrowserCore", "CmuxNextCompat", "CmuxNextWakeups", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextRemoteFetch", "CmuxNextRemoteLayer"],
             // The CEF shim's C header: its SHA-256 is the shim ABI identity
             // (CEFShimABI, scripts/cmux-next/build-cef-shim.sh).
             resources: [.copy("CEF/Shim/cmux_cef_shim.h"), .process("Resources")],

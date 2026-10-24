@@ -50,7 +50,7 @@ extension AppActions {
         services.pages.register(HomeChannelsPageTab.make(services))
         // The docked Home's tab (HomeDockTab): the Messages or Channels view (the sidebar's Home or Channels entry).
         services.pages.register(HomeDockTab(services: services))
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         services.pages.register(DebugHomeNativeFixture(openPanel: services.openPanel))
         #endif
         registry.bind("home.channels") { _ = HomeChannelsPageTab.open(services) }
@@ -220,7 +220,7 @@ extension AppActions {
                     }
                     guard hidden else { return failure }
                     // A close that went through stays hidden until the store has applied its events (the row is gone there).
-                    if failure == nil, let connection = daemon.connection { await daemon.store.applied(through: await connection.eventSequence()) }
+                    if failure == nil, let connection = daemon.connection { await daemon.appliedThroughReply(on: connection, after: "close workspace") }
                     ClosingWorkspaces.shared.end(id, refused: failure != nil, in: controller?.window)
                     return failure
                 }
