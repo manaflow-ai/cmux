@@ -7,6 +7,11 @@ public import CmuxNextDesignTokens
 /// config live, resolves colors in its theme scope, and stops animating
 /// while its window is occluded, off screen or under Reduce Motion.
 public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
+    // cx-t7hu: nonisolated, so a release (inside an action's task-local scope, or off the main
+    // thread) runs no runtime hop; an implicit deinit is isolated in this target. Its stored
+    // self-ending handles end on the releasing thread.
+    nonisolated deinit {}
+
     public let indicator = StatusIndicatorLayer()
     public private(set) var state: StatusIndicatorState = .idle
     /// The reporter's style hint (`cmux status set --style`); nil uses the

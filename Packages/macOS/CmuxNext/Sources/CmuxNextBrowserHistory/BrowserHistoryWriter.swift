@@ -12,6 +12,11 @@ import Observation
 /// fire no page event, so the shown page's position is measured when the
 /// user leaves the app (a crash afterwards keeps it) and at quit.
 public final class BrowserHistoryWriter {
+    // cx-t7hu: nonisolated, so a release (inside an action's task-local scope, or off the main
+    // thread) runs no runtime hop; an implicit deinit is isolated in this target. Its stored
+    // self-ending handles end on the releasing thread.
+    nonisolated deinit {}
+
     /// Stores a history with the tab's daemon; true when it was stored.
     public typealias Send = @MainActor (FrontendBrowserHistory) async -> Bool
     /// A page whose history the writer saves.

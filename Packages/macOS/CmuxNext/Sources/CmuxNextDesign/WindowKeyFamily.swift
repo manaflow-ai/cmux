@@ -14,6 +14,11 @@ import ObjectiveC
 /// nothing per key change.
 @MainActor
 final class WindowKeyFamily {
+    // cx-t7hu: nonisolated, so a release (inside an action's task-local scope, or off the main
+    // thread) runs no runtime hop; an implicit deinit is isolated in this target. Its stored
+    // self-ending handles end on the releasing thread.
+    nonisolated deinit {}
+
     private weak var window: NSWindow?
     private let environment: WindowKeyEnvironment
     private let views = NSHashTable<WindowMaterialView>.weakObjects()

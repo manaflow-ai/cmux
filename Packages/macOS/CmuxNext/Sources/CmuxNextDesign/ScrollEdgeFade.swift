@@ -58,6 +58,11 @@ public nonisolated struct ScrollEdges: OptionSet, Hashable, Sendable {
 /// Motion `hover` token (a short crossfade under Reduce Motion, per the
 /// Motion policy).
 public final class ScrollEdgeFadeView: NSView {
+    // cx-t7hu: nonisolated, so a release (inside an action's task-local scope, or off the main
+    // thread) runs no runtime hop; an implicit deinit is isolated in this target. Its stored
+    // self-ending handles end on the releasing thread.
+    nonisolated deinit {}
+
     public let scrollView: NSScrollView
     public private(set) var edges: ScrollEdges = []
     private let fadeMask = CAGradientLayer()

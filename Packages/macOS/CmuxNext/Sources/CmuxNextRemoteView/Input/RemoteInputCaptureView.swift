@@ -8,6 +8,11 @@ import CmuxNextCompat
 /// pixels. The local cursor stays the system arrow (control mode draws the
 /// native cursor locally, RD6).
 final class RemoteInputCaptureView: NSView, MouseButtonForwarding {
+    // cx-t7hu: nonisolated, so a release (inside an action's task-local scope, or off the main
+    // thread) runs no runtime hop; an implicit deinit is isolated in this target. Its stored
+    // self-ending handles end on the releasing thread.
+    nonisolated deinit {}
+
     let controller = RemoteInputController()
     /// The current image placement, from the video view.
     var geometry: () -> RemoteViewGeometry? = { nil }
