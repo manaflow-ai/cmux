@@ -4,6 +4,23 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_errors! {
+    /// The error codes feed.archive declares.
+    FeedArchiveError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        FeedClosed = "feed.closed",
+        FeedFull = "feed.full",
+        FeedMoving = "feed.moving",
+        FeedRateLimited = "feed.rate_limited",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerMoved = "owner.moved",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
 wire_op! {
     /// Cancel an open item: its poster withdraws it, an adapter reports it answered elsewhere, or the user declines it.
     FeedCancelOp {
@@ -872,29 +889,4 @@ wire_errors! {
         AuthUnauthenticated = "auth.unauthenticated",
         SelectorNotFound = "selector.not_found",
     }
-}
-
-wire_op! {
-    /// List firewall rules attached to the caller's private network.
-    FirewallListOp {
-        name: "firewall.list",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:UserDO",
-        risk: "read",
-        principals: [Session],
-        params: FirewallListParams,
-        result: FirewallListResult,
-        error: FirewallListError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FirewallListParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub vpc_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub vm_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tunnel_id: Option<String>,
 }

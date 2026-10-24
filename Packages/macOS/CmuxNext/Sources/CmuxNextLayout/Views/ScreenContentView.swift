@@ -105,7 +105,26 @@ final class ScreenContentView: NSView {
     override func setFrameSize(_ newSize: NSSize) {
         let changed = newSize != frame.size
         super.setFrameSize(newSize)
-        if changed { reconcileAndScroll() }
+        guard changed else { return }
+        // A hidden screen (another of the workspace's screens shows) lays out once, when it shows:
+        // each live-resize tick re-ran its full geometry, pane and divider reconcile.
+        if isHidden { needsReconcileOnShow = true } else { reconcileAndScroll() }
+    }
+
+    /// Resized while hidden: reconcile when it shows.
+    private(set) var needsReconcileOnShow = false
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        reconcileIfDeferred()
+    }
+
+    /// Runs the reconcile a resize while hidden left for later (a reader that needs the screen's
+    /// frames at its current size before it shows: a canvas seed).
+    func reconcileIfDeferred() {
+        guard needsReconcileOnShow else { return }
+        needsReconcileOnShow = false
+        reconcileAndScroll()
     }
 
     override func viewDidChangeBackingProperties() {

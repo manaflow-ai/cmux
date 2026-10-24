@@ -38,6 +38,8 @@ export type HarnessModel = {
   efforts?: EffortValue[];
   defaultEffort?: EffortValue;
   fast?: boolean;
+  inlineFast?: boolean;
+  serviceTiers?: (string | { id: string; name?: string; description?: string })[];
   aliases?: string[];
   status?: ModelStatus;
   /** Context window for a user-added model with no feed ref. */
@@ -85,6 +87,8 @@ export type PickerModel = {
   efforts: EffortValue[];
   defaultEffort?: EffortValue;
   fast: boolean;
+  inlineFast?: boolean;
+  serviceTiers?: (string | { id: string; name?: string; description?: string })[];
   contextWindow?: number;
   reasoning?: boolean;
   input?: string[];
@@ -219,6 +223,7 @@ function modelFields(raw: Record<string, unknown>): Partial<HarnessModel> {
   if (typeof raw.defaultEffort === "string" && EFFORT_ORDER.includes(raw.defaultEffort as EffortValue))
     fields.defaultEffort = raw.defaultEffort as EffortValue;
   if (typeof raw.fast === "boolean") fields.fast = raw.fast;
+  if (typeof raw.inlineFast === "boolean") fields.inlineFast = raw.inlineFast;
   if (typeof raw.contextWindow === "number" && Number.isInteger(raw.contextWindow) && raw.contextWindow > 0)
     fields.contextWindow = raw.contextWindow;
   return fields;
@@ -477,6 +482,8 @@ function pickerModel(model: HarnessModel, catalog: ModelCatalog, unavailable?: s
     efforts: model.efforts ?? [],
     ...(model.defaultEffort ? { defaultEffort: model.defaultEffort } : {}),
     fast: model.fast === true,
+    ...(model.inlineFast === true ? { inlineFast: true } : {}),
+    ...(model.serviceTiers ? { serviceTiers: model.serviceTiers } : {}),
     ...(contextWindow ? { contextWindow } : {}),
     ...(info?.reasoning !== undefined ? { reasoning: info.reasoning } : {}),
     ...(info?.input ? { input: info.input } : {}),

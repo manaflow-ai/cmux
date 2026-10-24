@@ -1017,6 +1017,7 @@ jobs:
       # runner carries it, else gui_runner. Empty from a trusted base whose
       # placement predates it, so those jobs then read gui_runner.
       session_runner: ${{ steps.place.outputs.session_runner }}
+      nightly_runner_ready: ${{ steps.place.outputs.nightly_runner_ready }}
     steps:
       # The placement code from the base branch, as ci-macos.yml's admission-placement uses it.
       - name: Check out the trusted placement
@@ -1062,9 +1063,11 @@ jobs:
             needs.path_route.outputs.swift_canary == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci')) && 'swift-canary' || '',
             (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready' && contains(inputs.same_tree_tiers, 'scheme') || needs.path_route.outputs.scheme == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') && contains(github.event.pull_request.labels.*.name, 'dev-build'))) && 'cmux-scheme-compile' || '',
             needs.path_route.outputs.native == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && 'release-compile' || '') }}
-          # Attempt 1 of a feat-cmux-next push compiles Release on the promotion mini; the
-          # Release compile overflows to Blacksmith only while no runner there is idle.
+          # Attempt 1 of a feat-cmux-next push prefers the dedicated cmux NEXT
+          # nightly runner; a busy or unavailable runner uses Blacksmith overflow.
           PROMOTE_LABEL: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || '' }}
+          NIGHTLY_POOL: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_NEXT_TRUSTED_POOL || '' }}
+          NIGHTLY_RUNNER: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER || '' }}
           SIDE_LABEL: ${{ env.CMUX_NEXT_SIDE_ROUTE }}
           JOBS: fast-tier swift-canary cmux-scheme-compile release-compile swift-test daemon-test generated-files
         run: |
@@ -1899,7 +1902,7 @@ jobs:
     needs: path_route
     if: ${{ inputs.dev_daily != true && inputs.same_tree_sha == '' && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (needs.path_route.outputs.swift == 'true' || needs.path_route.outputs.daemon == 'true' || needs.path_route.outputs.generated == 'true')) }}
     name: cmux-next web bundles (source-keyed cache)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-32vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     # Only a feat-cmux-next run enters next-cache-writer (deployment branch
     # feat-cmux-next only), and only its push publishes the bundles to NEXT's
@@ -3546,16 +3549,13 @@ jobs:
   release-compile:
     environment: ${{ github.event_name != 'pull_request' && 'ci-build-cache-reader' || '' }}
     needs: [path_route, macos-placement, push-head-preflight, app-compile-fleet]
-    if: ${{ !cancelled() && needs.path_route.outputs.native == 'true' && (needs.push-head-preflight.outputs.current == 'true' || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || github.event.pull_request.head.repo.full_name != github.repository && needs.path_route.outputs.cmuxnext_swift == 'true' || github.event.pull_request.head.repo.full_name == github.repository && needs.app-compile-fleet.outputs.verdict != 'pass' && needs.app-compile-fleet.outputs.verdict != 'fail') }}
+    if: ${{ !cancelled() && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || github.event.pull_request.head.repo.full_name != github.repository && needs.path_route.outputs.cmuxnext_swift == 'true' || github.event.pull_request.head.repo.full_name == github.repository && needs.app-compile-fleet.outputs.verdict != 'pass' && needs.app-compile-fleet.outputs.verdict != 'fail') }}
     name: cmux-next Release compile (Xcode 26)
-    # The base's compile check: a feat-cmux-next push compiles even when a newer
-    # push has landed (push-head-preflight says superseded). The job group below
-    # keeps one compile running and the newest push waiting; GitHub cancels a
-    # waiting one when a newer push queues. Without this, merges landing about
-    # once a minute (2026-10-21) superseded every push before its preflight ran:
-    # 0 of 40 sampled base pushes compiled, a base compile break (#22764) showed
-    # only as reds on other PRs, and no green compile asked for nightly-next. A
-    # red one turns that commit red and push-attribution names its pull requests.
+    # The base's compile check: a current feat-cmux-next push compiles once its
+    # preflight sees it is still the tip. Superseded pushes skip before queueing,
+    # while a compile that has started gets its own run group and cannot be
+    # evicted by a newer push. This leaves one running compile and the newest
+    # current tip queued without GitHub's one-pending-run eviction.
     # Release runs on every base push, next-batch/* push and dispatch, and on a
     # PR the native tier reaches with full-ci. #22325 ran it on every
     # same-repository PR; on 2026-10-21 (~20:10Z) 76 of the ~350 queued Mac jobs
@@ -3573,14 +3573,15 @@ jobs:
     # running, and runs-on below takes the shared route (the reserved
     # promotion runner is for feat-cmux-next pushes only).
     continue-on-error: false
-    # A push's Mac job waits for the same job of the running push run and is
-    # never cancelled once it runs; a newer push replaces only the waiting one
-    # (see the workflow concurrency comment).
+    # A started push compile has a per-run group and is never cancelled by a
+    # newer push. Superseded pushes are skipped by the job condition above.
     concurrency:
-      group: ${{ github.event_name == 'push' && format('cmux-next-push-{0}-release-compile', github.ref) || format('cmux-next-run-{0}-release-compile', github.run_id) }}
+      group: ${{ format('cmux-next-release-compile-{0}', github.run_id) }}
       cancel-in-progress: false
-    # Attempt 1 of a feat-cmux-next push takes vars.CI_NEXT_PROMOTE_POOL, the side
-    # label of the reserved promotion mini (glaeda-promote-side-trusted-std-xcode-26.6:
+    # Attempt 1 of a feat-cmux-next push prefers the dedicated cmux NEXT nightly
+    # runner when placement found it online and idle. Busy or unavailable dedicated
+    # capacity is sent through the Blacksmith cascade. The reserved promotion mini
+    # remains the final owned-pool fallback (glaeda-promote-side-trusted-std-xcode-26.6:
     # cmux14, hq build-fleet/mini-fleet.json poolPrefix promote-, trustedRef
     # feat-cmux-next; cmux-next chief 2026-10-14). This job gates the nightly-next
     # request and waited 11-54 min for the shared side runners. Push runs have no
@@ -3692,6 +3693,23 @@ jobs:
         run: |
           derived_data="$(scripts/cmux-next/release-derived-data-path.sh release-compile Release)"
           scripts/cmux-next/check-release-compile.sh "$derived_data"
+
+      # Early advisory for a newly bundled binary. The signed nightly check
+      # remains authoritative, but this names an unmapped file during review.
+      - name: Warn on missing Release bundle notices
+        if: ${{ always() && steps.reuse.outputs.hit != 'true' }}
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          derived_data="$(scripts/cmux-next/release-derived-data-path.sh release-compile Release)"
+          app="$(find "$derived_data/Build/Products/Release" -maxdepth 2 -type d -name '*.app' -print -quit 2>/dev/null || true)"
+          if [[ -z "$app" ]]; then
+            echo "::warning title=Release bundle notices::no Release .app product was found for the advisory notice scan"
+            exit 0
+          fi
+          if ! scripts/verify-app-bundle-licenses.sh "$app"; then
+            echo "::warning title=Release bundle notices::the advisory scan found a missing or unmapped bundled binary; the signed nightly check remains required"
+          fi
 
       - name: Upload Release compile timing
         if: ${{ always() && steps.reuse.outputs.hit != 'true' }}

@@ -103,7 +103,7 @@ message ends with the reason in parentheses, one of `malformed`,
 echoes the token),
 `bad_request` (400), `not_member` / `not_owner` / `wrong_team` (403), `not_found` (404),
 `rate_limited` (429, with `retry-after` seconds; 0.7.0 per-user limits: 300 requests a minute overall, 30 `GET /v1/ice`, 10 invites, 60 notifications per Mac),
-`membership_unavailable` / `invite_failed` / `hub_unavailable` (502; `hub_unavailable` since 0.10.0 when the caller's hub refuses a signaling socket for an internal reason).
+`conflict` (409, 0.14.0: a mailbox item id reused with another blob), `membership_unavailable` / `invite_failed` / `hub_unavailable` (502; `hub_unavailable` since 0.10.0 when the caller's hub refuses a signaling socket for an internal reason).
 
 | Method + path | Body / result |
 | --- | --- |
@@ -1035,7 +1035,8 @@ agent's question from the phone".
 | --- | --- | --- | --- |
 | `cmux.option.<i>` | question (one choice) | foreground, authenticationRequired | the app opens, Face ID, signed answer |
 | `cmux.answer` ("Answer…") | question | foreground | the app opens on the question |
-| `cmux.allow.once` | permission | foreground, authenticationRequired | the app opens, Face ID, signed allow. No Always allow: as in the Feed (`phoneOptions`), acpmux refuses a lasting grant from a paired phone |
+| `cmux.allow.once` | permission | foreground, authenticationRequired | the app opens, Face ID, signed allow. No Always allow beside it: as in the Feed (`phoneOptions`), acpmux refuses a lasting grant from a paired phone |
+| `cmux.allow.always` | permission with no single-use Allow | foreground, authenticationRequired | as the Feed (`phoneOptions`): the agent's own options are offered, so the app opens, Face ID, signed allow, and acpmux refuses it (`remote.lasting_grant_refused`). Over the link the phone shows "Allow for this chat on the Mac"; through the mailbox the Mac's signed ack is only `refused`, so it shows "Your Mac didn't accept the reply." |
 | `cmux.deny` | permission | destructive, authenticationRequired | background, unsigned reject |
 | `cmux.reply` (text input) | completed, failed, chief | authenticationRequired | background: a prompt to the session, or a Chief message |
 | `cmux.terminal.reply` (text input) | terminal (PR B) | authenticationRequired | background: input to the terminal |
@@ -1052,3 +1053,306 @@ label ...`, questions joined by `\u{0}`). It is pushed once per tab in 30 s,
 though Claude Code fires two hooks for it in either order (PermissionRequest
 carries no `tool_use_id`). The phone answers a notification only while that
 very question is pending on its tab; any other push is answered from the Feed card.
+
+## Sealed pushes and the reply mailbox (API 0.14.0, `feat-cmux-next-ios-push-fallback`)
+
+Held for the #13742 decision (`verify/notifications-trust.md`). Every
+addition is optional: a phone or Mac without it keeps PR A's behavior.
+
+### Crypto (shared by hostd, the app and its service extension)
+
+- **Seal** (ECIES, P-256): an ephemeral P-256 key `E`; `z = ECDH(E, R)` for the
+  recipient key `R`; `k = HKDF-SHA256(ikm: z, salt: E_pub || R_pub, info:
+  context, 32 bytes)`; AES-256-GCM with a random 12-byte nonce and the
+  associated data `context`. Wire: base64url of
+  `0x01 || E_pub (65 bytes, X9.63) || nonce (12) || ciphertext || tag (16)`.
+- **Contexts**: a push `cmux-mobile-push-seal-v1 \0 mac \0 phone \0 eventId`; a
+  reply `cmux-mobile-reply-seal-v1 \0 mac \0 phone \0 replyId`.
+- **Mac box key**: hostd derives the P-256 scalar from its identity key:
+  `HKDF-SHA256(ikm: identity scalar, salt: "", info:
+  "cmux-mobile-mac-box-v1", 32 bytes)`, reduced into `[1, n-1]` (taken again
+  with a counter byte appended to `info` while it is out of range).
+- Signatures are ECDSA P-256 / SHA-256, raw `r || s`, lowercase hex, as
+  elsewhere.
+
+### Keys at pairing (`auth`)
+
+- The phone adds `pushKey` (X9.63 hex, its push key) and `pushKeySignature`
+  (identity key) over `cmux-mobile-push-key-v1 \0 mac \0 phone \0 pushKey` to
+  `auth` args. hostd keeps it for the paired phone (0600 state file) once
+  `auth` passes. A phone without it gets unsealed pushes.
+- The challenge adds `macBoxKey` and `macBoxSignature` (Mac identity key)
+  over `cmux-mobile-mac-box-v1 \0 mac \0 macBoxKey`. The phone verifies it with
+  the pinned Mac identity key and keeps the box key with its signature; it
+  checks the signature against the pin again before it seals each reply.
+- A push key that does not verify is ignored (logged), never a pairing
+  failure: that phone simply gets unsealed pushes.
+- Once a Mac proved a box key after the phone gave it a push key, that Mac
+  *seals*: the phone acts on no unsealed push that names it (generic banner,
+  no buttons, a tap only opens the app).
+
+### Sealed notify (Mac → Worker → APNs)
+
+`POST /v1/devices/:macId/notify` adds `sealed: {"<phone device id>": {"box": "<sealed>", "sig": "<hex>"}}`,
+where `box` seals the v2 `cmuxMobile` object (plus `decisionNonce` and
+`personInstance` for an ask, so the phone can sign an answer offline) and
+`sig` is the Mac identity signature (64 bytes, 128 hex digits) over `cmux-mobile-push-v1 \0 mac \0 phone \0
+eventId \0 box`. The box also carries `postedAt` (Unix seconds). At most 20
+phones; `box` is base64url of at most 3072 characters (hostd trims the content
+to fit, and skips a phone whose box still would not). When every paired phone
+has a push key the Mac sends no content fields, also when one box failed or
+its identity key has not arrived (those phones get the generic banner from
+the ids alone); a phone without a push key gets the v2 payload built from the
+content the Mac then sends beside `sealed`. The Worker sends a phone listed
+there `{"aps": {"alert": {"title": "cmux", "body": "New notification from
+<Mac>"}, "mutable-content": 1, "category": "CMUX_MOBILE_SEALED" (no buttons),
+"thread-id": FNV-1a of the v2 thread id, 16 hex digits}, "cmuxMobile": {"v": 3,
+"mac", "macName", "kind", "eventId", "previews", "box", "sig"}}`. The service
+extension checks `sig` against the pinned Mac key, opens `box` with the push
+key, fills in the v2 content, category and thread, and keeps the v3 object
+(`cmuxMobileSealed`) beside them; the app opens that box again before any
+button acts. If it can't open it, the generic banner and no buttons stay. A
+push older than 15 minutes (`postedAt`) shows its text with no buttons.
+
+### Reply mailbox
+
+- Phone → Worker: `POST /v1/devices/:macId/mailbox` `{id (uuid), from (the
+  phone's link device id), sealed}` → `{queued: true, delivered}`. The caller
+  must own `from` (a phone) and `:macId` (a Mac), else `403 not_owner`;
+  `sealed` is base64url of at most 16384 characters (the phone refuses a
+  larger reply itself); at most 32 pending per Mac
+  (`429 rate_limited`) and 60 posts a minute per user. Kept in the user hub for
+  10 minutes. The same `id` with the same blob is the same item (a retried
+  request, answered `{queued: true, delivered: false}`); with another blob it
+  is `409 conflict`.
+- Worker → Mac socket: `{"type":"mailbox","items":[{id, from, sealed, at}]}` at
+  once when the Mac's signaling socket is open, else right after its `hello`.
+  The Mac answers `{"type":"mailbox_ack","results":[{id, applied, reason?, sig}]}`
+  (at most 64; `reason` `[a-z_]{1,32}`, else `refused`) for each item it
+  settled. `sig` is the Mac identity signature over `cmux-mobile-mailbox-ack-v1
+  \0 mac \0 id \0 1|0 \0 reason` (empty reason when applied); the hub keeps it
+  as sent (128 hex digits, else none). An item the Mac could not settle yet
+  (its app has not sent the keys or paired list within 10 s, a service it
+  applies through is not reachable, another copy is being applied) gets no
+  result: it stays queued and the Mac tries it again every 30 s while its
+  socket lives, and on the next delivery. The hub takes it only
+  from a Mac socket (a phone gets `error bad_request`), settles only that Mac's
+  own queued items, clears each blob, and keeps the outcome for 10 more
+  minutes. Removing either device (`DELETE /v1/devices/:id`) deletes its items.
+- Phone → Worker: `GET /v1/devices/:macId/mailbox/:id` → `{state: "queued" |
+  "applied" | "rejected" | "expired", reason?, sig?}`; `404 not_found` for an
+  id it never had or forgot. The phone takes `applied` or `rejected` only with
+  a `sig` that verifies against the Mac's pinned key; otherwise it says "Not
+  confirmed by <Mac>". It asks after 1, 2, 4 and 8 s. A retried `POST` of an
+  id the hub holds with another blob (`409`) counts as queued.
+- The sealed plaintext (canonical JSON, keys in byte order):
+  `{v: 1, id, mac, phone, kind, target: {sessionId?, permissionId?,
+  conversationId?, tabId?, notificationId?}, action: {type: "option" |
+  "answers" | "allow" | "deny" | "text", optionId?, answers?, text?},
+  approval?, nonce, issuedAt, expiresAt, sig}` where `approval` is the acpmux
+  `_meta.acpmux` decision the phone signed after Face ID (Allow, answers) and
+  `sig` is the phone identity signature over `cmux-mobile-reply-v1 \0 mac \0
+  phone \0 sha256(canonical JSON without sig)`. The phone uses a 540 s window
+  from when the person made the reply (a Retry keeps it, never starts a new
+  one); the Mac takes `expiresAt` at most 600 s after `issuedAt` and at most
+  660 s after its own clock (60 s for a phone clock ahead). `nonce` is 16 to
+  128 letters or digits (the phone sends 32 lowercase hex digits); `text` at
+  most 4096 bytes. A `deny` may leave out `optionId`: the Mac then picks the
+  prompt's `reject_once`, else its first reject.
+- hostd applies it only after the checks in `verify/notifications-trust.md`
+  ("What the Mac checks"), and reports `applied` or the first failing check:
+  `unsealed`, `not_paired`, `bad_signature`, `expired`, `replayed`,
+  `not_pending`, `refused`. A repeat of a reply id the Mac already settled
+  (over the link or the mailbox) answers that first outcome again, signed;
+  `replayed` means another reply already used the nonce. hostd keeps each
+  spent id's outcome on disk until it expires, and applies nothing while that
+  file cannot be read.
+
+### Terminal replies
+
+The `daemon` policy allows `notification-reply {notification, text, reply_id?}`
+(a ledger id, 1 to 4096 bytes of text and the reply's id, no other field).
+The daemon has no such command: hostd answers it itself. It finds the
+notification in the session's ledger (`list-notifications`; gone:
+`not_found`) and applies the text only when:
+
+- the row asked for replies (`reply: true`, `cmux notify --reply`);
+- it is at most 15 minutes old;
+- the program that posted it still holds its terminal: the daemon records
+  the terminal's foreground process-group leader and its executable when the
+  row is posted (`list-notifications` `notification`, `poster_pid`,
+  `poster_executable`, memory only; `process-info` adds `foreground_pid`),
+  and both must match now. A program that exited, another program, or a new
+  process of the same name gets nothing (`not_found`); a daemon that records
+  no poster gets no terminal reply.
+
+Then it pastes the text and sends Return, each `send` with `expect_foreground`
+naming that program. For an agent's notification (`source` `agent`, a hook on
+a terminal tab) on a daemon with `send-expect-agent-v1` (manaflow-ai/cmux#24205)
+it sends one `send` with `submit: true` and `expect_agent: {}` instead, so the
+text and Return are written only while the agent waits at its prompt; a daemon
+or host policy without it gets the two writes. The answer is a v12 line,
+`{"id", "ok": true}` or an error. The phone's `cmux.terminal.reply` action
+sends it over the link, or through the mailbox with `kind` `terminal`, whose
+`target` also names the tab (`s<surface>`), which must be the notification's.
+
+hostd keeps phones' push keys in `<state>/push-keys.json` and spent reply
+ids and nonces in `<state>/mailbox-spent.json` (both mode 0600; public keys
+and ids only).
+
+## Terminal sizing policy (`host-size-policy-v1`; added 2026-10-23)
+
+A shared terminal has one PTY grid. When several devices show it (this Mac,
+one or more phones, another Mac), the **sizing policy** of the Mac decides
+which device's size the grid takes. It is one setting per Mac, stored by that
+Mac and applied by its cmux-tui daemon. The phone and the Mac's
+Settings > Mobile both edit the same value; the phone only sends a
+preference. The classic app's equivalent is the terminal size sheet of
+docs/shared-terminal-sizing.md (PR #18866); cmux-next keeps its modes and
+priority order but makes the policy per Mac instead of per terminal.
+
+### Modes
+
+| Setting value | Shown as | Engine policy the daemon applies |
+| --- | --- | --- |
+| `smallest` (default) | Fit the smallest viewer | `smallest`: every viewer sees the whole grid |
+| `mac` | Prefer this Mac | `priority` with this Mac's own views first; when no view of this Mac counts (its pane hidden), the most recently active other viewer |
+| `latest` | Prefer the active device | `latest`: the viewer that typed, pasted or focused last |
+| `priority` | Priority order | `priority` over `order`, highest first; a viewer not in the list counts only when no listed viewer does (then the most recently active) |
+
+Only viewers that **claim** a size count ("Terminal size claims" above): a
+phone claims while its terminal page is on screen, so the policy only ever
+chooses among the devices that are showing the terminal right now. A phone
+that stops showing it releases its claim and the grid follows the remaining
+claims under the same policy.
+
+A per-terminal or per-workspace override (`set-size-policy {surface}` or
+`{workspace}`, for example the Mac pane's Take Over) still wins over the
+Mac's policy for that terminal, as before.
+
+### Storage (the Mac)
+
+Two keys of the Mac's settings file (`~/.config/cmux/cmux-next.json`,
+owned by the daemon):
+
+- `mobile.terminalSizing`: `"smallest"` | `"mac"` | `"latest"` | `"priority"`.
+  Shown in Settings > Mobile as "Terminal Size When Shared".
+- `mobile.terminalSizingOrder`: the priority order, a list of **device
+  tokens**, highest first (at most 32): `"mac"` is this Mac's own views (its
+  panes and its cmux-tui frontend); `"device:<id>"` is the viewer whose
+  device id is `<id>` (1 to 128 of `[A-Za-z0-9_.:-]`). Hidden on the Mac's
+  page; edited from the phone.
+
+The daemon re-reads both on `settings-changed`, re-resolves every live
+terminal without an override, and publishes `size-state` when a terminal's
+policy changes. An unknown mode reads as the default.
+
+### Who is "this Mac"
+
+The daemon decides it from what it verified about each connection, failing
+closed. A participant is one of this Mac's views only when its device kind is
+a desktop kind (`mac`, `tui`, `linux`, `windows`) and its connection is the
+in-process frontend or a local Unix connection that:
+
+- has no `cmux link` peer record (a WebSocket, a remote-entry stream or a
+  link peer is never this Mac, whatever it says it is);
+- was not accepted from this build's bundled `cmux-mobile-host`. At accept
+  the daemon reads the socket peer's executable and compares its real path
+  with the `cmux-mobile-host` beside the daemon's own executable
+  (`Contents/Resources/bin/`). On macOS it reads it by the peer's audit token
+  (`proc_pidpath_audittoken`), which the kernel refuses once the pid carries
+  another pid version (a process that reused the pid, or exec'd since it
+  connected). On Linux it reads `/proc/<pid>/exe` and then checks the pid
+  still has the start time of the peer key, which catches pid reuse but not
+  an exec after connecting;
+- is not marked `remote`. cmux-mobile-host (and the Mac app's Swift
+  `DaemonLanePolicy` splice) rewrite every phone's `set-client-info` to carry
+  `remote: true` and the link's own device id as `device_id`, so a phone can
+  neither pose as this Mac nor as another phone in the order. The mark is
+  sticky and never published in `size-state`.
+
+A phone relays no other device, so a relay sub-view it opens
+(`resize-attached-view {view, identity}`) names no user and no device: both
+splices drop `identity.user_id` and `identity.device_id`, and the daemon drops
+them again for a phone's lane (one accepted from hostd or marked `remote`).
+Such a sub-view gets its own priority key and is never ranked by a `device:`
+token. A sub-view relayed by one of this Mac's own connections keeps its
+identity.
+
+### Who may change it
+
+`set-host-size-policy` is accepted only from the verified cmux app (origin
+`user`, `client-hello` with its proof) and from a connection accepted from
+the bundled `cmux-mobile-host` (a phone's lane; hostd lets only the Mac
+owner's paired phones in). Every other connection (an agent or a script on
+this Mac, the CLI, another machine) may read the policy but gets
+`forbidden` when it writes. The write is stored as the app's own (both keys
+are person-only settings).
+
+The refusal is the daemon error `forbidden: ...`; the phone shows "This Mac's
+cmux doesn't allow changing it from a phone." It also happens where no
+bundled hostd sits beside the daemon (a development daemon started from
+another folder, `CMUX_NEXT_TUI_BIN`, a `~/.local/bin/cmux-tui`), and on Linux
+after an in-place upgrade replaced either binary while it ran: then no phone
+lane may write the policy, and phones still never count as this Mac.
+
+Residual risk: the hostd check trusts the executable path, so another
+process of the same user that runs the bundled `cmux-mobile-host` binary
+itself counts as a phone lane (on Linux also one that exec'd it after
+connecting). That binary only forwards lines from an
+authenticated phone link through its own allowlist, so such a process gains
+nothing it could not already do with the same user's access to the settings
+file. The Mac app's Swift phone splice (`DaemonLaneSplice`) connects from the
+app process without `client-hello`, so a phone on that path can read the
+policy but not change it. That splice has no size release of its own
+("Terminal size claims"): under the default Fit the smallest viewer, a phone
+on it that was killed keeps the Mac's pane at its size until the size lease
+ends (45 s).
+
+`get-host-size-policy` answers the policy in effect: before the daemon's
+settings owner has read the settings file (only at startup, before it
+serves connections) that is the engine default (`latest`), as the terminals
+then use.
+
+### Commands (cmux-tui daemon, `host-size-policy-v1` in `identify`)
+
+- `get-host-size-policy {surface?}` →
+  `{policy: {mode, order}, mac_participants: [participant id]}`.
+  `mac_participants` lists the size-state participant ids of `surface` that
+  are this Mac's views (empty without `surface`).
+- `set-host-size-policy {policy: {mode, order?}}` → `{policy}`. Writes both
+  settings keys (an omitted `order` keeps the stored one), then applies as
+  above. Refused with `bad_request` for an unknown mode or a bad token.
+- `get-size-state {surface}` → `{state, self_participant}` (existing).
+- `note-size-activity {surface}` (existing) on the attach connection: the
+  phone sends it when the person types, pastes or taps the terminal, at most
+  once a second and only while it is not already an owner, so `latest` can
+  pick the phone. Keystrokes travel on the input lane, a different
+  connection, so they cannot count as the attach view's activity by
+  themselves.
+
+cmux-mobile-host (and the Mac app's Swift `DaemonLanePolicy` mirror) allow
+these four from a phone. `set-size-policy` and `set-size-counts` stay closed
+to a phone: it changes the Mac-wide preference only.
+
+### Phone
+
+- `set-client-info` `capabilities` add `shared-sizing-v1` (the attach stream
+  then carries `size-state` events) and `host-grid-view-v1` (this phone
+  renders a host grid larger than its own; see below). A daemon that caps a
+  handheld's applied grid at its viewport stops doing so for a connection
+  that lists `host-grid-view-v1`.
+- **Settings > Terminal > Terminal Size When Shared** lists the phone's
+  Macs; each Mac's page edits that Mac's mode and, in Priority order, a
+  reorderable list of its devices (This Mac, this iPhone, other phones and
+  Macs seen on it). The terminal's title menu opens **Connected Devices**
+  for the terminal on screen: the grid, why it has that size, every
+  connected viewer with the size it asks for (its claimed viewport, or "Not
+  showing it" when it has released its claim) and which viewer sets the
+  grid, and the same policy controls for that terminal's Mac.
+- **A grid larger than the phone.** The phone renders the host's grid
+  exactly at its own font size: wider than the phone, the terminal pans
+  horizontally (it follows the cursor while typing); shorter than the
+  phone, the grid is pinned to the top and the rest is letterboxed with the
+  terminal background and a one-line note (`120×40 · set by <device>`).
+  It never reflows the host's output to its own width.

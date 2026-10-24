@@ -185,10 +185,16 @@ impl HolderSink {
         self.state.lock().recover_poison().received
     }
 
-    /// Offset after the last byte the parser finished parsing.
-    #[cfg(test)]
+    /// Offset after the last holder byte the parser finished parsing.
     pub(crate) fn confirmed(&self) -> u64 {
         self.state.lock().recover_poison().confirmed
+    }
+
+    /// The terminal ended or no holder streams it any more (set before
+    /// [`Self::wait_end`] returns).
+    pub(crate) fn has_ended(&self) -> bool {
+        let state = self.state.lock().recover_poison();
+        state.exit.is_some() || state.lost
     }
 
     /// The parser finished parsing every byte the reader took. The reader
@@ -271,8 +277,10 @@ impl HolderSink {
     /// Up to `buf.len()` bytes; 0 once the terminal ended (or the daemon
     /// detached) and every byte before was read. A call means the reader
     /// parsed what it took before (if [`Self::confirm_parsed`] did not say
-    /// so already), so the acknowledgement for it goes out first.
-    fn read(&self, buf: &mut [u8]) -> usize {
+    /// so already), so the acknowledgement for it goes out first. Also
+    /// returns how many of the bytes, from the first, take no holder offset
+    /// (a reopen seed, a prologue): they are not the shell's output.
+    fn read(&self, buf: &mut [u8]) -> (usize, usize) {
         let ack = {
             let mut state = self.state.lock().recover_poison();
             state.confirm();
@@ -286,7 +294,7 @@ impl HolderSink {
             state = self.changed.wait(state).recover_poison();
         }
         if state.detached {
-            return 0;
+            return (0, 0);
         }
         // Taken, not parsed: the bytes stay queued (and in `pending`) until
         // the reader confirms them.
@@ -296,7 +304,9 @@ impl HolderSink {
         buf[..from_head].copy_from_slice(&head[..from_head]);
         buf[from_head..n].copy_from_slice(&tail[..n - from_head]);
         state.in_flight = n;
-        n
+        let unnumbered: usize =
+            state.runs.iter().take_while(|run| run.offset.is_none()).map(|run| run.len).sum();
+        (n, unnumbered.min(n))
     }
 
     /// Block until the terminal ended, was lost or the daemon detached.
@@ -406,7 +416,7 @@ pub(super) struct SinkReader(pub(super) Arc<HolderSink>);
 #[cfg(test)]
 impl Read for SinkReader {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        Ok(self.0.read(buf))
+        Ok(self.0.read(buf).0)
     }
 }
 
@@ -420,8 +430,10 @@ pub(super) struct SnapshottingReader {
     /// Builds and sends the snapshot at an offset (the terminal's replay).
     pub(super) snapshot: Box<dyn Fn(u64) + Send>,
     /// The terminal id (hex) its create's debug spans follow: the first
-    /// output, first text and first prompt the daemon reads for it are
-    /// marked as on the hosted path (new-terminal-100x's first-text).
+    /// output, first text and first prompt the shell printed are marked as
+    /// on the hosted path (new-terminal-100x's first-text). Only holder
+    /// output counts: a reopened terminal's replayed seed or a prologue is
+    /// not the shell's first text.
     pub(super) terminal_id: String,
 }
 
@@ -431,8 +443,10 @@ impl Read for SnapshottingReader {
             (self.snapshot)(base);
             self.sink.snapshot_taken(base);
         }
-        let n = self.sink.read(buf);
-        crate::debug_spans::output_marks(&self.terminal_id, &buf[..n]);
+        let (n, unnumbered) = self.sink.read(buf);
+        if n > unnumbered {
+            crate::debug_spans::output_marks(&self.terminal_id, &buf[unnumbered..n]);
+        }
         Ok(n)
     }
 }
@@ -559,6 +573,23 @@ mod tests {
         let mut buf = [0u8; 8];
         assert_eq!(SinkReader(sink.clone()).read(&mut buf).unwrap(), 0);
         assert_eq!(sink.wait_end(), SinkEnd::Detached);
+    }
+
+    /// A reopened terminal's seed (and a prologue) is not the shell's
+    /// output: a read says how many of its bytes come before the first
+    /// holder byte, so first-output marks skip them.
+    #[test]
+    fn a_read_says_how_many_leading_bytes_are_not_holder_output() {
+        let sink = HolderSink::new(0);
+        sink.prepend(b"replayed screen");
+        sink.data(0, b"$ ");
+        let mut buf = [0u8; 8];
+        assert_eq!(sink.read(&mut buf), (8, 8), "the seed's first bytes");
+        let mut buf = [0u8; 64];
+        assert_eq!(sink.read(&mut buf), (9, 7), "the seed's rest, then the shell's prompt");
+        assert_eq!(&buf[7..9], b"$ ");
+        sink.data(2, b"ls");
+        assert_eq!(sink.read(&mut buf), (2, 0), "only the shell's output");
     }
 
     /// The replay race (holder item 1): a chunk the reader took but has not

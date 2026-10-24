@@ -484,6 +484,7 @@
         "CmuxNextDesign",
         "CmuxNextIcons",
         "CmuxNextRemoteFetch",
+        "CmuxNextRemoteLayer",
         "CmuxNextWakeups"
       ],
       "packages": []
@@ -541,6 +542,7 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextBrowserTests",
       "targets": [
         "CmuxNextBrowser",
+        "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextRemoteFetch"
       ],
@@ -1423,6 +1425,12 @@
       "targets": [
         "CmuxNextCompat"
       ],
+      "packages": []
+    },
+    "CmuxNextRemoteLayer": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteLayer",
+      "targets": [],
       "packages": []
     },
     "CmuxNextRemoteLocalhost": {

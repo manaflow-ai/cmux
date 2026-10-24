@@ -598,6 +598,10 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
     for (key, value) in TURN_SETTINGS_ENV {
         settings["env"][key] = json!(value);
     }
+    // git asks the Chief's credential helper for github.com (github.rs).
+    for (key, value) in crate::github::git_env(&paths.bin) {
+        settings["env"][key] = json!(value);
+    }
     settings["permissions"]["allow"] = json!(crate::approval::turn_allowed_tools());
     let settings = pretty(&settings)?;
     write_private(
@@ -621,6 +625,15 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
     let claude = paths.bin.join("claude");
     write_if_changed(&claude, CLAUDE_SHIM.as_bytes())?;
     std::fs::set_permissions(&claude, std::fs::Permissions::from_mode(0o755))?;
+    // gh and git with the Chief's own GitHub login when it has one (github.rs).
+    for (name, text) in [
+        ("gh", crate::github::GH_SHIM),
+        ("git-credential-chief", crate::github::GIT_CREDENTIAL),
+    ] {
+        let shim = paths.bin.join(name);
+        write_if_changed(&shim, text.as_bytes())?;
+        std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755))?;
+    }
     Ok(())
 }
 

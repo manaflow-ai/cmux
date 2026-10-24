@@ -19,8 +19,12 @@ final class HomeDirectory {
 
     private(set) var teamMembers: [HomeContact] = []
     private(set) var chiefs: [HomeChiefRecord] = []
-    /// My archived Chiefs' agent ids: the page hides their conversations.
-    private(set) var archivedChiefs: Set<String> = []
+    /// My archived and deleted Chiefs' agent ids: the page hides their conversations.
+    var archivedChiefs: Set<String> { hiddenCloudChiefs.union(deletedLocalChiefs) }
+    /// My cloud Chiefs that are archived or deleted (`chief.list` with its tombstones).
+    private var hiddenCloudChiefs: Set<String> = []
+    /// This Mac's deleted Chiefs (the owner's `chief.profile.list` `deleted`), read with their engines.
+    var deletedLocalChiefs: Set<String> = []
     /// Each of this Mac's Chiefs' own avatar for its list tile, by participant id, the one
     /// its header shows: read by `HomeService.refreshChiefAvatars()` (again after the
     /// header's avatar picker). A Chief not listed draws the bundled default.
@@ -51,7 +55,7 @@ final class HomeDirectory {
         if let reply = try? await call("v1/read", ["op": "chief.list", "params": ["include_archived": true]]),
            let value = try? Self.value(reply) {
             chiefs = HomeChiefRecord.list(from: value)
-            archivedChiefs = HomeChiefRecord.archivedIDs(from: value)
+            hiddenCloudChiefs = HomeChiefRecord.archivedIDs(from: value)
             chiefsRead = true
         }
     }
@@ -62,7 +66,7 @@ final class HomeDirectory {
     /// The last launch's list state (`HomeSidebarLaunchSnapshot`), for what has not been read yet:
     /// the list's first frame hides the same archived Chiefs and draws the same avatars and tags.
     func seedLaunch(_ snapshot: HomeSidebarLaunchSnapshot) {
-        if !chiefsRead, archivedChiefs.isEmpty { archivedChiefs = snapshot.archivedChiefs }
+        if !chiefsRead, hiddenCloudChiefs.isEmpty { hiddenCloudChiefs = snapshot.archivedChiefs }
         if chiefAvatars.isEmpty { chiefAvatars = snapshot.chiefAvatars }
         if chiefHarnesses.isEmpty { chiefHarnesses = snapshot.chiefHarnesses }
     }
@@ -90,7 +94,18 @@ final class HomeDirectory {
                                    "idempotency_key": "chief-archive-\(id)-\(record.rev)", "origin": "user"]
         _ = try Self.value(try await call("v1/ops", body))
         chiefs.removeAll { $0.id == id }
-        archivedChiefs.insert(id)
+        hiddenCloudChiefs.insert(id)
+    }
+
+    /// `chief.delete` at the record's revision: the Chief goes for good (only its tombstone stays),
+    /// and its conversation leaves the list as an archived one's does.
+    func deleteChief(_ id: String) async throws {
+        guard let record = chiefs.first(where: { $0.id == id }) else { throw FeedServiceError.owner(code: "selector.not_found", message: id) }
+        let body: [String: Any] = ["op": "chief.delete", "params": ["chief": id, "expected_rev": record.rev],
+                                   "idempotency_key": "chief-delete-\(id)-\(record.rev)", "origin": "user"]
+        _ = try Self.value(try await call("v1/ops", body))
+        chiefs.removeAll { $0.id == id }
+        hiddenCloudChiefs.insert(id)
     }
 
     /// Renames the cloud Chief whose main conversation is `conversation`: `chief.update
@@ -104,7 +119,7 @@ final class HomeDirectory {
                 do {
                     let value = try Self.value(try await call("v1/read", ["op": "chief.list", "params": ["include_archived": true]]))
                     chiefs = HomeChiefRecord.list(from: value)
-                    archivedChiefs = HomeChiefRecord.archivedIDs(from: value)
+                    hiddenCloudChiefs = HomeChiefRecord.archivedIDs(from: value)
                 } catch {
                     return Self.renameFailure(error)
                 }

@@ -7,6 +7,7 @@ import CmuxMobileChief
 import CmuxMobileDesign
 import CmuxMobileFeed
 import CmuxMobileModel
+import CmuxMobileNotifications
 import CmuxMobileTransport
 import Foundation
 import Observation
@@ -36,8 +37,9 @@ extension LiveCoordinator {
         let pairing = pairing
         let deviceID = identity.link
         let deviceName = deviceName
+        let macID = session.macID
         session.link.prepare = { link, _ in
-            await Self.prepareLink(link, pairing: pairing, deviceID: deviceID, deviceName: deviceName)
+            await Self.prepareLink(link, pairing: pairing, macID: macID, deviceID: deviceID, deviceName: deviceName)
         }
         session.feed.place = { [weak session] sessionID in session?.place(sessionID: sessionID) }
         session.terminalFeed.request = { [weak session] command, params, connection in
@@ -154,9 +156,9 @@ extension LiveCoordinator {
         let daemon: Result<WorkspaceSync.Prepared, LinkError>
     }
 
-    nonisolated static func prepareLink(_ link: any MacLink, pairing: LinkPairing?, deviceID: String,
+    nonisolated static func prepareLink(_ link: any MacLink, pairing: LinkPairing?, macID: String? = nil, deviceID: String,
                                         deviceName: String) async -> PreparedLink {
-        let auth = await pairing?.open(link: link)
+        let auth = await pairing?.open(link: link, macID: macID)
         ConnectTimeline.shared.mark("pairing_opened")
         do {
             let channel = try await link.openChannel(service: "daemon", args: [:])
@@ -174,7 +176,7 @@ extension LiveCoordinator {
         // ones opened behind it until it passes. Workspaces, the chats and the Feed open
         // right behind it, without waiting for each other (an open costs no round trip).
         ConnectTimeline.shared.mark("link_served")
-        let auth = await openPairing(link)
+        let auth = await openPairing(link, macID: session.macID)
         guard let passed = startServing(session, link, auth: auth, daemon: nil) else { return }
         await finishServing(session, link, passed: passed)
     }
@@ -247,7 +249,7 @@ extension LiveCoordinator {
 
     /// `session`'s link once its pairing passed, for channels that may overtake
     /// `auth` (the input lane rides another stream).
-    private func pairedLink(_ session: MacSession) async throws -> any MacLink {
+    func pairedLink(_ session: MacSession) async throws -> any MacLink {
         guard let link = session.servedLink else { throw LinkError(code: "no-link", message: "Not connected to the Mac") }
         if let gate = session.pairingGate, gate.link === link, !(await gate.passed.value) {
             throw LinkError(code: "unpaired", message: "This iPhone is not paired with the Mac")
@@ -365,9 +367,9 @@ extension LiveCoordinator {
     }
 
     /// Opens `auth` on `link` (no round trip); nil without pairing keys.
-    private func openPairing(_ link: any MacLink) async -> Result<LinkPairing.Opened, LinkError>? {
+    private func openPairing(_ link: any MacLink, macID: String) async -> Result<LinkPairing.Opened, LinkError>? {
         guard let pairing else { return nil }
-        return await pairing.open(link: link)
+        return await pairing.open(link: link, macID: macID)
     }
 
     /// The pairing state of a Mac's link; the focused Mac's is the shell's.
@@ -431,6 +433,7 @@ extension LiveCoordinator {
         let hadLinks = sessions.values.contains { $0.link.target != nil }
         for session in sessions.values { session.link.send(.target(nil)) }
         pairing.keys.reset()
+        pairing.push?.reset(user: userID)
         removedFromMacsCount += 1
         if hadLinks { retarget() }
     }
@@ -440,6 +443,7 @@ extension LiveCoordinator {
     public func forgetThisPhone() {
         accountDeleted = true
         pairing?.keys.reset()
+        pairing?.push?.reset(user: userID)
         pairing?.pins.removeAll()
         DeviceIdentity.forget(userID: userID, store: secrets)
     }

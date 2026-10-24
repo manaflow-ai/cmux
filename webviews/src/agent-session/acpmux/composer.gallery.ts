@@ -106,8 +106,8 @@ const steerMarks = () =>
     { isWorking: true },
   );
 
-// Two steers the agent has not read yet, one after the other (Leo's report, 2026-10-21): each one's
-// clock and Send now sit at its bubble's left, and the pair is as tall as two prompts.
+// Two steers the agent has not read yet, one after the other: each one's Send now leads its action
+// row under the bubble, and the pair is as tall as two prompts.
 const waitingSteers = () =>
   chat(
     [
@@ -1100,21 +1100,24 @@ export default agentPaneEntry({
       }),
     },
     "steer-waiting-stack": {
-      note: "Two steers the agent has not read, one after the other: each one's clock and Send now sit at its bubble's left, on its first line, so the pair takes no more room than two prompts and nothing trails the last one.",
+      note: "Two steers the agent has not read, one after the other: each one's plain Send now leads the action row under its bubble, before the receipt and message buttons.",
       snapshot: waitingSteers(),
       play: async (ctx) => {
+        await ctx.hover({ text: "Use the cache dir, not tmp" });
         const lines = [...ctx.document.querySelectorAll(".cv-user__pending")];
         if (lines.length !== 2) throw new Error(`expected two Send now marks, found ${lines.length}`);
         for (const line of lines) {
-          const bubble = line.parentElement;
-          if (!bubble?.classList.contains("cv-user__bubble")) throw new Error("Send now is not on its bubble's row");
-          if (line.getBoundingClientRect().right > bubble.getBoundingClientRect().left)
-            throw new Error("Send now is not at its bubble's left");
+          if (line.querySelector("svg")) throw new Error("Send now still has a clock icon");
+          const actions = line.parentElement;
+          if (!actions?.classList.contains("cv-user__actions")) throw new Error("Send now is not in the action row");
+          if (actions.firstElementChild !== line) throw new Error("Send now does not lead the action row");
+          if (!actions.previousElementSibling?.classList.contains("cv-user__bubble"))
+            throw new Error("Send now action row is not under the bubble");
         }
       },
     },
     "steer-marks": {
-      note: "A steer never carries a label: it looks like any sent prompt. While the agent has not read it, a faint clock and Send now sit at its bubble's left, on the bubble's first line, adding no height (Send now stops the agent's current step so it reads the steer at once; the turn goes on); once read, nothing. On hover it shows the row every prompt shows, with the same read check (one while it waits, two once read) and the detail in its tooltip. A prompt sent now to an agent that cannot steer goes on with the turn and carries no mark.",
+      note: "A steer never carries a label: it looks like any sent prompt. While the agent has not read it, plain Send now leads the action row under the bubble (Send now stops the current step so it reads the steer at once; the turn goes on); once read, nothing. On hover it shows the row every prompt shows, with the same read check (one while it waits, two once read) and the detail in its tooltip. A prompt sent now to an agent that cannot steer goes on with the turn and carries no mark.",
       snapshot: steerMarks(),
     },
     "steer-read-hover": {
@@ -1776,7 +1779,7 @@ export default agentPaneEntry({
       },
     },
     "reasoning-codex": {
-      note: "Play: Codex keeps its bolt just left of the mic (Leo 2026-10-21), an outline glyph; the model button's menu has no Fast mode row; a click on the bolt sends Fast.",
+      note: "Play: Codex keeps its bolt directly beside the model name in the model picker; the model button's menu has no Fast mode row; a click on the bolt sends Fast.",
       snapshot: withSummary(chat(finished, { harness: "codex", model: "gpt-6-astra", title: "Codex reasoning" }), {
         configOptions: [
           {
@@ -1797,11 +1800,10 @@ export default agentPaneEntry({
         ],
       }),
       play: async (ctx) => {
-        const bolt = { selector: ".acpmux-composer-actions .acpmux-fast" };
+        const bolt = { selector: ".acpmux-model .acpmux-fast" };
         await ctx.waitFor(() => ctx.document.querySelector(bolt.selector));
         if (ctx.find(bolt).getAttribute("aria-pressed") !== "false") throw new Error("the bolt must start off");
-        if (!ctx.find(bolt).nextElementSibling?.querySelector(".acpmux-mic"))
-          throw new Error("the bolt must sit just left of the mic");
+        if (!ctx.find(bolt).closest(".acpmux-model")) throw new Error("the bolt must sit beside the model picker");
         await openModelMenu(ctx);
         if (ctx.document.querySelector(".acpmux-quick-menu .acpmux-quick-fast"))
           throw new Error("Codex's Fast mode is the bolt, not a menu row as well");

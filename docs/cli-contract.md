@@ -90,7 +90,7 @@ profile only with its `profile` tool on its own bound connection.
 shutdown` (`shutdown`), `/model`, `/effort` and Ctrl+C in the chat (a note,
 no call), `cmux raw operation` or `cmux raw command` naming a `chief.*` write
 (`details.refused` the operation), and the app actions `home.newChief`,
-`home.archiveChief`, `home.stopChief` and `home.stopAllAgents` (by id or CLI
+`home.archiveChief`, `home.deleteChief`, `home.stopChief` and `home.stopAllAgents` (by id or CLI
 name; `details.refused` the name given) are refused the same way, before any
 connection.
 `cmux chief engine` with no change and the `chief.engine.get`,

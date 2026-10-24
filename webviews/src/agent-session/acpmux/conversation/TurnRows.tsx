@@ -6,6 +6,7 @@ import { useContext, useMemo, useState, type ReactNode } from "react";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { copyText } from "./clipboard";
 import { MessageCard } from "./MessageCard";
+import { DispatchCard } from "./DispatchCard";
 import { McpCallRows } from "./McpCallRows";
 import { SubsessionCallCard } from "./SubsessionCallCard";
 import { mcpNames, McpNamesContext } from "./mcpCalls";
@@ -20,6 +21,7 @@ import { footerLabel, isEmptyFooter, workedLabel } from "./turns";
 import { AlertCircle, ArrowRight, ChevronRight, Retry } from "./icons";
 import {
   ForkButton,
+  forkWithFeedback,
   MessageCopy,
   MessageMore,
   MessageTime,
@@ -102,6 +104,8 @@ function groupNode(
       );
     case "message":
       return <MessageCard key={group.item.tool!.id || index} item={group.item} message={group.message} />;
+    case "dispatch":
+      return <DispatchCard key={group.item.tool!.id || index} item={group.item} call={group.call} />;
     case "subsession":
       return <SubsessionCallCard key={group.item.tool!.id || index} call={group.call} />;
     case "item":
@@ -186,7 +190,7 @@ export function thoughtIds(groups: readonly ToolGroup[]): number[] {
 /// the rest of the work and the line names them (Leo 2026-10-22: "this is pretty good ui: … the
 /// collapsing i mean"); the turn's edited-files card lists them once it ends.
 function staysInSight(group: ToolGroup): boolean {
-  if (group.type === "message" || group.type === "subsession") return true;
+  if (group.type === "message" || group.type === "subsession" || group.type === "dispatch") return true;
   // A pending change draws as its own item (toolGroups.ts `toolGroupKind`); any entry holding one
   // stays in sight all the same.
   return ("items" in group ? group.items : [group.item]).some((item) => awaitsPermission(item.tool));
@@ -318,7 +322,9 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
               onPick={(model) => retryWith.retry(row.retryRowId ?? "", prompt, model)}
             />
           )}
-          {fork && seq !== undefined && (forkAny || seq === forkSeq) && <ForkButton onFork={() => fork(seq)} />}
+          {fork && seq !== undefined && (forkAny || seq === forkSeq) && (
+            <ForkButton onFork={() => forkWithFeedback(seq, () => fork(seq))} />
+          )}
           <PinButton rowId={row.id} />
           {text && <ReadAloudButton id={row.id} text={text} />}
           {text && row.answerId && <MessageMore rowId={row.answerId} />}

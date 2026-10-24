@@ -33,12 +33,25 @@ FAKE_AGENT = os.path.join(BASE, "fake_agent.py")
 def mac():
     src = glob.glob(os.path.join(BASE, "src", "*.app"))[0]
     m = Mac(os.path.join(BASE, "rig"), src)
+    # This harness tests one computer's builds (grouped by the mini's own
+    # machine id), so the rig keeps it.
+    m.own_machine_id = False
     if os.path.exists(FAKE_AGENT):
         m.launch_env = {"ACPMUX_HOME": ACPMUX_HOME}
     # MULTIMAC_DEVICE_NAME: the name phones list this Mac by (a Debug build's
     # CMUX_NEXT_MOBILE_DEVICE_NAME, passed at launch with open --env), so two Macs can share one.
     if os.environ.get("MULTIMAC_DEVICE_NAME"):
         m.launch_env = dict(m.launch_env, CMUX_NEXT_MOBILE_DEVICE_NAME=os.environ["MULTIMAC_DEVICE_NAME"])
+    # LINKREL_HOSTD_LOG: cmux-mobile-host's log filter (CMUX_MOBILE_LOG). The app hands hostd
+    # no environment of its own, so a wrapper (CMUX_NEXT_MOBILE_HOST_BIN, Debug builds) sets it.
+    if os.environ.get("LINKREL_HOSTD_LOG"):
+        wrapper = os.path.join(BASE, "rig", "bin", "hostd-log")
+        os.makedirs(os.path.dirname(wrapper), exist_ok=True)
+        bundled = os.path.join(m.app, "Contents/Resources/bin/cmux-mobile-host")
+        with open(wrapper, "w") as f:
+            f.write(f'#!/bin/sh\nexport CMUX_MOBILE_LOG="{os.environ["LINKREL_HOSTD_LOG"]}"\nexec "{bundled}" "$@"\n')
+        os.chmod(wrapper, 0o755)
+        m.launch_env = dict(m.launch_env, CMUX_NEXT_MOBILE_HOST_BIN=wrapper)
     m.pid = (m.main_pids() or [None])[0]
     return m
 
@@ -78,6 +91,15 @@ def main():
     m = mac()
     if cmd == "prepare":
         m.prepare()
+        # LINKREL_CREDS: an EMAIL=/PASSWORD= file (0600) of another account than the DEBUG dev
+        # credential (a production test account for a --production build), so this rig
+        # is not one of the many rig Macs every agent signs in to the dev account.
+        if os.environ.get("LINKREL_CREDS"):
+            pairs = dict(l.strip().split("=", 1) for l in open(os.path.expanduser(os.environ["LINKREL_CREDS"])) if "=" in l)
+            fd = os.open(m.creds, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            os.fchmod(fd, 0o600)  # an existing file keeps its mode otherwise
+            with os.fdopen(fd, "w") as f:
+                f.write(f"CMUX_UITEST_STACK_EMAIL={pairs['EMAIL']}\nCMUX_UITEST_STACK_PASSWORD={pairs['PASSWORD']}\n")
         m.seed_pairing(names=[PHONE])
         print(json.dumps({"app": m.app, "bundle": m.bundle_id, "tag": m.tag, "acpmux": prepare_acpmux()}))
     elif cmd == "launch":

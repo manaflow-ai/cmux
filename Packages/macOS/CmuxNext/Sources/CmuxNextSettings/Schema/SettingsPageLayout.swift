@@ -219,7 +219,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
             id: "keyboard", title: section(.keyboard), symbol: "keyboard",
             groups: [
                 group("settings.shortcuts.hintsGroup"),
-                GroupSpec(keys: ["sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps"],
+                GroupSpec(keys: ["tabs.commandDigits", "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps"],
                           title: SettingsText.keyed("settings.pageGroup.sidebarKeys", "Sidebar Navigation")),
                 group("settings.group.palette"), group("settings.group.macScreenKeyboard"),
             ],

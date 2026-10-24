@@ -52,8 +52,10 @@ pub const HOLDER_ENV: &str = "CMUX_TUI_HOLDER_EXE";
 /// or the file [`HOLDER_ENV`] names. On macOS it runs from a verified
 /// content-addressed copy under the host-exe root, as terminal hosts do, so
 /// an update or a rebuild of the bundle never overwrites the file a running
-/// holder came from; the copy's directory is named by the holder's own
-/// hash, so a build whose holder did not change reuses it. The candidate
+/// holder came from; the copy's directory is named by the holder file's own
+/// hash, so a build whose holder file did not change reuses it (signed
+/// builds strip and re-sign the holder with a timestamp, so each signed
+/// build's holder has a new hash and a new copy). The candidate
 /// must answer `--version` with a line `accepts` takes (the wire range the
 /// daemon speaks). `None` when there is no such file or it answers
 /// otherwise: the daemon then runs the holder built into its host
@@ -169,7 +171,7 @@ mod imp {
 
     pub(super) fn prepare_in_background() {}
 
-    pub(super) fn copy_failed(_path: &std::path::Path) {}
+    pub(super) fn copy_failed(_path: &Path) {}
 }
 
 #[cfg(target_os = "macos")]

@@ -44,7 +44,7 @@ final class FeedPageService: InternalPageProvider {
             // human reply intentionally wakes that session, unlike delivery
             // into the reports basket. The feed owner remains the source of
             // report rows; the command is a bounded local adapter for Labs.
-            guard !reportID.isEmpty, let environment = QuitAgents.environment(services) else { return false }
+            guard !reportID.isEmpty, let environment = QuitAgents.environment(self.services) else { return false }
             let process = Process()
             process.executableURL = environment.executable
             process.arguments = ["send", reportID, reply, "--no-wait", "--no-steer"]

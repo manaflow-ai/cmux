@@ -115,8 +115,14 @@ final class AppServices {
     private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, cef: CEFEngine(source: chromiumRuntime.source, lifecycleTrace: .shared, contextMenus: self.contextMenus))  // first read in init (no IUO)
     private(set) lazy var windows: WindowManager = WindowManager(services: self)  // first read in init (no IUO)
     private(set) lazy var dragSession: TabDragSession = TabDragSession(services: self)  // first read in init (no IUO)
-    private(set) lazy var palette: PaletteController = PaletteController(registry: registry, sources: PaletteSourcesBridge.make(services: self),
-                                                                          usage: DaemonPaletteUsageStore(services: self))  // first read in init (no IUO)
+    private(set) lazy var palette: PaletteController = {
+        let palette = PaletteController(registry: registry, sources: PaletteSourcesBridge.make(services: self),
+                                        usage: DaemonPaletteUsageStore(services: self))
+        palette.hiddenActionIDs = {
+            AgentPaneTunables.pointerInspector.value ? [] : ["agentPane.togglePointerInspector"]
+        }
+        return palette
+    }()  // first read in init (no IUO)
     private(set) lazy var previews: TabPreviewSource = TabPreviewSource(cache: cache)  // first read in init (no IUO)
     /// CPU and memory for the hover cards and `resources` (sampled on demand).
     private(set) lazy var resources: AppResourceSource = AppResourceSource(services: self)  // first read in init (no IUO)
@@ -277,6 +283,7 @@ final class AppServices {
     /// Design mode in browser panes: highlights become cards in an agent chat
     /// (plans/cmux-next/design-mode-DESIGN.md).
     private(set) lazy var designMode = BrowserDesignModeController(services: self)
+    private(set) lazy var uiInspector = UIInspectorController(services: self)
     /// The one keyboard router (plans/cmux-next/focus.md section 5).
     private(set) lazy var keyRouter: KeyRouter = KeyRouter(registry: registry)  // first read in init (no IUO)
     private(set) lazy var chromiumWarmup: ChromiumWarmup = ChromiumWarmup(engine: cache.cef)  // first read in init (no IUO)

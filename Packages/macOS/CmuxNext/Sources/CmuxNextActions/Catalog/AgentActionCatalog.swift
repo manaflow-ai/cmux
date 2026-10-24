@@ -45,6 +45,23 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [ContextMenuPlacement(.agentChat, .inspect, 0)])
             ),
             ActionDescriptor(
+                id: "agentPane.togglePointerInspector",
+                title: "Inspect UI Element",
+                keywords: ["agent", "ui", "pointer", "inspect", "inspect element", "pick", "element", "debug"],
+                category: .agents, symbol: "scope", surfaces: [.palette, .keyboard, .contextMenu],
+                cliName: "agent toggle-ui-pointer",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [
+                    ContextMenuPlacement(.agentChat, .inspect, 1, label: "Inspect Element"),
+                    ContextMenuPlacement(.tab, .inspect, 510, label: "Inspect Element"),
+                    ContextMenuPlacement(.pane, .inspect, 510, label: "Inspect Element"),
+                    ContextMenuPlacement(.newTab, .inspect, 510, label: "Inspect Element"),
+                    ContextMenuPlacement(.workspaceRow, .inspect, 510, label: "Inspect Element"),
+                    ContextMenuPlacement(.sidebarItem, .inspect, 510, label: "Inspect Element"),
+                    ContextMenuPlacement(.sidebarSection, .inspect, 510, label: "Inspect Element"),
+                    ContextMenuPlacement(.windowBackground, .inspect, 510, label: "Inspect Element"),
+                ])
+            ),
+            ActionDescriptor(
                 id: "palette.quickAgentChat",
                 title: String(localized: "action.palette.quickAgentChat", defaultValue: "Start Agent…", bundle: .module),
                 keywords: ["agent", "start", "session", "launcher", "new", "chat", "ai", "acpmux", "quick", "composer", "summon"],

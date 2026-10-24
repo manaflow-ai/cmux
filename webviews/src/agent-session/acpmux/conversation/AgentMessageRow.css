@@ -18,7 +18,7 @@
   user-select: none;
 }
 .cv-agentmsg.is-failed .cv-agentmsg__icon {
-  color: var(--agent-danger);
+  color: var(--agent-status-failure);
 }
 .cv-agentmsg__words {
   flex: none;
@@ -115,7 +115,7 @@ button.cv-agentmsg__name:focus-visible {
   line-height: 18px;
 }
 .cv-agentmsg.is-failed .cv-agentmsg__status {
-  color: var(--agent-danger);
+  color: var(--agent-status-failure);
 }
 .cv-agentmsg__output.cv-tool-output {
   margin: 0 0 6px 22.5px;
