@@ -2063,5 +2063,32 @@ class HostGoneSignalTests(unittest.TestCase):
         self.assertTrue(cron.result_files(value)["host_gone"])
 
 
+
+class BisectGoneHostTests(unittest.TestCase):
+    """Review of hq #3854, finding 4: a bisect step for a gone host's rows would get host_gone back on every step."""
+    tick = PlanReportTests.tick
+
+    def test_no_bisect_step_for_the_rows_of_a_gone_host(self):
+        good, bad = "a" * 40, "c" * 40
+        for gone in (False, True):
+            with tempfile.TemporaryDirectory() as d:
+                state = cron.empty_state(T0)
+                state["persisted"] = True
+                state["last_tried"] = {"sha": "f" * 40, "at": cron.iso(at(0))}
+                state["regressions"] = [{"name": "cmd_d.e2e@cmux21", "p95": 30.0, "base": 20.0, "confirmed": True,
+                                         "range": {"good": good, "bad": bad, "skip": [], "steps": 0}}]
+                if gone:
+                    cron.mark_host(state, "cmux21", gone_at=cron.iso(at(0)))
+                with open(os.path.join(d, "state.json"), "w") as f:
+                    json.dump(state, f)
+                with mock.patch.object(cron, "range_commits", lambda g, b: ["b" * 40]), \
+                        mock.patch.object(cron, "tip_due", lambda state, t: False):
+                    plan, _ = self.tick(d, at(1), "f" * 40)
+                if gone:
+                    self.assertEqual(plan["action"], "none", "no bisect step for a gone host's rows")
+                else:
+                    self.assertEqual((plan["action"], plan["sha"], plan["worker"]), ("part", "b" * 40, "cmux21"))
+
+
 if __name__ == "__main__":
     unittest.main()

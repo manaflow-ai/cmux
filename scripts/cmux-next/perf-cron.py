@@ -2103,9 +2103,11 @@ def plan(o):
     if not state.get("current") and not (candidate and tip_due(state, t)):
         for group in bisect_groups(state):
             rng = group["range"]
-            if any(host_avoided(state, h, t) for h in {mac_host(n) for n in group["rows"]} - {None}):
-                print(f"perf-cron: the range {rng['good'][:12]}...{rng['bad'][:12]} waits: its host was offline or "
-                      "took no part lately")
+            if any(host_avoided(state, h, t) or host_gone(state, h, t) for h in {mac_host(n) for n in group["rows"]} - {None}):
+                # A gone host (the controller has no such worker) would answer every step with host_gone: its rows
+                # close at the next tip measurement elsewhere instead.
+                print(f"perf-cron: the range {rng['good'][:12]}...{rng['bad'][:12]} waits: its host was offline, "
+                      "took no part lately, or left the fleet")
                 continue
             between = range_commits(rng["good"], rng["bad"])
             if between is None:
