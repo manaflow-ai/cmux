@@ -63,7 +63,7 @@ extension WorkspaceRowView {
             title.textColor = isQuiet && !isSelected && !isSecondarySelected && !isHovered ? Palette.textSecondary : Palette.textPrimary
             subtitle.setColor(Palette.textSecondary); [timeLabel, metaLabel].forEach { $0.setColor(Palette.textTertiary) }
             if isArchived { // dimmed (archiving-DESIGN.md)
-                title.textColor = title.textColor?.withAlphaComponent(SidebarStyle.archivedAlpha)
+                title.textColor = title.textColor.withAlphaComponent(SidebarStyle.archivedAlpha)
                 subtitle.setColor(Palette.textTertiary)
             }
             tabCount.setColor(Palette.textTertiary)
