@@ -127,7 +127,10 @@ fn enabling_a_pack_adds_its_skills_and_servers_and_disabling_removes_them() {
     let home = &s.paths.home;
     let pack_dir = toolpacks::chief_dir(home).join("acme");
     put(&pack_dir, &acme(true, &s.server));
-    let pack = toolpacks::load(home).into_iter().find(|p| p.name == "acme").unwrap();
+    let pack = toolpacks::load(home)
+        .into_iter()
+        .find(|p| p.name == "acme")
+        .unwrap();
     FileStore {
         path: toolpacks::secret_file(home, "acme"),
         pack,
@@ -137,15 +140,27 @@ fn enabling_a_pack_adds_its_skills_and_servers_and_disabling_removes_them() {
 
     let (mcp, settings, codex) = turn(&s);
     let servers = &mcp["mcpServers"];
-    assert!(servers["optchat"].is_object(), "the Chief's own server stays");
+    assert!(
+        servers["optchat"].is_object(),
+        "the Chief's own server stays"
+    );
     // Claude Code: the secret-bearing stdio server runs through the launcher.
     let local = &servers["acme"];
     assert_eq!(local["type"], "stdio");
-    assert_eq!(local["command"], s.paths.bin.join("chief").display().to_string());
-    assert_eq!(local["args"], serde_json::json!(["pack", "mcp", "acme", "acme"]));
+    assert_eq!(
+        local["command"],
+        s.paths.bin.join("chief").display().to_string()
+    );
+    assert_eq!(
+        local["args"],
+        serde_json::json!(["pack", "mcp", "acme", "acme"])
+    );
     assert_eq!(servers["acme-remote"]["type"], "http");
     assert_eq!(servers["acme-remote"]["url"], "https://mcp.acme.dev/mcp");
-    assert!(servers.get("acme-off").is_none(), "a server turned off stays out");
+    assert!(
+        servers.get("acme-off").is_none(),
+        "a server turned off stays out"
+    );
     let enabled = settings["enabledMcpjsonServers"].as_array().unwrap();
     assert!(enabled.contains(&"acme".into()) && enabled.contains(&"acme-remote".into()));
     // Codex: the same servers, the allowed tools enforced by codex.
@@ -154,8 +169,14 @@ fn enabling_a_pack_adds_its_skills_and_servers_and_disabling_removes_them() {
         servers["acme"]["command"].as_str(),
         Some(s.paths.bin.join("chief").display().to_string().as_str())
     );
-    assert_eq!(servers["acme"]["enabled_tools"].as_array().unwrap().len(), 1);
-    assert_eq!(servers["acme-remote"]["url"].as_str(), Some("https://mcp.acme.dev/mcp"));
+    assert_eq!(
+        servers["acme"]["enabled_tools"].as_array().unwrap().len(),
+        1
+    );
+    assert_eq!(
+        servers["acme-remote"]["url"].as_str(),
+        Some("https://mcp.acme.dev/mcp")
+    );
     assert!(!servers.contains_key("acme-off"));
     // Both skills, in this Chief's own skills folder.
     let skills = optchat_chief::skills::chief_dir(home);
@@ -169,7 +190,11 @@ fn enabling_a_pack_adds_its_skills_and_servers_and_disabling_removes_them() {
         s.paths.session.join(".claude").join("settings.json"),
         s.paths.turn_codex.join("config.toml"),
     ] {
-        assert!(!std::fs::read_to_string(&f).unwrap().contains(SECRET), "{}", f.display());
+        assert!(
+            !std::fs::read_to_string(&f).unwrap().contains(SECRET),
+            "{}",
+            f.display()
+        );
     }
 
     // The launcher hands the secret to the server and keeps only the allowed tools.
@@ -187,9 +212,15 @@ fn enabling_a_pack_adds_its_skills_and_servers_and_disabling_removes_them() {
         .write_all(b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}\n{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"acme_delete\"}}\n{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"acme_read\"}}\n")
         .unwrap();
     let out = String::from_utf8(child.wait_with_output().unwrap().stdout).unwrap();
-    let lines: Vec<serde_json::Value> = out.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+    let lines: Vec<serde_json::Value> = out
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
     let list = lines.iter().find(|l| l["id"] == 1).unwrap();
-    assert_eq!(list["result"]["tools"], serde_json::json!([{"name": "acme_read"}]));
+    assert_eq!(
+        list["result"]["tools"],
+        serde_json::json!([{"name": "acme_read"}])
+    );
     let refused = lines.iter().find(|l| l["id"] == 3).unwrap();
     assert!(refused["error"].is_object(), "{refused}");
     let call = lines.iter().find(|l| l["id"] == 2).unwrap();
@@ -203,8 +234,18 @@ fn enabling_a_pack_adds_its_skills_and_servers_and_disabling_removes_them() {
     let (mcp, settings, codex) = turn(&s);
     assert!(mcp["mcpServers"].get("acme").is_none());
     assert!(mcp["mcpServers"].get("acme-remote").is_none());
-    assert!(!settings["enabledMcpjsonServers"].as_array().unwrap().contains(&"acme".into()));
-    assert!(codex.get("mcp_servers").and_then(|m| m.get("acme")).is_none());
+    assert!(
+        !settings["enabledMcpjsonServers"]
+            .as_array()
+            .unwrap()
+            .contains(&"acme".into())
+    );
+    assert!(
+        codex
+            .get("mcp_servers")
+            .and_then(|m| m.get("acme"))
+            .is_none()
+    );
     assert!(!skills.join("acme").exists());
     assert!(!skills.join("acme-deploy").exists());
     assert!(skills.join("github-signin").join("SKILL.md").exists());
@@ -217,9 +258,15 @@ fn a_users_own_skill_of_the_same_name_wins_and_bad_servers_are_refused() {
     let skills = optchat_chief::skills::chief_dir(home);
     std::fs::create_dir_all(skills.join("acme")).unwrap();
     std::fs::write(skills.join("acme").join("SKILL.md"), "mine").unwrap();
-    put(&toolpacks::chief_dir(home).join("acme"), &acme(true, &s.server));
+    put(
+        &toolpacks::chief_dir(home).join("acme"),
+        &acme(true, &s.server),
+    );
     turn(&s);
-    assert_eq!(std::fs::read_to_string(skills.join("acme").join("SKILL.md")).unwrap(), "mine");
+    assert_eq!(
+        std::fs::read_to_string(skills.join("acme").join("SKILL.md")).unwrap(),
+        "mine"
+    );
     assert!(skills.join("acme-deploy").join("SKILL.md").exists());
 
     let base = acme(true, &s.server);

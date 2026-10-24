@@ -149,6 +149,12 @@ pub fn mcp_json_for(setup: &SessionSetup, paths: &Paths, subagent: bool) -> Valu
     // serve` (cx-wx93i, acpmux agent_tools.rs), the Chief's turns and
     // subagents included, so a second one only doubled the tool list
     // (hq-6d 2026-10-14: one cmux MCP server per turn).
+    // The MCP servers of the tool packs that are on (toolpacks.rs).
+    for (name, server) in
+        crate::toolpacks::claude_servers(&crate::toolpacks::load(&paths.home), &paths.bin)
+    {
+        servers.entry(name).or_insert(server);
+    }
     json!({"mcpServers": servers})
 }
 
@@ -156,7 +162,12 @@ pub fn mcp_json_for(setup: &SessionSetup, paths: &Paths, subagent: bool) -> Valu
 /// the launcher directory first on PATH, and `deny` (Claude Code's
 /// subagents always) denied, which takes those tools out of the list.
 pub fn settings_json(setup: &SessionSetup, paths: &Paths, deny: &[&str]) -> Value {
-    let names = ["optchat"];
+    let mut names = vec!["optchat".to_owned()];
+    names.extend(
+        crate::toolpacks::claude_servers(&crate::toolpacks::load(&paths.home), &paths.bin)
+            .into_iter()
+            .map(|(n, _)| n),
+    );
     // The user's settings env first (a session that loads no user setting
     // source keeps the user's API route), the session's own over it.
     let mut env: serde_json::Map<String, Value> = setup
@@ -579,6 +590,10 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
             serde_json::to_string_pretty(v).map_err(io::Error::other)?
         ))
     };
+    // The tool packs that are on: their skills in the Chief's own skills
+    // folder, their MCP servers below (toolpacks.rs).
+    let packs = crate::toolpacks::load(&paths.home);
+    crate::toolpacks::sync_skills(&paths.home, &packs);
     write_if_changed(
         &paths.session.join(".mcp.json"),
         pretty(&mcp_json(setup, paths))?.as_bytes(),
@@ -599,7 +614,6 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
         settings["env"][key] = json!(value);
     }
     // git asks the tool packs' credential helpers for their hosts (toolpacks.rs).
-    let packs = crate::toolpacks::load(&paths.home);
     for (key, value) in crate::toolpacks::git_env(&packs, &paths.bin) {
         settings["env"][key] = json!(value);
     }

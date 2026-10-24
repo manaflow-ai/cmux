@@ -222,6 +222,10 @@ fn a_data_only_pack_reaches_its_cli_and_git_on_every_turn() {
         "{helper}"
     );
     // Vercel and Acme with no Rust of their own.
+    // Vercel ships off (the default set is github, cmux, browser); one switch turns it on.
+    assert!(!paths.bin.join("vercel").exists());
+    toolpacks::set_enabled(&home, "vercel", true).unwrap();
+    write(&paths, &setup).unwrap();
     assert!(paths.bin.join("vercel").exists());
     assert!(paths.bin.join("git-credential-chief-acme").exists());
     assert!(
