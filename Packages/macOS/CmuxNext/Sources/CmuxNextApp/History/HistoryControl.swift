@@ -5,6 +5,9 @@ import CmuxNextSettings
 import CmuxNextHistory
 import Foundation
 
+/// The control reply's JSON (CmuxNextDaemon has its own `JSONValue`; this file imports both).
+private typealias JSONValue = CmuxNextSettings.JSONValue
+
 /// `history.list {kind?, text?, limit?, range?}` for `cmux history list`
 /// and `cmux history search` (plans/cmux-next/history.md 5.3). The main
 /// actor only parses; the merge (SQLite reads, journal reads) runs as a
