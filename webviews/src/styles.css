@@ -963,10 +963,16 @@ body[data-status-only="true"] #files-motion-curtain {
   /* Classic viewer rows (screenshot 5.20.26): 13 px regular text on 29 px
      rows, dim file names, bright folder names and selection, a 16 px icon
      lane and the library's guide line under the open folder. */
-  --trees-bg-override: var(--cmux-diff-files-bg);
+  /* Over glass the tree's own surfaces are clear (--cmux-diff-files-layer-bg): the panel is the one
+     glass, with no second box inside it. */
+  --trees-bg-override: var(--cmux-diff-files-layer-bg, var(--cmux-diff-files-bg));
   --trees-fg-override: var(--cmux-diff-text-dim);
   --trees-fg-muted-override: var(--cmux-diff-text-dim);
-  --trees-bg-muted-override: color-mix(in srgb, var(--cmux-diff-fg) 5%, var(--cmux-diff-files-bg));
+  --trees-bg-muted-override: color-mix(
+    in srgb,
+    var(--cmux-diff-fg) 5%,
+    var(--cmux-diff-files-layer-bg, var(--cmux-diff-files-bg))
+  );
   /* The file in view (the selected row) takes the theme accent, as a sidebar selection does. */
   --trees-selected-bg-override: var(--cmux-diff-files-selected-bg);
   --trees-selected-fg-override: var(--cmux-diff-fg);
