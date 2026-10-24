@@ -5,6 +5,7 @@
     "CCmuxAppFFI": {"layer": "core"},
     "CmuxNextCompat": {"layer": "core"},
     "CmuxNextWakeups": {"layer": "core"},
+    "CmuxNextWakeupsTestSupport": {"layer": "core"},
     "CmuxNextActions": {"layer": "core"},
     "CmuxNextFocus": {"layer": "core"},
     "CmuxNextTerminalGeometry": {"layer": "core"},
