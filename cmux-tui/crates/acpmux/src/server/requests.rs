@@ -1074,6 +1074,25 @@ async fn dispatch_request(
                 agent,
                 after_turn: None,
                 supersede: crate::hub::supersede_key(&params)?,
+                display_parts: {
+                    let parts = crate::hub::prompt_images::validated_display_parts(
+                        mux_meta(&params).and_then(|meta| meta.get("inlineParts")),
+                        &blocks,
+                    );
+                    (!parts.is_empty()).then(|| {
+                        let mut parts: Vec<_> = parts.into_iter().collect();
+                        parts.sort_by_key(|(index, _)| *index);
+                        Value::Array(
+                            parts
+                                .into_iter()
+                                .map(|(index, mut part)| {
+                                    part["blockIndex"] = Value::Number((index as u64).into());
+                                    part
+                                })
+                                .collect(),
+                        )
+                    })
+                },
             };
             let agent_message = opts.provenance.is_some();
             super::agent_messages::person_prompt(hub, conn, &s, agent_message).await;
