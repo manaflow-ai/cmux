@@ -13,14 +13,17 @@ extension HoverCardCoordinator {
         }
     }
 
-    /// The window on top at a screen point, never the card. Asks the window server (a round trip) only
-    /// when the point or a window changed since the last answer (``windowsEpoch``): content moving under a
-    /// still pointer (each relayout, each animation frame) reuses it.
+    /// The window on top at a screen point, never the card. Asks the window server (a round trip) once per
+    /// point and display frame (``topWindowCache``): a burst of relayouts in one frame under a still pointer
+    /// reuses the answer; the next frame asks again.
     func topWindowNumber(at point: CGPoint) -> Int {
-        if let cached = topWindowCache, cached.point == point, cached.epoch == windowsEpoch { return cached.number }
+        let time = now()
+        if let cached = topWindowCache, cached.point == point, time - cached.at < Self.topWindowLifetime, time >= cached.at {
+            return cached.number
+        }
         let number = (WindowPlacement.noActivate ? ownTopWindowNumber(at: point) : nil)
             ?? windowNumberAt?(point) ?? Self.topWindowNumber(at: point, excluding: panel?.windowNumber)
-        topWindowCache = (point, windowsEpoch, number)
+        topWindowCache = (point, time, number)
         return number
     }
 
