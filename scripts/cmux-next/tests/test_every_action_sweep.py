@@ -370,6 +370,16 @@ class FakeApp:
             screen["panes"][index]["tabs"].append(dict(tab, selected=False))
         elif action == "newTab.page":
             self.add_tab(target or self.focus["pane"], "page")
+        elif action == "tab.moveToNewColumn":
+            # As the daemon: a pane's only tab cannot leave it; another tab goes to a new column of its own.
+            workspace, screen, index = self.find_pane(target or self.focus["pane"])
+            source = screen["panes"][index]
+            if len(source["tabs"]) < 2:
+                return {"error": {"code": "daemon_error", "message": "a pane's only tab cannot be split out of that pane"}}
+            tab = next(t for t in source["tabs"] if t["selected"])
+            source["tabs"].remove(tab)
+            source["tabs"][-1]["selected"] = True
+            screen["panes"].append({"id": self.new_id("pane"), "column": source["column"] + 1, "tabs": [dict(tab, selected=True)]})
         elif action == "reopenClosedBrowserPanel":
             if self.closed:
                 self.reopen(self.closed.pop(0))
@@ -1096,6 +1106,38 @@ class FixtureTests(unittest.TestCase):
         self.assertEqual(sweep_mod.argument_values(move, {"other_workspace": "ws_2"}), ({"into": "workspace:ws_2"}, None))
         room = {"id": "room.pin", "arguments": [{"name": "room", "kind": "target", "target_kind": "room", "required": True}]}
         self.assertEqual(sweep_mod.argument_values(room, {})[1], {"skipped": "needs a room argument", "skip_kind": "gap"})
+
+    def test_a_sample_gets_the_setup_its_action_needs_and_the_restore_takes_it_away(self):
+        # The light base pane holds one tab: Move Tab to New Column then timed the daemon's refusal (macOS 27 sweep,
+        # 2026-10-24). Each sample adds a second tab first; the restore closes the tab and the new column again.
+        fake = FakeApp()
+        with contextlib.ExitStack() as stack:
+            for patch in self.patches(fake, 2):
+                stack.enter_context(patch)
+            sweep, base, measured = light_sweep(fake, kinds=("terminal",))
+            before = sweep_mod.counts(sweep_mod.shape(sweep_mod.topology()))
+            row = sweep.run_action({"id": "tab.moveToNewColumn", "title": "Move Tab to New Column"})
+            after = sweep_mod.counts(sweep_mod.shape(sweep_mod.topology()))
+        self.assertEqual(row["errors"], [])
+        self.assertEqual(row["samples"], 2)
+        self.assertEqual([a for a in fake.ran if a in ("newSurface", "tab.moveToNewColumn")],
+                         ["newSurface", "tab.moveToNewColumn"] * 2)
+        self.assertEqual(after, before)
+
+    def test_a_failed_setup_skips_the_row_as_a_gap(self):
+        fake = FakeApp()
+        with contextlib.ExitStack() as stack:
+            for patch in self.patches(fake, 1):
+                stack.enter_context(patch)
+            stack.enter_context(mock.patch.dict(sweep_mod.PREPARE, {"tab.moveToNewColumn": [("test.refuse", {})]}))
+            sweep, _, _ = light_sweep(fake, kinds=("terminal",))
+            original = fake.rpc
+            refuse = lambda method, params=None, timeout=60: ({"error": {"code": "unavailable", "message": "no"}}
+                                                             if (params or {}).get("action") == "test.refuse" else original(method, params, timeout))
+            with mock.patch.object(sweep_mod, "rpc", refuse):
+                row = sweep.run_action({"id": "tab.moveToNewColumn", "title": "Move Tab to New Column"})
+        self.assertEqual(row.get("skip_kind"), "gap")
+        self.assertIn("setup test.refuse failed", row.get("skipped", ""))
 
     def test_swaps_start_from_a_pane_with_a_neighbor(self):
         for ident in ("swapPaneLeft", "swapPaneRight", "swapPaneUp", "swapPaneDown"):
