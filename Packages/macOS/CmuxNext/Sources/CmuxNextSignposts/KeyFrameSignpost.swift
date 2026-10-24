@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// The always-on `key.frame` interval (``SignpostName/keyToFrame``): from the app dispatching a key-down to the end
 /// of the Core Animation commit that ends that turn (``CommitBoundary``).
