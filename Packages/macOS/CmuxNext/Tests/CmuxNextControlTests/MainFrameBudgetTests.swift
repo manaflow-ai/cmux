@@ -167,6 +167,25 @@ import Testing
         automation.deactivate()
     }
 
+    @Test func aBatchQueueRunsItsWorkInOrderUnderTheBudgetAndKeepsTheRestForTheNextFrame() {
+        let clock = BudgetClock()
+        let budget = MainFrameBudget(uptimeNanos: clock.read)
+        let scheduler = FrameScheduler.testing(budget: budget) { _ in FakeFrameLink() }
+        let queue = FrameBatchQueue(owner: "store", workClass: .visible, scheduler: scheduler)
+        var ran: [Int] = []
+        for index in 0..<3 { queue.enqueue { ran.append(index); clock.advance(ms: 1.5) } }
+        scheduler.frameDidFire(timestamp: 1, refreshInterval: 1.0 / 60)
+        // 2.5 ms visible budget: 1.5 ms spent after the first, 3 ms after the second.
+        #expect(ran == [0, 1])
+        #expect(queue.count == 1)
+        queue.enqueue { ran.append(3) }
+        clock.advance(ms: 17)
+        scheduler.frameDidFire(timestamp: 2, refreshInterval: 1.0 / 60)
+        #expect(ran == [0, 1, 2, 3], "the held task runs first next frame, ahead of work queued after it")
+        #expect(queue.count == 0)
+        #expect(budget.board.running == nil)
+    }
+
     // MARK: Control work queue
 
     /// The lag Lawrence felt (perf-lead.md row 6): an injected key waited behind a CLI storm's
