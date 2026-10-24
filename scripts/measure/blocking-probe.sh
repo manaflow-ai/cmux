@@ -68,15 +68,20 @@ if dyld_info -exports /usr/lib/system/libsystem_kernel.dylib >"$out/preflight-ex
 else
   echo "blocking-probe: dyld_info is missing here; the test program below checks the names instead" >&2
 fi
+# The test program runs the main run loop (CFRunLoopRun keeps the main thread, unlike dispatch_main, which
+# exits it), so the probe's self-test, queued on the main queue, runs on the main thread; a timer then exits.
 cat >"$out/preflight.c" <<'C'
-#include <dispatch/dispatch.h>
+#include <CoreFoundation/CoreFoundation.h>
 #include <stdlib.h>
+static void done(CFRunLoopTimerRef timer, void *info) { (void)timer; (void)info; exit(0); }
 int main(void) {
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 500 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{ exit(0); });
-    dispatch_main();
+    CFRunLoopTimerRef timer = CFRunLoopTimerCreate(NULL, CFAbsoluteTimeGetCurrent() + 0.5, 0, 0, 0, done, NULL);
+    CFRunLoopAddTimer(CFRunLoopGetMain(), timer, kCFRunLoopCommonModes);
+    CFRunLoopRun();
+    return 1;
 }
 C
-clang -O0 -o "$out/preflight" "$out/preflight.c"
+clang -O0 -framework CoreFoundation -o "$out/preflight" "$out/preflight.c"
 if ! DYLD_PRINT_INTERPOSING=1 DYLD_INSERT_LIBRARIES="$out/blocking-probe.dylib" \
      CMUX_BLOCKING_PROBE_OUT="$out/preflight.tsv" "$out/preflight" >>"$out/preflight.txt" 2>&1; then
   echo "blocking-probe: the probe does not load on this host (dyld refused it); see $out/preflight.txt" >&2
@@ -105,18 +110,19 @@ if codesign -dv "$app" 2>&1 | grep -q 'flags=.*runtime'; then
   exit 1
 fi
 
-# Smoke test of every launch: within 15 s the launched pid's dump must exist and hold the probe's "selftest"
-# row (the dylib loaded, interposed a main-thread call and dumped). Otherwise the sweep is stopped and the run
+# Smoke test of every launch: within 20 s (more than the probe's 10 s dump period) the launched pid's dump must exist and hold the probe's "selftest"
+# row (the dylib loaded, interposed a main-thread call and dumped: the probe writes a dump right after its
+# self-test, so the check does not wait for the 10 s periodic dump). Otherwise the sweep is stopped and the run
 # fails: a report from a probe that does not work would prove nothing.
 watch_launches() {
   local seen=0 pid deadline
   while sleep 1; do
     [[ -f "$out/sweep/sweep.log" ]] || continue
     while read -r pid; do
-      deadline=$((SECONDS + 15))
+      deadline=$((SECONDS + 20))
       until grep -q '^selftest' "$out/dumps/probe-$pid.tsv" 2>/dev/null; do
         if (( SECONDS > deadline )); then
-          echo "blocking-probe: FAIL: pid $pid has no probe self-test row 15 s after launch: the probe did not load or did not interpose" | tee "$out/selftest-failed"
+          echo "blocking-probe: FAIL: pid $pid has no probe self-test row 20 s after launch: the probe did not load or did not interpose" | tee "$out/selftest-failed"
           kill "$sweep_pid" 2>/dev/null
           return 1
         fi
