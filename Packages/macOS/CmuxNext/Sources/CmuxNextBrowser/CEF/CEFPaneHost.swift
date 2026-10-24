@@ -303,7 +303,9 @@ final class CEFPaneHost {
 
     func windowCreated(browser: Int32, request: Int32) {
         CEFStartSteps.shared.firstWindowEnded()
-        guard case .creating(let expected) = window, expected == request, let tab = windowTab else { return }
+        guard case .creating(let expected) = window, expected == request, let tab = windowTab else {
+            return lateWindowCreated(browser: browser, request: request)
+        }
         #if DEBUG || CMUX_BENCH_HOOKS
         ChatOpenTrace.shared.mark(.cefWindowCreated, chromiumPane: key.pane.rawValue)
         runtime.benchMarks.point("cef.window_created")
@@ -338,6 +340,31 @@ final class CEFPaneHost {
             // a tab between tab strips there would re-enter it.
             Task { @MainActor [weak self] in self?.movePopupsIn() }
         }
+    }
+
+    /// Chromium made the browser of a window request whose tab closed while the window was built
+    /// (or of a request this host no longer waits for): no tab shows it, so it closes, never to show
+    /// or leak. Tabs queued for that window would wait for it forever, the pane blank: they ask for
+    /// a window again, the shown one first, so it is the new window's own tab: at the end of the
+    /// turn, never inside Chromium's creation stack (this runs inside OnAfterCreated).
+    private func lateWindowCreated(browser: Int32, request: Int32) {
+        runtime.shim?.close(browser)
+        guard case .creating(let expected) = window, expected == request else { return }
+        window = .none
+        let waiting = tabs.filter { $0.browserID == nil && $0.isCreationPending }
+        for tab in waiting { tab.isCreationPending = false }
+        endOfTurn { [weak self] in self?.recreateWindow(for: waiting) }
+    }
+
+    private func recreateWindow(for waiting: [CEFTab]) {
+        let open = waiting.filter { !$0.isClosed && tabs.contains(where: { tab in tab === $0 }) }
+        // The first creates the window; the rest join it when it comes up (`windowCreated`). A
+        // window that came up since (a tab shown meanwhile) takes them now, as `createDeferred` does.
+        for tab in open.filter({ $0 === visibleTab }) + open.filter({ $0 !== visibleTab }) {
+            if ensureCreated(tab), visibleTab === tab, !tab.awaitsWindowMove { showBrowser(of: tab, activate: false) }
+        }
+        // A popup still in its opener's window waited for this window too (`ensureOwnWindow`).
+        if case .none = window, let popup = tabs.first(where: \.awaitsWindowMove) { ensureOwnWindow(for: popup) }
     }
 
     /// A tab Chromium opened in this window (target=_blank, window.open,
