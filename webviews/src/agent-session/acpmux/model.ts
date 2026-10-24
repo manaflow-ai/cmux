@@ -145,7 +145,33 @@ export type QueuedPrompt = {
 /// An image a prompt sent: `_acpmux/attachment {sessionId, id}` reads its bytes back.
 /// A prompt's image as acpmux names it; `width`/`height` are its natural size when the record
 /// carries them, so its thumbnail is reserved at its own shape before it is read.
-export type PromptImage = { id: string; mimeType: string; name?: string; width?: number; height?: number };
+export type PromptImage = {
+  id: string;
+  mimeType: string;
+  name?: string;
+  width?: number;
+  height?: number;
+  /// A just-sent image can draw from the composer's bytes before acpmux names it.
+  src?: string;
+};
+
+/**
+ * One part of a sent prompt in the order it was composed. The daemon may add this to a row as
+ * `inlineParts` (the provisional name for the ACP prompt's ordered content). Legacy rows keep
+ * using `text` and `images`; conversation/promptContent.ts adapts both shapes.
+ */
+export type PromptContentPart =
+  | { kind: "text"; text: string; pasted?: readonly PasteRange[] }
+  | (PromptImage & { kind: "image" })
+  | {
+      kind: "file" | "document" | "audio" | "recording" | "pasted";
+      id?: string;
+      name: string;
+      mimeType?: string;
+      size?: number;
+      text?: string;
+      pageCount?: number;
+    };
 /// A queued prompt's image: `src` is its data URL when the pane has its bytes (it sent them, or
 /// the `queued` record carries them), else the row reads it by `id`. acpmux names an image by the
 /// SHA-256 of its bytes; one the pane only sent so far has the composer's id (`local`) until
@@ -202,6 +228,9 @@ export type AcpmuxRow = {
   checkpoint?: SummaryCheckpoint;
   /// A sent prompt's images, as acpmux names them in its user_message (hub/prompt_images.rs).
   images?: PromptImage[];
+  /// Ordered prompt content, when the daemon records the ACP blocks interleaved at the caret.
+  /// This is deliberately optional while older transcript rows still expose `text` and `images`.
+  inlineParts?: PromptContentPart[];
   /// A sent prompt's pasted blocks (`user_message.pasted`, UTF-16 ranges into `text`), each drawn
   /// as a chip that opens in place (conversation/promptCollapse.ts).
   pasted?: PasteRange[];

@@ -23,11 +23,19 @@ import type {
   PromptDelivery,
   PromptDeliveryHop,
   StartSource,
+  PromptContentPart,
+  PromptContentPart,
 } from "./model";
 import { continuesTurn } from "./turnStart";
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
-import { promptBlocks, promptText, takesAudio, type ComposerAttachment } from "./attachments";
+import {
+  orderedDraftParts,
+  promptBlocks,
+  promptText,
+  takesAudio,
+  type ComposerAttachment,
+} from "./attachments";
 import { liftInlineImages } from "./inlineImages";
 import { primeSentImages } from "./conversation/imageEntries";
 import { resentAttachments, shownPrompt } from "./pastedText";
@@ -459,6 +467,47 @@ function attachedImages(attachments: readonly ComposerAttachment[]): QueuedPromp
         ]
       : [],
   );
+}
+
+/// The optimistic transcript's ordered content. Once acpmux echoes the prompt, its image ids
+/// replace the local ids while the text and non-image attachment metadata stay in place.
+function inlinePromptParts(
+  input: string,
+  attachments: readonly ComposerAttachment[],
+  images?: readonly PromptImage[],
+): PromptContentPart[] {
+  let imageIndex = 0;
+  return orderedDraftParts(input, attachments).flatMap((part): PromptContentPart[] => {
+    if (part.type === "text") return part.text ? [{ kind: "text", text: part.text }] : [];
+    const attachment = part.attachment;
+    if (attachment.kind === "image") {
+      const named = images?.[imageIndex++];
+      return [
+        {
+          kind: "image",
+          id: named?.id ?? attachment.id,
+          mimeType: named?.mimeType ?? attachment.mimeType,
+          name: named?.name ?? attachment.name,
+          ...(named?.width ? { width: named.width } : {}),
+          ...(named?.height ? { height: named.height } : {}),
+          ...(!named && attachment.data ? { src: `data:${attachment.mimeType};base64,${attachment.data}` } : {}),
+        },
+      ];
+    }
+    const kind = attachment.kind === "document" ? "document" : attachment.kind === "audio" ? "audio" : attachment.kind;
+    if (kind === "text" || kind === "link") return [{ kind: "file", id: attachment.id, name: attachment.name, mimeType: attachment.mimeType, size: attachment.size, text: attachment.text }];
+    if (kind === "pasted") return [{ kind: "pasted", id: attachment.id, name: attachment.name, mimeType: attachment.mimeType, size: attachment.size, text: attachment.text }];
+    return [{ kind: kind as "document" | "audio" | "file", id: attachment.id, name: attachment.name, mimeType: attachment.mimeType, size: attachment.size, pageCount: attachment.pageCount }];
+  });
+}
+
+function reconcileInlineImages(parts: readonly PromptContentPart[], images: readonly PromptImage[]): PromptContentPart[] {
+  let index = 0;
+  return parts.map((part) => {
+    if (part.kind !== "image") return part;
+    const named = images[index++];
+    return named ? { ...part, ...named, name: named.name ?? part.name } : part;
+  });
 }
 
 /// `images` named by acpmux, each keeping the bytes the pane already had for it.
@@ -1104,6 +1153,8 @@ export class AcpmuxDirectClient {
   private promptsShown = new Set<string>();
   /// Attachments sent with a prompt until its user-message event gives it a durable row id.
   private optimisticPromptAttachments = new Map<string, ComposerAttachment[]>();
+  /// The ordered draft kept until acpmux's echo supplies durable image ids.
+  private optimisticPromptInlineParts = new Map<string, PromptContentPart[]>();
   /// Attachments for completed prompts, used when their turn is retried later.
   private retryAttachments = new Map<string, ComposerAttachment[]>();
   /// What a prompt's sender is told once acpmux took the prompt (its `user_message` echo, or the
@@ -1588,6 +1639,7 @@ export class AcpmuxDirectClient {
     this.optimisticPromptRows.clear();
     this.optimisticPromptTexts.clear();
     this.optimisticPromptAttachments.clear();
+    this.optimisticPromptInlineParts.clear();
     this.queuedSends.clear();
     this.waitingSteers = [];
     this.interrupting = undefined;
@@ -3132,6 +3184,14 @@ export class AcpmuxDirectClient {
           ...(continues ? { continues } : {}),
           ...(steer === "waiting" && promptId ? { steerPromptId: promptId } : {}),
           ...(promptImages(msg.images).length > 0 && { images: promptImages(msg.images) }),
+          ...(fallbackPromptId && this.optimisticPromptInlineParts.has(fallbackPromptId)
+            ? {
+                inlineParts: reconcileInlineImages(
+                  this.optimisticPromptInlineParts.get(fallbackPromptId)!,
+                  promptImages(msg.images),
+                ),
+              }
+            : {}),
           // The blocks the composer sent as pastes, by where they sit in the text acpmux recorded;
           // only while the row shows that text as recorded (a harness note it hides moves them).
           ...(shown.text === raw &&
@@ -3144,6 +3204,7 @@ export class AcpmuxDirectClient {
           const attachments = this.optimisticPromptAttachments.get(fallbackPromptId);
           if (attachments?.length) this.retryAttachments.set(`user-${event.seq}`, attachments);
           this.optimisticPromptAttachments.delete(fallbackPromptId);
+          this.optimisticPromptInlineParts.delete(fallbackPromptId);
           // This pane's prompt reached the agent: its row (now acpmux's) shows it read.
           this.setDelivery(fallbackPromptId, { state: "read", readAt: event.at }, `user-${event.seq}`);
         }
@@ -3782,12 +3843,14 @@ export class AcpmuxDirectClient {
     if (!sessionId) throw new Error(translate("error.notOpen"));
     // A paste sent as its own block shows in the bubble as acpmux's echo will have it (pastedText.ts).
     const { text, pasted } = shownPrompt(promptText(input, attachments), attachments);
+    const inlineParts = attachments.length ? inlinePromptParts(input, attachments) : undefined;
     const rowId = `local-${promptId}`;
     const at = Date.now();
     this.optimisticPromptRows.set(promptId, rowId);
     this.optimisticPromptTexts.set(promptId, text);
     if (attachments.length) {
       this.optimisticPromptAttachments.set(promptId, attachments);
+      if (inlineParts) this.optimisticPromptInlineParts.set(promptId, inlineParts);
       // The sent bubble draws these images from the pane's own bytes, at their shape, the moment
       // acpmux's echo names them (conversation/imageEntries.ts).
       void primeSentImages(attachments);
@@ -3824,6 +3887,7 @@ export class AcpmuxDirectClient {
         kind: "user",
         text,
         ...(pasted.length ? { pasted } : {}),
+        ...(inlineParts ? { inlineParts } : {}),
         pending: true,
         delivery,
       });
@@ -3924,6 +3988,7 @@ export class AcpmuxDirectClient {
         this.queue = this.queue.filter((entry) => entry.id !== promptId);
       this.queuedSends.delete(promptId);
       this.optimisticPromptAttachments.delete(promptId);
+      this.optimisticPromptInlineParts.delete(promptId);
     } catch (error) {
       this.promptAccepts.delete(promptId);
       // A Send now refused at dispatch answers its sender with the refusal (a remote acpmux sends the
@@ -3958,6 +4023,7 @@ export class AcpmuxDirectClient {
         this.optimisticPromptRows.delete(promptId);
         this.optimisticPromptTexts.delete(promptId);
         this.optimisticPromptAttachments.delete(promptId);
+        this.optimisticPromptInlineParts.delete(promptId);
         this.deliveries.get(promptId)?.timers.forEach(clearTimeout);
         this.deliveries.delete(promptId);
         // The prompt is still in the composer, so Enter sends it again (no Retry button). A refusal
@@ -3978,6 +4044,7 @@ export class AcpmuxDirectClient {
         this.optimisticPromptRows.delete(promptId);
         this.optimisticPromptTexts.delete(promptId);
         this.optimisticPromptAttachments.delete(promptId);
+        this.optimisticPromptInlineParts.delete(promptId);
         this.deliveries.get(promptId)?.timers.forEach(clearTimeout);
         this.deliveries.delete(promptId);
         this.emit(refused ? undefined : "failed");
@@ -4015,6 +4082,7 @@ export class AcpmuxDirectClient {
       this.optimisticPromptRows.delete(promptId);
       this.optimisticPromptTexts.delete(promptId);
       this.optimisticPromptAttachments.delete(promptId);
+      this.optimisticPromptInlineParts.delete(promptId);
       // The host refused one frame and answered it: the connection is as it was.
       this.emit(refused ? undefined : "failed");
       throw error;
