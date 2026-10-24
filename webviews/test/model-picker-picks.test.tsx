@@ -679,7 +679,9 @@ test("a folder keeps its own last pick; other folders take the latest pick anywh
   }
 });
 
-test("the rail lists the harnesses set up here; one acpmux cannot run stays off it", async () => {
+// Lawrence 2026-10-23: "show all possible harnesses by default". One acpmux cannot run stays on the
+// rail, marked Unavailable, with no model to pick (paid-plan.md section 4).
+test("the rail lists every harness; one acpmux cannot run is marked Unavailable", async () => {
   await mount({
     harness: "claude",
     extra: [{ id: "grok", name: "Grok", unavailable: "grok: command not found" }],
@@ -688,7 +690,7 @@ test("the rail lists the harnesses set up here; one acpmux cannot run stays off 
     openFullPicker();
   });
   const rail = () => [...host.querySelectorAll<HTMLButtonElement>(".acpmux-mp-harness")].map((tab) => tab.title);
-  expect(rail().some((title) => title.startsWith("Grok"))).toBe(false);
+  expect(rail().some((title) => title === "Grok · Unavailable")).toBe(true);
   expect(rail().some((title) => title.startsWith("Claude Code"))).toBe(true);
 });
 

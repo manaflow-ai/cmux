@@ -202,14 +202,23 @@ test("a harness whose launcher check failed stays listed, marked Unavailable", a
 
 test("the full picker lists the harnesses that are not set up too", async () => {
   await mount();
-  await open();
-  const more = itemsOf(menu()!).find((item) => labelOf(item).startsWith("More models"));
-  expect(more).toBeDefined();
-  await act(async () => more!.click());
-  await settle();
-  const rail = [...doc().querySelectorAll<HTMLElement>(".acpmux-mp-harness")].map(
-    (tab) => tab.getAttribute("title") ?? "",
+  // Cmd-Ctrl-M opens the full picker.
+  await act(async () =>
+    dom.window.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "m", metaKey: true, ctrlKey: true })),
   );
-  expect(rail.some((title) => title.startsWith("Gemini CLI"))).toBe(true);
-  expect(rail.some((title) => title.startsWith("Codex"))).toBe(true);
+  await settle();
+  const rail = [...doc().querySelectorAll<HTMLElement>(".acpmux-mp-harness")];
+  const titles = rail.map((tab) => tab.getAttribute("title") ?? "");
+  expect(
+    titles.some((title) => title.startsWith("Gemini CLI")),
+    titles.join(", "),
+  ).toBe(true);
+  expect(
+    titles.some((title) => title.startsWith("Codex")),
+    titles.join(", "),
+  ).toBe(true);
+  const gemini = rail.find((tab) => (tab.getAttribute("title") ?? "").startsWith("Gemini CLI"))!;
+  await act(async () => gemini.click());
+  await settle();
+  expect(doc().querySelector(".acpmux-mp-models")?.textContent).toContain("Not installed");
 });

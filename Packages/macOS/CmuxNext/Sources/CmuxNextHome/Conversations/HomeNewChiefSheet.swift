@@ -2,15 +2,18 @@ public import AppKit
 public import CmuxHomeCore
 import CmuxNextDesign
 
-/// "New Chief…": a name for another Chief and the engine it runs on (Claude, Codex or
-/// UniiChat, ``ChiefBackend``); the Chief gets its own conversation. The host's `onCreate`
-/// makes it where the engine needs it (``ChiefBackend/createsOnThisMac``).
+/// "New Chief…": a name for another Chief and the engine it runs on: the official engines
+/// (``ChiefBackend``) and, once the host hands them (``show(_:)``), every harness this Mac's acpmux
+/// lists, the ones not set up here marked. The Chief gets its own conversation. The host's
+/// `onCreate` makes it where the engine needs it (``ChiefBackend/createsOnThisMac``).
 public final class HomeNewChiefSheet: HomeSheetController, NSTextFieldDelegate {
     public var onCreate: (String, ChiefBackend) async -> HomeComposeOutcome = { _, _ in .offline }
     let name = HomeSheetController.field(placeholder: HomeConversationStrings.chiefName, identifier: "cmux.home.chief.name")
     let backend = ThemedPopUpButton(frame: .zero, pullsDown: false)
     /// The chosen engine's one-line note (``ChiefBackend/hint``); hidden when it has none.
     let backendHint = ThemedLabel(wrappingLabelWithString: "")
+    /// The choices the popup lists, by harness id (their state's hint shows when one is chosen).
+    private var choices: [String: HomeChiefHarnessChoice] = [:]
     static let maxLength = 100
 
     public init() {
@@ -28,11 +31,7 @@ public final class HomeNewChiefSheet: HomeSheetController, NSTextFieldDelegate {
         caption.font = Typography.caption
         caption.ink = .secondary
         stack.addArrangedSubview(caption)
-        for choice in ChiefBackend.official {
-            backend.addItem(withTitle: choice.title)
-            backend.lastItem?.representedObject = choice.id
-        }
-        backend.selectItem(at: 0)
+        fill(HomeChiefHarnessChoice.choices(listed: []))
         backend.target = self
         backend.action = #selector(backendChanged(_:))
         backend.setAccessibilityLabel(HomeConversationStrings.chiefBackend)
@@ -54,9 +53,29 @@ public final class HomeNewChiefSheet: HomeSheetController, NSTextFieldDelegate {
     var trimmed: String { name.stringValue.trimmingCharacters(in: .whitespacesAndNewlines) }
     override var canSubmit: Bool { !trimmed.isEmpty && trimmed.count <= Self.maxLength }
 
+    /// Lists `choices` (``HomeChiefHarnessChoice/choices(listed:)``), keeping the one chosen.
+    public func show(_ choices: [HomeChiefHarnessChoice]) {
+        _ = view
+        fill(choices)
+        showHint()
+    }
+
+    private func fill(_ list: [HomeChiefHarnessChoice]) {
+        let chosen = backend.selectedItem?.representedObject as? String
+        backend.removeAllItems()
+        choices = [:]
+        for choice in list {
+            choices[choice.id] = choice
+            backend.addItem(withTitle: choice.itemTitle)
+            backend.lastItem?.representedObject = choice.id
+        }
+        let index = chosen.flatMap { id in backend.itemArray.firstIndex { $0.representedObject as? String == id } } ?? 0
+        if backend.numberOfItems > 0 { backend.selectItem(at: index) }
+    }
+
     /// The engine the popup has chosen (Claude until another is picked).
     var chosenBackend: ChiefBackend {
-        (backend.selectedItem?.representedObject as? String).flatMap(ChiefBackend.init(id:)) ?? .claude
+        (backend.selectedItem?.representedObject as? String).map(ChiefBackend.harness) ?? .claude
     }
 
     override func submit() {
@@ -66,10 +85,11 @@ public final class HomeNewChiefSheet: HomeSheetController, NSTextFieldDelegate {
         run { await create(chosen, engine) }
     }
 
-    @objc private func backendChanged(_ sender: NSPopUpButton) { showHint() }
+    @objc func backendChanged(_ sender: NSPopUpButton) { showHint() }
 
     private func showHint() {
-        let hint = chosenBackend.hint
+        let chosen = chosenBackend
+        let hint = choices[chosen.id]?.stateHint ?? chosen.hint
         backendHint.stringValue = hint ?? ""
         backendHint.isHidden = hint == nil
     }

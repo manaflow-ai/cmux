@@ -56,6 +56,9 @@ export type QuickFamily = {
   note?: string;
   /// Runs a signed-out harness's login (its Log In row).
   logIn?(): void;
+  /// A harness not set up here (not installed, or its launcher check failed): the row after its
+  /// note that opens its setup (the Harnesses page).
+  setUp?: { label: string; run(): void };
   /// The harness accounts shown in its Account submenu.
   accounts?: QuickAccount[];
   /// The account the tab runs or starts on.
@@ -114,6 +117,7 @@ export function tabExtent(
   let rows = models || 1;
   let separators = 1;
   if (family.note && family.logIn) rows += 1;
+  if (family.note && family.setUp) rows += 1;
   if (chat && menu.levels > 1) {
     rows += 1;
     separators += 1;
@@ -340,6 +344,7 @@ export function QuickModelMenu({
             ),
           ...(family.note && family.models.length === 0 ? [{ label: family.note }] : []),
           ...(family.note && family.logIn ? [{ label: t("harness.logIn") }] : []),
+          ...(family.note && family.setUp ? [{ label: family.setUp.label }] : []),
           ...(family.fork ? [{ label: t("picker.forkTo", { harness: family.name }) }] : []),
           ...(families.onAccount && family.accounts && family.accounts.length > 1
             ? [
@@ -405,6 +410,11 @@ export function QuickModelMenu({
           {!query && shown?.note && shown.logIn && (
             <MenuItem className="acpmux-quick-item" onSelect={() => shown.logIn?.()}>
               <span className="acpmux-menu-label">{t("harness.logIn")}</span>
+            </MenuItem>
+          )}
+          {!query && shown?.note && shown.setUp && (
+            <MenuItem className="acpmux-quick-item" data-harness-setup="" onSelect={() => shown.setUp?.run()}>
+              <span className="acpmux-menu-label">{shown.setUp.label}</span>
             </MenuItem>
           )}
         </MenuGroup>

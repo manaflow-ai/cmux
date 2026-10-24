@@ -34,6 +34,13 @@ public nonisolated struct ChiefBackend: Hashable, Sendable, Identifiable {
         self = backend
     }
 
+    /// The engine for any acpmux harness id: an official engine's own, else one whose Chiefs
+    /// are this Mac's (the harness is this Mac's acpmux profile), so New Chief can make a Chief
+    /// on every harness acpmux lists.
+    public static func harness(_ id: String) -> ChiefBackend {
+        ChiefBackend(id: id) ?? ChiefBackend(id: id, createsOnThisMac: true)
+    }
+
     private init(id: String, createsOnThisMac: Bool) {
         self.id = id
         self.createsOnThisMac = createsOnThisMac

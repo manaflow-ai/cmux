@@ -1,6 +1,798 @@
 {
   "sourceLanguage": "en",
   "strings": {
+  "home.chief.harness.notInstalled": {
+    "comment": "New Chief: a harness acpmux does not have on this Mac, after its name in the engine popup",
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "غير مثبت"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Nije instalirano"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Ikke installeret"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Nicht installiert"
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Not installed"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "No instalado"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Non installé"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Non installato"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "未インストール"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "មិនទាន់ដំឡើង"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "설치되지 않음"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Ikke installert"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Nie zainstalowano"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Não instalado"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Не установлено"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "ยังไม่ได้ติดตั้ง"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Yüklü değil"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Не встановлено"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Chưa cài đặt"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "未安装"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "未安裝"
+        }
+      }
+    }
+  },
+  "home.chief.harness.signedOut": {
+    "comment": "New Chief: a harness whose health check found it signed out, after its name in the engine popup",
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "تم تسجيل الخروج"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Odjavljeno"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Logget ud"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Abgemeldet"
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Signed out"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Sesión cerrada"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Déconnecté"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Disconnesso"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "サインアウト中"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "បានចេញ"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "로그아웃됨"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Logget ut"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Wylogowano"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Desconectado"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Вход не выполнен"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "ออกจากระบบแล้ว"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Oturum kapalı"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Вхід не виконано"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Đã đăng xuất"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "已退出登录"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "已登出"
+        }
+      }
+    }
+  },
+  "home.chief.harness.unavailable": {
+    "comment": "New Chief: a harness whose launcher check failed, after its name in the engine popup",
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "غير متاح"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Nedostupno"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Ikke tilgængelig"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Nicht verfügbar"
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Unavailable"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "No disponible"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Indisponible"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Non disponibile"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "利用不可"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "មិនអាចប្រើបាន"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "사용할 수 없음"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Utilgjengelig"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Niedostępne"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Indisponível"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Недоступно"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "ใช้งานไม่ได้"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Kullanılamıyor"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Недоступно"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Không khả dụng"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "不可用"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "無法使用"
+        }
+      }
+    }
+  },
+  "home.chief.harness.notInstalledHint": {
+    "comment": "New Chief: the hint under the engine popup when the chosen harness is not installed",
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "هذا الإطار غير مثبت على هذا الـ Mac. ثبّته من الإعدادات > الوكلاء؛ سيرد الرئيس بعد تثبيته."
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Ovaj harness nije instaliran na ovom Macu. Instalirajte ga u Postavke > Agenti; Chief odgovara kada bude instaliran."
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Denne harness er ikke installeret på denne Mac. Installer den under Indstillinger > Agenter; Chief svarer, når den er det."
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Dieser Harness ist auf diesem Mac nicht installiert. Installiere ihn unter Einstellungen > Agenten; der Chief antwortet, sobald er installiert ist."
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "This harness is not installed on this Mac. Install it from Settings > Agents; the Chief answers once it is."
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Este harness no está instalado en este Mac. Instálalo desde Ajustes > Agentes; el Chief responde cuando lo esté."
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Ce harness n’est pas installé sur ce Mac. Installez-le depuis Réglages > Agents ; le Chief répond dès qu’il l’est."
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Questo harness non è installato su questo Mac. Installalo da Impostazioni > Agenti; il Chief risponde quando lo è."
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "このハーネスはこの Mac にインストールされていません。設定 > エージェント からインストールしてください。インストール後に Chief が応答します。"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "harness នេះមិនទាន់ដំឡើងលើ Mac នេះទេ។ ដំឡើងវាពី ការកំណត់ > ភ្នាក់ងារ; Chief នឹងឆ្លើយពេលដំឡើងរួច។"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "이 하네스는 이 Mac에 설치되어 있지 않습니다. 설정 > 에이전트에서 설치하세요. 설치되면 Chief가 응답합니다."
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Denne harnessen er ikke installert på denne Macen. Installer den fra Innstillinger > Agenter; Chief svarer når den er det."
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Ten harness nie jest zainstalowany na tym Macu. Zainstaluj go w Ustawienia > Agenci; Chief odpowie, gdy będzie zainstalowany."
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Este harness não está instalado neste Mac. Instale-o em Ajustes > Agentes; o Chief responde quando estiver."
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Этот harness не установлен на этом Mac. Установите его в «Настройки > Агенты»; Chief ответит после установки."
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "harness นี้ยังไม่ได้ติดตั้งบน Mac เครื่องนี้ ติดตั้งได้จาก การตั้งค่า > เอเจนต์ แล้ว Chief จะตอบเมื่อติดตั้งแล้ว"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Bu harness bu Mac’te yüklü değil. Ayarlar > Ajanlar’dan yükleyin; yüklendiğinde Chief yanıt verir."
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Цей harness не встановлено на цьому Mac. Встановіть його в «Параметри > Агенти»; Chief відповість після встановлення."
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Harness này chưa được cài trên máy Mac này. Hãy cài nó trong Cài đặt > Tác tử; Chief sẽ trả lời khi đã cài."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "此 harness 未安装在这台 Mac 上。请在“设置 > 代理”中安装；安装后 Chief 才会回复。"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "此 harness 未安裝在這台 Mac 上。請在「設定 > 代理」中安裝；安裝後 Chief 才會回覆。"
+        }
+      }
+    }
+  },
+  "home.chief.harness.signedOutHint": {
+    "comment": "New Chief: the hint under the engine popup when the chosen harness is signed out",
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "تم تسجيل الخروج من هذا الإطار. سجّل الدخول من الإعدادات > الوكلاء، أو أضف مفتاح API؛ سيرد الرئيس عندما يستطيع."
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Ovaj harness je odjavljen. Prijavite se u Postavke > Agenti ili dodajte API ključ; Chief odgovara čim može."
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Denne harness er logget ud. Log ind under Indstillinger > Agenter, eller tilføj en API-nøgle; Chief svarer, når den kan."
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Dieser Harness ist abgemeldet. Melde dich unter Einstellungen > Agenten an oder füge einen API-Schlüssel hinzu; der Chief antwortet, sobald er kann."
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "This harness is signed out. Sign in from Settings > Agents, or add an API key; the Chief answers once it can."
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Este harness tiene la sesión cerrada. Inicia sesión desde Ajustes > Agentes o añade una clave de API; el Chief responde en cuanto pueda."
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Ce harness est déconnecté. Connectez-vous depuis Réglages > Agents ou ajoutez une clé d’API ; le Chief répond dès qu’il le peut."
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Questo harness è disconnesso. Accedi da Impostazioni > Agenti o aggiungi una chiave API; il Chief risponde appena può."
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "このハーネスはサインアウトしています。設定 > エージェント からサインインするか、API キーを追加してください。使えるようになると Chief が応答します。"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "harness នេះបានចេញ។ ចូលពី ការកំណត់ > ភ្នាក់ងារ ឬបន្ថែម API key; Chief នឹងឆ្លើយពេលអាច។"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "이 하네스는 로그아웃되어 있습니다. 설정 > 에이전트에서 로그인하거나 API 키를 추가하세요. 가능해지면 Chief가 응답합니다."
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Denne harnessen er logget ut. Logg inn fra Innstillinger > Agenter, eller legg til en API-nøkkel; Chief svarer når den kan."
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Ten harness jest wylogowany. Zaloguj się w Ustawienia > Agenci lub dodaj klucz API; Chief odpowie, gdy będzie mógł."
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Este harness está desconectado. Entre em Ajustes > Agentes ou adicione uma chave de API; o Chief responde assim que puder."
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "В этом harness не выполнен вход. Войдите в «Настройки > Агенты» или добавьте ключ API; Chief ответит, как только сможет."
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "harness นี้ออกจากระบบอยู่ ลงชื่อเข้าใช้จาก การตั้งค่า > เอเจนต์ หรือเพิ่มคีย์ API แล้ว Chief จะตอบเมื่อทำได้"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Bu harness’ta oturum kapalı. Ayarlar > Ajanlar’dan oturum açın veya bir API anahtarı ekleyin; Chief yapabildiğinde yanıt verir."
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "У цьому harness вхід не виконано. Увійдіть у «Параметри > Агенти» або додайте ключ API; Chief відповість, щойно зможе."
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Harness này đã đăng xuất. Hãy đăng nhập trong Cài đặt > Tác tử hoặc thêm khóa API; Chief sẽ trả lời khi có thể."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "此 harness 已退出登录。请在“设置 > 代理”中登录，或添加 API 密钥；可用后 Chief 会回复。"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "此 harness 已登出。請在「設定 > 代理」中登入，或新增 API 金鑰；可用後 Chief 會回覆。"
+        }
+      }
+    }
+  },
+  "home.chief.harness.unavailableHint": {
+    "comment": "New Chief: the hint under the engine popup when the chosen harness cannot start here",
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "لا يمكن تشغيل هذا الإطار على هذا الـ Mac الآن. تعرض الإعدادات > الوكلاء السبب."
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Ovaj harness se trenutno ne može pokrenuti na ovom Macu. Postavke > Agenti pokazuju zašto."
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Denne harness kan ikke starte på denne Mac lige nu. Indstillinger > Agenter viser hvorfor."
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Dieser Harness kann auf diesem Mac gerade nicht starten. Einstellungen > Agenten zeigt den Grund."
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "This harness cannot start on this Mac now. Settings > Agents shows why."
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Este harness no puede iniciarse en este Mac ahora. Ajustes > Agentes muestra el motivo."
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Ce harness ne peut pas démarrer sur ce Mac pour le moment. Réglages > Agents indique pourquoi."
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Questo harness non può avviarsi su questo Mac ora. Impostazioni > Agenti mostra il motivo."
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "このハーネスは現在この Mac で起動できません。理由は 設定 > エージェント に表示されます。"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "harness នេះមិនអាចចាប់ផ្ដើមលើ Mac នេះឥឡូវទេ។ ការកំណត់ > ភ្នាក់ងារ បង្ហាញមូលហេតុ។"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "이 하네스는 지금 이 Mac에서 시작할 수 없습니다. 설정 > 에이전트에서 이유를 확인하세요."
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Denne harnessen kan ikke starte på denne Macen nå. Innstillinger > Agenter viser hvorfor."
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Tego harnessu nie można teraz uruchomić na tym Macu. Ustawienia > Agenci pokazują dlaczego."
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Este harness não pode iniciar neste Mac agora. Ajustes > Agentes mostra o motivo."
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Этот harness сейчас не может запуститься на этом Mac. Причина — в «Настройки > Агенты»."
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "harness นี้เริ่มบน Mac เครื่องนี้ไม่ได้ในตอนนี้ ดูสาเหตุได้ที่ การตั้งค่า > เอเจนต์"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Bu harness şu anda bu Mac’te başlatılamıyor. Nedeni Ayarlar > Ajanlar’da görünür."
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Цей harness зараз не може запуститися на цьому Mac. Причину показано в «Параметри > Агенти»."
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Harness này hiện không thể khởi động trên máy Mac này. Cài đặt > Tác tử cho biết lý do."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "此 harness 现在无法在这台 Mac 上启动。原因见“设置 > 代理”。"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "此 harness 目前無法在這台 Mac 上啟動。原因請見「設定 > 代理」。"
+        }
+      }
+    }
+  },
     "home.list.title": {
       "extractionState": "manual",
       "localizations": {

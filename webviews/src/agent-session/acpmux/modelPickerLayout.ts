@@ -9,7 +9,13 @@ import type { SpeedTiers } from "./FastToggle";
 /// once the agent reports that model) and `onEffort`.
 export type ModelPickerProps = {
   /// `top`: the harness's curated models, listed first (topModels/); the rest fold under More models.
-  catalog: (AcpmuxSnapshot["catalog"][number] & { top?: readonly string[] })[];
+  /// `missing`: a harness that cannot start here, listed and marked rather than hidden: not
+  /// installed on this Mac, or its launcher check failed (`unavailable`). Its tab offers the
+  /// Harnesses page (`onAddAgent`) in place of models.
+  catalog: (AcpmuxSnapshot["catalog"][number] & {
+    top?: readonly string[];
+    missing?: "notInstalled" | "unavailable";
+  })[];
   harness?: string;
   model?: string;
   /// The chip's text: the current model's name, or its id when the catalog doesn't list it.

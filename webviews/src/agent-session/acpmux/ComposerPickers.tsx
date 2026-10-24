@@ -246,21 +246,32 @@ export function ComposerPickers({
   // harnesses Fork to rows. Debug Settings' "Allow switching harness in a started chat"
   // (`harnessSwitch`) keeps the whole rail and its switch.
   const locked = !harnessSwitch && !!summary?.harness && ((summary.turnCount ?? 0) > 0 || snapshot.rows.length > 0);
+  // Every harness the catalog or acpmux names is listed (Lawrence 2026-10-23: "show all possible
+  // harnesses by default"): one that is not installed here, or whose launcher check failed, keeps
+  // its rail tab, marked (`missing`) with the way to set it up, and never starts a chat. A failed
+  // model probe alone (a timeout) is no mark: the harness may still run.
   const allEntries: ModelPickerProps["catalog"] = pickerCatalog
     ? [
         ...pickerCatalog.harnesses
-          .filter(
-            (entry) =>
-              !entry.unavailable || entry.probeFailed || (entry.acpmuxHarness ?? entry.id) === summary?.harness,
-          )
-          .map((entry) => ({
-            id: entry.acpmuxHarness ?? entry.id,
-            name: entry.name,
-            models: entry.models,
-            ...(entry.unavailable ? { unavailable: entry.unavailable } : {}),
-            pickable: entry.pickable && entry.acpmuxHarness !== null,
-            ...(topModelsFor(entry.id) ? { top: topModelsFor(entry.id) } : {}),
-          })),
+          .filter((entry) => entry.acpmuxHarness !== null || entry.pickable)
+          .map((entry) => {
+            const own = (entry.acpmuxHarness ?? entry.id) === summary?.harness;
+            const missing =
+              entry.acpmuxHarness === null
+                ? ("notInstalled" as const)
+                : entry.unavailable && !entry.probeFailed && !own
+                  ? ("unavailable" as const)
+                  : undefined;
+            return {
+              id: entry.acpmuxHarness ?? entry.id,
+              name: entry.name,
+              models: entry.models,
+              ...(entry.unavailable ? { unavailable: entry.unavailable } : {}),
+              pickable: entry.pickable && entry.acpmuxHarness !== null && missing === undefined,
+              ...(missing ? { missing } : {}),
+              ...(topModelsFor(entry.id) ? { top: topModelsFor(entry.id) } : {}),
+            };
+          }),
         // The chat folder's own profiles are acpmux's alone; the model catalog never lists them.
         ...snapshot.catalog.filter((entry) => entry.folder),
       ]

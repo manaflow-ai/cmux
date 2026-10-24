@@ -1,5 +1,6 @@
 import CmuxNextAgentPane
 import CmuxNextAgentUpdates
+import CmuxNextHome
 import CmuxNextSettings
 import Foundation
 import Observation
@@ -171,6 +172,21 @@ final class AgentHarnessCenter {
     /// The ids of the daemon's harnesses (`_acpmux/harnesses`), as Settings > Agents lists them.
     func listed() async throws -> [String] {
         try await call(.list)["harnesses"]?.objectValue.map { Array($0.keys) } ?? []
+    }
+
+    /// Every harness `_acpmux/harnesses` lists, with its name, its launcher refusal and whether
+    /// `_acpmux/harness/health` found it signed out, in id order: what New Chief offers
+    /// (``HomeChiefHarnessChoice/choices(listed:)``). Empty when acpmux does not answer.
+    func listedForNewChief() async -> [HomeChiefListedHarness] {
+        guard case .object(let harnesses)? = (try? await call(.list))?["harnesses"] else { return [] }
+        let health = (try? await health()) ?? []
+        let signedOut = Set(health.compactMap { $0["auth"]?.stringValue == "signedOut" ? $0["id"]?.stringValue : nil })
+        return harnesses.keys.sorted().map { id in
+            let entry = harnesses[id] ?? .null
+            let unavailable = entry["unavailable"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+            return HomeChiefListedHarness(id: id, name: entry["displayName"]?.stringValue ?? id, unavailable: unavailable,
+                                          signedOut: signedOut.contains(id))
+        }
     }
 
     /// `_acpmux/harness/health` (cx-ny85): the daemon's last check of every harness.

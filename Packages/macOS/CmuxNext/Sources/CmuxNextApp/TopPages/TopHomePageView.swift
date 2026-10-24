@@ -463,6 +463,12 @@ final class TopHomePageView: NSView {
         let sheet = HomeNewChiefSheet()
         sheet.onCreate = { name, backend in await home.createChief(named: name, backend: backend) }
         present(sheet)
+        // Every harness this Mac's acpmux lists, the ones not set up marked (paid-plan.md section 4).
+        let center = services.agentHarnesses
+        Task { @MainActor [weak sheet] in
+            let listed = await center.listedForNewChief()
+            sheet?.show(HomeChiefHarnessChoice.choices(listed: listed))
+        }
     }
 
     /// The group info sheet for `id` (a DM or group): name, members, Add People, Hide Alerts and
