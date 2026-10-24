@@ -131,6 +131,8 @@ Swift/Rust builds and tests stay on the fleet.
     shared per site above a limit set from physical memory, as Chrome does.
   - Process work by priority: what the person sees and touches first; hidden windows, background tabs
     and idle work are throttled (Chrome's background-tab timer throttling and task priorities).
+    Throttling is only for work the person cannot see. It is never the fix for a slow visible action:
+    remove that work, do not delay, debounce or throttle it.
 - Go past Chrome where cmux is scripted. Scripts, the CLI, MCP and agents drive cmux far more than
   extensions drive Chrome, so automation must never compete with the person:
   - A scripted or agent change goes through the same action pipeline as a key press, and its local model
