@@ -27,8 +27,20 @@ public final class DaemonStore: StateResourceQueries {
     public internal(set) var savedTabGroups: [SavedTabGroupModel] = []
     /// The open groups of `savedTabGroups` (`TabGroupModel.isSaved`).
     @ObservationIgnored var savedOpenGroups: Set<TabGroupID> = []
-    /// Sidebar flattening, recomputed only when order, membership, or groups change.
-    public internal(set) var sidebarSections: [SidebarSection] = []
+    /// Sidebar flattening: computed when read after the order, membership or groups changed
+    /// (``invalidateSidebar()``), so a burst of moves or intents costs one flattening, by its first
+    /// reader. Observers track ``sidebarRevision``.
+    public var sidebarSections: [SidebarSection] {
+        _ = sidebarRevision
+        if let sidebarCache { return sidebarCache }
+        let sections = flattenSidebar()
+        sidebarCache = sections
+        return sections
+    }
+    /// Bumped when the sidebar's order, membership or groups may have changed.
+    public internal(set) var sidebarRevision: UInt64 = 0
+    /// ``sidebarSections`` as last computed; nil once invalidated. Not observed (a read fills it).
+    @ObservationIgnored private var sidebarCache: [SidebarSection]? = []
     public internal(set) var connectionState: DaemonConnectionState = .connecting
     /// Counts connection changes (connected, disconnected, shut down), so a
     /// reader can tell facts seen on an earlier connection from this one
@@ -367,7 +379,7 @@ public final class DaemonStore: StateResourceQueries {
                 for pane in screen.panes { prime(pane) }
             }
         }
-        recomputeSidebar()
+        invalidateSidebar()
         session.overlay(workspaces)
     }
 
@@ -442,18 +454,33 @@ public final class DaemonStore: StateResourceQueries {
         onWorkspaceListChanged?()
     }
 
-    func recomputeSidebar() {
-        sidebarWorkspaceVisits &+= workspaces.count * (groups.count + 1)
+    /// The order, membership or groups may have changed: the next read of ``sidebarSections``
+    /// flattens again. O(1); observers of ``sidebarRevision`` re-run once.
+    func invalidateSidebar() {
         listGeneration &+= 1
-        let ungrouped = workspaces.filter { workspace in workspace.group.map { id in !groups.contains { $0.id == id } } ?? true }
+        sidebarCache = nil
+        sidebarRevision &+= 1
+    }
+
+    /// The sidebar's sections: one pass over the workspaces, bucketed by group id (a workspace whose
+    /// group is unknown is ungrouped), then the groups in their order.
+    private func flattenSidebar() -> [SidebarSection] {
+        sidebarWorkspaceVisits &+= workspaces.count
+        var members: [WorkspaceGroupID: [WorkspaceModel]] = [:]
+        members.reserveCapacity(groups.count)
+        for group in groups { members[group.id] = [] }
+        var ungrouped: [WorkspaceModel] = []
+        for workspace in workspaces {
+            if let id = workspace.group, members[id] != nil {
+                members[id, default: []].append(workspace)
+            } else {
+                ungrouped.append(workspace)
+            }
+        }
         var sections = [SidebarSection(group: nil, workspaces: ungrouped)]
         for group in groups.sorted(by: { $0.index < $1.index }) {
-            sections.append(SidebarSection(group: group, workspaces: workspaces.filter { $0.group == group.id }))
+            sections.append(SidebarSection(group: group, workspaces: members[group.id] ?? []))
         }
-        let unchanged = sections.count == sidebarSections.count && zip(sections, sidebarSections).allSatisfy { new, old in
-            new.group === old.group && new.workspaces.count == old.workspaces.count
-                && zip(new.workspaces, old.workspaces).allSatisfy { $0 === $1 }
-        }
-        if !unchanged { sidebarSections = sections }
+        return sections
     }
 }

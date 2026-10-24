@@ -35,12 +35,12 @@ extension DaemonStore {
         workspaceListMayHaveChanged()
     }
 
-    /// The overlay moved a workspace or changed its group: one sidebar
-    /// flattening once the visible state is complete.
+    /// The overlay moved a workspace or changed its group: the sidebar flattens again when next
+    /// read, once the visible state is complete (a burst of intents costs one flattening).
     private func recomputeSidebarIfNeeded() {
         guard sidebarNeedsRecompute else { return }
         sidebarNeedsRecompute = false
-        recomputeSidebar()
+        invalidateSidebar()
     }
 
     /// The command for `transaction` replied: its effects are bounded by
