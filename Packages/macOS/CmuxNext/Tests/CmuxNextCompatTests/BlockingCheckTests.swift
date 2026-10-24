@@ -333,7 +333,7 @@ struct BlockingCheckTests {
                 release.wait()
             }
         }.start()
-        held.wait()  // the holder has the lock
+        waitUntilSignaled(held)  // the holder has the lock
         BlockingViolationTable.$scoped.withValue(fixture.table) { lock(shared) }
         await fixture.table.flush()
     }
@@ -350,6 +350,12 @@ struct BlockingCheckTests {
 }
 
 #if DEBUG || CMUX_BLOCKING_CHECKS
+/// Waits for `semaphore` (a fixture step: the other thread signals it at once); synchronous, because
+/// `DispatchSemaphore.wait()` is unavailable in async code.
+private nonisolated func waitUntilSignaled(_ semaphore: DispatchSemaphore) {
+    semaphore.wait()
+}
+
 /// The seams on a thread of the global executor: off the main thread, in the caller's task (so its
 /// task-local table applies, unlike a detached task).
 @concurrent nonisolated

@@ -4,7 +4,7 @@ import Darwin
 import Foundation
 import Testing
 
-/// The Nightly configuration's clean path (Release + `-DCMUX_BLOCKING_CHECKS`): a checked call that
+/// The clean path of the configuration a Nightly will use (Release + `-DCMUX_BLOCKING_CHECKS`; bench builds use it today): a checked call that
 /// does not block the main thread costs under 50 ns (lead budget 2026-10-24). Compiled only in that
 /// configuration (scripts/measure/blocking-checks.sh runs it on the fleet), never in Debug or CI.
 @Suite(.serialized)
