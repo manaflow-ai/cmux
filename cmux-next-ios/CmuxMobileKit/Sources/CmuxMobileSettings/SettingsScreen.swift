@@ -2,6 +2,7 @@
 import CmuxMobileAuth
 import CmuxMobileDesign
 import CmuxMobileModel
+import CmuxMobileRealtime
 import SwiftUI
 import UIKit
 import UserNotifications
@@ -25,6 +26,10 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
     let sizing: (any TerminalSizingService)?
     @Binding var path: [SettingsRoute]
     let scrollRequest: String?
+    /// Starts a live Chief call (Settings → Chief Calls' Call Chief); nil where calls can't start.
+    let callChief: (() -> Void)?
+    private let callKeys = OpenAIKeyModel.shared
+    private let callPreferences = VoiceCallPreferences.shared
     @State private var confirmsSignOut = false
     @State private var editingTeam: Team?
     /// One device list for the "Devices" count here and the Devices page.
@@ -32,8 +37,9 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
     @State private var notificationPermission: NotificationPermission?
     @Environment(\.scenePhase) private var scenePhase
 
-    public init(auth: CmuxMobileAuthModel, store: AppStore, settings: SettingsStore, path: Binding<[SettingsRoute]>, scrollRequest: String? = nil, directory: (any SettingsDeviceDirectory)? = nil, sizing: (any TerminalSizingService)? = nil, inviteToTeam: @escaping (Team) -> Void, saveAppearance: @escaping (TeamAppearance, Team) -> Void, @ToolbarContentBuilder leading: @escaping () -> Leading) {
+    public init(auth: CmuxMobileAuthModel, store: AppStore, settings: SettingsStore, path: Binding<[SettingsRoute]>, scrollRequest: String? = nil, directory: (any SettingsDeviceDirectory)? = nil, sizing: (any TerminalSizingService)? = nil, callChief: (() -> Void)? = nil, inviteToTeam: @escaping (Team) -> Void, saveAppearance: @escaping (TeamAppearance, Team) -> Void, @ToolbarContentBuilder leading: @escaping () -> Leading) {
         self.scrollRequest = scrollRequest
+        self.callChief = callChief
         self.directory = directory
         self.sizing = sizing
         self.auth = auth
@@ -75,6 +81,11 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                     Text("Connection").cmuxMobileTextColumn()
                 }
                 Section {
+                    NavigationLink(value: SettingsRoute.chiefCalls) {
+                        SettingsLabel("Chief Calls", symbol: "phone",
+                                      value: callKeys.hasKey ? callPreferences.model.title : String(localized: "Not set up"))
+                    }
+                    .accessibilityIdentifier("settings.chiefCalls.row")
                     NavigationLink(value: SettingsRoute.terminal) {
                         SettingsLabel("Terminal", symbol: "apple.terminal", value: "\(settings.terminalFontSize) pt")
                     }
@@ -215,6 +226,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
         case .composer: ComposerPage(settings: settings)
         case .notifications: NotificationsPage(settings: settings, macs: store.notificationMacs)
         case .acknowledgements: AcknowledgementsPage()
+        case .chiefCalls: ChiefCallsPage(keys: callKeys, preferences: callPreferences, callChief: callChief)
         }
     }
 }
@@ -222,6 +234,8 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
 /// Pushed settings pages.
 public enum SettingsRoute: Hashable, Sendable {
     case account, team, transport, devices, terminal, composer, notifications, acknowledgements
+    /// Chief Calls: the OpenAI API key, model and voice for live calls with Chief.
+    case chiefCalls
     /// Terminal → Terminal Size When Shared, and one Mac's page under it.
     case terminalSizing
     case terminalSizingMac(String)
@@ -233,7 +247,8 @@ public enum SettingsRoute: Hashable, Sendable {
             self = .devices
             return
         }
-        let all: [SettingsRoute] = [.account, .team, .transport, .devices, .terminal, .terminalSizing, .composer, .notifications, .acknowledgements]
+        let all: [SettingsRoute] = [.account, .team, .transport, .devices, .terminal, .terminalSizing, .composer, .notifications,
+                                    .acknowledgements, .chiefCalls]
         guard let route = all.first(where: { "\($0)" == name }) else { return nil }
         self = route
     }
@@ -338,7 +353,7 @@ extension NotificationPermission {
     }
 }
 
-private struct LinkRow: View {
+struct LinkRow: View {
     let title: LocalizedStringResource
     let symbol: String
     let url: String
