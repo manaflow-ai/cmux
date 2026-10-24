@@ -50,6 +50,33 @@ if "--suite=launch-check" in sys.argv:
 # build in split-spring.sh has run by then). launch-check above reports it itself, in `check`'s own --json shape.
 if "--suite=pane-bench" not in sys.argv:
     require_gui_session("split-spring")
+# SCRATCH (pl-trace-measure, never landed): `--suite=trace` runs scripts/cmux-next/trace.py on this worker
+# (bench_launch check, then a STRESS trace), packs OUT/trace into OUT/trace.tar.gz and writes the summary as the report.
+if "--suite=trace" in sys.argv:
+    def _flag(name, default=None):
+        for i, a in enumerate(sys.argv):
+            if a.startswith(name + "="):
+                return a.split("=", 1)[1]
+            if a == name and i + 1 < len(sys.argv):
+                return sys.argv[i + 1]
+        return default
+    here = os.path.dirname(os.path.abspath(__file__))
+    app, out, report = _flag("--app"), _flag("--out", "/tmp"), _flag("--json")
+    extra = [a[len("--trace-opt="):] for a in sys.argv if a.startswith("--trace-opt=")]
+    fixtures = subprocess.run([sys.executable, os.path.join(here, "trace_fixtures.py"), os.path.join(out, "fixtures")])
+    print(f"split-spring: trace_fixtures exit {fixtures.returncode}", flush=True)
+    check = subprocess.run([sys.executable, os.path.join(here, "bench_launch.py"), "check", "--app", app, "--out",
+                            os.path.join(out, "check")])
+    status = check.returncode
+    if status == 0:
+        status = subprocess.run([sys.executable, os.path.join(here, "trace.py"), "record", "--app", app, "--out",
+                                 os.path.join(out, "trace"), *extra]).returncode
+    subprocess.run(["tar", "-czf", os.path.join(out, "trace.tar.gz"), "-C", out, "trace", "check", "fixtures"])
+    summary = os.path.join(out, "trace", "summary.json")
+    if report:
+        with open(report, "w") as f:
+            json.dump({"check": check.returncode, "trace": status, "summary": json.load(open(summary)) if os.path.exists(summary) else None}, f, indent=1)
+    sys.exit(status)
 # `--suite=bench-smoke`: one short run of each bench that launches through bench_launch.py (bench-launch-smoke.py).
 if "--suite=bench-smoke" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bench-launch-smoke.py")
