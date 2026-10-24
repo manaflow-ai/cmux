@@ -10,8 +10,14 @@ import Foundation
 extension Workspace {
     /// Replace the terminal process behind an existing surface while preserving its pane and tab identity.
     /// Passing `nil` for `command` starts the same default shell as a newly created terminal.
-    /// For a local process, `environmentOverrides` win over the surface's and the workspace's env,
-    /// keep empty values and persist across later respawns; `initialInput` is typed once the shell is ready.
+    ///
+    /// For a local process, `removingEnvironmentKeys` drops those keys from the env the old surface
+    /// carried, so the child falls back to the workspace's value or none. `environmentOverrides` then
+    /// win over that env, the workspace's env and a removal of the same key, and keep empty values.
+    /// The new surface carries the result into later plain respawns, except that a value equal to the
+    /// workspace's own is treated as inherited workspace env and follows the current workspace (#5995).
+    /// `initialInput` is typed once the shell is ready. An SSH-owned surface or a `nativeReservation`
+    /// respawn cannot carry any of these, so it returns `nil` when one is given instead of dropping it.
     @discardableResult
     func respawnTerminalSurface(
         panelId: UUID,
@@ -25,8 +31,15 @@ extension Workspace {
         allowTextBoxFocusDefault: Bool = true,
         nativeReservation: CloudTerminalPaneReservation? = nil,
         environmentOverrides: [String: String] = [:],
-        initialInput: String? = nil
+        initialInput: String? = nil,
+        removingEnvironmentKeys: Set<String> = []
     ) -> TerminalPanel? {
+        // A provider-hosted shell cannot take local env or startup input: refuse, never drop them.
+        let changesLocalLaunch = !environmentOverrides.isEmpty || !removingEnvironmentKeys.isEmpty
+            || initialInput?.isEmpty == false
+        if changesLocalLaunch, nativeReservation != nil || machineOwningSurface(panelId)?.isSSH == true {
+            return nil
+        }
         // Native ownership routes through its provider before any local process configuration.
         if machineOwningSurface(panelId)?.isSSH == true, nativeReservation == nil {
             return respawnSSHTuiSurface(panelID: panelId, command: command,
@@ -71,13 +84,19 @@ extension Workspace {
         // workspace.
         let oldSeededWorkspaceEnvironment = oldPanel.seededWorkspaceEnvironment
         // The welcome banner key is one-shot: a respawned shell must not reprint it.
+        // Removed keys leave both inherited channels before the workspace re-fold.
         // Caller overrides ride this channel, not additionalEnvironment, because the
         // spawn merge drops empty additional values and an empty value must survive.
         let initialEnvironmentOverrides = oldPanel.surface.respawnInitialEnvironmentOverrides
-            .filter { oldSeededWorkspaceEnvironment[$0.key] != $0.value && $0.key != WelcomeBannerDelivery.environmentKey }
+            .filter {
+                oldSeededWorkspaceEnvironment[$0.key] != $0.value && $0.key != WelcomeBannerDelivery.environmentKey
+                    && !removingEnvironmentKeys.contains($0.key)
+            }
             .merging(environmentOverrides) { _, override in override }
         var additionalEnvironment = startupEnvironmentMergingWorkspaceEnvironment(
-            oldPanel.surface.respawnAdditionalEnvironment.filter { oldSeededWorkspaceEnvironment[$0.key] != $0.value }
+            oldPanel.surface.respawnAdditionalEnvironment.filter {
+                oldSeededWorkspaceEnvironment[$0.key] != $0.value && !removingEnvironmentKeys.contains($0.key)
+            }
         )
         let effectiveReplayFileURL = replayFileURL ?? SessionScrollbackReplayStore.replayFileURL(for: replayScrollback)
         for (key, value) in SessionScrollbackReplayStore.replayEnvironment(forFileURL: effectiveReplayFileURL) {
