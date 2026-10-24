@@ -1123,36 +1123,45 @@ impl Hub {
     /// `turn_result failed outcome_unknown`, so nobody replays a prompt that
     /// may have run to completion.
     pub(super) fn mark_unknown_outcomes(&self, hosted: &std::collections::HashSet<String>) {
-        for session in self.sessions() {
-            // A watched chat's open turn is the other app's, and goes on (`watch.rs`).
-            if hosted.contains(&session.id) || session.meta().watching.is_some() {
-                continue;
-            }
-            // Scan the whole log: a long turn can stream far more records
-            // than any fixed tail window after its `turn_started`.
-            let mut open: Option<(u64, Value)> = None;
-            if session.meta().status == SessionStatus::Closed {
-                continue;
-            }
-            let kinds = ["turn_started", "turn_result"];
-            let scanned = self.store.scan_kinds(&session.id, &kinds, &mut |e: EventRecord| {
-                match e.kind.as_str() {
-                    "turn_started" => {
-                        open = Some((e.seq, e.msg.get("turnId").cloned().unwrap_or(Value::Null)))
-                    }
-                    "turn_result" => open = None,
-                    _ => {}
+        // Sessions are independent: each reads only its own log (`restore_queues` does the same).
+        let sessions = self.sessions();
+        self.on_every_core(&sessions, |session| self.mark_unknown_outcome(session, hosted));
+    }
+
+    /// Settles `session`'s turn when its log ends inside one: its newest `turn_started` has no
+    /// `turn_result` after it. Read from the end, passing every other record on its header
+    /// alone (`Store::scan_back`): only the log after its last turn mark is touched, never the
+    /// whole log, which a start read for every session before (3.9 GB of logs took 26.8 s).
+    fn mark_unknown_outcome(&self, session: &Session, hosted: &std::collections::HashSet<String>) {
+        // A watched chat's open turn is the other app's, and goes on (`watch.rs`).
+        if hosted.contains(&session.id) || session.meta().watching.is_some() {
+            return;
+        }
+        if session.meta().status == SessionStatus::Closed {
+            return;
+        }
+        let mut open: Option<(u64, Value)> = None;
+        let turn_mark = |kind: &[u8]| kind == b"turn_started" || kind == b"turn_result";
+        let scanned = self.store.scan_back(
+            &session.id,
+            0,
+            u64::MAX,
+            &|_dir, kind| !turn_mark(kind),
+            &mut |e: EventRecord| {
+                if e.kind == "turn_started" {
+                    open = Some((e.seq, e.msg.get("turnId").cloned().unwrap_or(Value::Null)));
                 }
-                true
-            });
-            if scanned.is_err() {
-                continue;
-            }
-            if let Some((seq, turn_id)) = open {
-                let error = "the daemon restarted before this turn settled";
-                self.append_unknown_outcome(&session, json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": seq, "turnId": turn_id, "error": error, "errorText": error}));
-                self.save_meta(&session);
-            }
+                // The newest turn mark decides: a `turn_result` closed the turn before it.
+                !turn_mark(e.kind.as_bytes())
+            },
+        );
+        if scanned.is_err() {
+            return;
+        }
+        if let Some((seq, turn_id)) = open {
+            let error = "the daemon restarted before this turn settled";
+            self.append_unknown_outcome(session, json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": seq, "turnId": turn_id, "error": error, "errorText": error}));
+            self.save_meta(session);
         }
     }
 
