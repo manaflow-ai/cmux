@@ -113,7 +113,10 @@ import Testing
         model.remoteChat = true
         let opened = Opened()
         model.header = AgentPaneHeaderHooks(run: { _, _ in }, tabState: { AgentPaneHeaderState() },
-                                            openSide: { _, fork in opened.ids.append(fork) })
+                                            openSide: { _, fork, sideSession in
+                                                #expect(!sideSession)
+                                                opened.ids.append(fork)
+                                            })
         let side = { (session: String) in AgentPaneRequest(body: ["method": "chat.sideChat", "params": ["sessionId": session]]) }
         let child = await model.respond(to: side("vm-row-child"))
         let unlisted = await model.respond(to: side("vm-unlisted"))

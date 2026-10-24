@@ -18,8 +18,8 @@ struct AgentSideSessionPaneTests {
         #"{"jsonrpc":"2.0","id":\#(id),"method":"_acpmux/btw","params":{"sessionId":"\#(session)","question":"why is the build slow?"\#(extra)}}"#
     }
 
-    static func sideChat(_ id: String) -> AgentPaneRequest {
-        AgentPaneRequest(body: ["method": "chat.sideChat", "params": ["sessionId": id]])
+    static func sideChat(_ id: String, sideSession: Bool = true) -> AgentPaneRequest {
+        AgentPaneRequest(body: ["method": "chat.sideChat", "params": ["sessionId": id, "sideSession": sideSession]])
     }
 
     @Test func aSideSessionGoesOutLikeAPromptAndOpensBesideItsChat() async throws {
@@ -30,7 +30,10 @@ struct AgentSideSessionPaneTests {
         let model = AgentPaneModel(host: NoHost(), sessionId: "chat-1")
         var opened: [String] = []
         model.header = AgentPaneHeaderHooks(run: { _, _ in }, tabState: { AgentPaneHeaderState() },
-                                            openSide: { chat, fork in opened.append("\(chat)>\(fork)") })
+                                            openSide: { chat, fork, sideSession in
+                                                #expect(sideSession)
+                                                opened.append("\(chat)>\(fork)")
+                                            })
         let transport = model.transport
         let inbox = AgentPaneRelayedAllowTests.PageInbox()
         transport.deliver = { event, done in inbox.deliver(event.frames); done() }

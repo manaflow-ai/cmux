@@ -84,7 +84,7 @@ extension AgentTabStore {
             self?.tabCreated(provisional, as: AgentTabCreated(key: tab.id, surface: tab.surface))
         }
         let transaction = ClientTransactionID.generate()
-        if sideSession { sideSessionTabs.insert(key) }
+        if sideSession, let session { sideSessionTabs[key] = session }
         store.intend(splitPane.map { Intent.splitPane(pane: pane, direction: $0.0, ratio: 0.5, provisional: $0.1) } ?? .createTab(pane: pane, provisional: snapshot),
                      transaction: transaction)
         if let session { sessions[key] = session }
@@ -206,7 +206,7 @@ extension AgentTabStore {
             views[real] = view
         }
         if let value = sessions.removeValue(forKey: key) { sessions[real] = value }
-        if sideSessionTabs.remove(key) != nil { sideSessionTabs.insert(real) }
+        if let session = sideSessionTabs.removeValue(forKey: key) { sideSessionTabs[real] = session }
         unsentDrafts.move(key, to: real)
         if let value = newTabPages.removeValue(forKey: key) { newTabPages[real] = value }
         if let value = seeds.removeValue(forKey: key) { seeds[real] = value }
@@ -316,7 +316,7 @@ extension AgentTabStore {
         }
         notices[key] = nil
         sessions[key] = nil
-        sideSessionTabs.remove(key)
+        sideSessionTabs[key] = nil
         newTabPages[key] = nil
         seeds[key] = nil
         remoteSeeds[key] = nil
