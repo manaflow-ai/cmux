@@ -21,7 +21,7 @@ on waitpid for the app, and on kqueue NOTE_EXIT for the tag's daemon.
 
   scripts/cmux-next/bench-startup.py --tag nxboot [--tag other] [--runs 5]
       [--mode cold --mode warm] [--profile empty|realistic|stress] [--json out.json]
-      [--launch-guard [--max-launch-stall MS] [--first-frame-budget MS]]
+      [--launch-guard [--max-launch-stall MS] [--first-frame-budget MS]] [--wake-attachments MB]
   scripts/cmux-next/bench-startup.py --app "/path/cmux DEV launch-1.app" ...
 
 --app runs a fleet artifact staged anywhere (its tag comes from the
@@ -51,6 +51,14 @@ first_window_frame_committed over --first-frame-budget ms (default 150, the
 launch target in plans/cmux-next/perf-lead.md). Run it light and STRESS:
 `--mode warm --profile realistic --launch-guard` and
 `--mode warm --profile stress --launch-guard`.
+
+--wake-attachments MB writes, before each measured launch, a last quit's
+composer state holding MB of pasted screenshots (5 MB files) in the tag's
+state directory, as a chat whose composer held them at quit leaves it: the
+launch must not read them back or wait for them before its first window
+frame (#17587 review: it read and base64-encoded every chip, up to 128 MB,
+and the main thread waited for that read). The read's cost does not depend
+on which tab the state names, so it names a fixed key.
 
 Several tags run interleaved (A run 1, B run 1, A run 2, ...), so machine
 load affects them alike. Prints the load average and, per tag and mode, one
@@ -310,6 +318,8 @@ SEED_FOCUS = "agent"
 SEED_CHAT_PANE = "last"
 # --hangs: main-thread stalls over this many ms are recorded with stacks (debug.hangs).
 HANG_THRESHOLD_MS = None
+# --wake-attachments: MB of composer chips the last quit left, written before each measured launch.
+WAKE_ATTACHMENTS_MB = 0
 
 
 def state_directories(tag):
@@ -555,6 +565,8 @@ def one_run(tag, mode, timeout, profile=None):
         prime = Launch(tag, scratch)
         prime.wait_for([FINAL_MARK, AGENT_MARK], timeout, any_of=True)
         prime.quit()
+    if WAKE_ATTACHMENTS_MB:
+        write_wake_attachments(tag, WAKE_ATTACHMENTS_MB)
     launch = Launch(tag, scratch)
     try:
         reached = launch.wait_for(final, timeout, any_of=any_of)
@@ -568,6 +580,30 @@ def one_run(tag, mode, timeout, profile=None):
     if getattr(launch, "stalls", None) is not None:
         return {**launch.marks, "stalls": launch.stalls}
     return launch.marks
+
+
+def write_wake_attachments(tag, megabytes):
+    """A last quit's composer state (AgentPaneRelaunchWake) holding `megabytes` of pasted
+    screenshots, 5 MB per file (the composer's own cap), as the quit's save writes it: the JSON
+    lists the chips, each chip's bytes are a file of their own beside it."""
+    state = state_directories(tag)[0]
+    folder = os.path.join(state, "agent-pane-wake-attachments")
+    shutil.rmtree(folder, ignore_errors=True)
+    os.makedirs(folder, mode=0o700, exist_ok=True)
+    chunk = 5 * 1024 * 1024
+    chips, files, left = [], {}, megabytes * 1024 * 1024
+    while left > 0:
+        size = min(chunk, left)
+        index = len(chips)
+        name = f"bench-shot-{index}.png"
+        with open(os.path.join(folder, name), "wb") as out:
+            out.write(b"\x89PNG\r\n\x1a\n" + os.urandom(size - 8))
+        chips.append({"id": f"shot-{index}", "kind": "image", "name": f"Screenshot {index}.png",
+                      "mimeType": "image/png", "size": size})
+        files[f"shot-{index}"] = name
+        left -= size
+    with open(os.path.join(state, "agent-pane-wake-states.json"), "w") as out:
+        json.dump({"tab_bench_wake": {"state": {"attachments": chips}, "files": files}}, out)
 
 
 def launch_stalls(tag):
@@ -706,9 +742,13 @@ def main():
                              "50, the watchdog's own stall threshold)")
     parser.add_argument("--first-frame-budget", type=float, default=150.0, metavar="MS",
                         help=f"with --launch-guard: the median {FIRST_FRAME_MARK} budget (the launch target, 150)")
+    parser.add_argument("--wake-attachments", type=int, default=0, metavar="MB",
+                        help="before each measured launch, leave a last quit's composer state holding MB of "
+                             "pasted screenshots (the launch must not read them before its first frame)")
     args = parser.parse_args()
-    global HANG_THRESHOLD_MS, SEED_FOCUS, SEED_CHAT_PANE
+    global HANG_THRESHOLD_MS, SEED_FOCUS, SEED_CHAT_PANE, WAKE_ATTACHMENTS_MB
     HANG_THRESHOLD_MS = args.hangs
+    WAKE_ATTACHMENTS_MB = args.wake_attachments
     if args.launch_guard:
         # The guard judges every stall over --max-launch-stall: the app records at least those
         # (a --hangs above it would hide the stalls between the two).

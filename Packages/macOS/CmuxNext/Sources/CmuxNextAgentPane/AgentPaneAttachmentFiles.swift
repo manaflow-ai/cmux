@@ -61,12 +61,28 @@ nonisolated enum AgentPaneAttachmentFiles {
         attachments.compactMap { attachment in
             guard let name = files[attachment.id] else { return attachment }
             guard let size = size(of: name, in: folder), size <= budget,
-                  // concurrency-allow: the capped attachment files a composer kept, read once when its chat opens
+                  // concurrency-allow: the capped attachment files a composer kept, read once when its chat's page asks (off the main actor)
                   let bytes = try? Data(contentsOf: folder.appending(path: name)) else { return nil }
             budget -= size
             var attachment = attachment
             attachment.data = bytes.base64EncodedString()
             return attachment
+        }
+    }
+
+    /// Copies the files `files` names in `source` into `folder` under the same names (a clone on
+    /// APFS), for a save that keeps chips whose contents are still in another folder (a relaunched
+    /// chat whose page never asked for them, ``AgentPaneKeptChips``); answers the ones copied, by
+    /// attachment id, as ``moveOut(_:to:within:kept:)``'s `kept`. A file that is gone or can't be
+    /// copied is left out, and its chip with it.
+    static func carry(_ files: [String: String], from source: URL, into folder: URL) -> [String: String] {
+        guard source.standardizedFileURL != folder.standardizedFileURL else { return files }
+        let manager = FileManager.default
+        guard (try? manager.createDirectory(at: folder, withIntermediateDirectories: true)) != nil else { return [:] }
+        return files.filter { _, name in
+            guard size(of: name, in: source) != nil else { return false }
+            let target = folder.appending(path: name)
+            return manager.fileExists(atPath: target.path) || (try? manager.copyItem(at: source.appending(path: name), to: target)) != nil
         }
     }
 

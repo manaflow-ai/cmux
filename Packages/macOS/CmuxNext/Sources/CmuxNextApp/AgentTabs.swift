@@ -5,6 +5,7 @@ import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextLaunch
 import CmuxNextSettings
 import CmuxNextTabs
 import Observation
@@ -185,8 +186,21 @@ final class AgentTabStore {
     var wakeStates: [String: AgentPaneWakeState] = [:]
     /// What the chat pages held at the last quit, for each tab's first page at launch (``AgentPaneRelaunchWake``).
     var relaunchWake = AgentPaneRelaunchWake(file: nil)
+    /// The last quit's composer states, read off the main thread since `main` (`LaunchFiles`, #17587):
+    /// taken into ``wakeStates`` where they are first used (``takeLaunchWakes()``), the first chat page
+    /// made (after the first window frame, `deferAtLaunch`) or the quit, never in the window build.
+    var launchWakes: LaunchRead<[String: AgentPaneWakeState]>?
+    /// Moves ``launchWakes`` into ``wakeStates`` once; a state this run already holds for a tab stays.
+    func takeLaunchWakes() {
+        guard let read = launchWakes else { return }
+        launchWakes = nil
+        wakeStates.merge(read.take()) { held, _ in held }
+    }
     /// What every chat holds for the next launch (the quit's window step).
-    func relaunchWakeStates() async -> [String: AgentPaneWakeState] { await relaunchWake.collect(held: wakeStates, pages: views.map { (resolve($0.key), $0.value) }, live: isAgentTab) }
+    func relaunchWakeStates() async -> [String: AgentPaneWakeState] {
+        takeLaunchWakes()
+        return await relaunchWake.collect(held: wakeStates, pages: views.map { (resolve($0.key), $0.value) }, live: isAgentTab)
+    }
     /// The git link of tab `key`: the session host of the tab's own machine (AgentPaneGitReads.swift),
     /// so a Cloud or SSH chat reads its folder there; nil answers the page `native.not_connected`. Move to Floating Chat puts a session in Start Agent's panel.
     /// The upload for a chat tab's dropped or pasted files, nil when it takes none (``CloudUploads``).
@@ -334,6 +348,7 @@ final class AgentTabStore {
         // when there is one: no cold load and React mount on the open path (cx-ec99).
         // (Its folder rides on the page context, `newTab.cwd`; a first page's seed holds only that.)
         // A page with a kept composer (``wakeStates``) gets its own page: the spare's handshake is past.
+        takeLaunchWakes()
         if local, kind == .local, sessions[key] == nil, record.session == nil, let newTab = newTabPages[key],
            seed?.holdsOnlyFolder ?? true, wakeStates[key] == nil, let spare = takeSpare?() {
             adoptSpare(spare, key: key, page: newTab.page)
