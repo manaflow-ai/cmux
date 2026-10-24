@@ -177,15 +177,13 @@ extension CEFTab {
 
     // MARK: Scripts
 
-    public func evaluate(_ script: String, world: BrowserScriptWorld) async throws -> BrowserJSValue {
+    public func evaluate(_ script: String, world: BrowserScriptWorld, gesture: BrowserScriptGesture) async throws -> BrowserJSValue {
         guard let browserID, !isClosed else { throw BrowserTabError.closed }
         var params: [String: Any] = ["expression": script, "returnByValue": true, "awaitPromise": true]
-        // A page-world script runs as a user gesture, as WebKit's
-        // evaluateJavaScript does (forceUserGesture): an agent's
-        // `cmux browser click` on a target=_blank link or a window.open
-        // button opens the tab instead of hitting the popup blocker
-        // (browser use thread, 2026-10-19).
-        if world == .page { params["userGesture"] = true }
+        // An agent's script runs as a user gesture: its `cmux browser click` on a target=_blank
+        // link or a window.open button opens the tab instead of hitting the popup blocker
+        // (browser use thread, 2026-10-19). cmux's own scripts never do (`BrowserScriptGesture`).
+        if gesture == .agent { params["userGesture"] = true }
         if world == .isolated {
             let tree = try await runtime.devTools(browserID, method: "Page.getFrameTree")
             guard let frame = CEFDevToolsResult.mainFrameID(tree) else { throw BrowserTabError.javaScript("no main frame") }

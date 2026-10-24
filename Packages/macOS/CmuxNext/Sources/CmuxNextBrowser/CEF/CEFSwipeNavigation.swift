@@ -103,7 +103,7 @@ final class CEFSwipeNavigation {
         let generation = gesture.generation
         let pageProbe = pageProbe
         Task { @MainActor [weak self, weak tab] in
-            let value = try? await tab?.evaluate(script, world: .page)
+            let value = try? await tab?.evaluate(script, world: .page, gesture: .cmux)
             self?.gesture.probeAnswered(value.flatMap(pageProbe.edges), generation: generation)
         }
     }

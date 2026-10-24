@@ -40,9 +40,9 @@ import Testing
         page.load(login)
         service.track(page, for: tab)
         try await Self.until("the login page loads") {
-            (try? await page.evaluate("document.readyState === 'complete' && document.title", world: .page)) == .string("login")
+            (try? await page.evaluate("document.readyState === 'complete' && document.title", world: .page, gesture: .agent)) == .string("login")
         }
-        _ = try await page.evaluate("document.getElementById('password').value = 'rj-typed-secret'; true", world: .page)
+        _ = try await page.evaluate("document.getElementById('password').value = 'rj-typed-secret'; true", world: .page, gesture: .agent)
         try await Self.until("the history writer starts") { service.historyWriters[tab.id] != nil }
         await service.historyWriters[tab.id]?.flushNow()
         service.untrack(tab.id)
@@ -90,7 +90,7 @@ import Testing
         // The page `url` has loaded in `tab`: its document is complete and titled with its name.
         func shows(_ tab: WebKitTab, _ url: URL) async -> Bool {
             let name = url.deletingPathExtension().lastPathComponent
-            return (try? await tab.evaluate("document.readyState === 'complete' && document.title", world: .page)) == .string(name)
+            return (try? await tab.evaluate("document.readyState === 'complete' && document.title", world: .page, gesture: .agent)) == .string(name)
         }
 
         // Before the quit: a, then two link clicks, then a scroll; quit saves the history.
@@ -101,10 +101,10 @@ import Testing
         before.track(first, for: beforeTab)
         try await until("a loads") { await shows(first, a) }
         for next in [b, c] {
-            _ = try await first.evaluate("document.querySelector('a').click(); true", world: .page)
+            _ = try await first.evaluate("document.querySelector('a').click(); true", world: .page, gesture: .agent)
             try await until("\(next.lastPathComponent) loads") { await shows(first, next) }
         }
-        _ = try await first.evaluate("scrollTo(0, 1500); true", world: .page)
+        _ = try await first.evaluate("scrollTo(0, 1500); true", world: .page, gesture: .agent)
         try await until("the history writer starts") { before.historyWriters[beforeTab.id] != nil }
         await before.historyWriters[beforeTab.id]?.flushNow()
         before.untrack(beforeTab.id)
@@ -132,7 +132,7 @@ import Testing
         try await until("c loads again") { await shows(page, c) }
 
         func number(_ script: String) async -> Double? {
-            if case .number(let value)? = try? await page.evaluate(script, world: .page) { return value }
+            if case .number(let value)? = try? await page.evaluate(script, world: .page, gesture: .agent) { return value }
             return nil
         }
         let length = await number("history.length")
@@ -148,9 +148,9 @@ import Testing
         }
 
         // A local page shows no file outside its folder, after the reopen too.
-        if case .bool(true)? = try? await page.evaluate("!!document.getElementById('probe')", world: .page) {
+        if case .bool(true)? = try? await page.evaluate("!!document.getElementById('probe')", world: .page, gesture: .agent) {
             try await Task.sleep(for: .seconds(1))
-            let shown = try? await page.evaluate("document.getElementById('probe').naturalWidth > 0", world: .page)
+            let shown = try? await page.evaluate("document.getElementById('probe').naturalWidth > 0", world: .page, gesture: .agent)
             #expect(shown == .bool(false), "the reopened local page shows a file outside its folder")
         }
 

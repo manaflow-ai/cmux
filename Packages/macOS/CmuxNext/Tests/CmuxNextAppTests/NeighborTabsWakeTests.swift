@@ -172,7 +172,7 @@ import Testing
                 let page = services.cache.webKit.makeWebKitTab()
                 page.load(url)
                 try await until("\(name) loads") {
-                    (try? await page.evaluate("document.readyState === 'complete' && document.title", world: .page)) == .string(name)
+                    (try? await page.evaluate("document.readyState === 'complete' && document.title", world: .page, gesture: .agent)) == .string(name)
                 }
                 let key = page.id.rawValue
                 recorders[key] = Recorder()

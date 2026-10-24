@@ -121,7 +121,7 @@ public final class BrowserHistoryWriter {
             if session.entries.contains(where: \.formPost) { showedPrivateField = true }
             var probed = false  // A probe that fails to run takes no new state (the last stays).
             if !showedPrivateField {
-                switch try? await page.evaluate(Self.hasPrivateField, world: .isolated) {
+                switch try? await page.evaluate(Self.hasPrivateField, world: .isolated, gesture: .cmux) {
                 case .bool(true)?: showedPrivateField = true
                 case .bool(false)?: probed = true
                 default: break

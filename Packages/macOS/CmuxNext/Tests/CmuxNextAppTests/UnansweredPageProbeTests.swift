@@ -51,9 +51,9 @@ import Testing
         let page = rig.services.cache.webKit.makeWebKitTab()
         page.load(url)
         try await rig.until("busy loads") {
-            (try? await page.evaluate("document.readyState === 'complete' && document.title", world: .page)) == .string("busy")
+            (try? await page.evaluate("document.readyState === 'complete' && document.title", world: .page, gesture: .agent)) == .string("busy")
         }
-        _ = try await page.evaluate("setTimeout(() => { const end = Date.now() + 15000; while (Date.now() < end) {} }, 50); true", world: .page)
+        _ = try await page.evaluate("setTimeout(() => { const end = Date.now() + 15000; while (Date.now() < end) {} }, 50); true", world: .page, gesture: .agent)
         let key = page.id.rawValue
         rig.recorders[key] = NeighborTabsWakeTests.Recorder()
         rig.keys.append(key)
