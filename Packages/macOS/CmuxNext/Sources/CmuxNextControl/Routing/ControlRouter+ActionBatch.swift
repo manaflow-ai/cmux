@@ -7,7 +7,8 @@ import Foundation
 ///
 /// Params: `ops`, an array of `action.run` param objects (`action` or `cli_name` with `cli`,
 /// `target`, `args`, `focus`, `background`, `origin`); and for the whole batch `wait` (default
-/// true), `idempotency_key`, `atomic` (default true), `after` (read barrier) and `caller`.
+/// true), `idempotency_key`, `atomic` (default true), `after` (read barrier) and `caller`. Any
+/// other batch-level member (an op's `origin` or `target` put there) is `invalid_params`, `not_run`.
 ///
 /// - Every op is resolved and validated off the main actor before any runs. One invalid op
 ///   refuses the whole batch: `not_run`, with `data.op` its index.
@@ -42,6 +43,11 @@ extension ControlRouter {
     }
 
     private func startBatch(_ call: ControlCall) async throws -> JSONValue {
+        // An op's member at the batch level (`origin`, `target`, `focus`) is refused, as `action.run`
+        // refuses an unknown argument: ignored, every op would run with its default.
+        if let unknown = call.params.keys.sorted().first(where: { $0 != "ops" && !Self.batchLevelMembers.contains($0) }) {
+            throw ControlError.invalidParams(ControlStrings.format("control.error.unknownParam", "%1$@ does not take params.%2$@", call.method, unknown))
+        }
         let ops = try Self.batchOps(call.params)
         let atomic = try Self.batchAtomic(call.params)
         let limit = configuration.batchOpLimit

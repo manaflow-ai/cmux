@@ -382,8 +382,8 @@ def batch_load(plan, rng):
     ids = [t for ws in plan["background"] for t in ws["tab_ids"]]
     return Load("batch", plan["rates"]["batch"], connection, lambda i: connection.send(
         "action.batch", {"ops": [{"action": "renameTab", "target": f"tab:{rng.choice(ids)}", "args": {"name": f"batch {i}.{k}"},
-                                  "focus": False} for k in range(BATCH_OPS)],
-                         "wait": False, "origin": "script"}))
+                                  "focus": False, "origin": "script"} for k in range(BATCH_OPS)],
+                         "wait": False}))
 
 
 class ColumnLoad(Load):
