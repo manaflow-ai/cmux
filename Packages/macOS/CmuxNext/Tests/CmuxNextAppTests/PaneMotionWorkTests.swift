@@ -75,4 +75,27 @@ struct PaneMotionWorkTests {
         #expect(!still.isEmpty, "New Column moved no pane at its size")
         #expect(laidOut == 0, "\(still.count) panes that only moved laid out \(laidOut) times over \(frames) frames")
     }
+
+    /// A divider drag in STRESS missed 49 frames (every-action sweep, macOS 27, cmux13s): each drag step
+    /// re-placed every pane (a forced presentation pass on every reconcile). A drag step resizes the two
+    /// panes beside the divider; every other pane's clip and ring stay as they are.
+    @Test func aDividerDragStepTouchesOnlyThePanesBesideIt() async throws {
+        let harness = PaneMotionBench.Harness(PaneMotionBench.grid(6, 5), focused: PaneID("p0-0"))
+        _ = await harness.frame()
+        let screen = try #require(harness.root.screenViews.values.first)
+        let transaction = LayoutTransactionID.make()
+        var worstClips = 0, worstOverlay = 0
+        for step in 1...20 {
+            let hosts = screen.subviews.compactMap { $0 as? PaneHostView }
+            let before = Dictionary(uniqueKeysWithValues: hosts.map { (ObjectIdentifier($0), $0.frame) })
+            let clips = screen.stripClipsComputed, overlay = harness.root.overlayHostsPlaced
+            harness.model.setSplitRatio(SplitID("s0-0"), ratio: 0.2 + 0.005 * Double(step), transaction: transaction, phase: .changed)
+            _ = await harness.frame()
+            let moved = hosts.filter { before[ObjectIdentifier($0)] != $0.frame }.count
+            worstClips = max(worstClips, screen.stripClipsComputed - clips - moved)
+            worstOverlay = max(worstOverlay, harness.root.overlayHostsPlaced - overlay - moved)
+        }
+        #expect(worstClips <= 0, "a drag step computed \(worstClips) clips of panes that did not move")
+        #expect(worstOverlay <= 0, "a drag step placed \(worstOverlay) rings of panes that did not move")
+    }
 }
