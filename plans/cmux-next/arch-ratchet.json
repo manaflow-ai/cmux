@@ -662,6 +662,12 @@
         "697207923231265a321d075bd66591e377ba2b7c"
       ],
       "applied_sha": "6c37fe3168afd5e8c75d4b1b242afd2dcd4eaaea"
+    },
+    {
+      "date": "2026-10-24",
+      "row": "layer_hard",
+      "allow": 2,
+      "why": "method v5 places the local package closure's targets (architecture-layers.json): CmuxNextBridge (domain) -> CmuxAgentBrands (ui) and CmuxMobileRPC (domain) -> CmuxMobileSupport (ui, test-only link) were always there, now visible; lead's decision 2026-10-24, PL-arch may override"
     }
   ],
   "observer_wrappers": [
