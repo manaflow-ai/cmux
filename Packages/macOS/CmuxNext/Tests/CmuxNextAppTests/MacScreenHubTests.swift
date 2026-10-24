@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDevices
 @testable import CmuxNextMacScreen
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import CmuxScreenKit
 import CryptoKit
 import Foundation
@@ -240,6 +241,7 @@ struct MacScreenAccessTests {
 }
 
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct MacScreenHubViewerTests {
     @Test func requestAnswersMoveThePhase() {
         let viewer = MacScreenHubViewer(deviceID: hostID) { nil }
@@ -351,7 +353,7 @@ struct MacScreenHubViewerTests {
         let viewer = MacScreenHubViewer(deviceID: hostID) { hub }
         let ends = CallLog()
         viewer.endSession = { _, id, reason in ends.items.append("\(id) \(reason)") }
-        let clock = ManualClock()
+        let clock = CmuxNextWakeupsTestSupport.ManualClock()
         viewer.failureEnd = DemandTimer(owner: "test.mac-screen.hub-failure-grace", clock: clock)
         viewer.phase = .streaming(sessionID: "s1", scope: .view)
         viewer.streamFailed()
@@ -462,7 +464,7 @@ struct MacScreenHubViewerTests {
         let viewer = MacScreenHubViewer(deviceID: hostID) { hub }
         let ends = CallLog()
         viewer.endSession = { _, id, reason in ends.items.append("\(id) \(reason)") }
-        let clock = ManualClock()
+        let clock = CmuxNextWakeupsTestSupport.ManualClock()
         viewer.approvalExpiry = DemandTimer(owner: "test.mac-screen.hub-request-expiry", clock: clock)
         viewer.phase = .requesting(.view)
         viewer.requestAnswered(.success(HubSession(id: "s1", state: .pending, scope: .view)), scope: .view, hub: hub)

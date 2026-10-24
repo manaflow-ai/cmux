@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 import CmuxNextFilesUI
@@ -15,7 +16,7 @@ struct FindLiveSearchTests {
     }
 
     @Test func typingSearchesOnceForTheLastTextAfterThePause() async throws {
-        let clock = ManualClock()
+        let clock = CmuxNextWakeupsTestSupport.ManualClock()
         var asked: [String] = []
         let model = FindSectionModel(search: { query, _ in
             asked.append(query)
@@ -34,7 +35,7 @@ struct FindLiveSearchTests {
     }
 
     @Test func typingAgainCancelsARunningSearchAndItsAnswerNeverShows() async throws {
-        let clock = ManualClock()
+        let clock = CmuxNextWakeupsTestSupport.ManualClock()
         var release: CheckedContinuation<Void, Never>?
         var cancelled: [String] = []
         let model = FindSectionModel(search: { query, _ in
@@ -64,7 +65,7 @@ struct FindLiveSearchTests {
     }
 
     @Test func returnSearchesAtOnceAndDropsTheWaitingSearch() async throws {
-        let clock = ManualClock()
+        let clock = CmuxNextWakeupsTestSupport.ManualClock()
         var asked: [String] = []
         let model = FindSectionModel(search: { query, _ in
             asked.append(query)

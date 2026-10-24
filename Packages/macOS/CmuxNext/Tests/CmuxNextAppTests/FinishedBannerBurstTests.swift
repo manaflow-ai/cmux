@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextBridge
 @testable import CmuxNextDaemon
 import CmuxNextSettings
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -12,13 +13,14 @@ import Testing
 /// titled with the workspace). Approvals, questions and errors keep their own banners, another workspace keeps its
 /// own, and the notification history keeps every row.
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct FinishedBannerBurstTests {
     /// Workspace "api-server" holds surfaces 1, 2 and 3; workspace "web" holds surface 4.
     @MainActor
     final class Harness {
         let store = DaemonStore()
         let service = NotificationCenterService()
-        let clock = ManualClock()
+        let clock = CmuxNextWakeupsTestSupport.ManualClock()
 
         init() {
             _ = NSApplication.shared

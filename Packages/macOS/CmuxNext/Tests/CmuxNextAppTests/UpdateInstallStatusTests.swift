@@ -1,4 +1,5 @@
 @testable import CmuxNextUpdater
+import CmuxNextWakeupsTestSupport
 import CmuxUpdater
 import Foundation
 import Testing
@@ -10,7 +11,7 @@ import Testing
 /// waits on and for how long, offers Relaunch when the relaunch gate holds it, and
 /// an install that never relaunches gives up: the windows come back and the card
 /// says the update did not relaunch.
-@MainActor @Suite(.serialized) struct UpdateInstallStatusTests {
+@MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct UpdateInstallStatusTests {
     static func presentation(_ status: UpdateInstallStatus?) -> UpdateCardPresentation {
         UpdateCard.installing.presentation(version: "1.0.0", build: "100", install: status)
     }
@@ -53,7 +54,7 @@ import Testing
 
     /// The updater gives up on its own: the windows hidden at the click come back.
     @Test func theUpdaterGivesUpOnAnInstallThatNeverRelaunches() async throws {
-        let clock = ManualClock()
+        let clock = CmuxNextWakeupsTestSupport.ManualClock()
         let wall = WallClock()
         let identity = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.debug.update-install-status", shortVersion: "1.0.0",
                                            build: "100", minimumSystemVersion: nil,
