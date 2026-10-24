@@ -134,7 +134,10 @@ enum DebugKey {
                 DebugNativeInput.sendThroughApp([event])
             } else {
                 // Off the app's sendEvent (a window that is not key), the typing probe opens its sample here.
-                if TypingLatencyProbe.isEnabled { TypingLatencyProbe.shared.keyDown(eventTimestamp: event.timestamp) }
+                if TypingLatencyProbe.isEnabled {
+                    let target = (window.firstResponder as? TypingProbeTargeting)?.typingProbeTarget
+                    TypingLatencyProbe.shared.keyDown(eventTimestamp: event.timestamp, target: target)
+                }
                 DebugNativeInput.runPaneMonitors(event, in: window, services: services)
                 window.sendEvent(event)
                 if TypingLatencyProbe.isEnabled { TypingLatencyProbe.shared.mark(.dispatchEnd) }

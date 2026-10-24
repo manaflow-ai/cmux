@@ -11,10 +11,16 @@ import CmuxNextSignposts
 /// submit, the echo's decode on the attach reader, the session taking it for its
 /// output lane (`output_received_ms`: off the main actor since G4, so rows before 04237873b23
 /// named this column `output_main_ms` and do not compare),
-/// its parse on the output lane, and the first `layer.contents` set after
-/// that parse (the frame Core Animation commits). The row is appended when
-/// that frame lands. Drive it with keys paced wider than one round trip;
+/// its parse on the output lane, the first `layer.contents` set after
+/// that parse, and the end of that run-loop turn (`contents_commit_ms`: the
+/// Core Animation commit that carries the echo to the screen). The row is
+/// appended at that commit. Drive it with keys paced wider than one round trip;
 /// a key that arrives while a sample is open closes the old one unfinished.
+///
+/// A key typed into a terminal (``TypingProbeTargeting``) samples only that terminal: marks scoped to
+/// another terminal (``Scope``: its daemon surface below the view, its view above it) are ignored, so a
+/// busy terminal's output and frames never pass for the typed one's echo. Unscoped marks (dispatch,
+/// commit) count as before.
 /// Times are milliseconds after the event's own timestamp (seconds since
 /// boot, the same clock as `CLOCK_UPTIME_RAW`).
 ///
@@ -40,6 +46,9 @@ public final class TypingLatencyProbe: Sendable {
 
     public enum Mark: Int, CaseIterable, Sendable {
         case dispatchStart, dispatchEnd, ioWrite, socketSubmit, outputDecoded, outputReceived, outputParsed, contents, commit
+        /// The end of the run-loop turn that set the typed terminal's contents: the Core Animation commit
+        /// that shows the echo (``contents`` is the `setContents:` call before it).
+        case contentsCommit
 
         /// The `key.flow` hop this mark records.
         var hopName: String {
@@ -53,6 +62,7 @@ public final class TypingLatencyProbe: Sendable {
             case .outputParsed: "app.output.parsed"
             case .contents: "app.frame.contents"
             case .commit: "app.key.commit"
+            case .contentsCommit: "app.frame.commit"
             }
         }
 
@@ -67,6 +77,7 @@ public final class TypingLatencyProbe: Sendable {
             case .outputParsed: "output_parsed_ms"
             case .contents: "contents_ms"
             case .commit: "commit_ms"
+            case .contentsCommit: "contents_commit_ms"
             }
         }
 
@@ -81,8 +92,35 @@ public final class TypingLatencyProbe: Sendable {
             case .outputParsed: .outputReceived
             case .contents: .outputParsed
             case .commit: .dispatchEnd
+            case .contentsCommit: .contents
             }
         }
+    }
+
+    /// The terminal a sampled key went to: output and frames of any other terminal are not its echo. `surface` is
+    /// its daemon surface (the input and output marks below the view know only it; nil: unknown, so those marks are
+    /// not filtered); `view` is the terminal view's identity (`ObjectIdentifier(view).hashValue`: its output lane,
+    /// IO bridge and layer know only that).
+    public struct Target: Sendable, Hashable {
+        public var surface: UInt64?
+        public var view: Int
+
+        /// - Parameters:
+        ///   - surface: The terminal's daemon surface, nil when the view has none (a local terminal).
+        ///   - view: The terminal view's identity.
+        public init(surface: UInt64?, view: Int) {
+            self.surface = surface
+            self.view = view
+        }
+    }
+
+    /// Where a mark comes from, when it comes from one terminal: a sample with a ``Target`` takes it only from that
+    /// terminal.
+    public enum Scope: Sendable, Hashable {
+        /// A daemon surface (the attach socket's marks).
+        case surface(UInt64)
+        /// A terminal view (its output lane, IO bridge and layer).
+        case view(Int)
     }
 
     private struct Sample {
@@ -90,18 +128,20 @@ public final class TypingLatencyProbe: Sendable {
         /// The key press's flow id: this process's pid in the high 32 bits, the sample index below.
         var flow: UInt64
         var event: UInt64
+        /// The terminal the key went to; nil: the first output and frame of any terminal count.
+        var target: Target?
         var marks = [UInt64?](repeating: nil, count: Mark.allCases.count)
         var ioWriteOnMain = false
-        /// Written at ``Mark/commit`` instead of ``Mark/contents`` (``closeAtCommit()``).
+        /// Written at ``Mark/commit`` instead of ``Mark/contentsCommit`` (``closeAtCommit()``).
         var closesAtCommit = false
     }
 
     private struct State {
         var next = 0
         var open: Sample?
-        /// The flow whose echo frame was handed to its layer (``Mark/contents``) and whose Core
-        /// Animation commit (the next run-loop end) is still to be marked `app.frame.commit`.
-        var echoCommit: UInt64?
+        /// The terminal view each probed layer belongs to (``register(layer:view:)``), so its `setContents:`,
+        /// which may run off the main thread, is scoped to that view.
+        var layerViews: [ObjectIdentifier: Int] = [:]
     }
 
     private let output: FileHandle?
@@ -126,7 +166,8 @@ public final class TypingLatencyProbe: Sendable {
         let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue | CFRunLoopActivity.exit.rawValue,
                                                           true, 2_000_100) { [weak self] _, _ in
             self?.mark(.commit)
-            self?.echoCommitted()
+            // After ``Mark/contents``: this turn's Core Animation commit carries the echo (`app.frame.commit`).
+            self?.mark(.contentsCommit)
         }
         CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
     }
@@ -145,25 +186,30 @@ public final class TypingLatencyProbe: Sendable {
         flows.flowHop(name, flow: flow)
     }
 
-    /// Marks `app.frame.commit` for the flow whose echo frame went to its layer: the run-loop end that
-    /// follows ``Mark/contents`` is the Core Animation commit that carries it to the screen.
-    private func echoCommitted() {
-        guard let flows, let flow = state.withLock({ state -> UInt64? in
-            defer { state.echoCommit = nil }
-            return state.echoCommit
-        }) else { return }
-        flows.flowHop("app.frame.commit", flow: flow)
+    /// Scopes `layer`'s `setContents:` to the terminal view `view` (``markContents(layer:)``).
+    public func register(layer: ObjectIdentifier, view: Int) {
+        guard output != nil || flows != nil else { return }
+        state.withLock { $0.layerViews[layer] = view }
     }
 
-    /// Opens a sample for a key-down whose `NSEvent.timestamp` is `eventTimestamp`.
-    public func keyDown(eventTimestamp: Double) {
+    /// ``Mark/contents`` from a probed layer, scoped to the view it was registered for (any thread).
+    public func markContents(layer: ObjectIdentifier) {
+        guard output != nil || flows != nil else { return }
+        let view = state.withLock { $0.layerViews[layer] }
+        mark(.contents, scope: view.map(Scope.view))
+    }
+
+    /// Opens a sample for a key-down whose `NSEvent.timestamp` is `eventTimestamp`, typed into `target`
+    /// (nil: not a terminal, or unknown; the first output and frame of any terminal count, as before).
+    public func keyDown(eventTimestamp: Double, target: Target? = nil) {
         guard output != nil || flows != nil else { return }
         let now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
         let event = eventTimestamp > 0 ? UInt64(eventTimestamp * 1_000_000_000) : now
         let flowBase = UInt64(UInt32(truncatingIfNeeded: getpid())) << 32
         let (unfinished, flow) = state.withLock { state -> (Sample?, UInt64) in
             let previous = state.open
-            var sample = Sample(index: state.next, flow: flowBase | UInt64(UInt32(truncatingIfNeeded: state.next)), event: event)
+            var sample = Sample(index: state.next, flow: flowBase | UInt64(UInt32(truncatingIfNeeded: state.next)), event: event,
+                                target: target)
             sample.marks[Mark.dispatchStart.rawValue] = now
             state.next += 1
             state.open = sample
@@ -173,21 +219,25 @@ public final class TypingLatencyProbe: Sendable {
         flows?.flowHop(Mark.dispatchStart.hopName, flow: flow, ageMicroseconds: Int64(bitPattern: now &- event) / 1_000)
     }
 
-    /// Records `mark` for the open sample the first time it runs. A mark
-    /// before the hop it follows (``Mark/after``) is ignored. Output hops
-    /// are not tied to a surface: type into one terminal while sampling.
-    public func mark(_ mark: Mark) {
+    /// Records `mark` for the open sample the first time it runs. A mark before the hop it follows (``Mark/after``) is
+    /// ignored, and so is a mark scoped to another terminal than the sample's target (`scope`; nil: unscoped).
+    public func mark(_ mark: Mark, scope: Scope? = nil) {
         guard output != nil || flows != nil else { return }
         let now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
         let onMain = mark == .ioWrite && Thread.isMainThread
         let (finished, recorded) = state.withLock { state -> (Sample?, Sample?) in
             guard var sample = state.open, sample.marks[mark.rawValue] == nil else { return (nil, nil) }
+            if let target = sample.target, let scope {
+                switch scope {
+                case .surface(let surface): if let own = target.surface, own != surface { return (nil, nil) }
+                case .view(let view): if view != target.view { return (nil, nil) }
+                }
+            }
             if let after = mark.after, sample.marks[after.rawValue] == nil { return (nil, nil) }
             sample.marks[mark.rawValue] = now
             if mark == .ioWrite { sample.ioWriteOnMain = onMain }
-            if mark == .contents || (mark == .commit && sample.closesAtCommit) {
+            if mark == .contentsCommit || (mark == .commit && sample.closesAtCommit) {
                 state.open = nil
-                if mark == .contents { state.echoCommit = sample.flow }
                 return (sample, sample)
             }
             state.open = sample

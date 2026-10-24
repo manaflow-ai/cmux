@@ -60,9 +60,14 @@ public nonisolated protocol TerminalIO: Sendable {
     /// restore did not match the owner's check): a daemon IO asks for a full
     /// snapshot. Ordered with `write`.
     func resyncRequested() async
+
+    /// The daemon surface this IO attaches to, as the typing probe scopes its attach-socket marks
+    /// (``TypingLatencyProbe/Target``); nil (the default) for an IO with none.
+    var probeSurface: UInt64? { get }
 }
 
 public extension TerminalIO {
+    nonisolated var probeSurface: UInt64? { nil }
     var answersTerminalQueries: Bool { true }
     @MainActor func appliesViewGrid(reporting: Bool) -> Bool { false }
     func focusGained() async {}

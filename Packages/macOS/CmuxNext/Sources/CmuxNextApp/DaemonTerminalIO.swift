@@ -45,6 +45,9 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         var cursorDefault: TerminalCursorDefault = .ghostty
     }
 
+    /// The daemon surface this view attaches to (the typing probe's scope for the attach socket's marks).
+    let probeSurface: UInt64?
+
     let events: AsyncStream<TerminalIOEvent>
     private let driver: TerminalAttachDriver<TerminalAttachment>
     private let creatingInput: CreatingTerminalInput?
@@ -64,6 +67,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
          endpoint: @escaping @Sendable () async throws -> DaemonEndpoint) {
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.terminal")
         let surface = target.attachment.surface.rawValue
+        probeSurface = surface
         let driver = TerminalAttachDriver<TerminalAttachment>(
             initialSize: target.initialSize,
             visible: visible,

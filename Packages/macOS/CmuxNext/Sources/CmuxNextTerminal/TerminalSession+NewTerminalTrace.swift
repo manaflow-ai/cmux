@@ -11,14 +11,14 @@ extension TerminalSession {
         guard NewTerminalTrace.shared.sessionCreated(io: ObjectIdentifier(io as AnyObject), session: ObjectIdentifier(self),
                                                      lane: surfaceView.lane.map { ObjectIdentifier($0) },
                                                      layer: surfaceView.layer.map { ObjectIdentifier($0) }) else { return }
-        if let layer = surfaceView.layer { TypingFrameProbe.install(on: layer) }
+        if let layer = surfaceView.layer { TypingFrameProbe.install(on: layer, view: surfaceView.typingProbeView) }
     }
 
     /// A later replay swapped in `fresh`: watch its lane and layer instead.
     func traceSurfaceSwapped(_ fresh: TerminalSurfaceView) {
         NewTerminalTrace.shared.surfaceSwapped(session: ObjectIdentifier(self), lane: fresh.lane.map { ObjectIdentifier($0) },
                                                layer: fresh.layer.map { ObjectIdentifier($0) })
-        if let layer = fresh.layer { TypingFrameProbe.install(on: layer) }
+        if let layer = fresh.layer { TypingFrameProbe.install(on: layer, view: fresh.typingProbeView) }
     }
 
     /// `event` reached this session on the main actor; content marks `first_output_main`.

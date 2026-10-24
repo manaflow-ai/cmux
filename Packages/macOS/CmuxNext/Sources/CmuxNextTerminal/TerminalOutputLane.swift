@@ -41,8 +41,12 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
 
     private let backlog = Mutex(Backlog())
 
-    init(surface: ghostty_surface_t, label: String, highWater: Int = 2 << 20) {
+    /// The typing probe's scope for this lane's output (its terminal view).
+    let probeScope: TypingLatencyProbe.Scope?
+
+    init(surface: ghostty_surface_t, label: String, highWater: Int = 2 << 20, probeScope: TypingLatencyProbe.Scope? = nil) {
         self.surface = surface
+        self.probeScope = probeScope
         self.highWater = highWater
         self.queue = DispatchQueue(label: label, qos: .userInteractive)
     }
@@ -60,7 +64,7 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
                 guard let base = buffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
                 ghostty_surface_process_output(surface, base, UInt(buffer.count))
             }
-            TypingLatencyProbe.shared.mark(.outputParsed)
+            TypingLatencyProbe.shared.mark(.outputParsed, scope: probeScope)
             #if DEBUG || CMUX_BENCH_HOOKS
             if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.parsed(lane: ObjectIdentifier(self), data) }
             #endif

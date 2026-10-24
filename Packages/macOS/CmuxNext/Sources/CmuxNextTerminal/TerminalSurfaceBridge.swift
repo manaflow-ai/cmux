@@ -23,6 +23,9 @@ nonisolated final class SurfaceBridge: @unchecked Sendable {
 
     /// The cached answers to Ghostty's link filter (cx-do47.1).
     let linkFilter = TerminalLinkFilter()
+    /// The typing probe's scope for this surface's `io_write` (its view; ``TypingLatencyProbe/Scope``). Set once in
+    /// the view's init, before Ghostty's IO thread can call back, and read only by that callback.
+    nonisolated(unsafe) var probeScope: TypingLatencyProbe.Scope?
 
     init(input: TerminalInputSink) {
         self.input = input
@@ -95,6 +98,6 @@ nonisolated struct TerminalInputSink: Sendable {
 /// to the session's ordered writer.
 nonisolated func ghosttyIOWrite(_ userdata: UnsafeMutableRawPointer?, _ bytes: UnsafePointer<CChar>?, _ length: UInt) {
     guard let bridge = SurfaceBridge.from(userdata), let bytes, length > 0 else { return }
-    TypingLatencyProbe.shared.mark(.ioWrite)
+    TypingLatencyProbe.shared.mark(.ioWrite, scope: bridge.probeScope)
     bridge.input.send(Data(bytes: bytes, count: Int(length)))
 }

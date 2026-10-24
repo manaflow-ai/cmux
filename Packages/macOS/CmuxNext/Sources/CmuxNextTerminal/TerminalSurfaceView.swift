@@ -97,6 +97,8 @@ public final class TerminalSurfaceView: NSView {
         self.session = session
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         bridge.view = self
+        // Before createSurface: Ghostty's IO thread reads it from its first write callback.
+        bridge.probeScope = .view(typingProbeView)
         createSurface(mode: mode)
     }
 
@@ -153,8 +155,8 @@ public final class TerminalSurfaceView: NSView {
         TerminalFontScale(self).installCallback()
         // Light/dark themes (default Apple System Colors) follow the app.
         GhosttyRuntime.shared.registerColorScheme(of: self)
-        lane = TerminalOutputLane(surface: surface, label: "com.cmuxterm.next.terminal.output")
-        if TypingLatencyProbe.isEnabled, let layer { TypingFrameProbe.install(on: layer) }
+        lane = TerminalOutputLane(surface: surface, label: "com.cmuxterm.next.terminal.output", probeScope: .view(typingProbeView))
+        if TypingLatencyProbe.isEnabled, let layer { TypingFrameProbe.install(on: layer, view: typingProbeView) }
         registerForDraggedTypes([.fileURL, .URL, .string])
         updateContentScale()
         updateSurfaceSize(forceReport: true)

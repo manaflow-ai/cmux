@@ -6,7 +6,8 @@ isolated Chief home, the mock agent host, the typing probe on, the hang watchdog
 time (`debug.key` with the client's send time as the event timestamp, so the wait for the main thread counts, as a
 real key waits in the event queue) into:
 
-  terminal   a zsh prompt (`zsh -f`): send to the frame whose layer contents show the echo (`contents_ms`)
+  terminal   a zsh prompt (`zsh -f`): send to the commit that carries the echo's frame (`contents_commit_ms`; the probe
+             follows only the typed terminal, so a busy terminal's output never passes for its echo)
   home       the native Home composer (the Home fixture: the same MessagesLab view and field over the mock
              owner): send to the end of the run-loop turn that committed the edit (`commit_ms`)
   dock       the docked Home the app opens at launch (the real Home owner), when it shows a conversation
@@ -368,7 +369,7 @@ def measure(surface, phase, params, column, pid, streams=()):
     publishes = [p.get("ms") for p in (timings.get("control_publishes") or []) if isinstance(p, dict)]
     every = probe_rows()[rows_before:]
     marks = ["dispatch_start_ms", "dispatch_end_ms", "io_write_ms", "socket_submit_ms", "output_decoded_ms",
-             "output_received_ms", "output_parsed_ms", "contents_ms", "commit_ms"]
+             "output_received_ms", "output_parsed_ms", "contents_ms", "commit_ms", "contents_commit_ms"]
     hangs = rpc("debug.hangs", {"limit": 12}, timeout=20)
     f = lambda key: [float(r[key]) for r in rows if r.get(key)]
     entry = {
@@ -447,7 +448,7 @@ def surface_terminal(phase, pid):
         s = chat_streams()
         streams = [s] if s else []
     LOAD["focus"] = focus_terminal()
-    entry = measure("terminal", phase, {}, "contents_ms", pid, streams)
+    entry = measure("terminal", phase, {}, "contents_commit_ms", pid, streams)
     action("terminal.sendText", {"text": "\x15"})  # clears the typed line (Ctrl-U)
     return entry
 

@@ -89,7 +89,10 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
             KeyFrameSignpost().begin(target: terminal ? .terminal : .view, eventTimestamp: event.timestamp)
         }
         let probesKey = event.type == .keyDown && TypingLatencyProbe.isEnabled
-        if probesKey { TypingLatencyProbe.shared.keyDown(eventTimestamp: event.timestamp) }
+        if probesKey {
+            let target = ((keyWindow ?? event.window)?.firstResponder as? TypingProbeTargeting)?.typingProbeTarget
+            TypingLatencyProbe.shared.keyDown(eventTimestamp: event.timestamp, target: target)
+        }
         defer { if probesKey { TypingLatencyProbe.shared.mark(.dispatchEnd) } }
         let previousSynthetic = currentEventIsSynthetic
         currentEventIsSynthetic = !SyntheticInput.isUserInput(event)

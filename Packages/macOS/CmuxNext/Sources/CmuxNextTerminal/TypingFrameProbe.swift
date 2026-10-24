@@ -2,8 +2,8 @@ import CmuxNextWakeups
 import ObjectiveC
 import QuartzCore
 
-/// Marks ``TypingLatencyProbe/Mark/contents`` when Ghostty hands a finished
-/// frame to its `IOSurfaceLayer` (`setContents:` on the main thread; Core
+/// Marks ``TypingLatencyProbe/Mark/contents``, scoped to the layer's terminal view, when Ghostty hands a finished
+/// frame to its `IOSurfaceLayer` (`setContents:`, on the main thread or the renderer's; Core
 /// Animation commits it at the end of that run-loop turn). Installed only
 /// while the probe is enabled: it adds a `setContents:` override to the
 /// layer's runtime class that calls `CALayer`'s and then marks. DEBUG builds
@@ -16,7 +16,10 @@ enum TypingFrameProbe {
 
     @MainActor private static var installed: Set<ObjectIdentifier> = []
 
-    @MainActor static func install(on layer: CALayer) {
+    /// Installs the override on `layer`'s class (once per class) and scopes `layer`'s frames to the terminal
+    /// view `view` (``TypingLatencyProbe/register(layer:view:)``).
+    @MainActor static func install(on layer: CALayer, view: Int) {
+        TypingLatencyProbe.shared.register(layer: ObjectIdentifier(layer), view: view)
         let layerClass: AnyClass = type(of: layer)
         guard layerClass != CALayer.self, installed.insert(ObjectIdentifier(layerClass)).inserted else { return }
         let selector = #selector(setter: CALayer.contents)
@@ -32,7 +35,7 @@ enum TypingFrameProbe {
         -> @convention(block) (AnyObject, AnyObject?) -> Void {
         { layer, contents in
             original(layer, selector, contents)
-            TypingLatencyProbe.shared.mark(.contents)
+            TypingLatencyProbe.shared.markContents(layer: ObjectIdentifier(layer))
             #if DEBUG || CMUX_BENCH_HOOKS
             if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.contents(layer: ObjectIdentifier(layer)) }
             #endif
