@@ -2,8 +2,14 @@ import CMUXAgentLaunch
 
 /// How a request to move a Claude pane to another account ended.
 enum ClaudeAccountSwitchResult: Equatable, Sendable {
-    /// The pane respawned on the target account and the resume command was queued.
+    /// The pane respawned on the target account, its shell reached a prompt, and the resume
+    /// command was typed into it.
     case switched(ClaudeAccountSwitchPlan, ClaudeTranscriptAccountSyncOutcome)
+    /// The pane respawned on the target account and the transcript is there, but the resume
+    /// command was never typed: the pane was closed or replaced, or its new shell did not
+    /// report a prompt in time. The pane may sit at a bare shell, so callers tell the user to
+    /// resume the plan's session by hand.
+    case switchedWithoutResume(ClaudeAccountSwitchPlan, ClaudeTranscriptAccountSyncOutcome)
     /// The planner refused the switch; nothing changed. A session cmux cannot confirm or
     /// resume also lands here as ``ClaudeAccountSwitchRefusal/noClaudeSession``.
     case refused(ClaudeAccountSwitchRefusal)

@@ -1,5 +1,6 @@
 import CMUXAgentLaunch
 import CmuxFoundation
+import CmuxTerminal
 import Darwin
 import Foundation
 
@@ -39,8 +40,10 @@ extension Workspace {
     /// alone, so a switch never starts a fresh conversation. The surface then respawns with the
     /// target's account keys (see ``ClaudeAccountSwitchSurfaceEnvironment``), the transcript is
     /// synced again once the old Claude has exited, and `claude --resume` is typed into the new
-    /// shell. Remote panes are refused. Confirming a running turn is the caller's job; this
-    /// never asks.
+    /// shell once it reports a prompt. A resume that cannot be typed returns
+    /// ``ClaudeAccountSwitchResult/switchedWithoutResume(_:_:)``. The pane stays marked as
+    /// switching until then. Remote panes are refused. Confirming a running turn is the
+    /// caller's job; this never asks.
     @MainActor
     func switchClaudeAccount(
         panelId: UUID,
@@ -115,22 +118,23 @@ extension Workspace {
         ) else {
             return .respawnFailed
         }
+        // Start the new shell now, even in a hidden pane, so its rc files run while the old
+        // Claude exits. This is the start socket input gets, not the restore-paced one.
+        panel.surface.requestInputDemandSurfaceStartIfNeeded()
         // The old Claude can append transcript lines until it dies; copy them before resuming.
         // A failed re-sync keeps the preflight copy, which is still resumable.
         await Self.waitForReplacedClaudeProcessesToExit(replacedProcesses)
         let resync = try? await sync.sync(request)
-        if terminalPanel(for: panelId) === panel {
-            sendInputWhenReady(resumeInput, to: panel)
-        }
-
         let outcome = preflight == .alreadyCurrent ? (resync ?? preflight) : preflight
+        let resumed = await deliverClaudeAccountSwitchResumeInput(resumeInput, to: panel, panelId: panelId)
 #if DEBUG
         cmuxDebugLog(
             "claudeAccount.switch panel=\(panelId.uuidString.prefix(5)) trigger=\(trigger) " +
-                "from=\(plan.source.name) to=\(plan.target.name) transcript=\(outcome.rawValue)"
+                "from=\(plan.source.name) to=\(plan.target.name) transcript=\(outcome.rawValue) " +
+                "resumed=\(resumed ? 1 : 0)"
         )
 #endif
-        return .switched(plan, outcome)
+        return resumed ? .switched(plan, outcome) : .switchedWithoutResume(plan, outcome)
     }
 
     /// The pane's Claude session: the Fork Conversation selection, then cached lifecycle and

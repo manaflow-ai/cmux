@@ -4497,6 +4497,7 @@
 		CA52B0150000000000000000 /* Workspace+CanvasLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0150000000000000000 /* Workspace+CanvasLayout.swift */; };
 		C41EFACBE73CD68808192358 /* Workspace+ChiefPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EF5154E74C65D67FF3666 /* Workspace+ChiefPane.swift */; };
 		B7CDCF239EC4B966DB3BA776 /* Workspace+ClaudeAccountSwitch.swift in Sources */ = {isa = PBXBuildFile; fileRef = F26D008C4F7EC4ACCBB875AA /* Workspace+ClaudeAccountSwitch.swift */; };
+		C41AA429682C75E21476D542 /* Workspace+ClaudeAccountSwitchResumeDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD29DB9857422B23B0ED2231 /* Workspace+ClaudeAccountSwitchResumeDelivery.swift */; };
 		4A83C8FAE42926923935E37A /* Workspace+ClaudeBackgroundSessionRestore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B836EB9A0E8E762A7FFAD0ED /* Workspace+ClaudeBackgroundSessionRestore.swift */; };
 		D86840000000000000000007 /* Workspace+ClosedPanelLayoutRestore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86840000000000000000008 /* Workspace+ClosedPanelLayoutRestore.swift */; };
 		90ECD884E46E7CE63ACB593F /* Workspace+CloudBrowserCreation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8E605219F6DC95A95A101BF /* Workspace+CloudBrowserCreation.swift */; };
@@ -9148,6 +9149,7 @@
 		CA52C0150000000000000000 /* Workspace+CanvasLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CanvasLayout.swift"; sourceTree = "<group>"; };
 		C41EF5154E74C65D67FF3666 /* Workspace+ChiefPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+ChiefPane.swift"; sourceTree = "<group>"; };
 		F26D008C4F7EC4ACCBB875AA /* Workspace+ClaudeAccountSwitch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+ClaudeAccountSwitch.swift"; sourceTree = "<group>"; };
+		BD29DB9857422B23B0ED2231 /* Workspace+ClaudeAccountSwitchResumeDelivery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+ClaudeAccountSwitchResumeDelivery.swift"; sourceTree = "<group>"; };
 		B836EB9A0E8E762A7FFAD0ED /* Workspace+ClaudeBackgroundSessionRestore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+ClaudeBackgroundSessionRestore.swift"; sourceTree = "<group>"; };
 		D86840000000000000000008 /* Workspace+ClosedPanelLayoutRestore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+ClosedPanelLayoutRestore.swift"; sourceTree = "<group>"; };
 		A8E605219F6DC95A95A101BF /* Workspace+CloudBrowserCreation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CloudBrowserCreation.swift"; sourceTree = "<group>"; };
@@ -12647,6 +12649,7 @@
 				5AA62D1A631CDA7BC81FF474 /* ClaudeAccountSwitchSurfaceEnvironment.swift */,
 				E26CFDA49C9D24045C7D6485 /* ClaudeAccountSwitchTrigger.swift */,
 				F26D008C4F7EC4ACCBB875AA /* Workspace+ClaudeAccountSwitch.swift */,
+				BD29DB9857422B23B0ED2231 /* Workspace+ClaudeAccountSwitchResumeDelivery.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -17720,6 +17723,7 @@
 				CA52B0150000000000000000 /* Workspace+CanvasLayout.swift in Sources */,
 				C41EFACBE73CD68808192358 /* Workspace+ChiefPane.swift in Sources */,
 				B7CDCF239EC4B966DB3BA776 /* Workspace+ClaudeAccountSwitch.swift in Sources */,
+				C41AA429682C75E21476D542 /* Workspace+ClaudeAccountSwitchResumeDelivery.swift in Sources */,
 				4A83C8FAE42926923935E37A /* Workspace+ClaudeBackgroundSessionRestore.swift in Sources */,
 				D86840000000000000000007 /* Workspace+ClosedPanelLayoutRestore.swift in Sources */,
 				90ECD884E46E7CE63ACB593F /* Workspace+CloudBrowserCreation.swift in Sources */,
