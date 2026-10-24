@@ -1384,6 +1384,7 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextPopupsTests",
       "targets": [
         "CmuxNextBrowser",
+        "CmuxNextDesign",
         "CmuxNextPopups"
       ],
       "packages": [],
