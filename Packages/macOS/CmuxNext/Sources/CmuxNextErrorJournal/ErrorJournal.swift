@@ -197,7 +197,14 @@ public actor ErrorJournal {
     }
 
     /// Reads every source after its saved cursor, folds what it found, saves the cursors and
-    /// writes. A failing source becomes one `journal` warning; the others still run.
+    /// writes. A source that stops at its per-read bound (``ErrorHarvest/more``) is read again from
+    /// its new cursor until it is done. A failing source becomes one `journal` warning; the others
+    /// still run.
+    ///
+    /// Cancellable (the quit cancels its harvest once the engines stopped, `errors.list` at its
+    /// deadline): a cancelled harvest reads no further source or batch, a source in the middle of
+    /// a read returns what it read with its cursor there, and what was read is still folded,
+    /// its cursors saved and written. The sources not read keep their cursors for the next one.
     /// - Returns: New occurrences per source id.
     @discardableResult
     public func harvest(_ sources: [any ErrorHarvestSource]) async -> [String: Int] {
@@ -205,16 +212,24 @@ public actor ErrorJournal {
         var cursors = loadCursors()
         var found: [String: Int] = [:]
         for source in sources {
+            guard !Task.isCancelled else { break }
+            var count = 0
             do {
-                let harvest = try await source.collect(after: cursors[source.id])
-                for event in harvest.events { fold(event) }
-                if let cursor = harvest.cursor { cursors[source.id] = cursor }
-                found[source.id] = harvest.events.count
+                var more = true
+                while more {
+                    let before = cursors[source.id]
+                    let harvest = try await source.collect(after: before)
+                    for event in harvest.events { fold(event) }
+                    if let cursor = harvest.cursor { cursors[source.id] = cursor }
+                    count += harvest.events.count
+                    // Again only when the cursor moved: a source that cannot advance is not read in a loop.
+                    more = harvest.more && harvest.cursor != nil && harvest.cursor != before && !Task.isCancelled
+                }
             } catch {
                 fold(ErrorEvent(source: "journal", level: .warning, message: "harvest of \(source.id) failed: \(error)",
                                 date: now()))
-                found[source.id] = 0
             }
+            found[source.id] = count
         }
         saveCursors(cursors)
         flush()

@@ -18,14 +18,76 @@ import Testing
 
         init(records: [OSLogRecord]) { self.records = records }
 
-        func entries(since date: Date, matching predicate: NSPredicate?) throws -> [OSLogRecord] {
-            let found = records.filter { record in
-                record.date >= date && (predicate?.evaluate(with: ["messageType": record.level.messageType,
-                                                                    "subsystem": record.subsystem]) ?? true)
+        func read(since date: Date, matching predicate: NSPredicate?, _ body: (OSLogRecord) -> Bool) throws {
+            delivered = 0
+            for record in records where record.date >= date && (predicate?.evaluate(with: ["messageType": record.level.messageType,
+                                                                                           "subsystem": record.subsystem]) ?? true) {
+                delivered += 1
+                guard body(record) else { return }
             }
-            delivered = found.count
-            return found
         }
+    }
+
+    /// A log store over a long run: hands entries one by one, and cancels the reading task right
+    /// before it hands entry `cancelAt` (as the quit's cancellation arrives in the middle of a read).
+    private final class LongLog: OSLogReading, @unchecked Sendable {
+        // Test fake: written by the one reading task, read after that read returned.
+        private(set) var delivered = 0
+        let start: Date
+        let cancelAt: Int
+
+        init(start: Date, cancelAt: Int) {
+            self.start = start
+            self.cancelAt = cancelAt
+        }
+
+        func read(since date: Date, matching predicate: NSPredicate?, _ body: (OSLogRecord) -> Bool) throws {
+            var index = 0
+            while true {  // a log longer than any read: only the body ends it
+                index += 1
+                if index == cancelAt { withUnsafeCurrentTask { $0?.cancel() } }
+                let record = OSLogRecord(date: start + Double(index), level: .error, subsystem: "com.apple.WebKit",
+                                         category: "Loading", message: "entry \(index)")
+                guard record.date >= date else { continue }
+                delivered += 1
+                guard body(record) else { return }
+            }
+        }
+    }
+
+    /// The quit and `errors.list` read the log from the cursor, and that read grew with the run
+    /// (the quit's covers the whole run since the launch harvest, about 1.4 s per 300 s of a busy
+    /// one): the source read every entry before it returned, whatever its task said. A cancelled
+    /// read now stops at the next entry and returns what it read, with the cursor at its last
+    /// entry, so a caller's limit decides the wait and the next read goes on from there.
+    @Test(.timeLimit(.minutes(1))) func aCancelledReadReturnsWhatItReadWithTheCursorAtItsLastEntry() async throws {
+        let launch = Date(timeIntervalSince1970: 1_000)
+        let log = LongLog(start: launch, cancelAt: 4)
+        let source = OSLogErrorSource(processID: 7, launchDate: launch, reader: log)
+        // Its own task: the cancellation is the read's, not the test's.
+        let harvest = try await Task { try await source.collect(after: nil) }.value
+
+        #expect(harvest.events.map(\.message) == ["entry 1", "entry 2", "entry 3"])
+        #expect(harvest.cursor == "7:\(Int64((launch.timeIntervalSince1970 + 3) * 1000))")
+        #expect(harvest.more == false)
+        #expect(log.delivered == 4, "the read went on after its task was cancelled")
+    }
+
+    /// A run with more framework errors than one read's bound kept only the first ``OSLogErrorSource/batchLimit``
+    /// at quit. A read now stops at the bound with ``ErrorHarvest/more``, and the journal reads the
+    /// rest from the cursor in the same harvest.
+    @Test func aRunPastTheReadBoundIsHarvestedWhole() async throws {
+        let launch = Date(timeIntervalSince1970: 1_000)
+        let total = OSLogErrorSource.batchLimit + 10
+        let log = FakeLog(records: (1...total).map {
+            OSLogRecord(date: launch + Double($0) / 100, level: .error, subsystem: "com.apple.WebKit", category: "Loading",
+                        message: "distinct \($0)")
+        })
+        let directory = FileManager().temporaryDirectory.appendingPathComponent("oslog-batches-\(UUID().uuidString)")
+        defer { try? FileManager().removeItem(at: directory) }
+        let journal = ErrorJournal(directory: directory)
+        let found = await journal.harvest([OSLogErrorSource(processID: 7, launchDate: launch, reader: log)])
+        #expect(found["oslog"] == total, "one harvest kept \(found["oslog"] ?? 0) of \(total) errors")
     }
 
     @Test func theSourceAsksTheLogStoreForErrorsAndFaultsOnly() async throws {

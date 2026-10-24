@@ -10,9 +10,10 @@ import Foundation
 /// crash keeps them (a fault at once, an error after the journal's batch delay).
 ///
 /// It harvests at launch (crash reports and log lines written while the app was not running),
-/// at quit (``stop()``, under the quit's deadline: what frameworks and the cmux sites still on
-/// `Logger` logged in this run, which no later launch can read) and before every `errors.list`.
-/// Never on a timer: an idle app wakes for nothing (plans/cmux-next/idle-wakeups.md).
+/// at quit (``stop()``: what frameworks and the cmux sites still on `Logger` logged in this run,
+/// which no later launch can read) and before every `errors.list`. Never on a timer: an idle app
+/// wakes for nothing (plans/cmux-next/idle-wakeups.md). The quit's harvest is best effort: the
+/// quit cancels it once the engines stopped, and it keeps and writes what it read by then.
 ///
 /// The journal lives in `~/Library/Application Support/<bundle id>/errors`, one per build.
 @MainActor
@@ -70,9 +71,17 @@ final class ErrorJournalService {
     }
 
     /// The quit's harvest: waits for the launch harvest if it still runs, reads every source once
-    /// more and writes what is pending. The quit awaits it (`QuitSteps.harvestErrors`).
+    /// more and writes what is pending (`QuitSteps.harvestErrors`). Cancelling it (the quit does,
+    /// once the engines stopped) cancels the launch harvest too; each keeps and writes what it
+    /// read, and the journal's pending records are written either way.
     func stop() async {
-        await launchHarvest?.value
+        if let launch = launchHarvest {
+            await withTaskCancellationHandler {
+                await launch.value
+            } onCancel: {
+                launch.cancel()
+            }
+        }
         launchHarvest = nil
         _ = await journal.harvest(sources)
     }
