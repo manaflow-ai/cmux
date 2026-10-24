@@ -19,6 +19,8 @@ public enum DaemonConnectionState: Sendable, Equatable {
 public final class DaemonStore: StateResourceQueries {
     public internal(set) var workspaces: [WorkspaceModel] = []
     public internal(set) var groups: [WorkspaceGroupModel] = []
+    /// Tabs the unread count read, one by one (tests: an observer of the badge reads no tab).
+    @ObservationIgnored public internal(set) var unreadTabReads = 0
     /// Rooms in order (`profiles-v1`, home session only; the wire calls
     /// them profiles). Empty on a daemon without personal state.
     public internal(set) var profiles: [ProfileModel] = []
