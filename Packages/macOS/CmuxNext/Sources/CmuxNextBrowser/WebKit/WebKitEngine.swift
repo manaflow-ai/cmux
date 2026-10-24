@@ -13,6 +13,8 @@ public final class WebKitEngine: BrowserEngine {
     ]
 
     public let profileStore: WebKitProfileStore
+    /// The App's browser stores, shared with the Chromium engine (``BrowserSharedStores``).
+    public let stores: BrowserSharedStores
     public let faviconLoader: any BrowserFaviconLoading
     /// Where downloads go. Read when each download starts.
     public var downloadsDirectory: URL
@@ -48,7 +50,7 @@ public final class WebKitEngine: BrowserEngine {
     }
 
     /// Per-profile site permissions, shared with the Chromium engine.
-    public var siteSettings: SiteSettingsRegistry = .shared
+    public var siteSettings: SiteSettingsRegistry { stores.siteSettings }
     /// Browser passkey authorization (one per app; tests inject a fake).
     public var passkeyAuthorization: WebKitPasskeyAuthorization = .shared
     /// Appended to WebKit's user agent, e.g. "cmux/1.0 Safari/605.1.15".
@@ -60,14 +62,21 @@ public final class WebKitEngine: BrowserEngine {
     /// and `URLAllowlist` policies); the App sets it from the managed policy.
     public var urlFilter: BrowserURLFilter = .none
 
+    /// An engine over the App's `stores`.
+    ///
+    /// - Parameters:
+    ///   - stores: The stores both engines share; the App passes its one set, a test ``BrowserSharedStores/inMemory()``.
+    ///   - profileStore: The profiles' website data stores; nil builds one over `stores.offTheRecord`.
     public init(
-        profileStore: WebKitProfileStore = WebKitProfileStore(),
+        stores: BrowserSharedStores,
+        profileStore: WebKitProfileStore? = nil,
         faviconLoader: any BrowserFaviconLoading = BrowserFaviconLoader.shared,
         downloadsDirectory: URL = DownloadDestination.defaultDirectory,
         applicationNameForUserAgent: String? = "Version/26.0 Safari/605.1.15",
         lowPowerMode: LowPowerMode = .system
     ) {
-        self.profileStore = profileStore
+        self.stores = stores
+        self.profileStore = profileStore ?? WebKitProfileStore(offTheRecord: stores.offTheRecord)
         self.faviconLoader = faviconLoader
         self.downloadsDirectory = downloadsDirectory
         self.applicationNameForUserAgent = applicationNameForUserAgent
