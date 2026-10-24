@@ -61,4 +61,18 @@ private final class Answers {
         runMainRunLoopPass()
         #expect(answers.list == ["7"])
     }
+
+    /// WebKit shows its own menu and waits for no answer, so its request has no completion:
+    /// `complete` does nothing, and the release answers nothing and leaves the main run loop clean.
+    @Test func aRequestWithoutACompletionTakesAnAnswerAndItsRelease() {
+        var request: BrowserContextMenuRequest? = BrowserContextMenuRequest(
+            items: [], target: BrowserContextMenuTarget(), location: .zero, completion: nil
+        )
+        request?.complete(7)
+        request?.complete(nil)
+        request = nil
+        runMainRunLoopPass()
+        runMainRunLoopPass()
+        #expect(request == nil)
+    }
 }
