@@ -451,9 +451,14 @@ public final class DaemonTerminalSession: TerminalSession {
             // replayed the whole history a second time (user report 2026-10-14).
             var reply: Data
             if initialSize, everAttached, let size = lastSize ?? pendingSize, let overruled,
-               overruled.asked.columns == size.columns, overruled.asked.rows == size.rows {
-                // The Mac kept its own size for this request last time: attach
-                // at that size (no PTY resize), and do not ask again.
+               overruled.asked.columns == size.columns, overruled.asked.rows == size.rows,
+               overruled.mac.columns <= size.columns, overruled.mac.rows <= size.rows {
+                // The Mac kept its own size for this request last time, and it
+                // fits in this phone's grid: attach at that size (no PTY
+                // resize), and do not ask again. A larger Mac grid is never
+                // claimed: the phone renders into its own grid, so the daemon
+                // must know the phone's real size (a wider PTY overprinted
+                // and cut every row, 2026-10-23).
                 log.notice("surface \(self.surface, privacy: .public): reattach at the Mac's \(overruled.mac.columns, privacy: .public)x\(overruled.mac.rows, privacy: .public) (asked \(size.columns, privacy: .public)x\(size.rows, privacy: .public) was overruled)")
                 reply = try await client.request("attach-surface", params: ["surface": surface, "cols": overruled.mac.columns, "rows": overruled.mac.rows])
                 if Self.error(in: reply) != nil {

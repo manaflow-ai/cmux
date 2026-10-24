@@ -122,3 +122,133 @@ export function diffStatSpriteSheet(
   }
   return `<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" width="0" height="0" style="position:absolute">${extraSymbols}${Array.from(symbols.values()).join("")}</svg>`;
 }
+
+/**
+ * A file's change in the diff tab's tree, drawn as a square after its counts (as in a pull
+ * request's file tree): Added a square plus in the added color, Deleted a square minus in the
+ * deleted color, an edited or renamed file a square dot in the modified blue.
+ */
+export type DiffFileChange = "added" | "deleted" | "modified" | "renamed";
+
+/** The statuses the diff tab's tree colors a name by (pierre-options.ts `fileTreeUnsafeCSS`). */
+const NAME_COLORED = new Set(["added", "deleted", "modified", "renamed"]);
+
+/**
+ * The git status the diff tab's tree colors names by: Added green, Deleted red, Modified and
+ * Renamed blue. The stream records no status for a modified file (diff-stream.ts
+ * `updateGitStatus`), so each of `paths` with none is Modified.
+ */
+export function nameColoredGitStatus(
+  entries: readonly { path: string; status: string }[],
+  paths: readonly string[] = [],
+): { path: string; status: "added" | "deleted" | "modified" | "renamed" }[] {
+  const listed = new Set(entries.map((entry) => entry.path));
+  return [
+    ...entries.flatMap((entry) =>
+      NAME_COLORED.has(entry.status)
+        ? [{ path: entry.path, status: entry.status as "added" | "deleted" | "modified" | "renamed" }]
+        : [],
+    ),
+    ...paths.filter((path) => !listed.has(path)).map((path) => ({ path, status: "modified" as const })),
+  ];
+}
+
+/** The change of a tree git status (diff-stream.ts `gitStatusType`); anything else is an edit. */
+export function diffFileChangeOf(status: string | undefined): DiffFileChange {
+  return status === "added" || status === "deleted" || status === "renamed" ? status : "modified";
+}
+
+const SQUARE_SIZE = 12;
+/** The space between the counts and the square. */
+const SQUARE_GAP = 5;
+
+export function diffChangeSymbolId(change: DiffFileChange, stats: DiffFileStats | undefined): string {
+  return `cmux-diff-change-${change}-${Math.max(0, stats?.added ?? 0)}-${Math.max(0, stats?.deleted ?? 0)}`;
+}
+
+function changeSymbolWidth(stats: DiffFileStats | undefined, measure: MeasureText): number {
+  return stats && diffStatParts(stats) ? symbolWidth(stats, measure) + SQUARE_GAP + SQUARE_SIZE : SQUARE_SIZE;
+}
+
+/** The square, its left edge at `x`, centered in the 16 px symbol. */
+function changeSquare(change: DiffFileChange, x: number): string {
+  const color =
+    change === "added"
+      ? "var(--trees-status-added)"
+      : change === "deleted"
+        ? "var(--trees-status-deleted)"
+        : "var(--cmux-tree-modified)";
+  const cx = x + SQUARE_SIZE / 2;
+  const cy = SYMBOL_HEIGHT / 2;
+  const mark =
+    change === "added"
+      ? `<path d="M${cx} ${cy - 2.75}v5.5M${cx - 2.75} ${cy}h5.5"/>`
+      : change === "deleted"
+        ? `<path d="M${cx - 2.75} ${cy}h5.5"/>`
+        : `<circle cx="${cx}" cy="${cy}" r="1.6" fill="${color}" stroke="none"/>`;
+  return (
+    `<g fill="none" stroke="${color}" stroke-width="1.2" stroke-linecap="round">` +
+    `<rect x="${x + 0.6}" y="${cy - 5.4}" width="10.8" height="10.8" rx="2.5"/>${mark}</g>`
+  );
+}
+
+/** A file row's decoration in the diff tab: its counts, then its change square. */
+export function fileTreeChangeDecoration(
+  change: DiffFileChange,
+  stats: DiffFileStats | undefined,
+  titles: { additions: string; deletions: string; change: string },
+  measure: MeasureText,
+): FileTreeStatsDecoration {
+  const parts = diffStatParts(stats);
+  const width = changeSymbolWidth(stats, measure);
+  const title = [
+    titles.change,
+    parts?.added ? `${titles.additions} ${stats!.added}` : null,
+    parts?.deleted ? `${titles.deletions} ${stats!.deleted}` : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
+  return {
+    icon: {
+      name: diffChangeSymbolId(change, stats),
+      width,
+      height: SYMBOL_HEIGHT,
+      viewBox: `0 0 ${width} ${SYMBOL_HEIGHT}`,
+    },
+    title,
+  };
+}
+
+/** One `<symbol>` per distinct change and count pair, after any `extraSymbols` the sheet carries. */
+export function diffChangeSpriteSheet(
+  files: Iterable<{ change: DiffFileChange; stats: DiffFileStats | undefined }>,
+  measure: MeasureText,
+  extraSymbols = "",
+): string {
+  const symbols = new Map<string, string>();
+  for (const { change, stats } of files) {
+    const id = diffChangeSymbolId(change, stats);
+    if (symbols.has(id)) {
+      continue;
+    }
+    const width = changeSymbolWidth(stats, measure);
+    const parts = diffStatParts(stats);
+    const spans = parts
+      ? [
+          parts.added ? `<tspan style="fill: var(--trees-status-added)">${escapeXML(parts.added)}</tspan>` : "",
+          parts.added && parts.deleted ? " " : "",
+          parts.deleted ? `<tspan style="fill: var(--trees-status-deleted)">${escapeXML(parts.deleted)}</tspan>` : "",
+        ].join("")
+      : "";
+    const squareX = width - SQUARE_SIZE;
+    const text = spans
+      ? `<text x="${squareX - SQUARE_GAP}" y="${BASELINE}" text-anchor="end" xml:space="preserve" ` +
+        `style="font-family: inherit; font-size: ${FILE_TREE_STATS_FONT_SIZE}px; font-variant-numeric: tabular-nums">${spans}</text>`
+      : "";
+    symbols.set(
+      id,
+      `<symbol id="${id}" viewBox="0 0 ${width} ${SYMBOL_HEIGHT}">${text}${changeSquare(change, squareX)}</symbol>`,
+    );
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" width="0" height="0" style="position:absolute">${extraSymbols}${Array.from(symbols.values()).join("")}</svg>`;
+}

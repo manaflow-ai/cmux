@@ -715,6 +715,18 @@ impl ChildAgent {
 
     /// Send a request and wait for its response.
     pub async fn request(&self, method: &str, params: Value) -> Result<Value, RpcError> {
+        self.request_with_hook(method, params, || {}).await
+    }
+
+    /// Send a request and run `on_written` only after its frame reached the agent write path.
+    /// Used by first-message title generation to start beside the turn, after the harness can
+    /// publish its own session title.
+    pub async fn request_with_hook<F: FnOnce()>(
+        &self,
+        method: &str,
+        params: Value,
+        on_written: F,
+    ) -> Result<Value, RpcError> {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = oneshot::channel();
         self.pending.lock().await.map.insert(key(&Value::from(id)), tx);
@@ -723,6 +735,7 @@ impl ChildAgent {
             self.pending.lock().await.map.remove(&key(&Value::from(id)));
             return Err(RpcError::internal(e.to_string()));
         }
+        on_written();
         rx.await.unwrap_or_else(|_| Err(RpcError::internal("agent response channel dropped")))
     }
 

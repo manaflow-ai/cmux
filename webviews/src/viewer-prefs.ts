@@ -56,6 +56,7 @@ export function sanitizeViewerPrefs(raw: unknown): ViewerPrefs {
     "showBackgrounds",
     "expandUnchanged",
     "groupByKind",
+    "hideWhitespace",
   ] as const) {
     if (typeof source[key] === "boolean") {
       prefs[key] = source[key];

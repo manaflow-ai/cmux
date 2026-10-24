@@ -55,6 +55,11 @@ nonisolated enum DiffViewerSettingsSchema {
             // this row, so turning it on now lasts past the tab (webviews/src/viewer-prefs.ts).
             toggle("groupByKind", SettingsText.keyed("settings.diff.groupByKind", "Group Files by Kind"), false,
                    ["group", "kind", "tests", "generated", "order", "sort"]),
+            // Off by default: the diff shows every change, as git does. On, the diff leaves out white
+            // space changes (`git diff --ignore-all-space`), for the git sources only; the "..." menu's
+            // Hide white space writes this row.
+            toggle("hideWhitespace", SettingsText.keyed("settings.diff.hideWhitespace", "Hide White Space"), false,
+                   ["whitespace", "white space", "spaces", "indentation", "ignore"]),
         ]
     }
 }

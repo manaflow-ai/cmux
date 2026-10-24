@@ -76,7 +76,11 @@ final class AppServices {
     let machineAsks = SidebarAsks()
     private(set) lazy var cloud: CloudService = CloudService(machines: machines, isDebugBuild: ControlService.isDebugBuild)  // first read in init (no IUO)
     /// The feed mirror (`FeedDO`), started once the cmux account is signed in.
-    private(set) lazy var feed: FeedService = FeedService(auth: cloud.auth, showcase: environment.showcase)  // first read in init (no IUO)
+    private(set) lazy var feed: FeedService = FeedService(
+        auth: cloud.auth,
+        showcase: environment.showcase,
+        acpmuxEnvironment: QuitAgents.environment(self)
+    )  // first read in init (no IUO)
     var showcase = ShowcaseState()
     /// The wide Inbox page, backed by `feed.model`.
     private(set) lazy var feedPage = FeedPageService(services: self)
@@ -96,6 +100,8 @@ final class AppServices {
     let registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming())
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
     let updater = UpdaterService()
+    /// The file picker made ahead of the click, the app's one: agent panes, page file inputs and Home's "+" take it.
+    let openPanel = MadeAheadOpenPanel()
     /// "Restart cmux-tui to use new features" (plans/cmux-next/server-updates-DESIGN.md).
     private(set) lazy var serverUpdates = ServerUpdatePresenter(daemon: daemon, defaults: .standard,
                                                                  activeWindow: { [weak self] in self?.windows.active?.window })

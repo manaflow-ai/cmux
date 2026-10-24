@@ -136,18 +136,22 @@ extension AgentPaneImageCopies {
     /// The file `path` names when Finder may show it: a file (not a folder) inside the roots, not on
     /// the deny list, in a chat on this machine. Nil otherwise (the image's copy is shown instead).
     @MainActor static func shownFile(_ path: String, in model: AgentPaneModel) -> URL? {
-        guard !model.remoteChat, let resolved = model.replyPaths().resolve(path), resolved.place == .root,
+        let paths = model.replyPaths()
+        let resolved = AgentPaneReplyPaths.isImagePath(path) ? paths.resolveImage(path) : paths.resolve(path)
+        guard !model.remoteChat, let resolved, resolved.place == .root,
               !resolved.isFolder, let canonical = AcpmuxPathPolicy.canonical(resolved.path),
-              !model.replyPaths().isDenied(canonical) else { return nil }
+              !paths.isDenied(canonical) else { return nil }
         return URL(fileURLWithPath: canonical, isDirectory: false)
     }
 
     /// The file `path` names when it may be dragged out: a file or folder inside the roots, not on
     /// the deny list, in a chat on this machine.
     @MainActor static func draggedFile(_ path: String, in model: AgentPaneModel) -> URL? {
-        guard !model.remoteChat, let resolved = model.replyPaths().resolve(path), resolved.place == .root,
+        let paths = model.replyPaths()
+        let resolved = AgentPaneReplyPaths.isImagePath(path) ? paths.resolveImage(path) : paths.resolve(path)
+        guard !model.remoteChat, let resolved, resolved.place == .root,
               let canonical = AcpmuxPathPolicy.canonical(resolved.path),
-              !model.replyPaths().isDenied(canonical) else { return nil }
+              !paths.isDenied(canonical) else { return nil }
         return URL(fileURLWithPath: canonical, isDirectory: resolved.isFolder)
     }
 

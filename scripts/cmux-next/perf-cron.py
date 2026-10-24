@@ -1871,6 +1871,9 @@ def result_plan(o, state, t):
     out = {"action": "none", "sha": "", "part": "", "linux_part": "", "frame_pacing": "false", "stale_hours": round(stale_hours(state, t), 1)}
     if value is None:
         out["reason"] = "the controller's perf_result is not a result"
+    elif value.get("step_id") and value["step_id"] in {(e or {}).get("step_id") for e in (cur.get("parts") or {}).values()}:
+        # The controller may send a result twice (a lost answer, a restart): the step was stored already.
+        out["reason"] = f"the controller's result of step {value['step_id']} was stored already; dropped"
     elif value["sha"] != cur.get("sha") or value["part"] not in (cur.get("parts_todo") or []):
         out["reason"] = (f"the controller's {value['part']} result for {value['sha'][:12]} is not for the measurement in "
                          f"flight ({str(cur.get('sha') or 'none')[:12]}); dropped")

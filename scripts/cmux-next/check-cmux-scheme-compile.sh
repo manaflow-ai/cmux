@@ -53,13 +53,33 @@ fi
 
 echo "check-cmux-scheme-compile: $(xcodebuild -version | tr '\n' ' ')"
 cd "$repo_root"
-log="$(mktemp)"
-if (( kept_path )); then
-  trap 'rm -f "$log"' EXIT
+metrics_dir="${CMUX_BUILD_METRICS_DIR:-}"
+if [[ -n "$metrics_dir" ]]; then
+  if mkdir -p "$metrics_dir"; then
+    log=""
+  else
+    echo "warning: cannot create CMUX_BUILD_METRICS_DIR=$metrics_dir; continuing without timing artifacts" >&2
+    metrics_dir=""
+    log="$(mktemp -t cmux-next-scheme-build.XXXXXX.log)"
+  fi
 else
-  trap 'rm -f "$log"; rm -rf -- "$derived_data"' EXIT
+  log="$(mktemp)"
 fi
+if (( kept_path )); then
+  [[ -n "$metrics_dir" ]] || trap 'rm -f "$log"' EXIT
+else
+  if [[ -n "$metrics_dir" ]]; then
+    trap 'rm -rf -- "$derived_data"' EXIT
+  else
+    trap 'rm -f "$log"; rm -rf -- "$derived_data"' EXIT
+  fi
+fi
+build_attempt=0
 build() {
+  build_attempt=$((build_attempt + 1))
+  if [[ -n "$metrics_dir" ]]; then
+    log="$metrics_dir/xcodebuild-attempt-${build_attempt}.log"
+  fi
   xcode_args=(
     -project cmux.xcodeproj -scheme cmux -configuration "$configuration"
     -destination 'platform=macOS,arch=arm64'
@@ -72,9 +92,10 @@ build() {
   CMUX_NEXT_SKIP_CEF=1 CMUX_SKIP_ZIG_BUILD=1 \
     "$repo_root/scripts/ci/run-xcodebuild-with-diagnostics.sh" -- \
     xcodebuild "${xcode_args[@]}" \
-    build 2>&1 | tee "$log"
+    -showBuildTimingSummary build 2>&1 | tee "$log"
   return "${PIPESTATUS[0]}"
 }
+SECONDS=0
 if (( kept_path )); then
   # shellcheck source=scripts/ci/swiftpm-binary-module-guard.sh
   source "$repo_root/scripts/ci/swiftpm-binary-module-guard.sh"
@@ -108,5 +129,16 @@ if (( status == 0 )) && [[ -n "$product_name" ]]; then
       || /usr/libexec/PlistBuddy -c "Add :$key string $product_name" "$plist"
   done
   echo "check-cmux-scheme-compile: $product_name.app from $built_name.app"
+fi
+if [[ -n "${CMUX_BUILD_METRICS_OUTPUT:-}" ]]; then
+  # Keep the final log beside DerivedData so the existing parser can report
+  # Xcode's phase summary and cache remarks. Metrics are advisory: a parser or
+  # upload problem must never change the compile verdict.
+  cp -f "$log" "$derived_data/cmux-next-build.log" 2>/dev/null || true
+  metrics_args=(--output "$CMUX_BUILD_METRICS_OUTPUT" --compile-seconds "$SECONDS")
+  metrics_args+=(--compile-outcome "$([[ "$status" == 0 ]] && echo success || echo failure)")
+  [[ -n "${CMUX_BUILD_METRICS_SUMMARY:-}" ]] && metrics_args+=(--summary "$CMUX_BUILD_METRICS_SUMMARY")
+  python3 "$repo_root/scripts/ci/build_metrics.py" "$derived_data" "${metrics_args[@]}" \
+    || echo "check-cmux-scheme-compile: warning: could not write build metrics" >&2
 fi
 exit "$status"
