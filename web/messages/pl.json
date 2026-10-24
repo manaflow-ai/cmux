@@ -204,7 +204,9 @@
     "changelog": "Dziennik zmian",
     "community": "Społeczność",
     "jobs": "Praca",
-    "github": "GitHub"
+    "github": "GitHub",
+    "signIn": "Zaloguj się",
+    "account": "Konto"
   },
   "footer": {
     "product": "Produkt",
@@ -5306,7 +5308,11 @@
     "billingUnavailable": "Płatności są teraz niedostępne. Spróbuj ponownie później.",
     "signedOutNotice": "Nie jesteś zalogowany. Zaloguj się, aby zobaczyć bieżący plan lub przywrócić istniejący zakup.",
     "signedOutSignIn": "Zaloguj się",
-    "manageInAppStore": "Zarządzaj w App Store"
+    "manageInAppStore": "Zarządzaj w App Store",
+    "billedYearly": "${amount} rozliczane rocznie",
+    "billedMonthly": "Rozliczane miesięcznie",
+    "earlySupporterPrice": "Cena dla wczesnych użytkowników",
+    "foundersEditionPrice": "Founder's Edition"
   },
   "platforms": {
     "macos": "macOS",

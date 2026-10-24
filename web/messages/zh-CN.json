@@ -204,7 +204,9 @@
     "changelog": "更新日志",
     "community": "社区",
     "jobs": "招聘",
-    "github": "GitHub"
+    "github": "GitHub",
+    "signIn": "登录",
+    "account": "账户"
   },
   "footer": {
     "product": "产品",
@@ -5306,7 +5308,11 @@
     "billingUnavailable": "目前无法使用结算功能。请稍后再试。",
     "signedOutNotice": "你尚未登录。登录后可查看当前方案或恢复已有购买。",
     "signedOutSignIn": "登录",
-    "manageInAppStore": "在 App Store 中管理"
+    "manageInAppStore": "在 App Store 中管理",
+    "billedYearly": "按年计费 ${amount}",
+    "billedMonthly": "按月计费",
+    "earlySupporterPrice": "早期支持者价格",
+    "foundersEditionPrice": "Founder's Edition"
   },
   "platforms": {
     "macos": "macOS",

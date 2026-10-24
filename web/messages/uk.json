@@ -204,7 +204,9 @@
     "changelog": "Журнал змін",
     "community": "Спільнота",
     "jobs": "Вакансії",
-    "github": "GitHub"
+    "github": "GitHub",
+    "signIn": "Увійти",
+    "account": "Обліковий запис"
   },
   "footer": {
     "product": "Продукт",
@@ -5376,7 +5378,11 @@
     "billingUnavailable": "Оплата зараз недоступна. Спробуйте ще раз пізніше.",
     "signedOutNotice": "Ви не ввійшли в систему. Увійдіть, щоб переглянути поточний план або відновити наявну покупку.",
     "signedOutSignIn": "Увійти",
-    "manageInAppStore": "Керувати в App Store"
+    "manageInAppStore": "Керувати в App Store",
+    "billedYearly": "${amount} на рік",
+    "billedMonthly": "Оплата щомісяця",
+    "earlySupporterPrice": "Ціна для перших користувачів",
+    "foundersEditionPrice": "Founder's Edition"
   },
   "platforms": {
     "macos": "macOS",

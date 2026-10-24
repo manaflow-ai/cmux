@@ -8,6 +8,7 @@ import {
   type PlanPrice,
   type BillingInterval,
 } from "../../services/billing/plans";
+import { formatUsd, type PlanCardSubscriptionPrice } from "../../services/billing/subscriptionPrice";
 import { ProCtaLink } from "../[locale]/components/pro-cta-link";
 
 export type ProAnnualLabels = {
@@ -15,6 +16,13 @@ export type ProAnnualLabels = {
   yearly: string;
   monthly: string;
   perMonth: string;
+  /** "Billed ${amount} yearly", with the literal `{amount}` placeholder. */
+  billedYearlyTemplate: string;
+  billedMonthly: string;
+  /** Marks a subscriber's price that is below today's list price. */
+  earlySupporterPrice: string;
+  /** Labels a Founder's Edition owner's Pro price. */
+  foundersEdition: string;
 };
 
 /**
@@ -39,6 +47,7 @@ export function ProPlanCard({
   initialInterval = "year",
   plan = "pro",
   pricing,
+  currentPrice,
   children,
 }: {
   name: string;
@@ -61,6 +70,12 @@ export function ProPlanCard({
   initialInterval?: BillingInterval;
   plan?: "pro" | "max";
   pricing?: Readonly<Record<BillingInterval, PlanPrice>>;
+  /**
+   * What this subscriber's own Stripe subscription charges, set only on the
+   * card of the plan in force. A grandfathered price (an early $30 Pro, or
+   * Founder's Edition) shows here with today's list price struck through.
+   */
+  currentPrice?: PlanCardSubscriptionPrice;
   children: ReactNode;
 }) {
   const planPricing = pricing ?? (plan === "max" ? MAX_PRICING_USD : PRO_PRICING_USD);
@@ -77,9 +92,26 @@ export function ProPlanCard({
       discount_percent: planPricing[next].discountPercent,
     });
   };
-  // A subscriber sees their own plan, whose period the card does not know,
-  // so the monthly price stays the reference there.
-  const price = planPricing[action ? "month" : interval];
+  // A subscriber with a known Stripe price sees what they pay. Otherwise a
+  // subscriber's card does not know their period, so monthly stays the
+  // reference there.
+  const shown = cardPrice({
+    pricing: planPricing,
+    interval: action ? "month" : interval,
+    currentPrice,
+  });
+  const billedYearly = shown.yearlyTotal === null
+    ? null
+    : labels.billedYearlyTemplate.replace("{amount}", formatUsd(shown.yearlyTotal));
+  // Founder's Edition is always named; any other own price only when it is
+  // below today's list price. Otherwise the line says how it is billed, so
+  // the label keeps two lines in either period and the card never jumps.
+  const priceNote = currentPrice?.foundersEdition
+    ? labels.foundersEdition
+    : shown.listMonthly !== null
+      ? labels.earlySupporterPrice
+      : null;
+  const billingDetail = priceNote ?? billedYearly ?? labels.billedMonthly;
 
   return (
     <div className="relative flex h-full min-w-0 flex-col border border-border p-6">
@@ -117,15 +149,21 @@ export function ProPlanCard({
           </fieldset>
         </div>
       )}
-      <div className="mt-3">
-        <div className="flex items-baseline gap-1.5">
-          <span className="text-3xl font-medium tabular-nums tracking-tight">
-            {`$${price.monthlyEquivalent}`}
-          </span>
-          <span className="max-w-44 text-sm leading-snug text-muted">
-            {labels.perMonth}
-          </span>
-        </div>
+      {/* The billing detail sits beside the price as a two-line label, so the
+          price row keeps the Free card's height and the buttons line up. */}
+      <div className="mt-3 flex items-end gap-2">
+        {shown.listMonthly !== null ? (
+          <s className="text-3xl font-medium tabular-nums tracking-tight text-muted decoration-1">
+            {`$${formatUsd(shown.listMonthly)}`}
+          </s>
+        ) : null}
+        <span className="text-3xl font-medium tabular-nums tracking-tight">
+          {`$${formatUsd(shown.monthly)}`}
+        </span>
+        <span className="flex min-w-0 flex-col pb-0.5 text-sm leading-[1.15] text-muted">
+          <span>{labels.perMonth}</span>
+          <span className="truncate">{billingDetail}</span>
+        </span>
       </div>
       <div className="mt-3">
         {action ?? (
@@ -143,4 +181,42 @@ export function ProPlanCard({
       {children}
     </div>
   );
+}
+
+type CardPrice = {
+  /** The figure shown, per month. */
+  readonly monthly: number;
+  /** Today's list price per month, struck through above a lower own price. */
+  readonly listMonthly: number | null;
+  /** What a yearly subscription bills each year, or null for monthly. */
+  readonly yearlyTotal: number | null;
+};
+
+function cardPrice({
+  pricing,
+  interval,
+  currentPrice,
+}: {
+  pricing: Readonly<Record<BillingInterval, PlanPrice>>;
+  interval: BillingInterval;
+  currentPrice?: PlanCardSubscriptionPrice;
+}): CardPrice {
+  if (!currentPrice) {
+    const list = pricing[interval];
+    return {
+      monthly: list.monthlyEquivalent,
+      listMonthly: null,
+      yearlyTotal: interval === "year" ? list.billedAmount : null,
+    };
+  }
+  const yearly = currentPrice.interval === "year";
+  const monthly = yearly ? currentPrice.amountUsd / 12 : currentPrice.amountUsd;
+  // Compare against the list price for the same period, so a yearly
+  // subscriber at today's yearly price is not shown a discount.
+  const list = pricing[currentPrice.interval].monthlyEquivalent;
+  return {
+    monthly,
+    listMonthly: monthly < list ? list : null,
+    yearlyTotal: yearly ? currentPrice.amountUsd : null,
+  };
 }

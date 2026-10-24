@@ -204,7 +204,9 @@
     "changelog": "سجل التغييرات",
     "community": "المجتمع",
     "jobs": "الوظائف",
-    "github": "GitHub"
+    "github": "GitHub",
+    "signIn": "تسجيل الدخول",
+    "account": "الحساب"
   },
   "footer": {
     "product": "المنتج",
@@ -5303,7 +5305,11 @@
     "billingUnavailable": "الفوترة غير متاحة الآن. يُرجى المحاولة مرة أخرى لاحقًا.",
     "signedOutNotice": "لم تسجّل الدخول. سجّل الدخول لعرض خطتك الحالية أو استعادة عملية شراء سابقة.",
     "signedOutSignIn": "تسجيل الدخول",
-    "manageInAppStore": "الإدارة في App Store"
+    "manageInAppStore": "الإدارة في App Store",
+    "billedYearly": "تُدفع ${amount} سنويًا",
+    "billedMonthly": "يُدفع شهريًا",
+    "earlySupporterPrice": "سعر الداعمين الأوائل",
+    "foundersEditionPrice": "Founder's Edition"
   },
   "platforms": {
     "macos": "macOS",

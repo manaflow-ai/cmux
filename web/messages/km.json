@@ -204,7 +204,9 @@
     "changelog": "កំណត់ត្រាផ្លាស់ប្ដូរ",
     "community": "សហគមន៍",
     "jobs": "ការងារ",
-    "github": "GitHub"
+    "github": "GitHub",
+    "signIn": "ចូល",
+    "account": "គណនី"
   },
   "footer": {
     "product": "ផលិតផល",
@@ -5304,7 +5306,11 @@
     "billingUnavailable": "ការទូទាត់មិនអាចប្រើបាននៅពេលនេះទេ។ សូមព្យាយាមម្តងទៀតនៅពេលក្រោយ។",
     "signedOutNotice": "អ្នកមិនទាន់បានចូលទេ។ ចូលដើម្បីមើលគម្រោងបច្ចុប្បន្នរបស់អ្នក ឬស្ដារការទិញដែលមានស្រាប់។",
     "signedOutSignIn": "ចូល",
-    "manageInAppStore": "គ្រប់គ្រងនៅក្នុង App Store"
+    "manageInAppStore": "គ្រប់គ្រងនៅក្នុង App Store",
+    "billedYearly": "គិតប្រាក់ ${amount} ក្នុងមួយឆ្នាំ",
+    "billedMonthly": "គិតប្រាក់ប្រចាំខែ",
+    "earlySupporterPrice": "តម្លៃសម្រាប់អ្នកគាំទ្រដំបូង",
+    "foundersEditionPrice": "Founder's Edition"
   },
   "platforms": {
     "macos": "macOS",

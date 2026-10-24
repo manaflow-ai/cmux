@@ -204,7 +204,9 @@
     "changelog": "Changelog",
     "community": "Comunidad",
     "jobs": "Empleos",
-    "github": "GitHub"
+    "github": "GitHub",
+    "signIn": "Iniciar sesión",
+    "account": "Cuenta"
   },
   "footer": {
     "product": "Producto",
@@ -5305,7 +5307,11 @@
     "billingUnavailable": "La facturación no está disponible ahora. Inténtalo de nuevo más tarde.",
     "signedOutNotice": "No has iniciado sesión. Inicia sesión para ver tu plan actual o restaurar una compra existente.",
     "signedOutSignIn": "Iniciar sesión",
-    "manageInAppStore": "Gestionar en el App Store"
+    "manageInAppStore": "Gestionar en el App Store",
+    "billedYearly": "Facturado ${amount} al año",
+    "billedMonthly": "Facturado mensualmente",
+    "earlySupporterPrice": "Precio para primeros usuarios",
+    "foundersEditionPrice": "Founder's Edition"
   },
   "platforms": {
     "macos": "macOS",

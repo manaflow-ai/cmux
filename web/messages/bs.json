@@ -204,7 +204,9 @@
     "changelog": "Zapisnik promjena",
     "community": "Zajednica",
     "jobs": "Poslovi",
-    "github": "GitHub"
+    "github": "GitHub",
+    "signIn": "Prijava",
+    "account": "Račun"
   },
   "footer": {
     "product": "Proizvod",
@@ -5306,7 +5308,11 @@
     "billingUnavailable": "Naplata trenutno nije dostupna. Pokušajte ponovo kasnije.",
     "signedOutNotice": "Niste prijavljeni. Prijavite se da vidite trenutni plan ili vratite postojeću kupovinu.",
     "signedOutSignIn": "Prijavite se",
-    "manageInAppStore": "Upravljajte u App Storeu"
+    "manageInAppStore": "Upravljajte u App Storeu",
+    "billedYearly": "Naplaćuje se ${amount} godišnje",
+    "billedMonthly": "Naplaćuje se mjesečno",
+    "earlySupporterPrice": "Cijena za rane podržavaoce",
+    "foundersEditionPrice": "Founder's Edition"
   },
   "platforms": {
     "macos": "macOS",

@@ -14,7 +14,12 @@ import {
   type BillingManagementKind,
   type PersonalBillingSource,
 } from "./pro";
-import { subscriptionPriceFromRaw, type SubscriptionPrice } from "./subscriptionPrice";
+import { FOUNDERS_EDITION_PRICE_USD } from "./plans";
+import {
+  subscriptionPriceFromRaw,
+  type PlanCardSubscriptionPrice,
+  type SubscriptionPrice,
+} from "./subscriptionPrice";
 import type { TeamBillingAccessUser, TeamBillingRole } from "./teamBillingAccess";
 import {
   listBillingTeams,
@@ -157,10 +162,16 @@ async function loadPersonalBilling(user: DashboardBillingUser): Promise<Personal
  * The user's current Pro/Max subscription, Max first, and whether they own
  * Founder's Edition. A Founder's Edition purchase is stored as an active Pro
  * row, but it is a one-time purchase, never the subscription.
+ * `foundersPrice` is the Stripe Price on a Founder's Edition row, when the
+ * edition was sold as a recurring Price.
  */
 export async function activePersonalSubscriptions(
   stackUserId: string,
-): Promise<{ readonly subscription: PersonalSubscriptionJson | null; readonly foundersEdition: boolean }> {
+): Promise<{
+  readonly subscription: PersonalSubscriptionJson | null;
+  readonly foundersEdition: boolean;
+  readonly foundersPrice: SubscriptionPrice | null;
+}> {
   const rows = await cloudDb()
     .select({
       id: stripeSubscriptions.id,
@@ -186,8 +197,12 @@ export async function activePersonalSubscriptions(
     )
     .limit(10);
   const row = rows.find((candidate) => !isFounderSubscriptionRow(candidate));
+  const founderRows = rows.filter(isFounderSubscriptionRow);
   return {
-    foundersEdition: rows.some(isFounderSubscriptionRow),
+    foundersEdition: founderRows.length > 0,
+    foundersPrice: founderRows
+      .map((founder) => subscriptionPriceFromRaw(founder.raw))
+      .find((price) => price !== null) ?? null,
     subscription: row
       ? {
           plan: row.plan ?? null,
@@ -198,6 +213,33 @@ export async function activePersonalSubscriptions(
         }
       : null,
   };
+}
+
+/**
+ * What the account pays for `planId`, for the pricing pages' plan card: the
+ * subscription behind the plan, else Founder's Edition for Pro (its own
+ * Stripe Price, or the $30/mo it was sold at). A refinement only: a failed
+ * read returns undefined and the card keeps today's list price.
+ */
+export async function currentPersonalSubscriptionPrice(
+  stackUserId: string,
+  planId: string,
+  readSubscriptions: typeof activePersonalSubscriptions = activePersonalSubscriptions,
+): Promise<PlanCardSubscriptionPrice | undefined> {
+  try {
+    const { subscription, foundersEdition, foundersPrice } = await readSubscriptions(stackUserId);
+    // A subscription on top of the edition is what the account pays now.
+    if (subscription?.plan === planId) return subscription.price ?? undefined;
+    if (foundersEdition && planId === "pro") {
+      return { ...(foundersPrice ?? FOUNDERS_EDITION_PRICE_USD), foundersEdition: true };
+    }
+    return undefined;
+  } catch (error) {
+    console.error("Subscription price lookup failed", {
+      errorType: error instanceof Error ? error.name : typeof error,
+    });
+    return undefined;
+  }
 }
 
 export function teamBillingViewJson(view: TeamBillingView): TeamBillingViewJson {

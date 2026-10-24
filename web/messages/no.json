@@ -204,7 +204,9 @@
     "changelog": "Endringslogg",
     "community": "Fellesskap",
     "jobs": "Ledige stillinger",
-    "github": "GitHub"
+    "github": "GitHub",
+    "signIn": "Logg inn",
+    "account": "Konto"
   },
   "footer": {
     "product": "Produkt",
@@ -5303,7 +5305,11 @@
     "billingUnavailable": "Betaling er ikke tilgjengelig akkurat nå. Prøv igjen senere.",
     "signedOutNotice": "Du er ikke logget inn. Logg inn for å se gjeldende abonnement eller gjenopprette et eksisterende kjøp.",
     "signedOutSignIn": "Logg inn",
-    "manageInAppStore": "Administrer i App Store"
+    "manageInAppStore": "Administrer i App Store",
+    "billedYearly": "Faktureres ${amount} årlig",
+    "billedMonthly": "Faktureres månedlig",
+    "earlySupporterPrice": "Pris for tidlige støttespillere",
+    "foundersEditionPrice": "Founder's Edition"
   },
   "platforms": {
     "macos": "macOS",

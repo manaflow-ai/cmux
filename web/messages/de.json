@@ -204,7 +204,9 @@
     "changelog": "Changelog",
     "community": "Community",
     "jobs": "Jobs",
-    "github": "GitHub"
+    "github": "GitHub",
+    "signIn": "Anmelden",
+    "account": "Konto"
   },
   "footer": {
     "product": "Produkt",
@@ -5306,7 +5308,11 @@
     "billingUnavailable": "Die Abrechnung ist derzeit nicht verfügbar. Bitte versuche es später erneut.",
     "signedOutNotice": "Du bist nicht angemeldet. Melde dich an, um deinen aktuellen Tarif zu sehen oder einen bestehenden Kauf wiederherzustellen.",
     "signedOutSignIn": "Anmelden",
-    "manageInAppStore": "Im App Store verwalten"
+    "manageInAppStore": "Im App Store verwalten",
+    "billedYearly": "${amount} jährlich abgerechnet",
+    "billedMonthly": "Monatlich abgerechnet",
+    "earlySupporterPrice": "Preis für frühe Unterstützer",
+    "foundersEditionPrice": "Founder's Edition"
   },
   "platforms": {
     "macos": "macOS",

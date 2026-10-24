@@ -204,7 +204,9 @@
     "changelog": "Changelog",
     "community": "ชุมชน",
     "jobs": "ตำแหน่งงาน",
-    "github": "GitHub"
+    "github": "GitHub",
+    "signIn": "ลงชื่อเข้าใช้",
+    "account": "บัญชี"
   },
   "footer": {
     "product": "ผลิตภัณฑ์",
@@ -5311,7 +5313,11 @@
     "billingUnavailable": "การเรียกเก็บเงินยังไม่พร้อมใช้งานในตอนนี้ โปรดลองอีกครั้งภายหลัง",
     "signedOutNotice": "คุณยังไม่ได้ลงชื่อเข้าใช้ ลงชื่อเข้าใช้เพื่อดูแผนปัจจุบันหรือกู้คืนการซื้อที่มีอยู่",
     "signedOutSignIn": "ลงชื่อเข้าใช้",
-    "manageInAppStore": "จัดการใน App Store"
+    "manageInAppStore": "จัดการใน App Store",
+    "billedYearly": "เรียกเก็บ ${amount} ต่อปี",
+    "billedMonthly": "เรียกเก็บรายเดือน",
+    "earlySupporterPrice": "ราคาสำหรับผู้สนับสนุนรุ่นแรก",
+    "foundersEditionPrice": "Founder's Edition"
   },
   "platforms": {
     "macos": "macOS",

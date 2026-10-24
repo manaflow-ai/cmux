@@ -204,7 +204,9 @@
     "changelog": "更新日誌",
     "community": "社群",
     "jobs": "職缺",
-    "github": "GitHub"
+    "github": "GitHub",
+    "signIn": "登入",
+    "account": "帳戶"
   },
   "footer": {
     "product": "產品",
@@ -5305,7 +5307,11 @@
     "billingUnavailable": "目前無法使用結算功能。請稍後再試。",
     "signedOutNotice": "你尚未登入。登入後可查看目前方案或恢復既有購買。",
     "signedOutSignIn": "登入",
-    "manageInAppStore": "在 App Store 中管理"
+    "manageInAppStore": "在 App Store 中管理",
+    "billedYearly": "按年計費 ${amount}",
+    "billedMonthly": "按月計費",
+    "earlySupporterPrice": "早期支持者價格",
+    "foundersEditionPrice": "Founder's Edition"
   },
   "platforms": {
     "macos": "macOS",

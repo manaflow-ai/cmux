@@ -10,6 +10,7 @@ import {
   resolveProPlanStatus,
 } from "../../services/billing/pro";
 import { isGoPlanEnabled } from "../../services/billing/goPlanFlag";
+import { currentPersonalSubscriptionPrice } from "../../services/billing/dashboardBilling";
 import { PricingView } from "../components/pricing-checkout";
 import { AppPricingContent, type AppPlanSnapshot } from "./pricing-content";
 import { AppPricingFallback, unknownPlan } from "./pricing-fallback";
@@ -162,6 +163,11 @@ async function readPlanSnapshot(): Promise<AppPlanSnapshot> {
   }
 
   const status = await resolveProPlanStatus(user);
+  // App Store plans are priced by Apple; everything else may have a Stripe
+  // subscription or Founder's Edition behind it.
+  const currentPrice = status.isPro && status.billingSource !== "apple"
+    ? await currentPersonalSubscriptionPrice(user.id, status.planId)
+    : undefined;
   return {
     userId: user.id,
     authenticated: !user.isAnonymous,
@@ -172,6 +178,7 @@ async function readPlanSnapshot(): Promise<AppPlanSnapshot> {
     billingSource: status.billingSource,
     cancelScheduled: status.cancelScheduled ?? false,
     paymentPastDue: status.paymentPastDue ?? false,
+    currentPrice,
     email: user.primaryEmail,
   };
 }

@@ -1627,6 +1627,8 @@
     "community": "Community",
     "jobs": "Jobs",
     "pricing": "Pricing",
+    "signIn": "Sign in",
+    "account": "Account",
     "github": "GitHub"
   },
   "footer": {
@@ -1786,6 +1788,10 @@
     },
     "alreadyPaid": "Already paid? Connect Founder's Edition",
     "perMonth": "/mo",
+    "billedYearly": "Billed ${amount} yearly",
+    "billedMonthly": "Billed monthly",
+    "earlySupporterPrice": "Early supporter price",
+    "foundersEditionPrice": "Founder's Edition",
     "perUserMonth": "/user/mo",
     "billingPeriod": "Billing period",
     "monthly": "Monthly",

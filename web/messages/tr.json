@@ -204,7 +204,9 @@
     "changelog": "Değişiklik Günlüğü",
     "community": "Topluluk",
     "jobs": "Kariyer",
-    "github": "GitHub"
+    "github": "GitHub",
+    "signIn": "Giriş yap",
+    "account": "Hesap"
   },
   "footer": {
     "product": "Ürün",
@@ -5304,7 +5306,11 @@
     "billingUnavailable": "Faturalandırma şu anda kullanılamıyor. Lütfen daha sonra tekrar deneyin.",
     "signedOutNotice": "Oturum açmadınız. Mevcut planınızı görmek veya önceki bir satın almayı geri yüklemek için oturum açın.",
     "signedOutSignIn": "Oturum aç",
-    "manageInAppStore": "App Store'da yönet"
+    "manageInAppStore": "App Store'da yönet",
+    "billedYearly": "Yıllık ${amount} faturalandırılır",
+    "billedMonthly": "Aylık faturalandırılır",
+    "earlySupporterPrice": "Erken destekçi fiyatı",
+    "foundersEditionPrice": "Founder's Edition"
   },
   "platforms": {
     "macos": "macOS",
