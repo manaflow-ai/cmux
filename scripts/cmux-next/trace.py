@@ -3090,7 +3090,43 @@ def check_refuses_a_running_bundle():
             other.wait()
 
 
-SELF_TESTS = [check_parsers_and_merge, check_stage_bounds, check_stage_errors, check_hold_defers_the_bound,
+FIXTURES = os.path.join(HERE, "tests", "trace-fixtures")
+
+
+def check_real_xctrace_exports():
+    """Real exports (scripts/cmux-next/trace_fixtures.py on a fleet Mac, one folder per xctrace major): the column
+    tags time_profile_samples, xctrace_signposts, syscall_waits and parse_toc read are the ones xctrace writes."""
+    folders = sorted(d for d in os.listdir(FIXTURES) if d.startswith("xctrace-")) if os.path.isdir(FIXTURES) else []
+    assert folders, f"no real xctrace exports in {FIXTURES} (record them with trace_fixtures.py on a fleet Mac)"
+    for folder in folders:
+        where = os.path.join(FIXTURES, folder)
+        fixture = read_json(os.path.join(where, "fixture.json"))
+        emitter = fixture["emitter"]
+        toc = parse_toc(os.path.join(where, "profile-toc.xml"))
+        assert {"time-profile", "os-signpost"} <= set(toc["schemas"]) and toc["start_date"], (folder, toc)
+        assert "syscall" in parse_toc(os.path.join(where, "system-toc.xml"))["schemas"], folder
+        samples = time_profile_samples(os.path.join(where, "time-profile.xml"))
+        main = [x for x in samples if x[2].get("name") == "Main Thread" and isinstance(x[2].get("pid"), int)
+                and isinstance(x[2].get("tid"), int)]
+        assert main and all(x[1] > 0 for x in main), (folder, samples[:2])
+        spin = [x for x in main if any(emitter["spin_function"] in str(f) for f in x[3])]
+        # 20 rounds of 20 ms at 1 ms sampling: about 400 samples in the spin; half of that is a broken parse.
+        assert len(spin) >= emitter["rounds"] * emitter["spin_ms"] // 2, (folder, len(spin), main[0][3][:5])
+        stats = {}
+        posts = xctrace_signposts(os.path.join(where, "os-signpost.xml"), stats)
+        begins = [x for x in posts if x[1] == emitter["signpost"] and x[2].lower().startswith("begin")]
+        ends = [x for x in posts if x[1] == emitter["signpost"] and x[2].lower().startswith("end")]
+        assert len(begins) == len(ends) == emitter["rounds"], (folder, stats, posts[:3])
+        assert all(isinstance(x[0], int) for x in begins), begins[:2]
+        waits = syscall_waits(os.path.join(where, "syscall.xml"))
+        sleeps = [x for x in waits if x[2].get("name") == "Main Thread" and "semwait" in x[3]
+                  and x[1] >= emitter["usleep_ms"] * 1_000_000 * 0.8]
+        assert len(sleeps) >= emitter["rounds"] // 2, (folder, len(waits), [(x[3], x[1]) for x in waits[:5]])
+        print(f"{folder}: {len(spin)} spin samples, {len(begins)} signpost intervals, {len(sleeps)} sleeps")
+
+
+SELF_TESTS = [check_real_xctrace_exports, check_parsers_and_merge, check_stage_bounds, check_stage_errors,
+              check_hold_defers_the_bound,
               check_stop_survives_a_failing_source, check_record_ends_cleanly, check_xctrace_held_before_start,
               check_wrapped_group_ends,
               check_export_part_files, check_xctrace_clock, check_cef_validity, check_bound_inside_a_swallowing_wait,
