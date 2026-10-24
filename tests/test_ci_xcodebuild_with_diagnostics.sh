@@ -28,6 +28,25 @@ if [[ -n "${FAKE_XCODEBUILD_ERRORS:-}" ]]; then
   echo "	SwiftCompile normal arm64 Thing.swift (in target 'App' from project 'App')"
   echo "(1 failure)"
 fi
+if [[ -n "${FAKE_XCODEBUILD_PHASE_FAIL:-}" ]]; then
+  echo "PhaseScriptExecution Bundle\\ acpmux /build/Script-1.sh (in target 'App' from project 'App')"
+  echo "    cd /src"
+  echo "    export ACTION\\=build"
+  echo "bundled acpmux"
+  echo ""
+  echo "PhaseScriptExecution Embed\\ CEF /build/Script-2.sh (in target 'App' from project 'App')"
+  echo "    cd /src"
+  for i in {1..50}; do echo "    export VAR_$i\\=x"; done
+  echo "    /bin/sh -c /build/Script-2.sh"
+  echo "cmux Helper (GPU).app: replacing existing signature"
+  echo "cmux Helper (Renderer).app: replacing existing signature"
+  echo "Command PhaseScriptExecution failed with a nonzero exit code"
+  echo ""
+  echo "** BUILD FAILED **"
+  echo "The following build commands failed:"
+  echo "	PhaseScriptExecution Embed\\ CEF /build/Script-2.sh (in target 'App' from project 'App')"
+  echo "(1 failure)"
+fi
 if [[ -n "${FAKE_XCODEBUILD_DELAY:-}" ]]; then
   python3 -c 'import os, time; time.sleep(float(os.environ["FAKE_XCODEBUILD_DELAY"]))'
 fi
@@ -166,6 +185,24 @@ if kill -0 "$descendant_pid" 2>/dev/null \
   && ! ps -p "$descendant_pid" -o state= 2>/dev/null | grep -q 'Z'; then
   kill -KILL "$descendant_pid" 2>/dev/null || true
   echo "FAIL: cancellation must reap descendants that ignore SIGTERM" >&2
+  exit 1
+fi
+
+set +e
+FAKE_XCODEBUILD_PHASE_FAIL=1 FAKE_XCODEBUILD_STATUS=65 \
+  "$WRAPPER" -- "$TMP_DIR/fake-xcodebuild.sh" -scheme cmux >"$TMP_DIR/phase.log" 2>&1
+status=$?
+set -e
+if [[ "$status" -ne 65 ]]; then
+  echo "FAIL: phase-failure fixture must preserve xcodebuild's exit 65, got $status" >&2
+  exit 1
+fi
+phase_section="$(awk '/^--- failed run script phase:/ { show=1 } show && /^--- / && !/failed run script phase/ { exit } show { print }' "$TMP_DIR/phase.log")"
+grep -Fq 'Embed\ CEF' <<<"$phase_section"
+grep -Fq 'cmux Helper (Renderer).app: replacing existing signature' <<<"$phase_section"
+grep -Fxq '::error::run script phase failed: Embed CEF' <<<"$phase_section"
+if grep -Eq 'export VAR_|bundled acpmux|/bin/sh -c' <<<"$phase_section"; then
+  echo "FAIL: the failed phase report must hold only the failed phase's own output" >&2
   exit 1
 fi
 

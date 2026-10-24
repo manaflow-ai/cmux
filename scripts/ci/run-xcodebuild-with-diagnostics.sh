@@ -147,6 +147,32 @@ report_compiler_crashes() {
     done || true
 }
 
+# A run script phase that exits nonzero prints no "error:" line unless the
+# script wrote one; xcodebuild only names the phase among the failed commands
+# (nightly-next's Embed CEF red, 2026-10-24, showed nothing else). Prints the
+# last lines each failed phase wrote, without the environment dump xcodebuild
+# puts before them, and annotates the phase.
+report_failed_script_phases() {
+  local log="$1"
+  grep -q '^Command PhaseScriptExecution failed' "$log" 2>/dev/null || return 0
+  awk '
+    /^PhaseScriptExecution / { phase = $0; n = 0; next }
+    /^Command PhaseScriptExecution failed/ {
+      if (phase == "") next
+      name = phase
+      sub(/^PhaseScriptExecution /, "", name); sub(/ \/.*$/, "", name); gsub(/\\ /, " ", name)
+      print "--- failed run script phase: " substr(phase, 1, 300) " ---"
+      start = n > 30 ? n - 30 : 0
+      for (i = start; i < n; i++) print substr(ring[i % 30], 1, 400)
+      print "::error::run script phase failed: " name
+      phase = ""; next
+    }
+    phase == "" { next }
+    /^    (export |cd |\/bin\/sh -c )/ { next }
+    { ring[n % 30] = $0; n++ }
+  ' "$log" 2>/dev/null | head -n 140 || true
+}
+
 # Prints each distinct compiler/build error once, as a GitHub annotation (file
 # and line when the error has them) and as plain text.
 report_build_errors() {
@@ -160,6 +186,7 @@ report_build_errors() {
   if [[ -z "$errors" ]]; then
     echo "no 'error:' line in the xcodebuild output; see the failed commands below and the resource diagnostics"
     report_compiler_crashes "$log"
+    report_failed_script_phases "$log"
   else
     printf '%s\n' "$errors"
     printf '%s\n' "$errors" | while IFS= read -r line; do
