@@ -1,9 +1,11 @@
 package import AppKit
+package import CmuxNextDesign
 
 /// The TextBox's editor: Return submits, Shift- or Option-Return adds a line, Escape gives the
 /// keyboard back to the terminal and Shift-Tab changes the submit action. Keys an input method
-/// is composing stay with it.
-package final class TextBoxTextView: NSTextView {
+/// is composing stay with it. Undo-safe: the controller replaces its text on submit and on Add
+/// Files after the user typed (#24912).
+package final class TextBoxTextView: UndoSafeTextView {
     package var onSubmit: @MainActor () -> Void = {}
     package var onEscape: @MainActor () -> Void = {}
     package var onCycle: @MainActor () -> Void = {}

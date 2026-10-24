@@ -218,8 +218,9 @@ public final class ShareCmuxView: NSView {
 
 /// The message box: plain text; Escape closes the modal instead of
 /// completing a word; Tab and Shift-Tab leave it (the overlay's Tab cycle
-/// holds only controls); every edit puts "Copy Link" back.
-final class ShareCmuxMessageTextView: NSTextView {
+/// holds only controls); every edit puts "Copy Link" back. Undo-safe: ``ShareCmuxView/messageText``
+/// replaces the text after the user may have typed (#24912).
+final class ShareCmuxMessageTextView: UndoSafeTextView {
     var onEdit: (() -> Void)?
     var onCancel: (() -> Void)?
     /// Tab (false) or Shift-Tab (true).
