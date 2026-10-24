@@ -9,6 +9,13 @@ import CmuxNextSettings
 /// overlay (focus ring, dim, drop highlight) draws above content child
 /// windows (Chromium pages). WebKit pages are in-window views and never
 /// appear as child windows. `titlebar_band: true` adds `NSWindow.titlebarBandMap`.
+/// Each shown Chromium page counts the `CALayerHost` layers (the class Chromium shows its
+/// GPU output with) in three trees: the pane's own (`hosted_layer_hosts`: only the app's
+/// `CEFHostedPageView` host, so it proves nothing about the fork), the context that host shows
+/// (`hosted_context_layer_hosts`: the hosted `CAContext` lives in this process, so its layers are
+/// readable; null when the pane shows no context or QuartzCore has no `allContexts`), and the
+/// page window's (`page_window_layer_hosts`). A page the fork really hosts has >= 1 in the hosted
+/// context (Chromium's GPU output, there once Chromium drew) and 0 in its page window.
 enum DebugLayers {
     static func report(services: AppServices, params: [String: JSONValue] = [:]) -> JSONValue {
         let windows = services.windows.controllers.compactMap { controller -> JSONValue? in
@@ -101,6 +108,9 @@ enum DebugLayers {
                 fields["host_screen_rect"] = rect(host)
                 fields["page_window_frame"] = page.map { rect($0.frame) } ?? .null
                 fields["page_in_sync"] = .bool(synced)
+                fields["hosted_layer_hosts"] = .number(Double(layerHostCount(content.layer)))
+                fields["hosted_context_layer_hosts"] = hostedContextLayerHostCount(content.layer).map { .number(Double($0)) } ?? .null
+                fields["page_window_layer_hosts"] = page.map { .number(Double(layerHostCount($0.contentView?.layer))) } ?? .null
             }
             return .object(fields)
         }
@@ -145,6 +155,43 @@ enum DebugLayers {
             "consistent": .bool(above && inSync && pagesInSync && ringsInSync),
         ]
         return .object(fields.merging(base) { _, new in new })
+    }
+
+    /// `CALayerHost` layers in `layer`'s tree (a remote context's layers never show in-process).
+    private static func layerHostCount(_ layer: CALayer?) -> Int {
+        guard let layer else { return 0 }
+        let own = NSStringFromClass(type(of: layer)) == "CALayerHost" ? 1 : 0
+        return own + (layer.sublayers ?? []).reduce(0) { $0 + layerHostCount($1) }
+    }
+
+    /// `CALayerHost` layers in the context the first `CALayerHost` under `layer` shows (the pane's
+    /// `CEFHostedPageView`); nil without one, or when that context is not in this process. Every
+    /// QuartzCore SPI message (``QuartzLayerHostingSPI``) is sent only after `responds(to:)` proved the
+    /// receiver implements it, so an OS without it gives nil, never an unrecognized selector.
+    private static func hostedContextLayerHostCount(_ layer: CALayer?) -> Int? {
+        let contextIdGetter = #selector(getter: QuartzLayerHostingSPI.contextId)
+        let rootLayerGetter = #selector(getter: QuartzLayerHostingSPI.layer)
+        guard let host = firstLayerHost(layer), host.responds(to: contextIdGetter) else { return nil }
+        let id = unsafeBitCast(host, to: QuartzLayerHostingSPI.self).contextId
+        guard id != 0, let contextClass: AnyClass = NSClassFromString("CAContext"),
+              (contextClass as AnyObject).responds(to: #selector(QuartzLayerHostingSPI.allContexts)),
+              let contexts = (contextClass as AnyObject).perform(#selector(QuartzLayerHostingSPI.allContexts))?
+                  .takeUnretainedValue() as? [NSObject] else { return nil }
+        for context in contexts {
+            // Two checks, not one `&&`: its autoclosure would capture the non-Sendable context.
+            guard context.responds(to: contextIdGetter) else { continue }
+            guard context.responds(to: rootLayerGetter) else { continue }
+            let spi = unsafeBitCast(context, to: QuartzLayerHostingSPI.self)
+            guard spi.contextId == id else { continue }
+            return layerHostCount(spi.layer)
+        }
+        return nil
+    }
+
+    private static func firstLayerHost(_ layer: CALayer?) -> CALayer? {
+        guard let layer else { return nil }
+        if NSStringFromClass(type(of: layer)) == "CALayerHost" { return layer }
+        return (layer.sublayers ?? []).lazy.compactMap { firstLayerHost($0) }.first
     }
 
     private static func distance(_ a: CGRect, _ b: CGRect) -> CGFloat {
@@ -228,4 +275,15 @@ enum DebugLayers {
     private static func rect(_ rect: CGRect) -> JSONValue {
         .array([rect.minX, rect.minY, rect.width, rect.height].map { .number(Double($0)) })
     }
+}
+
+/// The QuartzCore SPI `debug.layers` reads: `+[CAContext allContexts]`, `-[CAContext contextId]`,
+/// `-[CAContext layer]` and `-[CALayerHost contextId]`. No class conforms; a caller casts an object
+/// it asked `responds(to:)` for the one message it sends.
+@objc private protocol QuartzLayerHostingSPI {
+    /// `+[CAContext allContexts]`: declared as an instance requirement because `#selector` cannot name a static
+    /// one of a protocol; it is sent to the class object with `perform(_:)`.
+    func allContexts() -> [NSObject]?
+    var contextId: UInt32 { get }
+    var layer: CALayer? { get }
 }

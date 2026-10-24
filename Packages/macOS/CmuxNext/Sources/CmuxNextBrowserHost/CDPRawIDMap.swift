@@ -62,10 +62,25 @@ public nonisolated struct CDPRawIDMap: Sendable {
     /// to one of the host's commands with the host's id, nil for anything
     /// else (a reply the host never asked for).
     public mutating func inbound(_ message: String) -> String? {
-        guard let id = CEFDevToolsRawMessage.topLevelID(in: message) else { return message }
+        guard let id = Self.topLevelID(in: message) else { return message }
+        guard let hostID = claim(rawID: id) else { return nil }
+        return Self.replacingID(in: message, with: hostID)
+    }
+
+    /// The host id of pending command `rawID`, which the map forgets (its reply arrived); nil for
+    /// an id the host never asked for.
+    public mutating func claim(rawID id: Int) -> Int? {
         guard CEFDevToolsRawMessage.isRawID(id), let hostID = pending.removeValue(forKey: id) else { return nil }
         sessions[id] = nil
-        return CEFDevToolsRawMessage.replacingTopLevelID(in: message, with: hostID)
+        return hostID
+    }
+
+    /// The message's top-level "id" (a byte scan, no parse).
+    public static func topLevelID(in message: String) -> Int? { CEFDevToolsRawMessage.topLevelID(in: message) }
+
+    /// The message with its top-level "id" replaced (a reply sent back with the host's id).
+    public static func replacingID(in message: String, with id: Int) -> String? {
+        CEFDevToolsRawMessage.replacingTopLevelID(in: message, with: id)
     }
 
     private mutating func allocate() -> Int {

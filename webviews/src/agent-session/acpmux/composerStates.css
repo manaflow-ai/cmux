@@ -613,6 +613,15 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 .acpmux-composer-queue {
   grid-auto-rows: max-content;
 }
+/* fitList writes the queue's whole-row max-height as prompts arrive or the fold toggles. Let the
+   stack take that structural space on the same move token as transcript folds, so the composer and
+   the transcript do not jump a row in one frame. Reduce Motion and the host's zero-duration policy
+   still apply it at once. */
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-composer-queue[data-fit-ready] {
+    transition: max-height var(--agent-motion-move) var(--agent-ease-out);
+  }
+}
 /* The fold's line continues the list's tray and side edges, down to the strip. */
 .acpmux-queue-foldbar {
   display: flex;

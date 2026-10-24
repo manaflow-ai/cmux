@@ -72,7 +72,7 @@ impl Hub {
             anyhow::bail!("the daemon is stopping");
         }
         let launcher = agent_host::link::HostLauncher::current()?;
-        let record = agent_host::link::spawn(&launcher, &host_spec).await?;
+        let record = agent_host::program_wait::spawn(&launcher, &host_spec).await?;
         lock(&self.pool.starting).insert(session_id.clone(), record.clone());
         let started =
             self.start_pooled(session_id.clone(), name, record.clone(), spec, claude).await;

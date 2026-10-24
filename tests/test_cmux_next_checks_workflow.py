@@ -1007,7 +1007,8 @@ class ReusedWorkspaceSubmodules(unittest.TestCase):
                                   "the step after checkout must drop stale submodule checkouts")
         # request-nightly-next runs on GitHub-hosted ubuntu-latest (70d5128f784b), never a mini.
         self.assertEqual(sorted(checked), ["cmux-scheme-compile", "daemon-test", "fast-tier", "generated-files",
-                                           "release-compile", "swift-canary", "swift-test", "web-bundles"])
+                                           "release-compile", "release-compile-fast", "swift-canary", "swift-test",
+                                           "web-bundles"])
 
 
 
@@ -2030,6 +2031,16 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
         for name in ("release-compile-fast", "release-compile"):
             with self.subTest(job=name):
                 self.assertNotIn("CI_NEXT_PROMOTE_POOL", str(jobs[name]["runs-on"]))
+
+    def test_fast_gate_checks_out_the_pushed_commit_before_requesting_promotion(self):
+        # request-nightly-next.sh refuses unless HEAD is the pushed commit; on a reused
+        # gateway workspace a request without a checkout turned a passing gate red.
+        steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["release-compile-fast"]["steps"]
+        request = next(i for i, step in enumerate(steps) if "request-nightly-next.sh" in step.get("run", ""))
+        checkout = next(i for i, step in enumerate(steps) if step.get("id") == "checkout")
+        self.assertLess(checkout, request)
+        self.assertTrue(steps[checkout]["uses"].startswith("actions/checkout@"))
+        self.assertEqual(steps[checkout]["if"], steps[request]["if"])
 
     def test_a_green_gate_rerun_requests_promotion_inside_the_gate_job(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]

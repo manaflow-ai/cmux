@@ -194,6 +194,7 @@ await requireBrowserLane("agent-pane-transcript-spacing.test.ts", async () => {
       const footers = [...document.querySelectorAll<HTMLElement>(".cv-turn-actions")];
       const lastFooterTime = footers.at(-1)!.querySelector(".cv-turn-time")!;
       const lastReply = reply("Meanwhile the PR checks");
+      const dock = document.querySelector<HTMLElement>(".acpmux-main[data-dock=float] > .acpmux-dock")!;
       return {
         metaRowUnderBubble: Math.round(rect(lastActions).top - rect(last).bottom),
         metaRowHeight: Math.round(rect(lastActions).height),
@@ -201,6 +202,7 @@ await requireBrowserLane("agent-pane-transcript-spacing.test.ts", async () => {
         promptToWorked: worked ? Math.round(rect(worked).top - rect(lastActions).bottom) : -1,
         replyToFooterText: Math.round(rect(lastFooterTime).top - rect(lastReply).bottom),
         footerToNextPrompt: Math.round(rect(last).top - rect(footers[0]!).bottom),
+        lastFooterToComposer: Math.round(rect(dock).top - rect(footers.at(-1)!).bottom),
       };
     });
 
@@ -223,6 +225,10 @@ await requireBrowserLane("agent-pane-transcript-spacing.test.ts", async () => {
     // Turns sit a fixed 24px apart: the footer's line to the next prompt.
     expect(measured.footerToNextPrompt).toBeGreaterThanOrEqual(20);
     expect(measured.footerToNextPrompt).toBeLessThanOrEqual(28);
+    // The last footer uses that same turn gap before the floating composer; there is no extra
+    // runway under every transcript.
+    expect(measured.lastFooterToComposer).toBeGreaterThanOrEqual(20);
+    expect(measured.lastFooterToComposer).toBeLessThanOrEqual(28);
     await page.close();
   });
 });

@@ -146,6 +146,9 @@ public final class DaemonStore: StateResourceQueries {
     @ObservationIgnored var mirrorFingerprintTakenAt: ContinuousClock.Instant?
     /// Events at or below this sequence are superseded by the last snapshot.
     @ObservationIgnored var snapshotBarrier: UInt64 = 0
+    /// The last live snapshot per workspace and what changed since (``SnapshotMemo``): the next
+    /// snapshot applies only the workspaces that differ.
+    @ObservationIgnored var snapshotMemo = SnapshotMemo()
     /// Set while `run(connection:scheduler:)` drives the store.
     @ObservationIgnored var driver: StoreDriver?
     @ObservationIgnored var isResyncing = false
@@ -248,8 +251,23 @@ public final class DaemonStore: StateResourceQueries {
     /// Replaces the confirmed tree, reusing records by durable identity,
     /// then shows the pending intents on it again.
     public func apply(snapshot tree: DaemonTree) {
+        apply(snapshot: tree, diff: nil)
+    }
+
+    /// ``apply(snapshot:)`` with the workspaces that differ from the last applied snapshot already
+    /// found (``SnapshotDiff``, computed off the main thread by the resync); nil or a diff of an
+    /// older memo compares here. Only the changed, new and removed workspaces, and those an event
+    /// touched since, are applied, indexed and laid; a snapshot the memo cannot vouch for
+    /// (``incrementalChanges(_:diff:)``) applies in full.
+    func apply(snapshot tree: DaemonTree, diff: SnapshotDiff?) {
         withOverlayLifted(snapshot: true) {
-            applyTree(tree)
+            if let touched = incrementalChanges(tree, diff: diff) {
+                applyTreeIncrementally(tree, touching: touched)
+            } else {
+                applyTree(tree)
+                rebuildIndex()
+            }
+            recordSnapshotMemo(tree)
             if isProvisional { isProvisional = false }
             if !isLoaded {
                 isLoaded = true
@@ -260,7 +278,6 @@ public final class DaemonStore: StateResourceQueries {
                 restoredEpoch = connectionEpoch
                 restoredTabIDs = currentTabIDs
             }
-            rebuildIndex()
             ProvisionalSplit.noteDaemonPanes(in: self)
         }
         workspaceListMayHaveChanged()
@@ -285,6 +302,8 @@ public final class DaemonStore: StateResourceQueries {
         guard !isLoaded else { return }
         withOverlayLifted {
             applyTree(tree)
+            // A launch snapshot is not the live tree: the first live one applies in full.
+            snapshotMemo.reset()
             isProvisional = true
             // Launch snapshot tabs are restored tabs (pages made from them reload).
             restoredTabIDs = currentTabIDs
