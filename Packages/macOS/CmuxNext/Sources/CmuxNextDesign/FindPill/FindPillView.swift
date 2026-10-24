@@ -60,7 +60,13 @@ public final class FindPillView: NSView {
     /// Sends an allowed arrow directly to the active field editor before AppKit offers menu
     /// equivalents. Returns true when this pill owned the event.
     public static func forwardArrowKeyDown(_ event: NSEvent, in window: NSWindow?) -> Bool {
-        false
+        guard event.type == .keyDown, let responder = window?.firstResponder,
+              let client = responder as? NSTextInputClient,
+              ownsFieldEditor(responder),
+              shouldForwardArrowKeyDown(keyCode: event.keyCode, flags: event.modifierFlags,
+                                        hasMarkedText: client.hasMarkedText()) else { return false }
+        responder.keyDown(with: event)
+        return true
     }
 
     /// Called with the field's text on every edit the user makes (not when ``query`` is set).
