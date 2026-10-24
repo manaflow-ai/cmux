@@ -58,4 +58,19 @@ import Testing
         #expect(harvest.events.map(\.message) == ["it failed"])
         #expect(log.delivered == 1, "the log store decoded the page console line the capture already recorded")
     }
+
+    /// cmux's own reported errors reach the journal when they happen (``ErrorReporter`` records
+    /// them itself); the harvest leaves their subsystem out, as it does the page consoles', so each
+    /// counts once. Framework errors logged in this process are still harvested.
+    @Test func theSourceLeavesReportedLinesToTheReporter() async throws {
+        let launch = Date(timeIntervalSince1970: 1_000)
+        let log = FakeLog(records: [
+            OSLogRecord(date: launch + 1, level: .error, subsystem: ErrorReporter.subsystem, category: "app.quit",
+                        message: "quit setting write failed"),
+            OSLogRecord(date: launch + 2, level: .fault, subsystem: "com.apple.WebKit", category: "Loading", message: "it broke"),
+        ])
+        let harvest = try await OSLogErrorSource(processID: 7, launchDate: launch, reader: log).collect(after: nil)
+        #expect(harvest.events.map(\.message) == ["it broke"])
+        #expect(log.delivered == 1, "the log store decoded the reported line the reporter already recorded")
+    }
 }
