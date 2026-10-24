@@ -7,8 +7,6 @@ use super::{JournalIngressCompletion, QueuedJournalEvent};
 pub(crate) enum JournalBatchReceipt {
     /// Terminal bytes, barriers and frontend events: durable, no receipt.
     None,
-    /// A producer append receipt.
-    Append(crate::JournalAppendCommit),
 }
 
 pub(super) fn complete_batch_success(
@@ -19,17 +17,10 @@ pub(super) fn complete_batch_success(
         complete_batch_error(batch, "session journal returned an incomplete batch".into());
         return;
     }
-    for (queued, commit) in batch.iter().zip(commits) {
+    for (queued, _commit) in batch.iter().zip(commits) {
         match &queued.completion {
             Some(JournalIngressCompletion::Durable { sender, .. }) => {
                 let _ = sender.send(Ok(()));
-            }
-            Some(JournalIngressCompletion::Producer { sender, .. }) => {
-                let result = match commit {
-                    JournalBatchReceipt::Append(commit) => Ok(commit),
-                    _ => Err("session journal omitted a producer append receipt".into()),
-                };
-                let _ = sender.send(result);
             }
             None => {}
         }
@@ -40,9 +31,6 @@ pub(super) fn complete_batch_error(batch: &[QueuedJournalEvent], error: String) 
     for queued in batch {
         match &queued.completion {
             Some(JournalIngressCompletion::Durable { sender, .. }) => {
-                let _ = sender.send(Err(error.clone()));
-            }
-            Some(JournalIngressCompletion::Producer { sender, .. }) => {
                 let _ = sender.send(Err(error.clone()));
             }
             None => {}
