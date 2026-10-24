@@ -1,3 +1,5 @@
+public import CmuxNextCompat
+
 /// Phase of a continuous gesture.
 public nonisolated enum LayoutGesturePhase: Hashable, Sendable {
     /// Live update: applied locally, never sent as an intent.
@@ -6,10 +8,11 @@ public nonisolated enum LayoutGesturePhase: Hashable, Sendable {
     case ended
 }
 
-/// Direction for keyboard focus movement.
-public nonisolated enum LayoutDirection: Hashable, Sendable, CaseIterable {
-    case left, right, up, down
-}
+/// Direction for keyboard focus movement. The enum is core
+/// (`FocusDirection` in CmuxNextCompat) so that service targets can name it
+/// without depending on this ui target; Layout and its importers keep the
+/// `LayoutDirection` spelling.
+public typealias LayoutDirection = FocusDirection
 
 /// Things the layout wants the App (and through it, the daemon) to do.
 ///

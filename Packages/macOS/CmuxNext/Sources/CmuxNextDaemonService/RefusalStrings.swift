@@ -1,5 +1,5 @@
+public import CmuxNextCompat
 import CmuxNextDaemon
-public import CmuxNextLayout
 public import Foundation
 
 /// Localized refusal and failure reasons for action handlers. The control
@@ -23,7 +23,7 @@ public nonisolated enum RefusalStrings {
     }
 
     /// A direction word for "no pane left of ..." style reasons.
-    public static func direction(_ direction: LayoutDirection) -> String {
+    public static func direction(_ direction: FocusDirection) -> String {
         switch direction {
         case .left: directionLeft
         case .right: directionRight
@@ -81,10 +81,10 @@ public nonisolated enum RefusalStrings {
     public static var proxiedTabStaysInChromium: String {
         text("handlers.refusal.proxiedTabStaysInChromium", "This tab shows a cloud machine's localhost through its proxy, so it stays in Chromium.")
     }
-    static var directionLeft: String { text("handlers.refusal.directionLeft", "left") }
-    static var directionRight: String { text("handlers.refusal.directionRight", "right") }
-    static var directionUp: String { text("handlers.refusal.directionUp", "up") }
-    static var directionDown: String { text("handlers.refusal.directionDown", "down") }
+    private static var directionLeft: String { text("handlers.refusal.directionLeft", "left") }
+    private static var directionRight: String { text("handlers.refusal.directionRight", "right") }
+    private static var directionUp: String { text("handlers.refusal.directionUp", "up") }
+    private static var directionDown: String { text("handlers.refusal.directionDown", "down") }
     /// Why an action that needs the local daemon's `capability` is off. The
     /// bundled daemon is built from this tree and serves every capability in
     /// `DaemonCapabilities.required` and `optional` (check-daemon-capabilities.sh),
