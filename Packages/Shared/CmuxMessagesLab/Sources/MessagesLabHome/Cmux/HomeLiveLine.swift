@@ -17,6 +17,10 @@ final class HomeLiveLine {
     /// change shows on the next second.
     var style: () -> HomeTurnProgressStyle = { .narrated }
     private var clock: Timer?
+    /// cmux (perf100): whether the line is on screen. The seconds run only then: a hidden or covered
+    /// Home pane woke the app every second for each running Chief turn. Shown again, the line is
+    /// recomputed at once (``shownChanged()``).
+    var isShown: () -> Bool = { true }
     private var hiding = false
     /// Counts hide requests: a close pending for an earlier one never closes a later one early.
     private var hides = 0
@@ -34,21 +38,37 @@ final class HomeLiveLine {
             // A new thought on the same step: the narration row changes now, not on the next second.
             if activity != nil, activity == self.activity, clock != nil { tick() }
         }
-        // The same line again after a hide stopped its clock: the clock runs again.
-        guard activity != self.activity || (activity != nil && clock == nil) else { return }
+        // The same line again after a hide stopped its clock: the clock runs again (a line off screen has none).
+        guard activity != self.activity || (activity != nil && clock == nil && isShown()) else { return }
         self.activity = activity
         clock?.invalidate()
         clock = nil
-        if activity != nil {
-            // A display clock for the elapsed seconds, not a synchronisation delay.
-            let clock = Timer(timeInterval: 1, repeats: true) { [weak self] timer in
-                guard self != nil else { return timer.invalidate() } // the line's view went away
-                Task { @MainActor [weak self] in self?.tick() }
-            }
-            RunLoop.main.add(clock, forMode: .common)
-            self.clock = clock
-        }
+        startClockIfShown()
         tick()
+    }
+
+    /// A display clock for the elapsed seconds, not a synchronisation delay; only while a line shows on screen.
+    private func startClockIfShown() {
+        guard activity != nil, !hiding, clock == nil, isShown() else { return }
+        let clock = Timer(timeInterval: 1, repeats: true) { [weak self] timer in
+            guard self != nil else { return timer.invalidate() } // the line's view went away
+            Task { @MainActor [weak self] in self?.tick() }
+        }
+        RunLoop.main.add(clock, forMode: .common)
+        self.clock = clock
+    }
+
+    /// cmux (perf100): the pane was hidden, shown or covered: the seconds stop, or run again from the
+    /// right count (the text is computed from the activity's start, so no second is lost).
+    func shownChanged() {
+        if isShown() {
+            guard clock == nil, activity != nil, !hiding else { return }
+            startClockIfShown()
+            tick()
+        } else {
+            clock?.invalidate()
+            clock = nil
+        }
     }
 
     /// The line closes on the display frame after the one that presents the commit that lands the reply

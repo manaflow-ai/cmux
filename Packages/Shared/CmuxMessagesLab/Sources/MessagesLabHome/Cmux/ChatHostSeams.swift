@@ -7,6 +7,9 @@ import CmuxHomeRender
 protocol ChatIntents: AnyObject {
     /// The user opened, drilled or closed a thread view (a permalink waiting for its message stops waiting).
     func threadMovedByUser()
+    /// cmux (perf100): the host was hidden, shown, moved or its window's occlusion changed (default: nothing).
+    /// A requirement, so a call through `ChatIntents?` reaches the conformer's own method.
+    func shownChanged()
     /// The message's permalink (`<scheme>://conversation/<c>/message/<m>`), nil when it has none yet.
     func messageLink(_ id: ID) -> String?
     /// Return in the field: send the draft (the adapter dispatches `.send` on
@@ -80,6 +83,9 @@ extension ChatIntents {
     /// No Forward… unless the host routes it (test hosts, the New Message composer).
     var canForward: Bool { false }
     func forward(_ text: String) {}
+    /// cmux (perf100): the host was hidden, shown, moved to another window, or its window's
+    /// occlusion changed: work that only moves pixels (the live line's seconds) stops or resumes.
+    func shownChanged() {}
 }
 
 /// One-shot wake-ups for the controller's engine clock (scheduled actions,
