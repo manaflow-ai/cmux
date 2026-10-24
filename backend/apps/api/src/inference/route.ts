@@ -14,6 +14,9 @@ import { providerTarget } from "./providers.ts"
 import { callUpstream } from "./upstream.ts"
 import { freeCaller, freeSettle, freeAdmit } from "./free.ts"
 import { includedMicrosFor, includedReached } from "./included-stop.ts"
+import { creditsMargin, creditsMinReserveUsd } from "../credits.ts"
+
+const creditFloorMicros = (env: Env) => Math.ceil(creditsMinReserveUsd(env) * 1_000_000)
 
 /**
  * The model router's HTTP surface (plans/cmux-next/model-router.md, cx-dna4.1):
@@ -28,7 +31,13 @@ import { includedMicrosFor, includedReached } from "./included-stop.ts"
 
 export type Caller =
   | { readonly kind: "team"; readonly team: string; readonly user: string; readonly limitMicros: number; readonly plan?: string | null }
+  /** No paid plan, but prepaid cmux credits (credits.ts): each call is held and charged on the credit ledger, never billed. */
+  | { readonly kind: "credits"; readonly team: string; readonly user: string }
   | { readonly kind: "free"; readonly device: string }
+
+/** What a 402 offers the app's missing-access card (plans/cmux-next/paid-plan.md): buy credits, bring a key, or see the plans. */
+export const ACCESS_ACTIONS = ["add_credits", "add_api_key", "see_plans"] as const
+const TOPUP_PATH = "/v1/credits/topup"
 
 const MAX_BODY_BYTES = 8 * 1024 * 1024
 
@@ -88,10 +97,15 @@ export const resolveCaller = async (env: Env, request: Request): Promise<Caller 
   // team through its team plan (inference/plan.ts, protocol inference-plans.ts).
   const personal = p.team === personalTeamIdFor(p.user)
   const stackUser = personal ? (p.stack_user_id ?? (await env.USER_DO.get(env.USER_DO.idFromName(p.user)).stackUserOf(p.user)) ?? undefined) : undefined
-  if (personal && !stackUser) return err(402, "inference.plan_required", "AI models need a paid plan", { details: { plan: INFERENCE_ENTRY_PLAN } })
-  const plan = await env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team)).inferencePlan(p.team, p.user, stackUser)
+  const plan = personal && !stackUser ? ({ ok: true, paid: false } as const) : await env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team)).inferencePlan(p.team, p.user, stackUser)
   if (!plan.ok) return err(503, "plan.unavailable", "the plan check is not available now; retry", { retryable: true })
-  if (!plan.paid) return err(402, "inference.plan_required", "AI models need a paid plan", { details: { plan: INFERENCE_ENTRY_PLAN } })
+  if (!plan.paid) {
+    // No paid plan: prepaid cmux credits pay instead ("Use cmux credits", paid-plan.md step 1).
+    const credits = await env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(p.team)).creditBalance(p.team, Date.now(), 0).catch(() => null)
+    if (credits === null) return err(503, "credits.unavailable", "the credit balance could not be read; retry", { retryable: true })
+    if (credits.available_micros > 0) return { kind: "credits", team: p.team, user: p.user }
+    return err(402, "inference.plan_required", "AI models need cmux credits, your own API key, or a paid plan", { details: { plan: INFERENCE_ENTRY_PLAN, actions: ACCESS_ACTIONS, credits: { available_usd: credits.available_micros / 1_000_000, topup_path: TOPUP_PATH } } })
+  }
   return { kind: "team", team: p.team, user: p.user, limitMicros: userLimitMicros(plan.user_limit_usd), plan: plan.plan ?? null }
 }
 
@@ -196,6 +210,12 @@ export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller,
   if (caller.kind === "free") {
     const admitted = await freeAdmit(env, caller.device, id, Math.min(promptBound, model.context) + maxTokens)
     if (admitted) return admitted
+  } else if (caller.kind === "credits") {
+    const held = await env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(caller.team)).creditReserve(caller.team, `inference:${id}`, Math.max(maxMicros, creditFloorMicros(env)), null, null)
+    if (!held.ok) {
+      const d = "available_micros" in held ? { available_usd: held.available_micros / 1_000_000, needed_usd: held.needed_micros / 1_000_000 } : { available_usd: 0, needed_usd: maxUsd }
+      return err(402, "credits.insufficient", "Not enough cmux credits for this call. Add credits or use your own API key.", { details: { ...d, plan: INFERENCE_ENTRY_PLAN, actions: ACCESS_ACTIONS, credits: { topup_path: TOPUP_PATH } } })
+    }
   } else {
     const meter = env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(caller.team))
     const check = await meter.check(caller.team)
@@ -214,7 +234,14 @@ export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller,
    * call writes the call's fact, the member's spend and the team's model spend in one transaction
    * (cx-y79zh S1): the limit and the team counter read the same fact.
    */
-  const settleMember = (micros: number | null) => (caller.kind === "team" ? env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(caller.team)).settleCall(caller.team, id, micros) : Promise.resolve())
+  const settleMember = (micros: number | null): Promise<unknown> => {
+    if (caller.kind === "team") return env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(caller.team)).settleCall(caller.team, id, micros)
+    if (caller.kind !== "credits") return Promise.resolve()
+    // Prepaid: the hold becomes the real price (cost x margin), or is dropped when nothing was billed.
+    const m = env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(caller.team))
+    const request = `inference:${id}`
+    return micros === null ? m.creditRelease(caller.team, request) : m.creditSettle(caller.team, request, Math.round(micros * creditsMargin(env)), Math.round(micros), null, null)
+  }
 
   const upstreamBody: Record<string, unknown> = {}
   for (const k of PASS_FIELDS) if (body[k] !== undefined) upstreamBody[k] = body[k]
