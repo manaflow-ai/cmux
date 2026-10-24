@@ -1,0 +1,36 @@
+import AppKit
+import CmuxNextDesignTokens
+@testable import CmuxNextLayout
+import Testing
+
+/// A burst of presses (Lawrence 2026-10-24: spamming Cmd-D / Cmd-W lags and does not interrupt well): a split
+/// or close that lands while a spring runs retargets from what shows, with no jump and no extra step.
+@MainActor
+@Suite struct PaneBurstMotionTests {
+    /// Four columns side by side; `closed` leaves the named columns out.
+    static func row(_ count: Int, without closed: Set<Int> = []) -> [LayoutScreen] {
+        let kept = (0..<count).filter { !closed.contains($0) }
+        let columns = kept.map { PaneMotionBench.column($0, rows: 1, width: 1.0 / Double(kept.count)) }
+        return [LayoutScreen(id: "s", name: "s", layout: .columns(columns))]
+    }
+
+    /// M1 (PL-burst): a close's lead step (its first frame taken in the change's own turn) is for a close that
+    /// starts from rest. A second close while the first one springs must not step the moving panes again in its
+    /// turn: they keep showing where they were, and the next display frame moves them by one frame's step.
+    @Test func aCloseDuringASpringDoesNotStepTheMovingPanesInItsTurn() async throws {
+        let harness = PaneMotionBench.Harness(Self.row(4), focused: PaneID("p0-0"))
+        _ = await harness.frame()
+        let screen = try #require(harness.root.screenViews.values.first)
+        harness.model.apply(screens: Self.row(4, without: [1]))
+        harness.root.syncWithModel()
+        for _ in 0..<5 { _ = harness.root.advanceFrame(PaneMotionBench.frameBudget) }
+        let pane = PaneID("p3-0")
+        let moving = try #require(screen.paneFrames[pane])
+        #expect(moving.rect != moving.targetRect, "the first close is not springing")
+        let shown = moving.rect
+        harness.model.apply(screens: Self.row(4, without: [1, 2]))
+        harness.root.syncWithModel()
+        let after = try #require(screen.paneFrames[pane]).rect
+        #expect(after == shown, "the second close stepped a moving pane in its own turn: \(shown) -> \(after)")
+    }
+}
