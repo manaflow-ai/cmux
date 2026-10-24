@@ -207,9 +207,10 @@ public final class HomeStore {
         }
     }
 
-    /// Ends this store (sign-out, account switch). Every later op is refused.
+    /// Ends this store (sign-out, account switch). Every later op is refused. The last cache
+    /// batch goes to the cache actor without a wait; `await flushCache()` waits for the disk.
     public func stop() {
-        viewCache.flush()
+        viewCache.writeNow()
         stopped = true
         eventTask?.cancel()
         eventTask = nil
