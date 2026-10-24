@@ -121,7 +121,7 @@ impl Harness {
     fn attach(&mut self, id: u64, stream: u16, surface: u64, seen: &mut Vec<Wire>) -> Value {
         send(
             &mut self.client,
-            json!({"id": id, "cmd": "attach-surface", "stream": stream, "surface": surface,
+            json!({"id": id, "cmd": "attach-surface", "attach_stream": stream, "surface": surface,
                    "snapshot": "ghostsnp", "snapshot_version": ghostty_vt::snapshot_version()}),
         );
         self.reader.reply(id, seen)
@@ -187,7 +187,7 @@ fn two_views_share_one_connection_their_frames_name_their_streams_and_each_ends_
     assert!(refused["error"].as_str().unwrap().contains("stream_in_use"), "{refused}");
 
     // cancel-stream ends stream 7: its stream-end is its last item.
-    send(&mut harness.client, json!({"id": 5, "cmd": "cancel-stream", "stream": 7}));
+    send(&mut harness.client, json!({"id": 5, "cmd": "cancel-stream", "attach_stream": 7}));
     let mut after_cancel = Vec::new();
     let reply = harness.reader.reply(5, &mut after_cancel);
     assert_eq!(reply["data"]["outcome"], "applied", "{reply}");
@@ -207,8 +207,40 @@ fn two_views_share_one_connection_their_frames_name_their_streams_and_each_ends_
     // The id is free again.
     assert_eq!(harness.attach(6, 7, first.id, &mut Vec::new())["ok"], true);
     // A cancel of a stream that is not open answers `ended`.
-    send(&mut harness.client, json!({"id": 7, "cmd": "cancel-stream", "stream": 4242}));
+    send(&mut harness.client, json!({"id": 7, "cmd": "cancel-stream", "attach_stream": 4242}));
     assert_eq!(harness.reader.reply(7, &mut Vec::new())["data"]["outcome"], "ended");
+}
+
+#[test]
+fn a_snapshot_request_for_an_ended_stream_resyncs_no_other_view_of_the_surface() {
+    let mut harness = Harness::connect("streams-snapshot", BOTH);
+    let surface = harness.mux.new_workspace(None, Some((80, 24))).unwrap();
+    assert_eq!(harness.attach(2, 3, surface.id, &mut Vec::new())["ok"], true);
+    assert_eq!(harness.attach(3, 4, surface.id, &mut Vec::new())["ok"], true);
+    send(&mut harness.client, json!({"id": 4, "cmd": "cancel-stream", "attach_stream": 3}));
+    let mut seen = Vec::new();
+    assert_eq!(harness.reader.reply(4, &mut seen)["data"]["outcome"], "applied");
+    // Stream 3's gap request arrives after its end: refused, and stream 4 keeps
+    // its stream (no READY).
+    send(
+        &mut harness.client,
+        json!({"id": 5, "cmd": "snapshot-request", "attach_stream": 3, "surface": surface.id,
+               "reason": "gap"}),
+    );
+    let reply = harness.reader.reply(5, &mut seen);
+    assert_eq!(reply["ok"], false, "{reply}");
+    assert!(reply["error"].as_str().unwrap().contains("not_attached"), "{reply}");
+    // A plain request on stream 4 is a fence: everything the daemon sent
+    // before its reply is in `seen`.
+    send(&mut harness.client, json!({"id": 6, "cmd": "identify"}));
+    harness.reader.reply(6, &mut seen);
+    assert!(
+        !seen
+            .iter()
+            .filter_map(Wire::frame)
+            .any(|(header, _)| header.kind == FrameKind::Snapshot && header.stream.get() == 4),
+        "the other view of the surface got a READY: {seen:?}"
+    );
 }
 
 #[test]
@@ -224,7 +256,7 @@ fn a_client_with_streams_but_no_frames_gets_json_events_tagged_with_their_stream
             _ => None,
         })
         .expect("a JSON READY");
-    assert_eq!(ready["stream"], 12, "{ready}");
+    assert_eq!(ready["attach_stream"], 12, "{ready}");
     assert!(
         seen.iter().all(|wire| matches!(wire, Wire::Line(_))),
         "no frames without attach-frames-v1"
@@ -329,7 +361,7 @@ fn a_local_ring_stream_reads_its_output_from_shared_memory_and_gets_only_ring_ad
     };
     send(json!({"id": 1, "cmd": "set-client-info", "name": "ring-test", "kind": "frontend",
                 "capabilities": ["attach-streams-v1", "attach-frames-v1", "terminal-output-ring-v1"]}));
-    send(json!({"id": 2, "cmd": "attach-surface", "stream": 5, "surface": surface.id,
+    send(json!({"id": 2, "cmd": "attach-surface", "attach_stream": 5, "surface": surface.id,
                 "snapshot": "ghostsnp", "snapshot_version": ghostty_vt::snapshot_version()}));
     let mut ring = None;
     let mut ready_offset = None;

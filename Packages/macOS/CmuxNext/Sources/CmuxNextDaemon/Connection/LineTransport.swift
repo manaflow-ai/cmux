@@ -395,6 +395,10 @@ final class LineTransport: Sendable {
         // wakeup-allow: blocking read on a dedicated thread; EOF, errors and oversize lines end it, EINTR retries
         reading: while true {
             let count = chunk.withUnsafeMutableBytes { received.read(fd, into: $0) }
+            if received.truncated {
+                closeDetail = "the daemon passed more descriptors than one read holds"
+                break
+            }
             if count == 0 { break }
             if count < 0 {
                 if errno == EINTR { continue }

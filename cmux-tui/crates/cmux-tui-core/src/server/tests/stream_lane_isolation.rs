@@ -37,14 +37,14 @@ fn a_view_request_never_waits_behind_a_blocked_control_request_on_the_shared_con
     send(json!({"id": 1, "cmd": "set-client-info", "name": "lane-test", "kind": "frontend",
                 "capabilities": ["attach-streams-v1"]}));
     assert_eq!(reply(1, &mut Vec::new())["ok"], true);
-    send(json!({"id": 2, "cmd": "attach-surface", "stream": 1, "surface": view.id}));
+    send(json!({"id": 2, "cmd": "attach-surface", "attach_stream": 1, "surface": view.id}));
     assert_eq!(reply(2, &mut Vec::new())["ok"], true);
     // A control request that blocks its lane for 10 s (the pattern never prints)...
     send(json!({"id": 3, "cmd": "wait-for", "surface": other.id, "pattern": "never printed",
                 "timeout_ms": 10_000}));
     // ...then a key for the attached view, on its stream.
     let sent_at = Instant::now();
-    send(json!({"id": 4, "cmd": "send", "stream": 1, "surface": view.id, "text": "k"}));
+    send(json!({"id": 4, "cmd": "send", "attach_stream": 1, "surface": view.id, "text": "k"}));
     let mut seen = Vec::new();
     let key = reply(4, &mut seen);
     let waited = sent_at.elapsed();
