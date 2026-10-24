@@ -4,9 +4,16 @@
 export function stopTurnFromAction(
   snapshot: { sessionId?: string; isWorking: boolean },
   requestedSessionId: string | undefined,
+  selectedSessionId: string | undefined,
   stop: () => void,
 ): boolean {
-  if (!requestedSessionId || snapshot.sessionId !== requestedSessionId || !snapshot.isWorking) return false;
+  if (
+    !requestedSessionId ||
+    snapshot.sessionId !== requestedSessionId ||
+    selectedSessionId !== requestedSessionId ||
+    !snapshot.isWorking
+  )
+    return false;
   stop();
   return true;
 }

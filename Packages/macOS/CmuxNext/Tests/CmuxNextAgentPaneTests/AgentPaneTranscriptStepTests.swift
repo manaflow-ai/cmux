@@ -72,8 +72,8 @@ struct AgentPaneTranscriptStepTests {
 
         view.stopTurn()
 
-        #expect(received.events.filter { $0["kind"] == .string("command") } == [
-            AgentPageEvent.command("stopTurn").data,
+        #expect(received.events.filter { $0["kind"] == .string("stopTurn") } == [
+            AgentPageEvent(kind: "stopTurn", value: .string("session-a")).data,
         ])
     }
 }

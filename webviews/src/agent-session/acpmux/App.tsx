@@ -6088,8 +6088,12 @@ function AcpmuxPane() {
         if (name === "createCheckpoint") showCheckpoint.current();
         // Stop Agent Turn (the native command palette): the composer owns the guarded cancel
         // callback, so a palette invocation cannot race a session switch with a stale client.
-        if (name === "stopTurn")
+        if (name === "stopTurn") {
+          // The page may hold chat A's last snapshot while the live client has already selected B.
+          // Recheck the live selection before dispatching so A's command cannot cancel B.
+          if (directClient.current?.selectedSession !== sessionId) return;
           window.dispatchEvent(new CustomEvent("cmux-acpmux-stopTurn", { detail: { sessionId } }));
+        }
         // Side Question (the palette): the composer, focused, with `/btw ` to type the question after.
         if (name === "sideQuestion" && opensSideSessionsRef.current) composerHandle.current?.prefill("/btw ");
         // Find, Find Next, Find Previous and Hide Find on an agent pane (the app's Edit menu, Cmd-F).

@@ -11,15 +11,12 @@ extension AgentPaneView {
     /// Stop Agent Turn: the palette, keyboard and composer button use the same guarded stop path.
     public func stopTurn() {
         guard let session = model.sessionId else { return }
-        send("stopTurn", argument: session)
+        let json = JSONValue.string(session).compactText
+        deliver([AgentPageEvent(kind: "stopTurn", value: .string(session))],
+                scripts: ["window.cmuxAcpmuxBridge?.command?.(\"stopTurn\",\(json));"])
     }
-    private func send(_ command: String, argument: String? = nil) {
-        var call = "\"\(command)\""
-        if let argument, let data = try? JSONSerialization.data(withJSONObject: argument),
-           let encoded = String(data: data, encoding: .utf8) {
-            call += ",\(encoded)"
-        }
-        deliver([.command(command)], scripts: ["window.cmuxAcpmuxBridge?.command?.(\(call));"])
+    private func send(_ command: String) {
+        deliver([.command(command)], scripts: ["window.cmuxAcpmuxBridge?.command?.(\"\(command)\");"])
     }
     /// Switch Model… (Ctrl-Cmd-M) and Search Files… (Cmd-P, cx-ncc.69): the page takes the keyboard,
     /// then opens its model picker, or the composer's file search (a pick mentions the file).
