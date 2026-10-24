@@ -117,19 +117,22 @@ public final class HoverCardCoordinator {
             self?.windowsEpoch &+= 1
             self?.dismiss(.windowResignedKey)
         })
-        for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification, NSWindow.didEndLiveResizeNotification,
-                     NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification] {
-            let ended = name != NSWindow.didMoveNotification && name != NSWindow.didResizeNotification
+        // Window changes: each one ends the cached top window (``windowsEpoch``); a geometry change also
+        // hit-tests again. NSApplication.didBecomeActive's object is the app, not a window (number nil).
+        let geometry: Set<Notification.Name> = [NSWindow.didMoveNotification, NSWindow.didResizeNotification,
+                                                NSWindow.didEndLiveResizeNotification, NSWindow.didEnterFullScreenNotification,
+                                                NSWindow.didExitFullScreenNotification]
+        for name in geometry.sorted(by: { $0.rawValue < $1.rawValue }) + [
+            NSApplication.didBecomeActiveNotification, NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
+            NSWindow.willCloseNotification, NSWindow.didChangeOcclusionStateNotification, NSWindow.didMiniaturizeNotification,
+            NSWindow.didDeminiaturizeNotification, NSWindow.didChangeScreenNotification,
+        ] {
+            let moves = geometry.contains(name)
+            let ended = moves && name != NSWindow.didMoveNotification && name != NSWindow.didResizeNotification
             observers.append(MainActorObservation(name, center: center, read: { ($0.object as? NSWindow)?.windowNumber }) { [weak self] number in
                 self?.windowsEpoch &+= 1
-                self?.windowGeometryChanged(number, liveResizeEnded: ended)
+                if moves { self?.windowGeometryChanged(number, liveResizeEnded: ended) }
             })
-        }
-        // Changes of which window is on top that move no geometry: the cached top window goes.
-        for name in [NSApplication.didBecomeActiveNotification, NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
-                     NSWindow.willCloseNotification, NSWindow.didChangeOcclusionStateNotification, NSWindow.didMiniaturizeNotification,
-                     NSWindow.didDeminiaturizeNotification, NSWindow.didChangeScreenNotification] {
-            observers.append(MainActorObservation(name, center: center) { [weak self] in self?.windowsEpoch &+= 1 })
         }
     }
 
