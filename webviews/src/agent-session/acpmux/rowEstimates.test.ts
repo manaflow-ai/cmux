@@ -170,6 +170,7 @@ test("specialized latest rows reserve the same no-summary turn gap before mounti
       720,
     ).heights.at(-1)!;
     if (final.items?.[0]?.kind === "thought") expect(withGap).toBe(0);
+    else if (final.kind === "activity") expect(withGap - withoutMarker).toBe(20);
     else expect(withGap - withoutMarker).toBe(16);
   }
 });
