@@ -61,7 +61,7 @@ pub struct AgentRecord {
     /// Adapter identity (\`claude\`, \`codex\`, ...) when a hook claimed the terminal; null for socket-only reports.
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub agent: Optional<String>,
-    /// The harness's own session id that the agent's hooks reported (\`claude\`, \`codex\` session ids), checked to \`[A-Za-z0-9._:-]\` and at most 256 bytes; null when no hook reported one or it isn't portable (a session-less adapter's local token). Hook reports keep \`session\` for a human label, so clients find a terminal's agent session by this.
+    /// The harness's own session id that the agent's hooks reported (\`claude\`, \`codex\` session ids), checked to \`\[A-Za-z0-9._:-\]\` and at most 256 bytes; null when no hook reported one or it isn't portable (a session-less adapter's local token). Hook reports keep \`session\` for a human label, so clients find a terminal's agent session by this.
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub agent_session_id: Optional<String>,
     /// The terminal agent's last prompt (at most 200 characters), kept in daemon memory only: never journaled or persisted; null when none since the agent started or the daemon restarted.
@@ -2661,7 +2661,7 @@ pub struct TerminalPlacement {
 pub struct TerminalPortsListener {
     /// The loopback address that accepted the daemon's connect: 127.0.0.1 or ::1.
     pub bound: String,
-    /// The host as the terminal printed it: localhost, 127.0.0.1, 0.0.0.0, [::1], ...
+    /// The host as the terminal printed it: localhost, 127.0.0.1, 0.0.0.0, \[::1\], ...
     pub host: String,
     pub port: u16,
     /// The printed URL, or http://HOST:PORT/ when the text had no scheme.
