@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextBrowserImport
+package import CmuxNextBrowserImport
 import CmuxNextDesign
 
 /// Asks the person for a Firefox profile's primary password during a
@@ -9,10 +9,10 @@ import CmuxNextDesign
 /// only a person answers. The secure field's text is copied into
 /// `SecretBytes` at once and the answer is dropped; cmux never keeps it.
 @MainActor
-struct FirefoxPrimaryPassword {
+package struct FirefoxPrimaryPassword {
     static let field = "primaryPassword"
 
-    static func prompt(_ profile: BrowserSourceProfile) async -> SecretBytes? {
+    package static func prompt(_ profile: BrowserSourceProfile) async -> SecretBytes? {
         let center = CmuxDialogCenter()
         let spec = CmuxDialogSpec(
             title: FirefoxPrimaryPasswordStrings.title(profile.browser.displayName),
@@ -25,23 +25,4 @@ struct FirefoxPrimaryPassword {
         guard answer.button == "import", let text = answer.values[field]?.text, !text.isEmpty else { return nil }
         return SecretBytes(copying: Array(text.utf8))
     }
-}
-
-enum FirefoxPrimaryPasswordStrings {
-    private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "Passwords", bundle: .module)
-    }
-
-    static func title(_ browser: String) -> String {
-        String(format: t("passwords.firefox.primary.title", "Enter the Primary Password for %@"), browser)
-    }
-
-    static var message: String {
-        t("passwords.firefox.primary.message",
-          "This profile protects its saved passwords with a primary password. cmux uses it once to read them and does not keep it.")
-    }
-
-    static var field: String { t("passwords.firefox.primary.field", "Primary password") }
-    static var importButton: String { t("passwords.firefox.primary.import", "Import Passwords") }
-    static var skip: String { t("passwords.firefox.primary.skip", "Skip Passwords") }
 }

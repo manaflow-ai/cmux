@@ -200,7 +200,7 @@
     },
     "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Passwords.xcstrings": {
       "identical": 401,
-      "needs_review": 761
+      "needs_review": 721
     },
     "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Phone.xcstrings": {
       "needs_review": 16
@@ -336,6 +336,9 @@
     "Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/Resources/Localizable.xcstrings": {
       "identical": 1,
       "needs_review": 212
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/Resources/Passwords.xcstrings": {
+      "needs_review": 40
     },
     "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Localizable.xcstrings": {
       "identical": 2,
