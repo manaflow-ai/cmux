@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 public import Foundation
 
 /// DEBUG builds: the points of a Chromium page's creation that the app's new Chromium tab bench

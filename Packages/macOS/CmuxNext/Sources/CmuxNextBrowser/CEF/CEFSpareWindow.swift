@@ -80,7 +80,7 @@ final class CEFSpareWindow {
               !key.pane.rawValue.hasPrefix(Self.panePrefix), !key.pane.rawValue.hasPrefix(CEFPaneHost.popupPrefix),
               spare.placeholder != nil, spare.isLive || spare.isCreatingWindow else { return nil }
         host = nil
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         runtime.benchMarks.point("cef.spare_taken")
         #endif
         runtime.hosts[spare.key] = nil
