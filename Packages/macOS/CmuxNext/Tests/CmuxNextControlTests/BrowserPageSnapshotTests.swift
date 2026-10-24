@@ -189,7 +189,8 @@ import WebKit
         let manyStart = try #require(lines.firstIndex(of: many))
         let listed = lines[(manyStart + 1)...].prefix { $0.contains("- option") }
         #expect(listed.count == 20)
-        #expect(lines[manyStart + 21].contains("5 more"))
+        let more = try #require(lines.dropFirst(manyStart + 21).first, "no line after the listed options")
+        #expect(more.contains("5 more"))
     }
 
     @Test func refsOutsideTheViewportAreMarked() async throws {

@@ -408,7 +408,7 @@ class RuleTests(Fixture):
         self.write(f"{APP}/Grown.swift", "struct Grown {}\n")
         self.commit("an App file, so app-size reads the lexer")
         refusals, warnings = self.check(copy.check)
-        self.assertEqual([r.id for r, _ in refusals], ["singleton"])
+        self.assertEqual([r.id for r, _ in refusals], ["main-async"], "the other line rules still refuse")
         failed = [text for kind, text in warnings if kind == "guardrails"]
         self.assertEqual(len(failed), 1, warnings)
         self.assertIn("rule app-size failed (ImportError: a lexer that does not load", failed[0])
@@ -503,6 +503,11 @@ def code(text):
     if not isinstance(text, str):
         text = "".join(text)
     return sum(1 for line in text.splitlines() if line.strip())
+
+
+def swift_type(name, lines, kind="struct", head=""):
+    """A top-level KIND NAME of LINES physical lines (swift_body inside, unique to NAME); HEAD goes before `struct`."""
+    return f"{head}{kind} {name} {{\n" + swift_body(lines - 2, name[0].lower() + name[1:]) + "}\n"
 
 
 def host_file(lines, domain="Foo", declare=True):
@@ -640,9 +645,18 @@ class AppSizeTests(Fixture):
     def test_code_moved_between_the_root_and_feature_files_is_not_growth(self):
         lines = swift_body(200, "delegate").splitlines(keepends=True)
         self.write(f"{APP}/AppDelegate.swift", "".join(lines[:37] + lines[137:]))
+        self.write(f"{KIT}/Delegate/DelegateParts.swift", "".join(lines[37:137]))
+        self.commit("100 lines out of AppDelegate into a package")
+        self.assertPasses("out of the root into a package")
+        self.reset()
+        # Lead decision (b), item 2: out of the root into another App file is no App growth (no `total` warning),
+        # but it counts against the root's budget.
+        self.write(f"{APP}/AppDelegate.swift", "".join(lines[:37] + lines[137:]))
         self.append(f"{APP}/TextBox/TextBoxView.swift", "".join(lines[37:137]))
-        self.commit("100 lines out of AppDelegate")
-        self.assertPasses("out of the root")
+        self.commit("100 lines out of AppDelegate into a feature file")
+        found = self.assertRefused("moved from the root into other App files count too")
+        self.assertEqual([h.bucket for h in found], ["root"])
+        self.assertEqual(self.growth(), [], "a move inside the App is no App growth")
         self.reset()
         self.write(f"{APP}/Quit/QuitCoordinator.swift", "".join(self.quit[:201]))
         self.append(f"{APP}/AppDelegate.swift", "".join(self.quit[201:]))
@@ -688,24 +702,28 @@ class AppSizeTests(Fixture):
         found = self.assertRefused(f"new App file, {total + 4} source lines")
         self.assertEqual([h.bucket for h in found], [f"new:{APP}/Quit/QuitNew.swift"])
 
-    def test_a_move_out_of_the_root_stays_neutral_when_feature_files_drop_stub_lines(self):
+    def test_a_move_out_of_the_root_is_counted_whole_when_feature_files_drop_stub_lines(self):
         # The feature side's removed `}` and `return 0` lines match the moved block's: they must not cut the block
-        # into runs too short to count as moved out of the root (each line not counted is free root budget).
+        # into runs too short to count as moved out of the root. Each line not counted would be a root shrink (-1)
+        # instead of root growth (+1, lead decision (b) item 2): free root budget either way.
         lines = swift_body(200, "delegate").splitlines(keepends=True)
+        moved = code(lines[40:136])
+        self.assertEqual(moved, 84)
         wire = swift_body(35, "wire")
         self.assertEqual(code(wire), guardrails.ROOT_BUDGET + 1)
         self.write(f"{APP}/AppDelegate.swift", "".join(lines[:40] + lines[136:]) + wire)
         self.append(f"{APP}/TextBox/TextBoxView.swift", "".join(lines[40:136]))
         self.write(f"{APP}/Quit/QuitCoordinator.swift", "".join(self.quit[:200]))
         self.commit("84 lines out of AppDelegate, dead Quit code deleted, 31 new wiring lines")
-        found = self.assertRefused(f"the composition root grows +{code(wire)} source lines", "budget of +30")
-        self.assertEqual([(h.bucket, h.excess) for h in found], [("root", 1)])
+        found = self.assertRefused(f"the composition root grows +{code(wire) + moved} source lines",
+                                   f"{moved} moved from the root into other App files count too", "budget of +30")
+        self.assertEqual([(h.bucket, h.excess) for h in found], [("root", code(wire) + moved - guardrails.ROOT_BUDGET)])
         self.reset()
         self.write(f"{APP}/AppDelegate.swift", "".join(lines[:40] + lines[136:]))
-        self.append(f"{APP}/TextBox/TextBoxView.swift", "".join(lines[40:136]))
+        self.write(f"{KIT}/Delegate/DelegateParts.swift", "".join(lines[40:136]))
         self.write(f"{APP}/Quit/QuitCoordinator.swift", "".join(self.quit[:200]))
-        self.commit("control: the same move with no new wiring")
-        self.assertPasses("a move out of the root and a deletion")
+        self.commit("control: the same block moved into a package, with no new wiring")
+        self.assertPasses("a move out of the root into a package and a deletion")
 
     def test_a_small_file_renamed_whole_is_a_move(self):
         flag = "import Foundation\n\nlet quitFlag = true\n"
@@ -729,7 +747,9 @@ class AppSizeTests(Fixture):
         self.rebase_on({f"{APP}/AppServices+Flag.swift": "import Foundation\n\nlet appFlag = true\n"}, "a small root file")
         self.git("mv", f"{APP}/AppServices+Flag.swift", f"{APP}/Quit/Flag.swift")
         self.commit("a root file renamed into a feature folder")
-        self.assertPasses("a rename out of the root is neutral, however short: no root shrink, no feature growth")
+        # Its 2 lines left the root for an App file: root +2 (lead decision (b) item 2), within the budget; no
+        # feature growth and no App growth.
+        self.assertPasses("a short rename out of the root is moved whole: no feature growth, root +2 of its budget")
 
     def test_feature_logic_pasted_into_an_existing_app_services_file_is_refused(self):
         lines = swift_body(120, "textBox").splitlines(keepends=True)
@@ -823,12 +843,18 @@ class AppSizeTests(Fixture):
         self.commit("84 lines out of AppDelegate into TextBoxView, which drops a function and adds 3 lines")
         grows = code(box[8:] + lines[40:136]) + 3 + code(swift_body(10, "zoomMore")) - code(box) - code(lines[40:136])
         self.assertGreater(grows, 0)
-        self.assertWarned(f"App outside the root grows +{grows} source lines", "TextBox/TextBoxView.swift +3 new")
+        # The 84 moved lines are root growth (lead decision (b) item 2), not feature growth: the root refuses.
+        self.assertEqual([h.bucket for h in self.hits()], ["root"])
+        text = "\n".join(self.growth())
+        self.assertIn(f"App outside the root grows +{grows} source lines", text)
+        self.assertIn("TextBox/TextBoxView.swift +3 new", text)
 
     def test_a_file_s_own_re_indented_braces_beside_a_move_out_of_the_root_are_not_moved(self):
         # AppDelegate moves 10 lines into TextBoxView, re-indents 20 of its own statements and adds 25 wiring lines;
         # TextBoxView wraps its own 20 statements and the moved lines in `Task { @MainActor in ... }`. Each file's
-        # re-added `}` lines are its own: none moved out of the root (the wiring is +25, not +45), and none is new.
+        # re-added `}` lines are its own: none moved out of the root, and none is new. The 10 moved lines count
+        # against the root's budget (lead decision (b) item 2): root +25 - 10 + 2 * 10 = +35, exactly; each `}`
+        # wrongly taken as moved out of the root would add 2.
         def statements(tag, indent):
             pad = " " * indent
             return "".join(f"{pad}if {tag}Ready{i} {{\n{pad}    {tag}Start{i}()\n{pad}}}\n" for i in range(20))
@@ -846,29 +872,34 @@ class AppSizeTests(Fixture):
                    "        Task { @MainActor in\n" + "".join("    " + line for line in moved.splitlines(keepends=True))
                    + statements("textBox", 12) + "        }\n    }\n}\n")
         self.commit("10 lines out of AppDelegate, both files re-indent their own statements, 25 wiring lines")
-        self.assertWarned("App outside the root grows +2 source lines", "CmuxNextApp grows +27 source lines",
-                          "AppDelegate.swift +25 added, TextBox/TextBoxView.swift +2 new")
+        found = self.assertRefused("the composition root grows +35 source lines",
+                                   "10 moved from the root into other App files count too")
+        self.assertEqual([(h.bucket, h.excess) for h in found], [("root", 35 - guardrails.ROOT_BUDGET)])
+        text = "\n".join(self.growth())
+        for needle in ("App outside the root grows +2 source lines", "CmuxNextApp grows +27 source lines",
+                       "AppDelegate.swift +25 added, TextBox/TextBoxView.swift +2 new"):
+            self.assertIn(needle, text)
 
     def test_a_new_wrapper_around_a_block_moved_out_of_the_root_is_not_moved(self):
         # The block moved out of AppDelegate goes into a new `extension TextBoxView { ... }`. The wrapper's `}`
         # closes no opener of the block, so it is new feature code, not a line moved out of the root, even when the
         # root re-adds braces (a re-indented function of its own) that could pay for it: the wiring count is exact.
+        # The 84 moved lines count against the root's budget (lead decision (b) item 2): root = wiring + 84, and
+        # the wrapper's `}` wrongly taken as moved out of the root would make it wiring + 86.
         lines = swift_body(200, "delegate").splitlines(keepends=True)
+        moved = code(lines[40:136])
         own = ["  " + line if line.strip() else line for line in lines[:8]]
         block = "extension TextBoxView {\n" + "".join(lines[40:136]) + "}\n"
-        for wire, verdict in ((swift_body(34, "wire"), None), (swift_body(35, "wire"), ("root", 1))):
+        for wire in (swift_body(34, "wire"), swift_body(35, "wire")):
             with self.subTest(wiring=code(wire)):
                 self.reset()
                 self.write(f"{APP}/AppDelegate.swift", "".join(own + lines[8:40] + lines[136:]) + wire)
                 self.append(f"{APP}/TextBox/TextBoxView.swift", block)
                 self.write(f"{APP}/Quit/QuitCoordinator.swift", "".join(self.quit[:200]))
                 self.commit(f"84 lines out of AppDelegate into a new extension, {code(wire)} new wiring lines")
-                if verdict is None:
-                    self.assertEqual(code(wire), guardrails.ROOT_BUDGET)
-                    self.assertPasses("wiring exactly at the budget")
-                else:
-                    found = self.assertRefused(f"the composition root grows +{code(wire)} source lines")
-                    self.assertEqual([(h.bucket, h.excess) for h in found], [verdict])
+                found = self.assertRefused(f"the composition root grows +{code(wire) + moved} source lines")
+                self.assertEqual([(h.bucket, h.excess) for h in found],
+                                 [("root", code(wire) + moved - guardrails.ROOT_BUDGET)])
 
     def test_the_growth_summary_counts_a_file_s_own_re_added_lines_whatever_the_root_removed(self):
         # TextBoxView's `}` and `return 0` lines that its own removed lines explain are not new, whether or not the
@@ -891,6 +922,122 @@ class AppSizeTests(Fixture):
                     self.commit(f"TextBoxView: {name}; AppDelegate deletes a function: {root_edit}")
                     self.assertWarned("App outside the root grows +3 source lines",
                                       f"TextBox/TextBoxView.swift +{new} new")
+
+    def test_a_new_type_in_an_existing_app_file_is_refused_like_a_new_file(self):
+        # Lead decision (b): appending a new type to an existing file must not pass where its own new file would not.
+        view = f"{APP}/TextBox/TextBoxView.swift"
+        thing = swift_type("NewThingView", 40, head="@MainActor\n")
+        self.append(view, "\n" + thing)
+        self.commit("a new 40-line type appended to an existing App file")
+        found = self.assertRefused("new type NewThingView in an existing App file", "its own file",
+                                   "// app-type-allow:")
+        self.assertEqual([h.bucket for h in found], [f"new:{view}:NewThingView"])
+        self.assertEqual(found[0].number, 122, "points at the declaration line")
+        for name, text in (("an actor", swift_type("Loader", 20, kind="actor")),
+                           ("a public final class", swift_type("Store", 20, kind="class", head="public final ")),
+                           ("an enum", swift_type("Mode", 20, kind="enum")),
+                           ("a protocol", "protocol Saving {\n    func save()\n}\n"),
+                           ("a private type over 15 lines", swift_type("Helper", 20, head="private "))):
+            with self.subTest(refused=name):
+                self.reset()
+                self.append(view, text)
+                self.commit(name)
+                self.assertTrue([h for h in self.hits() if h.bucket.startswith(f"new:{view}:")], name)
+
+    def test_a_new_type_in_an_existing_file_passes_when_it_is_moved_small_private_an_extension_or_escaped(self):
+        view = f"{APP}/TextBox/TextBoxView.swift"
+        quit_type = swift_type("QuitSteps", 40)
+        self.rebase_on({f"{APP}/Quit/QuitSteps.swift": quit_type,
+                        f"{KIT}/KitModel.swift": swift_type("KitModel", 40),
+                        f"{APP}/TextBox/TextBoxStyle.swift": "struct TextBoxStyle {\n    let size = 1\n}\n"},
+                       "types to move")
+        cases = {
+            "a type moved in from another App file": ({f"{APP}/Quit/QuitSteps.swift": None}, quit_type),
+            "a type moved in from a package": ({f"{KIT}/KitModel.swift": None}, swift_type("KitModel", 40)),
+            "a private helper of 15 source lines": ({}, swift_type("Row", 16, head="private ")),
+            "a fileprivate helper of 15 source lines": ({}, swift_type("Cell", 16, head="fileprivate ")),
+            "an extension": ({}, "extension TextBoxStyle {\n" + swift_body(30, "ext") + "}\n"),
+            "an escaped type": ({}, "// app-type-allow: the view's preview needs the private type\n"
+                                + swift_type("Preview", 30, head="@MainActor\n")),
+            "a type declared in a multi-line string": ({}, 'let template = """\n}\nstruct Fake {\n"""\n'),
+        }
+        self.assertEqual(code(swift_type("Row", 16)), 15)
+        for name, (deleted, text) in cases.items():
+            with self.subTest(passes=name):
+                self.reset()
+                for path in deleted:
+                    (self.repo / path).unlink()
+                self.append(view, text)
+                self.commit(name)
+                self.assertEqual([h.text for h in self.hits() if h.bucket.startswith(f"new:{view}")], [], name)
+        self.reset()
+        self.write(f"{APP}/Quit/QuitCoordinator.swift", "".join(self.quit) + quit_type)
+        self.commit("setup: QuitSteps also in an existing file")
+        self.base = self.git("rev-parse", "HEAD").stdout.strip()
+        self.write(f"{APP}/Quit/QuitCoordinator.swift", "".join(self.quit))
+        self.append(view, quit_type)
+        self.commit("a type moved between two existing App files")
+        self.assertEqual([h.text for h in self.hits()], [], "a move between existing files is a move")
+        self.reset()
+        nested = "struct TextBoxLayout {\n" + "".join("    " + line if line.strip() else line
+                                                     for line in swift_type("Metrics", 30).splitlines(True)) + "}\n"
+        self.rebase_on({f"{APP}/TextBox/TextBoxLayout.swift": nested}, "a nested type")
+        self.write(f"{APP}/TextBox/TextBoxLayout.swift", "struct TextBoxLayout {\n}\n" + swift_type("Metrics", 30))
+        self.commit("a nested type lifted to the top level of its file")
+        self.assertEqual([h.text for h in self.hits()], [], "a lifted nested type is a move")
+        self.reset()
+        self.write(f"{APP}/TextBox/TextBoxStyle.swift", "struct TextBoxStyle: Equatable {\n    let size = 1\n}\n")
+        self.commit("an old type's declaration line gains a conformance")
+        self.assertPasses("an edited declaration of a type the file already had is not a new type")
+        self.reset()
+        self.write(f"{APP}/TextBox/TextBoxStyle.swift", "struct TextBoxLook {\n    let size = 1\n}\n")
+        self.commit("an old type renamed in place")
+        self.assertEqual([h.text for h in self.hits()], [], "a rename in place adds no new code")
+
+    def test_root_lines_moved_into_other_app_files_count_against_the_root_budget(self):
+        # Lead decision (b), item 2: wiring that leaves the root for another App file still grows the App's wiring
+        # (P1: objects are built in the composition root); only a move into a package is the wanted direction.
+        services = swift_body(200, "services").splitlines(keepends=True)
+        moved = services[40:64]  # 21 source lines of existing root code
+        self.assertEqual(code(moved), 21)
+        # New wiring with no generic line (`}`, `return 0`): the root's own removed generic lines then all stay
+        # available to the moved block, so this test checks the rule, not the cross-root run count.
+        wire = "".join(f"    let wire{i} = makeWire({i})\n" for i in range(11))
+        kept = "".join(services[:40] + services[64:])
+        self.write(f"{APP}/AppServices.swift", kept + wire)
+        self.write(f"{APP}/Workspace/WorkspaceWiring.swift", "extension AppServices {\n" + "".join(moved) + "}\n")
+        self.commit("21 root lines moved into a feature file, 11 new root lines")
+        found = self.assertRefused("the composition root grows +32 source lines",
+                                   "21 moved from the root into other App files", "budget of +30")
+        self.assertEqual([(h.bucket, h.excess) for h in found if h.bucket == "root"], [("root", 2)])
+        self.reset()
+        self.write(f"{APP}/AppServices.swift", kept + wire)
+        self.append(f"{APP}/TextBox/TextBoxView.swift", "".join(moved))
+        self.commit("the same lines appended to an existing feature file")
+        self.assertEqual([(h.bucket, h.excess) for h in self.hits() if h.bucket == "root"], [("root", 2)])
+        self.reset()
+        self.write(f"{APP}/AppServices.swift", kept + wire)
+        self.write(f"{KIT}/Workspace/WorkspaceWiring.swift", "".join(moved))
+        self.commit("control: the same lines moved into a package")
+        self.assertEqual([h.text for h in self.hits()], [], "a move from the root into a package stays exempt")
+
+    def test_new_wiring_split_between_the_root_and_a_feature_file_is_not_a_move_out_of_the_root(self):
+        # Case 2 of the review: 41 new wiring lines, 29 in the root and 12 in a feature file. None of them was in
+        # the root, so nothing moved out of it: the feature file's +12 is App growth (a warning, as agreed), and
+        # the root is within its budget. Lead (2026-10-23): no lines out of the root is not an evasion; it passes.
+        wire = swift_body(33, "wire")
+        self.assertEqual(code(wire), 29)
+        self.append(f"{APP}/AppServices.swift", wire)
+        self.write(f"{APP}/Workspace/WorkspaceWiring.swift", "extension AppServices {\n" + swift_body(11, "split") + "}\n")
+        self.write(f"{APP}/Quit/QuitCoordinator.swift", "".join(self.quit[:250]))  # an unrelated deletion
+        self.commit("29 new root lines and 12 new lines in an AppServices extension in a feature folder")
+        found = self.hits()
+        self.assertEqual([h.bucket for h in found if h.bucket == "root"], [], "no root refusal")
+        self.reset()
+        self.append(f"{APP}/AppServices.swift", wire)
+        self.append(f"{APP}/TextBox/TextBoxView.swift", swift_body(13, "split"))
+        self.commit("the same 12 lines in an existing feature file")
+        self.assertWarned("outside the root grows +12 source lines")
 
     def test_one_host_conformance_file_of_forwards_per_push(self):
         self.write(f"{APP}/AppServices+FooHost.swift", host_file(25))
