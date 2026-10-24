@@ -82,6 +82,7 @@ import type { SendBlock } from "./useFolderTrustAsk";
 import { folder, promptSuggestion, type LivePullRequest, type PromptSuggestion } from "./promptSuggestion";
 import { useHeaderState } from "./header/headerState";
 import { queuePauseReason } from "./queuePause";
+import { stopTurnFromAction } from "./stopTurnAction";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -983,7 +984,7 @@ export function Composer({
   // callback. Ignore a stale action after the turn ended while the page was switching sessions.
   useEffect(() => {
     const stopFromAction = () => {
-      if (snapshot.isWorking) stopTurn();
+      stopTurnFromAction(snapshot.isWorking, stopTurn);
     };
     window.addEventListener("cmux-acpmux-stopTurn", stopFromAction);
     return () => window.removeEventListener("cmux-acpmux-stopTurn", stopFromAction);

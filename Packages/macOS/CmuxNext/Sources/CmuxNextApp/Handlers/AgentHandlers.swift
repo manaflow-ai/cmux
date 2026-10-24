@@ -82,7 +82,6 @@ enum AgentHandlers {
             view.toggleInspector()
         }
         registry.bind(.stopTurn, run: { invocation in
-            guard invocation.allowsViewChange else { return context.refuse(MiscHandlerStrings.noAgentChat) }
             guard let view = focusedAgentView(context, invocation) else { return }
             view.stopTurn()
         })
