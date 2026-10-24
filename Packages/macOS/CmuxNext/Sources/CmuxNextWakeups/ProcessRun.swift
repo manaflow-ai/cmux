@@ -34,7 +34,7 @@ final class ProcessRun: Sendable {
     }
 
     private let request: ProcessRequest
-    /// The caller's priority: the read queue's QoS and the child's own.
+    /// The request's priority, else the caller's: the read queue's QoS and the child's own.
     private let priority: WorkPriority
     private let queue: DispatchQueue
     // concurrency-allow: one-shot resume guard and buffers shared by the starting task, read sources and the termination callback (lock carve-out).
@@ -45,7 +45,7 @@ final class ProcessRun: Sendable {
     init(_ request: ProcessRequest, clock: any Clock<Duration>) {
         self.request = request
         let name = request.executable.lastPathComponent
-        priority = WorkPriority(Task.currentPriority)
+        priority = request.priority ?? WorkPriority(Task.currentPriority)
         queue = DispatchQueue(label: "com.cmuxterm.next.process.\(name)", qos: priority.qos)
         killDeadline = DemandTimer(owner: "process.kill.\(name)", clock: clock)
     }
@@ -135,6 +135,9 @@ final class ProcessRun: Sendable {
             return
         }
         let pid = process.processIdentifier
+        // Before the pid is published: no stop (a pending one below, a concurrent stop()) can signal the child
+        // until onLaunch has returned, so a watcher it starts always sees the child alive.
+        request.onLaunch?(pid)
         // Under the lock with the exit's `ended`, so a signal never reaches a pid the child no longer has.
         let stopped = state.withLock { state -> Bool in
             guard !state.ended else { return false }
@@ -142,7 +145,6 @@ final class ProcessRun: Sendable {
             return state.stop != nil
         }
         if stopped { send(request.stopSignal) }
-        request.onLaunch?(pid)
         if let input, let bytes = request.input { feed(bytes, to: input) }
     }
 

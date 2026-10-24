@@ -32,9 +32,11 @@ public struct AsyncProcess: Sendable {
 
     /// Starts the request's child and returns when it has exited.
     ///
-    /// `@concurrent`: the setup and the spawn (`posix_spawn` inside `Process.run()`) always run on the
-    /// global executor. The module uses `NonisolatedNonsendingByDefault`, so without it this would run
-    /// on the caller's actor, and every main-actor caller would spawn on the main thread.
+    /// The spawn (`posix_spawn` inside `Process.run()`) runs on the run's own serial queue
+    /// (`com.cmuxterm.next.process.<name>`, at the request's or the caller's QoS), never on the caller's
+    /// actor or the cooperative pool. `@concurrent`: the setup before it runs on the global executor; the
+    /// module uses `NonisolatedNonsendingByDefault`, so without it the setup would run on the caller's actor
+    /// (often main).
     ///
     /// - Parameter request: what to run.
     /// - Returns: its exit status and output.

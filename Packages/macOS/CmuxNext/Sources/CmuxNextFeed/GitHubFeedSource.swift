@@ -1,5 +1,6 @@
 import CryptoKit
 public import Foundation
+public import CmuxNextWakeups
 
 /// Polls GitHub and posts integration items into the existing local feed owner.
 /// ETags and the detail cache are client state; item lifecycle, dedupe, and
@@ -23,7 +24,7 @@ public final class GitHubFeedSource: GitHubFeedDetailProviding {
 
     public init(
         owner: any FeedPostingSource,
-        client: any GitHubFeedAPI = GitHubCLIClient(),
+        client: any GitHubFeedAPI = GitHubCLIClient(priority: .bestEffort),
         interval: Duration = GitHubFeedSource.defaultInterval,
         now: @escaping @MainActor () -> Date = { Date() }
     ) {
