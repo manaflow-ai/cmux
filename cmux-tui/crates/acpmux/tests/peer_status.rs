@@ -179,9 +179,9 @@ async fn peer_status_rides_on_the_peer_row_read_after_connect() {
     let row = rows["peers"].as_array().and_then(|r| r.iter().find(|p| p["name"] == "b")).cloned();
     let row = row.expect("peer b for the web");
     assert!(row.get("health").is_none() && row.get("healthAt").is_none(), "{row}");
-    // Nor in the status reply's peers (when the Web may read status at all).
-    let status = web.call("_acpmux/status", json!({})).await.unwrap_or_default();
-    for p in status["peers"].as_array().into_iter().flatten() {
-        assert!(p.get("health").is_none() && p.get("healthAt").is_none(), "{status}");
-    }
+    // Nor in the status reply's peers.
+    let status = web.call("_acpmux/status", json!({})).await.expect("status for the web");
+    let b = status["peers"].as_array().and_then(|r| r.iter().find(|p| p["name"] == "b"));
+    let b = b.unwrap_or_else(|| panic!("peer b in the web's status: {status}"));
+    assert!(b.get("health").is_none() && b.get("healthAt").is_none(), "{status}");
 }
