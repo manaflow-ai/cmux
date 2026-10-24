@@ -75,6 +75,7 @@ final class PaneHostView: NSView, RestingPlacement {
                 heldContentSize = LayoutTunables.holdsContentInMotion.value ? content.frame.size : nil
             } else {
                 heldContentSize = nil
+                heldAnchor = nil
                 // The one layout at the size the spring landed at, before the content hears it landed.
                 layoutClip()
                 content.notifyPaneMotionSettled()
@@ -104,7 +105,7 @@ final class PaneHostView: NSView, RestingPlacement {
         let size = CGSize(width: max(clip.width, held.width, rest.width), height: max(clip.height, held.height, rest.height))
         // The far edge's distance from its rest against the near edge's (`restOffset`).
         let trailing = abs(restOffset.dx + restSize.width - frame.width) < abs(restOffset.dx) - 0.5
-        let bottom = abs(restOffset.dy + restSize.height - frame.height) < abs(restOffset.dy) - 0.5
+        let bottom = heldAnchor.map { $0 == .bottom } ?? (abs(restOffset.dy + restSize.height - frame.height) < abs(restOffset.dy) - 0.5)
         return CGRect(x: trailing ? clip.maxX - size.width : clip.minX,
                       y: bottom == isFlipped ? clip.maxY - size.height : clip.minY,
                       width: size.width, height: size.height)
@@ -220,6 +221,25 @@ final class PaneHostView: NSView, RestingPlacement {
         }
         chrome.setShape(padding: padding, cornerRadius: cornerRadius, headerHeight: header, footerHeight: footer)
     }
+
+    /// Tells the content (every ``PaneMotionTargeting`` view in it) how much larger its area will rest than
+    /// it is now (`restSize` against the current frame, both less the padding): called by the screen once
+    /// when a spring starts or retargets to a new size, never per frame.
+    func announceRest() {
+        guard let restSize else { return }
+        var style = LayoutStyle()
+        style.panePadding = padding
+        style.paneCornerRadius = cornerRadius
+        let rest = PaneChromeGeometry.contentRect(forCell: CGRect(origin: .zero, size: restSize), style: style).size
+        let now = content.frame.size
+        let change = CGSize(width: rest.width - now.width, height: rest.height - now.height)
+        guard abs(change.width) >= 0.5 || abs(change.height) >= 0.5 else { return }
+        heldAnchor = content.notifyPaneMotionWillRest(sizeChange: change)
+        if heldContentSize != nil { layoutClip() }
+    }
+
+    /// The vertical edge held content rides, from the last ``announceRest()`` (nil: the near-edge rule).
+    private var heldAnchor: PaneMotionAnchor?
 
     /// Tells the content when the pane's frame in the window changed.
     func noteWindowFrame() {

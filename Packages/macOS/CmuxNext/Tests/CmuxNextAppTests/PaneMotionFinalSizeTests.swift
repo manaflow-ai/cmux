@@ -11,8 +11,9 @@ import Testing
     /// A terminal-like leaf under a fixed 30 pt header, as a pane's tab strip sits over its terminal.
     final class Leaf: NSView, PaneMotionTargeting {
         var announced: [CGSize] = []
-        func paneMotionWillRest(sizeChange: CGSize) {
+        func paneMotionWillRest(sizeChange: CGSize) -> PaneMotionAnchor {
             announced.append(CGSize(width: bounds.width + sizeChange.width, height: bounds.height + sizeChange.height))
+            return .top
         }
     }
 
