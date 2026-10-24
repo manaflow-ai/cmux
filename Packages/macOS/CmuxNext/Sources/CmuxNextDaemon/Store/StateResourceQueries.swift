@@ -48,17 +48,6 @@ extension StateResourceQueries {
         workspaces.first { $0.resourceID == id }
     }
 
-    /// Returns once the tree reflects every event up to `sequence` (a
-    /// `DaemonConnection.eventSequence()` taken after a command's reply), or
-    /// the connection changed. Event-driven: it observes the store.
-    public func applied(through sequence: UInt64?) async {
-        guard let sequence, appliedSequence < sequence else { return }
-        let state = connectionState
-        for await done in ObservationStream({ self.appliedSequence >= sequence || self.connectionState != state }) where done {
-            return
-        }
-    }
-
     /// Returns once the state resources' first snapshot arrived, or this
     /// daemon serves none (`SessionStateStore.known`), or the connection changed.
     public func sessionStateResolved() async {

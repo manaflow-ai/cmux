@@ -26,9 +26,11 @@ struct AppliedThroughTests {
         let connection = Self.unstartedConnection()
         let running = Task { await store.run(connection: connection) }
         await Task.yield()
+        #expect(store.driver != nil, "the store mirrors the connection")
         let epoch = store.connectionEpoch
         let waiting = Task { await store.appliedThrough(Self.pending, since: epoch) }
         await Task.yield()
+        #expect(store.appliedWaiters.count == 1, "the wait is inside the store before the end")
         store.markFailed("the link ended")
         #expect(await waiting.value == false, "a connection marked failed counted as a held barrier")
         await connection.close()
@@ -40,9 +42,11 @@ struct AppliedThroughTests {
         let connection = Self.unstartedConnection()
         let running = Task { await store.run(connection: connection) }
         await Task.yield()
+        #expect(store.driver != nil, "the store mirrors the connection")
         let epoch = store.connectionEpoch
         let waiting = Task { await store.appliedThrough(Self.pending, since: epoch) }
         await Task.yield()
+        #expect(store.appliedWaiters.count == 1, "the wait is inside the store before the end")
         await connection.close()
         await running.value
         #expect(await waiting.value == false, "a closed connection counted as a held barrier")
@@ -53,6 +57,7 @@ struct AppliedThroughTests {
         let epoch = store.connectionEpoch
         let waiting = Task { await store.appliedThrough(Self.pending, since: epoch) }
         await Task.yield()
+        #expect(store.appliedWaiters.count == 1, "the wait is inside the store before the drop")
         let drop = DaemonEventEnvelope.sequence(serial: 1, index: DaemonEventEnvelope.lastIndex)
         store.apply(batch: [DaemonEventEnvelope(sequence: drop, event: .disconnected(reason: "socket closed"))])
         #expect(await waiting.value, "the events routed before the drop applied, so the wait holds")
@@ -67,6 +72,18 @@ struct AppliedThroughTests {
         let drop = DaemonEventEnvelope.sequence(serial: 1, index: DaemonEventEnvelope.lastIndex)
         store.apply(batch: [DaemonEventEnvelope(sequence: drop, event: .disconnected(reason: "socket closed"))])
         #expect(await store.appliedThrough(DaemonEventEnvelope.sequence(serial: 2, index: 5), since: epoch) == false)
+    }
+
+    /// Reopen's undo watch is cancelled by the next reopen: the wait ends at once, not held, and leaves no waiter.
+    @Test func aCancelledWaitEndsNotHeld() async {
+        let store = DaemonStore()
+        let epoch = store.connectionEpoch
+        let waiting = Task { await store.appliedThrough(Self.pending, since: epoch) }
+        await Task.yield()
+        #expect(store.appliedWaiters.count == 1)
+        waiting.cancel()
+        #expect(await waiting.value == false)
+        #expect(store.appliedWaiters.isEmpty, "a cancelled wait left its waiter behind")
     }
 
     @Test func noSequenceIsNotAHeldBarrier() async {

@@ -30,9 +30,12 @@ public final class DaemonStore: StateResourceQueries {
     /// Sidebar flattening, recomputed only when order, membership, or groups change.
     public internal(set) var sidebarSections: [SidebarSection] = []
     public internal(set) var connectionState: DaemonConnectionState = .connecting
-    /// Counts connection changes (connected, disconnected, shut down), so a
+    /// Counts connection changes (connected, disconnected, shut down, and the
+    /// end of a mirrored connection: marked failed, or its run finished), so a
     /// reader can tell facts seen on an earlier connection from this one
-    /// even when it missed the states in between.
+    /// even when it missed the states in between. Every way a connection ends
+    /// moves it (``DaemonConnectionChange``), so a read-your-writes wait taken
+    /// on it ends, not held (``appliedThrough(_:since:)``).
     @ObservationIgnored public internal(set) var connectionEpoch = 0
     /// The identity of the last daemon that completed a handshake. Kept
     /// through a disconnect; replaced on every (re)connect, whose daemon may
@@ -68,14 +71,22 @@ public final class DaemonStore: StateResourceQueries {
     public internal(set) var confirmedTransactions: [ClientTransactionID] = []
     /// Called once per echoed transaction id, on the main actor.
     @ObservationIgnored public var onTransactionConfirmed: ((ClientTransactionID) -> Void)?
-    /// `whenApplied` callbacks waiting for their transaction's echo.
+    /// `whenApplied` callbacks waiting for their transaction's echo, and
+    /// `appliedThrough` waits for a sequence.
     @ObservationIgnored var appliedWaiters: [AppliedWaiter] = []
-    /// A disconnect was applied: every waiter runs at the next flush.
+    /// The last ``AppliedWaiter/id`` handed out (a cancelled wait removes its own).
+    @ObservationIgnored var appliedWaiterSerial: UInt64 = 0
+    /// The connection ended (a disconnect applied, it was marked failed, or
+    /// its run finished): every waiter runs at the next flush.
     @ObservationIgnored var drainAppliedWaiters = false
     struct AppliedWaiter {
-        var transaction: ClientTransactionID
+        var id: UInt64
+        /// The echo it waits for; nil for a wait on `sequence` alone.
+        var transaction: ClientTransactionID?
         var sequence: UInt64?
-        var body: @MainActor () -> Void
+        /// Runs once: `held` is false when the connection ended (or the wait was
+        /// cancelled) before the store reached the echo or the sequence.
+        var body: @MainActor (_ held: Bool) -> Void
     }
     /// Called on the main actor, synchronously, once the set of loaded
     /// workspaces changed (one joined or left, or a provisional one was
@@ -347,9 +358,18 @@ public final class DaemonStore: StateResourceQueries {
         if self.identity != identity { self.identity = identity }
     }
 
-    /// Marks the connection permanently failed (incompatible daemon).
+    /// Marks the connection permanently failed (an incompatible or refused
+    /// daemon, a Cloud link that ended). When the store mirrors a connection
+    /// (``run(connection:scheduler:)``), that connection ends here: the epoch
+    /// moves and every waiter runs, so a read-your-writes wait on it ends, not
+    /// held, instead of waiting for the next connect. Without one (a first
+    /// connect that failed) no connection changes, only the state.
     public func markFailed(_ message: String) {
-        connectionState = .failed(message)
+        guard driver != nil else {
+            connectionState = .failed(message)
+            return
+        }
+        _ = DaemonConnectionChange.failed(message).apply(to: self)
     }
 
     // MARK: Derived state

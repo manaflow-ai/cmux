@@ -4,6 +4,10 @@ enum DaemonConnectionChange {
     case connected(DaemonIdentity, DaemonEventEnvelope?)
     case disconnected(String)
     case shutdown
+    /// The mirrored connection is permanently failed (``DaemonStore/markFailed(_:)``, or its event stream threw).
+    case failed(String)
+    /// The store's run of the connection finished (`close()` ends its event stream with no envelope).
+    case ended
 
     func apply(to store: DaemonStore) -> DaemonStore.Followup {
         store.connectionEpoch += 1
@@ -28,6 +32,17 @@ enum DaemonConnectionChange {
             store.clearPresence()
             store.connectionState = .disconnected("daemon shut down")
             store.onDisconnected?()
+            return .none
+        case .failed(let message):
+            store.connectionState = .failed(message)
+            // Nothing newer will arrive for commands sent on this connection.
+            store.drainAppliedWaiters = true
+            store.flushAppliedWaiters()
+            return .none
+        case .ended:
+            // No echo or barrier will come for its commands.
+            store.drainAppliedWaiters = true
+            store.flushAppliedWaiters()
             return .none
         }
     }
