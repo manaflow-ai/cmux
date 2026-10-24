@@ -11,9 +11,22 @@ import Foundation
 /// Replays never block (a 10 MiB replay must not wedge the attach
 /// handshake). Consecutive plain output chunks are merged on the way out.
 final class TerminalEventQueue: @unchecked Sendable {
+    /// What a push did on a queue whose reader must not wait.
+    enum PushOutcome: Equatable {
+        case queued
+        /// Output passed `highWater`: every queued output chunk and history
+        /// page was dropped (the new one too). The stream resyncs by snapshot.
+        case overflowed
+    }
+
     let highWater: Int
     let lowWater: Int
     let mergeLimit: Int
+    /// False on a shared connection (`attach-streams-v1`): the reader thread
+    /// serves every stream and the control plane, so it never waits; a
+    /// consumer that falls `highWater` behind loses its queued output instead
+    /// and its stream resyncs by snapshot (D5).
+    let blocksReader: Bool
     /// Called on the reader thread, with the lock held, each time a `push`
     /// starts to block above `highWater`. Tests use it to observe
     /// backpressure without timing; it must not block or touch the queue.
@@ -29,11 +42,20 @@ final class TerminalEventQueue: @unchecked Sendable {
     private var armed = false
 
     init(highWater: Int = 8 << 20, lowWater: Int = 2 << 20, mergeLimit: Int = 1 << 20,
-         onReaderBlocked: (@Sendable () -> Void)? = nil) {
+         blocksReader: Bool = true, onReaderBlocked: (@Sendable () -> Void)? = nil) {
+        self.blocksReader = blocksReader
         self.highWater = highWater
         self.lowWater = lowWater
         self.mergeLimit = mergeLimit
         self.onReaderBlocked = onReaderBlocked
+    }
+
+    /// The queue of a view on a shared connection (`attach-streams-v1`): the
+    /// reader never waits, and chunks are not merged, so each frame and ring
+    /// span stays its own event (a ring span reaches Ghostty uncopied and no
+    /// bytes move past a grid change).
+    static func sharedConnection() -> TerminalEventQueue {
+        TerminalEventQueue(mergeLimit: 0, blocksReader: false)
     }
 
     /// Enables blocking once the consumer can start draining.
@@ -43,27 +65,45 @@ final class TerminalEventQueue: @unchecked Sendable {
         condition.unlock()
     }
 
-    /// Reader thread. May block while the consumer is behind.
-    func push(_ event: TerminalChannelEvent) {
+    /// Reader thread. May block while the consumer is behind (only when
+    /// ``blocksReader``).
+    @discardableResult
+    func push(_ event: TerminalChannelEvent) -> PushOutcome {
         condition.lock()
         guard !finished else {
             condition.unlock()
-            return
+            return .queued
         }
         if let waiter {
             self.waiter = nil
             condition.unlock()
             waiter.resume(returning: event)
-            return
+            return .queued
         }
         items.append(event)
         outputBytes += Self.outputSize(event)
+        if !blocksReader {
+            defer { condition.unlock() }
+            guard outputBytes > highWater else { return .queued }
+            dropQueuedOutput()
+            return .overflowed
+        }
         if armed, !finished, outputBytes > highWater { onReaderBlocked?() }
         while armed, !finished, outputBytes > highWater {
             // concurrency-allow: runs only on the attach connection's dedicated reader thread (LineTransport), never the main thread; this is the designed backpressure that makes the daemon drop a slow view.
             condition.wait()
         }
         condition.unlock()
+        return .queued
+    }
+
+    /// Drops every queued output chunk and history page; other events stay
+    /// in order. Caller holds the lock.
+    private func dropQueuedOutput() {
+        let kept = items.dropFirst(head).filter { Self.outputSize($0) == 0 }
+        items = Array(kept)
+        head = 0
+        outputBytes = 0
     }
 
     /// Any thread. Queues a small, non-output event without the backpressure wait, so a caller may
