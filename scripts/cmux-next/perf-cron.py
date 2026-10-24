@@ -509,6 +509,18 @@ def rows_of_part(part, report, budgets_mod, budgets):
     return out
 
 
+def report_is_incomplete(part, report):
+    """Whether a completed bench report explicitly says its coverage is incomplete.
+
+    Budget parts run without ``--gate`` so a perf-cron step can publish its
+    measurements and keep the issue tracker non-blocking. Their receipt still
+    carries the completeness verdict; retain measured rows for diagnostics but
+    keep the overall measurement from becoming a new last-good baseline.
+    Older reports and non-budget parts have no such field and remain complete.
+    """
+    return part.get("kind") == "budgets" and isinstance(report, dict) and bool(report.get("incomplete"))
+
+
 def frame_sensitive(name, row):
     """A row whose value depends on the display refresh (frame intervals, frame counts). Dropped frames count too: a
     frame deadline of 8.3 ms misses more often than one of 16.7 ms, so the first 120 Hz run after a 60 Hz baseline
@@ -2838,6 +2850,19 @@ def report(o):
             continue
         if not isinstance(result, dict) or result.get("state") not in ("done", "failed", "yielded"):
             continue
+        # A budget bench writes a report and exits zero even when its manifest has missing rows. Keep that
+        # incomplete run out of the cron baseline: a partial report is a failed part, just like a missing artifact.
+        report_value = None
+        if result.get("state") == "done":
+            try:
+                with open(os.path.join(part_dir, "report.json")) as src:
+                    report_value = json.load(src)
+            except (OSError, ValueError):
+                report_value = None
+            if report_value is None or not isinstance(report_value, dict):
+                result = dict(result)
+                result["state"] = "failed"
+                result["tail"] = [*(result.get("tail") or []), "perf cron: completed part has no report artifact"]
         changed = True
         gone = result.get("worker") if result.get("host_gone") else None
         if isinstance(gone, str) and HOST_RE.match(gone) and not is_linux_part(part):
@@ -2867,18 +2892,11 @@ def report(o):
                 for key in ("unreachable_since", "waited_at", "absent_since"):
                     state["hosts"][result["worker"]].pop(key, None)  # it ran a part: online, not silent, not absent
             os.makedirs(os.path.join(o.dir, "parts"), exist_ok=True)
-            report = os.path.join(part_dir, "report.json")
-            try:
-                with open(report) as src:
-                    value = json.load(src)
-            except (OSError, ValueError):
-                value = None
-            if isinstance(value, dict) and isinstance(value.get("macos"), str) and not is_linux_part(part):
-                cur["macos"] = entry["macos"] = value["macos"][:16]
+            if isinstance(report_value, dict) and isinstance(report_value.get("macos"), str) and not is_linux_part(part):
+                cur["macos"] = entry["macos"] = report_value["macos"][:16]
                 mark_host(state, result["worker"], macos=cur["macos"], at=iso(t))
-            if value is not None:
-                with open(os.path.join(o.dir, "parts", f"{part}.json"), "w") as dst:
-                    json.dump({"measurement": measurement_id(cur), "report": value}, dst)
+            with open(os.path.join(o.dir, "parts", f"{part}.json"), "w") as dst:
+                json.dump({"measurement": measurement_id(cur), "report": report_value}, dst)
     if cur and not cur["parts_todo"] and (changed or o.finish):
         changed = True
         mod = load_budgets_module()
@@ -2903,6 +2921,17 @@ def report(o):
             if not isinstance(stored, dict) or stored.get("measurement") != measurement_id(cur):
                 continue
             report = stored.get("report")
+            if report_is_incomplete(PART_BY_NAME[name], report):
+                # Keep the rows below so a partial run can still identify a
+                # regression, but make finish_measurement preserve the prior
+                # last/last_good records just as it does for a failed part.
+                cur["parts"][name]["state"] = "incomplete"
+                cur["parts"][name]["incomplete"] = report.get("incomplete")
+                if not is_linux_part(name):
+                    # The host did run, but this is not a completed fleet part
+                    # for next_now(): do not immediately chain another tick
+                    # into a still-open regression after partial coverage.
+                    fleet_done = False
             part_rows = rows_of_part(PART_BY_NAME[name], report, mod, budgets)
             # Each fleet part's rows carry the refresh that part saw (split-spring.sh puts its display into the
             # report): a part that saw none leaves its frame rows unknown, never another part's rate.
@@ -2923,7 +2952,8 @@ def report(o):
             rows.update(host_rows(part_rows, worker))
         refresh_ms = sorted(refresh)[len(refresh) // 2] if refresh else None
         sha = cur["sha"]
-        fleet_ran = any(p.get("state") == "done" and not is_linux_part(n) for n, p in cur["parts"].items())
+        fleet_ran = any(p.get("state") in ("done", "incomplete") and not is_linux_part(n)
+                        for n, p in cur["parts"].items())
         host = cur.get("host") if fleet_ran else "a GitHub Linux runner (no Mac part ran)"
         macos = cur.get("macos") if fleet_ran else None
         event = finish_measurement(state, rows, refresh_ms, host, o.run_url, t, mod, macos)
