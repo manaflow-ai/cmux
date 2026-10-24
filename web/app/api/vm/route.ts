@@ -97,7 +97,7 @@ import {
 import { getGoVmUsage, GO_SAVED_VM_LIMIT } from "../../../services/vms/goUsage";
 import { getPlanBudgetUsage, isBudgetPlanId, type PlanBudgetUsage } from "../../../services/vms/planUsage";
 import { publishVmOps, vmSyncReplaceOp } from "../../../services/vms/presencePublisher";
-import { gcpCredentialFromRequest, gcpProviderMetadataFromRequest, idempotencyKeyFromRequest, wipeProviderCredential } from "../../../services/vms/routeInput";
+import { gcpCredentialFromRequest, gcpProviderMetadataFromRequest, idempotencyKeyFromRequest, providerCredentialLifetime } from "../../../services/vms/routeInput";
 import { enforceVmAllocationRateLimit } from "../../../services/vms/allocationRateLimit";
 
 
@@ -438,6 +438,7 @@ export async function POST(request: Request): Promise<Response> {
       // passed; the finally below then owns the entire provider operation.
       const providerCredential = provider === "gcp" ? gcpCredentialFromRequest(request) : undefined;
       const providerMetadata = provider === "gcp" ? gcpProviderMetadataFromRequest(request) : undefined;
+      const credentialLifetime = providerCredentialLifetime(providerCredential);
 
       // Wire the machine to coderouter inside the workflow: the route token
       // is bound to the VM row id, so provisioning runs after the row exists
@@ -448,6 +449,7 @@ export async function POST(request: Request): Promise<Response> {
       });
       setSpanAttributes(span, { "cmux.vm.model_plane": !!modelPlane });
 
+      const routeDeadline = createRouteAnswerDeadline(idempotencyKey).deadline;
       const run = await runVmRoute(createVm({
         userId: user.id,
         billingCustomerType: entitlements.billingCustomerType,
@@ -474,9 +476,11 @@ export async function POST(request: Request): Promise<Response> {
         deferAfterResponse: (work) => runAfterResponse(() => Effect.runPromise(work)),
       }), {
         request,
-        ...createRouteAnswerDeadline(idempotencyKey),
+        ...(routeDeadline
+          ? { deadline: { ...routeDeadline, continueInBackground: credentialLifetime.continueInBackground } }
+          : {}),
         onError: createErrorResponders(entitlements),
-      }).finally(() => wipeProviderCredential(providerCredential));
+      }).finally(() => credentialLifetime.finish());
       if (!run.ok) return run.response;
       const created = run.value;
       setSpanAttributes(span, { "cmux.vm.id": created.providerVmId });
