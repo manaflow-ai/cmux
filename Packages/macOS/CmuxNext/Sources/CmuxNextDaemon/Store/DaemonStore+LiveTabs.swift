@@ -18,4 +18,26 @@ extension DaemonStore {
         guard liveTabListRevision != nil else { return nil }
         return tab(id: id) != nil
     }
+
+    /// The pane with durable id `id` (``PaneModel/id``: its resource id, else `pane:<handle>`), by
+    /// O(1) lookup; nil when the tree holds none. Reads `workspaces`, so a tracked caller hears a
+    /// pane come or go with its workspace's tree.
+    public func pane(id: String) -> PaneModel? {
+        _ = tabListRevision
+        if id.hasPrefix(Self.paneHandlePrefix), let raw = UInt64(id.dropFirst(Self.paneHandlePrefix.count)) {
+            let byHandle: [PaneID: PaneModel] = index.panesByHandle
+            return byHandle[PaneID(rawValue: raw)].flatMap { $0.id == id ? $0 : nil }
+        }
+        let byResource: [ResourceID: PaneModel] = index.panesByResource
+        return byResource[ResourceID(rawValue: id)]
+    }
+
+    /// Whether the live tree lists the pane with durable id `id`; nil while the store has no live tree.
+    public func liveTreeLists(pane id: String) -> Bool? {
+        guard liveTabListRevision != nil else { return nil }
+        return pane(id: id) != nil
+    }
+
+    /// The prefix of a pane id with no resource id (``PaneModel/identity(_:)``).
+    private static let paneHandlePrefix = "pane:"
 }
