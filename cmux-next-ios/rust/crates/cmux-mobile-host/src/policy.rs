@@ -1470,7 +1470,10 @@ mod tests {
         let start = swift.find("allowedCommands: Set<String> = [").expect("allowlist in Swift");
         let end = start + swift[start..].find("]\n").expect("end of allowlist");
         let swift_commands: HashSet<&str> = swift[start..end].split('"').skip(1).step_by(2).collect();
-        let rust_commands: HashSet<&str> = ALLOWED_COMMANDS.iter().copied().collect();
+        // `notification-reply` is answered by hostd itself, never by the daemon, so
+        // the Mac's own phone lane (an allowlist of daemon commands) leaves it out.
+        let rust_commands: HashSet<&str> =
+            ALLOWED_COMMANDS.iter().copied().filter(|command| *command != "notification-reply").collect();
         assert_eq!(swift_commands, rust_commands);
         let start = swift
             .find("allowedResourceOperations: [String: Set<String>] = [")
