@@ -1202,9 +1202,11 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         api.rerun_failed(target.run_id, target.attempt + 1)
         return f"re-ran the failed jobs of run {target.run_id}; {next_attempt(target)}"
     api.rerun(target.run_id, target.attempt + 1)
-    if target.attempt + 1 <= LAST_OWNED_ATTEMPT and not target.e2e:
+    if target.attempt + 1 <= LAST_OWNED_ATTEMPT and not target.e2e and target.path != CMUX_NEXT_WORKFLOW_PATH:
         return (f"re-ran run {target.run_id}; attempt {target.attempt + 1} picks again, the owned machines "
                 "free now first, and the sweeper watches it")
+    if target.path == CMUX_NEXT_WORKFLOW_PATH:
+        return f"re-ran run {target.run_id}; {next_attempt(target)}"
     return f"re-ran run {target.run_id}; attempt {target.attempt + 1} takes an ephemeral pool"
 
 
@@ -1333,8 +1335,12 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
     log(f"{'rescue' if outcome == 'rescue' else 'refused'}: {reason}")
     while True:
         # From attempt 2 on, keep what passed: only the owned jobs are moved.
-        # An E2E run always keeps what passed (see the module docstring).
-        failed_only = outcome == "refused" or target.attempt > 1 or target.e2e or target.side
+        # An E2E run always keeps what passed (see the module docstring). A
+        # cmux-next queue alarm on attempt 1 is the exception: its placement
+        # job must run again to observe a newly free GUI/session Mac, and
+        # rerun-failed-jobs would keep the successful placement output.
+        failed_only = (outcome == "refused" or target.attempt > 1 or target.e2e
+                       or target.side and target.path != CMUX_NEXT_WORKFLOW_PATH)
         result = rescue(client, target, now=clock, sleep=rescue_sleep, log=log, failed_only=failed_only,
                         deadline=rescue_deadline,
                         refused=(outcome == "refused") if target.e2e or target.side else None,

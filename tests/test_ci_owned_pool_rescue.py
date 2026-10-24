@@ -1228,7 +1228,7 @@ class SideLanes(unittest.TestCase):
         code, summary = run_main(api, clock, payload=payload)
         self.assertEqual(code, 0)
         self.assertIn("newer:feat-cmux-next", api.calls)
-        self.assertIn("rerun-failed", api.calls)
+        self.assertIn("rerun", api.calls)
         self.assertNotIn("branch:feat-cmux-next", api.calls)
 
     def test_schedule_and_dispatch_side_runs_are_never_superseded(self):
@@ -1258,8 +1258,8 @@ class SideLanes(unittest.TestCase):
 
     def test_cmux_next_overflows_a_queued_side_job_with_a_running_sibling(self):
         # cmux-next's explicit rescue window is the overflow boundary. A queued
-        # side job moves with the bot rerun even when another side job is still
-        # running; the bot's attempt 2 is the Blacksmith overflow.
+        # side job moves with the bot's full rerun even when another side job is
+        # still running; the rerun recomputes placement before overflow.
         def cmux_next(done_at):
             def jobs(seconds):
                 test = job("cmux-next swift test", labels=[SIDE], status="in_progress", runner="mini-5-glaeda-3")
@@ -1276,7 +1276,7 @@ class SideLanes(unittest.TestCase):
                                  env_extra={"SIDE_RESCUE_SECONDS": "30"})
         self.assertEqual(code, 0)
         self.assertIn("cancel", api.calls)
-        self.assertIn("rerun-failed", api.calls)
+        self.assertIn("rerun", api.calls)
         self.assertIn("overflowing the queued side jobs", summary)
         self.assertIn("attempt 2 re-admits through fast checks, a free owned Mac, then Blacksmith macOS", summary)
 
