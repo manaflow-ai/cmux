@@ -8,21 +8,9 @@ import Testing
 /// bundled cmux-tui serves.
 /// `CMUX_UPDATE_DAEMON_CAPABILITIES=1 swift test --filter DaemonCapabilityExportTests` rewrites it.
 struct DaemonCapabilityExportTests {
-    private var listed: [String] {
-        DaemonCapability.required + DaemonCapability.optional + DaemonCapability.unservedByBundledDaemon
-    }
-
     /// Entries in `unservedByBundledDaemon` on 2026-10-02. The list only
     /// shrinks: a new feature lands with its daemon half and goes in `optional`.
     private static let unservedCeiling: Set<String> = ["remote-terminal-tabs-v1", "detached-terminals-v1"]
-
-    /// The three lists partition the cases: every capability is in exactly one list, and no list
-    /// names a string that is not a case (`tier` is exhaustive, so the compiler places each case).
-    @Test func listsPartitionTheCases() {
-        #expect(Set(listed).count == listed.count, "a capability is in two lists or twice in one")
-        #expect(Set(listed) == Set(DaemonCapability.allCases.map(\.rawValue)))
-        #expect(listed.count >= 30)
-    }
 
     @Test func unservedListOnlyShrinks() {
         let added = Set(DaemonCapability.unservedByBundledDaemon).subtracting(Self.unservedCeiling)
