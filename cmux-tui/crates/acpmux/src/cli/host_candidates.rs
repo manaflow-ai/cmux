@@ -87,6 +87,41 @@ fn mine(node: &Node, this: &Node) -> bool {
     !node.tagged() && !node.shared && node.login.is_some() && node.login == this.login
 }
 
+/// A safe, deterministic recommendation for the Add Machine card. The
+/// recommendation is advisory: enrollment still requires an explicit user
+/// action. We only suggest the user's own online machines and never an
+/// already-connected peer or a failed SSH probe.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub(crate) struct Recommendation {
+    pub name: String,
+    pub host: String,
+    pub reason: String,
+    pub needs_probe: bool,
+}
+
+pub(crate) fn recommend(list: &[Candidate]) -> Option<Recommendation> {
+    let mut choices: Vec<&Candidate> = list
+        .iter()
+        .filter(|c| c.mine && c.online && !c.already_peer && c.ssh_ok != Some(false))
+        .collect();
+    choices.sort_by(|a, b| {
+        let rank = |c: &Candidate| match c.ssh_ok {
+            Some(true) => 0,
+            None => 1,
+            Some(false) => 2,
+        };
+        rank(a).cmp(&rank(b)).then_with(|| a.name.cmp(&b.name))
+    });
+    let c = choices.first()?;
+    let host = if c.dns_name.is_empty() { c.ip.clone()? } else { c.dns_name.clone() };
+    let (reason, needs_probe) = match c.ssh_ok {
+        Some(true) => ("online, owned, and key-only SSH succeeded".to_owned(), false),
+        None => ("online and owned; run the key-only SSH check before enrolling".to_owned(), true),
+        Some(false) => unreachable!("failed probes are filtered above"),
+    };
+    Some(Recommendation { name: c.name.clone(), host, reason, needs_probe })
+}
+
 pub(crate) fn candidates(status: &Status, peers: &[Value]) -> Vec<Candidate> {
     status
         .peers
@@ -171,9 +206,18 @@ pub(crate) async fn list_with(
 pub(crate) async fn run(client: &Client, probe: bool, json_out: bool) -> Result<()> {
     crate::cli::host_enroll::lead_process_group_if_asked();
     let (tailnet, list) = list_with(&Live(Some(client)), probe).await?;
+    let recommendation = recommend(&list);
     if json_out {
-        print_json(&json!({"tailnet": tailnet, "candidates": list}));
+        print_json(&json!({"tailnet": tailnet, "candidates": list, "recommended": recommendation}));
         return Ok(());
+    }
+    if let Some(r) = &recommendation {
+        println!(
+            "recommended {} ({}){}",
+            r.name,
+            r.host,
+            if r.needs_probe { " — probe before adding" } else { "" }
+        );
     }
     if list.is_empty() {
         println!("no other machines on the tailnet ({tailnet})");
@@ -283,6 +327,21 @@ mod tests {
         // A short-name peer URL matches too.
         let list = candidates(&status(), &[json!({"name": "p", "url": "ssh://phone"})]);
         assert_eq!(list[2].peer.as_deref(), Some("p"));
+    }
+
+    #[test]
+    fn recommendation_is_owned_online_and_deterministic() {
+        let mut list = candidates(&status(), &[]);
+        assert_eq!(recommend(&list).unwrap().name, "box");
+        assert!(recommend(&list).unwrap().needs_probe);
+        list[0].ssh_ok = Some(false);
+        list[1].ssh_ok = Some(true);
+        let picked = recommend(&list).unwrap();
+        assert_eq!(picked.name, "cloud-box");
+        assert_eq!(picked.host, "cloud-box.tail9.ts.net");
+        assert!(!picked.needs_probe);
+        list[1].already_peer = true;
+        assert!(recommend(&list).is_none());
     }
 
     #[test]

@@ -44,6 +44,17 @@ impl Ticket {
         format!("{TICKET_PREFIX}{}", URL_SAFE_NO_PAD.encode(json))
     }
 
+    /// A short, non-secret identifier suitable for setup receipts and logs.
+    /// It hashes the complete bearer ticket and never includes ticket payload.
+    pub fn hint(text: &str) -> String {
+        let trimmed = text.trim().trim_matches(|c| c == '\'' || c == '"');
+        if !trimmed.starts_with(TICKET_PREFIX) {
+            return "invalid".into();
+        }
+        let digest = crate::sha256::sha256_hex(trimmed.as_bytes());
+        format!("{TICKET_PREFIX}{}…", &digest[..12])
+    }
+
     /// Parse a pasted ticket (surrounding whitespace and quotes ignored).
     pub fn decode(text: &str) -> Result<Self, String> {
         let text = text.trim().trim_matches(|c| c == '\'' || c == '"');
