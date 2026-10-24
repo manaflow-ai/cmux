@@ -20,12 +20,24 @@ public protocol WindowOcclusionFollowing: AnyObject {
 /// its followers. It lives as long as its window (an associated object), so no process-wide
 /// instance exists.
 ///
+/// A view joins its window's family on the way in and leaves it on the way out (the shape of
+/// `AgentPaneVisibilityProbe`). Call `super` first, and skip a move within one window (a new
+/// superview in the same window), which would only leave and join the same family. Use a closure,
+/// not `WindowOcclusionFamily.of` unapplied, so the `center` default applies:
+///
 /// ```swift
 /// override func viewWillMove(toWindow newWindow: NSWindow?) {
-///     window.map(WindowOcclusionFamily.of)?.remove(self)
-///     newWindow.map(WindowOcclusionFamily.of)?.add(self)
+///     super.viewWillMove(toWindow: newWindow)
+///     guard newWindow !== window else { return }
+///     window.map { WindowOcclusionFamily.of($0) }?.remove(self)
+///     newWindow.map { WindowOcclusionFamily.of($0) }?.add(self)
 /// }
 /// ```
+///
+/// A follower that joins only some of the time (`StatusIndicatorView` while it tracks occlusion) or
+/// is not a view (the tab strip's `WindowVisibilityObserver`) keeps a `weak` reference to the
+/// family it joined and leaves that one. A test passes its own center to the first
+/// `of(_:center:)` call for a window, before any follower moves into it.
 @MainActor
 public final class WindowOcclusionFamily {
     private weak var window: NSWindow?
