@@ -513,7 +513,35 @@ await_outside_publisher() {
     (( $(date +%s) - started + poll <= wait )) || break
     sleep "$poll"
   done
+  # Main's publisher may itself still sit in the GitHub-hosted queue (~10 min
+  # on #24382): it has not pushed the pin yet, so no artifacts run exists.
+  # Its pin push publishes the key, and the tree wait marker then starts the
+  # tree jobs, so defer to it rather than fail.
+  if merge_tree_publisher_pending; then
+    echo "cmux-tui tree $key: main's cmux-next-pr-merge-tree.yml run for ${CMUX_TUI_TREE_HEAD_SHA:0:12} has not finished; deferring to its pin push" >&2
+    tree_publisher_sha="$sha"; tree_publisher_action=pending; return 0
+  fi
   echo "warning: no artifacts run for tree $key started within ${wait}s; tree $key has no publisher" >&2
+}
+
+# Succeeds when main's cmux-next-pr-merge-tree.yml (pull_request_target) has a
+# run for this pull request's head (CMUX_TUI_TREE_HEAD_SHA) that is not
+# completed and comes from this repository (a fork's run skips its job and
+# never pins). Read-only; an unreadable run list counts as none.
+merge_tree_publisher_pending() {
+  local head="${CMUX_TUI_TREE_HEAD_SHA:-}" body
+  [[ "${GITHUB_EVENT_NAME:-}" == pull_request && "$head" =~ ^[0-9a-f]{40}$ ]] || return 1
+  body="$(github_api GET "actions/workflows/cmux-next-pr-merge-tree.yml/runs?event=pull_request_target&head_sha=$head&per_page=20" 2>/dev/null)" || return 1
+  python3 -c '
+import json, sys
+head, repo = sys.argv[1:]
+try:
+    runs = json.loads(sys.stdin.read()).get("workflow_runs", [])
+except Exception:
+    sys.exit(1)
+sys.exit(0 if any(r.get("status") != "completed" and r.get("head_sha") == head
+                  and (r.get("head_repository") or {}).get("full_name") == repo for r in runs) else 1)
+' "$head" "${GITHUB_REPOSITORY:-manaflow-ai/cmux}" <<<"$body" 2>/dev/null
 }
 
 # pin_tree_ref <sha>: points refs/heads/cmux-tui-pin-<sha12> at <sha> and prints
@@ -1042,7 +1070,9 @@ tree_published() {
 # CMUX_TUI_TREE_DISPATCH (cmux-next path routing, which is read-only) the probe
 # waits up to CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS for the artifacts run that
 # main's cmux-next-pr-merge-tree.yml starts for the merge commit, and defers to
-# it (await_outside_publisher). A scheduled DEV run (workflow_dispatch with no
+# it (await_outside_publisher), or, when that run has not appeared because the
+# publisher itself is still queued or running for CMUX_TUI_TREE_HEAD_SHA,
+# defers to the publisher. A scheduled DEV run (workflow_dispatch with no
 # publisher SHA) looks once, read-only, for its push's run or a same-tree run
 # and defers to it the same way. With
 # CMUX_TUI_TREE_DISPATCH=1 (same-repository PRs) the probe starts one
@@ -1090,7 +1120,7 @@ probe_checkout_tree() {
   elif [[ ("${GITHUB_EVENT_NAME:-}" == pull_request || "${GITHUB_EVENT_NAME:-}" == workflow_dispatch \
       || "${CMUX_TUI_TREE_DISPATCH:-}" == 1) ]] \
       && ! tree_published "$key" "$legacy"; then
-    tree_publisher_sha=""
+    tree_publisher_sha="" tree_publisher_action=none
     if [[ "${CMUX_TUI_TREE_DISPATCH:-}" == 1 ]]; then
       ensure_tree_publisher "$key" "$(git -C "$repo_root" rev-parse HEAD)" "${CMUX_TUI_TREE_HEAD_SHA:-}"
     else
@@ -1128,12 +1158,15 @@ probe_checkout_tree() {
         state=failed
       fi ;;
     none)
-      if [[ -z "$source" ]]; then
+      if [[ "${tree_publisher_action:-none}" == pending && -n "$source" ]]; then
+        state=deferred
+        reason="main's cmux-next-pr-merge-tree.yml run for this pull request has not pinned ${source#*:} yet; its pin push publishes tree $key and starts the tree jobs"
+      elif [[ -z "$source" ]]; then
         reason="${reason:-no cmux-tui artifacts run can publish tree $key}. $(pin_push_hint)"
       else
         reason="no cmux-tui artifacts run exists for ${source#*:}, so nothing publishes tree $key. $(pin_push_hint)"
       fi
-      state=failed ;;
+      [[ "$state" == deferred ]] || state=failed ;;
     *) state=failed
       reason="could not read the cmux-tui artifacts runs for ${source#*:} (GitHub API), so no publisher of tree $key is known; re-run this check" ;;
   esac

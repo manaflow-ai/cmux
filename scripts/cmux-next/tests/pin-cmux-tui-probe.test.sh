@@ -263,6 +263,47 @@ probe pull_request
 [[ ! -s "$TMP/posts.log" ]] || fail "(e) the read-only probe must not write: $(cat "$TMP/posts.log")"
 unset CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS CMUX_TUI_TREE_PUBLISHER_POLL_SECONDS
 
+# (f) Main's cmux-next-pr-merge-tree.yml run for this pull request's head is
+# still queued (its GitHub-hosted runner took ~10 min on #24382, run
+# 39798653674): it has not pushed the cmux-tui-pin-* ref yet, so no artifacts
+# run exists when the bounded wait ends. The probe defers to that publisher
+# (its pin push publishes the tree and the marker starts the tree jobs) instead
+# of failing same-tree cmux-tui (#24379, #24382, 2026-10-22).
+merge_tree_dir="$TMP/api/repos/o/r/actions/workflows/cmux-next-pr-merge-tree.yml"
+mkdir -p "$merge_tree_dir"
+merge_tree_run() { # <status> <head repo>
+  printf '{"total_count":1,"workflow_runs":[{"id":11,"status":"%s","conclusion":null,"event":"pull_request_target","html_url":"u11","head_sha":"%s","head_repository":{"full_name":"%s"}}]}\n' \
+    "$1" "$head2_sha" "$2" > "$merge_tree_dir/runs"
+}
+: > "$TMP/posts.log"
+set_runs "$none"
+export CMUX_TUI_TREE_HEAD_SHA="$head2_sha" CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS=8 CMUX_TUI_TREE_PUBLISHER_POLL_SECONDS=1
+merge_tree_run queued o/r
+probe pull_request
+[[ "$status" == 0 && "$state" == deferred ]] || fail "(f) a queued merge-tree publisher must be deferred to"
+grep -qF "cmux-next-pr-merge-tree.yml" <<<"$reason" || fail "(f) reason must name main's publisher: $reason"
+(( took < 15 )) || fail "(f) the wait must stay bounded"
+[[ ! -s "$TMP/posts.log" ]] || fail "(f) the read-only probe must not write: $(cat "$TMP/posts.log")"
+# The post-marker look (wait 0) defers too.
+CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS=0 probe pull_request
+[[ "$state" == deferred ]] || fail "(f) the post-marker probe must defer to the queued publisher"
+merge_tree_run in_progress o/r
+probe pull_request
+[[ "$state" == deferred ]] || fail "(f) a running merge-tree publisher must be deferred to"
+# A finished publisher that started no artifacts run publishes nothing: still red.
+merge_tree_run completed o/r
+probe pull_request
+[[ "$state" == failed ]] || fail "(f) a finished publisher with no artifacts run must fail"
+# A fork's run skips its job: it never publishes, so it is not waited for.
+merge_tree_run queued someone/fork
+probe pull_request
+[[ "$state" == failed ]] || fail "(f) a fork's merge-tree run must not be deferred to"
+# Another head's run is not this pull request's publisher.
+CMUX_TUI_TREE_HEAD_SHA="$newer" probe pull_request
+[[ "$state" == failed ]] || fail "(f) another head's merge-tree run must not be deferred to"
+rm -f "$merge_tree_dir/runs"
+unset CMUX_TUI_TREE_HEAD_SHA CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS CMUX_TUI_TREE_PUBLISHER_POLL_SECONDS
+
 
 # (d) A pull request that changes no cmux-tui or ghostty-next path is not
 # blocked by a merge tree nothing publishes (#16614, #17551, #18605): the base
