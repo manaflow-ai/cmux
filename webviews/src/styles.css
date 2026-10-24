@@ -64,6 +64,9 @@
      rim and what is selected or open takes the theme accent. The toolbar has no fill, as every
      page header; the files panel takes a lift off the backdrop (--cmux-diff-files-bg). */
   --cmux-diff-rim: color-mix(in srgb, var(--cmux-diff-fg) 12%, transparent);
+  /* The header's control pills (the toolbar buttons, and Stage, Commit and Push beside them). */
+  --cmux-diff-pill-bg: color-mix(in srgb, var(--cmux-diff-fg) 9%, var(--cmux-diff-solid-bg));
+  --cmux-diff-pill-border: color-mix(in srgb, var(--cmux-diff-fg) 16%, transparent);
   --cmux-diff-accent-tint: color-mix(in srgb, var(--cmux-diff-accent) 18%, transparent);
   /* The files panel paints opaque (the tree's truncation marker must hide the text under it):
      3% of the text color over the solid backdrop. */
@@ -103,15 +106,15 @@ html {
 }
 /* Glass over an image background or a see-through window (data-cmux-see-through, desktop.ts), so
    the backdrop shows through as it does through every other surface:
-   - the files panel is the app's menu material: the host's popup fill frosted (--tooltip-tint, the
-     popup surface at the least alpha that keeps text legible, and --tooltip-blur;
-     pages/shared/desktop.css), the same color and frost as a native context menu;
+   - the files panel is the app's menu material: the host's popup fill (--surface-popup, the same
+     color as a native context menu), mostly opaque, frosted with --tooltip-blur
+     (pages/shared/desktop.css);
    - the file bars are the plain glass (ui/glass/glass.css: the theme surface at
      --ds-glass-plain-tint, the shared blur).
    The tree's own layers go clear so the tint does not stack. Reduce Transparency (the system's or
    the host's) keeps them solid. */
 :root[data-cmux-see-through]:not([data-reduce-transparency]) {
-  --cmux-diff-files-bg: var(--tooltip-tint);
+  --cmux-diff-files-bg: color-mix(in srgb, var(--surface-popup) 88%, transparent);
   --cmux-diff-files-filter: var(--tooltip-blur);
   --cmux-diff-files-layer-bg: transparent;
   --cmux-diff-header-bg: var(--glass-tint);
@@ -1696,6 +1699,14 @@ body[data-loading="true"] #status::before {
   align-items: center;
   gap: 2px;
 }
+/* In the toolbar, Stage or Unstage, Commit and Push sit in the same pill as the toolbar buttons
+   beside them: one fill and one rim for the header's controls. */
+#toolbar .diff-git-tools {
+  padding: 2px;
+  border: 1px solid var(--cmux-diff-pill-border);
+  border-radius: 8px;
+  background: var(--cmux-diff-pill-bg);
+}
 .diff-git-bar {
   display: flex;
   flex-direction: column;
@@ -2078,9 +2089,9 @@ svg[data-icon-fill] {
   align-items: center;
   gap: 4px;
   padding: 2px;
-  border: 1px solid color-mix(in srgb, var(--cmux-diff-fg) 16%, transparent);
+  border: 1px solid var(--cmux-diff-pill-border);
   border-radius: 8px;
-  background: color-mix(in srgb, var(--cmux-diff-fg) 9%, var(--cmux-diff-solid-bg));
+  background: var(--cmux-diff-pill-bg);
 }
 .diff-pill-button {
   position: relative;
