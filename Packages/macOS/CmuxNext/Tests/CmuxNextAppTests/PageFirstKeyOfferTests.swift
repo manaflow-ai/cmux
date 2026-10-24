@@ -4,8 +4,8 @@ import CmuxNextActions
 import Testing
 
 /// The keys a Chromium page has first (`PageFirstKeyOffer`): a second key offered before the page reported the
-/// first (Cmd-F then Cmd-G, a key repeat) no longer replaces it, and a report from another tab than the one the key
-/// was offered to runs nothing (focus can move before Chromium reports).
+/// first (Cmd-F then Cmd-G, a key repeat) no longer replaces it, a report releases older keys of its own tab only, and
+/// a report from another tab than the one the key was offered to runs nothing (focus can move before Chromium reports).
 @MainActor @Suite
 struct PageFirstKeyOfferTests {
     private static func key(_ characters: String, keyCode: UInt16, at timestamp: TimeInterval) throws -> NSEvent {
@@ -56,6 +56,24 @@ struct PageFirstKeyOfferTests {
         #expect(offers.take(next, from: ObjectIdentifier(second))?.candidate.id == "findNext")
         #expect(offers.take(find, from: ObjectIdentifier(first))?.candidate.id == "find", "another tab's report dropped the key")
         #expect(offers.count == 0)
+    }
+
+    /// The bound is per tab: a tab that handles every page-first key (no report ever comes) drops only its own oldest
+    /// keys, never another tab's held key.
+    @Test func theBoundDropsOnlyTheFullTabsOldestKey() throws {
+        let busy = NSObject(), other = NSObject()
+        var offers = PageFirstKeyOffer()
+        let held = try Self.key("f", keyCode: 3, at: 50)
+        offers.offer(held, Self.held("find", tab: other))
+        let oldest = try Self.key("g", keyCode: 5, at: 51)
+        offers.offer(oldest, Self.held("findNext", tab: busy))
+        for index in 0..<PageFirstKeyOffer.limit {
+            let repeated = try Self.key("g", keyCode: 5, at: 52 + Double(index))
+            offers.offer(repeated, Self.held("findNext", tab: busy))
+        }
+        #expect(offers.count == PageFirstKeyOffer.limit + 1)
+        #expect(offers.take(oldest, from: ObjectIdentifier(busy)) == nil, "the full tab kept more than its bound")
+        #expect(offers.take(held, from: ObjectIdentifier(other))?.candidate.id == "find", "a full tab dropped another tab's key")
     }
 
     @Test func aReportFromAnotherTabRunsNothing() throws {
