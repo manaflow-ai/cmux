@@ -540,6 +540,30 @@ class RuleTests(Fixture):
         self.assertEqual(sorted(self.refused()[0][1]), ["Race.swift: @MainActor final class Box<T> {",
                                                        "Wait.swift: final class Once<T> {"])
 
+    def test_the_generic_class_rule_reads_each_target_call_alone(self):
+        # Package.swift's CmuxNextMallocZone and CmuxNextTestExitTrace shapes: a target with no swiftSettings is
+        # nonisolated by default and does not take the next target's settings, and a target's `path:` names
+        # its folder. The manifest regex gave CmuxNextZone the next target's uiSwiftSettings, and read
+        # Tests/Support/CmuxNextTrace as a target named Support (unknown, so main actor).
+        self.rebase_on({"Packages/macOS/CmuxNext/Package.swift":
+                        'let package = Package(name: "CmuxNext", targets: [\n'
+                        '    .target(name: "CmuxNextZone"),\n'
+                        '    .target(\n        name: "CmuxNextKit",\n'
+                        '        dependencies: [.target(name: "CmuxNextZone")],\n'
+                        '        swiftSettings: uiSwiftSettings\n    ),\n'
+                        '    .target(name: "CmuxNextTrace", path: "Tests/Support/CmuxNextTrace"),\n'
+                        '    .testTarget(name: "CmuxNextKitTests", dependencies: ["CmuxNextTrace"], '
+                        'swiftSettings: uiSwiftSettings),\n])\n'},
+                       "the manifest")
+        box = "final class Box<T> {\n    var value: T?\n}\n"
+        self.write(f"{PKG}/Sources/CmuxNextZone/Zone.swift", box)
+        self.write(f"{KIT}/Kit.swift", box)
+        self.write(f"{PKG}/Tests/Support/CmuxNextTrace/Trace.swift", box)
+        self.write(f"{PKG}/Tests/CmuxNextKitTests/KitTests.swift", box)
+        self.commit("generic classes in settings-less and uiSwiftSettings targets")
+        self.assertEqual(self.refused(), [("generic-class-deinit", ["Kit.swift: final class Box<T> {",
+                                                                    "KitTests.swift: final class Box<T> {"])])
+
     def test_other_rules_do_not_read_test_targets(self):
         self.write("Packages/macOS/CmuxNext/Tests/CmuxNextFooTests/Fake.swift",
                    "final class Fake {\n    static let shared = Fake()\n}\n")
