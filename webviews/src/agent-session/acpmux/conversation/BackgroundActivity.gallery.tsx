@@ -100,7 +100,7 @@ function CommandTail({ item, initialOpen = false }: { item: Command; initialOpen
     if (open && tailRef.current) tailRef.current.scrollTop = tailRef.current.scrollHeight;
   }, [open, revision]);
   const followTail = () => {
-    if (stopped) return;
+    if (stopped || item.state !== "running") return;
     setLines((current) => (current.length >= 10 ? current : [...current, `[tail ${revision + 1}] ${item.detail}`]));
     setRevision((value) => value + 1);
   };
@@ -134,7 +134,7 @@ function CommandTail({ item, initialOpen = false }: { item: Command; initialOpen
           onClick={() => setTerminalOpened(true)}
           aria-label={`Open ${item.command} in terminal`}
         >
-          {terminalOpened ? "Terminal opened" : "Open in terminal"}
+          <span aria-live="polite">{terminalOpened ? "Terminal opened" : "Open in terminal"}</span>
         </button>
       </div>
     </details>
