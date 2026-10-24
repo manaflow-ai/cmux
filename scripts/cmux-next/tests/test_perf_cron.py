@@ -338,20 +338,23 @@ class DisplayTests(unittest.TestCase):
         self.assertEqual(cron.refresh_ms_of({"a": {"refresh_ms": 16.67}, "display": {"refresh_ms": 8.34}}), 16.67,
                          "the display the app was on wins over the one asked for")
 
-    def report_tick(self, d, parts, last_good_rows):
-        """cmd_report finishing a tip measurement of `parts` ({name: report}) against last_good_rows."""
+    def report_tick(self, d, parts, last_good_rows, result=None, host=None):
+        """cmd_report finishing a tip measurement of `parts` ({name: report}) against last_good_rows. result: each
+        part's result.json (default {"state": "done"}); host: the measurement's host before the tick."""
         state = cron.empty_state(T0)
         state["persisted"] = True
         state["last_good"] = state["last"] = {"sha": "a" * 40, "measured_at": cron.iso(T0), "rows": last_good_rows,
                                               "refresh_ms": 8.33}
         state["current"] = cron.new_measurement("b" * 40, "tip", list(parts), T0)
+        if host:
+            state["current"]["host"] = host
         with open(os.path.join(d, "state.json"), "w") as f:
             json.dump(state, f)
         results = []
         for name, report in parts.items():
             part_dir = os.path.join(d, name)
             os.makedirs(part_dir)
-            for file, value in (("result.json", {"state": "done"}), ("report.json", report)):
+            for file, value in (("result.json", result or {"state": "done"}), ("report.json", report)):
                 with open(os.path.join(part_dir, file), "w") as f:
                     json.dump(value, f)
             results.append(f"{name}={part_dir}")
@@ -364,18 +367,19 @@ class DisplayTests(unittest.TestCase):
     def test_each_part_keeps_its_own_refresh(self):
         stress = {"refresh_ms": 8.33, "summary": [{"action": "close", "layout": "stress", "frames_p50_ms": 8.3,
                                                    "frames_p95_ms": 8.4, "missed": 0}]}
-        base = {"panes.split.4x2.frame": {**row(8.4), "refresh_ms": 8.33}, "panes.close.stress.frame": {**row(8.4), "refresh_ms": 8.33}}
+        B = "@" + cron.BENCH_WORKER  # no worker in the result: the bench host
+        base = {"panes.split.4x2.frame" + B: {**row(8.4), "refresh_ms": 8.33}, "panes.close.stress.frame" + B: {**row(8.4), "refresh_ms": 8.33}}
         fallback = {"rows": [{"name": "panes.split.4x2.frame", "p50": 16.7, "p95": 17.0, "unit": "ms"}],
                     "display": {"requested_hz": 120, "vdisplay": False, "refresh_ms": None, "line": "error: x"}}
         with tempfile.TemporaryDirectory() as d:
             state = self.report_tick(d, {"stress": stress, "motion": fallback}, base)
             self.assertEqual(state["regressions"], [], "a fallback part's frame rows are not compared with the 120 Hz stress part's rate")
-            self.assertIsNone(state["last"]["rows"]["panes.split.4x2.frame"]["refresh_ms"])
-            self.assertEqual(state["last_good"]["rows"]["panes.split.4x2.frame"]["p95"], 8.4, "the 120 Hz baseline stays")
+            self.assertIsNone(state["last"]["rows"]["panes.split.4x2.frame" + B]["refresh_ms"])
+            self.assertEqual(state["last_good"]["rows"]["panes.split.4x2.frame" + B]["p95"], 8.4, "the 120 Hz baseline stays")
         on_vdisplay = {**fallback, "display": {"requested_hz": 120, "vdisplay": True, "refresh_ms": 8.34, "line": "ready"}}
         with tempfile.TemporaryDirectory() as d:
             state = self.report_tick(d, {"stress": stress, "motion": on_vdisplay}, base)
-            self.assertEqual([r["name"] for r in state["regressions"]], ["panes.split.4x2.frame"],
+            self.assertEqual([r["name"] for r in state["regressions"]], ["panes.split.4x2.frame" + B],
                              "a budgets part on the virtual display is compared at its refresh")
 
     def test_the_issue_says_which_frame_rows_were_not_compared(self):
@@ -1102,6 +1106,67 @@ class ControllerRouteTests(unittest.TestCase):
         self.assertEqual(result["state"], "failed")
         self.assertFalse(os.path.exists(os.path.join(out, "report.json")))
 
+
+
+class HostTests(unittest.TestCase):
+    """Lead decision 2026-10-24: a part runs on any idle measure worker; every part of one measurement on one host;
+    rows compare only with values of the same host; each row and the issue name the host and its macOS."""
+    report_tick = DisplayTests.report_tick
+
+    def test_the_build_host_is_kept_and_later_parts_are_asked_for_on_it(self):
+        state = cron.empty_state(T0)
+        d = cron.decide(state, T0, "a" * 40, None, lambda sha: ["motion"], None)
+        self.assertEqual((d["part"], d["worker"]), ("build", ""), "the build goes to any idle measure worker")
+        cur = state["current"]
+        cron.record_part(cur, "build", {"state": "done", "worker": "aws-m4pro-9"}, "u", T0)
+        cur.setdefault("host", "aws-m4pro-9")
+        d = cron.decide(state, at(1), None, None, lambda sha: ["motion"], None)
+        self.assertEqual((d["part"], d["worker"]), ("motion", "aws-m4pro-9"))
+
+    def test_mac_rows_carry_their_host_and_never_compare_across_hosts(self):
+        motion = {"rows": [{"name": "cmd_d.e2e", "p50": 30.0, "p95": 30.0, "unit": "ms"}], "macos": "26.4.1"}
+        base = {"cmd_d.e2e@cmux20-bench": row(10.0)}
+        with tempfile.TemporaryDirectory() as d:
+            state = self.report_tick(d, {"motion": motion}, base, result={"state": "done", "worker": "aws-m4pro-9"})
+        self.assertEqual(state["regressions"], [], "a slower host is not a regression of the bench host's rows")
+        self.assertEqual(state["last"]["rows"]["cmd_d.e2e@aws-m4pro-9"]["p95"], 30.0)
+        self.assertEqual((state["last"]["host"], state["last"]["macos"]), ("aws-m4pro-9", "26.4.1"))
+        self.assertEqual(state["hosts"]["aws-m4pro-9"]["macos"], "26.4.1")
+        body = cron.issue_body(state, "o/r", at(1))
+        self.assertIn("on aws-m4pro-9 (macOS 26.4.1)", body)
+        self.assertIn("aws-m4pro-9 (macOS 26.4.1)", body.split("Coverage:")[1])
+        with tempfile.TemporaryDirectory() as d:
+            state = self.report_tick(d, {"motion": motion}, base, host="cmux20-bench")
+        self.assertEqual([r["name"] for r in state["regressions"]], ["cmd_d.e2e@cmux20-bench"], "the same host compares")
+
+    def test_a_bisect_step_runs_on_the_host_of_its_rows(self):
+        state = cron.empty_state(T0)
+        rng = {"good": "a" * 40, "bad": "c" * 40}
+        bisect = {"sha": "b" * 40, "range": rng, "rows": ["cmd_d.e2e@aws-m4pro-9"]}
+        d = cron.decide(state, T0, None, bisect, lambda sha: ["motion"], None)
+        self.assertEqual((d["part"], state["current"]["host"], d["worker"]), ("build", "aws-m4pro-9", "aws-m4pro-9"))
+        state = cron.empty_state(T0)
+        cron.decide(state, T0, None, {**bisect, "rows": ["diff.stream.p95"]}, lambda sha: ["diff-viewer"], None)
+        self.assertNotIn("host", state["current"], "a Linux row pins no Mac")
+
+    def test_row_rules_read_the_name_without_its_host(self):
+        self.assertEqual(cron.part_for_row("panes.close.stress.frame@cmux21"), "stress")
+        self.assertTrue(cron.frame_sensitive("p.frame@cmux21", row(9.0)))
+        self.assertTrue(cron.count_row("panes.close.stress.missed@cmux21", row(1, unit="count")))
+        self.assertEqual(cron.target_of("p.frame@cmux21", {**row(9.0), "refresh_ms": 8.33}, None), 10.41)
+        self.assertEqual(cron.target_of("cmd_d.e2e@cmux21", row(9.0), None), cron.LATENCY_TARGET_MS)
+
+    def test_a_bad_host_name_never_reaches_a_job_name(self):
+        state = cron.empty_state(T0)
+        state["current"] = cron.new_measurement("a" * 40, "tip", ["motion"], T0)
+        state["current"]["host"] = "x on y; rm"
+        cron.sanitize_state(state, cron.is_sha)
+        self.assertNotIn("host", state["current"])
+        motion = {"rows": [{"name": "cmd_d.e2e", "p50": 9.0, "p95": 9.0, "unit": "ms"}]}
+        with tempfile.TemporaryDirectory() as d:
+            state = self.report_tick(d, {"motion": motion}, {}, result={"state": "done", "worker": "a b"})
+        self.assertEqual(state["last"]["host"], cron.BENCH_WORKER, "a worker name the controller would refuse is not kept")
+        self.assertIn("cmd_d.e2e@" + cron.BENCH_WORKER, state["last"]["rows"])
 
 
 class IssueRefreshTests(unittest.TestCase):

@@ -45,6 +45,12 @@ SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 ISSUE_TITLE = "cmux-next perf regression"
 ISSUE_MARK = "<!-- cmux-next-perf-cron -->"
 BENCH_WORKER = "cmux20-bench"
+# A Mac row's name carries the host that measured it ("panes.1x2.split.frame@cmux20-bench"): the controller runs a
+# part on any idle measure worker (lead decision 2026-10-24), every part of one measurement on the host that built its
+# app, and a row is only ever compared with values of the same host. Diff rows (GitHub Linux runner) carry none.
+HOST_SEP = "@"
+# A worker name the cron puts into a request job's name (the controller's perfCronJobName takes the same).
+HOST_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$")
 LATENCY_TARGET_MS = 10.0
 STALE_HOURS = 24
 ABANDON_HOURS = 12          # of active time: the hours a measurement spent yielding to the fleet do not count
@@ -70,7 +76,7 @@ HISTORY_DAYS = 14
 HISTORY_MAX = 120
 # The issue is the cron's own only when the bot opened it and its body carries ISSUE_MARK.
 ISSUE_AUTHOR = "github-actions[bot]"
-# The bench host's macOS (2026-10-23): the cron measures only this major of the supported 14, 15, 26 and 27.
+# The bench host's macOS (2026-10-23): shown for a host whose report carried no macOS version.
 BENCH_MACOS = "27"
 # A measure job's step: fleet-check (`cmux-ci status`, up to 300 s), the queue (PART_QUEUE_SECONDS), the part (its
 # run_seconds), the artifact download (600 s) and the watch loop's last round and slack.
@@ -208,6 +214,9 @@ def sanitize_state(state, ok):
         else:
             cur["parts_todo"] = [p for p in cur.get("parts_todo") or [] if p in PART_BY_NAME]
             cur["parts"] = {k: v for k, v in (cur.get("parts") or {}).items() if k in PART_BY_NAME and isinstance(v, dict)}
+            if "host" in cur and not (isinstance(cur["host"], str) and HOST_RE.match(cur["host"])):
+                cur.pop("host")
+                dropped.append("current host")
     for key in ("last", "last_tried", "last_good"):
         v = state.get(key)
         if v is not None and not (isinstance(v, dict) and ok(v.get("sha"))):
@@ -235,7 +244,23 @@ def sanitize_state(state, ok):
     return dropped
 
 
+def base_row(name):
+    """A row's name without its host ("panes.x.frame@cmux20-bench" -> "panes.x.frame")."""
+    return name.split(HOST_SEP, 1)[0]
+
+
+def row_host(name):
+    """The host in a row's name, or None (a Linux row)."""
+    return name.split(HOST_SEP, 1)[1] if HOST_SEP in name else None
+
+
+def host_rows(rows, host):
+    """The rows with their host in the name (pure)."""
+    return {f"{base_row(n)}{HOST_SEP}{host}": r for n, r in rows.items()} if host else dict(rows)
+
+
 def part_for_row(name):
+    name = base_row(name)
     for pattern, part in ROW_PARTS:
         if re.search(pattern, name):
             return part
@@ -340,6 +365,7 @@ def frame_sensitive(name, row):
     """A row whose value depends on the display refresh (frame intervals, frame counts). Dropped frames count too: a
     frame deadline of 8.3 ms misses more often than one of 16.7 ms, so the first 120 Hz run after a 60 Hz baseline
     would open the issue for a display change (f751c486080: a display change never opens the issue)."""
+    name = base_row(name)
     return (row.get("unit") == "frames" or name.endswith((".frame", "longest_frame", ".missed", ".dropped", ".over_8_33")))
 
 
@@ -348,6 +374,7 @@ COUNT_FLOOR = 0.5  # a count row (target 0) regresses by one whole count: one ne
 
 def count_row(name, row):
     """A count with target 0 (dropped frames, perf-gate failed checks, launch runs that never sent a mark)."""
+    name = base_row(name)
     return row.get("unit") in ("frames", "checks", "runs") or name.endswith((".missed", ".dropped"))
 
 
@@ -372,6 +399,7 @@ def row_refresh(row, refresh_ms):
 
 def drop_row(name, row):
     """A count of dropped frames (judged in frames, target 0)."""
+    name = base_row(name)
     return row.get("unit") == "frames" or name.endswith((".missed", ".dropped"))
 
 
@@ -398,6 +426,7 @@ def target_of(name, row, refresh_ms):
     0; diff, launch and main-thread rows their budget."""
     refresh_ms = row_refresh(row, refresh_ms)
     unit = row.get("unit") or "ms"
+    name = base_row(name)
     if name.startswith(("diff.", "launch.")):
         return row.get("budget")
     if unit in ("frames", "checks") or name.endswith(".dropped"):
@@ -550,6 +579,9 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
         parts = [p for p in supported_parts(bisect["sha"]) if p in regressed and not (mac_disabled and not is_linux_part(p))]
         if parts:
             state["current"] = cur = new_measurement(bisect["sha"], "bisect", with_build(parts), t, bisect["range"])
+            hosts = {row_host(name) for name in bisect["rows"]} - {None}
+            if len(hosts) == 1 and HOST_RE.match(next(iter(hosts))):
+                cur["host"] = hosts.pop()  # the regressed rows' host: a bisect step compares only on it
     if not cur and candidate:
         state["current"] = cur = new_measurement(candidate, "tip", with_build(supported_parts(candidate)), t)
     if cur and mac_disabled:
@@ -569,6 +601,7 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
         return {"action": "none", "sha": cur["sha"], "reason": github_busy, "yielded": True}
     what = " and ".join(x for x in (fleet, linux) if x)
     return {"action": "part", "sha": cur["sha"], "kind": cur["kind"], "part": fleet, "linux_part": linux,
+            "worker": (cur.get("host") or "") if fleet else "",
             "reason": f"{cur['kind']} measurement of {cur['sha'][:12]}: part {what} ({done})"
                       + (f"; the Mac parts wait: {github_busy}" if github_busy and linux else "")}
 
@@ -1080,7 +1113,8 @@ def issue_body(state, repo, now):
         lines.append("No row regressed in the last measurement.")
     if last:
         refresh = last.get("refresh_ms")
-        lines += ["", f"Last measurement: {link(repo, last['sha'])} at {last.get('measured_at')} on {last.get('host') or BENCH_WORKER}, "
+        macos = f" (macOS {last['macos']})" if last.get("macos") else ""
+        lines += ["", f"Last measurement: {link(repo, last['sha'])} at {last.get('measured_at')} on {last.get('host') or BENCH_WORKER}{macos}, "
                       f"display {round(1000 / refresh) if refresh else 'unknown'} Hz ({fmt(refresh)} ms frames), "
                       f"[run]({last.get('run_url')})." + (f" Parts that did not run: {', '.join(last['failed_parts'])}." if last.get("failed_parts") else "")]
         if last.get("refresh_skipped"):
@@ -1095,8 +1129,11 @@ def issue_body(state, repo, now):
         lines += ["", f"**Stale:** no finished measurement since {stale_basis(state)} ({round(stale_hours(state, now))} h): "
                       "the bench host had no idle time, a nightly or dev build kept waiting for a Mac, the commits did not "
                       "build, the regressed rows' parts kept failing, or the tick failed."]
-    coverage = (f"Coverage: the Mac rows run on one bench host ({BENCH_WORKER}, macOS {BENCH_MACOS} only); macOS 14, 15 "
-                "and 26 are not measured by this cron.")
+    hosts = state.get("hosts") if isinstance(state.get("hosts"), dict) else {}
+    seen = ", ".join(f"{h} (macOS {(v or {}).get('macos') or '?'})" for h, v in sorted(hosts.items()))
+    coverage = ("Coverage: each Mac part runs on an idle measure worker of the build controller, every part of one "
+                "measurement on one host; a row (named row@host) is compared only with values of the same host. "
+                + (f"Hosts measured so far: {seen}." if seen else "No Mac part has run yet."))
     if state.get("mac_off"):
         coverage += f" **Mac parts disabled:** {state['mac_off']}; each measurement records them as not run."
     if state.get("bench_missing"):
@@ -1236,7 +1273,7 @@ def rebase_faster_rows(state, part_rows, skipped, refresh_ms, t):
     return rebased
 
 
-def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_mod):
+def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_mod, macos=None):
     """Fold a finished measurement into the state. Returns the issue event: 'regressed', 'still', 'recovered',
     'narrowed' or 'skipped' (a bisect step), 'first', 'good', 'partial' (no measured row regressed, but a planned
     part did not run), or 'empty' (no row measured: neither a baseline nor a verdict). The newest history entry gets
@@ -1269,7 +1306,7 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
         entry["status"] = "empty"
         return "empty"
     record = {"sha": cur["sha"], "measured_at": iso(t), "rows": part_rows, "refresh_ms": refresh_ms, "host": host,
-              "run_url": run_url, "failed_parts": failed,
+              "macos": macos, "run_url": run_url, "failed_parts": failed,
               "refresh_skipped": sorted(skipped)}
     row_ok = state.setdefault("row_ok", {})
     if good:
@@ -1434,7 +1471,7 @@ def cmd_plan(o):
         state["dirty"] = True  # the report job saves it even when no part ran
     json.dump(state, open(os.path.join(o.dir, "state.json"), "w"), indent=1)
     out = {"action": d["action"], "sha": d.get("sha", ""), "part": d.get("part", ""), "linux_part": d.get("linux_part", ""),
-           "reason": d["reason"], "stale_hours": round(stale_hours(state, t), 1)}
+           "worker": d.get("worker", ""), "reason": d["reason"], "stale_hours": round(stale_hours(state, t), 1)}
     if d.get("part"):
         p = PART_BY_NAME[d["part"]]
         out["run_seconds"] = p.get("run_seconds", PART_RUN_SECONDS)
@@ -1767,6 +1804,9 @@ def cmd_report(o):
         entry = record_part(cur, part, result, o.run_url, t)
         if entry["state"] == "done" and not is_linux_part(part):
             fleet_done = True
+            # The host that ran the part: the measurement's later parts are asked for on it (its app cache).
+            worker = result.get("worker")
+            cur.setdefault("host", worker if isinstance(worker, str) and HOST_RE.match(worker) else BENCH_WORKER)
         if entry["state"] == "done":
             os.makedirs(os.path.join(o.dir, "parts"), exist_ok=True)
             report = os.path.join(part_dir, "report.json")
@@ -1775,6 +1815,9 @@ def cmd_report(o):
                     value = json.load(src)
             except (OSError, ValueError):
                 value = None
+            if isinstance(value, dict) and isinstance(value.get("macos"), str) and not is_linux_part(part):
+                cur["macos"] = value["macos"][:16]
+                state.setdefault("hosts", {})[cur.get("host") or BENCH_WORKER] = {"macos": cur["macos"], "at": iso(t)}
             if value is not None:
                 with open(os.path.join(o.dir, "parts", f"{part}.json"), "w") as dst:
                     json.dump({"measurement": measurement_id(cur), "report": value}, dst)
@@ -1806,12 +1849,14 @@ def cmd_report(o):
             if not is_linux_part(name):
                 for row in part_rows.values():
                     row.setdefault("refresh_ms", r)
+                part_rows = host_rows(part_rows, cur.get("host") or BENCH_WORKER)
             rows.update(part_rows)
         refresh_ms = sorted(refresh)[len(refresh) // 2] if refresh else None
         sha = cur["sha"]
         fleet_ran = any(p.get("state") == "done" and not is_linux_part(n) for n, p in cur["parts"].items())
-        host = BENCH_WORKER if fleet_ran else "a GitHub Linux runner (no Mac part ran)"
-        event = finish_measurement(state, rows, refresh_ms, host, o.run_url, t, mod)
+        host = (cur.get("host") or BENCH_WORKER) if fleet_ran else "a GitHub Linux runner (no Mac part ran)"
+        macos = cur.get("macos") if fleet_ran else None
+        event = finish_measurement(state, rows, refresh_ms, host, o.run_url, t, mod, macos)
         rebased_note = (state.get("history") or [{}])[-1].get("rebased_note") or ""
         clear_parts(o.dir)
         regs = state.get("regressions") or []

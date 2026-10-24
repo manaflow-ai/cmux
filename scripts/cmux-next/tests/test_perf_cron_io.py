@@ -226,7 +226,7 @@ class ManageIssueTests(unittest.TestCase):
         self.assertEqual(line, "opened issue #77")
         self.assertEqual(writes[0][0:2], ("POST", "/repos/o/r/issues"))
         self.assertIn(cron.ISSUE_MARK, writes[0][2]["body"])
-        self.assertIn("macOS 27 only", writes[0][2]["body"])
+        self.assertIn("compared only with values of the same host", writes[0][2]["body"])
         self.assertEqual(state["issue"], 77)
 
     def test_reopens_a_closed_own_issue_with_a_comment(self):
