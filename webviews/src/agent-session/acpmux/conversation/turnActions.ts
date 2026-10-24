@@ -5,9 +5,8 @@ import { createContext } from "react";
 import type { HunkReview } from "../changes/hunkReview";
 import type { ChatAccount } from "../chatAccounts";
 import type { HarnessHealth } from "../HarnessHealthNotice";
-import type { AcpmuxSnapshot } from "../model";
-import type { Subagent } from "../subagents/subagentFold";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
+import type { Subagent } from "../subagents/subagentFold";
 import type { MessageBranch } from "./branches";
 import type { RetryModel } from "./retryModelSections";
 

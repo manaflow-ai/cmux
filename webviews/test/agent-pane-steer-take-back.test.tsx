@@ -106,8 +106,8 @@ test("the X on a waiting steer takes it back into the composer, and its row goes
     const [x, ...others] = takeBackButtons();
     expect(x).toBeDefined();
     expect(others).toEqual([]);
-    // Beside the bubble with the steer's clock and Send now, never a line of its own.
-    expect(x!.closest(".cv-user__pending--beside")).not.toBeNull();
+    // The current transcript action strip keeps Send now and the X together in the row.
+    expect(x!.closest(".cv-user__pending--beside")).toBeNull();
     await act(async () => {
       x!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
       await settle();
