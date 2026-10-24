@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextFiles
 import CmuxNextScreenshots
 import CmuxNextTerminal
 import CmuxNextTerminalFind
@@ -100,10 +101,10 @@ extension TerminalHandlers {
             guard let (tab, pane) = ctx.daemonTab(invocation) else { return .done }
             guard tab.kind == .pty else { return .refused(RefusalStrings.notATerminal) }
             let surface = tab.surface
-            let daemon = ctx.services.daemon(for: pane)
+            let daemon = ctx.services.daemon(for: pane), lister = ctx.services.screenshotLister
             // action-wait-allow: the path to paste is known only after the screenshot folder is read
             return .waiting(.fileSystem) {
-                guard let url = await latestScreenshot() else {
+                guard let url = await latestScreenshot(lister) else {
                     return ActionWorkFailure(refusal: .unavailable, reason: RefusalStrings.noScreenshot)
                 }
                 let text = shellQuoted(url.path)
@@ -125,11 +126,13 @@ extension TerminalHandlers {
         ctx.services.daemon(for: pane).send("send") { try await $0.send(surface, text: text, paste: paste) }
     }
 
-    /// Newest picture in the macOS screenshot folder (`com.apple.screencapture location`, else Desktop).
+    /// Newest picture in the macOS screenshot folder (`com.apple.screencapture location`, else Desktop),
+    /// listed by `lister` (`AppServices.screenshotLister`). `@concurrent`: the defaults read and the
+    /// listing never run on the main actor (PasteLastScreenshotOffMainTests).
     @concurrent
-    nonisolated private static func latestScreenshot() async -> URL? {
+    nonisolated private static func latestScreenshot(_ lister: any DirectoryListing) async -> URL? {
         let folder = ScreenshotSourceDetector(environment: SystemScreenshotEnvironment()).systemFolder()
-        return await ScreenshotFolderReader().newestPicture(in: folder)
+        return await ScreenshotFolderReader(lister: lister).newestPicture(in: folder)
     }
 
     static func shellQuoted(_ path: String) -> String {
