@@ -79,6 +79,7 @@ mod route_probe;
 mod router_socket;
 pub mod routes;
 pub mod rpc;
+pub mod sandbox_host;
 pub mod schema;
 pub mod secret_mcp;
 pub mod secret_scan;
