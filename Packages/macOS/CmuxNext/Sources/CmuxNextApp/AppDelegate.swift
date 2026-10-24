@@ -9,6 +9,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextKeepAwake
 import CmuxNextPages
+import CmuxNextWebUpdates
 import CmuxNextPalette
 import CmuxNextPhoneAccess
 import CmuxNextPopups
@@ -247,6 +248,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// cmux-next.json settings and the tagged control socket (`action.list/describe/run`) over the same registry.
     private func startSettingsAndControl(services: AppServices, launch: SettingsController.LaunchRead) {
+        // Start the web OTA launch check before any restored or prewarmed page can
+        // request its entry document. Otherwise the entry can come from the app
+        // bundle while later chunks come from the kept update tree.
+        WebUpdates.shared.prepare(bundle: .main)
         let registry = services.registry
         let settings = SettingsController(registry: registry, fileURL: launch.fileURL, launch: launch)
         settings.applyManagedFeaturesNow()

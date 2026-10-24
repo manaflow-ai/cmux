@@ -45,9 +45,14 @@ public final class WebUpdates {
         return bundle == "com.cmuxterm.app.nightly" || bundle.hasPrefix("com.cmuxterm.app.nightly.")
     }
 
+    /// Starts the launch check before any restored or prewarmed page can request its entry document.
+    public func prepare(bundle: Bundle = .main) {
+        start(bundle: bundle)
+    }
+
     /// Starts once. Before the first page loads, pages wait for the kept update's check; after,
     /// the kept update waits for a safe point.
-    func start(bundle: Bundle) {
+    private func start(bundle: Bundle) {
         guard !started else { return }
         started = true
         guard Self.isAvailable(bundleID: bundle.bundleIdentifier),
