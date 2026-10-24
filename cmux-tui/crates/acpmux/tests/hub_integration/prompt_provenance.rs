@@ -495,9 +495,12 @@ async fn a_prompt_that_names_its_sender_records_it_as_that_agents_message() {
     }
     person.call("session/prompt", prompt(&receiver, "p-person", "my own words", None)).await;
 
-    for (id, from) in [("p-peer", "codex-lane"), ("p-cli", "codex-lane-2"), ("p-namesake", own.as_str())] {
+    for (id, from) in
+        [("p-peer", "codex-lane"), ("p-cli", "codex-lane-2"), ("p-namesake", own.as_str())]
+    {
         let message = person.user_message(&receiver, id).await;
-        let stamped = json!({"kind": "agent_message", "from": "fromAgent", "fromName": from, "to": receiver});
+        let stamped =
+            json!({"kind": "agent_message", "from": "fromAgent", "fromName": from, "to": receiver});
         assert_eq!(message.pointer("/_meta/provenance"), Some(&stamped), "{message}");
     }
     // A note a session addresses to itself, and the person's own prompt, are no one else's message.

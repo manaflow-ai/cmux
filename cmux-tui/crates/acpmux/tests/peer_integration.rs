@@ -266,13 +266,20 @@ async fn a_prompt_an_agent_sends_through_a_peer_names_that_agent_on_the_owning_d
     let mut agent = C { tx: in_tx, rx: out_rx, next: 0 };
     let token = acpmux::hub::person::caller_token(&lane_id);
     let caller = json!({"callerSession": {"sessionId": lane_id, "token": token}});
-    agent.call(method::INITIALIZE, json!({"protocolVersion": 1, "_meta": {"acpmux": caller}})).await.unwrap();
+    agent
+        .call(method::INITIALIZE, json!({"protocolVersion": 1, "_meta": {"acpmux": caller}}))
+        .await
+        .unwrap();
     let report = |id: &str| json!({"sessionId": "b/coordinator", "prompt": [{"type": "text", "text": id}], "_meta": {"acpmux": {"promptId": id}}});
     agent.call(method::SESSION_PROMPT, report("from-lane")).await.unwrap();
     ca.call(method::SESSION_PROMPT, report("from-person")).await.unwrap();
 
-    let page = cb.call("_acpmux/events", json!({"sessionId": remote_id, "kinds": ["user_message"]})).await.unwrap();
-    let messages: Vec<&Value> = page["events"].as_array().unwrap().iter().map(|e| &e["msg"]).collect();
+    let page = cb
+        .call("_acpmux/events", json!({"sessionId": remote_id, "kinds": ["user_message"]}))
+        .await
+        .unwrap();
+    let messages: Vec<&Value> =
+        page["events"].as_array().unwrap().iter().map(|e| &e["msg"]).collect();
     let by_id = |id: &str| *messages.iter().find(|m| m["promptId"] == id).expect(id);
     let stamped = json!({"kind": "agent_message", "from": "fromAgent", "fromName": "codex-lane", "to": remote_id});
     assert_eq!(by_id("from-lane").pointer("/_meta/provenance"), Some(&stamped), "{messages:?}");

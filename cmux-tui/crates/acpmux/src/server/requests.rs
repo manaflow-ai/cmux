@@ -1035,7 +1035,8 @@ async fn dispatch_request(
             // itself; names are each daemon's own, so a peer's `coordinator` is another session.
             let provenance = provenance.or_else(|| {
                 let own = s.meta().name;
-                let name = declared.as_deref()
+                let name = declared
+                    .as_deref()
                     .filter(|name| conn.origin == super::Origin::Peer || *name != own)?;
                 Some(crate::prompt_provenance::named_sender(name, &s.id))
             });

@@ -51,7 +51,10 @@ mod tests {
     #[test]
     fn with_no_name_and_no_session_the_send_is_the_persons() {
         assert_eq!(implicit(env(&[])), None);
-        assert_eq!(implicit(env(&[("SSH_CONNECTION", "100.81.77.9 50022 100.84.217.73 22")])), None);
+        assert_eq!(
+            implicit(env(&[("SSH_CONNECTION", "100.81.77.9 50022 100.84.217.73 22")])),
+            None
+        );
         assert_eq!(implicit(env(&[(FROM_ENV, "  ")])), None);
     }
 
