@@ -83,7 +83,19 @@ package nonisolated struct BrowserSwipeGesture: Equatable, Sendable {
     private var firstAnswer: BrowserSwipeEdges?
 
     /// A scroll event of the gesture (momentum events are not passed).
-    package mutating func scroll(_ scrollPhase: ScrollPhase, deltaX: CGFloat, deltaY: CGFloat) -> Step {
+    ///
+    /// `takenByLayout`: the layout around the page took this gesture (Command + scroll moves the
+    /// columns and rows; `ScrollGestureOwning` in CmuxNextDesign). Such a gesture is never a swipe:
+    /// from the first moving event that says so it is declined until the next gesture. Only moving
+    /// events are asked: the layout's event monitor may see a `began` after this one does, but it
+    /// has decided the owner before the gesture moves far enough to start a swipe.
+    package mutating func scroll(_ scrollPhase: ScrollPhase, deltaX: CGFloat, deltaY: CGFloat,
+                                 takenByLayout: Bool = false) -> Step {
+        if scrollPhase == .changed, takenByLayout {
+            if case .tracking = phase { return .none }
+            phase = .declined
+            return .none
+        }
         switch scrollPhase {
         case .began:
             if case .tracking = phase { return .none }
