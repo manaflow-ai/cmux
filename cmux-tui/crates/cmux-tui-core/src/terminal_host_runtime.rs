@@ -6224,6 +6224,8 @@ mod unix {
                 break;
             }
         }
+        // The input thread retains a socket clone; dropping this writer alone cannot signal EOF.
+        tap.close();
         host.remove_client(client);
         Ok(())
     }
@@ -9436,7 +9438,8 @@ mod unix {
                 read_required_frame(&mut client_stream, "exit").unwrap().kind,
                 MessageKind::Exit
             );
-            let _ = client_stream.shutdown(std::net::Shutdown::Both);
+            let mut byte = [0];
+            assert_eq!(client_stream.read(&mut byte).unwrap(), 0);
             server.join().unwrap().unwrap();
         }
 
@@ -9532,6 +9535,63 @@ mod unix {
                 Err(RecvTimeoutError::Timeout)
             ));
             assert_eq!(host.smart.applied_cursor.load(Ordering::Acquire), 0);
+        }
+
+        #[test]
+        fn output_timeout_disconnects_client_and_allows_reattachment() {
+            let host = exited_host_fixture();
+            let (server_stream, mut client_stream) = UnixStream::pair().unwrap();
+            client_stream.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+            let (done_tx, done_rx) = mpsc_channel();
+            let server_host = host.clone();
+            let server = thread::spawn(move || {
+                done_tx.send(serve_client(server_host, server_stream)).unwrap();
+            });
+            let mut hello = snapshot_boundary_client_hello(&host, false).unwrap();
+            hello.flags = FLAG_SMART_RENDERER | FLAG_VIEWER_SIZE_ACKS;
+            write_frame(&mut client_stream, &hello).unwrap();
+            for kind in [
+                MessageKind::HostHello,
+                MessageKind::Snapshot,
+                MessageKind::Colors,
+                MessageKind::Ready,
+            ] {
+                assert_eq!(
+                    read_required_frame(&mut client_stream, "handshake").unwrap().kind,
+                    kind
+                );
+            }
+
+            // Stop reading until the real socket write timeout ends the output thread.
+            let cursor =
+                host.smart.publish(Frame::new(MessageKind::Output, vec![b'x'; 4 * 1024 * 1024]));
+            host.smart.mark_applied(cursor);
+            done_rx.recv_timeout(Duration::from_secs(10)).unwrap().unwrap();
+            server.join().unwrap();
+            let mut buffered = Vec::new();
+            client_stream.read_to_end(&mut buffered).expect("timed-out writer must signal EOF");
+            assert!(!buffered.is_empty());
+            assert!(buffered.len() < 4 * 1024 * 1024);
+
+            let (server_stream, mut client_stream) = UnixStream::pair().unwrap();
+            client_stream.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+            let server_host = host.clone();
+            let server = thread::spawn(move || serve_client(server_host, server_stream));
+            write_frame(&mut client_stream, &hello).unwrap();
+            for kind in [
+                MessageKind::HostHello,
+                MessageKind::Snapshot,
+                MessageKind::Colors,
+                MessageKind::Ready,
+            ] {
+                assert_eq!(read_required_frame(&mut client_stream, "reattach").unwrap().kind, kind);
+            }
+            host.smart.publish(Frame::new(MessageKind::Output, b"still running".to_vec()));
+            let frame = read_required_frame(&mut client_stream, "live output").unwrap();
+            assert_eq!(frame.kind, MessageKind::Output);
+            assert_eq!(frame.payload, b"still running");
+            drop(client_stream);
+            server.join().unwrap().unwrap();
         }
 
         #[test]
