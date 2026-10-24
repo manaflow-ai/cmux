@@ -29,8 +29,8 @@ Subcommands: fetch-state, plan, fleet-check, run-part, part-cleanup, run-linux-p
 --help). Tests: scripts/cmux-next/tests/test_perf_cron.py (decisions) and test_perf_cron_io.py (GitHub, git, the
 fleet client and multi-tick runs, faked) (run them yourself; no CI job runs them).
 """
-import argparse, datetime, importlib.util, io, json, os, re, subprocess, sys, time, urllib.error, urllib.parse
-import urllib.request, zipfile
+import argparse, collections, datetime, hashlib, importlib.util, io, json, os, re, subprocess, sys, time, urllib.error
+import urllib.parse, urllib.request, zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
@@ -746,6 +746,36 @@ def wanted_by_other(status, mine, jobs=None, worker=BENCH_WORKER):
 
 # ---------- GitHub ----------
 
+# The GitHub API calls of this process, by method and path shape (printed at the end of each subcommand). The tick's
+# token shares the repository's installation limit with every other workflow (2026-10-24: 'API rate limit exceeded
+# for installation' failed two ticks), so the cron keeps its calls few and backs off when GitHub says no.
+GH_CALLS = collections.Counter()
+# fetch-state leaves this file in the state directory when GitHub refused for the rate limit: the plan and the report
+# then do nothing (no state is read, saved or replaced) and the next tick tries again.
+RATE_LIMITED = "RATE_LIMITED"
+
+
+class RateLimited(Exception):
+    """GitHub refused a call for the rate limit (403 or 429 with no calls left, a Retry-After, or that message)."""
+
+
+def rate_limited(error):
+    if not isinstance(error, urllib.error.HTTPError) or error.code not in (403, 429):
+        return False
+    headers = error.headers or {}
+    if headers.get("x-ratelimit-remaining") == "0" or headers.get("retry-after"):
+        return True
+    try:
+        text = error.read().decode("utf-8", "replace").lower()
+    except Exception:  # noqa: BLE001 - an unreadable body is no rate-limit message
+        text = ""
+    return "rate limit" in text
+
+
+def gh_shape(path):
+    return re.sub(r"/[0-9a-f]{40}(\.\.\.[0-9a-f]{40})?|/\d+", "/N", path.split("?")[0].replace("https://api.github.com", ""))
+
+
 def gh_request(path, method="GET", body=None, raw=False, timeout=30):
     api = os.environ.get("GITHUB_API_URL", "https://api.github.com")
     url = path if path.startswith("http") else f"{api}{path}"
@@ -753,9 +783,22 @@ def gh_request(path, method="GET", body=None, raw=False, timeout=30):
     req = urllib.request.Request(url, data=data, method=method, headers={
         "Authorization": f"Bearer {os.environ['GH_TOKEN']}", "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "cmux-perf-cron"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        payload = r.read()
+    GH_CALLS[f"{method} {gh_shape(path)}"] += 1
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            payload = r.read()
+    except urllib.error.HTTPError as error:
+        if rate_limited(error):
+            raise RateLimited(f"{method} {gh_shape(path)}: HTTP {error.code}") from error
+        raise
     return payload if raw else (json.loads(payload) if payload else {})
+
+
+def print_calls(cmd):
+    """One line with this process's GitHub API calls (the run log shows each tick's cost)."""
+    total = sum(GH_CALLS.values())
+    detail = ", ".join(f"{n} {k}" for k, n in sorted(GH_CALLS.items()))
+    print(f"perf-cron {cmd}: {total} GitHub API call(s){': ' + detail if detail else ''}")
 
 
 # A fleet runner, named positively: glaeda's labels (glaeda-mini, glaeda-trusted-std-xcode-26.6, glaeda-side-...), or
@@ -851,10 +894,13 @@ def download_redirected(url, timeout=120):
     redirect is followed without it."""
     req = urllib.request.Request(url, headers={"Authorization": f"Bearer {os.environ['GH_TOKEN']}",
                                                "Accept": "application/vnd.github+json", "User-Agent": "cmux-perf-cron"})
+    GH_CALLS[f"GET {gh_shape(url)}"] += 1
     try:
         with urllib.request.build_opener(_NoRedirect).open(req, timeout=timeout) as r:
             return r.read()
     except urllib.error.HTTPError as error:
+        if rate_limited(error):
+            raise RateLimited(f"GET {gh_shape(url)}: HTTP {error.code}") from error
         if error.code not in (301, 302, 303, 307, 308) or not error.headers.get("Location"):
             raise
         location = error.headers["Location"]
@@ -890,7 +936,10 @@ def fetch_state(repo, out_dir):
     is newest first; the pages are read in turn (up to STATE_PAGES), so a flood of same-named artifacts from fork pull
     requests delays the search but cannot hide the trusted state and reset the cron to a fresh one."""
     os.makedirs(out_dir, exist_ok=True)
-    repo_id = gh_request(f"/repos/{repo}").get("id")
+    # Actions sets GITHUB_REPOSITORY_ID for the run's own repository: no call for it.
+    env_id = os.environ.get("GITHUB_REPOSITORY_ID", "")
+    repo_id = int(env_id) if env_id.isdigit() and os.environ.get("GITHUB_REPOSITORY") == repo \
+        else gh_request(f"/repos/{repo}").get("id")
     runs = {}
 
     def run_of(run_id):
@@ -1084,10 +1133,16 @@ def is_ancestor(a, b):
                           capture_output=True).returncode == 0
 
 
-def commit_on_branch(repo, tip):
+ON_BRANCH_KEEP = 300  # commits the state remembers as verified on the branch (each later tick asks GitHub for none)
+
+
+def commit_on_branch(repo, tip, known=()):
     """ok(sha): the sha is 40 hex characters and an ancestor of tip (or tip). The plan's checkout is shallow, so a
-    commit it does not have is asked of the GitHub compare API ('ahead' or 'identical': on the branch)."""
-    cache = {}
+    commit it does not have is asked of the GitHub compare API ('ahead' or 'identical': on the branch), once: known
+    holds the commits a trusted earlier tick verified (feat-cmux-next is never rewritten). ok.verified lists every
+    commit found on the branch, for the state. A rate-limit refusal is raised, never read as 'not on the branch' (that
+    would drop the state's commits)."""
+    cache = {sha: True for sha in known if is_sha(sha)}
 
     def ok(sha):
         if not is_sha(sha):
@@ -1102,6 +1157,7 @@ def commit_on_branch(repo, tip):
                 except (urllib.error.URLError, ValueError, KeyError):  # KeyError: no GH_TOKEN
                     cache[sha] = False
         return cache[sha]
+    ok.verified = lambda: [sha for sha, on in cache.items() if on]
     return ok
 
 
@@ -1519,7 +1575,15 @@ def write_outputs(path, values):
 
 
 def cmd_fetch_state(o):
-    fetch_state(o.repo, o.dir)
+    try:
+        fetch_state(o.repo, o.dir)
+    except RateLimited as error:
+        # No state read: the plan must not start from an empty one. It and the report see the mark and do nothing.
+        os.makedirs(o.dir, exist_ok=True)
+        with open(os.path.join(o.dir, RATE_LIMITED), "w") as f:
+            f.write(str(error))
+        print(f"perf-cron: GitHub rate limit ({error}); this tick does nothing, the next one tries again")
+    print_calls("fetch-state")
 
 
 def load_state(d, t):
@@ -1540,13 +1604,30 @@ def clear_parts(d):
 
 
 def cmd_plan(o):
+    try:
+        plan(o)
+    except RateLimited as error:
+        # Nothing written: the state file stays the one fetched, so the report saves nothing and the next tick
+        # starts from the same state.
+        out = {"action": "none", "sha": "", "part": "", "linux_part": "", "worker": "", "frame_pacing": "false",
+               "rate_limited": "true", "reason": f"GitHub rate limit ({error}); the next tick tries again"}
+        print(f"perf-cron plan: {json.dumps(out)}")
+        write_outputs(o.output, out)
+    print_calls("plan")
+
+
+def plan(o):
     t = now_utc()
+    if os.path.exists(os.path.join(o.dir, RATE_LIMITED)):
+        raise RateLimited("the state was not read")
     state = load_state(o.dir, t)
     tip = git("rev-parse", "--verify", "--end-of-options", f"{o.tip}^{{commit}}")
     tip_version = measure_version(tip)
     before = json.dumps(state, sort_keys=True)
     loaded_id = measurement_id(state.get("current"))
-    dropped = sanitize_state(state, commit_on_branch(o.repo, tip))
+    on_branch = commit_on_branch(o.repo, tip, state.get("on_branch") or [])
+    dropped = sanitize_state(state, on_branch)
+    state["on_branch"] = list(getattr(on_branch, "verified", lambda: [])())[-ON_BRANCH_KEEP:]  # newest last
     if dropped:
         print(f"perf-cron: dropped from the state (not a commit of {o.tip}): {', '.join(dropped)}")
     if getattr(o, "perf_result", ""):
@@ -1583,16 +1664,13 @@ def cmd_plan(o):
             if sha:
                 bisect = {"sha": sha, "range": rng, "rows": group["rows"]}
                 break
-    busy = None
+    busy, busy_known = None, False
     if not no_mac and (candidate or bisect or state.get("current")):
-        busy = github_busy(o.repo, o.yield_mode)
+        busy, busy_known = github_busy(o.repo, o.yield_mode), True
     d = decide(state, t, candidate, bisect, supported_parts_at, busy, lambda sha: fleet_runs(sha, tip_version), no_mac)
     state["mac_off"] = no_mac  # the issue says why no Mac row is measured
     if measurement_id(state.get("current")) != loaded_id:
         clear_parts(o.dir)  # a dropped or replaced measurement's part files must never be read as the new one's
-    if json.dumps(state, sort_keys=True) != before:
-        state["dirty"] = True  # the report job saves it even when no part ran
-    json.dump(state, open(os.path.join(o.dir, "state.json"), "w"), indent=1)
     out = {"action": d["action"], "sha": d.get("sha", ""), "part": d.get("part", ""), "linux_part": d.get("linux_part", ""),
            "worker": d.get("worker", ""), "reason": d["reason"], "stale_hours": round(stale_hours(state, t), 1)}
     if d.get("part"):
@@ -1601,14 +1679,28 @@ def cmd_plan(o):
         out["step_minutes"], out["job_minutes"] = part_minutes(out["run_seconds"])
         out["args"] = json.dumps(part_args(p, out["run_seconds"]))
         out["artifact"] = p["artifact"]
-    try:
-        fp_runs = frame_pacing_runs(o.repo)
-        fp_due, fp_reason = frame_pacing_due(fp_runs, t, busy if busy is not None or no_mac
-                                             else github_busy(o.repo, o.yield_mode))
-    except (urllib.error.URLError, TimeoutError, ValueError) as error:
-        fp_due, fp_reason = False, f"frame pacing: GitHub did not answer ({error!r})"
+    seen = parse_iso(state.get("frame_pacing_seen")) if isinstance(state.get("frame_pacing_seen"), str) else None
+    if seen and hours_between(seen, t) < FRAME_PACING_EVERY_HOURS:
+        # The newest frame pacing run the state saw is under 24 h old: not due, no call.
+        fp_due, fp_reason = False, f"frame pacing ran {round(hours_between(seen, t), 1)} h ago (from the state)"
+    elif no_mac:
+        fp_due, fp_reason = False, "frame pacing waits: no route for the Mac parts"
+    else:
+        try:
+            fp_runs = frame_pacing_runs(o.repo)
+            newest = max((r.get("created_at") or "" for r in fp_runs), default="")
+            if newest:
+                state["frame_pacing_seen"] = newest[:19] + "Z"
+            fp_due, fp_reason = frame_pacing_due(fp_runs, t, None)
+            if fp_due:
+                fp_due, fp_reason = frame_pacing_due(fp_runs, t, busy if busy_known else github_busy(o.repo, o.yield_mode))
+        except (urllib.error.URLError, TimeoutError, ValueError) as error:
+            fp_due, fp_reason = False, f"frame pacing: GitHub did not answer ({error!r})"
     out["frame_pacing"] = "true" if fp_due else "false"
     out["frame_pacing_reason"] = fp_reason
+    if json.dumps(state, sort_keys=True) != before:
+        state["dirty"] = True  # the report job saves it even when no part ran
+    json.dump(state, open(os.path.join(o.dir, "state.json"), "w"), indent=1)
     print(f"perf-cron plan: {json.dumps(out)}")
     write_outputs(o.output, out)
 
@@ -1812,6 +1904,7 @@ def manage_issue(repo, state, event, now, run_url, summary, set_changed):
     is_open = bool(issue) and issue.get("state") == "open"
     plan = issue_plan(state, event, now, is_open, bool(issue), set_changed)
     body = issue_body(state, repo, now)
+    state["issue_seen"] = {"hash": body_hash(body), "open": plan["open"]}
     if stale_hours(state, now) > STALE_HOURS:
         state["stale_noted_for"] = stale_basis(state)
     if not plan["open"]:
@@ -1835,23 +1928,36 @@ def manage_issue(repo, state, event, now, run_url, summary, set_changed):
     return f"{'reopened' if not is_open else 'updated'} issue #{number}"
 
 
+def body_hash(body):
+    return hashlib.sha256(body.encode()).hexdigest()[:16]
+
+
 def refresh_issue_body(repo, state, now):
     """Rewrite the open issue's body when it no longer matches the state (a tick that finished no part: the Mac route
-    or bench status changed). Returns a line for the run summary, or ""."""
+    or bench status changed), and close it when no confirmed regression is open and the cron is not stale. No call
+    when the body and the open state are the ones this cron last wrote (state['issue_seen']). Returns a line for the
+    run summary, or ""."""
+    body = issue_body(state, repo, now)
+    want_open = issue_plan(state, None, now, True, True, False)["open"]
+    if state.get("issue_seen") == {"hash": body_hash(body), "open": want_open}:
+        return ""
     issue = find_issue(repo, state.get("issue"))
     if not issue or issue.get("state") != "open":
+        state["issue_seen"] = {"hash": None, "open": False}
         return ""
-    number, body = issue["number"], issue_body(state, repo, now)
-    if (issue.get("body") or "") != body:
+    number, changed = issue["number"], (issue.get("body") or "") != body
+    if changed:
         gh_request(f"/repos/{repo}/issues/{number}", "PATCH", {"body": body})
-    if not issue_plan(state, None, now, True, True, False)["open"]:
+    state["issue_seen"] = {"hash": body_hash(body), "open": True}
+    if not want_open:
         # No confirmed regression and not stale (an unconfirmed row opened it under the old rule): close it.
         n = len(state.get("unconfirmed") or [])
         gh_request(f"/repos/{repo}/issues/{number}/comments", "POST", {"body":
                    f"No confirmed regression; {n} unconfirmed row(s) stay listed in the body."})
         gh_request(f"/repos/{repo}/issues/{number}", "PATCH", {"state": "closed", "state_reason": "completed"})
+        state["issue_seen"] = {"hash": body_hash(body), "open": False}
         return f"closed issue #{number} (no confirmed regression)"
-    return f"rewrote the body of issue #{number}" if (issue.get("body") or "") != body else ""
+    return f"rewrote the body of issue #{number}" if changed else ""
 
 
 def record_part(cur, part, result, run_url, t=None):
@@ -1900,6 +2006,17 @@ def note_bench_host(state, reason, t):
 
 
 def cmd_report(o):
+    if os.path.exists(os.path.join(o.dir, RATE_LIMITED)):
+        # The plan read no state (GitHub's rate limit): nothing to store, compare or save.
+        print("perf-cron report: no state this tick (GitHub rate limit); the next tick tries again")
+        write_outputs(o.output, {"changed": "false", "line": "no state this tick (GitHub rate limit)", "next_now": "false"})
+        print_calls("report")
+        return
+    report(o)
+    print_calls("report")
+
+
+def report(o):
     t = now_utc()
     state = load_state(o.dir, t)
     changed = not state.get("persisted") or bool(state.pop("dirty", False))
@@ -2008,17 +2125,32 @@ def cmd_report(o):
     stale = stale_hours(state, t) > STALE_HOURS
     if stale:
         line += f"; stale: no finished measurement since {stale_basis(state)}"
-    if o.issues and (event or (stale and state.get("stale_noted_for") != stale_basis(state))):
-        before = json.dumps(state, sort_keys=True)
-        set_changed = sorted(r["name"] for r in state.get("regressions") or []) != before_names
-        line += "; " + manage_issue(o.repo, state, event, t, o.run_url, summary or line, set_changed)
-        changed = changed or json.dumps(state, sort_keys=True) != before
-    elif o.issues and state.get("issue"):
-        try:
-            rewrote = refresh_issue_body(o.repo, state, t)
-        except (urllib.error.URLError, TimeoutError, ValueError) as error:
-            rewrote = f"the issue body was not checked ({error!r})"
-        line += f"; {rewrote}" if rewrote else ""
+    # An issue update GitHub refused for the rate limit is made by the next tick (its event and summary are kept).
+    retry = state.pop("issue_retry", None) if not event else None
+    if retry:
+        event, summary = retry.get("event"), retry.get("summary") or summary
+        changed = True
+    before = json.dumps(state, sort_keys=True)
+    try:
+        if o.issues and (event or (stale and state.get("stale_noted_for") != stale_basis(state))):
+            set_changed = bool(retry and retry.get("set_changed")) or \
+                sorted(r["name"] for r in state.get("regressions") or []) != before_names
+            line += "; " + manage_issue(o.repo, state, event, t, o.run_url, summary or line, set_changed)
+        elif o.issues and state.get("issue"):
+            try:
+                rewrote = refresh_issue_body(o.repo, state, t)
+            except RateLimited:
+                raise
+            except (urllib.error.URLError, TimeoutError, ValueError) as error:
+                rewrote = f"the issue body was not checked ({error!r})"
+            line += f"; {rewrote}" if rewrote else ""
+    except RateLimited as error:
+        if event:
+            state["issue_retry"] = {"event": event, "summary": summary or line, "set_changed":
+                                    sorted(r["name"] for r in state.get("regressions") or []) != before_names}
+        state.pop("issue_seen", None)  # the next tick checks the issue again
+        line += f"; the issue was not updated (GitHub rate limit: {error}); the next tick does it"
+    changed = changed or json.dumps(state, sort_keys=True) != before
     json.dump(state, open(os.path.join(o.dir, "state.json"), "w"), indent=1)
     nxt = next_now(state, fleet_done)
     if nxt:
@@ -2119,9 +2251,12 @@ def cmd_fetch_result(o):
 
 def cmd_dispatch_next(o):
     """Dispatch this workflow on the measured branch (the report job's last step when next_now said so)."""
-    gh_request(f"/repos/{o.repo}/actions/workflows/{os.path.basename(STATE_WORKFLOW)}/dispatches", "POST",
-               {"ref": STATE_BRANCH})
-    print(f"perf-cron: dispatched the next tick of {os.path.basename(STATE_WORKFLOW)} on {STATE_BRANCH}")
+    try:
+        gh_request(f"/repos/{o.repo}/actions/workflows/{os.path.basename(STATE_WORKFLOW)}/dispatches", "POST",
+                   {"ref": STATE_BRANCH})
+        print(f"perf-cron: dispatched the next tick of {os.path.basename(STATE_WORKFLOW)} on {STATE_BRANCH}")
+    except RateLimited as error:
+        print(f"perf-cron: the next tick was not dispatched (GitHub rate limit: {error}); the dispatcher starts one")
 
 
 def main(argv=None):

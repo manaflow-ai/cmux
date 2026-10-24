@@ -2,7 +2,7 @@
 """The perf cron's decisions (scripts/cmux-next/perf-cron.py): what a tick runs, when it yields to the fleet,
 what counts as a regression, and when the one issue opens, comments and closes. Pure functions only (no
 network, no git). Run: python3 -I scripts/cmux-next/tests/test_perf_cron.py (not a CI job, Lawrence 2026-10-23)."""
-import argparse, datetime, importlib.util, io, json, os, tempfile, unittest
+import argparse, datetime, importlib.util, io, json, os, tempfile, unittest, urllib.error, urllib.request
 from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -755,7 +755,7 @@ class PlanReportTests(unittest.TestCase):
             raise AssertionError(args)
         with mock.patch.object(cron, "now_utc", lambda: now), mock.patch.object(cron, "git", git), \
                 mock.patch.object(cron, "measure_version", lambda sha: 2), \
-                mock.patch.object(cron, "commit_on_branch", lambda repo, t: cron.is_sha), \
+                mock.patch.object(cron, "commit_on_branch", lambda repo, t, known=(): cron.is_sha), \
                 mock.patch.object(cron, "tree_published", lambda sha: True), \
                 mock.patch.object(cron, "github_busy", lambda *a: None), \
                 mock.patch.object(cron, "frame_pacing_runs", lambda repo: []), \
@@ -1322,6 +1322,106 @@ class MeasureVersionTests(unittest.TestCase):
         with mock.patch.object(cron, "measure_version", versions.get):
             self.assertEqual([c for c in "abcd" if cron.fleet_runs(c, 2)], ["a", "b"])
             self.assertFalse(cron.fleet_runs("d", None), "a tip with no version measures nothing")
+
+
+
+class RateLimitTests(unittest.TestCase):
+    """Lead 2026-10-24: a tick refused for GitHub's rate limit backs off to the next tick (no error, no state change)."""
+
+    @staticmethod
+    def limited(*a, **k):
+        import email.message
+        headers = email.message.Message()
+        headers["x-ratelimit-remaining"] = "0"
+        raise urllib.error.HTTPError("https://api.github.com/x", 403, "Forbidden", headers, io.BytesIO(b"{}"))
+
+    def test_a_rate_limited_state_read_leaves_a_mark_and_the_plan_and_report_do_nothing(self):
+        with tempfile.TemporaryDirectory() as d, mock.patch.dict(os.environ, {"GH_TOKEN": "t"}), \
+                mock.patch.object(urllib.request, "urlopen", self.limited):
+            cron.cmd_fetch_state(argparse.Namespace(repo="o/r", dir=d))
+            self.assertTrue(os.path.exists(os.path.join(d, cron.RATE_LIMITED)))
+            self.assertFalse(os.path.exists(os.path.join(d, "state.json")))
+            out = os.path.join(d, "plan.out")
+            cron.cmd_plan(argparse.Namespace(repo="o/r", dir=d, tip="HEAD", yield_mode="queued", no_mac=False,
+                                             perf_result="", output=out))
+            with open(out) as f:
+                plan = dict(line.split("=", 1) for line in f.read().splitlines())
+            self.assertEqual((plan["action"], plan["rate_limited"]), ("none", "true"))
+            rep = os.path.join(d, "report.out")
+            cron.cmd_report(argparse.Namespace(repo="o/r", dir=d, result=[], run_url="u", finish=False, issues=True, output=rep))
+            with open(rep) as f:
+                report = dict(line.split("=", 1) for line in f.read().splitlines())
+            self.assertEqual(report["changed"], "false", "nothing is saved over the last trusted state")
+            self.assertFalse(os.path.exists(os.path.join(d, "state.json")))
+
+    def test_any_other_403_is_still_an_error(self):
+        def forbidden(*a, **k):
+            import email.message
+            raise urllib.error.HTTPError("https://api.github.com/x", 403, "Forbidden", email.message.Message(),
+                                         io.BytesIO(b'{"message": "Resource not accessible by integration"}'))
+        with mock.patch.dict(os.environ, {"GH_TOKEN": "t"}), mock.patch.object(urllib.request, "urlopen", forbidden):
+            with self.assertRaises(urllib.error.HTTPError) as ctx:
+                cron.gh_request("/repos/o/r")
+            self.assertNotIsInstance(ctx.exception, cron.RateLimited)
+
+    def test_a_refused_issue_update_is_made_by_the_next_tick(self):
+        state = cron.empty_state(T0)
+        state["persisted"] = True
+        state["issue"] = 9
+        state["last"] = {"sha": "a" * 40, "measured_at": cron.iso(T0), "rows": {}}
+        state["regressions"] = [{"name": "r.e2e", "p95": 30.0, "base": 20.0, "confirmed": True,
+                                 "range": {"good": "a" * 40, "bad": "b" * 40}}]
+        state["issue_retry"] = {"event": "regressed", "summary": "b: 1 row(s) regressed: r.e2e", "set_changed": True}
+        own = {"number": 9, "title": cron.ISSUE_TITLE, "user": {"login": cron.ISSUE_AUTHOR}, "body": cron.ISSUE_MARK, "state": "open"}
+        calls = []
+
+        def gh(path, method="GET", body=None, **k):
+            calls.append((method, path))
+            return own
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "state.json"), "w") as f:
+                json.dump(state, f)
+            with mock.patch.object(cron, "gh_request", gh), mock.patch.object(cron, "now_utc", lambda: at(1)):
+                cron.cmd_report(argparse.Namespace(repo="o/r", dir=d, result=[], run_url="u", finish=False, issues=True,
+                                                   output=os.path.join(d, "r.out")))
+            with open(os.path.join(d, "state.json")) as f:
+                after = json.load(f)
+        self.assertIn(("POST", "/repos/o/r/issues/9/comments"), calls, "the kept summary comment is posted")
+        self.assertNotIn("issue_retry", after)
+
+    def test_a_tick_with_nothing_new_makes_no_issue_call(self):
+        state = cron.empty_state(T0)
+        state["issue"] = 9
+        state["regressions"] = [{"name": "r.e2e", "p95": 30.0, "base": 20.0, "range": {"good": "a" * 40, "bad": "b" * 40}}]
+        own = {"number": 9, "title": cron.ISSUE_TITLE, "user": {"login": cron.ISSUE_AUTHOR},
+               "body": cron.ISSUE_MARK + " old", "state": "open"}
+        calls = []
+
+        def gh(path, method="GET", body=None, **k):
+            calls.append(method)
+            return own
+        with mock.patch.object(cron, "gh_request", gh):
+            self.assertEqual(cron.refresh_issue_body("o/r", state, at(1)), "rewrote the body of issue #9")
+            n = len(calls)
+            self.assertEqual(cron.refresh_issue_body("o/r", state, at(1)), "")
+        self.assertEqual(len(calls), n, "the body this cron wrote last is not read again")
+
+    def test_a_verified_commit_is_not_asked_of_github_again(self):
+        asked = []
+        with mock.patch.object(cron, "gh_request", lambda p, *a, **k: asked.append(p) or {"status": "ahead"}), \
+                mock.patch.object(cron.subprocess, "run", lambda *a, **k: mock.Mock(returncode=1)):
+            ok = cron.commit_on_branch("o/r", "f" * 40)
+            self.assertTrue(ok("a" * 40))
+            self.assertEqual(len(asked), 1)
+            ok2 = cron.commit_on_branch("o/r", "f" * 40, ok.verified())
+            self.assertTrue(ok2("a" * 40))
+        self.assertEqual(len(asked), 1, "the state's verified commits need no compare call")
+
+    def test_a_rate_limited_compare_is_raised_not_read_as_off_the_branch(self):
+        with mock.patch.object(cron, "gh_request", mock.Mock(side_effect=cron.RateLimited("x"))), \
+                mock.patch.object(cron.subprocess, "run", lambda *a, **k: mock.Mock(returncode=1)):
+            with self.assertRaises(cron.RateLimited):
+                cron.commit_on_branch("o/r", "f" * 40)("a" * 40)
 
 
 if __name__ == "__main__":
