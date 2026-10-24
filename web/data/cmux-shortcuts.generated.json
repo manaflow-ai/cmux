@@ -7827,14 +7827,7 @@
           "title": {
             "en": "Point at cmux UI"
           },
-          "shortcut": {
-            "key": "p",
-            "modifiers": [
-              "ctrl",
-              "opt",
-              "cmd"
-            ]
-          },
+          "shortcut": null,
           "chord": null,
           "aliases": []
         },

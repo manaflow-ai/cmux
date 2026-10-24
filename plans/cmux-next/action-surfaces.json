@@ -21567,14 +21567,7 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "p",
-        "modifiers" : [
-          "ctrl",
-          "opt",
-          "cmd"
-        ]
-      },
+      "default_shortcut" : null,
       "id" : "agentPane.togglePointerInspector",
       "main_menu" : null,
       "mcp" : "offered",
