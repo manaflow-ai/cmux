@@ -12,6 +12,13 @@ extension Bundle {
     /// digits keeps them. A language this bundle has no strings for gets the English sentence with English
     /// units.
     ///
+    /// In a sentence that holds right-to-left text (an Arabic sentence, or an Arabic name in an English one),
+    /// `String(format:locale:)` writes each `%@` argument between U+2068 FIRST STRONG ISOLATE and U+2069 POP
+    /// DIRECTIONAL ISOLATE, so a unit with Latin digits or a left-to-right path keeps its own order: ar
+    /// "بعد ⁨5 د⁩". The marks are part of the returned text; compare against the isolated form, and search the
+    /// text with a literal search (`range(of:options: .literal)`), because the default `contains` on this
+    /// bridged string matches a Latin "5" against the Arabic-Indic "٥".
+    ///
     /// The looked-up format must take exactly `arguments`: a `%lld` (or `%ld`) for each ``LocalizedArgument/count(_:)``,
     /// a `%@` for each other argument, each used once. A translation that does not (a copy edit that added a
     /// `%@`, turned one into `%lld`, or wrote a 32-bit `%d` for a count) is not passed to `String(format:)`, where it would read past the
@@ -69,9 +76,15 @@ extension Bundle {
     }
 
     /// `base` with its language replaced by `language`: the region, numbering system and other preferences stay.
+    ///
+    /// The region of `en_US` is part of its language components, so replacing those alone drops it (Polish for a
+    /// person in the US grouped "4 194 304"). It is set again as the locale's region, which also wins over a region
+    /// the picked localization names itself (pt-BR keeps the person's US grouping) and keeps a region override
+    /// (`rg`) the person set.
     private static func locale(_ base: Locale, language: String) -> Locale {
         var components = Locale.Components(locale: base)
         components.languageComponents = Locale.Language.Components(identifier: language)
+        components.region = base.region
         return Locale(components: components)
     }
 }
