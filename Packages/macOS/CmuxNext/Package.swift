@@ -32,8 +32,10 @@ import PackageDescription
 //   CmuxNextControl -> Actions, Settings, Daemon (app control socket; no UI; Compat/ forwards cmux CLI verbs to cmux-tui)
 //   CmuxNextCloud -> CMUXAuthCore, CmuxAuthRuntime (Stack auth, /api/vm REST,
 //     WireGuard hub and cmux-tui remote links; no UI, no daemon)
-//   CmuxNextRemote -> Compat, CmuxNextCloud (SSH machines: ssh argv, probe, install, relay policy; the loopback
-//     remote browser host process; no UI, no daemon)
+//   CmuxNextRemote -> Compat, RemoteCore, CmuxNextCloud (SSH machines: ssh argv, probe, install, relay policy; the
+//     loopback remote browser host process; no UI, no daemon)
+//   CmuxNextRemoteCore -> Foundation only (the remote domain's shared values: the loopback endpoint and the
+//     browser host's start failure; Remote, RemoteView, RemoteBrowser and the App name them)
 //   CmuxNextMobile -> Daemon, CMUXMobileCore, CmuxIrxTransport (phone host; no UI)
 //   CmuxNextUpdater -> Design, Icons, CmuxUpdater, Sparkle (update checks, appcast probe, update sheet; no daemon)
 //   CmuxNextMallocZone -> libSystem only (C: the delegating default malloc zone that lets the
@@ -226,6 +228,7 @@ let package = Package(
             dependencies: [
                 "CmuxNextChiefMemory",
                 "CmuxNextCompat",
+                "CmuxNextRemoteCore",
                 "CmuxNextFiles",
                 "CmuxNextFilesUI",
                 "CmuxNextVSCodeServer",
@@ -1049,7 +1052,7 @@ let package = Package(
         // `remote_view` tabs (cmux://remote-view records, development builds).
         .target(
             name: "CmuxNextRemoteView",
-            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups", "CCmuxAppFFI"],
+            dependencies: ["CmuxNextCompat", "CmuxNextRemoteCore", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups", "CCmuxAppFFI"],
             exclude: ["README.md"],
             resources: [
                 .process("Resources"),
@@ -1063,7 +1066,7 @@ let package = Package(
             name: "CmuxNextRemoteViewSessions",
             dependencies: [
                 "CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextSettings", "CmuxNextBrowser", "CmuxNextRemoteView",
-                "CmuxNextRemoteBrowser",
+                "CmuxNextRemoteBrowser", "CmuxNextRemoteCore",
                 .product(name: "CmuxVNC", package: "CmuxVNC"),
                 .product(name: "CmuxVNCDemoServer", package: "CmuxVNC"),
             ],
@@ -1106,7 +1109,7 @@ let package = Package(
         // CmuxNextRemoteView; session state is the Rust client reducer.
         .target(
             name: "CmuxNextRemoteBrowser",
-            dependencies: ["CmuxNextCompat", "CmuxNextRemoteView", "CmuxNextBrowser", "CmuxNextDesign", "CCmuxAppFFI"],
+            dependencies: ["CmuxNextCompat", "CmuxNextRemoteCore", "CmuxNextRemoteView", "CmuxNextBrowser", "CmuxNextDesign", "CCmuxAppFFI"],
             resources: [
                 .process("Resources"),
             ],
@@ -1197,7 +1200,15 @@ let package = Package(
         // remote browser tabs and the iPhone's streamed tabs). No UI.
         .target(
             name: "CmuxNextRemote",
-            dependencies: ["CmuxNextCompat", "CmuxNextCloud"],
+            dependencies: ["CmuxNextCompat", "CmuxNextCloud", "CmuxNextRemoteCore"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        // The remote domain's core values, shared by the service (Remote: the
+        // loopback browser host), the transport (RemoteView) and the tab UI
+        // (RemoteBrowser) without an edge between them: RemoteRdLoopbackEndpoint
+        // and LocalRemoteBrowserHostFailure. Foundation only; no UI, no I/O.
+        .target(
+            name: "CmuxNextRemoteCore",
             swiftSettings: daemonSwiftSettings
         ),
         // App-layer mapping between daemon records and feature view models,

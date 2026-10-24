@@ -1,7 +1,7 @@
 public import Foundation
 
 /// Why a loopback remote browser host (CmuxNextRemote's `LocalRemoteBrowserHost`) did not start.
-/// A value here, in core, so the remote tab's strings (CmuxNextRemoteBrowser, a UI target) say it
+/// A value here, in the remote core, so the remote tab's strings (CmuxNextRemoteBrowser, a UI target) say it
 /// without depending on the service that starts the host.
 public nonisolated enum LocalRemoteBrowserHostFailure: Error, Equatable {
     /// The executable could not be launched.

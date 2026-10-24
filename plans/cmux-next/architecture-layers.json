@@ -13,6 +13,7 @@
     "CmuxNextAgentCursorVisibility": {"layer": "core"},
     "CmuxNextProcessEnvironment": {"layer": "core"},
     "CmuxNextRemoteLayer": {"layer": "core"},
+    "CmuxNextRemoteCore": {"layer": "core"},
     "CmuxNextMallocZone": {"layer": "core"},
     "CmuxNextWorkspaceNaming": {"layer": "core"},
 

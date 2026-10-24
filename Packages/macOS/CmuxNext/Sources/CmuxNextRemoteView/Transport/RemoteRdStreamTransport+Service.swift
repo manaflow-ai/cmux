@@ -1,5 +1,6 @@
 public import Foundation
-public import CmuxNextCompat
+import CmuxNextCompat
+public import CmuxNextRemoteCore
 
 extension RemoteRdStreamTransport {
     // MARK: Service (rd changes B3.2 and C2)

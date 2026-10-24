@@ -301,6 +301,7 @@
         "CmuxNextProcessEnvironment",
         "CmuxNextRemote",
         "CmuxNextRemoteBrowser",
+        "CmuxNextRemoteCore",
         "CmuxNextRemoteFetch",
         "CmuxNextRemoteLocalhost",
         "CmuxNextRemoteLocalhostService",
@@ -1454,7 +1455,8 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextRemote",
       "targets": [
         "CmuxNextCloud",
-        "CmuxNextCompat"
+        "CmuxNextCompat",
+        "CmuxNextRemoteCore"
       ],
       "packages": []
     },
@@ -1466,8 +1468,15 @@
         "CmuxNextBrowser",
         "CmuxNextCompat",
         "CmuxNextDesign",
+        "CmuxNextRemoteCore",
         "CmuxNextRemoteView"
       ],
+      "packages": []
+    },
+    "CmuxNextRemoteCore": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteCore",
+      "targets": [],
       "packages": []
     },
     "CmuxNextRemoteFetch": {
@@ -1516,6 +1525,7 @@
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextIcons",
+        "CmuxNextRemoteCore",
         "CmuxNextWakeups"
       ],
       "packages": []
@@ -1529,6 +1539,7 @@
         "CmuxNextDesign",
         "CmuxNextIcons",
         "CmuxNextRemoteBrowser",
+        "CmuxNextRemoteCore",
         "CmuxNextRemoteView",
         "CmuxNextSettings"
       ],

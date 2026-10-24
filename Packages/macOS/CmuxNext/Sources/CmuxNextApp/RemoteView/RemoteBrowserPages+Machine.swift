@@ -1,5 +1,5 @@
 import CmuxNextBrowser
-import CmuxNextCompat
+import CmuxNextRemoteCore
 import CmuxNextDaemon
 import Foundation
 #if DEBUG

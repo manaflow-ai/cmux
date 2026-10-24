@@ -1,4 +1,4 @@
-public import CmuxNextCompat
+public import CmuxNextRemoteCore
 public import Foundation
 
 // In every configuration: the iPhone host streams the phone's browser tabs from it

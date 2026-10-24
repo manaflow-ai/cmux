@@ -1,6 +1,7 @@
 public import Foundation
 import Network
-public import CmuxNextCompat
+import CmuxNextCompat
+public import CmuxNextRemoteCore
 
 /// A TCP connection to a host on this Mac's loopback interface: the
 /// development and local remote browser hosts (`RemoteRdLoopbackEndpoint`).

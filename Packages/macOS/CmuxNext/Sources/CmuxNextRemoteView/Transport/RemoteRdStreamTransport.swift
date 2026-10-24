@@ -1,6 +1,7 @@
 public import Foundation
 import CmuxNextWakeups
-public import CmuxNextCompat
+import CmuxNextCompat
+public import CmuxNextRemoteCore
 
 /// The in-app `cmux.rd/1` transport over the stream carrier: one ordered
 /// byte path (`RemoteRdByteCarrier`: loopback TCP, or a daemon

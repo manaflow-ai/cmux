@@ -1,4 +1,4 @@
-import CmuxNextCompat
+import CmuxNextRemoteCore
 import Foundation
 
 #if DEBUG
