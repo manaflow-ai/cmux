@@ -3,19 +3,21 @@ public import Foundation
 /// Per-profile site settings for the process: one `SitePermissionStore` per
 /// browser profile, shared by the WebKit and Chromium engines so a decision
 /// made in one applies in both. Persisted like cmux.json settings (one file
-/// per profile under Application Support), so it is process-wide, as
-/// `DesignSettings.shared` is.
+/// per profile under Application Support). The App constructs one
+/// (`BrowserSharedStores`) and passes it to both engines.
 public final class SiteSettingsRegistry {
-    public static let shared = SiteSettingsRegistry(
-        persistence: { profile in FileSitePermissionPersistence(fileURL: SiteSettingsRegistry.defaultFile(for: profile)) }
-    )
 
     private let makePersistence: (BrowserProfileID) -> any SitePermissionPersistence
     private let offTheRecord: OffTheRecordProfiles
     private var stores: [BrowserProfileID: SitePermissionStore] = [:]
 
+    /// A registry whose profiles persist through `persistence`, an incognito profile's in memory.
+    ///
+    /// - Parameters:
+    ///   - persistence: The persistence of one stored profile.
+    ///   - offTheRecord: The App's incognito profiles; their stores end with them.
     public init(persistence: @escaping (BrowserProfileID) -> any SitePermissionPersistence,
-                offTheRecord: OffTheRecordProfiles = .shared) {
+                offTheRecord: OffTheRecordProfiles) {
         makePersistence = persistence
         self.offTheRecord = offTheRecord
         offTheRecord.observeEnd { [weak self] profile in self?.stores[profile] = nil }
