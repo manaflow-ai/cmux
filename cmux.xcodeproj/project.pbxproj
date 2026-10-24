@@ -445,6 +445,7 @@
 				"$(CMUX_NEXT_OPTCHAT_CHIEF_CACHE)",
 				"$(CMUX_NEXT_OPTCHAT_CHIEF_ARCHS)",
 				"$(CMUX_NEXT_OPTCHAT_CHIEF_INPUT_KEYED)",
+				"$(CMUX_CHIEF_CODEX_CACHE)",
 			);
 			name = "Bundle optchat-chief";
 			outputFileListPaths = (
@@ -617,6 +618,7 @@
 				"$(MACOSX_DEPLOYMENT_TARGET)",
 				"$(CONFIGURATION)",
 				"$(CMUX_CUA_ASSET_CACHE_DIR)",
+				"$(CMUX_CUA_ASSET_FILE)",
 			);
 			name = "Embed Computer Use helper (dev)";
 			outputFileListPaths = (
