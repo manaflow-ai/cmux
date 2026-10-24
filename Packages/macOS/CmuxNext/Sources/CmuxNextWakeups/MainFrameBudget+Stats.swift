@@ -22,5 +22,10 @@ extension MainFrameBudget {
         /// (the window server query's own main-thread cost).
         public var inputChecks = 0
         public var maxInputCheckNanos: UInt64 = 0
+        /// Render passes measured (the main run loop's before-waiting phase: layout, display and the
+        /// Core Animation commit), and the longest in nanoseconds: what the scheduled work's changes
+        /// cost after it, charged to the next frame (``MainFrameBudget/noteRenderPass(nanos:)``).
+        public var renderPasses = 0
+        public var maxRenderPassNanos: UInt64 = 0
     }
 }

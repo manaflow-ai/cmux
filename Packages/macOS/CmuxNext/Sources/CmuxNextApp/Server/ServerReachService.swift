@@ -28,6 +28,8 @@ final class ServerReachService {
     typealias Call = CloudChiefs.Call
 
     private let machines: MachineRegistry
+    /// The app's main-thread scheduler (from the composition root): every server's event batches run on it.
+    private let mainWork: MainWorkScheduler
     private let call: Call
     /// The signed-in user's id, or nil when signed out (observed).
     private let signedInUser: @MainActor () -> String?
@@ -55,7 +57,7 @@ final class ServerReachService {
     /// Set while an administrator turned remote hosts off: no server connects.
     private(set) var policyDisabled = false
 
-    init(machines: MachineRegistry, call: @escaping Call, signedInUser: @escaping @MainActor () -> String?, paths: SSHPaths,
+    init(machines: MachineRegistry, mainWork: MainWorkScheduler, call: @escaping Call, signedInUser: @escaping @MainActor () -> String?, paths: SSHPaths,
          binary: URL?, local: @escaping @MainActor () -> ServerReachPlan.LocalServer? = { nil },
          linkPeers: @escaping @MainActor () async -> ServerReachPlan.LinkPeers? = { nil }, cli: URL? = nil,
          linkSetupFile: String? = nil, makeWatcher: @escaping LocalServerSource.MakeWatcher = LocalServerSource.fileWatcher) {
@@ -63,6 +65,7 @@ final class ServerReachService {
         self.makeWatcher = makeWatcher
         self.cli = cli
         self.machines = machines
+        self.mainWork = mainWork
         self.call = call
         self.signedInUser = signedInUser
         self.paths = paths
@@ -248,7 +251,7 @@ final class ServerReachService {
         guard machines.server(reach.machineID) == nil else { return }
         let session = ServerMachineSession(reach: reach, binary: binary, paths: paths, environment: SSHService.environment,
                                            localIdentity: { [machines] in machines.local.identity }, cli: cli,
-                                           mainWork: machines.local.mainWork)
+                                           mainWork: mainWork)
         session.daemon.workTracker = machines.local.workTracker
         // The overlay ended: re-read the link (`link show` checks its pid
         // and socket), so a crashed link with a stale link.json falls back.
