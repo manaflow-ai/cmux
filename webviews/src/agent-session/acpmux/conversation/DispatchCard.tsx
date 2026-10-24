@@ -130,7 +130,7 @@ export function lineLabel(t: Translate, call: DispatchCall, title: string, desti
 
 function statusLabel(t: Translate, status: string | undefined): string {
   if (!status) return "";
-  const label = status === "running" ? t("tools.running") : status === "failed" ? t("tools.failed") : status === "merged" ? t("summary.pr.merged") : status === "reported" ? t("message.sent") : "";
+  const label = status === "running" ? t("tools.runningUnnamed") : status === "failed" ? t("tools.failed") : status === "merged" ? t("summary.pr.merged") : status === "reported" || status === "steered" ? t("message.sent") : "";
   return label ? ` · ${label}` : "";
 }
 
