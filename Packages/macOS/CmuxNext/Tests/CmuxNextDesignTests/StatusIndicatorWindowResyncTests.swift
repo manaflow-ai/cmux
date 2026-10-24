@@ -15,17 +15,18 @@ import Testing
     @MainActor final class App {
         let center = CountingNotificationCenter()
         let workspace = CountingNotificationCenter()
-        /// The app's one listener for its windows' indicator moments, on this app's centers.
-        lazy var moments = IndicatorResyncMoments(app: center, workspace: workspace)
         var visible: Set<ObjectIdentifier> = []
         var pending: [@MainActor () -> Void] = []
         var windows: [NSWindow] = []
+        /// The app's one listener for its windows' moments, on this app's centers.
+        lazy var moments = WindowMoments(app: center, workspace: workspace, keyWindow: { nil }, mainWindow: { nil },
+                                         isAppActive: { true },
+                                         nextTurn: { [unowned self] check in self.pending.append(check) },
+                                         isWindowVisible: { [unowned self] in self.visible.contains(ObjectIdentifier($0)) })
 
-        var environment: WindowKeyEnvironment {
-            WindowKeyEnvironment(center: center, keyWindow: { nil }, isAppActive: { true },
-                                 nextTurn: { [unowned self] check in self.pending.append(check) },
-                                 resyncMoments: moments,
-                                 isWindowVisible: { [unowned self] in self.visible.contains(ObjectIdentifier($0)) })
+        /// The indicator set of `window`.
+        func indicators(_ window: NSWindow) -> WindowIndicatorResync {
+            WindowKeyFamily.of(window, moments: moments).indicators
         }
 
         /// A window with `shown` indicators on screen and `parked` ones under a hidden ancestor (a
@@ -36,7 +37,7 @@ import Testing
             window.isReleasedWhenClosed = false
             windows.append(window)
             // The window's tracker reads this app (made before any indicator moves in).
-            _ = WindowKeyFamily.of(window, environment: environment)
+            _ = WindowKeyFamily.of(window, moments: moments)
             let content = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
             window.contentView = content
             let hidden = NSView(frame: content.bounds)
@@ -53,7 +54,7 @@ import Testing
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled],
                                   backing: .buffered, defer: true)
             window.isReleasedWhenClosed = false
-            _ = WindowKeyFamily.of(window, environment: environment)
+            _ = WindowKeyFamily.of(window, moments: moments)
             return window
         }
 
@@ -102,8 +103,8 @@ import Testing
                 "a window switch resynced indicators of a window whose state did not change")
         #expect(app.post([(app.center, NSWindow.didBecomeMainNotification, back.window)]) == 6)
         // The calls each window's set made: its shown indicators, per event that changed it.
-        #expect(WindowKeyFamily.of(front.window).indicators.touches == 4)
-        #expect(WindowKeyFamily.of(back.window).indicators.touches == 6)
+        #expect(app.indicators(front.window).touches == 4)
+        #expect(app.indicators(back.window).touches == 6)
     }
 
     @Test func aCmdTabResyncsTheWindowsOnScreenOnce() {
@@ -175,7 +176,7 @@ import Testing
         let app = App()
         defer { app.close() }
         let front = app.window(shown: 2, parked: 0)
-        let indicators = WindowKeyFamily.of(front.window).indicators
+        let indicators = app.indicators(front.window)
         #expect(indicators.isObserving)
         for view in front.shown { view.removeFromSuperview() }
         #expect(!indicators.isObserving, "a window whose indicators left still hears every notice")
@@ -260,7 +261,7 @@ import Testing
         app.show(front.window)
         #expect(app.post([(app.center, NSWindow.didChangeOcclusionStateNotification, front.window)]) == 0,
                 "a window paid a resync it owed to indicators that had all left")
-        #expect(WindowKeyFamily.of(front.window).indicators.touches == 0)
+        #expect(app.indicators(front.window).touches == 0)
     }
 }
 

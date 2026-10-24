@@ -13,7 +13,7 @@ import Testing
     }
 
     static func holds(_ window: Window, _ key: Window?) -> Bool {
-        WindowMaterialView.family(of: window, holds: key, owner: { $0.parent })
+        WindowMaterialView.holders(of: key, owner: { $0.parent }).contains { $0 === window }
     }
 
     @Test func itsOwnPageWindowPopupOrSheetIsTheFamily() {

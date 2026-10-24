@@ -11,25 +11,21 @@ import Testing
     @MainActor final class App {
         let center = NotificationCenter()
         let workspace = NotificationCenter()
-        /// The app's one listener for its windows' indicator moments, on this app's centers.
-        lazy var moments = IndicatorResyncMoments(app: center, workspace: workspace)
         var visible: Set<ObjectIdentifier> = []
         var pending: [@MainActor () -> Void] = []
         var windows: [NSWindow] = []
-
-        var environment: WindowKeyEnvironment {
-            WindowKeyEnvironment(center: center, keyWindow: { nil }, isAppActive: { true },
-                                 nextTurn: { [unowned self] check in self.pending.append(check) },
-                                 resyncMoments: moments,
-                                 isWindowVisible: { [unowned self] in self.visible.contains(ObjectIdentifier($0)) })
-        }
+        /// The app's one listener for its windows' moments, on this app's centers.
+        lazy var moments = WindowMoments(app: center, workspace: workspace, keyWindow: { nil }, mainWindow: { nil },
+                                         isAppActive: { true },
+                                         nextTurn: { [unowned self] check in self.pending.append(check) },
+                                         isWindowVisible: { [unowned self] in self.visible.contains(ObjectIdentifier($0)) })
 
         func window() -> NSWindow {
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 300), styleMask: [.titled],
                                   backing: .buffered, defer: true)
             window.isReleasedWhenClosed = false
             windows.append(window)
-            _ = WindowKeyFamily.of(window, environment: environment)
+            _ = WindowKeyFamily.of(window, moments: moments)
             window.contentView = NSView(frame: NSRect(x: 0, y: 0, width: 900, height: 300))
             visible.insert(ObjectIdentifier(window))
             return window

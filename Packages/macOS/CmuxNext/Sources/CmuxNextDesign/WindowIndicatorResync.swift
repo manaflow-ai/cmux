@@ -14,9 +14,10 @@ import AppKit
 /// - a window resyncs at most once per main-actor turn (a Cmd-Tab posts activation, main and key in
 ///   one turn).
 ///
-/// The notices are heard once per app by ``IndicatorResyncMoments``, which calls only the window
-/// they concern; a set is filed there only while an indicator is in its window, so a window without
-/// one costs nothing.
+/// The notices are heard once per app by ``WindowMoments``, which calls only the window they
+/// concern; a set is taken in there only while an indicator is in its window (it holds a
+/// ``WindowMomentSubscription``), so a window without one costs nothing, and a window freed with
+/// its indicators still in it takes its place with it.
 ///
 /// Only shown indicators are called: one hidden in the window (a parked workspace's row, a collapsed
 /// group, an idle row that hides itself) costs nothing per event and catches up once when it shows,
@@ -24,9 +25,11 @@ import AppKit
 @MainActor
 final class WindowIndicatorResync {
     private weak var window: NSWindow?
-    /// The window's identity, the key ``IndicatorResyncMoments`` files the set under.
+    /// The window's identity, the key ``WindowMoments`` files the set under.
     let windowID: ObjectIdentifier
-    private let environment: WindowKeyEnvironment
+    private let moments: WindowMoments
+    /// Its place in the moments, held only while an indicator is in the window.
+    private var subscription: WindowMomentSubscription?
     /// Every indicator in the window, shown or hidden (they keep it filed).
     private let members = NSHashTable<AnyObject>.weakObjects()
     /// The indicators that show now: the ones a resync calls.
@@ -40,23 +43,20 @@ final class WindowIndicatorResync {
     /// How many times it called an indicator's resync (tests: per event, the shown indicators of the
     /// window whose state changed, and nothing for any other window).
     private(set) var touches = 0
-    /// It hears its window's moments (filed with the app's ``IndicatorResyncMoments``, only while an
+    /// It hears its window's moments (taken in by the app's ``WindowMoments``, only while an
     /// indicator is in the window).
-    var isObserving: Bool { environment.resyncMoments.isFiled(self) }
-    /// Its window is still alive.
-    var hasWindow: Bool { window != nil }
+    var isObserving: Bool { moments.isSubscribed(self) }
 
-    init(window: NSWindow, environment: WindowKeyEnvironment) {
+    init(window: NSWindow, moments: WindowMoments) {
         self.window = window
         windowID = ObjectIdentifier(window)
-        self.environment = environment
+        self.moments = moments
     }
 
     /// `client` moved into the window (hidden until ``show(_:)``).
     func enter(_ client: any StatusIndicatorResyncClient) {
-        let first = members.anyObject == nil
         members.add(client)
-        if first { environment.resyncMoments.file(self) }
+        if subscription == nil { subscription = moments.subscribe(self) }
     }
 
     /// `client` left the window.
@@ -66,7 +66,7 @@ final class WindowIndicatorResync {
         // `anyObject` finds a live member without copying the table: a leave stays O(1), so a
         // window teardown or a row recycle is not O(members) per indicator.
         guard members.anyObject == nil else { return }
-        environment.resyncMoments.unfile(self)
+        subscription = nil
         // Nothing in the window missed the moment it owed: an indicator that enters later starts
         // current.
         owesResync = false
@@ -86,12 +86,12 @@ final class WindowIndicatorResync {
     /// screen, else when it shows.
     func appCameBack() {
         guard let window else { return }
-        if environment.isWindowVisible(window) { resync() } else { owesResync = true }
+        if moments.isWindowVisible(window) { resync() } else { owesResync = true }
     }
 
     /// The window's occlusion changed: a resync it owes is paid once it shows.
     func occlusionChanged() {
-        guard owesResync, let window, environment.isWindowVisible(window) else { return }
+        guard owesResync, let window, moments.isWindowVisible(window) else { return }
         resync()
     }
 
@@ -99,7 +99,7 @@ final class WindowIndicatorResync {
     func resync() { // perf-hot: 0.5ms cmd-tab (the front window's shown indicators, once per turn)
         guard !resyncedThisTurn else { return }
         resyncedThisTurn = true
-        environment.nextTurn { [weak self] in self?.resyncedThisTurn = false }
+        moments.nextTurn { [weak self] in self?.resyncedThisTurn = false }
         owesResync = false
         generation &+= 1
         for case let client as any StatusIndicatorResyncClient in shown.allObjects {

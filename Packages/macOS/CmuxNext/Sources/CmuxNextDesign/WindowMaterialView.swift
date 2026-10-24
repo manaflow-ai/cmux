@@ -182,23 +182,24 @@ public final class WindowMaterialView: NSView {
     override public func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if let window {
-            keyFamily = WindowKeyFamily.of(window)
+            keyFamily = WindowKeyFamily.live(window)
             keyFamily?.add(self)
         }
         updateInactiveTint()
     }
 
-    /// Whether `key` (the key window, nil when none) is `window` or a window it owns, through
-    /// `owner` (a window's parent or sheet parent).
-    static func family<W: AnyObject>(of window: W, holds key: W?, owner: (W) -> W?) -> Bool {
+    /// The windows whose family holds `key` (the key window, nil when none): `key` and each window
+    /// that owns it through `owner` (a window's parent or sheet parent), nearest first.
+    static func holders<W: AnyObject>(of key: W?, owner: (W) -> W?) -> [W] {
+        var holders: [W] = []
         var next = key
         // Window chains are a few levels deep; the bound guards a cycle.
         for _ in 0..<32 {
-            guard let current = next else { return false }
-            if current === window { return true }
+            guard let current = next else { break }
+            holders.append(current)
             next = owner(current)
         }
-        return false
+        return holders
     }
 
     /// A window looks inactive only once its family held the keyboard and then lost it to another

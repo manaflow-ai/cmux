@@ -74,9 +74,9 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100), styleMask: [.titled],
                               backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
-        _ = WindowKeyFamily.of(window, environment: WindowKeyEnvironment(
-            center: app, keyWindow: { nil }, isAppActive: { true }, nextTurn: { _ in },
-            resyncMoments: IndicatorResyncMoments(app: app, workspace: workspace), isWindowVisible: { _ in true }))
+        _ = WindowKeyFamily.of(window, moments: WindowMoments(
+            app: app, workspace: workspace, keyWindow: { nil }, mainWindow: { nil }, isAppActive: { true }, nextTurn: { _ in },
+            isWindowVisible: { _ in true }))
         let client = ResyncCounter()
         client.placement.update(client, in: window, shown: true)
         return (window, client)

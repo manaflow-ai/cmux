@@ -115,9 +115,6 @@ public final class StatusIndicatorAppearance {
     private var observation: Task<Void, Never>?
     private var reduceMotionObserver: MainActorObservation?
     private var reduceMotionOverrideObserver: (any NSObjectProtocol)?
-    /// The app's one listener for the moments a window's indicators resync on (a window made main,
-    /// its occlusion, activation, unhide, wake), handing each to the windows it concerns.
-    let resyncMoments = IndicatorResyncMoments()
 
     init() {
         config = StatusIndicatorConfig.current

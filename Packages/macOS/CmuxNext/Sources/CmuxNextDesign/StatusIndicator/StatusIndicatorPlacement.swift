@@ -36,7 +36,7 @@ public final class StatusIndicatorPlacement {
     ///   - shown: Whether the host shows in it now (no hidden flag of its own or an ancestor's).
     public func update(_ client: any StatusIndicatorResyncClient, in window: NSWindow?, shown: Bool) {
         // A window in deallocation is no window: its tracker must not be made or stored weakly now.
-        let target = window.flatMap { $0.isBeingDeallocated ? nil : WindowKeyFamily.of($0).indicators }
+        let target = window.flatMap { $0.isBeingDeallocated ? nil : WindowKeyFamily.live($0)?.indicators }
         if target !== windowSet {
             windowSet?.leave(client)
             windowSet = target

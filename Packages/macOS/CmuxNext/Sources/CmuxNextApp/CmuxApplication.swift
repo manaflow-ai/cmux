@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBrowser
 import CmuxNextCrashReporting
+import CmuxNextDesign
 import CmuxNextWakeups
 import os
 
@@ -32,8 +33,12 @@ import os
 /// - `CMUX_NEXT_NO_ACTIVATE=1` (``refusesActivation``): every activation
 ///   request, from AppKit, CEF/Chromium, or app code, is dropped, so an agent
 ///   run never takes focus from the user's frontmost app.
-final class CmuxApplication: NSApplication, CEFAppProtocol {
+/// - Window moments (``WindowMomentsHosting``): the app's one listener for the key, activation,
+///   occlusion and wake notices its windows' looks and status indicators react to, made with the
+///   application object so it exists before any window.
+final class CmuxApplication: NSApplication, CEFAppProtocol, WindowMomentsHosting {
     private var handlingSendEvent = false
+    let windowMoments = WindowMoments()
     /// Set once in `CmuxNextApp.shared.main` before `run()`.
     var refusesActivation = false
     /// Set once by `AppServices`. Gets the key-down and the window it goes
