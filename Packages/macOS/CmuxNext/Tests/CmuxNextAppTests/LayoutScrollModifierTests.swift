@@ -1,4 +1,5 @@
 import AppKit
+@testable import CmuxNextBrowser
 import CmuxNextDesign
 @testable import CmuxNextLayout
 import CoreGraphics
@@ -16,8 +17,10 @@ struct LayoutScrollModifierTests {
     final class Panes: LayoutPaneContentProvider {
         /// Each pane's content view, as the layout asked for it.
         var views: [PaneID: NSView] = [:]
+        /// Builds a pane's content view; a plain view unless a test needs a real one.
+        var make: (PaneID) -> NSView = { _ in NSView() }
         func makeContentView(for pane: PaneID) -> NSView {
-            let view = NSView()
+            let view = make(pane)
             views[pane] = view
             return view
         }
@@ -48,12 +51,47 @@ struct LayoutScrollModifierTests {
     @discardableResult
     static func scroll(_ root: LayoutRootView, at point: CGPoint, dx: Int32 = 0, dy: Int32 = 0, phase: CGScrollPhase? = nil,
                        momentum: CGMomentumScrollPhase = .none, units: CGScrollEventUnit = .pixel, command: Bool = false) -> Bool {
+        root.handleScroll(event(dx: dx, dy: dy, phase: phase, momentum: momentum, units: units, command: command),
+                          locationInWindow: point)
+    }
+
+    /// A synthesized scroll event (no window: the test says where it came from).
+    static func event(dx: Int32 = 0, dy: Int32 = 0, phase: CGScrollPhase? = nil, momentum: CGMomentumScrollPhase = .none,
+                      units: CGScrollEventUnit = .pixel, command: Bool = false) -> NSEvent {
         let cg = CGEvent(scrollWheelEvent2Source: nil, units: units, wheelCount: 2, wheel1: dy, wheel2: dx, wheel3: 0)!
         if units == .pixel { cg.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1) }
         if let phase { cg.setIntegerValueField(.scrollWheelEventScrollPhase, value: Int64(phase.rawValue)) }
         cg.setIntegerValueField(.scrollWheelEventMomentumPhase, value: Int64(momentum.rawValue))
         if command { cg.flags = .maskCommand }
-        return root.handleScroll(NSEvent(cgEvent: cg)!, locationInWindow: point)
+        return NSEvent(cgEvent: cg)!
+    }
+
+    /// `child` added to `parent` over `rectInParent` (window coordinates), as a Chromium page
+    /// window or a divider catcher panel sits over the layout's window.
+    static func attach(_ child: NSWindow, to parent: NSWindow, over rectInParent: CGRect) {
+        child.isReleasedWhenClosed = false
+        child.setFrame(parent.convertToScreen(rectInParent), display: false)
+        parent.addChildWindow(child, ordered: .above)
+    }
+
+    /// A Chromium page's own window: a plain (non-panel) borderless window.
+    static func pageWindow() -> NSWindow {
+        NSWindow(contentRect: .zero, styleMask: [.borderless], backing: .buffered, defer: true)
+    }
+
+    /// One scroll event from `child` (a page or catcher window of `root`'s window) at the
+    /// layout-window point `point`, through the layout's monitor routing. True: the layout took it.
+    @discardableResult
+    static func scroll(_ root: LayoutRootView, from child: NSWindow, at point: CGPoint, dx: Int32 = 0, dy: Int32 = 0,
+                       phase: CGScrollPhase? = nil, momentum: CGMomentumScrollPhase = .none,
+                       units: CGScrollEventUnit = .pixel, command: Bool = false) -> Bool {
+        guard let parent = root.window else {
+            Issue.record("the layout is in no window")
+            return false
+        }
+        let local = child.convertPoint(fromScreen: parent.convertPoint(toScreen: point))
+        let event = event(dx: dx, dy: dy, phase: phase, momentum: momentum, units: units, command: command)
+        return root.handleMonitoredScroll(event, from: child, at: local) == nil
     }
 
     final class Window {
@@ -484,6 +522,240 @@ struct LayoutScrollModifierTests {
         #expect(gesture(fromPageWindow: true, command: false) == [false, false, false], "a plain scroll from a page is the page's")
         #expect(gesture(fromPageWindow: false, command: false) == [true, true, true], "the same point in the layout's window is chrome")
         #expect(gesture(fromPageWindow: true, command: true) == [true, true, true], "Command + scroll from a page is the layout's")
+    }
+
+    // MARK: review 2 of pl-scroll
+
+    /// Two half columns on a 1200 pt window, so the strip fits: the first holds the chain
+    /// p1 | p2 | p3, too wide for its column with `layout.scrollAreas` on, so it is a scroll area;
+    /// the second holds `q` alone.
+    final class AreaWindow {
+        let provider = Panes()
+        let model: LayoutModel
+        let root: LayoutRootView
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+
+        init() throws {
+            let chain: SplitNode = .split("s1", axis: .horizontal, ratio: 1.0 / 3, a: .leaf("p1"),
+                                          b: .split("s2", axis: .horizontal, ratio: 0.5, a: .leaf("p2"), b: .leaf("p3")))
+            model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .columns([
+                LayoutColumn(id: "c1", width: 0.5, root: chain),
+                LayoutColumn(id: "c2", width: 0.5, root: .leaf("q")),
+            ]))], activeScreenID: "s", focusedPane: "q")
+            model.followsDesignMetrics = false
+            model.baseStyle.minimumPaneContentSize = CGSize(width: 300, height: 64)
+            model.baseStyle.scrollAreasEnabled = true
+            model.scrollModifierOverride = .command
+            root = LayoutRootView(model: model, contentProvider: provider)
+            root.context.reduceMotionOverride = false
+            window.contentView = root
+            root.layoutSubtreeIfNeeded()
+            root.driver.isManual = true
+            let strip = try #require(root.screenViews["s"])
+            try #require(!strip.areaScrolls.isEmpty, "the first column is a scroll area")
+            try #require(!strip.acceptsHorizontalScroll, "the strip fits")
+        }
+
+        func center(_ pane: PaneID) throws -> CGPoint {
+            let frame = try #require(root.frame(of: pane))
+            return root.convert(CGPoint(x: frame.midX, y: frame.midY), to: nil)
+        }
+    }
+
+    /// A scroll area in one column claims a Command gesture only over itself: over a pane outside
+    /// every area, where the strip fits and no rows overflow, the layout has nothing to scroll, so
+    /// the gesture is the pane's (a web page swipes Back or Forward on it), as the wheel is.
+    @Test func aCommandGestureOutsideEveryScrollAreaWhereNothingElseScrollsIsThePanes() throws {
+        let w = try AreaWindow()
+        let q = try w.center("q")
+        #expect(!Self.scroll(w.root, at: q, phase: .mayBegin, command: true), "the touch goes on to the pane")
+        #expect(!w.root.ownsCurrentScrollGesture)
+        #expect(!Self.scroll(w.root, at: q, dx: -20, phase: .began, command: true))
+        #expect(!Self.scroll(w.root, at: q, dx: -20, phase: .changed, command: true))
+        #expect(!w.root.ownsCurrentScrollGesture)
+        #expect(!Self.scroll(w.root, at: q, phase: .ended, command: true))
+        #expect(!Self.scroll(w.root, at: q, dy: -30, phase: .began, command: true), "up and down alike")
+        #expect(!Self.scroll(w.root, at: q, phase: .ended, command: true))
+        #expect(!Self.scroll(w.root, at: q, dx: -1, units: .line, command: true), "the wheel agrees")
+        // Over the area itself, which can move toward its end, Command + scroll is the layout's.
+        let p1 = try w.center("p1")
+        #expect(Self.scroll(w.root, at: p1, dx: -20, phase: .began, command: true))
+        #expect(Self.scroll(w.root, at: p1, dx: -20, phase: .changed, command: true))
+        #expect(Self.scroll(w.root, at: p1, phase: .ended, command: true))
+    }
+
+    /// While a Chromium page shows, a divider's hit area is a catcher panel above the pages
+    /// (`DividerMouseCatchers`). A scroll there is the layout's input, as over the same gap with no
+    /// page: a plain scroll over the gap between rows scrolls the rows.
+    @Test func aScrollOverADividerCatcherPanelIsTheLayouts() throws {
+        let w = Window(modifier: .command)
+        let gap = try w.rowGap()
+        let top = try #require(w.root.frame(of: "top"))
+        let page = Self.pageWindow(), catcher = DividerMousePanel()
+        Self.attach(page, to: w.window, over: w.root.convert(top, to: nil))
+        Self.attach(catcher, to: w.window, over: CGRect(x: gap.x - 40, y: gap.y - 12, width: 80, height: 24))
+        defer {
+            for child in [page, catcher] { w.window.removeChildWindow(child); child.close() }
+        }
+        #expect(Self.scroll(w.root, from: catcher, at: gap, dy: -30, phase: .began), "the gap's plain scroll is the layout's")
+        for _ in 0..<3 { #expect(Self.scroll(w.root, from: catcher, at: gap, dy: -30, phase: .changed)) }
+        #expect(Self.scroll(w.root, from: catcher, at: gap, phase: .ended))
+        w.settle()
+        #expect(try #require(w.root.frame(of: "top")).minY < top.minY - 30, "the rows scrolled")
+        // Under `none` the catcher is the layout's too: its gap scrolls the rows.
+        let none = Window(modifier: .noModifier)
+        let noneGap = try none.rowGap(), noneTop = try #require(none.root.frame(of: "top"))
+        let noneCatcher = DividerMousePanel()
+        Self.attach(noneCatcher, to: none.window, over: CGRect(x: noneGap.x - 40, y: noneGap.y - 12, width: 80, height: 24))
+        defer { none.window.removeChildWindow(noneCatcher); noneCatcher.close() }
+        #expect(Self.scroll(none.root, from: noneCatcher, at: noneGap, dy: -30, phase: .began))
+        #expect(Self.scroll(none.root, from: noneCatcher, at: noneGap, dy: -30, phase: .changed))
+        #expect(Self.scroll(none.root, from: noneCatcher, at: noneGap, phase: .ended))
+        none.settle()
+        #expect(try #require(none.root.frame(of: "top")).minY < noneTop.minY - 10)
+    }
+
+    /// A canvas screen of two panes, `a` on the left and `b` on the right, with empty canvas
+    /// between them, on a 1200 x 700 window.
+    final class CanvasWindow {
+        let provider = Panes()
+        let model: LayoutModel
+        let root: LayoutRootView
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 700), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+
+        init(modifier: LayoutScrollModifier) throws {
+            model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(
+                .split("x", axis: .horizontal, ratio: 0.5, a: .leaf("a"), b: .leaf("b"))))], activeScreenID: "s", focusedPane: "a")
+            model.followsDesignMetrics = false
+            model.scrollModifierOverride = modifier
+            root = LayoutRootView(model: model, contentProvider: provider)
+            window.contentView = root
+            root.layoutSubtreeIfNeeded()
+            let seed: [PaneID: CGRect] = ["a": CGRect(x: 0, y: 0, width: 400, height: 700),
+                                          "b": CGRect(x: 800, y: 0, width: 400, height: 700)]
+            try #require(model.toggleCanvas(seed: seed, viewport: CGSize(width: 1200, height: 700)))
+            root.syncWithModel()
+            let strip = try #require(root.screenViews["s"])
+            try #require(strip.pane(at: strip.convert(emptyCanvas, from: nil)) == nil, "empty canvas between the panes")
+        }
+
+        /// A window point over empty canvas.
+        var emptyCanvas: CGPoint { root.convert(CGPoint(x: 600, y: 350), to: nil) }
+    }
+
+    /// A canvas pan owns its gesture until the gesture ends, not after: its coast still pans,
+    /// and after a pan with no coast the layout owns nothing, so the next gesture over a Chromium
+    /// page (whose swipe asks the layout) is the page's, under either modifier.
+    @Test(arguments: [LayoutScrollModifier.command, .noModifier])
+    func aCanvasPanOwnsItsGestureOnlyUntilItEnds(modifier: LayoutScrollModifier) throws {
+        let w = try CanvasWindow(modifier: modifier)
+        let point = w.emptyCanvas
+        let start = try #require(w.root.frame(of: "a"))
+        #expect(Self.scroll(w.root, at: point, dx: -20, phase: .began))
+        #expect(w.root.ownsCurrentScrollGesture)
+        #expect(Self.scroll(w.root, at: point, dx: -20, phase: .changed))
+        #expect(Self.scroll(w.root, at: point, phase: .ended))
+        #expect(!w.root.ownsCurrentScrollGesture, "the gesture ended")
+        let ended = try #require(w.root.frame(of: "a"))
+        #expect(ended.minX < start.minX, "the canvas panned")
+        #expect(Self.scroll(w.root, at: point, dx: -10, momentum: .begin), "its coast is the canvas's")
+        #expect(Self.scroll(w.root, at: point, momentum: .end))
+        #expect(try #require(w.root.frame(of: "a")).minX < ended.minX, "the coast panned")
+        // A pan lifted with no coast.
+        #expect(Self.scroll(w.root, at: point, dx: -20, phase: .began))
+        #expect(Self.scroll(w.root, at: point, phase: .ended))
+        #expect(!w.root.ownsCurrentScrollGesture, "a slow lift leaves no gesture owned")
+        // Then a plain gesture over a Chromium page on `b`.
+        let bFrame = try #require(w.root.frame(of: "b"))
+        let page = Self.pageWindow()
+        Self.attach(page, to: w.window, over: w.root.convert(bFrame, to: nil))
+        defer { w.window.removeChildWindow(page); page.close() }
+        let overB = w.root.convert(CGPoint(x: bFrame.midX, y: bFrame.midY), to: nil)
+        #expect(!Self.scroll(w.root, from: page, at: overB, dx: -20, phase: .began))
+        #expect(!Self.scroll(w.root, from: page, at: overB, dx: -20, phase: .changed))
+        #expect(!w.root.ownsCurrentScrollGesture, "the page's gesture: its swipe may go Back or Forward")
+        #expect(!Self.scroll(w.root, from: page, at: overB, phase: .ended))
+    }
+
+    /// From a page window a plain scroll is the page's on a canvas too, even where the layout's
+    /// point is empty canvas (a page window trailing its pane during a pan or zoom); Command +
+    /// scroll from it pans the canvas.
+    @Test func aPlainScrollFromAPageWindowIsThePagesOverEmptyCanvas() throws {
+        let w = try CanvasWindow(modifier: .command)
+        let point = w.emptyCanvas
+        let start = try #require(w.root.frame(of: "a"))
+        let fromPage = { (event: NSEvent) in w.root.handleScrollEvent(event, at: point, fromPageWindow: true) == nil }
+        #expect(!fromPage(Self.event(dx: -20, phase: .began)), "a plain gesture from a page is the page's")
+        #expect(!fromPage(Self.event(dx: -20, phase: .changed)))
+        #expect(!fromPage(Self.event(phase: .ended)))
+        #expect(!fromPage(Self.event(dx: -1, units: .line)), "a plain wheel notch from a page is the page's")
+        #expect(w.root.frame(of: "a") == start, "the canvas did not move")
+        #expect(fromPage(Self.event(dx: -20, phase: .began, command: true)), "Command + scroll from a page pans the canvas")
+        #expect(fromPage(Self.event(dx: -20, phase: .changed)))
+        #expect(fromPage(Self.event(phase: .ended)))
+        #expect(try #require(w.root.frame(of: "a")).minX < start.minX)
+    }
+
+    /// Under `none`, a strip pan that slides a Chromium page under the still pointer keeps its
+    /// events: the rest of the gesture comes from the page window, and its end must still end
+    /// the strip's user scroll (else the strip stays mid-gesture and the layout keeps owning a
+    /// gesture that is over).
+    @Test func noneKeepsAStripPanWhoseRestComesFromAPageWindow() throws {
+        let w = Window(modifier: .noModifier)
+        let p2 = try w.center("p2")
+        let strip = try #require(w.root.screenViews["s"])
+        #expect(w.scroll(at: p2, dx: -20, phase: .began))
+        #expect(w.scroll(at: p2, dx: -20, phase: .changed))
+        #expect(strip.isUserScrolling)
+        let page = Self.pageWindow()
+        Self.attach(page, to: w.window, over: CGRect(x: p2.x - 50, y: p2.y - 50, width: 100, height: 100))
+        defer { w.window.removeChildWindow(page); page.close() }
+        #expect(Self.scroll(w.root, from: page, at: p2, dx: -20, phase: .changed), "the strip's gesture, now over a page")
+        #expect(Self.scroll(w.root, from: page, at: p2, phase: .ended))
+        #expect(!strip.isUserScrolling, "the strip left its user scroll")
+        #expect(!w.root.ownsCurrentScrollGesture)
+        #expect(Self.scroll(w.root, from: page, at: p2, dx: -10, momentum: .begin), "the strip's spring owns the coast")
+        #expect(Self.scroll(w.root, from: page, at: p2, momentum: .end))
+        // A new plain gesture from the page stays the page's under `none`, as before.
+        #expect(!Self.scroll(w.root, from: page, at: p2, dx: -20, phase: .began))
+        #expect(!Self.scroll(w.root, from: page, at: p2, dx: -20, phase: .changed))
+        #expect(!w.root.ownsCurrentScrollGesture)
+        #expect(!Self.scroll(w.root, from: page, at: p2, phase: .ended))
+    }
+
+    /// The seam CEFSwipeNavigation reads: a Chromium pane's `CEFHostView`, inside the pane content
+    /// the layout hosts, reports a gesture the layout claimed at its touch, and only that one.
+    @Test func aChromiumHostViewInAPaneSeesTheLayoutsClaim() throws {
+        let provider = Panes()
+        provider.make = { _ in
+            let content = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+            content.addSubview(CEFHostView(frame: content.bounds))
+            return content
+        }
+        let model = Self.columnsModel(modifier: .command)
+        let root = LayoutRootView(model: model, contentProvider: provider)
+        root.context.reduceMotionOverride = false
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 800), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.contentView = root
+        root.layoutSubtreeIfNeeded()
+        root.driver.isManual = true
+        let host = try #require(provider.views["top"]?.subviews.first as? CEFHostView)
+        #expect(host.isDescendant(of: root))
+        let frame = try #require(root.frame(of: "top"))
+        let point = root.convert(CGPoint(x: frame.midX, y: frame.midY), to: nil)
+        #expect(!Self.scroll(root, at: point, phase: .mayBegin))
+        #expect(!Self.scroll(root, at: point, dx: -20, phase: .began))
+        #expect(!host.isScrollGestureTakenByEnclosingView, "a plain gesture: the page may swipe")
+        #expect(!Self.scroll(root, at: point, phase: .ended))
+        #expect(Self.scroll(root, at: point, phase: .mayBegin, command: true))
+        #expect(Self.scroll(root, at: point, phase: .began))
+        #expect(Self.scroll(root, at: point, dx: -20, phase: .changed))
+        #expect(host.isScrollGestureTakenByEnclosingView, "the layout's gesture: no swipe")
+        #expect(Self.scroll(root, at: point, phase: .ended))
+        #expect(!host.isScrollGestureTakenByEnclosingView)
     }
 
     // MARK: none (the rule before)
