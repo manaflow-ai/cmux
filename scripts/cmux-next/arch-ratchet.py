@@ -229,9 +229,14 @@ def load_push_range():
 
 
 def own_pair(own) -> tuple[str, str]:
-    """The one range the ratchet counts for OWN (a push_range.OwnRange): HEAD over its last base, the merged
-    upstream commit for a merge of origin/feat-cmux-next in (where HEAD meets it), else the one base."""
-    return own.bases[-1], own.head
+    """The one range the ratchet counts for OWN (a push_range.OwnRange): HEAD over its base, the merged upstream
+    commit for a merge of origin/feat-cmux-next in (where HEAD meets it).
+
+    OWN.before (what the branch's old remote head already had, which the gate and guardrails take off a merge)
+    is not taken off here: commits of the pushed branch that an earlier push sent count again in a merge push,
+    as they do after a rebase (3f25c6b0fc2: the branch lands as one change, and a rule module's refusal has no
+    key to match across ranges)."""
+    return own.base, own.head
 
 
 def range_to_count(repo: Path, base: str, head: str, upstream_ref: str = UPSTREAM) -> tuple[str, str]:

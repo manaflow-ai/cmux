@@ -1,68 +1,100 @@
 #!/usr/bin/env python3
-"""What a push adds: the one definition prepush-gate.py, guardrails.py and arch-ratchet.py share.
+"""What a push adds: the one definition prepush-gate.py, guardrails.py, arch-ratchet.py and web_lint_prepush.py share.
 
-A pushed ref's own changes are those of the commits the remote does not have yet. The push knows two
-commits the remote has: the ref's remote head (pre-push stdin, or a --base) and origin/feat-cmux-next
-(the shared base every branch rebases onto or merges in). So
+A pushed ref's own changes are those of the commits the remote does not have yet. The push knows commits the
+remote has: the ref's remote head (pre-push stdin, or a --base), the remote-tracking ref of the pushed ref name
+(refs/remotes/<remote>/<name>: the last head this clone saw there), this clone's origin/feat-cmux-next (the shared
+base every branch rebases onto or merges in) and the remote's HEAD (refs/remotes/<remote>/HEAD, main: a main-based
+branch, a tag on main). So
 
-    own commits = git rev-list HEAD --not <remote head> origin/feat-cmux-next
-    bases       = the boundary of that walk (the parents of own commits that are not own themselves),
+    own commits = git rev-list HEAD --not <those refs>
+    edges       = the boundary of that walk (the parents of own commits that are not own themselves),
                   less any that is an ancestor of another (git merge-base --independent)
 
-and a finding (a scanner record, a guardrail hit, an arch count rise) is the push's own only when it is new
-over EVERY base. The cases:
-- a second push of N new commits: the base is the remote head, so all N are judged and nothing pushed before.
-- rebased onto origin/feat-cmux-next and force pushed: the base is where HEAD meets origin/feat-cmux-next. The
-  rebased commits are new commits and are judged in full; the upstream commits the rebase brought in are not.
-- origin/feat-cmux-next merged in: two bases, the old remote head's side and the merged upstream commit. A
-  finding counts only when it is new over both: the merge's own resolution and the commits since the last push
-  count; upstream's lines and what the branch pushed before do not.
-- the first push of a new branch: the base is where HEAD meets origin/feat-cmux-next.
-- every pushed commit is already known: no own change (the base is HEAD itself).
-The bases are ordered with the remote head's side first and origin/feat-cmux-next's side last (guardrails
-prints a merge's advisory warnings over the last one: the branch's own range). A base named on the command line
-(`--base A`) is used as given (given_range): the caller chose the range.
+One edge is the base, and the push's own findings are those of base..HEAD:
+- a second push of N new commits: the remote head, so all N are judged and nothing pushed before;
+- a new branch, or a branch rebased onto origin/feat-cmux-next and force pushed: where HEAD meets it, so the
+  rebased commits are judged in full and the upstream commits the rebase brought in are not;
+- every pushed commit already known: HEAD itself (nothing is new).
 
-Fallbacks (the note says which, and the gate prints it):
-- neither a remote head nor origin/feat-cmux-next is known (a first push from a clone that never fetched that
-  ref, or that names the remote otherwise): HEAD~1, so only the last commit is judged.
-- the own commits reach a root commit (history unrelated to the remote): HEAD~1 as well.
+Several edges (a branch that merged origin/feat-cmux-next in): the base is the edge on the shared side (an
+ancestor of origin/feat-cmux-next, else of the remote's HEAD), so base..HEAD is the branch's whole delta over the
+upstream it merged. Each other edge X (the old remote head, or another merged base) gives a range the push does not
+own, merge-base(X, base)..X: what X's side already had over the upstream it started from. The push's own findings
+are those of base..HEAD less those of every such range (less(); a count: own_count()). Both are measured from
+upstream, so upstream's own changes are in neither: an upstream removal of a debt line never pays for a line the
+branch adds (as a count ratchet per file over the old remote head would let it), and an upstream addition is never
+the push's. What the branch pushed before is in both and cancels; the merge's resolution and every new commit count.
 
-Limit: the bound is the remote head and THIS CLONE's origin/feat-cmux-next ref, not every commit the remote
-has. A rebase onto a base that ref does not reach (`git fetch <url> feat-cmux-next && git rebase FETCH_HEAD`,
-a rebase onto a sha or another remote's ref, a branch stacked on another rebased topic) counts the upstream
-commits between that ref and the new base as the push's own; the gate prints the commit count, so a wide range
-shows, and `git fetch origin` fixes it. Not bounded by every remote-tracking ref (`--not --remotes`): listing
-them cost about 3 s per push in a clone with 15k loose remote refs (measured 2026-10-24).
+Fallbacks:
+- none of those refs is in the clone (a first push from a single-branch clone, a remote named otherwise), or the
+  walk reaches a shallow root or a root commit before any of them: the walk is bounded again by every ref of the
+  pushed remote (`--not --remotes=<remote>`, about 5 s in a clone with 21k remote refs, so only on this path);
+- that bound gives no edge either, or the walk still reaches a shallow root: own_range raises ValueError (the
+  caller refuses the push and says to fetch or unshallow). It never judges HEAD~1 alone.
+
+Limit: a branch stacked on another pushed topic that is not in origin/feat-cmux-next counts that topic's commits
+as its own (only the fallback bounds by every remote ref); the gate prints the own-commit count, so a wide range
+shows. A base named on the command line (`--base A`) is used as given (given_range).
 """
 from __future__ import annotations
 
+import collections
 import dataclasses
 import os
 import subprocess
 from pathlib import Path
 
 UPSTREAM = "origin/feat-cmux-next"
+DEFAULT_REMOTE = "origin"
 ZERO_SHA = "0" * 40
 
 
 @dataclasses.dataclass(frozen=True)
 class OwnRange:
-    """One pushed head and the bases its own changes are new over (see the module docstring)."""
+    """One pushed head, the base its own changes are measured from, and the ranges it does not own.
+
+    The push owns what base..head adds less what every BEFORE range (b, a) adds (see the module docstring).
+    """
 
     head: str
-    bases: tuple[str, ...]
-    commits: int  # how many commits are the push's own (0 for a fallback or nothing new)
-    note: str  # how the bases were chosen, for the report
+    base: str
+    before: tuple[tuple[str, str], ...] = ()
+    commits: int = 0  # how many commits are the push's own (0 when nothing is new)
+    note: str = ""  # how the base was chosen, for the report
 
-    def pairs(self) -> list[tuple[str, str]]:
-        """(base, head) for every base: a finding counts only when every pair has it."""
-        return [(base, self.head) for base in self.bases]
+    def ranges(self) -> list[tuple[str, str]]:
+        """(base, head) first, then every range the push does not own."""
+        return [(self.base, self.head), *self.before]
 
     def describe(self) -> str:
-        """One report line: the head, the bases and how they were chosen."""
-        bases = ", ".join(b[:11] for b in self.bases)
-        return f"{self.head[:11]} over {bases}: {self.note}"
+        """One report line: the head, the base, the ranges taken off and how they were chosen."""
+        taken = "".join(f", less what {a[:11]} adds over {b[:11]}" for b, a in self.before)
+        return f"{self.head[:11]} over {self.base[:11]}{taken}: {self.note}"
+
+
+def less(found, before, key=lambda item: item) -> list:
+    """FOUND (the findings over an own range's base..head) less the ones its BEFORE runs found, matched by KEY.
+
+    Multisets: a key the BEFORE runs hold n times takes off n of FOUND's. The BEFORE runs add up (each is another
+    side the push does not own). FOUND's order is kept.
+    """
+    taken: collections.Counter = collections.Counter()
+    for items in before:
+        taken.update(key(item) for item in items)
+    out = []
+    for item in found:
+        k = key(item)
+        if taken[k] > 0:
+            taken[k] -= 1
+        else:
+            out.append(item)
+    return out
+
+
+def own_count(found: int, before) -> int:
+    """A count over base..head less the counts over the BEFORE ranges: the push's own net rise."""
+    return found - sum(before)
 
 
 def _git(repo: Path, *args: str) -> tuple[int, str]:
@@ -73,7 +105,7 @@ def _git(repo: Path, *args: str) -> tuple[int, str]:
     return result.returncode, result.stdout.strip()
 
 
-def commit_of(repo: Path, rev: str) -> str | None:
+def commit_of(repo: Path, rev: str | None) -> str | None:
     """The full sha of commit REV, or None when this clone has no such commit."""
     if not rev or rev == ZERO_SHA:
         return None
@@ -81,54 +113,134 @@ def commit_of(repo: Path, rev: str) -> str | None:
     return out if code == 0 and out else None
 
 
-def _fallback(repo: Path, head: str, why: str) -> OwnRange:
-    parent = commit_of(repo, f"{head}~1")
-    if parent is None:
-        return OwnRange(head, (head,), 0, f"{why}; a root commit, nothing judged")
-    return OwnRange(head, (parent,), 1, f"{why}; only the last commit is judged")
+def _is_ancestor(repo: Path, ancestor: str, descendant: str) -> bool:
+    return _git(repo, "merge-base", "--is-ancestor", ancestor, descendant)[0] == 0
 
 
-def own_range(repo: Path, head: str, known: list[str] | tuple[str, ...] = (),
-              upstream_ref: str = UPSTREAM) -> OwnRange:
-    """The push's own range for HEAD, given KNOWN commits the remote has (its remote head) and UPSTREAM_REF.
+def remote_name(repo: Path, remote: str | None) -> str | None:
+    """REMOTE when it names a configured remote of this clone (a push to a URL names none)."""
+    if not remote:
+        return None
+    code, out = _git(repo, "config", "--get", f"remote.{remote}.url")
+    return remote if code == 0 and out else None
 
-    Raises ValueError when HEAD or a KNOWN revision is not a commit of this clone (the caller leaves out a remote
-    head it does not have).
+
+def tracking_ref(repo: Path, remote: str, remote_ref: str) -> str | None:
+    """The ref REMOTE's fetch refspecs map REMOTE_REF to (refs/heads/x -> refs/remotes/origin/x), or None."""
+    code, out = _git(repo, "config", "--get-all", f"remote.{remote}.fetch")
+    if code != 0:
+        return None
+    for spec in out.splitlines():
+        spec = spec.strip().lstrip("+")
+        if spec.startswith("^") or ":" not in spec:
+            continue
+        source, dest = spec.split(":", 1)
+        if "*" not in source:
+            if source == remote_ref:
+                return dest
+            continue
+        prefix, suffix = source.split("*", 1)
+        if remote_ref.startswith(prefix) and remote_ref.endswith(suffix) and len(remote_ref) >= len(prefix) + len(suffix):
+            return dest.replace("*", remote_ref[len(prefix):len(remote_ref) - len(suffix)], 1)
+    return None
+
+
+def _shallow_roots(repo: Path) -> set[str]:
+    """The commits whose parents this clone cuts off (.git/shallow), empty for a full clone."""
+    code, out = _git(repo, "rev-parse", "--git-path", "shallow")
+    if code != 0 or not out:
+        return set()
+    path = Path(out) if os.path.isabs(out) else Path(repo) / out
+    try:
+        return set(path.read_text().split())
+    except OSError:
+        return set()
+
+
+def _walk(repo: Path, tip: str, negatives: list[str], bound: str | None) -> tuple[list[str], list[str]]:
+    """(own commits, boundary commits) of `git rev-list --boundary TIP --not NEGATIVES [BOUND]`."""
+    args = ["rev-list", "--boundary", tip, "--not", *negatives, *([bound] if bound else [])]
+    code, out = _git(repo, *args)
+    if code != 0:
+        raise ValueError(f"`git {' '.join(args)}` failed")
+    lines = out.split()
+    own = [line for line in lines if not line.startswith("-")]
+    edge = list(dict.fromkeys(line[1:] for line in lines if line.startswith("-")))
+    return own, edge
+
+
+def own_range(repo: Path, head: str, known: list[str] | tuple[str, ...] = (), upstream_ref: str = UPSTREAM,
+              remote: str | None = DEFAULT_REMOTE, remote_ref: str | None = None) -> OwnRange:
+    """The push's own range for HEAD (see the module docstring).
+
+    KNOWN are commits the remote has for the pushed ref (its remote head). REMOTE and REMOTE_REF (the pushed ref's
+    name there, `refs/heads/topic`) add its remote-tracking ref and the remote's HEAD. UPSTREAM_REF is the shared
+    base. Raises ValueError when HEAD or a KNOWN revision is not a commit of this clone (the caller leaves out a
+    remote head it does not have), and when nothing the remote has bounds the pushed commits.
     """
     tip = commit_of(repo, head)
     if tip is None:
         raise ValueError(f"no commit {head}")
-    negatives: list[str] = []
+    name = remote_name(repo, remote)
+    shown = name or remote or DEFAULT_REMOTE
+    pushed_before: list[str] = []  # commits the pushed ref had on the remote
     for rev in known:
         sha = commit_of(repo, rev)
         if sha is None:
             raise ValueError(f"no commit {rev}")
-        if sha not in negatives:
-            negatives.append(sha)
-    upstream = commit_of(repo, upstream_ref)
-    if upstream is not None and upstream not in negatives:
-        negatives.append(upstream)
-    if not negatives:
-        return _fallback(repo, tip, f"no remote head and no {upstream_ref} in this clone")
-    code, out = _git(repo, "rev-list", "--boundary", tip, "--not", *negatives)
-    if code != 0:
-        raise ValueError(f"git rev-list --boundary {tip} --not {' '.join(negatives)} failed")
-    lines = out.split()
-    own = [line for line in lines if not line.startswith("-")]
-    edge = list(dict.fromkeys(line[1:] for line in lines if line.startswith("-")))
+        pushed_before.append(sha)
+    tracked = commit_of(repo, tracking_ref(repo, name, remote_ref)) if name and remote_ref else None
+    if tracked is not None:
+        pushed_before.append(tracked)
+    shared = [sha for sha in (commit_of(repo, upstream_ref),
+                              commit_of(repo, f"refs/remotes/{name}/HEAD") if name else None) if sha is not None]
+    negatives = list(dict.fromkeys(pushed_before + shared))
+    every_ref = f"--remotes={name}" if name else "--remotes"
+    shallow = _shallow_roots(repo)
+    bound = None if negatives else every_ref
+    own, edge = _walk(repo, tip, negatives, bound)
+    if own and bound is None and (not edge or shallow & set(own)):
+        # Cut at a shallow root, or no history in common with the named refs: every ref of the remote bounds it.
+        bound = every_ref
+        own, edge = _walk(repo, tip, negatives, bound)
+    how = ""
+    if bound:
+        why = (f"no remote head, tracking ref, {upstream_ref} or remote HEAD in this clone" if not negatives
+               else "the walk did not meet those refs")
+        how = f"; bounded by every {shown} ref ({why})"
     if not own:
-        return OwnRange(tip, (tip,), 0, "every pushed commit is already on the remote or on " + upstream_ref)
+        return OwnRange(tip, tip, (), 0, "every pushed commit is already on the remote" + how)
+    if shallow & set(own):
+        raise ValueError(f"this shallow clone has no commit the remote has below the {len(own)} pushed commit(s), so "
+                         f"it cannot tell which are this push's own; run `git fetch --unshallow {shown}` (or `git "
+                         f"fetch {shown} feat-cmux-next`) and push again")
     if not edge:
-        return _fallback(repo, tip, f"its {len(own)} commit(s) share no history with the remote")
+        raise ValueError(f"its {len(own)} commit(s) share no history with any {shown} ref in this clone, so nothing "
+                         f"tells which are this push's own; run `git fetch {shown}` and push again")
     if len(edge) > 1:
         code, out = _git(repo, "merge-base", "--independent", *edge)
         independent = set(out.split()) if code == 0 and out else set(edge)
         edge = [sha for sha in edge if sha in independent]
-    if len(edge) > 1 and upstream is not None:
-        # The remote head's side first, upstream's side last (a stable sort keeps git's order otherwise).
-        edge.sort(key=lambda sha: _is_ancestor(repo, sha, upstream))
-    how = "a merge: a finding counts only when it is new over every base" if len(edge) > 1 else "the push's own"
-    return OwnRange(tip, tuple(edge), len(own), f"{len(own)} own commit(s), {how}")
+    if len(edge) == 1:
+        return OwnRange(tip, edge[0], (), len(own), f"{len(own)} own commit(s){how}")
+
+    def side(sha: str) -> tuple[bool, ...]:
+        # The base is on the shared side: upstream's first, then the remote HEAD's, then any side not pushed before.
+        return tuple(not _is_ancestor(repo, sha, ref) for ref in shared) + (
+            any(_is_ancestor(repo, sha, ref) for ref in pushed_before),)
+
+    base = min(edge, key=side)  # min keeps git's order among equals
+    before = []
+    for other in edge:
+        if other == base:
+            continue
+        code, start = _git(repo, "merge-base", other, base)
+        # A side with no history in common with the base is not taken off: all of it counts (fails closed).
+        if code == 0 and start:
+            before.append((start, other))
+    return OwnRange(tip, base, tuple(before), len(own),
+                    f"{len(own)} own commit(s), a merge: what HEAD adds over the upstream it merged, less what the "
+                    f"other side already had{how}")
 
 
 def given_range(repo: Path, base: str, head: str) -> OwnRange:
@@ -139,19 +251,45 @@ def given_range(repo: Path, base: str, head: str) -> OwnRange:
     if tip is None or start is None:
         raise ValueError(f"no commit {head if tip is None else base}")
     code, out = _git(repo, "rev-list", "--count", f"{start}..{tip}")
-    return OwnRange(tip, (start,), int(out) if code == 0 and out.isdigit() else 0, "the base given")
+    return OwnRange(tip, start, (), int(out) if code == 0 and out.isdigit() else 0, "the base given")
 
 
-def _is_ancestor(repo: Path, ancestor: str, descendant: str) -> bool:
-    return _git(repo, "merge-base", "--is-ancestor", ancestor, descendant)[0] == 0
+def pushed_ranges(repo: Path, lines: list[str], remote: str | None = DEFAULT_REMOTE,
+                  upstream_ref: str = UPSTREAM) -> tuple[list[OwnRange], list[str]]:
+    """Pre-push stdin rows (`<local ref> <local sha> <remote ref> <remote sha>`) as (own ranges, errors).
+
+    REMOTE is the hook's first argument (a remote name, or the URL of a push to a URL). A deletion or a tag of a
+    tree or blob pushes no commit and is left out. A remote head this clone does not have (someone pushed since
+    the last fetch) bounds nothing itself (the tracking ref still does); the note says so. A row whose own range
+    cannot be told (own_range's ValueError) is an error line naming the ref: the caller refuses the push with it.
+    """
+    ranges, errors = [], []
+    for line in lines:
+        parts = line.split()
+        if len(parts) != 4 or parts[1] == ZERO_SHA:
+            continue  # a deletion pushes no code
+        _local_ref, local_sha, pushed_ref, remote_sha = parts
+        if commit_of(repo, local_sha) is None:
+            continue  # a tag of a tree or blob pushes no commit to judge
+        known = [remote_sha] if commit_of(repo, remote_sha) is not None else []
+        try:
+            own = own_range(repo, local_sha, known, upstream_ref, remote, pushed_ref)
+        except ValueError as error:
+            errors.append(f"{pushed_ref} ({local_sha[:11]}): {error}")
+            continue
+        if remote_sha != ZERO_SHA and not known:
+            own = dataclasses.replace(own, note=own.note + f"; the remote head {remote_sha[:11]} is not in this "
+                                                          "clone (git fetch), so it bounds nothing itself")
+        ranges.append(own)
+    return ranges, errors
 
 
 def as_own_ranges(repo: Path, items, upstream_ref: str = UPSTREAM) -> list[OwnRange]:
-    """ITEMS as own ranges: an own range (anything with `head` and `bases`, from another load of this module)
-    stays; a (base, head) pair is a push whose remote head is BASE (own_range(HEAD, [BASE]))."""
+    """ITEMS as own ranges: an own range (anything with `head`, `base` and `before`, from another load of this
+    module) stays; a (base, head) pair is a push whose remote head is BASE (own_range(HEAD, [BASE]))."""
     out = []
     for item in items:
-        if hasattr(item, "bases") and hasattr(item, "head"):
+        if all(hasattr(item, name) for name in ("head", "base", "before")):
             out.append(item)
         else:
             base, head = item
