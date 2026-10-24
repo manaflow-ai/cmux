@@ -178,7 +178,7 @@ function PinnedSummary() {
         </div>
       </div>
       <div className="workflow-gallery__pinned-footer">
-        Select the workflow for phase detail or keep chatting below.
+        Workflow detail has its own gallery entry; keep chatting below.
       </div>
     </div>
   );

@@ -28,12 +28,12 @@
   --workflow-surface-muted: #eef1f4;
   --workflow-ink: #18202a;
   --workflow-muted: #5d6876;
-  --workflow-faint: #7b8794;
+  --workflow-faint: #52606f;
   --workflow-line: rgba(24, 32, 42, 0.14);
   --workflow-line-strong: rgba(24, 32, 42, 0.23);
   --workflow-accent: #2267b1;
   --workflow-accent-soft: rgba(34, 103, 177, 0.13);
-  --workflow-warning: #9b5b00;
+  --workflow-warning: #7a4500;
   --workflow-warning-soft: rgba(155, 91, 0, 0.13);
   --workflow-success: #197144;
   --workflow-success-soft: rgba(25, 113, 68, 0.12);
@@ -84,6 +84,45 @@
 .workflow-gallery__surface {
   padding: var(--workflow-space-20);
 }
+
+.workflow-gallery__pinned-stage {
+  min-height: var(--workflow-space-560);
+  overflow: hidden;
+  border: 1px solid var(--workflow-line);
+  border-radius: 10px;
+  background: var(--workflow-bg);
+}
+
+.workflow-gallery__pinned-scroll {
+  height: var(--workflow-space-560);
+  overflow: auto;
+  padding: var(--workflow-space-12);
+}
+
+.workflow-gallery__pinned-summary {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding-bottom: var(--workflow-space-12);
+  background: var(--workflow-bg);
+}
+
+.workflow-gallery__pinned-copy {
+  display: grid;
+  gap: var(--workflow-space-12);
+  min-height: var(--workflow-space-560);
+  padding: var(--workflow-space-20) var(--workflow-space-8);
+  color: var(--workflow-muted);
+}
+
+.workflow-gallery__pinned-copy p {
+  margin: 0;
+  padding: var(--workflow-space-12);
+  border: 1px solid var(--workflow-line);
+  border-radius: 8px;
+  background: var(--workflow-surface);
+}
+
 
 .workflow-gallery__transcript {
   padding-bottom: var(--workflow-space-12);
