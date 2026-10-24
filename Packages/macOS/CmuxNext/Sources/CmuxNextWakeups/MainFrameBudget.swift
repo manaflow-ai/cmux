@@ -79,6 +79,10 @@ public final class MainFrameBudget {
         public var maxTaskNanos: [UInt64] = [0, 0, 0]
         /// Per class: the most a class spent in one frame, in nanoseconds.
         public var maxFrameNanos: [UInt64] = [0, 0, 0]
+        /// Pending-input checks that asked the input source, and the longest one in nanoseconds
+        /// (the window server query's own main-thread cost).
+        public var inputChecks = 0
+        public var maxInputCheckNanos: UInt64 = 0
     }
 
     /// The board the stall watchdog reads.
@@ -250,6 +254,8 @@ public final class MainFrameBudget {
         if board.pendingInputCount > 0 { return true }
         if now &- inputAnswer.at < 250_000 { return inputAnswer.pending }
         let pending = input.hasPendingInput(uptime: TimeInterval(now) / 1_000_000_000)
+        stats.inputChecks += 1
+        stats.maxInputCheckNanos = max(stats.maxInputCheckNanos, uptimeNanos() &- now)
         inputAnswer = (now, pending)
         return pending
     }
