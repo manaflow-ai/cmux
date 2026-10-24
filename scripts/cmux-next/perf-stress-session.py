@@ -16,11 +16,20 @@ Columns are side-by-side splits (`splitRight`), as pane-perf-terminal.py builds 
 panes show in the window; `newColumn` would make strip columns that scroll off screen. The same
 shape on every host: the builder first sets the bench minimum pane size (80 x 32 pt, `settings.set`
 in the tagged app's own config: run it only on bench apps with a scratch config) and the window to
-WINDOW (1600 x 1000 points, `debug.window_frame`), aims every split at its pane by id, splits the
+WINDOW_SIZE (1600 x 1000 points, `place_window` below), aims every split at its pane by id, splits the
 columns balanced (halves, then quarters) on the measured workspace shown, and checks the shape it made
 (60 workspaces, 4 even columns side by side, 14 panes in even rows, 6 tabs each of the kind asked,
-Chromium running with no WebKit fallback; `Stress.check`) before it returns: another shape raises
-StressShapeError instead of being measured as STRESS.
+agent chats and no New Tab page in their place, Chromium running with no WebKit fallback; `Stress.check`)
+before it returns: another shape raises StressShapeError instead of being measured as STRESS.
+
+The window (`place_window`) goes on the main screen at WINDOW_SIZE: centered across the screen's visible
+frame, its top at the visible frame's top (under the menu bar). The 1920 x 1080 main display of the fleet
+(split-spring.sh --vdisplay=120) has a visible height under 1000 pt when the Dock shows at the bottom, so
+a bottom Dock may cover the window's lower edge: the Dock draws over it, every pane stays on the screen
+and is laid out and drawn as before. The summary records that overlap (`dock_overlap_pt`) as a bench
+condition. A window past the screen's edges or under the menu bar is not STRESS. An app built before
+the `visible_frame` / `screen_frame` fields (bb4ac3c2b03) gets the size check and the grid check from
+debug.layers pane frames only, and the summary says `window_on_screen: "unknown"`.
 
 Use it three ways:
 
@@ -58,9 +67,11 @@ NESTED_COLUMNS = (1, 3)  # 0-based: columns 2 and 4 split their middle row once 
 CHROMIUM_WORKSPACES = 10
 CHROMIUM_PER_WORKSPACE = 2
 BUSY_TERMINALS = 10
-WINDOW = [80, 40, 1600, 1000]  # x, y, width, height in points (debug.window_frame)
+WINDOW_SIZE = (1600, 1000)  # width, height in points (debug.window_frame)
+# An app without the screen fields (before bb4ac3c2b03) cannot be placed on its screen: the window then goes
+# here, bottom-left screen points, as before.
+LEGACY_ORIGIN = (80, 40)
 MINIMUM_PANE = {"layout.minimumPaneWidth": 80, "layout.minimumPaneHeight": 32}
-CHAT_WAIT_S = 8  # an agent chat tab that does not show by then is replaced by the New Tab page
 WEB_DEV_CONFIG = os.path.expanduser("~/.config/cmux/web-dev.json")  # routes pages to a dev server when present
 BUSY_COMMAND = 'while :; do echo "$RANDOM $RANDOM $RANDOM stress output line $(date +%s)"; sleep 0.02; done\r'
 
@@ -131,21 +142,37 @@ class Pages:
 
             def log_message(self, *args):
                 pass
-        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.handler = Handler
+        self.server = None  # started by the first url()
         self.next = 0
 
     def url(self):
+        if self.server is None:
+            self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), self.handler)
+            # poll_interval: how soon serve_forever sees close()'s shutdown request (stdlib default 0.5 s).
+            threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
         self.next += 1
         return f"http://127.0.0.1:{self.server.server_address[1]}/{self.next}"
+
+    def close(self):
+        """Stops the server, if one started, and closes its socket."""
+        if self.server is not None:
+            self.server.shutdown()
+            self.server.server_close()
+            self.server = None
 
 
 class Stress:
     """Builds STRESS through `rpc`. Progress lines go to `log`."""
 
-    def __init__(self, rpc, log=None, selected="terminal", busy_where="measured", settle=1.0, web_dev_config=WEB_DEV_CONFIG):
+    def __init__(self, rpc, log=None, selected="terminal", busy_where="measured", settle=1.0, web_dev_config=WEB_DEV_CONFIG,
+                 allow_chat_fallback=False):
         self.rpc, self.log = rpc, log or (lambda line: print(line, flush=True))
         self.web_dev_config = web_dev_config  # a file here that points pages at a dev server (not STRESS)
+        # A refused agent chat is replaced by the New Tab page, counted in `chat_fallbacks`. STRESS has agent
+        # chats, so `check` refuses any fallback unless the caller asks for that other session.
+        self.allow_chat_fallback = allow_chat_fallback
+        self.window_reply = {}  # the last placement's debug.window_frame reply
         self.selected, self.busy_where, self.settle = selected, busy_where, settle
         self.pages = Pages()
         self.refusals = []
@@ -224,10 +251,12 @@ class Stress:
         elif kind == "webkit":
             self.action("openBrowser.webkit", {"url": self.pages.url()}, target=target)
         else:
-            reply = self.action("palette.newAgentChat", target=target, timeout=CHAT_WAIT_S + 2)
-            if isinstance(reply, dict) and reply.get("error") or not wait(
-                    lambda: len(self.tabs(workspace_id, pane_id)) > count, CHAT_WAIT_S, step=0.1):
-                # No agent chat (launch denied, a build without it): the New Tab page stands in.
+            # The reply comes when the action has run. Only the app's typed refusal (an error with a code:
+            # launch denied, a build without agent chats) falls back to the New Tab page; a reply that does not
+            # come in time is no refusal (the chat may still open), so nothing is added and the pane's mix
+            # check names the missing tab.
+            reply = self.action("palette.newAgentChat", target=target)
+            if typed_refusal(reply):
                 self.chat_fallbacks += 1
                 fallback = True
                 self.action("newTab.page", target=target)
@@ -261,6 +290,27 @@ class Stress:
                 self.log(f"stress: {index + 1}/{count} background workspaces")
         self.background = made
         return made
+
+    def build_light(self, kinds=("chromium", "chromium", "webkit", "chat", "terminal")):
+        """The light session (every-action-sweep.py): a new workspace, shown, split once to the right by pane id,
+        its first pane with a tab of each of `kinds` after its terminal. Returns (workspace, [pane ids]); raises
+        StressShapeError when the workspace never shows. Shown first, as the measured grid: focus may not follow
+        a new workspace on a loaded host, and an action aimed at whatever has focus lands in another workspace."""
+        workspace = self.new_workspace()
+        if not workspace:
+            raise StressShapeError("the light workspace did not appear")
+        self.show(workspace)
+        first = self.panes(self.workspace(workspace))[0]["id"]
+        self.split(workspace, first, "splitRight")
+        panes = [p["id"] for p in self.panes(self.workspace(workspace))]
+        self.focus_pane(first)
+        for kind in kinds:
+            self.add_tab(workspace, first, kind)
+        return workspace, panes
+
+    def close(self):
+        """Stops the local pages' server (the end of a run, or a test)."""
+        self.pages.close()
 
     def split(self, workspace, pane, verb):
         """`verb` (splitRight, splitDown) on `pane` by id, not by focus; returns the new pane's id, or
@@ -296,24 +346,22 @@ class Stress:
         return first
 
     def size_window(self):
-        """The window at WINDOW, and the bench minimum pane size (MINIMUM_PANE, written to the tagged
-        app's own config with `settings.set`: a bench app runs on a scratch config): the grid fits on
-        every host, whatever its display (a fleet mini's screen can be smaller than WINDOW)."""
+        """The window at WINDOW_SIZE on the main screen (`place_window`), and the bench minimum pane size
+        (MINIMUM_PANE, written to the tagged app's own config with `settings.set`: a bench app runs on a
+        scratch config): the grid fits on every host, whatever its display (a fleet mini's screen can be
+        smaller than WINDOW_SIZE)."""
         for key, value in MINIMUM_PANE.items():
             reply = self.rpc("settings.set", {"path": key, "value": value})
             if isinstance(reply, dict) and reply.get("error"):
                 self.refusals.append(f"settings.set {key}: {str(reply['error'])[:160]}")
-        reply = self.rpc("debug.window_frame", {"frame": WINDOW})
-        if isinstance(reply, dict) and reply.get("error"):
-            self.refusals.append(f"debug.window_frame: {str(reply['error'])[:160]}")
-        # The window must really be WINDOW's size and lie inside its screen's visible frame: a display
-        # smaller than it (a 1024 x 768 fleet screen, a window the screen clamped to 675 pt) cannot hold
-        # 4 x 3 panes, and the app then places splits elsewhere; a window past the screen's edge puts
-        # panes and Chromium pages off screen. setFrame does not keep a window on its screen at once
-        # (that happens later), so the end of the build checks the size again (`check`, `window`).
+        # A display smaller than the window (a 1024 x 768 fleet screen, a window the screen clamped to
+        # 675 pt) cannot hold 4 x 3 panes, and the app then places splits elsewhere; a window past the
+        # screen's edges puts panes and Chromium pages off screen. setFrame does not keep a window on its
+        # screen at once (that happens later), so the end of the build checks again (`check`, `window`).
         # Fail before building anything; on the fleet run under split-spring.sh --vdisplay=120 (a
         # 1920 x 1080 virtual main display), or launch here with --vdisplay.
-        problem = window_problem(reply)
+        reply, problem = place_window(self.rpc)
+        self.window_reply = reply if isinstance(reply, dict) else {}
         if problem:
             raise StressShapeError(f"{problem}: run with a 1920 x 1080 display (split-spring.sh --vdisplay=120, "
                                    "or --vdisplay here)")
@@ -385,9 +433,9 @@ class Stress:
     def check(summary):
         """Raises StressShapeError when the session is not STRESS (another layout is never measured as it):
         exactly 60 workspaces, 4 columns side by side, 14 panes laid out even (equal column widths, equal
-        rows in each column), no refused split or equalizeSplits, the window at WINDOW's size inside its
-        screen's visible frame, each pane exactly 2 terminals, 2 browser tabs asked as Chromium, 1 asked as
-        WebKit and 1 agent chat (or a counted New Tab page fallback), each made tab of the topology kind it
+        rows in each column), no refused split or equalizeSplits, the window at WINDOW_SIZE on its screen
+        (`window_problem`), each pane exactly 2 terminals, 2 browser tabs asked as Chromium, 1 asked as
+        WebKit and 1 agent chat (a New Tab page in its place only with allow_chat_fallback), each made tab of the topology kind it
         was asked as, Chromium running (debug.cef ready, no unavailable reason, no WebKit fallback, no
         refused openBrowser.chromium), 10 background workspaces with 2 Chromium pages each, 10 busy
         terminals. The engine of each browser tab is not read one by one (the topology has no engine
@@ -401,6 +449,9 @@ class Stress:
             problems.append(f"the grid's splits were refused: {summary.get('layout_refusals')}")
         if summary.get("window_problem"):
             problems.append(summary["window_problem"])
+        if summary.get("chat_fallbacks") and not summary.get("chat_fallback_ok"):
+            problems.append(f"{summary.get('chat_fallbacks')} agent chats were refused and replaced by the New Tab page "
+                            "(STRESS has an agent chat in every pane)")
         if summary.get("busy_terminals") != BUSY_TERMINALS:
             problems.append(f"{summary.get('busy_terminals')} busy terminals, not {BUSY_TERMINALS}")
         if summary.get("background_chromium") != [CHROMIUM_PER_WORKSPACE] * CHROMIUM_WORKSPACES:
@@ -461,6 +512,8 @@ class Stress:
         background = [sum(1 for p in self.panes(self.workspace(w)) for t in p.get("tabs") or [] if t.get("kind") not in (None, "terminal"))
                       for w in getattr(self, "background", [])[:CHROMIUM_WORKSPACES]]
         window = self.shown_window()
+        on_screen = {"frame": window.get("frame"), "visible_frame": window.get("screen_visible_frame"),
+                     "screen_frame": window.get("screen_frame")}
         unavailable = [r for r in self.refusals if r.startswith("openBrowser.chromium")]
         unavailable += cef_problems(self.rpc("debug.cef"), self.web_dev_config)
         if self.selected == "chromium":
@@ -473,13 +526,13 @@ class Stress:
         return {"workspaces": len(workspaces), "measured": getattr(self, "measured", None),
                 "shown_columns": self.shown_columns(window), "window": window.get("frame"),
                 "screen_visible_frame": window.get("screen_visible_frame"),
-                "window_problem": window_problem({"frame": window.get("frame"), "visible_frame": window.get("screen_visible_frame")}),
+                **window_on_screen(on_screen),
                 "grid_problems": grid_problems(window),
                 "measured_panes": len(self.panes(measured)), "measured_columns": len(columns) or None,
                 "measured_tabs": kinds, "busy_terminals": len(getattr(self, "busy", [])), "busy_where": self.busy_where,
                 "selected": self.selected,
                 "chromium_workspaces": sum(1 for pages in background if pages >= CHROMIUM_PER_WORKSPACE),
-                "chat_fallbacks": self.chat_fallbacks, "refusals": self.refusals[:10], "layout_refusals": layout[:6],
+                "chat_fallbacks": self.chat_fallbacks, "chat_fallback_ok": self.allow_chat_fallback, "refusals": self.refusals[:10], "layout_refusals": layout[:6],
                 "pane_problems": pane_problems[:6], "background_chromium": background, "chromium_unavailable": unavailable[:4]}
 
 
@@ -511,24 +564,79 @@ def cef_problems(cef, web_dev_config=None):
     return problems
 
 
+def typed_refusal(reply):
+    """True when `reply` is the app's typed refusal of an action (an error object with a `code`), not a
+    transport error (a socket timeout or a closed connection is a string)."""
+    error = reply.get("error") if isinstance(reply, dict) else None
+    return isinstance(error, dict) and bool(error.get("code"))
+
+
+def window_target(reply):
+    """WINDOW_SIZE on the screen of a `debug.window_frame` reply: centered across its visible frame, its top at
+    the visible frame's top (under the menu bar), so only a bottom Dock may cover it. None without the screen
+    fields (an app before bb4ac3c2b03)."""
+    visible = reply.get("visible_frame") if isinstance(reply, dict) else None
+    if not visible:
+        return None
+    vx, vy, vw, vh = visible
+    width, height = WINDOW_SIZE
+    return [round(vx + (vw - width) / 2), round(vy + vh - height), width, height]
+
+
+def place_window(rpc):
+    """Puts the app's window at WINDOW_SIZE on the main screen (`window_target`). Returns the last
+    `debug.window_frame` reply and why the window cannot hold STRESS there (`window_problem`), or None."""
+    # Onto the main screen (NSScreen.screens[0], the menu-bar screen) first, so the reply names its frames.
+    first = rpc("debug.window_frame", {"screen": 0})
+    if not isinstance(first, dict) or first.get("error"):
+        return first, f"debug.window_frame: {str(first)[:160]}"
+    target = window_target(first) or [*LEGACY_ORIGIN, *WINDOW_SIZE]
+    reply = rpc("debug.window_frame", {"frame": target})
+    if not isinstance(reply, dict) or reply.get("error"):
+        return reply, f"debug.window_frame: {str(reply)[:160]}"
+    return reply, window_problem(reply)
+
+
 def window_problem(reply):
     """Why the window cannot hold STRESS, or None: from a `debug.window_frame` reply (or a `debug.layers`
-    window as {frame, visible_frame}), the window is not WINDOW's size (1 pt of rounding allowed) or does
-    not lie inside its screen's visible frame (the screen less the menu bar and Dock)."""
+    window as {frame, visible_frame, screen_frame}), the window is not WINDOW_SIZE (1 pt of rounding
+    allowed), or it does not lie on its screen: past the visible frame's left, right or top (a side Dock,
+    the menu bar) or past the screen's bottom edge. A bottom Dock over its lower edge is allowed
+    (`dock_overlap`). Without the screen fields (an app before bb4ac3c2b03) only the size is checked."""
     frame = reply.get("frame") if isinstance(reply, dict) else None
     visible = reply.get("visible_frame") if isinstance(reply, dict) else None
     screen = reply.get("screen", "?") if isinstance(reply, dict) else "?"
     if not frame:
         return f"the app gave no window frame ({str(reply)[:120]})"
-    if abs(frame[2] - WINDOW[2]) > 1 or abs(frame[3] - WINDOW[3]) > 1:
-        return f"the window is {frame[2:]} pt, not {WINDOW[2:]}: the display ({screen}) cannot hold STRESS"
+    if abs(frame[2] - WINDOW_SIZE[0]) > 1 or abs(frame[3] - WINDOW_SIZE[1]) > 1:
+        return f"the window is {frame[2:]} pt, not {list(WINDOW_SIZE)}: the display ({screen}) cannot hold STRESS"
     if not visible:
-        return "the app gave no visible frame for the window's screen (an app older than this script, or no screen)"
+        return None
     x, y, w, h = frame
     vx, vy, vw, vh = visible
-    if x < vx - 1 or y < vy - 1 or x + w > vx + vw + 1 or y + h > vy + vh + 1:
-        return f"the window {frame} reaches past its screen's visible frame {visible} ({screen})"
+    bottom = (reply.get("screen_frame") or visible)[1]
+    if x < vx - 1 or x + w > vx + vw + 1 or y + h > vy + vh + 1 or y < bottom - 1:
+        return (f"the window {frame} reaches past its screen (visible frame {visible}, screen "
+                f"{reply.get('screen_frame')}, {screen})")
     return None
+
+
+def dock_overlap(reply):
+    """Points of the window's lower edge under a bottom Dock (the visible frame starts above the screen's
+    bottom), or None without the screen fields."""
+    frame, visible = reply.get("frame"), reply.get("visible_frame")
+    if not frame or not visible or not reply.get("screen_frame"):
+        return None
+    return max(0, round(visible[1] - frame[1]))
+
+
+def window_on_screen(reply):
+    """The summary's window fields: `window_problem`, `window_on_screen` (yes, no, or unknown without the
+    screen fields: then only the size and the debug.layers pane frames are checked) and `dock_overlap_pt`
+    (a bench condition)."""
+    problem = window_problem(reply)
+    state = "unknown" if not reply.get("visible_frame") else ("no" if problem else "yes")
+    return {"window_problem": problem, "window_on_screen": state, "dock_overlap_pt": dock_overlap(reply)}
 
 
 # Equal shares differ only by divider and point rounding (a few points); the uneven grids this check
