@@ -380,13 +380,15 @@ import Testing
         // The host never answers: only cancellation ends these waits.
         let ping = Task { await session.ping(count: 1) }
         let stats = Task { await session.hostInputStats() }
-        // Both requests are on the wire, so both waiters are registered.
+        // Both requests are on the wire, so both waiters are registered. The wire also carries the
+        // session's start frames (navigate, ...): wait for the two requests among them.
+        let requests: Set<ChromiumHostFrame.Kind> = [.ping, .stats]
         var seen: Set<ChromiumHostFrame.Kind> = []
         var frames = host.wire.frames.makeAsyncIterator()
-        while seen != [.ping, .stats], let frame = await frames.next() {
+        while !seen.isSuperset(of: requests), let frame = await frames.next() {
             if let kind = frame.kind { seen.insert(kind) }
         }
-        try #require(seen == [.ping, .stats])
+        try #require(seen.isSuperset(of: requests))
         ping.cancel()
         stats.cancel()
         #expect(await ping.value.isEmpty)
