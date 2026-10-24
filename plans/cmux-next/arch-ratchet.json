@@ -2,7 +2,7 @@
   "_doc": "Architecture counts the pre-push ratchet holds (scripts/cmux-next/arch-ratchet.py; the method is scripts/cmux-next/arch_counts.py, whose docstring defines every row). A push may not raise a ratcheted row's total; when one drops, rerun `scripts/cmux-next/arch-ratchet.py --update`. exceptions: [{\"date\": \"YYYY-MM-DD\", \"row\": \"<row>\", \"allow\": <n>, \"why\": \"...\"}] lets the push that adds the entry raise that row by n; never CI.",
   "method": "arch_counts",
   "method_version": 1,
-  "measured_sha": "4495b5f123656042f1675ec9677914a7c9c4eb95",
+  "measured_sha": "d9f913b41af070413c51700050a55ecec0c59eb9",
   "measured_date": "2026-10-23",
   "rows": {
     "layer_hard": {
@@ -55,13 +55,13 @@
     "layer_soft": 12,
     "layer_upward": 3,
     "layer_unplaced": 0,
-    "stateful_singletons": 158,
-    "global_mutable_statics": 262,
-    "assume_isolated_outside_adapters": 175,
-    "assume_isolated_total": 235,
-    "app_broadcast_names": 12,
-    "observer_sites": 169,
-    "app_lines": 142081
+    "stateful_singletons": 159,
+    "global_mutable_statics": 265,
+    "assume_isolated_outside_adapters": 171,
+    "assume_isolated_total": 231,
+    "app_broadcast_names": 13,
+    "observer_sites": 170,
+    "app_lines": 142514
   },
   "packages": {
     "CmuxNextActions": {
@@ -94,6 +94,7 @@
       "global_mutable_statics": 25,
       "assume_isolated_outside_adapters": 4,
       "assume_isolated_total": 4,
+      "app_broadcast_names": 1,
       "observer_sites": 6
     },
     "CmuxNextAgentUpdates": {
@@ -101,12 +102,12 @@
       "layer_soft": 1
     },
     "CmuxNextApp": {
-      "stateful_singletons": 28,
-      "global_mutable_statics": 69,
-      "assume_isolated_outside_adapters": 50,
-      "assume_isolated_total": 59,
-      "observer_sites": 58,
-      "app_lines": 142081
+      "stateful_singletons": 29,
+      "global_mutable_statics": 72,
+      "assume_isolated_outside_adapters": 46,
+      "assume_isolated_total": 55,
+      "observer_sites": 59,
+      "app_lines": 142514
     },
     "CmuxNextApps": {
       "stateful_singletons": 1,
