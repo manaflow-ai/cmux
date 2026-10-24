@@ -55,13 +55,32 @@ import Testing
         #expect(broker.pending.isEmpty)
     }
 
-    @Test func aCancelThatArrivesBeforeItsBeginOpensNothing() {
-        let request = FakeWebAuthRequest()
-        broker.systemCancelled(request.id)
+    /// How a session ends before the system's cancel for it arrives.
+    enum EndBeforeCancel: CaseIterable {
+        case completed, closedByThePerson, refusedStartPage, noTab
+    }
+
+    /// The system's cancel can arrive after the session ended (the requesting
+    /// app cancels while cmux answers). It closes nothing, answers nothing and
+    /// leaves the broker holding nothing, whichever way the session ended.
+    @Test(arguments: EndBeforeCancel.allCases)
+    func aCancelAfterTheSessionEndedChangesNothing(end: EndBeforeCancel) throws {
+        let request = FakeWebAuthRequest(url: try #require(URL(string: end == .refusedStartPage ? "myapp://signin" : "https://accounts.example.com/signin")))
+        if end == .noTab { opener.opens = false }
         broker.begin(request)
-        #expect(opener.opened.isEmpty)
-        #expect(request.cancels == 0)
-        #expect(request.completions == 0)
+        switch end {
+        case .completed: #expect(broker.navigated(request.id, to: callbackURL))
+        case .closedByThePerson: broker.surfaceClosed(request.id)
+        case .refusedStartPage, .noTab: break
+        }
+        let completions = request.completions
+        let cancels = request.cancels
+        #expect(completions + cancels == 1, "the session ended once before the cancel")
+        let closes = opener.surfaces[request.id]?.closes
+        broker.systemCancelled(request.id)
+        #expect(request.completions == completions)
+        #expect(request.cancels == cancels)
+        #expect(opener.surfaces[request.id]?.closes == closes)
         #expect(broker.pending.isEmpty)
     }
 
