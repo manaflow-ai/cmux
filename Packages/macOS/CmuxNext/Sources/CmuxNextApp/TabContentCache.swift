@@ -124,9 +124,14 @@ final class TabContentCache {
     /// closed; the App routes it through the window's focus coordinator.
     var onDevToolsChange: ((String, BrowserDevToolsState, Bool) -> Void)?
 
-    init(daemon: DaemonService, cef: CEFEngine = CEFEngine()) {
+    /// The app's grid sender for every terminal it makes (``ResizeCoordinator``).
+    let resizes: ResizeCoordinator
+
+    /// - Parameter resizes: The app's grid sender (`AppServices.resizes`); tests get their own.
+    init(daemon: DaemonService, cef: CEFEngine = CEFEngine(), resizes: ResizeCoordinator = ResizeCoordinator()) {
         self.daemon = daemon
         self.cef = cef
+        self.resizes = resizes
         browserTabs = BrowserTabService(daemon: daemon, cef: cef)
         wireNotices()
     }
@@ -164,7 +169,7 @@ final class TabContentCache {
         // Paused (and not claiming geometry) until a visible pane presents it.
         let render = ledger.isRendering(tab.id)
         let gate = ProvisionalTab.isProvisional(surface: tab.surface) ? TerminalTargetGate() : nil
-        let io = DaemonTerminalIO(target: target, visible: render, gate: gate, creatingInput: gate.flatMap { gate in daemon.creatingInput(tab.terminalID) { gate.isResolved } },
+        let io = DaemonTerminalIO(target: target, resizes: resizes, visible: render, gate: gate, creatingInput: gate.flatMap { gate in daemon.creatingInput(tab.terminalID) { gate.isResolved } },
                                   policyBlocked: daemon.policyBlock.check,
                                   endpoint: { try await daemon.endpoint() })
         let session = makeSession(io: io, tab: tab, daemon: daemon)
