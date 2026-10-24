@@ -73,172 +73,18 @@ public struct RetryPacer: Sendable {
         return failures > policy.timedRetries ? nil : backoff.next()
     }
 
+    /// Notes a failure while the socket is missing: it spends no timed
+    /// retry (no timed attempt can succeed before the socket appears), but a
+    /// socket that a socket change brought and that is gone again counts
+    /// toward the crash-loop limit.
+    public mutating func failedWhileMissing() {
+        if wokeBySocket { socketFailures += 1 }
+        wokeBySocket = false
+    }
+
     /// Notes what woke the wait before the next attempt.
     public mutating func woke(_ cause: RetryWake.Cause) {
         wokeBySocket = cause == .socket
-    }
-}
-
-/// An event that can make a retry succeed. Fired by callers (network path
-/// change, app activation) and by a kernel vnode watch on a socket file's
-/// directory (``watch(file:)``): the watch fires only when the file's
-/// identity differs from the one recorded after the last failed attempt
-/// (``rebaseline()``), so the loop's own attempts (a `server ensure` that
-/// recreates the socket) never wake it again.
-public final class RetryWake: Sendable {
-    public enum Cause: Sendable, Equatable {
-        /// ``fire()``: an explicit event (app activation, network, a reconnect action).
-        case event
-        /// The watched socket changed (``watch(file:companions:)``).
-        case socket
-        case timer
-        case cancelled
-    }
-
-    public let owner: String
-    private let ledger: WakeupLedger
-    private let queue = DispatchQueue(label: "com.cmuxterm.next.retry-wake")
-    private let state = Mutex<State>(State())
-
-    private struct Identity: Equatable {
-        var device: dev_t
-        var inode: ino_t
-    }
-
-    private struct State {
-        /// An event that came with no waiter (`.event` wins over `.socket`).
-        var latched: Cause?
-        var waiter: CheckedContinuation<Cause, Never>?
-        /// The waiter wakes on a socket change too.
-        var waiterTakesSocket = true
-        var timer: DemandTimer?
-        var file: String?
-        /// Files beside `file` that wake too (a daemon's ready marker).
-        var companions: [String] = []
-        var baseline: [Identity?] = []
-        var source: (any DispatchSourceFileSystemObject)?
-    }
-
-    public init(owner: String, ledger: WakeupLedger = .shared) {
-        self.owner = owner
-        self.ledger = ledger
-    }
-
-    deinit {
-        state.withLock { $0.source?.cancel() }
-    }
-
-    /// Something changed that may let a retry succeed.
-    public func fire() {
-        resume(.event, latchIfIdle: true)
-    }
-
-    /// Watches `path`'s directory; a change of `path` itself (created,
-    /// removed, replaced) fires, and so does a change of any of `companions`
-    /// (files in the same directory, such as the daemon's ready marker
-    /// `<socket>.websocket.json`, written once its restore is done: a restore
-    /// that ends behind the same socket then wakes too). Replaces an earlier
-    /// watch of other files.
-    public func watch(file path: String, companions: [String] = []) {
-        let directory = (path as NSString).deletingLastPathComponent
-        let changed = state.withLock { state -> Bool in
-            guard state.file != path || state.companions != companions else { return false }
-            state.source?.cancel()
-            state.source = nil
-            state.file = path
-            state.companions = companions
-            state.baseline = Self.identities(of: [path] + companions)
-            return true
-        }
-        guard changed else { return }
-        let descriptor = open(directory, O_EVTONLY | O_CLOEXEC)
-        guard descriptor >= 0 else { return }
-        let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor,
-                                                               eventMask: [.write, .link, .delete, .rename], queue: queue)
-        source.setEventHandler { [weak self] in self?.directoryChanged() }
-        source.setCancelHandler { close(descriptor) }
-        let installed = state.withLock { state -> Bool in
-            guard state.file == path, state.source == nil else { return false }
-            state.source = source
-            return true
-        }
-        if installed { source.resume() } else { close(descriptor) }
-    }
-
-    /// Records the watched file's current identity and drops a pending
-    /// event: call after a failed attempt, so only later changes wake.
-    public func rebaseline() {
-        state.withLock { state in
-            state.latched = nil
-            state.baseline = state.file.map { Self.identities(of: [$0] + state.companions) } ?? []
-        }
-    }
-
-    /// Waits for an event, or for `delay` when given. A pending event
-    /// returns at once. `socket` false: a socket change does not wake this
-    /// wait and a pending one is dropped (a crash loop, ``RetryPacer``).
-    public func awaitWake(delay: Duration?, clock: any Clock<Duration>, socket: Bool = true) async -> Cause {
-        await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Cause, Never>) in
-                let immediate = state.withLock { state -> Cause? in
-                    if Task.isCancelled { return .cancelled }
-                    if let latched = state.latched {
-                        state.latched = nil
-                        if latched == .event || socket { return latched }
-                    }
-                    state.waiter = continuation
-                    state.waiterTakesSocket = socket
-                    state.timer?.cancel()
-                    state.timer = nil
-                    if let delay {
-                        let timer = DemandTimer(owner: owner, clock: clock, ledger: ledger)
-                        state.timer = timer
-                        timer.schedule(after: delay) { [weak self] in self?.resume(.timer, latchIfIdle: false) }
-                    }
-                    return nil
-                }
-                if let immediate { continuation.resume(returning: immediate) }
-            }
-        } onCancel: {
-            resume(.cancelled, latchIfIdle: false)
-        }
-    }
-
-    private func resume(_ cause: Cause, latchIfIdle: Bool) {
-        // A socket change that the waiting loop ignores (a crash loop) is dropped.
-        let (waiter, ignored) = state.withLock { state -> (CheckedContinuation<Cause, Never>?, Bool) in
-            if cause == .socket, state.waiter != nil, !state.waiterTakesSocket { return (nil, true) }
-            state.timer?.cancel()
-            state.timer = nil
-            guard let waiter = state.waiter else {
-                if latchIfIdle, state.latched != .event { state.latched = cause }
-                return (nil, false)
-            }
-            state.waiter = nil
-            return (waiter, false)
-        }
-        if ignored { return }
-        if cause == .event || cause == .socket { ledger.record(owner, reason: "event") }
-        waiter?.resume(returning: cause)
-    }
-
-    private func directoryChanged() {
-        let changed = state.withLock { state -> Bool in
-            guard let file = state.file else { return false }
-            let now = Self.identities(of: [file] + state.companions)
-            guard now != state.baseline else { return false }
-            state.baseline = now
-            return true
-        }
-        if changed { resume(.socket, latchIfIdle: true) }
-    }
-
-    private static func identities(of paths: [String]) -> [Identity?] { paths.map(identity(of:)) }
-
-    private static func identity(of path: String) -> Identity? {
-        var info = stat()
-        guard stat(path, &info) == 0 else { return nil }
-        return Identity(device: info.st_dev, inode: info.st_ino)
     }
 }
 
@@ -250,6 +96,28 @@ extension RetryPacer {
     public mutating func waitAfterFailure(wake: RetryWake, clock: any Clock<Duration>) async -> Bool {
         wake.rebaseline()
         let delay = failed()
+        let cause = await wake.awaitWake(delay: delay, clock: clock, socket: wakesOnSocket)
+        woke(cause)
+        return cause != .cancelled
+    }
+
+    /// ``waitAfterFailure(wake:clock:)`` for a client of a daemon that it does
+    /// not start itself (the Feed's acpmux mailbox reader): while the watched
+    /// socket is missing and its folder chain is watched, no timed attempt can
+    /// succeed, so the wait arms no timer and ends only when the socket
+    /// appears or an explicit event fires. The timed budget is kept for a
+    /// socket that exists but refuses (a crashed daemon's stale socket, a
+    /// handoff). A path that cannot be watched (no descriptor left) falls back
+    /// to the timed wait. Returns false when cancelled.
+    public mutating func waitForPeerAfterFailure(wake: RetryWake, clock: any Clock<Duration>) async -> Bool {
+        let delay: Duration?
+        switch wake.rebaseline() {
+        case .missing:
+            failedWhileMissing()
+            delay = nil
+        case .present, .unwatched:
+            delay = failed()
+        }
         let cause = await wake.awaitWake(delay: delay, clock: clock, socket: wakesOnSocket)
         woke(cause)
         return cause != .cancelled

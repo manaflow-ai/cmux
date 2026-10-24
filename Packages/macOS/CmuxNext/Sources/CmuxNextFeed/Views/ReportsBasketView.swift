@@ -10,6 +10,11 @@ struct ReportsBasketView: View {
     @Environment(\.feedColors) private var colors
     @State private var selected: String?
     @State private var draft = ""
+    /// Reports whose reply is being sent: their Reply button waits for the answer, so a second
+    /// press or key repeat cannot send the same reply twice.
+    @State private var sending: Set<String> = []
+    /// The report whose last reply was not sent (its draft stays).
+    @State private var notSent: String?
 
     private var reports: [FeedReport] { model.reports }
 
@@ -57,14 +62,25 @@ struct ReportsBasketView: View {
             .frame(minWidth: 340, idealWidth: 380, maxWidth: 420)
             FeedHairline(vertical: true)
             if let report = reports.first(where: { $0.id == selected }) {
-                ReportsBasketDetail(item: report, draft: $draft, onSend: {
+                ReportsBasketDetail(item: report, draft: $draft, sending: sending.contains(report.id),
+                                    notSent: notSent == report.id, onSend: {
                     let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !text.isEmpty, let onReply else { return }
-                    // The host sends off the main thread; the draft clears once it was sent,
-                    // unless the person typed on meanwhile.
-                    // task-owner: one reply send; it ends when the host answers
+                    let id = report.id
+                    guard !text.isEmpty, let onReply, !sending.contains(id) else { return }
+                    sending.insert(id)
+                    notSent = nil
+                    // The host sends off the main thread and answers once acpmux took the reply (or
+                    // refused, or passed its deadline). A sent reply clears the draft unless the
+                    // person typed on or chose another report; a refused one keeps it.
+                    // task-owner: one reply send; it ends when the host answers (bounded by its deadline)
                     Task { @MainActor in
-                        if await onReply(report.sender, text), draft.trimmingCharacters(in: .whitespacesAndNewlines) == text { draft = "" }
+                        let sent = await onReply(report.sender, text)
+                        sending.remove(id)
+                        if !sent {
+                            notSent = id
+                        } else if selected == id, draft.trimmingCharacters(in: .whitespacesAndNewlines) == text {
+                            draft = ""
+                        }
                     }
                 })
             } else {
