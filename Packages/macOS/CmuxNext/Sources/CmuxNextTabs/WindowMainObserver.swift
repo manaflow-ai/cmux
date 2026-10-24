@@ -10,6 +10,16 @@ final class WindowMainObserver {
     private var onChange: (Bool) -> Void = { _ in }
     /// The window's become-main and resign-main observations; each stops when released.
     private var observations: [MainActorObservation] = []
+    /// The center the window's main changes arrive on (AppKit posts them on `NotificationCenter.default`).
+    private let center: NotificationCenter
+
+    /// Creates an observer that follows windows on `center`.
+    ///
+    /// - Parameter center: The center to observe (default `NotificationCenter.default`, where AppKit
+    ///   posts the window's main changes; tests pass their own).
+    init(center: NotificationCenter = .default) {
+        self.center = center
+    }
 
     // cx-t7hu: nonisolated, so a release (inside an action's task-local scope, or off the main
     // thread) runs no runtime hop; an implicit deinit is isolated in this target. The observations
@@ -23,8 +33,8 @@ final class WindowMainObserver {
         guard let window else { return }
         changed(isMain: window.isMainWindow)
         observations = [
-            MainActorObservation(NSWindow.didBecomeMainNotification, object: window) { [weak self] in self?.changed(isMain: true) },
-            MainActorObservation(NSWindow.didResignMainNotification, object: window) { [weak self] in self?.changed(isMain: false) },
+            MainActorObservation(NSWindow.didBecomeMainNotification, object: window, center: center) { [weak self] in self?.changed(isMain: true) },
+            MainActorObservation(NSWindow.didResignMainNotification, object: window, center: center) { [weak self] in self?.changed(isMain: false) },
         ]
     }
 
