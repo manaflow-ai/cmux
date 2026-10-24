@@ -1688,7 +1688,8 @@ pre.cv-math-source {
 .cv-tool {
   all: unset;
   box-sizing: border-box;
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 8px;
   width: 100%;
@@ -1745,11 +1746,13 @@ pre.cv-math-source {
   }
 }
 .cv-tool__icon {
+  grid-column: 1;
   display: flex;
   flex: none;
   margin-right: -1.5px;
 }
 .cv-tool__text {
+  grid-column: 2;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1767,7 +1770,9 @@ pre.cv-math-source {
 }
 /* Quiet and always there. On hover a row adds only a finished call's check and time (above). */
 .cv-tool__chevron {
-  margin-left: -4px;
+  grid-column: 4;
+  justify-self: end;
+  margin-left: 0;
   color: var(--cv-text-dim);
 }
 /* A transcript row's Copy is an absolute sibling of its tool button. Reserve one
@@ -2098,6 +2103,7 @@ pre.cv-math-source {
 }
 /* "Ran npm test  ✓ 4.2s": the command fills the row, its status and time sit at the right edge. */
 .cv-command__text {
+  grid-column: 2;
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -2127,7 +2133,8 @@ pre.cv-math-source {
   opacity: 0;
 }
 .cv-tool > .cv-command__meta {
-  margin-left: auto;
+  grid-column: 3;
+  margin-left: 0;
 }
 .cv-tool:is(:hover, :focus-visible) :is(.cv-command__ok, .cv-command__time) {
   opacity: 1;
@@ -2147,7 +2154,8 @@ pre.cv-math-source {
 }
 /* A lone shell row's background state (ToolRow.tsx, BackgroundMark.tsx) sits at its right edge. */
 .cv-tool__meta {
-  margin-left: auto;
+  grid-column: 3;
+  margin-left: 0;
 }
 .cv-command__bg-state {
   display: flex;
