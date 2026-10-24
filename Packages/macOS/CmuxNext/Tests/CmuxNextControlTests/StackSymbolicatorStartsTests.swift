@@ -54,3 +54,25 @@ struct StackSymbolicatorStartsTests {
         #expect(live.offsets.contains(retain), "swift_retain is a function start of its image")
     }
 }
+
+/// A hang record's JSON carries `frame_details` beside `frames`: per frame its image, image UUID,
+/// offset from the image header and the symbol or null, so a reader that distrusts a name (the
+/// every-action sweep, the dSYM step) resolves the frame by UUID and offset.
+struct HangRecordFrameDetailsTests {
+    @Test func aNamedFrameStillCarriesItsImageUUIDAndOffset() throws {
+        var info = Dl_info()
+        let symbol = try #require(dlsym(UnsafeMutableRawPointer(bitPattern: -2), "swift_retain"))
+        #expect(dladdr(symbol, &info) != 0)
+        let header = try #require(info.dli_fbase)
+        let base = UInt(bitPattern: header)
+        let address = UInt(bitPattern: symbol)
+        let record = HangRecord(sequence: 1, startUptimeNanos: 0, duration: .milliseconds(30), cpu: .milliseconds(30),
+                                addresses: [address])
+        let details = try #require(record.json.objectValue?["frame_details"]?.arrayValue?.first?.objectValue)
+        #expect(details["image_offset"]?.doubleValue == Double(address - base))
+        let uuid = try #require(details["image_uuid"]?.stringValue)
+        #expect(UUID(uuidString: uuid) != nil)
+        #expect(details["symbol"]?.stringValue == "swift_retain")
+        #expect(details["image"]?.stringValue?.hasPrefix("libswiftCore") == true)
+    }
+}

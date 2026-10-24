@@ -28,8 +28,9 @@ public struct StackSymbolicator: Sendable {
     /// frame still reports its address, and offsets count from it.
     public func frames(for addresses: [UInt]) -> [HangFrame] {
         let executable = _dyld_get_image_header(0).map { UnsafeRawPointer($0) }
-        // Each image's function starts, read once per stack (images repeat within one stack).
+        // Each image's function starts and UUID, read once per stack (images repeat within one stack).
         var startsByImage: [UInt: FunctionStarts?] = [:]
+        var uuidByImage: [UInt: String?] = [:]
         func functionStarts(_ header: UnsafeMutableRawPointer) -> FunctionStarts? {
             let key = UInt(bitPattern: header)
             if let known = startsByImage[key] { return known }
@@ -37,26 +38,44 @@ public struct StackSymbolicator: Sendable {
             startsByImage[key] = .some(read)
             return read
         }
-        return addresses.enumerated().map { index, address in
-            var info = Dl_info()
-            let lookup = index == 0 || address == 0 ? address : address &- 1
-            guard let pointer = UnsafeRawPointer(bitPattern: lookup), dladdr(pointer, &info) != 0 else {
-                return HangFrame(address: address, image: nil, symbol: nil, offset: 0)
-            }
-            let image = info.dli_fname.map { (String(cString: $0) as NSString).lastPathComponent }
-            let imageOffset = info.dli_fbase.map { address &- UInt(bitPattern: $0) }
-            let lookupOffset = info.dli_fbase.map { lookup &- UInt(bitPattern: $0) }
-            if let map, let imageOffset, let lookupOffset, info.dli_fbase.map(UnsafeRawPointer.init) == executable,
-               let function = map.function(at: lookupOffset) {
-                // The offset into the function, counted from the reported address.
-                return HangFrame(address: address, image: image, symbol: Self.demangle(function.name),
-                                 offset: function.offset &+ (address &- lookup), imageOffset: imageOffset)
-            }
-            let symbolOffset = info.dli_saddr.flatMap { saddr in info.dli_fbase.map { UInt(bitPattern: saddr) &- UInt(bitPattern: $0) } }
-            return Self.frame(address: address, lookup: lookup, image: image, imageOffset: imageOffset,
-                              symbol: info.dli_sname.map { String(cString: $0) }, symbolOffset: symbolOffset,
-                              starts: info.dli_fbase.flatMap(functionStarts))
+        func uuid(_ header: UnsafeMutableRawPointer) -> String? {
+            let key = UInt(bitPattern: header)
+            if let known = uuidByImage[key] { return known }
+            let read = FunctionStarts.uuid(header: UnsafeRawPointer(header))
+            uuidByImage[key] = .some(read)
+            return read
         }
+        return addresses.enumerated().map { index, address in
+            var frame = frame(index: index, address: address, executable: executable, functionStarts: functionStarts)
+            if frame.imageOffset != nil, let header = UnsafeMutableRawPointer(bitPattern: address &- (frame.imageOffset ?? 0)) {
+                frame.imageUUID = uuid(header)
+            }
+            return frame
+        }
+    }
+
+    /// One address's frame (``frames(for:)``): the app's own map first, else `dladdr` checked
+    /// against the image's function starts.
+    private func frame(index: Int, address: UInt, executable: UnsafeRawPointer?,
+                       functionStarts: (UnsafeMutableRawPointer) -> FunctionStarts?) -> HangFrame {
+        var info = Dl_info()
+        let lookup = index == 0 || address == 0 ? address : address &- 1
+        guard let pointer = UnsafeRawPointer(bitPattern: lookup), dladdr(pointer, &info) != 0 else {
+            return HangFrame(address: address, image: nil, symbol: nil, offset: 0)
+        }
+        let image = info.dli_fname.map { (String(cString: $0) as NSString).lastPathComponent }
+        let imageOffset = info.dli_fbase.map { address &- UInt(bitPattern: $0) }
+        let lookupOffset = info.dli_fbase.map { lookup &- UInt(bitPattern: $0) }
+        if let map, let imageOffset, let lookupOffset, info.dli_fbase.map(UnsafeRawPointer.init) == executable,
+           let function = map.function(at: lookupOffset) {
+            // The offset into the function, counted from the reported address.
+            return HangFrame(address: address, image: image, symbol: Self.demangle(function.name),
+                             offset: function.offset &+ (address &- lookup), imageOffset: imageOffset)
+        }
+        let symbolOffset = info.dli_saddr.flatMap { saddr in info.dli_fbase.map { UInt(bitPattern: saddr) &- UInt(bitPattern: $0) } }
+        return Self.frame(address: address, lookup: lookup, image: image, imageOffset: imageOffset,
+                          symbol: info.dli_sname.map { String(cString: $0) }, symbolOffset: symbolOffset,
+                          starts: info.dli_fbase.flatMap(functionStarts))
     }
 
     /// One frame from `dladdr`'s fields: `symbol` (mangled) at `symbolOffset` from the image header,

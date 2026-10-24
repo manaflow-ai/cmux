@@ -1,4 +1,5 @@
 import Darwin
+import Foundation
 import MachO
 
 /// The function start offsets of one loaded image (its `LC_FUNCTION_STARTS`, which lists every
@@ -51,6 +52,27 @@ struct FunctionStarts: Sendable, Equatable {
             shift = 0
         }
         return FunctionStarts(offsets: offsets)
+    }
+
+    /// The `LC_UUID` of the loaded image at `header`, uppercase; nil when it has none.
+    static func uuid(header: UnsafeRawPointer) -> String? {
+        let mach = header.assumingMemoryBound(to: mach_header_64.self).pointee
+        guard mach.magic == MH_MAGIC_64 else { return nil }
+        var command = header.advanced(by: MemoryLayout<mach_header_64>.size)
+        var remaining = UInt64(truncatingIfNeeded: mach.sizeofcmds)
+        let loadSize = UInt64(truncatingIfNeeded: MemoryLayout<load_command>.size)
+        for _ in 0..<mach.ncmds {
+            guard remaining >= loadSize else { return nil }
+            let load = command.loadUnaligned(as: load_command.self)
+            let size = UInt64(truncatingIfNeeded: load.cmdsize)
+            guard size >= loadSize, size <= remaining else { return nil }
+            remaining -= size
+            if load.cmd == LC_UUID, size >= UInt64(truncatingIfNeeded: MemoryLayout<uuid_command>.size) {
+                return UUID(uuid: command.loadUnaligned(as: uuid_command.self).uuid).uuidString
+            }
+            command = command.advanced(by: Int(truncatingIfNeeded: load.cmdsize))
+        }
+        return nil
     }
 
     /// The function starts of the loaded image at `header`, read from its mapped `__LINKEDIT`;
