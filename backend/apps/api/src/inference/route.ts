@@ -9,7 +9,7 @@ import { roleHas } from "../domains/team-roles.ts"
 const SPEND_CLASSES: ReadonlySet<string> = new Set(["mutate-own", "mutate-shared", "money"])
 import { nextMonthStart, userLimitMicros } from "../usage-user.ts"
 import type { Env } from "../env.ts"
-import { cardCost, MODELS, modelById, type ModelEntry, type ProviderId } from "./catalog.ts"
+import { cardCost, MODELS, modelById, routeCost, type ModelEntry, type ProviderId } from "./catalog.ts"
 import { providerTarget } from "./providers.ts"
 import { callUpstream } from "./upstream.ts"
 import { freeCaller, freeSettle, freeAdmit } from "./free.ts"
@@ -53,8 +53,12 @@ const disabledProviders = (env: Env) => new Set((env.INFERENCE_DISABLED_PROVIDER
 /** Providers of a model that this deployment can call now (key or binding present, not switched off). */
 export const liveRoutes = (env: Env, m: ModelEntry) => {
   const off = disabledProviders(env)
-  return m.routes.filter((r) => !off.has(r.provider) && providerTarget(env, r.provider) !== undefined)
+  // Cheapest first (paid-plan.md §2); sort is stable, so equal or unpriced routes keep catalog order.
+  return m.routes.filter((r) => !off.has(r.provider) && providerTarget(env, r.provider) !== undefined).sort((a, b) => routeCost(a) - routeCost(b))
 }
+
+/** Outside production, `x-cmux-provider` pins one provider (per-provider staging checks); production ignores it. */
+export const PROVIDER_PIN_HEADER = "x-cmux-provider"
 
 /** Bearer token, or `x-api-key` (Messages API clients send the key there). */
 const bearer = (request: Request) => {
@@ -178,14 +182,14 @@ export const admitRequest = async (env: Env, request: Request): Promise<{ caller
 export const handleChatCompletions = async (env: Env, request: Request, ctx: ExecutionContext): Promise<Response> => {
   const admitted = await admitRequest(env, request)
   if (admitted instanceof Response) return admitted
-  return serveChat(env, ctx, admitted.caller, admitted.body, admitted.bytes)
+  return serveChat(env, ctx, admitted.caller, admitted.body, admitted.bytes, request.headers.get(PROVIDER_PIN_HEADER))
 }
 
 /**
  * One OpenAI chat/completions request from an admitted caller. `promptBytes` bounds the prompt
  * tokens (one token is at least one byte of the request).
  */
-export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller, body: Record<string, unknown>, promptBytes: number): Promise<Response> => {
+export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller, body: Record<string, unknown>, promptBytes: number, pin?: string | null): Promise<Response> => {
   const model = typeof body.model === "string" ? modelById(body.model) : undefined
   if (!model) return err(404, "model.not_found", "unknown model; GET /v1/inference/models lists the models")
   if (!Array.isArray(body.messages) || body.messages.length === 0) return err(400, "validation.invalid", "messages must be a non-empty array")
@@ -198,7 +202,9 @@ export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller,
   const free = caller.kind === "free"
   if (free && !model.free) return err(403, "free.model", "the free tier serves only the free models; sign in for the others")
   const maxTokens = Math.min(requested, model.maxOutput, free ? Number(env.INFERENCE_FREE_MAX_TOKENS ?? "4096") || 4096 : model.maxOutput)
-  const routes = liveRoutes(env, model)
+  const pinned = env.ENVIRONMENT !== "production" && pin ? pin : undefined
+  const routes = liveRoutes(env, model).filter((r) => pinned === undefined || r.provider === pinned)
+  if (pinned !== undefined && routes.length === 0) return err(400, "provider.not_on_route", `${pinned} does not serve this model on this deployment`)
   if (routes.length === 0) return err(503, "provider.unavailable", "no provider can serve this model now")
 
   const id = crypto.randomUUID()
