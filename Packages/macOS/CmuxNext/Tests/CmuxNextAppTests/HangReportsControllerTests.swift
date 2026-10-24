@@ -58,7 +58,9 @@ import Testing
             environment: HangReportService.Environment(
                 app: HangReport.App(version: "0.70.0", build: "70123", channel: "nightly"), os: HangReport.OS(version: "15.7.4"),
                 hardware: HardwareClass(arch: "arm64", chip: "Apple M4 Pro", cores: 14, memoryGB: 48), counts: { .unknown },
-                stillAllowed: { !managedDisables && defaults.object(forKey: HangReportsController.consentKey) is Date }))
+                stillAllowed: { [suite, key = HangReportsController.consentKey] in
+                    !managedDisables && UserDefaults(suiteName: suite)?.object(forKey: key) is Date
+                }))
         let controller = HangReportsController(service: service, managedDisables: { managedDisables }, defaults: defaults)
         let asks = SidebarAsks()
         controller.start(settings: settings, asks: asks, firstWindow: {})
