@@ -13,57 +13,80 @@ nonisolated struct VerificationPageScripts {
     /// The isolated world the scripts run in.
     static let world = "cmux-verify"
 
+    /// The function the detector puts on its world's `window`; calling it says the channel
+    /// exists now (CEF calls it right after adding the binding: `CEFVerificationBridge`).
+    static let readyHook = "__cmuxVerifyReady"
+
     /// The detector. `post` sends `report` (an object) to Swift; `ready` is true once the
     /// channel exists (CEF adds its binding after the world exists). It checks at load, then
-    /// on DOM changes at most once a second, reports once per document, and stops after
-    /// 10 minutes (the offer window). While the page is hidden its changes are only noted:
-    /// it is checked once when it shows again, so a hidden page costs no timer and no layout.
+    /// on DOM changes at most once a second, reports once per document, and stops for good
+    /// after 10 minutes (the offer window): no observer, no listener, no report after that.
+    /// While the page is hidden its changes are only noted: it is checked once when it shows
+    /// again, so a hidden page costs no timer and no layout. A page found waiting before the
+    /// channel exists keeps no timer and reads no more text: it reports when the channel
+    /// says it is ready (``readyHook``), or at the next show.
     static func detectorScript(post: String, ready: String = "true") -> String {
         """
         (() => {
           if (window !== window.top || !/^https:$/.test(location.protocol)) return;
           const phrases = /(we (just )?sent|we('ve| have) (just )?(sent|emailed)|check your (email|inbox)|sent (you )?(a|an) (code|link|email)|enter (the|your) (verification |security |one-time |sign-in |login )?code|verification code|verify your email|confirm your email|magic link|one-time (pass)?code)/i;
           // `changed`: the DOM changed while the page was hidden; it is looked at when it shows.
-          let reported = false, pending = false, changed = false, last = 0, waitsForChannel = 0;
+          // `waiting`: the page waits for a code and only the channel is missing.
+          // `done`: reported, or the offer window ended.
+          let reported = false, pending = false, changed = false, last = 0, waiting = false, done = false;
           const waits = () => {
             if (document.querySelector('input[autocomplete~="one-time-code" i]')) return true;
             const text = (document.body && document.body.innerText || '').slice(0, 20000);
             return phrases.test(text);
           };
-          const send = () => {
-            if (reported) return;
-            // The channel comes with the world's binding: wait for it at most 10 s, not forever.
-            if (!(\(ready))) { if (++waitsForChannel < 40) setTimeout(send, 250); return; }
-            reported = true;
+          const finish = () => {
+            done = true;
+            waiting = false;
+            changed = false;
             observer.disconnect();
+            document.removeEventListener('visibilitychange', visibility);
+          };
+          const send = () => {
+            if (reported || done) return;
+            // The page waits; the channel comes with the world's binding. No timer and no more
+            // text reads: the channel's ready call (or the next show) sends.
+            if (!(\(ready))) { waiting = true; observer.disconnect(); return; }
+            reported = true;
+            finish();
             const report = { waiting: true };
             \(post);
           };
+          window[\(jsonStringLiteral(readyHook))] = () => { if (waiting) send(); };
           const check = () => {
             pending = false;
+            if (done) return;
             if (document.visibilityState === 'hidden') { changed = true; return; }
             last = Date.now();
-            if (!reported && waits()) send();
+            if (waiting) { send(); return; }
+            if (waits()) send();
           };
           // A hidden page is one nobody types a code into: its changes (a clock, a feed) cost no
           // timer and no text read until it shows again.
           const schedule = () => {
-            if (reported || pending) return;
+            if (done || pending) return;
             if (document.visibilityState === 'hidden') { changed = true; return; }
             pending = true;
             setTimeout(check, Math.max(0, 1000 - (Date.now() - last)));
           };
-          document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'hidden' || !changed) return;
+          const visibility = () => {
+            if (done || document.visibilityState === 'hidden') return;
+            if (waiting) { send(); return; }
+            if (!changed) return;
             changed = false;
             schedule();
-          });
+          };
+          document.addEventListener('visibilitychange', visibility);
           const observer = new MutationObserver(schedule);
           const start = () => {
-            if (!document.documentElement) return;
+            if (!document.documentElement || done) return;
             observer.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
             check();
-            setTimeout(() => observer.disconnect(), 600000);
+            setTimeout(finish, 600000);
           };
           if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
           else start();
