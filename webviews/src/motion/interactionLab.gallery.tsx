@@ -89,7 +89,9 @@ function HierarchyDemo() {
       surface?.setAttribute("data-motion-active", "false");
       return;
     }
+    let removeFrame = () => false;
     const frame = requestAnimationFrame(() => {
+      removeFrame();
       if (!node) return;
       const duration = stageTiming(reduced, 360);
       const animation = node.animate(
@@ -127,7 +129,7 @@ function HierarchyDemo() {
           remove();
         });
     });
-    cleanup.add(() => {
+    removeFrame = cleanup.add(() => {
       cancelAnimationFrame(frame);
       surface?.setAttribute("data-motion-active", "false");
     });
@@ -219,8 +221,12 @@ function ListDemo() {
     // Two rows make the stagger visible while keeping the fixture small enough for a frame trace.
     setItems((current) => [`delta-${current.length + 1}`, `echo-${current.length + 1}`, ...current]);
     if (reduced || motionIsOff()) return;
-    const frame = requestAnimationFrame(() => animateLayout(before));
-    cleanup.add(() => cancelAnimationFrame(frame));
+    let removeFrame = () => false;
+    const frame = requestAnimationFrame(() => {
+      removeFrame();
+      animateLayout(before);
+    });
+    removeFrame = cleanup.add(() => cancelAnimationFrame(frame));
   };
   const remove = () => {
     if (items.length < 2) return;
@@ -248,8 +254,12 @@ function ListDemo() {
       .then(() => {
         removeCleanup();
         setItems((current) => current.slice(0, -1));
-        const frame = requestAnimationFrame(() => animateLayout(before));
-        cleanup.add(() => cancelAnimationFrame(frame));
+        let removeFrame = () => false;
+        const frame = requestAnimationFrame(() => {
+          removeFrame();
+          animateLayout(before);
+        });
+        removeFrame = cleanup.add(() => cancelAnimationFrame(frame));
       })
       .catch(() => removeCleanup());
   };
