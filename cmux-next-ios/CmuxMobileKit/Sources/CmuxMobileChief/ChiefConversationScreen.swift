@@ -521,7 +521,14 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
                     self?.trailingWasAction = !(button?.currentImage.map(Self.isXmark) ?? true)
                 }, for: .touchDown)
                 button.addAction(UIAction { [weak self] _ in
-                    guard let self, self.trailingWasAction else { return }
+                    guard let self else { return }
+                    // Read once: an activation with no touch-down (Full Keyboard
+                    // Access) never reuses an earlier tap's state.
+                    let wasPlain = self.trailingWasAction
+                    self.trailingWasAction = false
+                    // The package relabels the button on every mode change.
+                    self.labelTrailing()
+                    guard wasPlain else { return }
                     self.presentInvite()
                 }, for: .touchUpInside)
                 trailingButton = button
@@ -591,8 +598,12 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         view.endEditing(true)
         let sheet = ChiefInvite.shareSheet()
         if let popover = sheet.popoverPresentationController {
-            popover.sourceView = trailingButton ?? view
-            if trailingButton == nil { popover.sourceRect = CGRect(x: view.bounds.maxX - 44, y: view.safeAreaInsets.top, width: 1, height: 1) }
+            if let trailingButton {
+                popover.sourceItem = trailingButton
+            } else {
+                popover.sourceView = view
+                popover.sourceRect = CGRect(x: view.bounds.maxX - 44, y: view.safeAreaInsets.top, width: 1, height: 1)
+            }
         }
         present(sheet, animated: true)
     }

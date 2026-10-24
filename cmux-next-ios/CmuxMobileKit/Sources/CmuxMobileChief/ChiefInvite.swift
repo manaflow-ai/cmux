@@ -46,13 +46,14 @@ extension ChiefInvite {
         UIActivityViewController(activityItems: [message, LinkItem()], applicationActivities: nil)
     }
 
-    /// This app's icon, as the system shows it on the Home Screen.
+    /// This app's icon, as the system shows it on the Home Screen; the
+    /// launch screen's cmux mark when the icon is not loadable by name (an
+    /// Icon Composer icon may have no named rendition).
     @MainActor static func appIcon() -> UIImage? {
-        guard let icons = Bundle.main.infoDictionary?["CFBundleIcons"] as? [String: Any],
-              let primary = icons["CFBundlePrimaryIcon"] as? [String: Any] else { return nil }
-        if let name = primary["CFBundleIconName"] as? String, let image = UIImage(named: name) { return image }
-        if let files = primary["CFBundleIconFiles"] as? [String], let name = files.last { return UIImage(named: name) }
-        return nil
+        let primary = (Bundle.main.infoDictionary?["CFBundleIcons"] as? [String: Any])?["CFBundlePrimaryIcon"] as? [String: Any]
+        if let name = primary?["CFBundleIconName"] as? String, let image = UIImage(named: name) { return image }
+        if let name = (primary?["CFBundleIconFiles"] as? [String])?.last, let image = UIImage(named: name) { return image }
+        return UIImage(named: "LaunchMark")
     }
 
     /// The link, with the preview the share sheet draws at its top.
@@ -73,7 +74,7 @@ extension ChiefInvite {
 
         func activityViewController(_ controller: UIActivityViewController,
                                     subjectForActivityType activityType: UIActivity.ActivityType?) -> String {
-            ChiefInvite.actionTitle
+            String(localized: "Try cmux")
         }
 
         func activityViewControllerLinkMetadata(_ controller: UIActivityViewController) -> LPLinkMetadata? {
