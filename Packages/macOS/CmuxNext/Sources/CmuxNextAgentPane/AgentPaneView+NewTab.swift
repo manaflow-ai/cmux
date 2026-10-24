@@ -19,28 +19,37 @@ extension AgentPaneView {
         show(page)
     }
 
-    /// The open tabs and workspaces changed while this page shows (Leo 2026-10-11: rows for New
-    /// Tab pages and workspaces gone since stayed listed). The page's bar takes the new places in
-    /// place, as an `acpmux-newtab-places` event, with no remount: what is typed stays.
+    /// The open tabs and workspaces changed (Leo 2026-10-11: rows for New Tab pages and workspaces
+    /// gone since stayed listed). The page's bar takes the new places in place, with no remount:
+    /// what is typed stays. A push of the host's state: on the page host it is a `newTabPlaces`
+    /// event, which a frozen hidden page gets once, the newest, at its thaw (PATTERNS.md P10; a
+    /// host script here thawed it on every terminal title change). The old host gets an
+    /// `acpmux-newtab-places` script.
     public func refreshNewTabPlaces(tabs: [AgentPaneOmnibar.Tab], workspaces: [AgentPaneOmnibar.Workspace]) {
         guard model.sessionId == nil, var page = model.newTab,
               page.omnibar.tabs != tabs || page.omnibar.workspaces != workspaces else { return }
         page.omnibar.tabs = tabs
         page.omnibar.workspaces = workspaces
         model.adoptNewTab(page)
-        guard let data = try? JSONEncoder().encode(page.omnibar), let json = String(data: data, encoding: .utf8) else { return }
-        evaluateScript("window.dispatchEvent(new CustomEvent('acpmux-newtab-places', {detail: \(json)}))")
+        let omnibar = page.omnibar
+        deliver(AgentPageEvent.newTabPlaces(omnibar).map { [$0] } ?? [], scripts: { () -> [String] in
+            guard let data = try? JSONEncoder().encode(omnibar), let json = String(data: data, encoding: .utf8) else { return [] }
+            return ["window.dispatchEvent(new CustomEvent('acpmux-newtab-places', {detail: \(json)}))"]
+        }())
     }
 
-    /// The weather widget's reading arrived or changed while this page shows (``AgentPaneNewTab/weather``):
-    /// the page takes it in place, as an `acpmux-newtab-weather` event, with no remount. nil (the
-    /// widget turned off) takes the reading away.
+    /// The weather widget's reading arrived or changed (``AgentPaneNewTab/weather``): the page takes
+    /// it in place, with no remount. nil (the widget turned off) takes the reading away. A push of
+    /// the host's state: a `newTabWeather` event on the page host (a frozen page gets the newest at
+    /// its thaw), an `acpmux-newtab-weather` script on the old host.
     public func refreshNewTabWeather(_ weather: AgentPaneNewTabWeather?) {
         guard model.sessionId == nil, var page = model.newTab, page.weather != weather else { return }
         page.weather = weather
         model.adoptNewTab(page)
-        let json = weather.flatMap { try? JSONEncoder().encode($0) }.flatMap { String(data: $0, encoding: .utf8) } ?? "null"
-        evaluateScript("window.dispatchEvent(new CustomEvent('acpmux-newtab-weather', {detail: \(json)}))")
+        deliver([.newTabWeather(weather)], scripts: { () -> [String] in
+            let json = weather.flatMap { try? JSONEncoder().encode($0) }.flatMap { String(data: $0, encoding: .utf8) } ?? "null"
+            return ["window.dispatchEvent(new CustomEvent('acpmux-newtab-weather', {detail: \(json)}))"]
+        }())
     }
 
     private func show(_ page: AgentPaneNewTab) {
