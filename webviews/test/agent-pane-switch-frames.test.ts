@@ -85,6 +85,10 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
 
   let attaches = 0;
   let malformedAttachFor: string | undefined;
+  let malformedAttachConsumed = false;
+  let freshSessionId: string | undefined;
+  let freshSessionCreated = 0;
+  let freshSessionAttached = false;
   function answer(method: string, params: Record<string, any>): unknown {
     switch (method) {
       case "initialize":
@@ -97,9 +101,27 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
         return { sessions: [...chats.values()].map((entry) => entry.listed) };
       case "_acpmux/attach": {
         attaches += 1;
-        const entry = chats.get(String(params.sessionId))!;
+        const sessionId = String(params.sessionId);
+        if (freshSessionId && sessionId === freshSessionId) {
+          freshSessionAttached = true;
+          return {
+            session: {
+              ...B.attached,
+              sessionId,
+              title: "Fresh recovery",
+              turnCount: 0,
+              events: [],
+            },
+            lastSeq: 0,
+            events: [],
+          };
+        }
+        const entry = chats.get(sessionId)!;
         return { session: entry.attached, lastSeq: entry.events.length, events: entry.events };
       }
+      case "session/new":
+        freshSessionCreated += 1;
+        return freshSessionId ? { sessionId: freshSessionId } : {};
       case "_acpmux/events":
         return {
           events: [],
@@ -156,7 +178,10 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
             );
           if (message.method === "_acpmux/attach" && malformedAttachFor === String(message.params?.sessionId ?? "")) {
             malformedAttachFor = undefined;
-            ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: { events: [] } }));
+            malformedAttachConsumed = true;
+            // Events without a matching session summary are malformed too: the client must not
+            // treat a partial page as an accepted target.
+            ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: { events: [B.events[0]] } }));
             return;
           }
           if (message.method === "_acpmux/attach") setTimeout(reply, ATTACH_MS);
@@ -355,12 +380,25 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
           }
         ).staleChatFrames,
     );
-    await page.close();
     const final = frames.at(-1)!;
     console.log(`stale-old-chat: final frame ${JSON.stringify(final)}`);
+    expect(malformedAttachConsumed).toBe(true);
     expect(final.newTab).toBe(true);
     expect(final.empty).toBe(false);
     expect(final.transcript).toBe(false);
+
+    freshSessionId = "0190a000-0000-7000-8000-0000000000f3";
+    await page.evaluate(async () => {
+      const actions = (
+        window as unknown as {
+          cmuxAcpmuxActions?: Record<string, (params: object) => Promise<unknown>>;
+        }
+      ).cmuxAcpmuxActions;
+      await actions?.["chat.send"]?.({ text: "Fresh recovery" });
+    });
+    expect(freshSessionCreated).toBe(1);
+    expect(freshSessionAttached).toBe(true);
+    await page.close();
   });
 
   // Leo 2026-10-20 ("the rendering is just not great on the first frame"): a chat shown for the
