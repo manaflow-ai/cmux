@@ -37,6 +37,11 @@ public final class ScreenSession {
         /// The frame rate the Mac streams at (60, or up to 120 when both
         /// displays can); nil from a Mac that does not say (stream only).
         public var targetFps: Int?
+        /// A screen stream's totals since it started (WebRTC's inbound video):
+        /// frames that arrived, were decoded, and were dropped before showing.
+        public var framesReceived: Double = 0
+        public var framesDecoded: Double = 0
+        public var framesDropped: Double = 0
     }
 
     public let title: String
@@ -387,6 +392,9 @@ public final class ScreenSession {
             next.kilobytesPerSecond = (video.bytesReceived - lastBytes) / 1024 / max(now - lastTime, 0.001)
             next.latencyMs = video.rttMs
             next.encoding = [video.codec, video.decoder == "VideoToolbox" ? "HW" : video.decoder].compactMap { $0 }.joined(separator: " ")
+            next.framesReceived = video.framesReceived
+            next.framesDecoded = video.framesDecoded
+            next.framesDropped = video.framesDropped
             stats = next
             lastBytes = video.bytesReceived
             lastTime = now

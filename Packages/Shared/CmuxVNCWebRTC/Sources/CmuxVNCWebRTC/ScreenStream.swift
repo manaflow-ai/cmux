@@ -176,6 +176,8 @@ public final class ScreenStreamHost: @unchecked Sendable {
         var viewerFrameRate: Int?
         /// The rate the stream is set to (nil until the source reports its displays).
         var frameRate: Int?
+        /// Pictures the source delivered since the last encoder log line (idle refreshes not counted).
+        var captured = 0
         /// The data channel opened: from here on only WebRTC ends the session.
         var opened = false
         init(link: VNCPeerLink, backend: any ScreenBackend) {
@@ -355,6 +357,7 @@ public final class ScreenStreamHost: @unchecked Sendable {
         session.tasks.append(Task { [weak self] in
             do {
                 try await session.backend.start(frame: { [weak self] buffer, crop in
+                    session.lock.withLock { session.captured += 1 }
                     self?.push(buffer, crop: crop, session: session)
                 }, displays: { [weak self] sizes, current in
                     session.lock.withLock {
@@ -370,12 +373,22 @@ public final class ScreenStreamHost: @unchecked Sendable {
                 self?.emit(.sourceFailed("\(error)"))
             }
         })
-        // Every 3 s: what the encoder is doing (codec, hardware, fps, limits).
+        // Every 3 s: what the encoder is doing (codec, hardware, fps, limits),
+        // how many pictures the source delivered, and the rate the stream is set to.
         session.tasks.append(Task { [weak self] in
+            var since = DispatchTime.now().uptimeNanoseconds
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(3)) // sampling period
                 guard let self else { return }
-                log("video: \(await session.link.outboundVideoSummary())")
+                let summary = await session.link.outboundVideoSummary()
+                let now = DispatchTime.now().uptimeNanoseconds
+                let (captured, target) = session.lock.withLock { () -> (Int, Int?) in
+                    defer { session.captured = 0 }
+                    return (session.captured, session.frameRate)
+                }
+                let seconds = max(Double(now - since) / 1e9, 0.001)
+                since = now
+                log("video: \(summary) capture \(String(format: "%.1f", Double(captured) / seconds)) fps target \(target.map(String.init) ?? "-") fps")
             }
         })
         // Idle refresh: capture sends nothing while the screen is still, but a
@@ -815,6 +828,14 @@ public final class ScreenStreamViewer: @unchecked Sendable {
         public var decoder: String?
         public var bytesReceived: Double = 0
         public var framesDecoded: Double = 0
+        /// Totals since the stream started: frames whose packets all arrived,
+        /// and frames received but never decoded or shown (`framesDropped`).
+        public var framesReceived: Double = 0
+        public var framesDropped: Double = 0
+        /// Seconds spent decoding, in total (with `framesDecoded`: the mean decode time).
+        public var totalDecodeTime: Double = 0
+        public var freezeCount: Double = 0
+        public var packetsLost: Double = 0
     }
 
     public func videoStats() async -> VideoStats {

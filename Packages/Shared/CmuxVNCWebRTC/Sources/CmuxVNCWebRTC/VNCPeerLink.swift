@@ -455,6 +455,11 @@ extension VNCPeerLink {
                         stats.fps = (values["framesPerSecond"] as? NSNumber)?.doubleValue
                         stats.bytesReceived = (values["bytesReceived"] as? NSNumber)?.doubleValue ?? 0
                         stats.framesDecoded = (values["framesDecoded"] as? NSNumber)?.doubleValue ?? 0
+                        stats.framesReceived = (values["framesReceived"] as? NSNumber)?.doubleValue ?? 0
+                        stats.framesDropped = (values["framesDropped"] as? NSNumber)?.doubleValue ?? 0
+                        stats.totalDecodeTime = (values["totalDecodeTime"] as? NSNumber)?.doubleValue ?? 0
+                        stats.freezeCount = (values["freezeCount"] as? NSNumber)?.doubleValue ?? 0
+                        stats.packetsLost = (values["packetsLost"] as? NSNumber)?.doubleValue ?? 0
                         if let delay = (values["jitterBufferDelay"] as? NSNumber)?.doubleValue,
                            let emitted = (values["jitterBufferEmittedCount"] as? NSNumber)?.doubleValue, emitted > 0 {
                             stats.jitterBufferMs = delay / emitted * 1000
@@ -474,7 +479,9 @@ extension VNCPeerLink {
 }
 
 extension VNCPeerLink {
-    /// Outbound video, one line (host diagnostics).
+    /// Outbound video, one line (host diagnostics): the frames reaching the
+    /// encoder (`source fps`), the encoder's output and what limits it, and
+    /// the round trip.
     func outboundVideoSummary() async -> String {
         await withCheckedContinuation { continuation in
             connection.statistics { report in
@@ -482,12 +489,23 @@ extension VNCPeerLink {
                 for entry in report.statistics.values where entry.type == "codec" {
                     codecs[entry.id] = entry.values["mimeType"] as? String
                 }
+                var sourceFps = "?"
+                for entry in report.statistics.values where entry.type == "media-source" && (entry.values["kind"] as? String) == "video" {
+                    sourceFps = entry.values["framesPerSecond"].map { "\($0)" } ?? "?"
+                }
+                var rtt = "?"
+                for entry in report.statistics.values where entry.type == "candidate-pair" && (entry.values["nominated"] as? NSNumber)?.boolValue == true {
+                    if let seconds = entry.values["currentRoundTripTime"] as? NSNumber { rtt = String(format: "%.1f", seconds.doubleValue * 1000) }
+                }
                 var out = "no outbound video"
                 for entry in report.statistics.values where entry.type == "outbound-rtp" && (entry.values["kind"] as? String) == "video" {
                     let v = entry.values
                     func f(_ key: String) -> String { v[key].map { "\($0)" } ?? "?" }
                     let codec = codecs[(v["codecId"] as? String) ?? ""].flatMap { $0 } ?? "?"
-                    out = "codec \(codec) encoder \(f("encoderImplementation")) powerEfficient \(f("powerEfficientEncoder")) \(f("frameWidth"))x\(f("frameHeight")) fps \(f("framesPerSecond")) encoded \(f("framesEncoded")) limited-by \(f("qualityLimitationReason")) target \(f("targetBitrate")) bps"
+                    let encodeMs = (v["totalEncodeTime"] as? NSNumber).flatMap { total in
+                        (v["framesEncoded"] as? NSNumber).map { $0.doubleValue > 0 ? total.doubleValue / $0.doubleValue * 1000 : 0 }
+                    }.map { String(format: "%.2f", $0) } ?? "?"
+                    out = "codec \(codec) encoder \(f("encoderImplementation")) powerEfficient \(f("powerEfficientEncoder")) \(f("frameWidth"))x\(f("frameHeight")) source fps \(sourceFps) fps \(f("framesPerSecond")) encoded \(f("framesEncoded")) sent \(f("framesSent")) encode \(encodeMs) ms limited-by \(f("qualityLimitationReason")) target \(f("targetBitrate")) bps sent-bytes \(f("bytesSent")) rtt \(rtt) ms"
                 }
                 continuation.resume(returning: out)
             }

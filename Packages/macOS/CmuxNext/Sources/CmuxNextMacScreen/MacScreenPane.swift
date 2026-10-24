@@ -355,9 +355,21 @@ public final class MacScreenPaneView: NSView {
     /// screen, the last rate stays), so the Mac can stream at up to 120 fps
     /// on a ProMotion display.
     func reportDisplayRefresh(_ fps: Int?) {
+        #if DEBUG
+        let fps = debugDisplayFrameRate ?? fps
+        #endif
         guard let fps, fps > 0, let session = model.session, session.displayMaximumFrameRate != fps else { return }
         session.displayMaximumFrameRate = fps
     }
+
+    #if DEBUG
+    /// DEV builds (`debug.mac_screen` `display_fps`): the refresh rate this
+    /// pane reports instead of its display's, to check the 120 fps path from
+    /// a viewer whose display is 60 Hz. Nil reports the display's own again.
+    var debugDisplayFrameRate: Int? {
+        didSet { reportDisplayRefresh(window?.screen?.maximumFramesPerSecond) }
+    }
+    #endif
 
     /// Follows the window's display: moving to another display, or a
     /// display's mode changing (ProMotion on or off), reports its rate again.
