@@ -71,6 +71,8 @@ A sharded run (--shard K/N) times the interactions in shard 1 only; merge the sh
 --merge OUT/every-action.json SHARD.json... (writes the merged JSON and the ranked markdown).
 Exit status FAILED_SESSION_EXIT (3) when a session failed (its error is in failed_sessions and every-action.md; a
 session that failed partway keeps its rows, marked `failed`); a --merge that holds a shard's failure exits the same.
+A STRESS session of another shape (perf-stress-session's StressShapeError, at the build or at a mid-session
+rebuild) is such a failure: another layout is never measured as `stress`.
 """
 import argparse, csv, signal, threading, glob, importlib.util, json, os, platform, re, socket, statistics, subprocess, sys, tempfile, time
 
@@ -492,14 +494,9 @@ class Sweep:
             note(f"every-action: {self.session}: closed {len(leftover)} restored workspaces; "
                  f"{len(topology().get('workspaces') or [])} left")
         if self.session == "stress":
-            summary = self.builder.build(check=False) if "check" in self.builder.build.__code__.co_varnames else self.builder.build()
-            # The builder's own shape check (PL-motion-core): a deviation is quoted with every number, not a failed run.
-            try:
-                checker = getattr(type(self.builder), "check", None)
-                if checker:
-                    checker(summary)
-            except Exception as error:  # StressShapeError
-                summary["shape_error"] = str(error)[:400]
+            # STRESS or nothing (P12): the builder's own shape check raises StressShapeError on any other layout, which
+            # fails this session (failed_sessions, exit FAILED_SESSION_EXIT); another layout is never measured as it.
+            summary = self.builder.build()
             note("STRESS-SESSION " + json.dumps(summary))
             self.summary = summary
             workspace = summary.get("measured")
@@ -713,8 +710,16 @@ class Sweep:
             workspace = self.builder.build_measured()
         else:
             workspace, _ = self.builder.build_light()
-            if base_ws in shape(topology())["workspaces"]:
-                act("closeWorkspace", f"workspace:{base_ws}", origin="script")
+        # The damaged measured workspace goes: in STRESS it would stay a second grid of pages and busy terminals.
+        if base_ws in shape(topology())["workspaces"]:
+            act("closeWorkspace", f"workspace:{base_ws}", origin="script")
+            # The store applies the close after the reply, and the shape check counts workspaces (exactly 60):
+            # wait for it to go. If it never goes, the check fails the session with 61.
+            wait(lambda: base_ws not in shape(topology())["workspaces"], 10.0)
+        if self.session == "stress":
+            # The rebuilt session is STRESS again, or StressShapeError fails this session (run() and interaction()
+            # pass it up; main() records it in failed_sessions and exits FAILED_SESSION_EXIT).
+            self.stress_module.Stress.check(self.builder.summary())
         time.sleep(2)  # test script: rebuilt pages load
         self.snapshot_base(workspace)
 
@@ -914,8 +919,10 @@ class Sweep:
         note(f"every-action: {self.session} interaction {name}: {json.dumps({k: v for k, v in row.items() if k in ('commit_ms', 'key_to_frame_ms', 'frames', 'error', 'turn_ms')})[:300]}")
         try:
             self.restore("", False)
-        except Exception:  # restore failures show in the next row's drift
-            pass
+        except self.stress_module.StressShapeError:
+            raise  # the rebuilt session is not STRESS: the session fails
+        except Exception as error:  # this row keeps the restore failure; the next row's drift shows what it left
+            row["restore_error"] = f"{error!r}"[:240]
 
     def frames_during(self, body, settle=0.4):
         rpc("debug.hangs", {"clear": True})
@@ -1181,6 +1188,8 @@ class Sweep:
                 continue
             try:
                 row = self.run_action(action)
+            except self.stress_module.StressShapeError:
+                raise  # a restore rebuilt another layout: the session fails, it is never measured as STRESS
             except Exception as error:  # a harness failure is this action's row; the session goes on
                 row = {"session": self.session, "kind": "action", "id": action["id"], "errors": [f"harness: {error!r}"[:240]],
                        "frames": {"missed": None}, "check": "n/a"}
