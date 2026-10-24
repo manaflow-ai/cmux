@@ -174,6 +174,20 @@ import Testing
     }
     #endif
 
+    /// `debug.hangs` `main_wakes`: one count per sleep-to-awake transition of the main run loop,
+    /// none for activities inside an awake turn (the idle bench's main-thread wakeups per second).
+    @Test func countsEachMainRunLoopWakeOnce() {
+        let watchdog = MainThreadWatchdog(configuration: .init(threshold: .milliseconds(50), sampleStacks: false, logStalls: false))
+        #expect(watchdog.mainRunLoopWakes == 0)
+        for _ in 0..<3 {
+            watchdog.heartbeat(.afterWaiting)
+            watchdog.heartbeat(.beforeTimers)
+            watchdog.heartbeat(.beforeSources)
+            watchdog.heartbeat(.beforeWaiting)
+        }
+        #expect(watchdog.mainRunLoopWakes == 3)
+    }
+
     @Test func hangLogIsBoundedDropOldest() {
         let log = HangLog(capacity: 3)
         for index in 0..<5 { log.append(startUptimeNanos: UInt64(index), duration: .milliseconds(60 + index), addresses: []) }
