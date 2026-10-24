@@ -54,11 +54,16 @@ struct AppEnvironment: Sendable {
     /// (`LaunchFiles`): only the real app process sets it; without it `AppServices` makes its own
     /// from this environment (``AppServices/launchFiles``), so every owner takes from one path.
     var launchFiles: LaunchFiles?
+    /// The Chief home whose Home caches the launch reads (`LaunchFiles.home`): only the real app
+    /// process sets it, as it sets ``sidebarSnapshotFile``; without it the launch reads no Home file
+    /// (tests that build `AppServices`), and the Home list reads its own.
+    var launchChiefHome: ChiefHome?
 
     /// Starts reading this environment's launch files (`LaunchFiles`): those in its state directory
-    /// (beside its sidebar snapshot; none, nothing is read) and its tag's Chief home's.
+    /// (beside its sidebar snapshot) and its launch Chief home's (``launchChiefHome``). With neither
+    /// set (a services graph built outside the launch) no file is read.
     func startLaunchFiles() -> LaunchFiles {
-        LaunchFiles(state: sidebarSnapshotFile?.url.deletingLastPathComponent(), chiefHome: ChiefHome.resolve(tag: tag),
+        LaunchFiles(state: sidebarSnapshotFile?.url.deletingLastPathComponent(), chiefHome: launchChiefHome,
                     mark: { DebugTimings.markLaunch($0) })
     }
     /// This Mac's layout templates (`LayoutTemplateRepository`): only the real app process sets

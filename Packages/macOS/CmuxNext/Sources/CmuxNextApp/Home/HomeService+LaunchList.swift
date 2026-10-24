@@ -1,3 +1,4 @@
+import CmuxHomeCore
 import CmuxNextCompat
 import CmuxNextHome
 import CmuxNextHomeEngine
@@ -18,10 +19,12 @@ extension HomeService {
         guard !homeListPrimed else { return }
         homeListPrimed = true
         // Both files were read and decoded off the main thread since `main` (LaunchFiles, #17587): here they
-        // are only taken (a store or list of another Chief owner reads its own file).
+        // are only taken (a store or list of another Chief owner reads its own file). A services graph built
+        // outside the launch started no Home reads: the store and the list read their own files.
         let launch = services.launchFiles.home
-        launch.prime(homeStore)
-        guard let last = launch.lastList(sidebarLaunch, account: pinAccount) else { return }
+        if let launch { launch.prime(homeStore) } else { homeStore.primeFromCache() }
+        let last = if let launch { launch.lastList(sidebarLaunch, account: pinAccount) } else { sidebarLaunch.load(account: pinAccount) }
+        guard let last else { return }
         last.seed([homeInbox, homeCloudInbox])
         directory.seedLaunch(last)
         launchRoster = last.roster
