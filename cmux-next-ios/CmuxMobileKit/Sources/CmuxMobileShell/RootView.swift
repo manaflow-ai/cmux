@@ -477,6 +477,8 @@ struct ShellView: View {
         }
         .onChange(of: live.map(ObjectIdentifier.init)) { _, _ in
             shell.attach(live: live)
+            // A tapped notification that waited for the link (cold launch) opens now, or waits for its Mac's tree.
+            if let route = NotificationRouter.shared.pending, shell.open(route) { NotificationRouter.shared.opened() }
         }
         .task {
             #if DEBUG
