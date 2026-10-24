@@ -192,6 +192,10 @@ pub(crate) fn add_without_config(
         })
         .and_then(|()| check_out_without_config(&objects, &format, &staged, commit, Some(by)))
         .and_then(|()| git_by(&staged, &["read-tree", commit], by).map(drop))
+        .and_then(|()| git_by(&staged, &["rev-parse", "HEAD"], by))
+        .and_then(|actual| {
+            (actual == commit).then_some(()).ok_or_else(|| "branch advanced during recovery".into())
+        })
         .and_then(|()| git(&["worktree", "move", &stage, &destination]).map(drop))
         .and_then(|()| {
             if root.join(staged.file_name().unwrap_or_default()).exists()
