@@ -32,7 +32,6 @@ final class SidebarToggleIconMenu: NSObject, NSMenuDelegate {
             menu.addItem(choice)
         }
         item.submenu = menu
-        item.representedObject = self
         updateStates(in: menu)
         return item
     }
