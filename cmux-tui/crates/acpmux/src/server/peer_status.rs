@@ -21,9 +21,25 @@ const PEER_BUDGET: Duration = Duration::from_secs(5);
 /// The next step an unreachable or unknown peer's row names.
 const NEXT: &str = "acpmux host doctor";
 
+/// The `host_pressure` keys a caller of `_acpmux/host_health` gets: the
+/// verdict and this daemon's turns, without the formula or the sessions'
+/// names (`top`).
+const PRESSURE_KEYS: [&str; 10] = [
+    "ok",
+    "over",
+    "warning",
+    "load1",
+    "load_limit",
+    "cores",
+    "cores_kind",
+    "pressure",
+    "available_ram_fraction",
+    "local_turns",
+];
+
 /// This machine's own health (`_acpmux/host_health`). A Web or peer caller
 /// gets no host name (`hub::host_label`): the caller names its peer.
-pub(super) fn host_health(hub: &Hub, origin: Origin) -> Value {
+pub(super) async fn host_health(hub: &Hub, origin: Origin) -> Value {
     let mut v = json!({
         "version": crate::hub::VERSION,
         "build": crate::hub::BUILD,
@@ -37,6 +53,17 @@ pub(super) fn host_health(hub: &Hub, origin: Origin) -> Value {
     if let Some(load) = load() {
         v["load"] = json!(load);
     }
+    let pressure = hub.host_pressure_status().await;
+    let fraction = pressure["available_ram_fraction"].as_f64();
+    if let Some(total) = ram_total() {
+        let mut ram = json!({"totalBytes": total});
+        if let Some(f) = fraction {
+            ram["freeBytes"] = json!((total as f64 * f.clamp(0.0, 1.0)) as u64);
+        }
+        v["ram"] = ram;
+    }
+    v["pressure"] =
+        PRESSURE_KEYS.iter().filter_map(|k| Some((*k, pressure.get(*k)?.clone()))).collect();
     if !origin.web_class() {
         v["host"] = json!(crate::hub::host_label());
     }
@@ -61,7 +88,7 @@ pub(super) async fn peer_status(
     }
     let mut hosts = Vec::new();
     if only.is_none() {
-        let mut me = host_health(hub, origin);
+        let mut me = host_health(hub, origin).await;
         me["name"] = me.get("host").cloned().unwrap_or_else(|| json!("this machine"));
         me["self"] = json!(true);
         me["reachable"] = json!(true);
@@ -142,6 +169,42 @@ fn disk(path: &std::path::Path) -> Option<(u64, u64)> {
 
 #[cfg(not(unix))]
 fn disk(_: &std::path::Path) -> Option<(u64, u64)> {
+    None
+}
+
+/// Installed RAM in bytes: macOS `hw.memsize`, Linux `/proc/meminfo` `MemTotal`.
+#[cfg(target_os = "macos")]
+fn ram_total() -> Option<u64> {
+    let mut bytes = 0u64;
+    let mut len = std::mem::size_of::<u64>();
+    // SAFETY: a NUL-terminated name and a writable u64 with its length.
+    let rc = unsafe {
+        libc::sysctlbyname(
+            c"hw.memsize".as_ptr(),
+            (&mut bytes as *mut u64).cast(),
+            &mut len,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    (rc == 0 && bytes > 0).then_some(bytes)
+}
+
+#[cfg(target_os = "linux")]
+fn ram_total() -> Option<u64> {
+    let text = std::fs::read_to_string("/proc/meminfo").ok()?;
+    let kb: u64 = text
+        .lines()
+        .find_map(|l| l.strip_prefix("MemTotal:"))?
+        .split_whitespace()
+        .next()?
+        .parse()
+        .ok()?;
+    (kb > 0).then_some(kb * 1024)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn ram_total() -> Option<u64> {
     None
 }
 

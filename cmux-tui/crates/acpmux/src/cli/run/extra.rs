@@ -516,10 +516,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 let build = p.get("remoteBuild").and_then(Value::as_str).unwrap_or("");
                 let outdated = p.get("outdated").and_then(Value::as_bool).unwrap_or(false);
                 println!(
-                    "{:<16} {:<10} {:>3} sessions  {:<24} {}{}{}{}",
+                    "{:<16} {:<10} {:>3} sessions  {}  {:<24} {}{}{}{}",
                     p.get("name").and_then(Value::as_str).unwrap_or(""),
                     state,
                     p.get("sessions").and_then(Value::as_u64).unwrap_or(0),
+                    crate::cli::peer_status::resources(&p),
                     p.get("url").and_then(Value::as_str).unwrap_or(""),
                     if build.is_empty() { String::new() } else { format!("build {build}") },
                     if outdated {

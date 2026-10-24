@@ -33,6 +33,12 @@ fn line(h: &Value) -> String {
     ) {
         parts.push(format!("disk {} free of {}", gb(free), gb(total)));
     }
+    if let (Some(free), Some(total)) = (
+        h.pointer("/ram/freeBytes").and_then(Value::as_u64),
+        h.pointer("/ram/totalBytes").and_then(Value::as_u64),
+    ) {
+        parts.push(format!("ram {} free of {}", gb(free), gb(total)));
+    }
     if let Some(load) = h.get("load").and_then(Value::as_array) {
         let cpus = h.get("cpus").and_then(Value::as_u64).unwrap_or(0);
         let one = load.first().and_then(Value::as_f64).unwrap_or(0.0);
@@ -54,6 +60,35 @@ fn line(h: &Value) -> String {
     out
 }
 
+/// A `host ls` row's resources, from the peer's last health reading
+/// (`peer_health.rs`): `ram 40.0 GB free  load 3.2/32  disk 25.0 GB free  9 live`,
+/// `over budget` when its verdict says so, `resources unknown` for a build
+/// that does not report them or before the first reading.
+pub fn resources(p: &Value) -> String {
+    let Some(h) = p.get("health").filter(|h| h.is_object() && h.get("unsupported").is_none())
+    else {
+        return "resources unknown".to_owned();
+    };
+    let mut parts = Vec::new();
+    if let Some(free) = h.pointer("/ram/freeBytes").and_then(Value::as_u64) {
+        parts.push(format!("ram {} free", gb(free)));
+    }
+    if let Some(one) = h.pointer("/load/0").and_then(Value::as_f64) {
+        let cpus = h.get("cpus").and_then(Value::as_u64).unwrap_or(0);
+        parts.push(format!("load {one:.1}/{cpus}"));
+    }
+    if let Some(free) = h.pointer("/disk/freeBytes").and_then(Value::as_u64) {
+        parts.push(format!("disk {} free", gb(free)));
+    }
+    if let Some(n) = h.get("liveSessions").and_then(Value::as_u64) {
+        parts.push(format!("{n} live"));
+    }
+    if h.pointer("/pressure/ok").and_then(Value::as_bool) == Some(false) {
+        parts.push("over budget".to_owned());
+    }
+    if parts.is_empty() { "resources unknown".to_owned() } else { parts.join("  ") }
+}
+
 fn gb(bytes: u64) -> String {
     format!("{:.1} GB", bytes as f64 / 1e9)
 }
@@ -68,6 +103,7 @@ mod tests {
         let reply = json!({"hosts": [
             {"name": "huge-blue", "self": true, "reachable": true, "cpus": 32, "load": [3.2, 2.0, 1.0],
              "disk": {"freeBytes": 25_000_000_000u64, "totalBytes": 252_000_000_000u64},
+             "ram": {"freeBytes": 40_000_000_000u64, "totalBytes": 128_000_000_000u64},
              "liveSessions": 9, "build": "abc"},
             {"name": "big-red", "self": false, "reachable": false,
              "error": "connection refused; `acpmux host doctor big-red` checks it step by step"},
@@ -77,7 +113,7 @@ mod tests {
         let l = lines(&reply);
         assert_eq!(
             l[0],
-            "huge-blue (this)     ok  disk 25.0 GB free of 252.0 GB  load 3.2/32 cpus  9 live sessions  build abc"
+            "huge-blue (this)     ok  disk 25.0 GB free of 252.0 GB  ram 40.0 GB free of 128.0 GB  load 3.2/32 cpus  9 live sessions  build abc"
         );
         assert!(
             l[1].starts_with("big-red              unreachable  connection refused;"),
@@ -86,5 +122,19 @@ mod tests {
         );
         assert!(l[1].ends_with("`acpmux host doctor big-red` checks it step by step"), "{}", l[1]);
         assert!(l[2].contains("41 ms") && l[2].contains("acpmux host update cmux16"), "{}", l[2]);
+    }
+
+    #[test]
+    fn a_host_ls_row_reads_the_last_health_and_an_old_peer_reads_unknown() {
+        let p = json!({"health": {"cpus": 16, "load": [9.5, 4.0, 2.0],
+            "ram": {"freeBytes": 12_000_000_000u64, "totalBytes": 64_000_000_000u64},
+            "disk": {"freeBytes": 80_000_000_000u64}, "liveSessions": 4,
+            "pressure": {"ok": false}}});
+        assert_eq!(
+            resources(&p),
+            "ram 12.0 GB free  load 9.5/16  disk 80.0 GB free  4 live  over budget"
+        );
+        assert_eq!(resources(&json!({"health": {"unsupported": true}})), "resources unknown");
+        assert_eq!(resources(&json!({"health": null})), "resources unknown");
     }
 }

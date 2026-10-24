@@ -1208,7 +1208,7 @@ async fn dispatch_request(
             Ok(json!({"policy":policy.to_string()}))
         }
         "_acpmux/peers" => Ok(json!({"peers": hub.peers()})),
-        "_acpmux/host_health" => Ok(super::peer_status::host_health(hub, conn.origin)),
+        "_acpmux/host_health" => Ok(super::peer_status::host_health(hub, conn.origin).await),
         "_acpmux/peer_status" => super::peer_status::peer_status(hub, conn.origin, &params).await,
         "_acpmux/directories" => {
             let home = dirs::home_dir().unwrap_or_default();

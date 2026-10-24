@@ -110,6 +110,11 @@ async fn peer_status_reads_each_peers_health_live_and_names_an_unreachable_one()
     assert!(peer["disk"]["totalBytes"].as_u64().is_some_and(|t| t > 0), "{reply}");
     assert_eq!(peer["load"].as_array().map(Vec::len), Some(3), "{reply}");
     assert!(peer["cpus"].as_u64().is_some_and(|n| n > 0), "{reply}");
+    assert!(peer["ram"]["totalBytes"].as_u64().is_some_and(|t| t > 0), "{reply}");
+    // The budget verdict rides along, without the formula or session names.
+    assert!(peer["pressure"].is_object(), "{reply}");
+    assert!(peer["pressure"].get("top").is_none(), "{reply}");
+    assert!(peer["pressure"].get("formula").is_none(), "{reply}");
     assert_eq!(peer["liveSessions"], 0, "{reply}");
     assert_eq!(peer["version"], acpmux::hub::VERSION, "{reply}");
     assert_eq!(peer["build"], acpmux::hub::BUILD, "{reply}");
@@ -128,4 +133,32 @@ async fn peer_status_reads_each_peers_health_live_and_names_an_unreachable_one()
     assert_eq!(names, ["b"], "{one}");
     let unknown = ca.call("_acpmux/peer_status", json!({"name": "nope"})).await;
     assert!(unknown.is_err_and(|e| e.contains("acpmux host ls")), "an unknown peer names host ls");
+}
+
+#[tokio::test]
+async fn a_peer_row_carries_the_health_read_on_connect() {
+    let b = hub().await;
+    let (port, token) = listen(b.clone(), "row").await;
+    let a = hub().await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(token), true)
+        .await
+        .unwrap();
+    // Asked once the handshake is done, then on every third ping (`peer_health.rs`).
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    let peer = loop {
+        let peers = a.peers();
+        let p = peers.into_iter().find(|p| p["name"] == "b").expect("peer b");
+        if p["health"].is_object() || tokio::time::Instant::now() >= deadline {
+            break p;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    assert!(peer["healthAt"].is_u64(), "{peer}");
+    let h = &peer["health"];
+    assert!(h["ram"]["totalBytes"].as_u64().is_some_and(|t| t > 0), "{peer}");
+    assert!(h["disk"]["freeBytes"].as_u64().is_some_and(|f| f > 0), "{peer}");
+    assert_eq!(h["liveSessions"], 0, "{peer}");
+    assert!(h["pressure"].is_object(), "{peer}");
+    // The row names no host and carries no build twice.
+    assert!(h.get("host").is_none() && h.get("build").is_none(), "{peer}");
 }
