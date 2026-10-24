@@ -38,20 +38,27 @@ pub enum Inbound {
         id: Id,
         method: String,
         params: Option<Value>,
+        /// The hosted agent entry that carried this message, when durable.
+        host_seq: Option<u64>,
+        /// The hosted child generation that carried this message.
+        host_incarnation: Option<String>,
     },
     Notification {
         method: String,
         params: Option<Value>,
+        /// The hosted agent entry that carried this message, when durable.
+        host_seq: Option<u64>,
+        /// The hosted child generation that carried this message.
+        host_incarnation: Option<String>,
+        /// A hosted cancellation is acknowledged only after its durable
+        /// withdrawal marker is stored. The reader owns the receiver.
+        persisted: Option<oneshot::Sender<bool>>,
     },
     /// One stderr line; `host_seq` names the agent host entry it came from.
     Stderr(String, Option<u64>),
     /// The agent process with this pid exited. The pid tells a late exit of
     /// a replaced process apart from the current one.
-    Exited {
-        pid: Option<u32>,
-        code: Option<i32>,
-        host_seq: Option<u64>,
-    },
+    Exited { pid: Option<u32>, code: Option<i32>, host_seq: Option<u64> },
     /// Answered once every item queued before it was handled. A prompt's answer
     /// bypasses this queue, so a turn sends one before it settles: the agent's
     /// last notifications (the reply text) are applied first.
@@ -438,11 +445,26 @@ impl ChildAgent {
                                 }
                             }
                             Message::Request { id, method, params } => {
-                                let _ = inbound.send(Inbound::Request { id, method, params }).await;
+                                let _ = inbound
+                                    .send(Inbound::Request {
+                                        id,
+                                        method,
+                                        params,
+                                        host_seq: None,
+                                        host_incarnation: None,
+                                    })
+                                    .await;
                             }
                             Message::Notification { method, params } => {
-                                let _ =
-                                    inbound.send(Inbound::Notification { method, params }).await;
+                                let _ = inbound
+                                    .send(Inbound::Notification {
+                                        method,
+                                        params,
+                                        host_seq: None,
+                                        host_incarnation: None,
+                                        persisted: None,
+                                    })
+                                    .await;
                             }
                         }
                     }
@@ -452,7 +474,15 @@ impl ChildAgent {
                     for m in tr.end_background_shells().await {
                         tap(Direction::In, &m, None);
                         if let Message::Notification { method, params } = m {
-                            let _ = inbound.send(Inbound::Notification { method, params }).await;
+                            let _ = inbound
+                                .send(Inbound::Notification {
+                                    method,
+                                    params,
+                                    host_seq: None,
+                                    host_incarnation: None,
+                                    persisted: None,
+                                })
+                                .await;
                         }
                     }
                 }
@@ -688,10 +718,28 @@ impl ChildAgent {
                     }
                 }
                 Message::Request { id, method, params } => {
-                    let _ = cx.inbound.send(Inbound::Request { id, method, params }).await;
+                    let _ = cx
+                        .inbound
+                        .send(Inbound::Request {
+                            id,
+                            method,
+                            params,
+                            host_seq: None,
+                            host_incarnation: None,
+                        })
+                        .await;
                 }
                 Message::Notification { method, params } => {
-                    let _ = cx.inbound.send(Inbound::Notification { method, params }).await;
+                    let _ = cx
+                        .inbound
+                        .send(Inbound::Notification {
+                            method,
+                            params,
+                            host_seq: None,
+                            host_incarnation: None,
+                            persisted: None,
+                        })
+                        .await;
                 }
             }
         }
@@ -1017,6 +1065,38 @@ impl ChildAgent {
             },
             Entry::In { msg } => {
                 let Ok(m) = Message::from_value(msg) else { return true };
+                let host_incarnation =
+                    self.hosted.as_ref().map(|host| host.link().record.incarnation.clone());
+                let needs_durable_cancel = matches!(
+                    &m,
+                    Message::Notification { method, params }
+                        if method == crate::rpc::method::CANCEL_REQUEST
+                            && params.as_ref().and_then(|p| p.get("requestId")).is_some()
+                );
+                // Persist a hosted cancellation before logging the raw wire
+                // entry. Otherwise a crash after the raw entry is logged but
+                // before the derived marker would advance the resume cursor
+                // past the only copy of the cancellation.
+                if needs_durable_cancel {
+                    let Message::Notification { method, params } = &m else { return false };
+                    let (done, persisted) = oneshot::channel();
+                    if inbound
+                        .send(Inbound::Notification {
+                            method: method.clone(),
+                            params: params.clone(),
+                            host_seq: Some(h),
+                            host_incarnation: host_incarnation.clone(),
+                            persisted: Some(done),
+                        })
+                        .await
+                        .is_err()
+                    {
+                        return false;
+                    }
+                    if !persisted.await.unwrap_or(false) {
+                        return false;
+                    }
+                }
                 if !(self.tap)(Direction::In, &m, Some(h)) {
                     return false;
                 }
@@ -1037,10 +1117,29 @@ impl ChildAgent {
                         }
                     }
                     Message::Request { id, method, params } => {
-                        let _ = inbound.send(Inbound::Request { id, method, params }).await;
+                        let _ = inbound
+                            .send(Inbound::Request {
+                                id,
+                                method,
+                                params,
+                                host_seq: Some(h),
+                                host_incarnation,
+                            })
+                            .await;
                     }
                     Message::Notification { method, params } => {
-                        let _ = inbound.send(Inbound::Notification { method, params }).await;
+                        if needs_durable_cancel {
+                            return true;
+                        }
+                        let _ = inbound
+                            .send(Inbound::Notification {
+                                method,
+                                params,
+                                host_seq: Some(h),
+                                host_incarnation: host_incarnation.clone(),
+                                persisted: None,
+                            })
+                            .await;
                     }
                 }
                 true
