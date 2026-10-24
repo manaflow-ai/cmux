@@ -57,6 +57,43 @@ import Testing
             #expect(try await eventually { lstat(link, &info) == 0 }, "round \(round): no link at the path")
         }
     }
+
+    /// A watch that fell back to the directory (nothing at the path and the restore refused, as
+    /// when the link's makeLink loses to another process) stayed on the directory forever,
+    /// waking on every write there (on /tmp: every write on the Mac). It now moves to the entry
+    /// as soon as an event finds one it can follow, and still notices when that entry goes.
+    @Test func aDirectoryWatchMovesToTheEntryOnceOneIsThere() async throws {
+        let directory = NSTemporaryDirectory() + "cspw-\(UUID().uuidString.prefix(8).lowercased())"
+        try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: directory) }
+        let path = directory + "/cmux.sock"
+        let queue = DispatchQueue(label: "test.path-watch")
+        let restores = RestoreCount()
+        let watch = ControlSocketPathWatch(path: path, queue: queue) {
+            restores.value.add(1, ordering: .relaxed)
+            return false
+        }
+        watch.start()
+        defer { watch.stop() }
+        queue.sync {}  // the watch is installed (on the directory: nothing at the path)
+
+        // Someone else's file at the path: the directory event moves the watch onto it.
+        FileManager.default.createFile(atPath: path, contents: Data("x".utf8))
+        #expect(try await eventually { watch.checks.load(ordering: .relaxed) >= 1 })
+        queue.sync {}
+        let settled = watch.checks.load(ordering: .relaxed)
+        for index in 0..<50 {
+            let other = directory + "/other-\(index)"
+            FileManager.default.createFile(atPath: other, contents: Data("x".utf8))
+            unlink(other)
+        }
+        // A fixed quiet window: the scenario is that nothing happens in it.
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(watch.checks.load(ordering: .relaxed) == settled, "the watch stayed on the directory")
+
+        #expect(unlink(path) == 0)
+        #expect(try await eventually { restores.value.load(ordering: .relaxed) >= 1 }, "the entry's removal was not noticed")
+    }
 }
 
 /// Restores the watch asked for (a class: an `Atomic` cannot be captured).
