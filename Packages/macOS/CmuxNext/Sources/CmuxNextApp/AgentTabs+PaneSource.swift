@@ -14,7 +14,10 @@ import Foundation
     /// the app starts the daemon with no dev origin and no `--dev`
     /// (``AcpmuxEnvironment/resolve(build:bundledBinDirectory:environment:userHome:uid:isExecutable:launchEnvironment:)``). Only the
     /// browser dev slot, with no host, still needs both (dev-slot.sh).
-    static func resolvePane(build: BuildIdentity?, environment: [String: String], showcase: Bool)
+    /// `launchOpenFileLimit` (`AppEnvironment.launchOpenFileLimit`) is the soft open-file limit the
+    /// acpmux daemon starts with (``AcpmuxEnvironment/launchOpenFileLimit``).
+    static func resolvePane(build: BuildIdentity?, environment: [String: String], showcase: Bool,
+                            launchOpenFileLimit: rlim_t? = nil)
         -> (source: AgentPaneSource?, host: any AgentPaneHostProviding) {
         #if DEBUG
         let allowsDevServer = true
@@ -44,6 +47,7 @@ import Foundation
             AcpmuxEnvironment.resolve(build: build, bundledBinDirectory: bin, environment: environment,
                                       launchEnvironment: launch.terminalEnvironment).map {
                 var resolved = $0
+                resolved.launchOpenFileLimit = launchOpenFileLimit
                 resolved.childEnvironment.merge(upstreamEnvironment) { $1 }
                 if let chiefMuxHome { resolved.childEnvironment[AcpmuxEnvironment.chiefMuxHomeKey] = chiefMuxHome }
                 return resolved
