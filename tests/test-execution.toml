@@ -11,6 +11,10 @@
 version = 1
 
 [[test]]
+path = "scripts/cmux-next/tests/test_perf_completeness.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_stress_cli_socket_api.py"
 lane = "linux-guard"
 
