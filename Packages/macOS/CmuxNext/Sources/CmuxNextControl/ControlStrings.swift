@@ -21,15 +21,15 @@ enum ControlStrings {
     /// The refusal of a request line longer than `limit` bytes.
     static func requestTooLarge(limit: Int,
                                 preferredLocalizations: [String] = Bundle.module.preferredLocalizations, locale: Locale = .current) -> String {
-        bundle.localizedString(forKey: "control.error.requestTooLarge", value: "Request line exceeds %lld bytes", table: nil,
-                               arguments: [.count(limit)], preferredLocalizations: preferredLocalizations, locale: locale)
+        bundle.localizedString(forKey: "control.error.requestTooLarge", value: "Request line exceeds %@", table: nil,
+                               arguments: [.byteCount(Int64(clamping: limit))], preferredLocalizations: preferredLocalizations, locale: locale)
     }
 
     /// The refusal while `pending` requests wait in a queue that holds `limit`.
     static func busy(pending: Int, limit: Int,
                      preferredLocalizations: [String] = Bundle.module.preferredLocalizations, locale: Locale = .current) -> String {
         bundle.localizedString(forKey: "control.error.busy",
-                               value: "cmux is busy (%1$lld queued requests, limit %2$lld); retry later",
+                               value: "cmux is busy (queued requests: %1$lld, limit %2$lld); retry later",
                                table: nil,
                                arguments: [.count(pending), .count(limit)], preferredLocalizations: preferredLocalizations, locale: locale)
     }

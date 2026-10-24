@@ -10,13 +10,13 @@ nonisolated struct ChiefMemoryStrings {
     static var search: String { t("chiefMemory.search", "Search memory") }
     static func counts(messages: Int, summaryLines: Int,
                        preferredLocalizations: [String] = Bundle.module.preferredLocalizations, locale: Locale = .current) -> String {
-        Bundle.module.localizedString(forKey: "chiefMemory.counts", value: "%1$lld messages, %2$lld summary lines", table: nil,
+        Bundle.module.localizedString(forKey: "chiefMemory.counts", value: "Messages: %1$lld. Summary lines: %2$lld.", table: nil,
                                       arguments: [.count(messages), .count(summaryLines)],
                                       preferredLocalizations: preferredLocalizations, locale: locale)
     }
     static func rebuilding(_ lines: Int,
                            preferredLocalizations: [String] = Bundle.module.preferredLocalizations, locale: Locale = .current) -> String {
-        Bundle.module.localizedString(forKey: "chiefMemory.rebuilding", value: "Rebuilding %lld lines", table: nil,
+        Bundle.module.localizedString(forKey: "chiefMemory.rebuilding", value: "Lines to rebuild: %lld", table: nil,
                                       arguments: [.count(lines)], preferredLocalizations: preferredLocalizations, locale: locale)
     }
     static var view: String { t("chiefMemory.view", "What the Chief reads") }
