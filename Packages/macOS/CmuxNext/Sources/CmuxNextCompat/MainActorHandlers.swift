@@ -19,7 +19,7 @@ public nonisolated final class MainActorHandlers<Value: Sendable>: Sendable {
     public typealias Handler = @MainActor @Sendable (Value) -> Void
 
     // Lock carve-out: removal must be synchronous from a nonisolated deinit on any thread; the
-    // critical sections are O(1) dictionary edits and a snapshot copy, and handlers run unlocked.
+    // critical sections are O(1) dictionary edits and lookups and a key snapshot, and handlers run unlocked.
     private let entries = Mutex<[UUID: Handler]>([:])
 
     /// Makes an empty list.
@@ -36,12 +36,18 @@ public nonisolated final class MainActorHandlers<Value: Sendable>: Sendable {
     }
 
     /// Calls every handler registered now with `value`. The handlers run outside the lock, so a
-    /// handler may add or cancel a registration.
+    /// handler may add or cancel a registration: a handler cancelled during the call is skipped if
+    /// its turn has not come yet, and a handler added during the call gets the next value. A
+    /// cancel or release on another thread that lands while this handler's call is starting may let
+    /// that one call through; owners capture themselves weakly, so that call finds nothing to do.
     ///
     /// - Parameter value: The new value.
     @MainActor
     public func call(_ value: Value) {
-        for handler in entries.withLock({ Array($0.values) }) { handler(value) }
+        for id in entries.withLock({ Array($0.keys) }) {
+            guard let handler = entries.withLock({ $0[id] }) else { continue }
+            handler(value)
+        }
     }
 
     /// Whether no handler is registered now.
