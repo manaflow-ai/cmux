@@ -421,11 +421,16 @@ test("keys another action has: the recorder says who has them and offers Overwri
   expect(recorder()?.querySelector(".keys-recorder-light.danger")).toBeTruthy();
   expect(recorder()?.textContent).toContain(strings.t("keybindings.page.recorder.overwriteOrRecord"));
 
-  // The same keys again get the same answer: the question stays, and no save light plays.
-  const warnedLight = recorder()?.querySelector(".keys-recorder-light.danger");
+  // A modifier going down drops the question and shows live; the same keys again get the same
+  // answer at the release, and no save light plays.
+  await act(async () => {
+    provider.hold("⇧⌘");
+    await Promise.resolve();
+  });
+  expect(choices()).toBeFalsy();
+  expect(recorder()?.querySelector(".keys-recorder-keys")?.textContent).toContain("⌘");
   await keys("cmd+shift+p");
   expect(choices()).toBeTruthy();
-  expect(recorder()?.querySelector(".keys-recorder-light.danger")).toBe(warnedLight);
   expect(recorder()?.querySelector(".keys-recorder-light:not(.danger):not(.off)")).toBeNull();
   expect(sets()).toHaveLength(0);
 
