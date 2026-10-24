@@ -115,7 +115,7 @@ mod tests {
     fn json_lines_become_one_batch_request_in_order() {
         let command = parse(
             &[],
-            "{\"action\":\"newColumn\",\"target\":\"pane:1\"}\n\n{\"action\":\"renameTab\",\"args\":{\"name\":\"a\"},\"origin\":\"mcp\"}\n",
+            "{\"action\":\"newColumn\",\"target\":\"pane_1\"}\n\n{\"action\":\"renameTab\",\"args\":{\"name\":\"a\"},\"origin\":\"mcp\"}\n",
         )
         .unwrap();
         let AppCommand::Call { method, params, .. } = command else { panic!("not a call") };
@@ -124,7 +124,7 @@ mod tests {
             params,
             json!({
                 "ops": [
-                    {"action": "newColumn", "target": "pane:1", "origin": "script"},
+                    {"action": "newColumn", "target": "pane_1", "origin": "script"},
                     {"action": "renameTab", "args": {"name": "a"}, "origin": "mcp"},
                 ],
                 "wait": true,
