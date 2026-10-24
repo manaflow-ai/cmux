@@ -220,7 +220,9 @@ extension TabStripView {
     }
 
     /// The tabs the strip shows, in order (tab conservation check DP1: once
-    /// no drag is in flight this equals the model's tabs).
+    /// no drag is in flight and the strip is shown (``isShownInWindow``), this
+    /// equals the model's tabs; a strip out of sight keeps the tabs it showed
+    /// last until it shows again).
     public var presentedTabIDs: [TabID] { displayed.map(\.id) }
 
     /// Restores a tab this strip handed off (drag cancelled). It grows back
