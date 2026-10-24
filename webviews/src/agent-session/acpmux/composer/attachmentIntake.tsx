@@ -68,6 +68,12 @@ export type AttachmentIntakeOptions = {
   /// When the composer moves to another chat: whether the files still being read move with it (a
   /// harness switch's new session carries the prompt). A chat that had no id yet always carries.
   carries?(): boolean;
+  /// Reserves one inline mark per file before decoding starts. The returned index is where the
+  /// resolved attachments belong in the ordered attachment list; undefined keeps legacy append
+  /// behavior for surfaces that still use the tray.
+  reserveInline?(ids: readonly string[]): number | undefined;
+  /// Removes marks for files that were refused during intake.
+  releaseInline?(ids: readonly string[]): void;
 };
 
 /** Append a batch while replacing the same attachment id and collapsing repeated local path links
@@ -155,6 +161,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       scope: batch.scope,
     }));
     const ids = new Set(shown.map((chip) => chip.id));
+    const insertionIndex = current.reserveInline?.(shown.map((chip) => chip.id));
     batches.current.add(batch);
     if (shown.length) setPending((chips) => [...chips, ...shown]);
     const paths = current.localPaths;
@@ -165,11 +172,15 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     };
     let taken: Awaited<ReturnType<typeof intakeFiles>>;
     try {
-      taken = await intakeFiles(files, {
-        allowImages: current.allowImages,
-        ...(kind && paths ? { localPaths: (batch: File[]) => paths(kind, batch) } : {}),
-        ...(uploads && current.upload ? { upload: current.upload } : {}),
-      });
+      taken = await intakeFiles(
+        files,
+        {
+          allowImages: current.allowImages,
+          ...(kind && paths ? { localPaths: (batch: File[]) => paths(kind, batch) } : {}),
+          ...(uploads && current.upload ? { upload: current.upload } : {}),
+        },
+        shown.map((chip) => chip.id),
+      );
     } catch (error) {
       read();
       throw error;
@@ -181,7 +192,14 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       if (batch.scope !== undefined && taken.attachments.length) now.elsewhere?.(batch.scope, taken.attachments);
       return;
     }
-    setAttachments((staged) => appendAttachments(staged, taken.attachments));
+    const delivered = new Set(taken.attachments.map((attachment) => attachment.id));
+    const refused = shown.map((chip) => chip.id).filter((id) => !delivered.has(id));
+    if (refused.length) current.releaseInline?.(refused);
+    setAttachments((staged) => {
+      if (insertionIndex === undefined) return appendAttachments(staged, taken.attachments);
+      const at = Math.min(Math.max(insertionIndex, 0), staged.length);
+      return [...staged.slice(0, at), ...taken.attachments, ...staged.slice(at)];
+    });
     const error = taken.error;
     setAttachError(error && ("text" in error ? error.text : attachmentErrorText(error, translate)));
   });

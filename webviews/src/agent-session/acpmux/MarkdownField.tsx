@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef } from "react";
-import { pasteIsOnlyFileNames } from "./attachments";
+import { pasteIsOnlyFileNames, thumbnail, type ComposerAttachment } from "./attachments";
 import { COMPOSER_READY_EVENT } from "./composerFocus";
 import { liftInlineImages, withoutMarkdownImages } from "./inlineImages";
 import { isImeKeyEvent } from "../../pages/shared/imeKeys";
@@ -27,7 +27,7 @@ import { keymap } from "@milkdown/kit/prose/keymap";
 import { splitListItem } from "@milkdown/kit/prose/schema-list";
 import { type EditorState, Plugin, Selection, TextSelection } from "@milkdown/kit/prose/state";
 import { Fragment, type Node as ProseNode, type Slice } from "@milkdown/kit/prose/model";
-import type { EditorView } from "@milkdown/kit/prose/view";
+import { Decoration, DecorationSet, type EditorView } from "@milkdown/kit/prose/view";
 import type { RemarkParser } from "@milkdown/kit/transformer";
 import { $prose, getMarkdown, replaceAll } from "@milkdown/kit/utils";
 
@@ -79,6 +79,11 @@ export type MarkdownFieldHandle = {
   redo(): void;
   /// Selects the whole prompt (its context menu's Select All).
   selectAll(): void;
+  /// Inserts one U+FFFC mark per attachment at the current selection and returns the mark index
+  /// where the batch landed. The mark is rendered by the field's inline attachment decoration.
+  insertInlineAttachments(ids: readonly string[]): number;
+  /// Removes the mark associated with `id`, preserving the edit in the field's undo history.
+  removeInlineAttachment(id: string): boolean;
 };
 
 export type PlainPrompt = { value: string; selectionStart: number; selectionEnd: number };
@@ -123,6 +128,12 @@ export type MarkdownFieldProps = {
   /// Whose selection the field keeps for a focus with no click (the composer's chat session): a
   /// selection kept under one key never comes back under another, even over the same text.
   selectionKey?: string;
+  /// Attachments are represented by U+FFFC marks in `value`; the list follows those marks in order.
+  inlineAttachments?: readonly ComposerAttachment[];
+  /// Called after a mark is removed by its hover button or Backspace/Delete.
+  onInlineAttachmentRemove?(id: string): void;
+  /// Called when undo restores a previously removed attachment mark.
+  onInlineAttachmentRestore?(id: string, index: number): void;
 };
 
 /// Streaming agent updates replace the composer's snapshot while the prompt is unchanged. The
@@ -157,6 +168,9 @@ function sameMarkdownFieldProps(previous: MarkdownFieldProps, next: MarkdownFiel
     previous.onReturnInput === next.onReturnInput &&
     previous.onFirstInput === next.onFirstInput &&
     previous.plugins === next.plugins &&
+    previous.inlineAttachments === next.inlineAttachments &&
+    previous.onInlineAttachmentRemove === next.onInlineAttachmentRemove &&
+    previous.onInlineAttachmentRestore === next.onInlineAttachmentRestore &&
     sameMarkdownFieldAttributes(previous.attributes, next.attributes)
   );
 }
@@ -335,6 +349,89 @@ function plainPosition(doc: ProseNode, offset: number): number {
   return resolved.parent.inlineContent ? low : TextSelection.near(resolved, 1).from;
 }
 
+/// The native composer and ACP draft keep one object replacement character per attachment. Keeping
+/// it in the ProseMirror document means normal selection, copy and history continue to work while a
+/// decoration supplies the richer preview. It is deliberately a scalar, so markdown serialization
+/// leaves the ordering information intact for the host.
+export const INLINE_ATTACHMENT_MARK = "\uFFFC";
+const INLINE_DECORATION_REFRESH = "cmux.inlineAttachments.refresh";
+
+function inlineWidget(attachment: ComposerAttachment, onRemove: (id: string) => void): HTMLElement {
+  const root = document.createElement("span");
+  root.className = "acpmux-md-inline-attachment";
+  root.contentEditable = "false";
+  root.dataset.attachmentId = attachment.id;
+  root.title = attachment.name;
+  if (attachment.kind === "image" && attachment.data) {
+    const image = document.createElement("img");
+    image.alt = attachment.name;
+    image.decoding = "async";
+    image.src = `data:${attachment.mimeType};base64,${attachment.data}`;
+    // Decode and downsample outside the editor's synchronous layout path. The source remains as a
+    // fallback when a browser lacks ImageBitmap or OffscreenCanvas.
+    void thumbnail({ mimeType: attachment.mimeType, data: attachment.data }).then((made) => {
+      if (made && root.isConnected) image.src = made.url;
+    });
+    root.append(image);
+  } else {
+    root.classList.add("is-file");
+    const name = document.createElement("span");
+    name.textContent = attachment.name || (attachment.kind === "image" ? "Image" : "Attachment");
+    root.append(name);
+  }
+  if (!attachment.data && attachment.kind === "image") root.classList.add("is-pending");
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "acpmux-md-inline-remove";
+  remove.setAttribute("aria-label", `Remove ${attachment.name || "attachment"}`);
+  remove.textContent = "×";
+  remove.addEventListener("mousedown", (event) => event.preventDefault());
+  remove.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onRemove(attachment.id);
+  });
+  root.append(remove);
+  return root;
+}
+
+function inlineDecorations(
+  doc: ProseNode,
+  attachments: readonly ComposerAttachment[],
+  onRemove: (id: string) => void,
+): DecorationSet {
+  const decorations: Decoration[] = [];
+  let index = 0;
+  doc.descendants((node, position) => {
+    if (!node.isText || !node.text) return;
+    for (let offset = 0; offset < node.text.length; offset += 1) {
+      if (node.text.charCodeAt(offset) !== 0xfffc) continue;
+      const attachment = attachments[index++];
+      if (!attachment) continue;
+      const at = position + offset;
+      // Hide the replacement character while leaving it in the document for selection/history.
+      decorations.push(Decoration.inline(at, at + 1, { class: "acpmux-md-inline-mark" }));
+      decorations.push(
+        Decoration.widget(at, () => inlineWidget(attachment, onRemove), {
+          side: -1,
+          key: `cmux-inline-${attachment.id}`,
+        }),
+      );
+    }
+  });
+  return DecorationSet.create(doc, decorations);
+}
+
+function inlineMarkPositions(doc: ProseNode): number[] {
+  const positions: number[] = [];
+  doc.descendants((node, position) => {
+    if (!node.isText || !node.text) return;
+    for (let offset = 0; offset < node.text.length; offset += 1)
+      if (node.text.charCodeAt(offset) === 0xfffc) positions.push(position + offset);
+  });
+  return positions;
+}
+
 /// The composer's prompt, edited inline as formatted markdown (spec S5, Milkdown): typing
 /// `**bold**`, a backtick span, `- ` or a fence turns into the formatted node, with no toolbar
 /// and no syntax reveal. Enter is the composer's (send or pick a command); Shift-Enter starts a
@@ -358,6 +455,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     className,
     attributes,
     selectionKey,
+    inlineAttachments = [],
+    onInlineAttachmentRemove,
   },
   ref,
 ) {
@@ -386,6 +485,12 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     onReturnInput,
     onFirstInput,
   };
+  const inlineAttachmentsRef = useRef<readonly ComposerAttachment[]>(inlineAttachments);
+  inlineAttachmentsRef.current = inlineAttachments;
+  const inlineRemoveRef = useRef(onInlineAttachmentRemove);
+  inlineRemoveRef.current = onInlineAttachmentRemove;
+  const inlineRestoreRef = useRef(onInlineAttachmentRestore);
+  inlineRestoreRef.current = onInlineAttachmentRestore;
   const composing = useRef(false);
   const touched = useRef(false);
   // Focus asked for before the editor exists is applied once it does.
@@ -443,6 +548,72 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         if (!disposed && field) field.scrollTop = field.scrollHeight;
       });
     };
+    // ProseMirror history restores the mark; keep the id briefly so the owner can restore its
+    // attachment payload alongside that undoable document change.
+    const removedInlineIds: { id: string; index: number }[] = [];
+    const deleteInlineAttachment = (editorView: EditorView, id: string): boolean => {
+      const index = inlineAttachmentsRef.current.findIndex((attachment) => attachment.id === id);
+      if (index < 0) return false;
+      const at = inlineMarkPositions(editorView.state.doc)[index];
+      if (at === undefined) return false;
+      removedInlineIds.push({ id, index });
+      editorView.dispatch(editorView.state.tr.delete(at, at + INLINE_ATTACHMENT_MARK.length));
+      inlineRemoveRef.current?.(id);
+      return true;
+    };
+    const inlineAttachmentPlugin = $prose(
+      () =>
+        new Plugin({
+          state: {
+            init: (_config, state) =>
+              inlineDecorations(state.doc, inlineAttachmentsRef.current, (id) => {
+                const current = view.current;
+                if (current) deleteInlineAttachment(current, id);
+              }),
+            apply: (transaction, decorations, previous, next) => {
+              if (transaction.getMeta(INLINE_DECORATION_REFRESH) === true) {
+                return inlineDecorations(next.doc, inlineAttachmentsRef.current, (id) => {
+                  const current = view.current;
+                  if (current) deleteInlineAttachment(current, id);
+                });
+              }
+              if (!transaction.docChanged) return decorations;
+              // Mapping is cheap for ordinary keystrokes and avoids rebuilding every attachment on
+              // each character. Rebuild only when an object-replacement mark was inserted/deleted.
+              const oldMarks = inlineMarkPositions(previous.doc).length;
+              const newMarks = inlineMarkPositions(next.doc).length;
+              if (newMarks > oldMarks && removedInlineIds.length) {
+                const restored = removedInlineIds.pop();
+                if (restored) queueMicrotask(() => inlineRestoreRef.current?.(restored.id, restored.index));
+              }
+              return oldMarks === newMarks
+                ? decorations.map(transaction.mapping, next.doc)
+                : inlineDecorations(next.doc, inlineAttachmentsRef.current, (id) => {
+                    const current = view.current;
+                    if (current) deleteInlineAttachment(current, id);
+                  });
+            },
+          },
+          props: {
+            handleDOMEvents: {
+              keydown: (editorView, event) => {
+                if (event.defaultPrevented || event.isComposing || event.metaKey || event.ctrlKey || event.altKey)
+                  return false;
+                if (event.key !== "Backspace" && event.key !== "Delete") return false;
+                const { from, to } = editorView.state.selection;
+                if (from !== to) return false;
+                const positions = inlineMarkPositions(editorView.state.doc);
+                const mark = event.key === "Backspace" ? from - 1 : from;
+                const index = positions.indexOf(mark);
+                const id = index >= 0 ? inlineAttachmentsRef.current[index]?.id : undefined;
+                if (!id || !deleteInlineAttachment(editorView, id)) return false;
+                event.preventDefault();
+                return true;
+              },
+            },
+          },
+        }),
+    );
     // Keys reach the composer first, as a textarea's keydown would.
     const composerKeys = $prose(
       () =>
@@ -715,6 +886,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
           scrollMargin: FADE_BAND_PX,
         }));
       })
+      .use(inlineAttachmentPlugin)
       .use(composerKeys)
       .use(surfacePlugins.current.map((plugin) => $prose(() => plugin)))
       .use(keepCaret)
@@ -776,6 +948,12 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   }, [value]);
   // Aria and role follow the composer's state on the editable element.
   useLayoutEffect(applyAttributes);
+  // Attachment bytes can arrive after their marks. Refresh only decorations; the ProseMirror
+  // document and selection remain untouched, so a normal keystroke does not rebuild every preview.
+  useLayoutEffect(() => {
+    const current = view.current;
+    if (current) current.dispatch(current.state.tr.setMeta(INLINE_DECORATION_REFRESH, true));
+  }, [inlineAttachments]);
 
   const wrapper = useRef<HTMLDivElement | null>(null);
   // A long draft scrolls inside this box past its cap (markdownField.css): the edge with more draft
@@ -896,6 +1074,25 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         selectAll: () => {
           refocus.current = null;
           if (view.current) selectAll(view.current.state, view.current.dispatch);
+        },
+        insertInlineAttachments: (ids) => {
+          const current = view.current;
+          if (!current || ids.length === 0) return 0;
+          const { from, to } = current.state.selection;
+          const index = inlineMarkPositions(current.state.doc).filter((position) => position < from).length;
+          current.dispatch(current.state.tr.insertText(INLINE_ATTACHMENT_MARK.repeat(ids.length), from, to));
+          return index;
+        },
+        removeInlineAttachment: (id) => {
+          const current = view.current;
+          if (!current) return false;
+          const index = inlineAttachmentsRef.current.findIndex((attachment) => attachment.id === id);
+          const at = index < 0 ? undefined : inlineMarkPositions(current.state.doc)[index];
+          if (at === undefined) return false;
+          removedInlineIds.push({ id, index });
+          current.dispatch(current.state.tr.delete(at, at + INLINE_ATTACHMENT_MARK.length));
+          inlineRemoveRef.current?.(id);
+          return true;
         },
         element: () => wrapper.current,
         plainText: () => {

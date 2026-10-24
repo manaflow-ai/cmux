@@ -5,7 +5,13 @@ import "../../theme/messages.css";
 import type { ConnectKind, OffloadKind } from "./environments";
 import { useEscapingList } from "../../ui/popupHost";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
-import { type AttachmentError, type ComposerAttachment, type DroppedKind, type LinkItem } from "./attachments";
+import {
+  INLINE_ATTACHMENT_MARK,
+  type AttachmentError,
+  type ComposerAttachment,
+  type DroppedKind,
+  type LinkItem,
+} from "./attachments";
 import type { UploadResult } from "./cloudUploads";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
 import type { Project } from "./ProjectChooser";
@@ -494,9 +500,37 @@ export function Composer({
           .catch(() => {});
       },
       carries: () => carryPrompt.current || Boolean(switching),
+      reserveInline: (ids) => field.current?.insertInlineAttachments(ids),
+      releaseInline: (ids) => {
+        for (const id of ids) field.current?.removeInlineAttachment(id);
+      },
     });
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
+  const removedInline = useRef<{ attachment: ComposerAttachment; index: number }[]>([]);
+  const removeAttachment = useCallback(
+    (id: string) => {
+      const current = attachmentsRef.current;
+      const index = current.findIndex((attachment) => attachment.id === id);
+      if (index >= 0) removedInline.current.push({ attachment: current[index]!, index });
+      setAttachments((items) => items.filter((item) => item.id !== id));
+      field.current?.focus();
+    },
+    [setAttachments],
+  );
+  const restoreAttachment = useCallback(
+    (id: string) => {
+      const restored = removedInline.current.find((entry) => entry.attachment.id === id);
+      if (!restored) return;
+      removedInline.current = removedInline.current.filter((entry) => entry.attachment.id !== id);
+      setAttachments((items) => {
+        if (items.some((item) => item.id === id)) return items;
+        const at = Math.min(Math.max(restored.index, 0), items.length);
+        return [...items.slice(0, at), restored.attachment, ...items.slice(at)];
+      });
+    },
+    [setAttachments],
+  );
   // A prompt sent while a pasted screenshot is still being read goes once its chip is ready.
   const holdForAttachments = useSendWhenAttached(pending.length, sessionId);
   // The box makes a huge paste a chip; Paste as Plain Text keeps it raw (composer/pastedChips.ts).
@@ -794,7 +828,8 @@ export function Composer({
     // The field holds markdown with its typed text escaped; the agent gets the text as typed.
     const draftText = unwrapped();
     const prompt = (field.current?.agentText(draftText) ?? draftText).trim();
-    if (!prompt && attachments.length === 0) {
+    const visiblePrompt = prompt.replaceAll(INLINE_ATTACHMENT_MARK, "").trim();
+    if (!visiblePrompt && attachments.length === 0) {
       plusDraft.current = undefined;
       return false;
     }
@@ -1545,10 +1580,8 @@ export function Composer({
         attachmentsRef={attachmentsRef}
         attachError={attachError}
         codex={snapshot.summary?.family === "codex" || snapshot.summary?.harness === "codex"}
-        onRemoveAttachment={(id) => {
-          setAttachments((current) => current.filter((item) => item.id !== id));
-          field.current?.focus();
-        }}
+        onRemoveAttachment={removeAttachment}
+        onRestoreAttachment={restoreAttachment}
         fieldMenu={fieldMenu}
         onFieldMenuOpen={noteSelection}
         fieldOverlay={
