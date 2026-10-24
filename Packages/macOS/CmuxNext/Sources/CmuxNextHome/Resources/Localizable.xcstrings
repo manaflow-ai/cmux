@@ -1591,7 +1591,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "حجم ”%@“ أكبر من 100 ميغابايت."
+            "value": "حجم «%@» أكبر من 100 ميغابايت."
           }
         },
         "bs": {
@@ -1855,7 +1855,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "”%@“ فارغ."
+            "value": "«%@» فارغ."
           }
         },
         "bs": {
@@ -2119,7 +2119,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "”%@“ ليس اسم ملف صالحًا."
+            "value": "«%@» ليس اسم ملف صالحًا."
           }
         },
         "bs": {
@@ -2251,7 +2251,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذرت إزالة بيانات الموقع من ”%@“، لذا لم يُرفق."
+            "value": "تعذرت إزالة بيانات الموقع من «%@»، لذا لم يُرفق."
           }
         },
         "bs": {
@@ -7627,7 +7627,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” ليس عنوان بريد إلكتروني."
+            "value": "«%@» ليس عنوان بريد إلكتروني."
           }
         },
         "bs": {
@@ -8806,7 +8806,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أحبّ %1$@ “%2$@”"
+            "value": "أحبّ %1$@ «%2$@»"
           }
         },
         "bs": {
@@ -8937,7 +8937,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أعجب %1$@ بـ “%2$@”"
+            "value": "أعجب %1$@ بـ «%2$@»"
           }
         },
         "bs": {
@@ -9068,7 +9068,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لم يعجب %1$@ “%2$@”"
+            "value": "لم يعجب %1$@ «%2$@»"
           }
         },
         "bs": {
@@ -9199,7 +9199,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ضحك %1$@ على “%2$@”"
+            "value": "ضحك %1$@ على «%2$@»"
           }
         },
         "bs": {
@@ -9330,7 +9330,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أكّد %1$@ “%2$@”"
+            "value": "أكّد %1$@ «%2$@»"
           }
         },
         "bs": {
@@ -9461,7 +9461,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تساءل %1$@ عن “%2$@”"
+            "value": "تساءل %1$@ عن «%2$@»"
           }
         },
         "bs": {
@@ -9592,7 +9592,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تفاعل %1$@ بـ %2$@ مع “%3$@”"
+            "value": "تفاعل %1$@ بـ %2$@ مع «%3$@»"
           }
         },
         "bs": {
@@ -10135,7 +10135,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "„Start“ hat zwei Ansichten: Nachrichten und Kanäle."
+            "value": "Home hat zwei Ansichten: Nachrichten und Kanäle."
           }
         },
         "es": {
@@ -10399,7 +10399,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Im klassischen „Start“ gibt es nur die Ansicht „Nachrichten“."
+            "value": "Das klassische Home hat nur die Ansicht „Nachrichten“."
           }
         },
         "es": {
@@ -12920,7 +12920,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "メッセージリクエスト (%lld)"
+            "value": "メッセージリクエスト（%lld）"
           }
         },
         "km": {
@@ -15092,7 +15092,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "加入收件人"
+            "value": "加入收件者"
           }
         }
       }
@@ -15633,7 +15633,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا يوجد أحد باسم “%@”. اكتب عنوان بريده الإلكتروني لدعوته."
+            "value": "لا يوجد أحد باسم «%@». اكتب عنوان بريده الإلكتروني لدعوته."
           }
         },
         "bs": {
@@ -20891,7 +20891,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Haupt"
+            "value": "Standard"
           }
         },
         "es": {
@@ -21397,7 +21397,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ردود الرؤساء"
+            "value": "ردود الـ Chiefs"
           }
         },
         "bs": {
@@ -22315,7 +22315,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا يمكن إرفاق ”%@“."
+            "value": "لا يمكن إرفاق «%@»."
           }
         },
         "bs": {
@@ -22447,7 +22447,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "”%@“ مجلد. أرفق الملفات الموجودة فيه، أو ملف ZIP للمجلد."
+            "value": "«%@» مجلد. أرفق الملفات الموجودة فيه، أو ملف ZIP للمجلد."
           }
         },
         "bs": {

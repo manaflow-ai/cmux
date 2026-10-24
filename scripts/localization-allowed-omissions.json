@@ -2241,6 +2241,12 @@
       "es": "Chiefs is the plural of the product name Chief (cmux's lead agent), kept in Latin letters."
     }
   },
+  "home.title": {
+    "source": "Home",
+    "identityLocales": {
+      "de": "Home is the product name of cmux's Home area (the Chief and its conversations), kept in Latin letters in German so it matches the command and setting names that say Home (action.home.show, action.home.switchView, settings.labs.classicHome)."
+    }
+  },
   "home.list.title": {
     "source": "Conversations",
     "identityLocales": {
