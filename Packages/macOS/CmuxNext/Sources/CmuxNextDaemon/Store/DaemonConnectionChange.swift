@@ -7,6 +7,8 @@ enum DaemonConnectionChange {
 
     func apply(to store: DaemonStore) -> DaemonStore.Followup {
         store.connectionEpoch += 1
+        // A create waiting for a stand-in's daemon pane was bound to the old connection: it ends now.
+        defer { store.resumeStandInWaiters() }
         switch self {
         case .connected(let identity, let envelope):
             store.sideEvents.noteControl(envelope)

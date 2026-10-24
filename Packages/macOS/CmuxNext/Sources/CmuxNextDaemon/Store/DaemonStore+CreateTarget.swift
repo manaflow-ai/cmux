@@ -42,10 +42,13 @@ extension DaemonStore {
     /// Call it right before the send, on the main actor: when the target is known it returns
     /// without suspending, so creates keep the order they were pressed in.
     ///
-    /// - Throws: ``CreateTargetGone`` when `handle` is a stand-in the store no longer knows.
+    /// - Throws: ``CreateTargetGone`` when `handle` is a stand-in the store no longer knows, or the
+    ///   connection changed while it waited (the create's command was bound to the old one).
     public func daemonTarget(for handle: PaneID) async throws -> PaneID {
-        // wakeup-allow: each pass waits for the next store lift (an event), never polls.
+        let epoch = connectionEpoch
+        // wakeup-allow: each pass waits for the next store lift or connection change (an event), never polls.
         while true {
+            guard connectionEpoch == epoch else { throw CreateTargetGone(pane: handle) }
             switch createTarget(for: handle) {
             case .pane(let pane):
                 return pane
@@ -59,8 +62,9 @@ extension DaemonStore {
         }
     }
 
-    /// Every lift can give a stand-in its daemon pane, cancel it or refuse it: the waiting creates
-    /// look again (each one waits again while its stand-in is still pending).
+    /// Every lift can give a stand-in its daemon pane, cancel it or refuse it, and a connection
+    /// change ends every wait: the waiting creates look again (each one waits again while its
+    /// stand-in is still pending on the same connection).
     func resumeStandInWaiters() {
         guard !standInWaiters.isEmpty else { return }
         let waiters = standInWaiters
