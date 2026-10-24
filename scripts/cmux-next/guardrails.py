@@ -63,7 +63,7 @@ import time
 import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
+from typing import Callable, NamedTuple
 
 HERE = Path(__file__).resolve().parent
 SOURCES = "Packages/macOS/CmuxNext/Sources/"
@@ -527,9 +527,19 @@ def is_generic(key: str) -> bool:
                or not (token[0].isalnum() or token[0] == "_") for token in TOKEN.findall(key))
 
 
+class MoveCredit(NamedTuple):
+    """credit_moves' account of one file's added lines: MOVED it credited, REST it neither credited nor explained.
+
+    A line BRIDGE names or EXPLAINED took is in neither list. A summary of a file's new lines reads REST (and MOVED
+    when moved-in lines are growth), so it comes from the same accounting as the credit and never needs a clamp.
+    """
+    moved: list[SourceLine]
+    rest: list[SourceLine]
+
+
 def credit_moves(lines: list[SourceLine], pools: list[collections.Counter], explained: collections.Counter | None = None,
-                 bridge: Callable[[str], bool] = lambda key: False) -> int:
-    """How many of LINES (one file's added source lines, in head order) moved here from POOLS; consumes what it credits.
+                 bridge: Callable[[str], bool] = lambda key: False) -> MoveCredit:
+    """Which of LINES (one file's added source lines, in head order) moved here from POOLS; consumes what it credits.
 
     A line is moved when its stripped text is in a pool (the first that has it) and it is in a run of at least
     MOVE_RUN source lines in a row that are all in a pool. A run credits each specific line and at most
@@ -541,23 +551,28 @@ def credit_moves(lines: list[SourceLine], pools: list[collections.Counter], expl
     names (a new file's imports, which its moved share leaves out), and a specific line EXPLAINED by the file's
     own side (a Counter of that side's removed lines, consumed). A generic line is taken from POOLS first and
     from EXPLAINED only when no pool has it: the own side's removed `}` lines must not split a moved block.
+
+    Returns the lines it credited (MoveCredit.moved) and the lines it neither credited nor explained
+    (MoveCredit.rest), both in head order. A generic line of a run too short to credit is in REST: it came from a
+    pool, so EXPLAINED never took it.
     """
-    credited = 0
-    run: list[tuple[str, int]] = []
+    moved: list[SourceLine] = []
+    rest: list[SourceLine] = []
+    run: list[tuple[SourceLine, str, int]] = []
 
     def close() -> None:
-        nonlocal credited
-        specific = sum(1 for key, _ in run if not is_generic(key))
+        specific = sum(1 for _, key, _ in run if not is_generic(key))
         qualifies, generic_left = len(run) >= MOVE_RUN and specific > 0, MOVE_GENERIC_PER_LINE * specific
-        for key, source in run:
+        for line, key, source in run:
             generic = is_generic(key)
             if qualifies and not generic:
-                credited += 1
+                moved.append(line)
             elif qualifies and generic_left > 0:
                 generic_left -= 1
-                credited += 1
+                moved.append(line)
             else:
                 pools[source][key] += 1
+                rest.append(line)
         run.clear()
 
     previous = None
@@ -574,13 +589,14 @@ def credit_moves(lines: list[SourceLine], pools: list[collections.Counter], expl
         source = next((i for i, pool in enumerate(pools) if pool[key] > 0), None)
         if source is not None:
             pools[source][key] -= 1
-            run.append((key, source))
+            run.append((line, key, source))
         elif explained is not None and explained[key] > 0:
             explained[key] -= 1
         else:
             close()
+            rest.append(line)
     close()
-    return credited
+    return MoveCredit(moved, rest)
 
 
 def lost_lines(files: list[AppFile], readding: list[AppFile]) -> collections.Counter:
@@ -670,23 +686,33 @@ def app_size(changes: list[FileChange], moved: collections.Counter) -> list[Adde
     def is_import(key: str) -> bool:
         return IMPORT_LINE.match(key) is not None
 
-    for file in app:
-        if not file.is_new:
-            continue
-        # A file the push deletes whole and adds back elsewhere, line for line, is a rename however short (no run
-        # of a short file reaches MOVE_RUN). A new root file is split from the root: code from elsewhere does not
-        # become wiring by moving, so its twin must be a root file too.
+    def still_lost(lines: list[SourceLine], pool: collections.Counter) -> bool:
+        """Every specific line of LINES is still in POOL: no existing App file put it back, no new file took it."""
+        return not collections.Counter(key for key in keys(lines) if not is_generic(key)) - pool
+
+    new_files = [f for f in app if f.is_new]
+    renames: set[str] = set()  # new files that are a rename of a deleted file
+    # A file the push deletes whole and adds back elsewhere, line for line, is a rename however short (no run of a
+    # short file reaches MOVE_RUN), when its lines really left: the same lost-lines pool every move draws from, so
+    # a deleted file pasted into an existing file is not also renamed. A new root file is split from the root: code
+    # from elsewhere does not become wiring by moving, so its twin must be a root file too. Renames are found before
+    # any credit_moves, so an exact copy is the rename and a near copy of the same file is not, whatever their names.
+    for file in new_files:
         twin = next((d for d in app if d.is_deleted and d not in renamed and (d.root or not file.root)
-                     and keys(d.removed) == keys(file.added)), None)
+                     and keys(d.removed) == keys(file.added)
+                     and still_lost(d.removed, root_pool if d.root else other_pool)), None)
         if twin is not None:
             renamed.append(twin)
             pool = root_pool if twin.root else other_pool
             for key in keys(file.added):  # what the rename took, no other new file takes
                 pool[key] -= 1 if pool[key] > 0 else 0
+            renames.add(file.path)
+    for file in new_files:
+        if file.path in renames:
             continue
         # The moved share is of non-import source lines on both sides: imports count neither as moved nor as code.
-        moved_lines = credit_moves(file.added, [root_pool] if file.root else [other_pool, root_pool],
-                                   bridge=is_import)
+        moved_lines = len(credit_moves(file.added, [root_pool] if file.root else [other_pool, root_pool],
+                                       bridge=is_import).moved)
         code = sum(1 for a in file.added if not is_import(a.text.strip()))
         if moved_lines and moved_lines >= MOVE_SHARE * code:
             continue
@@ -707,20 +733,6 @@ def app_size(changes: list[FileChange], moved: collections.Counter) -> list[Adde
         hits.append(NetHit(file.path, number, f"new App file, {lines} source lines ({lines - moved_lines} not "
                            f"moved), goes to {destination(file.path)}: {why}", f"new:{file.path}", lines))
 
-    def side(files: list[AppFile]) -> dict[str, list[SourceLine]]:
-        """Added lines no removed line of the same side explains, per file (what the summary calls new)."""
-        own, out = removed(files), {}
-        for f in files:
-            rest = []
-            for a in f.added:
-                key = a.text.strip()
-                if own[key] > 0:
-                    own[key] -= 1
-                else:
-                    rest.append(a)
-            out[f.path] = rest
-        return out
-
     def removed(files: list[AppFile]) -> collections.Counter:
         return collections.Counter(r.text.strip() for f in files for r in f.removed)
 
@@ -728,16 +740,18 @@ def app_size(changes: list[FileChange], moved: collections.Counter) -> list[Adde
     # A move across the root's edge is found on each file's whole added list, from the lines the other side
     # really lost: a line the file's own side explains (a removed stub's `}`) never cuts a moved block apart, so
     # every line moved out of the root is counted and none becomes free root budget.
-    root_new, other_new = side(root_files), side(other_files)
     root_lost, other_lost = lost_lines(root_files, root_files), lost_lines(other_files, other_files)
     root_own, other_own = removed(root_files), removed(other_files)
-    credited = {f.path: credit_moves(f.added, [other_lost], root_own) for f in root_files}
-    credited.update({f.path: credit_moves(f.added, [root_lost], other_own) for f in other_files})
-    into_root = sum(credited[f.path] for f in root_files)
-    out_of_root = sum(credited[f.path] for f in other_files)
-    new_lines = {**root_new, **other_new}
-    # A root file's moved-in lines are root growth (wiring budget), so only feature files subtract their moves.
-    fresh = {f.path: max(0, len(new_lines[f.path]) - (0 if f.root else credited[f.path])) for f in app}
+    credit = {f.path: credit_moves(f.added, [other_lost], root_own) for f in root_files}
+    credit.update({f.path: credit_moves(f.added, [root_lost], other_own) for f in other_files})
+    into_root = sum(len(credit[f.path].moved) for f in root_files)
+    out_of_root = sum(len(credit[f.path].moved) for f in other_files)
+    # What the summary calls a file's new lines, from the credit's own accounting: the lines its own side does not
+    # explain, less (for a feature file) the lines moved out of the root. A root file's moved-in lines are root
+    # growth (wiring budget), so they stay in, in head order.
+    new_lines = {f.path: (sorted(credit[f.path].moved + credit[f.path].rest, key=lambda line: line.ordinal)
+                          if f.root else credit[f.path].rest) for f in app}
+    fresh = {path: len(lines) for path, lines in new_lines.items()}
 
     def net(files: list[AppFile]) -> int:
         return sum(len(f.added) - len(f.removed) for f in files)
