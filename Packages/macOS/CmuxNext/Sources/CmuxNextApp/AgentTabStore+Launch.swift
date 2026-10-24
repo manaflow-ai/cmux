@@ -10,8 +10,9 @@ extension AgentTabStore {
     /// terminal that will draw (`focusedDraws`; the focused terminal's first frame, `LaunchSettle`;
     /// the reveal deadline). A tab whose view exists, or one made after the first window frame in
     /// the focused pane, a focused terminal whose host ended or a launch whose focus is not known
-    /// yet, makes its view at once. `show` runs once, when the view may be made; the pane keeps
-    /// what it shows (the launch snapshot, the saved page) meanwhile.
+    /// yet, makes its view at once. `show` runs once, when the view may be made (each held tab in a
+    /// gate step of its own; it queues the pane for the presentation budget, one new view per
+    /// display frame); the pane keeps what it shows (the launch snapshot, the saved page) meanwhile.
     func deferAtLaunch(_ key: String, reveal: LaunchReveal, firstFrame: FirstFrameGate, focusedPane: String?, pane: String,
                        focusedDraws: Bool, show: @escaping @MainActor () -> Void) -> Bool {
         guard views[resolve(key)] == nil else { return false }
