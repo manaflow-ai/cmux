@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextSignposts
 
 /// The input event being dispatched now: the one source the key router, the menu key gate, the action
 /// signposts' input age and the key-down checks read.
@@ -19,9 +20,20 @@ public import AppKit
 @MainActor
 public final class InputDispatchContext {
     private var stack: [NSEvent] = []
+    /// Times each scroll event dispatched here to the frame that shows it (`key.scroll_frame`).
+    private let scrollFrames: any ScrollFrameTiming
 
     /// A context with no event being dispatched.
-    public init() {}
+    ///
+    /// - Parameter scrollFrames: Times each scroll event dispatched here (the App passes
+    ///   ``ScrollFrameSignpost``; the default records nothing).
+    public init(scrollFrames: any ScrollFrameTiming = NoScrollFrameTiming()) {
+        self.scrollFrames = scrollFrames
+    }
+
+    /// The layout took the scroll event being dispatched (a strip, row, area or canvas scroll): its timing
+    /// ends `target=layout`. Called by the layout's scroll routing; nothing between dispatches.
+    public func noteLayoutTookScroll() {}
 
     /// The innermost event being dispatched, nil between dispatches.
     public var event: NSEvent? { stack.last }
