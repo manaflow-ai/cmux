@@ -216,8 +216,11 @@ export interface MailSendParams {
   body: string;
   id: string;
   metadata?: (Record<string, unknown> | null);
-  recipient: string;
+  /** Session recipient for ordinary mail. Omit when target is supplied. */
+  recipient?: (string | null);
   sender: string;
+  /** Quiet reports alias (reports:<person>). Omit for session mail. */
+  target?: (string | null);
 }
 
 export type MailSendResult = {
@@ -563,6 +566,12 @@ export type SessionDetail = {
   waitingOn?: (string | null);
   /** The first prompt of the question it waits on, cut to 120 characters. */
   waitingPrompt?: (string | null);
+  /**
+   * A sub-session whose queued prompt waits for a free run slot of its parent: the parent
+   * runs as many sub-sessions as its `maxRunning` allows (`hub/subsession_runs.rs`). Absent
+   * otherwise, and from a peer on an older acpmux.
+   */
+  waitsForSlot?: boolean;
   /** The family of a conversation another app runs that this chat only shows; null otherwise. */
   watching?: (string | null);
 } & Record<string, unknown>;
@@ -707,6 +716,12 @@ export type SessionSummary = {
   waitingOn?: (string | null);
   /** The first prompt of the question it waits on, cut to 120 characters. */
   waitingPrompt?: (string | null);
+  /**
+   * A sub-session whose queued prompt waits for a free run slot of its parent: the parent
+   * runs as many sub-sessions as its `maxRunning` allows (`hub/subsession_runs.rs`). Absent
+   * otherwise, and from a peer on an older acpmux.
+   */
+  waitsForSlot?: boolean;
   /** The family of a conversation another app runs that this chat only shows; null otherwise. */
   watching?: (string | null);
 } & Record<string, unknown>;

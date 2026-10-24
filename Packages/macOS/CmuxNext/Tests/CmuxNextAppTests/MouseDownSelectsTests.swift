@@ -7,7 +7,7 @@ private typealias StripTab = CmuxNextTabs.TabID
 
 /// Lawrence 2026-10-18: "MouseDown on Home and App Store failed to change the workspace
 /// immediately. We need to do the same thing for Tabs, where mouse down changes it immediately."
-/// Home and the App Store switch on the press, like a workspace row and like a tab in a pane's
+/// Home and the App Store switch on the press, like a tab in a pane's
 /// strip; a press that becomes a drag still drags, and the release never runs them a second time.
 /// Every other item opens on the press too (2026-10-19), except new-tab launchers, which act on release.
 @MainActor @Suite(.serialized) struct MouseDownSelectsTests {

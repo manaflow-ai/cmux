@@ -23,6 +23,7 @@ pub mod op_names {
     pub const CALENDAR_EVENTS_LIST: &str = "calendar.events.list";
     pub const CHIEF_ARCHIVE: &str = "chief.archive";
     pub const CHIEF_CREATE: &str = "chief.create";
+    pub const CHIEF_DELETE: &str = "chief.delete";
     pub const CHIEF_LIST: &str = "chief.list";
     pub const CHIEF_UPDATE: &str = "chief.update";
     pub const CLOUD_BILLING_CHECKOUT: &str = "cloud.billing.checkout";
@@ -84,6 +85,12 @@ pub mod op_names {
     pub const GITHUB_ISSUE_COMMENT: &str = "github.issue.comment";
     pub const GRANT_CREATE: &str = "grant.create";
     pub const GRANT_REVOKE: &str = "grant.revoke";
+    pub const GROUP_ADD_WORKSPACE: &str = "group.add_workspace";
+    pub const GROUP_ARCHIVE: &str = "group.archive";
+    pub const GROUP_CREATE: &str = "group.create";
+    pub const GROUP_GET: &str = "group.get";
+    pub const GROUP_LIST: &str = "group.list";
+    pub const GROUP_RENAME: &str = "group.rename";
     pub const HOME_REQUESTS_LIST: &str = "home.requests.list";
     pub const HOME_SEARCH: &str = "home.search";
     pub const HOME_SETTINGS_SET: &str = "home.settings.set";
@@ -225,6 +232,7 @@ pub mod op_names {
         CALENDAR_EVENTS_LIST,
         CHIEF_ARCHIVE,
         CHIEF_CREATE,
+        CHIEF_DELETE,
         CHIEF_LIST,
         CHIEF_UPDATE,
         CLOUD_BILLING_CHECKOUT,
@@ -286,6 +294,12 @@ pub mod op_names {
         GITHUB_ISSUE_COMMENT,
         GRANT_CREATE,
         GRANT_REVOKE,
+        GROUP_ADD_WORKSPACE,
+        GROUP_ARCHIVE,
+        GROUP_CREATE,
+        GROUP_GET,
+        GROUP_LIST,
+        GROUP_RENAME,
         HOME_REQUESTS_LIST,
         HOME_SEARCH,
         HOME_SETTINGS_SET,
@@ -430,6 +444,7 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "calendar.events.list" => visitor.visit::<CalendarEventsListOp>(),
         "chief.archive" => visitor.visit::<ChiefArchiveOp>(),
         "chief.create" => visitor.visit::<ChiefCreateOp>(),
+        "chief.delete" => visitor.visit::<ChiefDeleteOp>(),
         "chief.list" => visitor.visit::<ChiefListOp>(),
         "chief.update" => visitor.visit::<ChiefUpdateOp>(),
         "cloud.billing.checkout" => visitor.visit::<CloudBillingCheckoutOp>(),
@@ -491,6 +506,12 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "github.issue.comment" => visitor.visit::<GithubIssueCommentOp>(),
         "grant.create" => visitor.visit::<GrantCreateOp>(),
         "grant.revoke" => visitor.visit::<GrantRevokeOp>(),
+        "group.add_workspace" => visitor.visit::<GroupAddWorkspaceOp>(),
+        "group.archive" => visitor.visit::<GroupArchiveOp>(),
+        "group.create" => visitor.visit::<GroupCreateOp>(),
+        "group.get" => visitor.visit::<GroupGetOp>(),
+        "group.list" => visitor.visit::<GroupListOp>(),
+        "group.rename" => visitor.visit::<GroupRenameOp>(),
         "home.requests.list" => visitor.visit::<HomeRequestsListOp>(),
         "home.search" => visitor.visit::<HomeSearchOp>(),
         "home.settings.set" => visitor.visit::<HomeSettingsSetOp>(),

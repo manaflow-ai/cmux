@@ -120,8 +120,9 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
     expect(running.some((loop) => loop.startsWith("cv-plan__mark") && loop.endsWith("cmux-spin"))).toBe(true);
     // The running rows' spinner (compaction, tool runs) too: it once had no rule and never turned.
     expect(running.some((loop) => loop.startsWith("cv-spinner") && loop.endsWith("cmux-spin"))).toBe(true);
-    // Agent work breathes by default (WORKING-LOOK).
-    expect(running.some((loop) => loop.startsWith("cv-spinner__dot") && loop.endsWith("cmux-breathe"))).toBe(true);
+    // Agent work breathes by default (WORKING-LOOK), as its whole mark (SPINNERS-OFF-MAIN: the svg box
+    // gets a compositor layer, the dot inside it does not).
+    expect(running.some((loop) => loop.startsWith("cv-spinner ") && loop.endsWith("cmux-breathe"))).toBe(true);
   });
 
   test("each working look runs its own loop on agent work, and loading keeps the spinner", async () => {
@@ -135,7 +136,7 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
       looks[look] = (await loops(p)).map((loop) => loop.replace(/\s+/g, " ")).sort();
       await p.close();
     }
-    expect(looks.breathe).toEqual(["cv-spinner cmux-spin", "cv-spinner__dot cmux-breathe"]);
+    expect(looks.breathe).toEqual(["cv-spinner cmux-breathe", "cv-spinner cmux-spin"]);
     expect(looks.shimmer).toEqual(["cv-spinner cmux-spin", "cv-tool__text cmux-shimmer"]);
     expect(looks.spinner).toEqual(["cv-spinner cmux-spin", "cv-spinner cmux-spin"]);
   });
@@ -184,9 +185,6 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
       `<span class="acpmux-floating-status" data-status="attention"></span>` +
       ["running", "done", "failed"]
         .map((state) => `<span class="acpmux-summary-dot" data-state="${state}"></span>`)
-        .join("") +
-      ["running", "waiting", "completed", "failed", "cancelled"]
-        .map((state) => `<span class="acpmux-lineage__icon" data-state="${state}"></span>`)
         .join("");
     // The theme the pane always gets (applyAgentTheme), so state colors resolve as in the app.
     const colors =
@@ -206,13 +204,11 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
       return {
         floating: [...document.querySelectorAll(".acpmux-floating-status")].map((node) => shape(node)),
         summary: [...document.querySelectorAll(".acpmux-summary-dot")].map((node) => shape(node, "::after")),
-        lineage: [...document.querySelectorAll(".acpmux-lineage__icon")].map((node) => shape(node, "::after")),
       };
     });
     await p.close();
     expect(new Set(shapes.floating).size).toBe(2);
     expect(new Set(shapes.summary).size).toBe(3);
-    expect(new Set(shapes.lineage).size).toBe(5);
   });
 
   test("the theme push sets the attribute the stylesheets read", async () => {

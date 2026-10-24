@@ -66,9 +66,28 @@ public nonisolated struct HomeTunables {
         help: "The mic in the empty message box dictates into it (on-device speech). Off shows the drawn waveform instead.",
         default: true, code: "HomeTunables.voiceInput")
 
+    /// The chat's header over the transcript (MessagesLabHome `HeaderGlassView`): the Chief's avatar
+    /// centered and its "Chief >" pill on a glass band, as Messages; the pill opens the Chief's
+    /// settings. On by default (Lawrence 2026-10-23: "chief centered profile pic is gone, chief
+    /// settings gone"; #23796 had turned it off on 2026-10-21). Off: no header, the rows start at the
+    /// top and fade out there. Conversations opened after a change follow it.
+    public static let chatHeader = Tunable<Bool>.toggle(
+        "home.chatHeader", section, "Avatar and name over the chat",
+        help: "The chat shows the Chief's avatar and name pill on a glass band at its top, as Messages does. Off: no header, and the messages fade out at the top as they scroll away.",
+        default: true, code: "HomeTunables.chatHeader")
+
+    /// The avatar-only list with only one conversation in it (`HomeSidebarSplitView`): off by default,
+    /// so a lone Chief takes no column and the chat gets the width (visual QA 2026-10-21: one avatar in
+    /// an empty band); on keeps the avatar-only column for it.
+    public static let loneConversationRail = Tunable<Bool>.toggle(
+        "home.loneConversationRail", section, "Avatar list for one conversation",
+        help: "A narrow Home column whose list holds one conversation (only the Chief) still shows the avatar-only list beside the chat. Off gives the chat the whole width; compose stays at its top-left.",
+        default: false, code: "HomeTunables.loneConversationRail")
+
     public static var all: [TunableDescriptor] {
         [flightRecorder.descriptor, flightRecorderCaptures.descriptor, firstRunHero.descriptor, launchIntoHome.descriptor,
-         turnProgress.descriptor, richTables.descriptor, voiceInput.descriptor]
+         turnProgress.descriptor, richTables.descriptor, voiceInput.descriptor, chatHeader.descriptor,
+         loneConversationRail.descriptor]
     }
 }
 

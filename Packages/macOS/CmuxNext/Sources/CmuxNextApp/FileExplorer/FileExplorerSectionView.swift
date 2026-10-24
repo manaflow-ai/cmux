@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextFiles
@@ -12,14 +13,14 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
     let model: FileExplorerModel
     private let rootFolder: @MainActor @Sendable () -> URL?
     private let perform: @MainActor (String) -> Void
-    private let openWith: @MainActor (String) -> Void
+    private let rowMenu: @MainActor (_ hasSelection: Bool) -> NSMenu?
+    /// Builds the menu's Open With apps submenu (it fills when LaunchServices answers).
+    private let openWithMenu: FileExplorerOpenWithMenu?
     private let apps: any FileAppsProviding
     private let effects: any FileExplorerEffects
     private let showError: @MainActor (String) -> Void
     /// The item whose name is being edited (Rename, or a new item's first name).
     private var renaming: URL?
-    /// The open menu's Open With rows (menu items hold their target weakly).
-    private var openWithMenu: FileExplorerOpenWithMenu?
     private let header = NSTextField(labelWithString: "")
     let table = FileExplorerTableView()
     private let scroll = NSScrollView()
@@ -32,19 +33,23 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
     ///   - rootFolder: The focused terminal's folder, nil when the focused tab has no local folder
     ///     (the tree keeps its root). Read in an observation, so a `cd` there moves the tree.
     ///   - perform: Runs an explorer action with `fileExplorerFocused` (``FileExplorerHandlers``).
-    ///   - openWith: Runs Open With (`fileExplorerOpenWith`) with the app at this path.
+    ///   - rowMenu: The right-click menu, the registry's `fileExplorerRow` menu (New File and
+    ///     New Folder only when nothing is selected).
+    ///   - openWith: Turns the menu's Open With row into the file's apps submenu.
     ///   - apps: The apps that open a file (LaunchServices; a fake in tests).
-    ///   - effects: What New File and the other edits use besides the file system.
-    ///   - showError: Shows why New File, New Folder, Rename or Move to Trash failed.
+    ///   - effects: What a rename typed in a row uses besides the file system.
+    ///   - showError: Shows why a rename typed in a row failed.
     init(model: FileExplorerModel, rootFolder: @escaping @MainActor @Sendable () -> URL?, perform: @escaping @MainActor (String) -> Void,
-         openWith: @escaping @MainActor (String) -> Void = { _ in }, apps: any FileAppsProviding = WorkspaceFileApps(),
+         rowMenu: @escaping @MainActor (_ hasSelection: Bool) -> NSMenu?, openWith: FileExplorerOpenWithMenu? = nil,
+         apps: any FileAppsProviding = WorkspaceFileApps(),
          effects: any FileExplorerEffects = NullFileExplorerEffects(), showError: @escaping @MainActor (String) -> Void = { _ in }) {
         self.effects = effects
         self.showError = showError
         self.model = model
         self.rootFolder = rootFolder
         self.perform = perform
-        self.openWith = openWith
+        self.rowMenu = rowMenu
+        openWithMenu = openWith
         self.apps = apps
         super.init(frame: NSRect(x: 0, y: 0, width: RightSidebarModel.width, height: 400))
         build()
@@ -108,12 +113,14 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
         table.headerView = nil
         table.rowSizeStyle = .small
         table.style = .sourceList
+        // A source list paints the system sidebar gray; the section sits on the window's ground like
+        // the sidebar, so the header strip and the tree read as one surface.
+        table.backgroundColor = .clear
         table.dataSource = self
         table.delegate = self
         table.target = self
         table.doubleAction = #selector(doubleClicked)
         table.perform = { [weak self] id in self?.perform(id) }
-        table.trash = { [weak self] in self?.edit { try await $0.moveToTrash() } }
         table.contextMenu = { [weak self] in self?.makeMenu() }
         table.setAccessibilityIdentifier("cmux.fileExplorer")
         scroll.documentView = table
@@ -146,63 +153,17 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
         perform("fileExplorerOpenSelection")
     }
 
-    private func makeMenu() -> NSMenu {
-        let menu = NSMenu()
-        let items: [(String, String)] = [
-            ("fileExplorerOpenInCmux", FileExplorerStrings.openInCmux),
-            ("fileExplorerReveal", FileExplorerStrings.revealInFinder),
-            ("fileExplorerCopyPath", FileExplorerStrings.copyPath),
-            ("fileExplorerCopyRelativePath", FileExplorerStrings.copyRelativePath),
-        ]
-        for (id, title) in items {
-            let item = NSMenuItem(title: title, action: #selector(menuPicked(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = id
-            menu.addItem(item)
+    /// The right-click menu from the registry; a row's Open With becomes its apps submenu.
+    private func makeMenu() -> NSMenu? {
+        let row = model.selectedRow
+        guard let menu = rowMenu(row != nil) else { return nil }
+        // Open as Text only for a page cmux renders (HTML, SVG, Markdown): other files open as text already.
+        if let row, row.isFolder || !FileOpenKind(fileName: row.name, isDirectory: false, isPackage: false).opensAsText,
+           let index = menu.items.firstIndex(where: { ActionRegistry.menuRun(of: $0)?.id == "fileExplorerOpenAsText" }) {
+            menu.removeItem(at: index)
         }
-        menu.insertItem(.separator(), at: 0)
-        for (title, action) in [(FileExplorerStrings.newFile, #selector(newFilePicked)), (FileExplorerStrings.newFolder, #selector(newFolderPicked))].reversed() {
-            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
-            item.target = self
-            menu.insertItem(item, at: 0)
-        }
-        guard model.selectedRow != nil else {
-            // The empty area: only New File and New Folder (in the root).
-            while menu.items.count > 2 { menu.removeItem(at: 2) }
-            return menu
-        }
-        menu.addItem(.separator())
-        for (title, action) in [(FileExplorerStrings.rename, #selector(renamePicked)), (FileExplorerStrings.moveToTrash, #selector(trashPicked))] {
-            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
-            item.target = self
-            menu.addItem(item)
-        }
-        if let row = model.selectedRow {
-            let openWith = openWith
-            let builder = FileExplorerOpenWithMenu(open: openWith, chooseOther: {
-                FileExplorerOpenWithMenu.chooseApp(for: row.url, then: openWith)
-            })
-            openWithMenu = builder
-            menu.insertItem(builder.item(for: row, apps: apps), at: min(4, menu.items.count))
-        }
+        if let row { openWithMenu?.attach(to: menu, for: row, apps: apps) }
         return menu
-    }
-
-    @objc private func newFilePicked() {
-        edit { [weak self] commands in
-            let file = try await commands.newFile()
-            self?.beginRename(file)
-        }
-    }
-    @objc private func newFolderPicked() {
-        edit { [weak self] commands in
-            let folder = try await commands.newFolder()
-            self?.beginRename(folder)
-        }
-    }
-    @objc private func trashPicked() { edit { try await $0.moveToTrash() } }
-    @objc private func renamePicked() {
-        if let row = model.selectedRow { beginRename(row.url) }
     }
 
     /// Runs one file change through ``FileExplorerCommands``; a failure shows its reason.
@@ -218,8 +179,13 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
         }
     }
 
+    /// What an explorer action run on this tree needs: its model, its window's undo stack, its rename field.
+    var runTarget: FileExplorerRunTarget {
+        FileExplorerRunTarget(model: model, undoManager: window?.undoManager, rename: { [weak self] in self?.beginRename($0) })
+    }
+
     /// Edits `item`'s name in its row (Rename, and a new item's first name, as Finder does).
-    private func beginRename(_ item: URL) {
+    func beginRename(_ item: URL) {
         let item = item.standardizedFileURL
         render()
         guard let index = rows.firstIndex(where: { $0.url == item }) else { return }
@@ -241,11 +207,6 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
         }
         edit { _ = try await $0.rename(item, to: name) }
         window?.makeFirstResponder(table)
-    }
-
-    @objc private func menuPicked(_ sender: NSMenuItem) {
-        guard let id = sender.representedObject as? String else { return }
-        perform(id)
     }
 
     // MARK: NSTableViewDataSource, NSTableViewDelegate

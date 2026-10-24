@@ -161,6 +161,10 @@ path = "tests/test_ci_change_areas.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_swift_packages_linux_cache.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_strings_output_encoding.py"
 lane = "linux-guard"
 
@@ -310,6 +314,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_queue_janitor.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_starved_labels.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1017,6 +1025,10 @@ path = "tests/test_job_input_fingerprint.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_job_reuse.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_merge_compile_guard.py"
 lane = "linux-guard"
 
@@ -1035,6 +1047,16 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_cmux_next_prepush_gate.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_guardrails.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. The guardrails run only in the local pre-push hook; run python3 tests/test_cmux_next_guardrails.py yourself (about 40 s, git only, no build)."
+
+[[test]]
+path = "tests/test_cmux_next_codebase_health.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests; run python3 tests/test_cmux_next_codebase_health.py after a change to codebase-health.py or to guardrails.py's diff scope or declaration parser (about 4 s, git only, no build)."
 
 [[test]]
 path = "tests/test_cmux_next_perf_gate_unlit.py"
@@ -1282,10 +1304,6 @@ path = "tests/test_browser_host_release_package.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_browser_host_release_smoke.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_cmux_next_tree_notify.py"
 lane = "linux-guard"
 
@@ -1438,6 +1456,10 @@ path = "tests/test_defaults_guard.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_generated_files_guard.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_signed_unnotarized_artifact.py"
 lane = "linux-guard"
 
@@ -1566,6 +1588,10 @@ path = "tests/test_cmux_next_release_notes.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_release_notes_pr_media.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_idea_ledger.py"
 lane = "linux-guard"
 
@@ -1578,7 +1604,7 @@ path = "tests/test_cmux_next_tip_swift_suite.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_cmux_next_debug_only_controls.py"
+path = "tests/test_cmux_next_deferred_terminate.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1587,6 +1613,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_next_ring.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_edge_feed.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1630,6 +1660,10 @@ path = "tests/test_pr_capture_check.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_pr_capture_check_paths.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_pr_proof_section.py"
 lane = "linux-guard"
 
@@ -1654,6 +1688,10 @@ path = "tests/test_ci_compile_test_plan.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_tip_test_compile.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ios_internal_builder.py"
 lane = "linux-guard"
 
@@ -1667,6 +1705,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_pr_autofix_settings.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_pr_changed_paths.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1787,4 +1829,12 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_tui_daemon_tests_linux.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_fixture_host_names.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_step_coverage.py"
 lane = "linux-guard"

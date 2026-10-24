@@ -34,6 +34,10 @@ final class CEFRuntime {
     /// Profiles Chromium opened in this process (their files stay open
     /// until shutdown, so a deleted one's directory waits for the next launch).
     var usedProfiles: Set<BrowserProfileID> = []
+    /// Each proxied browser profile's proxy (#24432); a profile not here is direct.
+    var profileProxies: [BrowserProfileID: BrowserProfileProxy] = [:]
+    /// Profiles whose proxy changed since the shim last took it (a clear included).
+    var unappliedProfileProxies: Set<BrowserProfileID> = []
     /// create_window tokens waiting for OnAfterCreated.
     var pendingWindows: [Int32: CEFPaneHost] = [:]
     /// The tab inside a synchronous cmux_tab_add call.
@@ -252,7 +256,9 @@ final class CEFRuntime {
             try CEFStartSteps.shared.initialize { () throws(BootError) in try initialize(library, environment: environment) }
             state = .ready
             CEFStartSteps.shared.timed("ready_hooks") {
-                startChildMonitor(); windowGuard.start(); ChromiumPageWindowMain.install(); onReady?()
+                startChildMonitor(); windowGuard.start(); ChromiumPageWindowMain.install()
+                ChromiumPageTextAccessory.install { [weak self] view in self?.showsCmuxPage(in: view.window) ?? false }
+                onReady?()
             }
             self.trigger = trigger
             loadDuration = library.loadDuration
@@ -383,7 +389,7 @@ final class CEFRuntime {
         // Pages use the theme color, never white or Chromium's #292929
         // (PageBackground); theme changes reach live tabs (fork API 12).
         shim.setBackgroundColor(PageBackground.appThemeARGB)
-        ThemeStore.shared.addResponder(self)
+        ThemeScope.app.store.addResponder(self)
         // Extension popup windows keep their window id (CEFPopupWindows).
         if CEFPopupWindows.isEnabled(forkAPIVersion: Int(shim.forkAPIVersion())) { shim.setPopupWindowsEnabled(1) }
         // chrome://newtab without an extension override (BrowserNewTabPage).
@@ -422,6 +428,7 @@ final class CEFRuntime {
             throw .initialize
         }
         shim.devToolsSetKeyHandler(cefDevToolsKeyCallback)
+        shim.setUnhandledKeyHandler(cefUnhandledKeyCallback)
         terminationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main
         ) { _ in

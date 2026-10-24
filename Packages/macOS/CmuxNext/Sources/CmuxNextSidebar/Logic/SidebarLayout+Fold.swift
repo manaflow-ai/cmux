@@ -26,7 +26,7 @@ nonisolated extension SidebarLayout {
     mutating func fold(_ group: SidebarGroup, collapsed: Bool, in section: SidebarSection, metrics base: SidebarLayoutMetrics,
                        options o: SidebarLayoutOptions) -> Bool {
         guard o.filterMatches == nil, o.gap == nil, gapY == nil, o.excludedGroup == nil, o.excludedItem == nil,
-              !o.showWorkspaceTabs, !o.groupsByFolder, !o.hidesWorkspaces,
+              !o.showWorkspaceTabs, !o.grouping.isGrouped, !o.hidesWorkspaces,
               let headerIndex = position(of: .group(group.id)) else { return false }
         // The chat history's blocks sit at places the full layout leaves (`pinnedChatsY`, `earlierChatsY`); a splice
         // moves the rows but not those places, so with history shown the list is laid out again.
@@ -34,9 +34,11 @@ nonisolated extension SidebarLayout {
         // A nested group or a group holding subgroups (remote-groups-DESIGN.md slice 2): its block holds other groups'
         // rows, so the full layout places them.
         // A group holding workspaces marked Done draws them behind its "Done (N)" row (`foldingDone`): laid out again.
+        // So does one longer than the row limit (its "Show N more" row).
         guard group.parent == nil, !(o.foldsDone && group.workspaces.contains { $0.taskStatus == .done }),
+              o.rowLimit == 0 || group.members.count <= o.rowLimit + 1,
               !section.nodes.contains(where: { if case let .group(child) = $0 { child.parent == group.id } else { false } }) else { return false }
-        let m = o.minimal ? base.minimal : base
+        let m = base.resolved(for: o)
         let header = rows[headerIndex]
         guard header.section == section.id else { return false }
         // The group's block: its header and the member rows right after it.
@@ -78,6 +80,11 @@ nonisolated extension SidebarLayout {
                 return shown.first(where: { $0.id == member.id }).map { (i, $0) }
             }
             for (n, (childIndex, ws)) in kept.enumerated() { workspaceRow(ws, at: childIndex, last: n == kept.count - 1) }
+        } else if members.isEmpty {
+            // Subgroups and filters already sent the full layout above; the empty row is `make`'s.
+            if Self.listsEmptyRow(group, filtering: false, hasSubgroups: false) {
+                y = Self.appendEmptyRow(group, section: section.id, parent: parent, metrics: m, to: &built, y: y)
+            }
         } else {
             for (childIndex, member) in members.enumerated() {
                 switch member {

@@ -26,6 +26,7 @@ export default {
         "latency-markdown": "test/latency/markdown.html",
         "latency-picker": "test/latency/picker.html",
         "latency-agent-pane": "test/latency/agent-pane.html",
+        "latency-settings": "test/latency/settings.html",
       },
     },
   },

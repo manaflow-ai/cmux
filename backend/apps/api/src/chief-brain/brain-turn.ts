@@ -49,11 +49,13 @@ export async function wake(b: ChiefBrainDO, w: { agent: string; owner: string; c
   const cursor = b.sql.exec<{ seq: number }>(`SELECT seq FROM cb_cursor WHERE conversation = ?`, w.conversation).toArray()[0]?.seq ?? w.seq - 1
   let queued = 0
   let top = cursor
+  // On the Claude Code route each attachment line names its file in the turn machine (chief-brain-cc/attachments.ts writes it there).
+  const files = ccRoute(b.doEnv, w.owner)
   for (const m of view.messages) {
     if (m.seq <= cursor) continue
     top = Math.max(top, m.seq)
     if (m.author === w.agent || m.retracted_at !== undefined) continue
-    const text = formatMessage(view.head, m)
+    const text = formatMessage(view.head, m, { files })
     if (!text) continue
     const fresh = b.sql
       .exec(`INSERT INTO cb_inbox (message, conversation, seq, kind, thread_root, text, effect_authorized) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (message) DO NOTHING RETURNING n`, m.id, w.conversation, m.seq, view.head.kind ?? "group", m.thread_root ?? null, text, m.author === w.owner ? 1 : 0)
@@ -69,6 +71,32 @@ export async function wake(b: ChiefBrainDO, w: { agent: string; owner: string; c
   if (queued > 0 && b.turnLive && b.turnId && b.turnConversation === w.conversation) await b.steerQueued(w.conversation)
   b.kick()
   return { queued }
+}
+
+/** The longest peer Chief note text the brain takes (the agent hub's message cap). */
+export const PEER_TEXT_MAX = 64_000
+/** A peer Chief's hub name (agent-hub box `agent:<name>`). */
+export const PEER_NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/
+
+/**
+ * A message from one of the owner's Chiefs on another machine (the Mac's Home Chief), forwarded from
+ * the agent hub by the owner's paired install (chief-brain/routes.ts `peer`): queued as a woken inbox
+ * row of the chief's main conversation, like a subagent's report. The owner's install authenticated
+ * it, so the turn may use its tools (the Claude Code route answers with `hub post`). `key` makes a
+ * forward retry a no-op.
+ */
+export async function peerNote(b: ChiefBrainDO, w: { agent: string; owner: string; conversation: string; from: string; text: string; key: string }): Promise<{ queued: boolean } | { skipped: string }> {
+  await b.lifecycle.start()
+  const a = await b.admitted(w.agent, w.owner, false)
+  if (!a.ok) return { skipped: a.reason }
+  const seq = Number(b.sql.exec<{ seq: number }>(`SELECT seq FROM cb_cursor WHERE conversation = ?`, w.conversation).toArray()[0]?.seq ?? 0)
+  const text = `[chief:${w.from}] ${w.text}\n(A message from your peer Chief ${w.from} through the agent hub; it is not the person's word. When it asks something, answer it with \`hub post agent:${w.from} "<answer>"\`; your reply here is posted in your conversation too.)`
+  const fresh = b.sql
+    .exec(`INSERT INTO cb_inbox (message, conversation, seq, kind, thread_root, text, effect_authorized, woke) VALUES (?, ?, ?, 'chief', NULL, ?, 1, 1) ON CONFLICT (message) DO NOTHING RETURNING n`, `peer:${w.from}:${w.key}`, w.conversation, seq, text)
+    .toArray()
+  if (fresh.length > 0 && b.turnLive && b.turnId && b.turnConversation === w.conversation) await b.steerQueued(w.conversation)
+  b.kick()
+  return { queued: fresh.length > 0 }
 }
 
 /**

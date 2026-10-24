@@ -1,13 +1,27 @@
 // A sent prompt's way to the agent (plans/cmux-next/composer-delivery-DESIGN.md): a clock beside its
 // bubble while it is on its way (only after a second, so a fast send shows nothing); once it got
-// there the bubble's read check (UserBubble.tsx) says so. A prompt that did not get there says why, with
-// Retry, Edit, Remove and Details: the hop it stopped at, its error, each hop's time and the ids,
-// and Copy debug info.
-import { useEffect, useState } from "react";
+// there the bubble's read check (UserBubble.tsx) says so. Prompts that did not get there say why in
+// one card per cause (sendFailure.ts), under the last of them: one plain sentence, the fix when
+// there is one (Trust folder), Retry, Edit, Remove and Details: the hop it stopped at, the
+// refuser's own words and code, each hop's time and the ids, and Copy debug info.
+import { createContext, useContext, useEffect, useState } from "react";
 import type { AcpmuxRow, PromptDelivery } from "../model";
 import { useT, type StringKey } from "../i18n";
+import { isTrustCause, sendCause, type FailedRun } from "../sendFailure";
 import { copyText } from "./clipboard";
 import { Clock } from "./icons";
+
+/// What the failure cards read from the chat (App.tsx): the runs of failed prompts, and the
+/// folder's trust for a trust failure. Without it each failed prompt has its own card.
+export type FailedSends = {
+  runs: ReadonlyMap<string, FailedRun>;
+  /// Why the folder's trust holds prompts now (its question is open, or Not now stands): a trust
+  /// failure's Retry would be refused the same way, so it waits and says why.
+  trustBlock?: StringKey;
+  /// Trust the chat's folder, when the folder is not trusted and this pane may answer for it.
+  trustFolder?: () => void;
+};
+export const FailedSendsContext = createContext<FailedSends | undefined>(undefined);
 
 /// How long a send stays unmarked before its clock shows.
 const CLOCK_AFTER_MS = 1000;
@@ -58,6 +72,7 @@ export function deliveryDebugText(row: Pick<AcpmuxRow, "id" | "text">, delivery:
     `state: ${delivery.state}`,
     `hop: ${delivery.hop ?? "-"}`,
     `code: ${delivery.code ?? "-"}`,
+    `reason: ${delivery.reason ?? "-"}`,
     `error: ${delivery.error ?? "-"}`,
     `sent: ${at(delivery.sentAt)}`,
     `accepted: ${at(delivery.acceptedAt)} (${after(delivery.acceptedAt)})`,
@@ -71,21 +86,47 @@ export function deliveryDebugText(row: Pick<AcpmuxRow, "id" | "text">, delivery:
   ].join("\n");
 }
 
-/// Under a prompt that did not get there: why, and how to recover it.
+/// Under the last prompt of a run that did not get there for one cause: why, and how to recover
+/// them. The run's other prompts draw no card of their own.
 export function DeliveryFailure({ row }: { row: AcpmuxRow }) {
   const t = useT();
+  const sends = useContext(FailedSendsContext);
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const delivery = row.delivery;
   if (!row.failed) return null;
-  const act = (name: string) => void window.cmuxAcpmuxActions?.[name]?.({ rowId: row.id });
+  const rowIds = sends?.runs.get(row.id)?.rowIds ?? [row.id];
+  if (rowIds[rowIds.length - 1] !== row.id) return null;
+  const trust = isTrustCause(sendCause(delivery));
+  const retryWaits = trust ? sends?.trustBlock : undefined;
+  const fix = trust ? sends?.trustFolder : undefined;
+  const act = (name: string) => void window.cmuxAcpmuxActions?.[name]?.({ rowId: row.id, rowIds });
+  const codes = [...new Set([delivery?.reason, delivery?.code].filter(Boolean))];
   const since = (ms: number | undefined) =>
     ms === undefined ? undefined : t("prompt.delivery.after", { ms: Math.max(0, ms - (delivery?.sentAt ?? ms)) });
   return (
-    <div className="cv-user__status cv-user__status--failed" aria-live="polite">
+    <div
+      className="cv-user__status cv-user__status--failed"
+      data-failure-cause={sendCause(delivery)}
+      data-failed-count={rowIds.length}
+      aria-live="polite"
+    >
+      <div className="cv-user__failure-text">
+        {row.error ?? t("prompt.notSent", { reason: t("transport.refused") })}
+      </div>
       <div className="cv-user__failure">
-        <span>{row.error ?? t("prompt.notSent", { reason: t("transport.refused") })}</span>
-        <button type="button" className="cv-user__cancel" onClick={() => act("chat.retryPrompt")}>
+        {fix && (
+          <button type="button" className="cv-user__cancel cv-user__fix" onClick={fix}>
+            {t("trust.trustFolder")}
+          </button>
+        )}
+        <button
+          type="button"
+          className="cv-user__cancel"
+          disabled={retryWaits !== undefined}
+          title={retryWaits && t(retryWaits)}
+          onClick={() => act("chat.retryPrompt")}
+        >
           {t("turn.retry")}
         </button>
         {delivery && (
@@ -113,7 +154,7 @@ export function DeliveryFailure({ row }: { row: AcpmuxRow }) {
           {delivery.error && (
             <div>
               {delivery.error}
-              {delivery.code ? ` (${delivery.code})` : ""}
+              {codes.length ? ` (${codes.join(", ")})` : ""}
             </div>
           )}
           <div>

@@ -7,7 +7,10 @@ extension HomeNativeTranscriptView {
     public func setHeaderPanels(_ items: [HomeHeaderPanelItem]) {
         headerPanels.set(items)
         headerPanels.onToggle = { [weak self] id in self?.onHeaderPanel(id) }
+        let shown = transcript.headerTrailingAccessory != nil
         transcript.headerTrailingAccessory = items.isEmpty ? nil : headerPanels
+        // With no header the rows' top follows the toggles: the first-run panel moves with it.
+        if shown == items.isEmpty { needsLayout = true }
     }
 
     /// The panel toggles shown now (tests and `debug.home`).

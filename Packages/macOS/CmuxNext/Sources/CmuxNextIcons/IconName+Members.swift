@@ -203,6 +203,7 @@ extension IconName {
     nonisolated public static let paneSplitLeft = IconName("pane.split.left")
     nonisolated public static let paneSplitRight = IconName("pane.split.right")
     nonisolated public static let paneSplitUp = IconName("pane.split.up")
+    nonisolated public static let panelRight = IconName("panel.right")
     nonisolated public static let permissionConsent = IconName("permission.consent")
     nonisolated public static let permissionMode = IconName("permission.mode")
     nonisolated public static let placeholder = IconName("placeholder")

@@ -63,6 +63,9 @@ public struct FeedItem: Identifiable, Hashable, Sendable {
     /// The event came from a terminal tab (a terminal agent's notification):
     /// opening it shows the terminal, and it takes no inline reply.
     public var opensTerminal = false
+    /// The Mac whose agent sent the event: answers, replies and opens go to
+    /// that Mac's link, never the chosen one's (nil: mock content, old archives).
+    public var macID: String?
 
     public init(
         id: String, kind: Kind, workspaceID: String, tabID: String, agentName: String, harness: String,
@@ -78,6 +81,14 @@ public struct FeedItem: Identifiable, Hashable, Sendable {
         self.markdown = markdown
         self.quote = quote
         self.createdAt = createdAt
+    }
+
+    /// The card takes a typed reply: a chat's events, and a terminal agent's
+    /// finished turn (typed into that terminal). A terminal agent's question,
+    /// approval or error is handled in the terminal (after an error the agent
+    /// may still be working).
+    public var takesReply: Bool {
+        !opensTerminal || kind == .response || kind == .finished
     }
 
     public var needsYou: Bool {
@@ -169,7 +180,7 @@ public final class FeedStore {
             recordReadMarks()
             refreshDerived()
             #if DEBUG
-            if FeedStressRig.shared.config.isActive { FeedStore.logChange(from: oldValue, to: items) }
+            if FeedStressRig.shared.config.logsChurn { FeedStore.logChange(from: oldValue, to: items) }
             #endif
             onItemsChange?(items)
         }
@@ -350,6 +361,9 @@ public final class FeedStore {
                 merged.isDone = next[index].isDone
                 merged.resolution = next[index].resolution ?? item.resolution
                 merged.replies = next[index].replies
+                // A reply on its way, or why the last one failed, outlives a read of the ledger.
+                merged.pending = next[index].pending ?? item.pending
+                merged.error = next[index].error ?? item.error
                 merged.createdAt = next[index].createdAt
                 next[index] = merged
             } else {
@@ -528,6 +542,32 @@ public final class FeedStore {
         mutate(id) {
             $0.resolution = option.isAllow ? Self.allowedText(option.name) : "Denied"
             $0.isRead = true
+        }
+    }
+
+    /// "Typing into the terminal…" while a terminal agent's reply is on its way.
+    public static let typingIntoTerminal = "Typing into the terminal…"
+
+    /// A reply to a terminal agent's event, typed into that terminal by
+    /// `send` (nil: sent; else why not). Its state lives on the item, so a
+    /// recycled cell neither loses the outcome nor sends it twice.
+    public func replyToTerminal(_ id: String, text: String, send: @escaping (FeedItem, String) async -> String?) {
+        guard let item = item(id: id), item.pending == nil else { return }
+        mutate(id) {
+            $0.pending = Self.typingIntoTerminal
+            $0.error = nil
+        }
+        Task { @MainActor in
+            let refusal = await send(item, text)
+            mutate(id) {
+                $0.pending = nil
+                if let refusal {
+                    $0.error = refusal
+                } else {
+                    $0.replies.append(text)
+                    $0.isRead = true
+                }
+            }
         }
     }
 

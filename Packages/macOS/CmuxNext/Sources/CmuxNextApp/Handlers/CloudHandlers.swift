@@ -16,8 +16,10 @@ enum CloudHandlers {
         let reason: @MainActor () -> String? = { cloud.unavailableReason }
         let signedInReason: @MainActor () -> String? = { cloud.unavailableReason ?? (cloud.isSignedIn ? nil : CloudStrings.signInFirst) }
         bindMachineActions(into: registry, context: context, reason: signedInReason)
+        CloudGitHubHandlers.bind(into: registry, context: context, reason: signedInReason)
         bindNetworkActions(into: registry, context: context, reason: signedInReason)
         bindDomainActions(into: registry, context: context, reason: signedInReason)
+        bindListActions(into: registry, context: context)
         bindCreation(into: registry, context: context, reason: signedInReason)
         bindAccount(into: registry, context: context, reason: reason)
         bindMove(into: registry, context: context)
@@ -202,6 +204,37 @@ enum CloudHandlers {
     @MainActor private static func waitForAnchor(id: String, on session: CloudMachineSession) async -> Bool {
         for await ready in ObservationStream({ anchor(id: id, on: session) != nil }) where ready { return true }
         return false
+    }
+
+    /// Attaches to `session` (``CloudMachineSession/attach(origin:)``): a
+    /// paused machine (cmux Cloud's idle auto-pause) resumes, and the work
+    /// waits for its daemon instead of refusing with "not connected". A
+    /// legacy machine with no connection reads its record again first, since
+    /// the app's copy may still say running. A machine that is not paused
+    /// returns at once, as before.
+    static func attached(_ session: CloudMachineSession, _ invocation: ActionInvocation,
+                         within limit: Duration = .seconds(300)) async throws {
+        await session.refreshIfMaybePaused()
+        session.attach(origin: connectOrigin(for: invocation))
+        guard session.resuming else { return }
+        let daemon = session.daemon
+        _ = await CloudMove.holds(within: limit) { daemon.connection != nil || session.resumeFailure != nil }
+        if let failure = session.resumeFailure { throw ActionFailure(message: failure) }
+        guard daemon.connection != nil else { throw ActionFailure(message: CloudStrings.notConnected) }
+    }
+
+    /// ``attached(_:_:within:)``, then "not connected" unless the daemon
+    /// answers: a live machine whose link is down refuses, as before.
+    static func attachedAndConnected(_ session: CloudMachineSession, _ invocation: ActionInvocation) async throws {
+        try await attached(session, invocation)
+        guard session.daemon.connection != nil else { throw ActionFailure(message: CloudStrings.notConnected) }
+    }
+
+    /// Whether `session` can take an attach now or after a resume: a legacy
+    /// machine with no connection may be paused behind a stale record, so
+    /// ``attached(_:_:within:)`` reads it again and decides.
+    static func attachable(_ session: CloudMachineSession) -> Bool {
+        session.daemon.connection != nil || session.appLink == nil
     }
 
     static func commandArgument(_ invocation: ActionInvocation) throws -> String {

@@ -124,6 +124,7 @@ Five everyday commands, three groups for the rest:
 | `host enroll HOST [--harness ID]… [--reverse]` / `host doctor NAME\|HOST [--fix] [--reverse]` | Add a machine step by step (reach, install, daemon, harness, peer, peer-back, identity), one JSON line per step with `--json`; `peer-back` (this machine as the host's peer) runs only with `--reverse`; `doctor` changes nothing without `--fix`. |
 | `session info\|cancel\|stop\|rename\|fork\|set\|allow\|deny\|export\|import\|tail NAME …` | Everything about one session. |
 | `daemon run\|status\|shutdown\|config\|harnesses\|reload\|models\|schema` | The daemon itself. |
+| `capabilities [--json]` | The protocol capability ids this build serves (`acpmux-v1`, `queue-edit-v1`, ...), with no daemon running. |
 | `daemon shutdown [--end-agents]` | Stop the daemon; the user sessions' hosted agents keep running for the next daemon (a restart or an update), as with SIGTERM. `--end-agents` also ends every agent host it owns, exits 0 only when none is left, and names any host that survives SIGKILL. `--keep-agents` is accepted and changes nothing (a plain stop of builds before 2026-10-15 ended the agents). |
 
 The older flat spellings (`acpmux kill NAME`, `acpmux peer add …`, `acpmux status`) still
@@ -161,6 +162,7 @@ acpmux history NAME                                           # one line per tur
 acpmux pending                                                # every pending permission, with the option ids to answer it
 acpmux session allow NAME [OPTION] | acpmux session deny NAME
 acpmux session rules NAME '{"autoDeny": ["rm -rf"], "ask": ["execute"], "default": "approve"}'
+acpmux session limits NAME [--max N | --clear]                 # sub-sessions running at once (more wait), running and queued now
 acpmux session tag NAME task=review --ttl 3600; acpmux ls --tag task=review
 acpmux ls --status running | --pending                        # filters; --json for the full records
 acpmux session tail NAME --since <sessionId>:<seq> --follow   # raw events as JSON lines; a cursor past the log is exit 2
@@ -202,12 +204,15 @@ deleted with the chat (`_acpmux/kill` with purge) and once older than `uploadsMa
 (default 30; 0 keeps them), checked at the daemon's start and daily.
 
 A chat whose harness never titles it (Claude Code's `-p` stream-json has no title
-event) gets a 3-6 word title once, after its first completed turn, logged as `titled`.
-`titles.command` (an argv reading the request on stdin and printing the title; env
-`ACPMUX_TITLE_COMMAND` wins) makes it; unset, the chat's own Claude Code profile runs
-`-p --model haiku` (`titles.model`) with no tools, MCP or session file. A harness title
-always wins, a chat titled before this (or adopted) keeps its title, and
-`titles.generate: false` turns it off.
+event) gets an instant first-message placeholder, then a 3-6 word model title, logged
+as `titled`. A thin first message may get one refresh after its first completed turn;
+later turns never retitle it. `titles.command` (an argv reading the request on stdin
+and printing the title; env `ACPMUX_TITLE_COMMAND` wins) makes it; unset, `_acpmux/complete`
+uses the harness's cheap model (Haiku for Claude, a small Codex model where available)
+with no tools, MCP or session file. A harness or manual title always wins, a chat titled
+before this (or adopted) keeps its title, and `titles.generate: false` turns it off.
+The daemon logs the title model, elapsed time, and estimated input/output token cost for
+each generated title.
 
 ## TUI
 
@@ -561,8 +566,9 @@ allows four, so a client has room for one.
 ### Bring your own ACP harness
 
 Every harness is a `harnesses` entry in `~/.acpmux/config.json`. Discovery fills in the ones on
-PATH (Claude Code, Codex, OpenCode, pi, oh-my-pi, prime-agent, Gemini, `sr claude proxy`); a
-configured entry always wins over a discovered one. A complete entry:
+PATH (Claude Code, Codex, OpenCode, pi, oh-my-pi, prime-agent, Gemini, `sr claude proxy`, and
+Muse Code through the [cmux-muse-acp](https://github.com/manaflow-ai/cmux-muse-acp) adapter
+`muse-acp`, else Muse Code in a terminal tab); a configured entry always wins over a discovered one. A complete entry:
 
 ```jsonc
 {
@@ -774,7 +780,7 @@ The simplest peer is an SSH host, and `host setup` does the whole install from t
 acpmux host setup HOST                 # scp the binary, write config + launchd plist, start it, add the peer
 acpmux host ls                         # connected/offline, remote build, and "outdated" when it lags yours
 acpmux host update --all               # push the current binary to every ssh peer and restart it
-acpmux host update HOST --if-idle --binary-dir DIR  # push DIR/acpmux-<target>, unless a session there is mid-turn
+acpmux host update HOST --if-idle --binary-dir DIR  # push DIR/acpmux-<target>, unless a session there is mid-turn (not counting the one running this)
 acpmux ls                              # HOST/session-name next to local sessions
 acpmux new -m claude --host HOST "…"   # start a session there; `ensure NAME --host HOST` too
 acpmux attach HOST/session-name        # or plain `acpmux attach` for the full sidebar
@@ -788,6 +794,11 @@ binary only once it runs on the peer, keeps the binary it replaces as `~/.local/
 not answer with the new build. A daemon that runs under a hand-written `acpmux*.service` unit is
 moved to the standard `acpmux.service` (its home, socket and drop-ins carried over, agents kept).
 A cmux Cloud VM is never updated this way (`cloudMachine`): `cmux link machine update --to-bundled` owns it.
+One update of a host runs at a time: `host update`, `host setup` and `host enroll --fix` take the
+host's update lock (a lease in `~/.acpmux`, kept by the update's connection; it needs `flock` or
+`perl` on the host), and one that finds it held changes nothing (`host update`: `updateRunning`). Every step checks the lease on the host first,
+so an update whose connection dropped stops (`lockLost`). The updates reach the daemon through the
+`ACPMUX_HOME` and `ACPMUX_SOCKET` that `acpmux.service` and its drop-ins set.
 `--json` reports each peer's `outcome`: `updated`, `current`, `busy`, `needsBinary`,
 `rolledBack` or `failed`. `host setup` needs ssh + scp access and a Mac or Linux box with `launchctl`
 (Linux hosts run `acpmux daemon` under whatever supervisor you use). Hosts added by hand still
@@ -982,7 +993,7 @@ Extensions:
 
 | Method | Purpose |
 | --- | --- |
-| `_acpmux/status`, `_acpmux/harnesses`, `_acpmux/sessions` | Daemon and fleet state; status also reports `ready`, `loginEnv` and `listen`. |
+| `_acpmux/status`, `_acpmux/harnesses`, `_acpmux/sessions` | Daemon and fleet state; status also reports `ready`, `loginEnv`, `listen` and `capabilities`. |
 | `_acpmux/attach {sessionId, afterSeq?, beforeSeq?, limit?, maxBytes?, kinds?, eventStream?}` | Subscribe and get the session detail, a page of events, and `hasMore`. |
 | `_acpmux/detach`, `_acpmux/watch {enabled}` | Unsubscribe; or receive `_acpmux/session_changed` for every session. |
 | `_acpmux/harness/inventory/watch {enabled}` | Local socket only: [sanitized cached inventory snapshots](docs/inventory-watch.md), with monotonic per-run revisions and no health checks or CLI execution. Requires `harnessInventoryWatch`. |
@@ -993,6 +1004,8 @@ Extensions:
 | `_acpmux/permission_respond {sessionId, permissionId, optionId}` | Answer a request announced by `_acpmux/permission_pending`. Any client may deny or cancel; only the cmux app's connection (it presents the app's per-launch person key) may allow. Others get `permission.person_required` ("approve this on the Mac app") and the request stays pending. The same rule guards every grant that widens what runs without asking (policy, rules, modes, defaults). |
 | `_acpmux/export {sessionId, dest}`, `_acpmux/import {path, name}` | Bundles. |
 | `_acpmux/file_put {sessionId, fileName, data}` | Save a file the person dropped into the chat (base64, at most 10 MiB) on the machine that runs it, owner-only under `<ACPMUX_HOME>/uploads/<sessionId>/<random>/<fileName>`, and answer `{path}`. A peer's chat is forwarded there (only to a peer whose `initialize` features list `filePut`; else `Method not found`, `data.reason: "filePut.unsupported"`). Not from a Web connection (`filePut.remote`). Nothing deletes uploads yet. |
+| `_acpmux/media_open {sessionId, path}` | Open an image or video the chat names, on the machine that runs it, and answer `{handle, size, mimeType, identity}`. Relative paths start in the chat folder; absolute paths may be inside that folder, `/tmp`, the user's home, or the chat uploads. Every component is opened with `O_NOFOLLOW`, the opened file must be a regular file with one link, inside those roots and not a dot name, key file or `~/Library` path, and its bytes must be png, jpeg, gif or webp (at most 10 MiB) or mp4, mov, m4v or webm (at most 200 MiB). At most 8 handles per connection, each closed after 2 minutes idle and all at disconnect. A peer chat goes to the peer only when its `initialize` features list `mediaRead` (else `mediaRead.unsupported`); never from a Web connection (`mediaRead.remote`). |
+| `_acpmux/media_range {sessionId, handle, offset, length}` | Read 1 to 6 MiB of an open handle and answer `{offset, size, identity, data}` (base64), `size` and `identity` repeating the open. A file changed since the open (device, inode, size or mtime) is refused (`media.changed`) and its handle closed; the range that reaches the end closes it too. |
 | `_acpmux/peers`, `_acpmux/peer_add {name, url, token}`, `_acpmux/peer_remove {name}` | Mirror remote daemons. |
 | `_acpmux/shutdown` | Stop the daemon. |
 
@@ -1026,6 +1039,13 @@ for the import only when it must (see above), at most 3 s. `daemon run --ready-f
 to descriptor N when bound. SIGTERM (even when the launcher left it blocked) sends SIGTERM to every agent's process
 group, SIGKILL after 2 s, saves sessions and exits within 5 s.
 `acpmux daemon schema` prints the full RPC schema.
+
+`initialize` (`_meta.acpmux.capabilities`) and `_acpmux/status` (`capabilities`) list the
+protocol surfaces this build serves by stable id, as cmux-tui's `identify` does: `acpmux-v1` for
+the base a chat client needs, then one id per surface such as `queue-edit-v1` or
+`permission-groups-v1` (`src/capabilities.rs` names the methods each covers). An id never
+changes meaning; a changed contract gets a new one. `acpmux capabilities --json` prints the same
+list with no daemon running, which the cmux app bundle records for its web pages.
 
 Any other method that names a `sessionId` is forwarded to the agent unchanged, so vendor
 extensions keep working.

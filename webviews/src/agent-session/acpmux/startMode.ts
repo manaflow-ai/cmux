@@ -7,6 +7,7 @@ import { useEffect, useSyncExternalStore } from "react";
 export type StartMode = { modeId: string; name?: string };
 
 /// Asks the connected acpmux; undefined when it sets no mode, cannot know, or predates the method.
+/// Rejects when it could not ask (the socket closed, the request failed): no answer to keep.
 export type AskStartMode = (harness: string, cwd?: string) => Promise<StartMode | undefined>;
 
 /// acpmux's last answers, per harness and folder, kept per viewer: a pending chat draws the last
@@ -98,6 +99,17 @@ export function cachedStartMode(harness: string | undefined, cwd?: string): Kept
   return valid(mode) ? { ...mode, borrowed: true } : undefined;
 }
 
+/// What this viewer kept for a new chat on `harness` in `cwd`: acpmux's answer (`cachedStartMode`),
+/// `null` when acpmux answered that it sets no mode there (or, borrowed, in the folder it answered
+/// last), `undefined` when acpmux never answered for `harness` here.
+function keptAnswer(harness: string, cwd?: string): KeptStartMode | null | undefined {
+  const all = load();
+  const key = keyOf(harness, cwd);
+  if (key in all || Object.keys(all).some((other) => other.startsWith(`${harness}\u0000`)))
+    return cachedStartMode(harness, cwd) ?? null;
+  return undefined;
+}
+
 /// acpmux's last answer for `harness` in this very folder; none borrowed from another.
 export function exactStartMode(harness: string | undefined, cwd?: string): StartMode | undefined {
   const mode = cachedStartMode(harness, cwd);
@@ -160,7 +172,14 @@ export function setStartModeSource(next: AskStartMode | undefined): void {
 export async function askStartMode(harness: string, cwd?: string): Promise<StartMode | undefined> {
   const source = ask;
   if (!source) return exactStartMode(harness, cwd);
-  const mode = await source(harness, cwd).catch(() => undefined);
+  let mode: StartMode | undefined;
+  try {
+    mode = await source(harness, cwd);
+  } catch {
+    // Not asked (the socket closed under it, the request failed): acpmux said nothing, so the
+    // kept answer stays. Kept as "sets none", the chip lost its mode until the next answer.
+    return exactStartMode(harness, cwd);
+  }
   rememberStartMode(harness, cwd, mode);
   return mode;
 }
@@ -175,8 +194,13 @@ export function onStartModeAskAgain(asker: () => void): () => void {
 }
 
 /// The mode a new chat on `harness` in `cwd` starts in, while `enabled`: acpmux's kept answer from
-/// the first frame, asked again on mount and whenever it may have changed.
-export function useStartMode(harness: string | undefined, cwd: string | undefined, enabled: boolean) {
+/// the first frame, asked again on mount and whenever it may have changed. `null`: acpmux sets no
+/// mode there; `undefined`: no answer yet (or not `enabled`).
+export function useStartMode(
+  harness: string | undefined,
+  cwd: string | undefined,
+  enabled: boolean,
+): KeptStartMode | null | undefined {
   const state = useSyncExternalStore(
     subscribe,
     () => `${generation}:${version}`,
@@ -187,5 +211,14 @@ export function useStartMode(harness: string | undefined, cwd: string | undefine
   useEffect(() => {
     if (key && harness) void askStartMode(harness, cwd);
   }, [key, harness, cwd, asked]);
-  return key ? cachedStartMode(harness, cwd) : undefined;
+  // The kept answer lives outside React: `state` (bumped whenever it changes) is passed in, so the
+  // React Compiler reads it again when an answer lands. Memoized on `harness` and `cwd` alone, an
+  // answer that came after the first frame never reached the chip (cx-ncc.113.116: a cold New Tab
+  // showed no mode control at all).
+  return key && harness ? keptAt(state, harness, cwd) : undefined;
+}
+
+/// `keptAnswer`, read at store state `_state` (see useStartMode).
+function keptAt(_state: string, harness: string, cwd?: string): KeptStartMode | null | undefined {
+  return keptAnswer(harness, cwd);
 }

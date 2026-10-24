@@ -868,22 +868,14 @@ impl Brain {
         true
     }
 
-    /// A human message arrived during a turn (decision 2026-10-04): the
-    /// model is interrupted at once, even mid-thinking, and a running tool
-    /// call finishes first. The native engine aborts its stream and calls
-    /// the model again with the message; the acpmux engine stops the turn
-    /// (`session/cancel`, sent by the turn's runner once no tool runs, and
-    /// again until the turn ends), and the next fresh turn answers with the
-    /// view of everything the stopped turn did. "thanks" interrupts too.
+    /// A human message arrived during a turn. acpmux: it is steered in at
+    /// once; a steer refused or unread past the deadline stops the turn
+    /// (`steer.rs`, user 2026-10-21). Native: the engine delivers it after
+    /// the next tool results.
     pub(super) fn interrupt_for_newer(&mut self) {
         if self.phase != Phase::Running {
             return;
         }
-        // Decision 2026-10-09 (interruptions, parity with the reference): a
-        // message never stops a turn, on any engine. acpmux: it is steered
-        // in between tool calls when the session steers, else it waits and
-        // the next turn starts the moment this one ends. Native: the engine
-        // delivers it after the next tool results. Only chief.stop stops.
         if matches!(self.settings.engine, Engine::Acpmux) {
             self.try_steer();
         }
@@ -1136,8 +1128,7 @@ impl Brain {
             return;
         }
         self.cuts = 0;
-        // The turn answers its messages itself: no receipt after its end.
-        self.desk.take_if(|d| d.turn == key);
+        self.steer_due.take_if(|(_, turn)| turn == key);
         let outcome_done = outcome.done_draft.take();
         self.keep_turn_session(key, &mut outcome);
         if self.state.turn.as_ref().is_some_and(|t| t.key == key) {
@@ -1215,11 +1206,30 @@ impl Brain {
         // NO_REPLY posts nothing: a Chief that reads every message stays
         // quiet with it (membership), and any Chief ends with it when a
         // reaction or its `reply` calls said it all (brain/replies.rs).
-        let text = if crate::membership::is_no_reply(&text) {
-            (self.log)(&format!(
-                "turn {key} answered {}: nothing posted",
-                crate::membership::NO_REPLY
-            ));
+        let said_no_reply = crate::membership::is_no_reply(&text);
+        let text = if said_no_reply {
+            // Never for a person's message of the Chief conversation: it
+            // stays in the reply ledger, and a retry turn answers it
+            // (reply_ledger.rs, user 2026-10-21).
+            let main = conversation.is_some() && conversation == self.state.conversation;
+            let person = main
+                && self.state.turn.as_ref().is_some_and(|t| {
+                    t.key == key
+                        && t.answers
+                            .iter()
+                            .any(|id| self.state.awaiting.iter().any(|a| &a.id == id))
+                });
+            if person {
+                (self.log)(&format!(
+                    "turn {key} answered {} with a person's message in the batch: refused; a retry turn answers it",
+                    crate::membership::NO_REPLY
+                ));
+            } else {
+                (self.log)(&format!(
+                    "turn {key} answered {}: nothing posted",
+                    crate::membership::NO_REPLY
+                ));
+            }
             String::new()
         } else {
             text
@@ -1304,6 +1314,13 @@ impl Brain {
             }
             thread
         };
+        // The owner stopped the turn: its messages need no reply (the person
+        // asked for the silence; reply_ledger.rs).
+        let not_needed = if owner_stopped {
+            answers.clone()
+        } else {
+            Vec::new()
+        };
         match conversation {
             Some(conversation) if !text.is_empty() => {
                 // Every mention of a subagent is its link (Lawrence 2026-10-10).
@@ -1348,10 +1365,17 @@ impl Brain {
             _ => Vec::new(),
         };
         let main = self.turn_side().is_none();
+        // Any other end leaves what no post answered to a retry check.
+        self.reply_not_needed(&not_needed);
         self.state.turn = None;
         self.stop_wanted = false;
         self.save_with(extra);
         self.flush_outbox();
+        self.schedule_reply_checks(if said_no_reply {
+            super::reply_ledger::WHY_NO_REPLY
+        } else {
+            super::reply_ledger::WHY_SILENT
+        });
         // After the reply: a client drops the draft as the message lands.
         if let (Some(done), Some(conversation)) = (outcome_done, &done_conversation) {
             self.publish_draft(conversation, &done);
@@ -1559,6 +1583,10 @@ impl Brain {
         self.interrupt.set_gate(false);
         self.stop_wanted = false;
         self.save_with(extra);
+        self.schedule_reply_checks(&format!(
+            "the turn was cut ({})",
+            optchat_core::cut_at_bytes(&error, 120)
+        ));
         if main {
             self.set_typing(false);
         }

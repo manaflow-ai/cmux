@@ -70,13 +70,13 @@ public final class SidebarDocStore {
     @ObservationIgnored private var refetchAgain = false
     /// Batches that arrived while the first load was in flight; applied after it (the mirror drops the stale ones).
     @ObservationIgnored private var earlyBatches: [Data] = []
-    /// The last projection (`projection(live:)`), by version and live set.
     /// The live workspaces and the connected other machines at the last `show` (a remote close is a live ref that left).
     @ObservationIgnored var lastLive: Set<SidebarDocWorkspaceRef> = []
     @ObservationIgnored var lastConnectedRemotes: Set<String> = []
     /// The page icon address last sent for each url item (`storeIconURLs` sends each one once).
     @ObservationIgnored var requestedIconURLs: [String: String] = [:]
-    @ObservationIgnored var projectionCache: (version: UInt64, live: [SidebarDocWorkspaceRef], projection: SidebarDocProjection)?
+    /// The last projection (`projection(live:)`), with what it was built over.
+    @ObservationIgnored var projectionCache: SidebarDocProjectionCache?
     /// Changes whose outcome no reply told (all asks unanswered, or answered only after an ask went unanswered: the
     /// echo may have gone to a closed connection). They stay pending until the next document load, which says where
     /// the rows really are: the load drops them (cx-ml98q).

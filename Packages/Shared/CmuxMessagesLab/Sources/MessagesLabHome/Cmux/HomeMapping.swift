@@ -81,6 +81,13 @@ enum HomeMapping {
                 reactions: item.reactions.map { reaction($0, partIndex: projectedIndex($0.partIndex, owners)) }, format: format)
         // ThreadMode.tree: the message a nested reply answers (HomeMapping+Tree.swift).
         message.parent = parent(item, roots: roots)
+        if !item.isRetracted, !item.parts.isEmpty, parts.isEmpty {
+            // Nothing to read (a Chief turn's done marker, a work part with no preview): kept so
+            // its seq still moves the read cursor, drawn as no row and counted as no reply.
+            message.deletedAt = Instant.format(item.createdAt)
+            message.replyTo = nil
+            message.parent = nil
+        }
         return message
     }
 
@@ -136,6 +143,8 @@ enum HomeMapping {
     /// after it; without a renderer, or for a source it refuses, the fence stays in the text.
     static func parts(_ p: MessagePart, media: Media = { _ in nil }, progress: [String: Double] = [:], markdown: Bool = false,
                       links: Links = { _ in nil }) -> [Part] {
+        // A work part shows its preview; its session id is no text (`WorkRef.shownText`).
+        if case .work(let work) = p, work.shownText == nil { return [] }
         // An agent's pipe tables are cards of their own (HomeTableRowProvider), between its text.
         func text(_ piece: String) -> [Part] {
             if markdown, let split = tableParts(piece, { textParts(.text($0), media: media, progress: progress, markdown: markdown, links: links) }) {

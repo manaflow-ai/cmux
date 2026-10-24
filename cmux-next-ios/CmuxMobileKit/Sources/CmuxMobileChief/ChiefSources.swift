@@ -38,7 +38,7 @@ public final class ChiefSources {
         case turnOn(CloudChief)
     }
 
-    public private(set) var cloudState: CloudState = .off
+    public internal(set) var cloudState: CloudState = .off
     /// The account's active Cloud Chiefs (`chief.list`), in the service's order.
     public private(set) var cloudChiefs: [CloudChief] = []
     /// A create or turn-on request is running.
@@ -53,8 +53,8 @@ public final class ChiefSources {
     nonisolated static let defaultModel = "claude-opus-5-5"
     nonisolated static let defaultEffort = "low"
 
-    @ObservationIgnored private var http: ChiefCloudHTTP?
-    @ObservationIgnored private var userID: String?
+    @ObservationIgnored var http: ChiefCloudHTTP?
+    @ObservationIgnored var userID: String?
     @ObservationIgnored private var lookup: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var foregroundObserver: (any NSObjectProtocol)?

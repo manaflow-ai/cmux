@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { categories } from "../categories";
+import { shownCategories } from "../categories";
 import { useSettingsState } from "../context";
 import { filterRows } from "../search";
 import { valueOf } from "../store";
 import { t, text } from "../strings";
+import { CHIEF_PET_ROWS, ChiefPetCard } from "./ChiefPetCard";
 import { GroupList } from "./GroupList";
 
 /**
@@ -18,6 +19,7 @@ export function SearchResults({ query, changedOnly = false }: { query: string; c
     changedOnly,
     valueOf: (key) => valueOf(state, key),
     isChanged: (key) => state.rows.get(key)?.customized ?? false,
+    devBuild: state.host?.dev_build === true,
   });
   const shown = new Set(matches.flatMap((match) => match.rows.map((row) => row.key)));
   const empty = shown.size === 0;
@@ -33,8 +35,22 @@ export function SearchResults({ query, changedOnly = false }: { query: string; c
           {changedOnly && !query.trim() ? t("settingsPage.noChanged") : t("settingsPage.noResults")}
         </span>
       </p>
-      {categories.map((category) => {
+      {shownCategories(state.host?.dev_build === true).map((category) => {
         const open = category.groups.some((group) => group.rows.some((row) => shown.has(row.key)));
+        const pet = category.id === "chief";
+        const petRows = pet
+          ? new Set(
+              category.groups
+                .flatMap((group) => group.rows)
+                .filter((row) => shown.has(row.key) && CHIEF_PET_ROWS.has(row.key))
+                .map((row) => row.key),
+            )
+          : null;
+        const groups = pet
+          ? category.groups
+              .map((group) => ({ ...group, rows: group.rows.filter((row) => !CHIEF_PET_ROWS.has(row.key)) }))
+              .filter((group) => group.rows.length > 0)
+          : category.groups;
         return (
           <section
             className="result-section collapse"
@@ -46,7 +62,8 @@ export function SearchResults({ query, changedOnly = false }: { query: string; c
           >
             <div className="collapse-body">
               <h2 className="result-section-title">{text(category.title)}</h2>
-              <GroupList groups={category.groups} query={query} shown={shown} mounted={mounted} />
+              {petRows && petRows.size > 0 && <ChiefPetCard query={query} visibleRows={petRows} />}
+              <GroupList groups={groups} query={query} shown={shown} mounted={mounted} />
             </div>
           </section>
         );

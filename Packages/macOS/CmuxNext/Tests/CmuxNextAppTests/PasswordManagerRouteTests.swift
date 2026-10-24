@@ -63,6 +63,10 @@ struct PasswordManagerRouteTests {
             try await until({ services.daemon.store.workspaces.contains { $0.screens.contains { !$0.panes.isEmpty } } }, within: .seconds(90))
             // Actions reach tabs through the window's panes, which attach after the daemon's.
             try await until({ services.windows.active?.workspaceContent?.panes.isEmpty == false }, within: .seconds(30))
+            // The window can show its workspace before restore ends, and restore's last step lands
+            // the launch's first workspace (`FirstWorkspaceLaunch.land`), which takes the window
+            // off any top page a test showed before then. Wait until restore has run to the end.
+            try await until({ !services.windows.registry.isLaunching }, within: .seconds(30))
             result = .success(try await body(services, try #require(services.daemon.connection)))
         } catch { result = .failure(error) }
         // Stop the app's connection first: on the daemon's EOF it would start a

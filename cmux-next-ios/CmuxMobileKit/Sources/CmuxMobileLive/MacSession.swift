@@ -58,6 +58,7 @@ final class MacSession {
         self.link = link
         workspaces = WorkspaceSync(deviceID: deviceID, deviceName: deviceName)
         feed = LiveFeed(store: feedStore, hub: nil, place: { _ in nil })
+        feed.macID = macID.isEmpty ? nil : macID
         terminalFeed = TerminalFeed(store: feedStore)
         creation = LiveWorkspaceCreationBackend(sync: workspaces, link: link, acpmux: nil)
         feed.hub = acpmux

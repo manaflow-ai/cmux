@@ -44,3 +44,4 @@ cmux-tui/crates/cmux-server/src/health/mod.rs	1	keep	reads the system route tabl
 cmux-tui/crates/cmux-tui-platform/src/platform/codex_daemon.rs	4	keep	this process's own parents, at most 2, no enumeration: a Codex hook refuses the route its shared app-server daemon inherited (#20757)
 cmux-tui/crates/cmux-tui-platform/src/platform/job_launch.rs	3	keep	one pid: the foreground job of a PTY this daemon holds (tcgetpgrp), read once when an agent session starts for its flags and account dir (#22199)
 cmux-tui/crates/cmux-worktree-care/src/procs.rs	1	keep	one bounded check of one folder right before worktree care removes it (lsof -t +d <folder>: top level only, 10 s, a hit or an error keeps it); never a machine scan
+cmux-tui/crates/cmux-pty/src/macos.rs	2	keep	this process only: PROC_PIDLISTFDS of getpid() between fork and exec, to mark its own inherited descriptors close-on-exec (new-terminal-100x; macOS has no close_range)

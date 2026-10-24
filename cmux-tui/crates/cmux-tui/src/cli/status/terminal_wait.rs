@@ -122,7 +122,7 @@ fn parse(words: &[String]) -> Result<(Until, Option<Duration>), UsageError> {
 }
 
 /// `500ms`, `30s` (or `30`), `5m`, `1h`.
-pub(super) fn duration(text: &str) -> Result<Duration, UsageError> {
+pub(in crate::cli) fn duration(text: &str) -> Result<Duration, UsageError> {
     let invalid = || {
         UsageError::new(format!(
             "--timeout takes a duration such as 500ms, 30s, 5m or 1h, not {text:?}"

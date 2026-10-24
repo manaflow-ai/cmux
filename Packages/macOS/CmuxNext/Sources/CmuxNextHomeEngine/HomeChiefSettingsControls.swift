@@ -71,9 +71,12 @@ final class HomeChiefAvatarButton: NSButton {
 
 /// A borderless text button drawn as a plain link: the theme's accent (or
 /// `ink`), underlined while hovered. Show Traces, Show Memory, Diagnostics.
+/// The accent is ``Palette/litGlyph``, never the raw `accent`: a theme that
+/// names no accent draws `accent` (its focus ring) at 40% of the text, and
+/// Show Traces and Show Memory read as dim grey (Leo's screenshot, 2026-10-20).
 @MainActor
 final class HomeChiefLinkButton: NSButton {
-    /// Nil draws the theme's accent.
+    /// Nil draws the theme's accent, lifted to read at least as well as secondary text.
     var ink: ThemeInk? { didSet { applyTitle() } }
     var textFont: NSFont = Typography.caption { didSet { applyTitle() } }
     private var text = ""
@@ -127,7 +130,7 @@ final class HomeChiefLinkButton: NSButton {
             case .secondary?: Palette.textSecondary
             case .tertiary?: Palette.textTertiary
             case .danger?: Palette.danger
-            case nil: Palette.accent
+            case nil: Palette.litGlyph
             }
         }
         var attributes: [NSAttributedString.Key: Any] = [.font: textFont, .foregroundColor: color]

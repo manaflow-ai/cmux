@@ -254,9 +254,11 @@ impl SshFailure {
     fn fix(self, host: &str) -> String {
         let bare = host.rsplit('@').next().unwrap_or(host);
         match self {
-            Self::NoRoute => format!(
-                "Check the name {bare}, that the machine is on, and that it is on this network or tailnet."
-            ),
+            Self::NoRoute => tailnet_acl_hint(host).unwrap_or_else(|| {
+                format!(
+                    "Check the name {bare}, that the machine is on, and that it is on this network or tailnet."
+                )
+            }),
             Self::SshOff => format!(
                 "Turn on ssh on {bare} (macOS: System Settings > General > Sharing > Remote Login; Linux: start sshd)."
             ),
@@ -269,6 +271,16 @@ impl SshFailure {
             Self::Other => format!("Run `ssh {host}` in a terminal to see why it fails."),
         }
     }
+}
+
+/// A MagicDNS timeout is often a tailnet policy denial rather than an offline host. Keep the
+/// diagnosis conditional because a plain SSH destination has no evidence that Tailscale is in use.
+fn tailnet_acl_hint(host: &str) -> Option<String> {
+    let bare = host.rsplit('@').next().unwrap_or(host).trim_matches(['[', ']']);
+    bare.strip_suffix(".ts.net")?;
+    Some(format!(
+        "If `tailscale ping {bare}` works but ssh times out, Tailscale SSH isn't allowed to this machine: add an ACL rule like {{ \"src\": [\"autogroup:member\"], \"dst\": [\"{bare}\"], \"ip\": [\"tcp:22\"] }} or enable Tailscale SSH on the target, then check again."
+    ))
 }
 
 fn reach(r: &dyn Remote) -> StepResult {
@@ -477,6 +489,7 @@ fn probe(r: &dyn Remote) -> Result<Probe> {
 }
 
 /// Link [`DAEMON_BIN`] to `bin`: the daemon runs a cmux-tui as `acpmux`.
+/// The caller holds the host's update lock and passes `r` fenced for it.
 fn link_daemon_bin(r: &dyn Remote, bin: &str) -> Result<String> {
     hosts::run(
         r,
@@ -613,6 +626,16 @@ fn install(r: &dyn Remote, name: &str, bin: &str, fix: bool) -> StepResult {
             format!("Run the check with --fix to install this build on {host}."),
         );
     }
+    // Every change below holds the host's update lock, so no other update
+    // of the host finds its binary replaced under it.
+    let lock = match hosts::lock_to_install(r) {
+        Ok(lock) => lock,
+        Err(e) => {
+            return fail(Step::Install, format!("{why}; {e:#}"), "Check again once it ended.");
+        }
+    };
+    let fenced = lock.fence(r);
+    let r: &dyn Remote = &fenced;
     // `bin` is this build and only the link is missing or stale: link it,
     // before anything that needs this program to match the host.
     if bin != DAEMON_BIN && found.0.as_deref() == Some(want) {
@@ -768,7 +791,9 @@ fn daemon(r: &dyn Remote, name: &str, port: u16, fix: bool) -> StepResult {
             format!("Run the check with --fix to configure and start the daemon on {host}."),
         );
     }
-    if let Err(e) = hosts::install_daemon(r, port, true) {
+    let started = hosts::lock_to_install(r)
+        .and_then(|lock| hosts::install_daemon(&lock.fence(r), port, true));
+    if let Err(e) = started {
         return fail(Step::Daemon, format!("{why}; starting it failed: {e:#}"), look);
     }
     match judge(r) {

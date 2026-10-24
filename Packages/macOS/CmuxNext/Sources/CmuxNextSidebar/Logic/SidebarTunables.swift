@@ -84,24 +84,43 @@ public nonisolated enum SidebarTunables {
         default: false, code: "SidebarTunables.presenceDots")
 
     /// Rows show their agent sessions' acpmux lane state (`SidebarLaneStatus`): working, waiting
-    /// on you, failed, idle, even when no turn state reached the row. On by default.
+    /// on you, failed, idle, even when no turn state reached the row. Off by default (Lawrence 2026-10-21).
     public static let laneStatus = Tunable<Bool>.toggle(
         "sidebar.laneStatus", .sidebar, "Rows show acpmux lane status",
         help: "A workspace row's status mark also follows the acpmux lane of each agent chat in it on this Mac: waiting on you or failed wins, then working, then the row's own status.",
-        default: true, code: "SidebarTunables.laneStatus")
+        default: false, code: "SidebarTunables.laneStatus")
 
-    /// A row names the state of its most urgent agent chat with the Priority view's words (needs
-    /// you, done, failed, lost) at the right of its name (`SidebarLaneStatus`). On by default.
+    /// A row's accessibility label names the state of its most urgent agent chat with the Priority
+    /// view's words (needs you, failed, lost; never Done, `WorkspaceRowContent.rowChip`;
+    /// `SidebarLaneStatus`). The row draws no status words: its badge's dot says it (Leo 2026-10-21).
+    /// Off by default (Lawrence 2026-10-21).
     public static let rowStatus = Tunable<Bool>.toggle(
-        "sidebar.rowStatus", .sidebar, "Rows name their agent's state",
-        help: "A workspace row says needs you, done, failed or lost at the right of its name, in the Priority view's words, for the most urgent agent chat in it on this Mac.",
-        default: true, code: "SidebarTunables.rowStatus")
+        "sidebar.rowStatus", .sidebar, "Row labels name their agent's state",
+        help: "A workspace row's accessibility label says needs you, failed or lost, in the Priority view's words, for the most urgent agent chat in it on this Mac. The row itself draws no status words; its badge's dot says it.",
+        default: false, code: "SidebarTunables.rowStatus")
+
+    /// Group by Status (Leo 2026-10-14, #20905): the list's rows under the Priority view's states, from the state each
+    /// row already carries from the Priority classifier, in manual order inside each (`SidebarLayout+Status`). Off by
+    /// default; it wins over Group Projects By while on.
+    public static let groupByStatus = Tunable<Bool>.toggle(
+        "sidebar.groupByStatus", .sidebar, "Group by status",
+        help: "Lists every computer's rows under the Priority view's states (Needs you, Done, Failed, CI failing, Working, Idle) with counts, in your order inside each. Rows move as their state changes; the active row stays put until another row is active.",
+        default: false, code: "SidebarTunables.groupByStatus")
 
     /// Workspaces marked Done fold into one "Done (N)" row at the end of their group or list (`SidebarLayout+DoneFold`).
     public static let doneFold = Tunable<Bool>.toggle(
         "sidebar.doneFold", .sidebar, "Fold Done workspaces",
         help: "Workspaces marked Done move into one Done row at the end of their group or list, in their order; click the row to show them.",
         default: true, code: "SidebarTunables.doneFold")
+
+    /// A group or list longer than this shows its first rows, the ones that need you and the active one, then a
+    /// "Show N more" row (`SidebarLayout+DoneFold`). 0, the default for now, shows every row.
+    public static let groupRowLimit = Tunable<Double>.number(
+        "sidebar.groupRowLimit", .sidebar, "Rows before Show more",
+        help: "A group or list longer than this shows its first rows, the ones that need you and the active one, then a Show more row. 0 shows every row.",
+        default: 0, range: 0...100, step: 1, unit: .count, code: "SidebarTunables.groupRowLimit")
+    /// `groupRowLimit` as a row count.
+    public static var rowLimit: Int { max(0, Int(groupRowLimit.value)) }
 
     /// The workspace hover card says what its agents did since the person last looked at it
     /// (`SidebarLookedStore`): turns done, questions, failures. On by default.
@@ -110,12 +129,12 @@ public nonisolated enum SidebarTunables {
         help: "A workspace's hover card counts the turns its agents finished, the questions they asked and the turns that failed since you last had it open.",
         default: true, code: "SidebarTunables.sinceLooked")
 
-    /// A working row's second line says what its agent does right now (`SidebarLaneStatus`). On
-    /// by default; a row without a second line keeps its one line (the hover card says it).
+    /// A working row's second line says what its agent does right now (`SidebarLaneStatus`). Off
+    /// by default (Lawrence 2026-10-21); a row without a second line keeps its one line (the hover card says it).
     public static let nowLine = Tunable<Bool>.toggle(
         "sidebar.nowLine", .sidebar, "Rows say what their agent does now",
         help: "While an agent chat in a workspace works, the row's second line reads \"Now:\" and what the agent is doing. A one-line row stays one line.",
-        default: true, code: "SidebarTunables.nowLine")
+        default: false, code: "SidebarTunables.nowLine")
 
     /// Sample agent lanes on every row (`SidebarLaneFixture`), for captures on a slot with no agents.
     public static let laneFixture = Tunable<Bool>.toggle(
@@ -124,7 +143,8 @@ public nonisolated enum SidebarTunables {
         default: false, code: "SidebarTunables.laneFixture")
 
     /// Every row carries its pull requests' badge, with or without the session tree
-    /// (`SidebarSessionTreeFeed`). On by default; the tree's nesting and keycaps stay opt-in.
+    /// (`SidebarSessionTreeFeed`), while the row's Pull Request element is on
+    /// (`sidebar.workspaceRow.pullRequest`, off by default). On by default; the tree's nesting and keycaps stay opt-in.
     public static let pullRequestBadges = Tunable<Bool>.toggle(
         "sidebar.pullRequestBadges", .sidebar, "Rows show their pull requests",
         help: "A workspace row shows a badge for the pull requests its agent chats opened or its folder's branch has, colored by their state, even with the session tree off.",
@@ -146,6 +166,14 @@ public nonisolated enum SidebarTunables {
         help: "A press on a workspace row changes nothing until the button comes up on that row; holding and dragging moves the row without switching to it. A row dropped on a pane edge shows its workspace beside the shown one. Rows of every workspace on screen get a soft highlight.",
         default: false, code: "SidebarTunables.multiView")
 
+    /// A workspace nobody named whose name says nothing ("workspace-11", "~") reads in the
+    /// secondary ink while idle, read and not selected (Leo 2026-10-20: such rows clutter the
+    /// sidebar). On by default; off draws every name in the full ink.
+    public static let quietUnnamedRows = Tunable<Bool>.toggle(
+        "sidebar.quietUnnamedRows", .sidebar, "Quiet unnamed workspaces",
+        help: "An idle workspace nobody named (workspace-11, ~) shows its name dimmed until it has activity, something unread or the selection.",
+        default: true, code: "SidebarTunables.quietUnnamedRows")
+
     /// Sample rows with 1 to 7 pending items (`SidebarSection.rowBadgePreview()`).
     public static let rowBadgePreview = Tunable<Bool>.toggle(
         "sidebar.rowBadgePreview", .sidebar, "Row badge preview rows",
@@ -166,6 +194,14 @@ public nonisolated enum SidebarTunables {
         "sidebar.collapseMotion", .sidebar, "Sidebar collapse motion",
         help: "Prototype for hiding and showing the sidebar: slide keeps the panel opaque; slide and fade fades its content with the same width motion.",
         default: .slide, code: "SidebarTunables.collapseMotion")
+
+    // @intent no reflow per frame (GPU audit 2026-10-21, offender #1): the slide used to lay out
+    // every pane, terminal and page at a new width on every frame. On by default; off restores that.
+    /// Whether the content beside the sidebar keeps one width through a show or hide slide.
+    public static let slideHoldsContent = Tunable<Bool>.toggle(
+        "sidebar.slideHoldsContent", .sidebar, "Hold content size in sidebar slide",
+        help: "While the sidebar slides open or closed, the panes beside it keep the wider of their starting and final width and ride the moving edge, clipped at the far one; they lay out once when the slide lands. Off: every pane resizes on every frame.",
+        default: true, code: "SidebarTunables.slideHoldsContent")
 
     /// The transition used when a workspace row receives its generated or
     /// agent-derived title after creation. Crossfade is the shipped default (#21242).
@@ -193,24 +229,29 @@ public nonisolated enum SidebarTunables {
             doneFold.descriptor,
             dragThreshold.descriptor,
             evenRowText.descriptor,
+            groupByStatus.descriptor,
             groupEdgeFraction.descriptor,
             groupExitFraction.descriptor,
+            groupRowLimit.descriptor,
             laneStatus.descriptor,
             rowStatus.descriptor,
             pullRequestBadges.descriptor,
             laneFixture.descriptor,
             sinceLooked.descriptor,
+            slideHoldsContent.descriptor,
             nowLine.descriptor,
             multiView.descriptor,
             NotificationBadgeLook.tunable.descriptor,
             NotificationIconLook.tunable.descriptor,
             presenceDots.descriptor,
+            quietUnnamedRows.descriptor,
             pullRequestCard.descriptor,
             rowBadgePreview.descriptor,
             sectionTopFraction.descriptor,
             SidebarChatsDesign.tunable.descriptor,
             SidebarGroupHeaderStyle.tunable.descriptor,
             SidebarGroupPalette.tunable.descriptor,
+            SidebarGroupLineLayout.tunable.descriptor,
             SidebarRowBadgeStackCap.tunable.descriptor,
             SidebarRowBadgeStyle.tunable.descriptor,
             simulatePendingUpdate.descriptor,

@@ -3,7 +3,7 @@ import CmuxNextBrowserImport
 import Foundation
 import Testing
 
-/// Which cards each surface shows, dismissals that stick until something new
+/// The cards Settings › Import lists, dismissals that stick until something new
 /// appears, the Chief's requests, and jobs that survive a relaunch.
 struct ImportCardDeckTests {
     static let now = Date(timeIntervalSince1970: 1_800_000_000)
@@ -15,23 +15,20 @@ struct ImportCardDeckTests {
     static let safari = ImportFinding(id: "browser.safari", kind: .browser, browser: .safari, name: "Safari",
                                       profiles: [.init(directoryName: "Safari", kinds: [.history])], access: .needsFullDiskAccess)
     static let ghostty = ImportFinding(id: "terminal.ghostty", kind: .ghostty, name: "Ghostty", access: .inUse)
+    /// cmux Classic with a saved session whose workspaces all came over already.
+    static let classicAllHere = ImportFinding(id: "cmux.classic", kind: .cmuxClassic, name: "cmux Classic", count: 0)
 
     static func deck(_ findings: [ImportFinding], state: ImportSuggestionState = ImportSuggestionState(),
                      jobs: ImportJobLedger = ImportJobLedger()) -> ImportCardDeck {
         ImportCardDeck(findings: findings, state: state, jobs: jobs)
     }
 
-    @Test func homeShowsOnlyWhatOneClickImports() {
-        let cards = Self.deck([Self.chrome, Self.safari, Self.ghostty, Self.claude]).cards(for: .home, now: Self.now)
-        #expect(cards.map(\.id) == ["browser.chrome", "agents.claudeCode"])
+    @Test func settingsListsEverythingFound() {
+        let cards = Self.deck([Self.chrome, Self.safari, Self.ghostty]).cards()
+        #expect(cards.map(\.id) == ["browser.chrome", "browser.safari", "terminal.ghostty"])
         #expect(cards[0].primary?.action == .start)
         #expect(cards[0].secondary.map(\.action) == [.more, .dismiss])
         #expect(!cards[0].facts.isEmpty && !cards[0].benefit.isEmpty)
-    }
-
-    @Test func settingsListsEverythingFound() {
-        let cards = Self.deck([Self.chrome, Self.safari, Self.ghostty]).cards(for: .settings, now: Self.now)
-        #expect(cards.map(\.id) == ["browser.chrome", "browser.safari", "terminal.ghostty"])
         #expect(cards[1].state == .info && cards[1].primary?.action == .open)
         #expect(cards[2].state == .info && cards[2].secondary.isEmpty)
     }
@@ -40,22 +37,22 @@ struct ImportCardDeckTests {
         var state = ImportSuggestionState()
         state.dismiss(Self.chrome)
         state.dismiss(Self.claude)
-        #expect(Self.deck([Self.chrome, Self.claude], state: state).cards(for: .newTab, now: Self.now).isEmpty)
-        // More sessions is ordinary use: still gone.
+        let dismissed = { (findings: [ImportFinding]) in Self.deck(findings, state: state).cards().filter(\.dismissed).map(\.id) }
+        #expect(dismissed([Self.chrome, Self.claude]) == ["browser.chrome", "agents.claudeCode"])
+        // More sessions is ordinary use: still dismissed.
         var grown = Self.claude
         grown.count = 900
         // A new Chrome profile is something new: back.
         var newProfile = Self.chrome
         newProfile.profiles.append(.init(directoryName: "Profile 2", kinds: [.history]))
-        let cards = Self.deck([newProfile, grown], state: state).cards(for: .newTab, now: Self.now)
-        #expect(cards.map(\.id) == ["browser.chrome"])
-        // A profile imported elsewhere (Chrome holds less now) is not new: still gone.
+        #expect(dismissed([newProfile, grown]) == ["agents.claudeCode"])
+        // A profile imported elsewhere (Chrome holds less now) is not new: still dismissed.
         var fewer = Self.chrome
         fewer.profiles = Array(fewer.profiles.prefix(1))
         fewer.profiles[0].kinds = Array(fewer.profiles[0].kinds.prefix(1))
-        #expect(Self.deck([fewer], state: state).cards(for: .newTab, now: Self.now).isEmpty)
-        // Settings keeps the dismissed one, with Show Again.
-        let settings = Self.deck([Self.claude], state: state).cards(for: .settings, now: Self.now)
+        #expect(dismissed([fewer]) == ["browser.chrome"])
+        // A dismissed card stays listed, with Show Again.
+        let settings = Self.deck([Self.claude], state: state).cards()
         #expect(settings.first?.dismissed == true)
         #expect(settings.first?.secondary.map(\.action) == [.restore])
     }
@@ -64,7 +61,7 @@ struct ImportCardDeckTests {
         var state = ImportSuggestionState()
         let site = try #require(ImportRequest.site("https://GitHub.com/login"))
         state.raise(ImportRequest(browser: .chrome, site: site, reason: "The page asks to sign in.", requestedAt: Self.now))
-        let cards = Self.deck([Self.chrome], state: state).cards(for: .home, now: Self.now)
+        let cards = Self.deck([Self.chrome], state: state).cards()
         #expect(cards.map(\.id) == ["request.cookies.chrome.github.com", "browser.chrome"])
         #expect(cards[0].reason == "The page asks to sign in.")
         #expect(cards[0].title.contains("github.com"))
@@ -106,11 +103,56 @@ struct ImportCardDeckTests {
         #expect(legacy.raisedBy == nil && legacy.agentSession == nil && legacy.terminal == nil)
     }
 
-    @Test func surfacesCapTheirCards() {
+    @Test func settingsListsEveryCard() {
         let many = (0..<8).map { ImportFinding(id: "agents.\($0)", kind: .codex, name: "Codex", count: 1) }
-        #expect(Self.deck(many).cards(for: .newTab, now: Self.now).count == 3)
-        #expect(Self.deck(many).cards(for: .home, now: Self.now).count == 4)
-        #expect(Self.deck(many).cards(for: .settings, now: Self.now).count == 8)
+        #expect(Self.deck(many).cards().count == 8)
+    }
+
+    /// Everything classic saved is already here: Settings › Import keeps the card so the person
+    /// can run the import again.
+    @Test func settingsKeepsClassicOnceEverythingCameOver() throws {
+        let deck = Self.deck([Self.classicAllHere])
+        let card = try #require(deck.cards().first)
+        #expect(card.id == "cmux.classic" && card.state == .ready)
+        #expect(card.primary?.action == .start && card.primary?.title == "Import Again")
+        #expect(card.facts != ImportSuggestionStrings.workspaces(0) && !card.facts.isEmpty && !card.benefit.isEmpty)
+        // Workspaces still to bring: the one-click card.
+        var more = Self.classicAllHere
+        more.count = 2
+        let first = try #require(Self.deck([more]).cards().first)
+        #expect(first.primary?.title == ImportSuggestionStrings.importWorkspaces)
+    }
+
+    /// A finished classic import stays offered again in Settings › Import, with what it brought.
+    @Test func aFinishedClassicImportOffersItAgainInSettings() throws {
+        var job = ImportJob(finding: Self.classicAllHere, now: Self.now)
+        job.importedClassic(0, now: Self.now)
+        var ledger = ImportJobLedger()
+        ledger.put(job)
+        let deck = Self.deck([Self.classicAllHere], jobs: ledger)
+        let settings = deck.cards().first
+        #expect(settings?.state == .done && settings?.primary?.action == .start && settings?.primary?.title == "Import Again")
+        #expect(settings?.status == ImportSuggestionStrings.importedSessions(0))
+        job.importedClassic(2, now: Self.now)
+        ledger.put(job)
+        let again = try #require(Self.deck([Self.classicAllHere], jobs: ledger).cards().first)
+        #expect(again.state == .done && again.primary?.title == "Import Again" && again.status == ImportSuggestionStrings.importedSessions(2))
+        // Classic's saved session is gone: nothing to run again.
+        let gone = try #require(Self.deck([], jobs: ledger).cards().first)
+        #expect(gone.state == .done && gone.primary == nil)
+    }
+
+    /// Resume and Try Again start over from 0, not at the fraction the cut-off run had reached.
+    @Test func aResumedClassicJobStartsAtZeroProgress() {
+        var job = ImportJob(finding: Self.classicAllHere, now: Self.now)
+        job.progressed(0.6, now: Self.now)
+        job.paused(.interrupted, now: Self.now)
+        job.resumed(now: Self.now)
+        #expect(job.phase == .running && job.fraction == 0)
+        job.progressed(0.4, now: Self.now)
+        job.failed(.importFailed, now: Self.now)
+        job.resumed(now: Self.now)
+        #expect(job.fraction == 0)
     }
 
     // MARK: Jobs
@@ -132,14 +174,11 @@ struct ImportCardDeckTests {
         #expect(job.phase == .done && job.counts.history == 12)
         var ledger = ImportJobLedger()
         ledger.put(job)
-        let card = Self.deck([], jobs: ledger).cards(for: .home, now: Self.now)
+        let card = Self.deck([], jobs: ledger).cards()
         #expect(card.first?.state == .done && card.first?.secondary.map(\.action) == [.hide])
-        // A day later Home lets it go; Settings still lists it.
-        let later = Self.now.addingTimeInterval(ImportCardDeck.doneLingers + 1)
-        #expect(Self.deck([], jobs: ledger).cards(for: .home, now: later).isEmpty)
-        #expect(Self.deck([], jobs: ledger).cards(for: .settings, now: later).count == 1)
-        // The browser's own Import card does not come back on Home in its place.
-        #expect(Self.deck([Self.chrome], jobs: ledger).cards(for: .home, now: later).isEmpty)
+        // The browser's own Import card does not come back beside its finished job.
+        let listed = Self.deck([Self.chrome], jobs: ledger).cards()
+        #expect(listed.map(\.id) == ["browser.chrome"] && listed.first?.state == .done)
     }
 
     @Test func onlyStartResumeAndTryAgainReadAnotherAppsData() {
@@ -165,7 +204,7 @@ struct ImportCardDeckTests {
         // Chrome's cookies need a Keychain prompt, so it waits for Resume; Firefox's need none.
         #expect(!chromeAfter.resumesQuietly)
         #expect(relaunched.job("browser.firefox")?.resumesQuietly == true)
-        let card = try #require(Self.deck([], jobs: relaunched).cards(for: .home, now: Self.now).first { $0.id == "browser.chrome" })
+        let card = try #require(Self.deck([], jobs: relaunched).cards().first { $0.id == "browser.chrome" })
         #expect(card.state == .paused && card.primary?.action == .resume)
     }
 

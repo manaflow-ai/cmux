@@ -38,7 +38,6 @@ enum SidebarContextMenus {
             MenuIdentityHeader.install(in: menu, registry: registry, target: target, name: selection ? nil : model.workspace(first)?.title ?? "",
                                        rename: "renameWorkspace")
             if selection { nameSelection(menu, ids, services) }
-            if !selection, model.workspace(first)?.machineID.isLocalChief == true { noteStartedByChief(menu) }
             menu.themeRows(in: scope)
             return menu
         case .group(let id):
@@ -57,7 +56,7 @@ enum SidebarContextMenus {
                 }
             }
             MenuIdentityHeader.install(in: menu, registry: registry, target: target, name: group?.name ?? "", rename: "workspaceGroup.rename",
-                                       current: group?.custom == nil ? group?.color : nil)
+                                       current: group?.custom == nil ? group?.color : nil, noColor: group?.tint == GroupTint.none)
             menu.themeRows(in: scope)
             return menu
         case .section(.machine(let machine)) where machine.rawValue == MachineRegistry.localID && SidebarSection.machineCount(model.sections) == 1:
@@ -87,15 +86,6 @@ enum SidebarContextMenus {
         case .layoutItem, .layoutSection:
             return nil
         }
-    }
-
-    /// A Chief subagent's workspace says who started it at the end of its menu, as its hover card
-    /// does, since its row no longer does (Leo 2026-10-21).
-    private static func noteStartedByChief(_ menu: NSMenu) {
-        let note = NSMenuItem(title: ChiefWorkspaceName.startedBy, action: nil, keyEquivalent: "")
-        note.isEnabled = false
-        if !menu.items.isEmpty { menu.addItem(.separator()) }
-        menu.addItem(note)
     }
 
     /// A multi-selection's menu says what its rows do to every selected row: Pin pins them when

@@ -27,6 +27,11 @@
       "notices": ["section:rust-iroh-ffi", "section:manual-rust-and-zig-standard-libraries"]
     },
     {
+      "path": "Contents/Frameworks/WebRTC.framework/*",
+      "what": "libwebrtc M154 (stasel/WebRTC 154.0.0, Packages/Shared/CmuxVNCWebRTC) for Mac Screen streams (CmuxScreenKit); its BoringSSL, Opus, libvpx, libsrtp, Abseil, dav1d, libaom, libyuv, protobuf-lite and PFFFT notices are in Chromium 154's CREDITS.html",
+      "notices": ["section:manual-webrtc-mac-screen-streams", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html"]
+    },
+    {
       "path": "Contents/Frameworks/Chromium Embedded Framework.framework/*",
       "what": "CEF and Chromium, including libcef_sandbox, SwiftShader and the Vulkan loader",
       "notices": ["file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/LICENSE.txt"]
@@ -70,6 +75,11 @@
       "path": "Contents/Resources/bin/cmux-tui-host",
       "what": "the slim terminal host every macOS terminal runs in (cmux-tui crate cmux-tui, bin cmux-tui-host): the terminal-host runtime of bin/cmux with libghostty-vt, a subset of its crates",
       "notices": ["first-party", "section:rust-cmux-cli", "section:manual-ghostty", "rust-std", "zig-std", "section:manual-rust-and-zig-standard-libraries", "section:manual-ghostty-shell-integration"]
+    },
+    {
+      "path": "Contents/Resources/bin/cmux-holder",
+      "what": "the terminal holder that keeps every terminal's PTY (cmux-tui crate cmux-holder, bin cmux-holder): std and libc only, no libghostty-vt",
+      "notices": ["first-party", "section:rust-cmux-cli", "rust-std", "section:manual-rust-and-zig-standard-libraries"]
     },
     {
       "path": "Contents/Resources/bin/cmux-app-host",

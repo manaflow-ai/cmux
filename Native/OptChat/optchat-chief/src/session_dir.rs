@@ -253,7 +253,7 @@ pub const TURN_DENIED_TOOLS: [&str; 25] = [
 /// EXCLUDED). Every other cmux MCP tool is denied in the turn's settings
 /// and stays reachable through the `cmux` CLI on its own host. Names:
 /// `agents_*` and `render` (cmux mcp agent tools).
-pub const CHIEF_CMUX_TOOLS: [&str; 11] = [
+pub const CHIEF_CMUX_TOOLS: [&str; 13] = [
     "agents_snapshot",
     "agents_workspace_create",
     "agents_workspace_select",
@@ -265,6 +265,8 @@ pub const CHIEF_CMUX_TOOLS: [&str; 11] = [
     "agents_events",
     "agents_wait",
     "render",
+    "agents_terminal_list",
+    "agents_terminal_send",
 ];
 
 /// The turn presets' env that keeps only acpmux's `cmux` MCP server
@@ -596,6 +598,10 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
     for (key, value) in TURN_SETTINGS_ENV {
         settings["env"][key] = json!(value);
     }
+    // git asks the Chief's credential helper for github.com (github.rs).
+    for (key, value) in crate::github::git_env(&paths.bin) {
+        settings["env"][key] = json!(value);
+    }
     settings["permissions"]["allow"] = json!(crate::approval::turn_allowed_tools());
     let settings = pretty(&settings)?;
     write_private(
@@ -619,6 +625,15 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
     let claude = paths.bin.join("claude");
     write_if_changed(&claude, CLAUDE_SHIM.as_bytes())?;
     std::fs::set_permissions(&claude, std::fs::Permissions::from_mode(0o755))?;
+    // gh and git with the Chief's own GitHub login when it has one (github.rs).
+    for (name, text) in [
+        ("gh", crate::github::GH_SHIM),
+        ("git-credential-chief", crate::github::GIT_CREDENTIAL),
+    ] {
+        let shim = paths.bin.join(name);
+        write_if_changed(&shim, text.as_bytes())?;
+        std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755))?;
+    }
     Ok(())
 }
 

@@ -5,7 +5,7 @@ import CmuxNextDiff
 import CmuxNextSettings
 import Observation
 
-/// The cmux.json keys every agent page shows, followed for ``AgentTabs``: `labs.previewFeatures`,
+/// The cmux.json keys every agent page shows, followed for ``AgentTabs``: `labs.previewFeatures`, `agentPane.needsYou.enabled`,
 /// `agentPane.editedFiles.*`, `agentPane.showContextUsage`, `diff.colors` and the Debug Settings
 /// toggles `agent.reasoningSlider`/`agent.reasoningSliderStyle`/`agentPane.debug.sidebarPreviewVariant`. Each change reaches every open view; a new view gets the current
 /// values (``apply(to:)``).
@@ -35,7 +35,9 @@ final class AgentPanePageSettings {
         for task in [previewObservation, editedFilesObservation, zoomObservation, composerObservation, reasoningSliderObservation, sidebarPreviewVariantObservation, diffColorsObservation, displayObservation] { task?.cancel() }  // a new controller replaces, never adds
         self.settings = settings
         // `sessions.promptSuggestions`: the pages, and the next acpmux daemon this app starts.
-        AgentPaneSuggestedTasks.shared.setting = { [weak settings] in settings?.snapshot.sessions.promptSuggestions ?? false }
+        AgentPaneSuggestedTasks.shared.setting = { [weak settings] in settings?.snapshot.sessions.promptSuggestions ?? SessionSettings.promptSuggestionsDefault }
+        // `agentPane.needsYou.enabled` (App Store): read as each new agent page is made.
+        AgentPaneTunables.needsYouInstalled = { [weak settings] in settings?.snapshot.agentPaneNeedsYouEnabled ?? false }
         previewObservation = observe({ settings.snapshot.previewFeatures }, push: push) { $0.previewFeatures = $1 }
         editedFilesObservation = observe({ settings.snapshot.agentPaneEditedFiles }, push: push) { $0.editedFiles = $1 }
         zoomObservation = observe({ settings.snapshot.agentPaneZoom }, push: push) { $0.zoom = $1 }

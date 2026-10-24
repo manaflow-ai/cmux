@@ -3,8 +3,10 @@
 // turn's hunks, reaches memoized rows without changing their versions.
 import { createContext } from "react";
 import type { HunkReview } from "../changes/hunkReview";
+import type { ChatAccount } from "../chatAccounts";
 import type { HarnessHealth } from "../HarnessHealthNotice";
 import type { AcpmuxSnapshot } from "../model";
+import type { Subagent } from "../subagents/subagentFold";
 import type { MessageBranch } from "./branches";
 import type { RetryModel } from "./retryModelSections";
 
@@ -47,18 +49,45 @@ export type TurnActions = {
     top?: readonly string[];
     retry: (rowId: string, prompt: string, model: string) => void;
   };
+  /// Continue a turn the reader stopped (the last turn's footer, when `resumable`): sends
+  /// `CONTINUE_PROMPT` through the composer's send path, so it queues and shows as a prompt.
+  resume?: () => Promise<void>;
+  /// Restart on a subagent's end line (subagents/restart.ts): asks the chat to run it again with
+  /// its prompt.
+  restartSubagent?: (agent: Subagent) => void;
   /// Re-run the current harness's declared login command after an authentication failure.
   reauthenticate?: () => void;
   /// Who serves this chat's turns, for failure copy (cx-w10a): the harness profile's display name and id.
   route?: { name?: string; harness?: string };
   /// Opens the model and harness picker (a failure's "Switch model" action).
   switchModel?: () => void;
+  /// cmux's own route for a key, sign-in or capacity failure (CodeRouterOffer.tsx): what the chat's
+  /// routes offer of CodeRouter (chatAccounts.ts codeRouterOffer), and the move onto a route, which
+  /// acpmux applies at once on an idle chat and resumes the same session. Only on this Mac's acpmux.
+  ownRoute?: {
+    find: () => Promise<ChatAccount | "on" | undefined>;
+    use: (routeId: string) => Promise<void>;
+  };
   /// The changes view's hunk decisions; a card's Undo asks for its turn's hunks through it, so
   /// the view shows them as requested too.
   review?: HunkReview;
 };
 
 export const TurnActionsContext = createContext<TurnActions>({});
+
+/// The prompt Continue sends after a stopped turn. Claude Code and Codex both resume on a plain
+/// "continue"; it goes to the agent, never shown as UI. l10n-allow: a prompt to the agent, not UI
+export const CONTINUE_PROMPT = "Continue";
+
+/// The footer's Continue: `CONTINUE_PROMPT` through the composer's send (`chat.send`), so it shows as
+/// the reader's prompt and starts the next turn, or queues behind a prompt already sent. A send that
+/// fails says so on its own row. Settles once the send does (when that turn ends, or it failed).
+export const resumeThrough =
+  (callNative: (method: string, params: Record<string, unknown>) => Promise<unknown>) => (): Promise<void> =>
+    callNative("chat.send", { text: CONTINUE_PROMPT }).then(
+      () => undefined,
+      () => undefined,
+    );
 
 /// The command that signs the chat's harness in, for Sign in again: its profile's `auth.login`, else
 /// the one acpmux's health check names (a CLI found on PATH has no profile, cx-gz0dz).

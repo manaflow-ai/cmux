@@ -16,6 +16,8 @@ extension CloudStrings {
         case .booting: text("cloud.progress.stage.booting", "Starting the machine")
         case .connecting: text("cloud.progress.stage.connecting", "Connecting to cmux-tui")
         case .ready: text("cloud.progress.stage.ready", "Ready")
+        case .paused(idle: true): text("cloud.progress.stage.pausedIdle", "Paused (idle)")
+        case .paused(idle: false): text("cloud.progress.stage.paused", "Paused")
         case .failed: text("cloud.progress.stage.failed", "Failed")
         }
     }
@@ -27,6 +29,8 @@ extension CloudStrings {
         case .creating: text("cloud.progress.next.creating", "cmux Cloud is creating the VM. A new machine usually takes under a minute.")
         case .booting: text("cloud.progress.next.booting", "The VM exists. This Mac is opening a link to it and waits for its cmux-tui to answer.")
         case .connecting: text("cloud.progress.next.connecting", "The link is up. Loading the machine's workspaces.")
+        case .paused(idle: true): text("cloud.progress.next.pausedIdle", "cmux Cloud paused this machine after it sat idle. Its disk and session are kept. Resume starts it again.")
+        case .paused(idle: false): text("cloud.progress.next.paused", "This machine is paused. Its disk and session are kept. Resume starts it again.")
         case .ready, .failed: text("cloud.progress.next.ready", "Opening the terminal.")
         }
     }
@@ -52,6 +56,7 @@ extension CloudStrings {
     }
 
     static var retry: String { text("cloud.button.retry", "Retry") }
+    static var resume: String { text("cloud.button.resume", "Resume") }
     static var copyError: String { text("cloud.button.copyError", "Copy Error") }
     static var dismiss: String { text("cloud.button.dismiss", "Dismiss") }
 
@@ -60,7 +65,4 @@ extension CloudStrings {
 
     /// The provider reported the machine failed.
     nonisolated static var machineFailed: String { text("cloud.progress.machineFailed", "cmux Cloud reports that the machine failed.") }
-
-    /// A paused machine has no link until it is resumed.
-    nonisolated static var machinePaused: String { text("cloud.progress.machinePaused", "The machine is paused. Resume it from its menu in the sidebar, then click Retry.") }
 }

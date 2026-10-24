@@ -104,21 +104,14 @@ export function needsYouItems(input: NeedsYouInput): NeedsYouItem[] {
       });
     }
   }
-  // A chat that waits on the person with no ask read here (a chat on another computer, or one
-  // whose ask is still being read): one item, so it is never missing from the list. Its summary
-  // still names what it waits on (acpmux `waitingOn`, with a question's first prompt): the row
-  // says that question; only a chat that names no question falls back to its last reply.
+  // A chat that waits on the person with no ask read here (a chat on another computer, a grouped
+  // request, or one whose ask is still being read): one item, so it is never missing from the list.
   for (const session of input.sessions) {
-    if (asked.has(session.sessionId) || session.archived) continue;
-    if (session.indicator !== "input" && !(session.pendingPermissions && session.pendingPermissions > 0)) continue;
-    const waiting = session.waitingOn;
-    const prompt = waiting?.on === "question" ? waiting.prompt : undefined;
-    const ask = prompt ?? session.preview ?? "";
+    if (asked.has(session.sessionId) || session.archived || !waitsOnPerson(session)) continue;
     items.push({
       id: `chat:${session.sessionId}`,
-      kind: !waiting ? "input" : waiting.on === "permission" ? "approval" : VERIFY.test(ask) ? "verify" : "decision",
+      ...waitingAsk(session),
       sessionId: session.sessionId,
-      ask,
       who: who(session, session.sessionId, byId),
       ...(session.updatedAt ? { at: session.updatedAt } : {}),
       answers: [],
@@ -126,6 +119,29 @@ export function needsYouItems(input: NeedsYouInput): NeedsYouItem[] {
   }
   // Newest first, as every list of chats in the pane; an ask without a time last.
   return items.sort((a, b) => (b.at ?? 0) - (a.at ?? 0));
+}
+
+/// Something is pending on the person: acpmux counts an open request, names what the chat waits
+/// on, or says the chat is `waiting` (a secret request sets that with neither, hub/secrets.rs). A
+/// chat on another computer, or one whose status is unknown, still shows by its indicator alone. A
+/// local chat acpmux says is not waiting has nothing pending, whatever its dot last said.
+function waitsOnPerson(session: AcpmuxSessionEntry): boolean {
+  if ((session.pendingPermissions ?? 0) > 0 || session.waitingOn || session.status === "waiting") return true;
+  return session.indicator === "input" && (Boolean(session.peer) || session.status === undefined);
+}
+
+/// What a chat whose ask is not read here waits on, as acpmux names it: a question by its first
+/// prompt (`waitingPrompt`), a permission as a permission. Never the chat's last message
+/// (`preview`): that is what the agent said, not what it asks (Leo 2026-10-21). An empty ask
+/// reads as its kind's line (NeedsYou.tsx `askText`).
+function waitingAsk(session: AcpmuxSessionEntry): Pick<NeedsYouItem, "kind" | "ask"> {
+  const waiting = session.waitingOn;
+  if (waiting?.on === "question") {
+    const ask = waiting.prompt ?? "";
+    return { kind: VERIFY.test(ask) ? "verify" : "decision", ask };
+  }
+  if (waiting?.on === "permission") return { kind: "approval", ask: "" };
+  return { kind: "input", ask: "" };
 }
 
 function askItem(

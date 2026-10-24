@@ -25,6 +25,7 @@ extension EnvironmentValues {
 struct ToolRowView: View {
     let call: ACPToolCall
     @State private var expanded = false
+    @Environment(\.openSessionFile) private var openFile
     private let wording = ToolWording()
 
     var body: some View {
@@ -43,6 +44,19 @@ struct ToolRowView: View {
             }
         }
         .accessibilityElement(children: .contain)
+        // The files the call read or wrote open in the preview (long press).
+        .contextMenu {
+            if openFile.isAvailable {
+                ForEach(Array(call.locations.prefix(5).enumerated()), id: \.offset) { _, location in
+                    Button("Open \((location.path as NSString).lastPathComponent)", systemImage: "doc.text.magnifyingglass") {
+                        openFile(location.path, line: location.line)
+                    }
+                }
+            }
+            if let path = call.locations.first?.path {
+                Button("Copy Path", systemImage: "doc.on.doc") { UIPasteboard.general.string = path }
+            }
+        }
     }
 
     private var header: some View {
@@ -150,6 +164,9 @@ struct ToolGroupView: View {
             }
             .buttonStyle(.plain)
             .padding(.vertical, -6)
+            // The header's 44 pt target overlaps the first call's: the header
+            // wins, so a tap on it always closes the group.
+            .zIndex(1)
             if expanded {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(calls) { call in
@@ -163,6 +180,9 @@ struct ToolGroupView: View {
                 .transition(.opacity)
             } else if let live = calls.last(where: \.isRunning) {
                 ToolRowView(call: live)
+                    // Each running call is its own row: one call's expansion
+                    // does not carry over to the next.
+                    .id(live.id)
                     .padding(.leading, 12)
                     .transition(.opacity)
             }
@@ -176,16 +196,19 @@ struct ToolGroupView: View {
     }
 }
 
-/// Collapsed "Thought" row; expands to the reasoning text in label2.
+/// Collapsed "Thought" row; expands to the reasoning text in label2. While
+/// the agent thinks it shows the last three lines until the person closes it.
 struct ThoughtRow: View {
     let text: String
     let isLive: Bool
-    @State private var expanded = false
+    @State private var choice = DisclosureChoice()
+
+    private var expanded: Bool { choice.isOpen(automatic: isLive) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Button {
-                withAnimation(.cmuxMobileSmooth) { expanded.toggle() }
+                withAnimation(.cmuxMobileSmooth) { choice.toggle(automatic: isLive) }
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "brain").font(.system(size: 14)).foregroundStyle(.secondary).frame(width: 18)
@@ -206,11 +229,11 @@ struct ThoughtRow: View {
             }
             .buttonStyle(.plain)
             .padding(.vertical, -6)
-            if expanded || isLive {
+            if expanded {
                 Text(text)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                    .lineLimit(expanded ? nil : 3)
+                    .lineLimit(choice.chosen == true ? nil : 3)
                     .padding(.leading, 26)
                     .transition(.opacity)
             }
@@ -222,6 +245,7 @@ struct ThoughtRow: View {
 struct DiffSnippet: View {
     let call: ACPToolCall
     let changeSet: DiffChangeSet
+    @Environment(\.openSessionFile) private var openFile
     @Environment(\.openDiff) private var openDiff
     @State private var showAll = false
     @ScaledMetric(relativeTo: .footnote) private var codeSize: CGFloat = 13
@@ -301,6 +325,9 @@ struct DiffSnippet: View {
         }
         .contextMenu {
             Button("Open Diff", systemImage: "arrow.up.right.square") { openDiff(changeSet, file: file.id) }
+            if openFile.isAvailable, file.status != .deleted {
+                Button("Open File", systemImage: "doc.text.magnifyingglass") { openFile(file.path) }
+            }
             Button("Copy Path", systemImage: "doc.on.doc") { UIPasteboard.general.string = file.path }
         }
     }

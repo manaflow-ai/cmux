@@ -19,8 +19,12 @@ final class HomeDirectory {
 
     private(set) var teamMembers: [HomeContact] = []
     private(set) var chiefs: [HomeChiefRecord] = []
-    /// My archived Chiefs' agent ids: the page hides their conversations.
-    private(set) var archivedChiefs: Set<String> = []
+    /// My archived and deleted Chiefs' agent ids: the page hides their conversations.
+    var archivedChiefs: Set<String> { hiddenCloudChiefs.union(deletedLocalChiefs) }
+    /// My cloud Chiefs that are archived or deleted (`chief.list` with its tombstones).
+    private var hiddenCloudChiefs: Set<String> = []
+    /// This Mac's deleted Chiefs (the owner's `chief.profile.list` `deleted`), read with their engines.
+    var deletedLocalChiefs: Set<String> = []
     /// Each of this Mac's Chiefs' own avatar for its list tile, by participant id, the one
     /// its header shows: read by `HomeService.refreshChiefAvatars()` (again after the
     /// header's avatar picker). A Chief not listed draws the bundled default.
@@ -51,8 +55,20 @@ final class HomeDirectory {
         if let reply = try? await call("v1/read", ["op": "chief.list", "params": ["include_archived": true]]),
            let value = try? Self.value(reply) {
             chiefs = HomeChiefRecord.list(from: value)
-            archivedChiefs = HomeChiefRecord.archivedIDs(from: value)
+            hiddenCloudChiefs = HomeChiefRecord.archivedIDs(from: value)
+            chiefsRead = true
         }
+    }
+
+    /// `chief.list` answered this launch; until then `archivedChiefs` may be the last launch's.
+    @ObservationIgnored private(set) var chiefsRead = false
+
+    /// The last launch's list state (`HomeSidebarLaunchSnapshot`), for what has not been read yet:
+    /// the list's first frame hides the same archived Chiefs and draws the same avatars and tags.
+    func seedLaunch(_ snapshot: HomeSidebarLaunchSnapshot) {
+        if !chiefsRead, hiddenCloudChiefs.isEmpty { hiddenCloudChiefs = snapshot.archivedChiefs }
+        if chiefAvatars.isEmpty { chiefAvatars = snapshot.chiefAvatars }
+        if chiefHarnesses.isEmpty { chiefHarnesses = snapshot.chiefHarnesses }
     }
 
     /// `chief.create` with a display name; the new Chief's main conversation
@@ -78,7 +94,69 @@ final class HomeDirectory {
                                    "idempotency_key": "chief-archive-\(id)-\(record.rev)", "origin": "user"]
         _ = try Self.value(try await call("v1/ops", body))
         chiefs.removeAll { $0.id == id }
-        archivedChiefs.insert(id)
+        hiddenCloudChiefs.insert(id)
+    }
+
+    /// `chief.delete` at the record's revision: the Chief goes for good (only its tombstone stays),
+    /// and its conversation leaves the list as an archived one's does.
+    func deleteChief(_ id: String) async throws {
+        guard let record = chiefs.first(where: { $0.id == id }) else { throw FeedServiceError.owner(code: "selector.not_found", message: id) }
+        let body: [String: Any] = ["op": "chief.delete", "params": ["chief": id, "expected_rev": record.rev],
+                                   "idempotency_key": "chief-delete-\(id)-\(record.rev)", "origin": "user"]
+        _ = try Self.value(try await call("v1/ops", body))
+        chiefs.removeAll { $0.id == id }
+        hiddenCloudChiefs.insert(id)
+    }
+
+    /// Renames the cloud Chief whose main conversation is `conversation`: `chief.update
+    /// {display_name}` at the record's revision. UserDO then renames its main conversation too
+    /// (`chief.rename`: the title and the Chief's name there). One revision conflict (another
+    /// device changed the Chief) reads the list again and retries once. Nil when the name was
+    /// saved, else why it was not.
+    func renameChief(conversation: String, to name: String) async -> HomeChiefRenameFailure? {
+        for attempt in 0..<2 {
+            if attempt > 0 || !chiefs.contains(where: { $0.mainConversation == conversation }) {
+                do {
+                    let value = try Self.value(try await call("v1/read", ["op": "chief.list", "params": ["include_archived": true]]))
+                    chiefs = HomeChiefRecord.list(from: value)
+                    hiddenCloudChiefs = HomeChiefRecord.archivedIDs(from: value)
+                } catch {
+                    return Self.renameFailure(error)
+                }
+            }
+            guard let record = chiefs.first(where: { $0.mainConversation == conversation }) else { return .notFound }
+            let body: [String: Any] = ["op": "chief.update", "origin": "user",
+                                       "idempotency_key": "chief-rename-\(record.id)-\(record.rev)-\(UUID().uuidString.lowercased())",
+                                       "params": ["chief": record.id, "expected_rev": record.rev, "display_name": name]]
+            do {
+                let value = try Self.value(try await call("v1/ops", body))
+                var renamed = HomeChiefRecord.parse(value) ?? record
+                if HomeChiefRecord.parse(value) == nil {
+                    renamed.name = name
+                    renamed.rev += 1
+                }
+                chiefs = chiefs.map { $0.id == renamed.id ? renamed : $0 }
+                return nil
+            } catch FeedServiceError.owner(code: "revision.conflict", message: _) where attempt == 0 {
+                continue
+            } catch {
+                return Self.renameFailure(error)
+            }
+        }
+        return .changedElsewhere
+    }
+
+    /// The card's reason for an error of `call` or of the owner.
+    static func renameFailure(_ error: any Error) -> HomeChiefRenameFailure {
+        switch error {
+        case FeedServiceError.signedOut: .signedOut
+        case FeedServiceError.owner(code: "revision.conflict", _): .changedElsewhere
+        case FeedServiceError.owner(code: "validation.invalid", _): .invalidName
+        case FeedServiceError.owner(code: "selector.not_found", _), FeedServiceError.owner(code: "chief_archived", _): .notFound
+        case FeedServiceError.owner(let code, let message): .refused(message.isEmpty ? code : message)
+        // No answer, or one that could not be read: the card's "try again in a moment".
+        default: .noConnection
+        }
     }
 
     /// Runs `op`; UserDO refuses user ops of an account that never ran

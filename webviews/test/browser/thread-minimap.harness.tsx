@@ -7,6 +7,8 @@ import type { AcpmuxRow } from "../../src/agent-session/acpmux/model";
 import { turnView } from "../../src/agent-session/acpmux/conversation/turns";
 // The pane's styles, as its dev entry loads them (acpmux/dev.tsx).
 import "../../src/pages/shared/desktop.css";
+// The liquid glass next, as dev.tsx and the bundle load it: the user bubble is `.ui-glass`.
+import "../../src/ui/glass/glass.css";
 import "../../src/ui/popupSurface.css";
 import "../../src/agent-session/shared/styles.css";
 import "../../src/agent-session/acpmux/styles.css";

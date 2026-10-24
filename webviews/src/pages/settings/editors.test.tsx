@@ -99,6 +99,12 @@ describe("editors", () => {
             failures.push(`${row.key}: no Chief Pet card`);
           continue;
         }
+        // The Machines card draws appearance.machineColors as a color well on each machine's row.
+        if (row.key === "appearance.machineColors") {
+          if (!page.container.querySelector('[data-card="machines"] [data-machine-color] input[type="color"]'))
+            failures.push(`${row.key}: no machine color well`);
+          continue;
+        }
         // The density card draws appearance.density and the custom density keys (SectionView).
         if (DENSITY_ROWS.has(row.key)) {
           if (!page.container.querySelector('[data-card="density"]')) failures.push(`${row.key}: no density card`);

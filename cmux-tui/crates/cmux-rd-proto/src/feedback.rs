@@ -44,17 +44,17 @@ impl Feedback {
         out.extend_from_slice(&self.acked_frame.to_le_bytes());
         out.extend_from_slice(&self.decode_us.to_le_bytes());
         out.push(u8::from(self.need_recovery));
-        let arrivals = &self.arrivals[..self.arrivals.len().min(MAX_ARRIVALS)];
+        let arrivals = self.arrivals.get(..MAX_ARRIVALS).unwrap_or(&self.arrivals);
         out.extend_from_slice(&(arrivals.len() as u16).to_le_bytes());
         for a in arrivals {
             out.extend_from_slice(&a.transport_seq.to_le_bytes());
             out.extend_from_slice(&a.arrival_us.to_le_bytes());
         }
-        let nacks = &self.nacks[..self.nacks.len().min(MAX_NACK_FRAMES)];
+        let nacks = self.nacks.get(..MAX_NACK_FRAMES).unwrap_or(&self.nacks);
         out.push(nacks.len() as u8);
         for nack in nacks {
             out.extend_from_slice(&nack.frame.to_le_bytes());
-            let idx = &nack.indexes[..nack.indexes.len().min(MAX_NACK_INDEXES)];
+            let idx = nack.indexes.get(..MAX_NACK_INDEXES).unwrap_or(&nack.indexes);
             out.push(idx.len() as u8);
             for i in idx {
                 out.extend_from_slice(&i.to_le_bytes());

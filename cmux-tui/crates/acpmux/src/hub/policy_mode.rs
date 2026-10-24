@@ -35,6 +35,20 @@
 //! whose own settings on this machine decide what it asks, `web_modes.rs`;
 //! pi; an ACP agent with no modes) cannot keep the policy: the chat logs
 //! `policy_unenforced` so a client can say so.
+//!
+//! OpenCode is asked to ask instead (`opencode_ask.rs`): its agent starts
+//! with `OPENCODE_CONFIG_CONTENT` whose `permission` is `{"*": "ask"}`, merged
+//! into the config the profile or the environment already passes, so every
+//! tool call reaches the policy as a `session/request_permission`. That holds
+//! in the common case, not always: the user's agent files, the org or managed
+//! config and the MDM plist come after it, and a later rule (an agent's own
+//! `permission`, a key the global config lists after `"*"`) still wins
+//! (`web_modes::REFUSED_FAMILIES`), so the chat still logs `policy_unenforced`.
+//! The config is read at spawn: the marker that asks for it is part of the
+//! session pool's key (no pooled agent started without it serves such a chat),
+//! and a policy narrowed on a live chat whose agent was started without it
+//! restarts that agent in the same conversation, as a route switch does
+//! (`ask_opencode`): now when it is idle, else when its turn ends.
 
 use super::*;
 
@@ -56,6 +70,23 @@ pub(super) fn narrower(
         .filter(|p| *p != PermissionPolicy::ApproveAll)
 }
 
+/// Whether `meta`'s agent, spawned from `profile`, is OpenCode asked to ask before every tool
+/// (`opencode_ask.rs`): its policy is narrower than approve-all (module docs).
+pub(super) fn asks_opencode(
+    meta: &SessionMeta,
+    profile: &HarnessProfile,
+    default: PermissionPolicy,
+) -> bool {
+    is_opencode(meta, profile) && narrow_policy(meta, default).is_some()
+}
+
+/// Whether `meta`'s agent, spawned from `profile` (as configured, before it is resolved), is
+/// OpenCode.
+pub(super) fn is_opencode(meta: &SessionMeta, profile: &HarnessProfile) -> bool {
+    crate::web_modes::family_of(meta) == "opencode"
+        || crate::config::derive_family(&meta.harness, profile) == "opencode"
+}
+
 /// The mode a chat with `policy` (narrower than approve-all) runs in on a harness of `family`
 /// offering `available` (module docs), or `None` when it offers no mode that asks.
 pub(crate) fn policy_mode(
@@ -66,8 +97,12 @@ pub(crate) fn policy_mode(
     if family == "opencode" {
         return None;
     }
-    if policy == PermissionPolicy::DenyAll && available.iter().any(|m| m == "read-only") {
-        return Some("read-only".to_owned());
+    // Codex names its read-only mode `read-only`, Muse Code (muse-acp) `readOnly`: either
+    // refuses every write and shell command, so deny-all holds there.
+    if policy == PermissionPolicy::DenyAll
+        && let Some(mode) = available.iter().find(|m| *m == "read-only" || *m == "readOnly")
+    {
+        return Some(mode.clone());
     }
     super::start_mode::asking_mode(family, available)
 }
@@ -146,8 +181,13 @@ impl Hub {
         let default = self.config.read().await.permission_policy;
         let meta = session.meta();
         let Some(policy) = narrow_policy(&meta, default) else { return };
-        let Some(current) = crate::web_modes::mode_of(&meta) else { return };
         let family = crate::web_modes::family_of(&meta);
+        if family == "opencode" {
+            self.ask_opencode(session).await;
+            self.note_unenforced_policy(session, default);
+            return;
+        }
+        let Some(current) = crate::web_modes::mode_of(&meta) else { return };
         let offered = super::start_mode::offered_ids(&meta);
         let Some(wanted) = policy_mode(policy, &family, &offered) else {
             self.note_unenforced_policy(session, default);
@@ -191,6 +231,48 @@ impl Hub {
             tracing::warn!(session = %session.id, mode = %wanted, "policy mode not set: {}", e.message);
         }
         self.note_unenforced_policy(session, default);
+    }
+
+    /// An OpenCode chat whose policy became narrower than approve-all while its agent runs without
+    /// OpenCode asked to ask (module docs): the agent restarts and resumes the conversation, as a
+    /// route switch does (`route_switch.rs`), now when the chat is idle, else when its turn ends
+    /// (`turns.rs`). An agent host not reached since a daemon restart is reached first. A chat
+    /// whose agent is not running asks from its next start (`spawn.rs`).
+    async fn ask_opencode(self: &Arc<Self>, session: &Arc<Session>) {
+        let asks = || session.applied.lock().unwrap_or_else(|e| e.into_inner()).opencode_asks;
+        if asks() {
+            return;
+        }
+        // Under the spawn lock, as `follow_policy`: a start in flight either ends first and its
+        // child is seen here, or starts after and reads the policy (`spawn.rs` sets the marker).
+        let spawning = session.spawn_lock.lock().await;
+        let child = session.child.lock().await.clone();
+        let running = match child {
+            Some(child) => child.is_alive().await,
+            None => false,
+        } || (Self::host_record_live(&session.id)
+            && !session.closing.load(Ordering::SeqCst));
+        if !running {
+            return;
+        }
+        // `child_for` takes the spawn lock.
+        drop(spawning);
+        // A turn runs, or one recovered from an agent host has not taken its lock yet
+        // (`transfer_out.rs`): the agent restarts when it ends.
+        let idle = if session.turn().is_none() { session.turn_lock.try_lock().ok() } else { None };
+        let Some(_turn) = idle else {
+            session.route_switch.store(true, Ordering::SeqCst);
+            return;
+        };
+        // An unreached host is reached (`ensure_child`): a fresh start there already asks.
+        let restarted = match self.child_for(session).await {
+            Ok(_) if asks() => Ok(()),
+            Ok(_) => self.restart_on_route(session).await,
+            Err(e) => Err(e),
+        };
+        if let Err(e) = restarted {
+            tracing::warn!(session = %session.id, "OpenCode not restarted to ask: {}", e.message);
+        }
     }
 
     /// deny-all became the default policy: every chat without a policy of its own follows it
@@ -308,6 +390,19 @@ mod tests {
         ] {
             assert_eq!(policy_mode(policy, "codex", &codex).as_deref(), Some(mode), "{policy}");
         }
+    }
+
+    /// Muse Code through muse-acp offers `default`, `readOnly` and `plan`, and asks through its
+    /// approval option, not a mode: deny-all holds in `readOnly`; the asking policies have no
+    /// mode that keeps them.
+    #[test]
+    fn muse_deny_all_runs_read_only() {
+        let muse = ids(&["default", "readOnly", "plan"]);
+        assert_eq!(
+            policy_mode(PermissionPolicy::DenyAll, "muse", &muse).as_deref(),
+            Some("readOnly")
+        );
+        assert_eq!(policy_mode(PermissionPolicy::Ask, "muse", &muse), None);
     }
 
     #[test]

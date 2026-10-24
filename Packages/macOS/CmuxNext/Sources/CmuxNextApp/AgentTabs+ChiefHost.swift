@@ -39,16 +39,30 @@ struct ChiefHomeAcpmux {
     ///     (``ChiefHome/usesAppAcpmux``) attaches its tabs there.
     ///   - ensureHost: starts the Chief brain host when none runs
     ///     (`ChiefBrainKeeper.ensure`), after a heal stopped the stale one.
-    init(home: ChiefHome, local: any AgentPaneHostProviding, ensureHost: @escaping @Sendable () async -> Void) {
-        host = Self.host(muxHome: home.muxHome)
-        // One daemon: the Chief's sessions are this Mac's, so its tabs attach like any chat and
-        // the app's own handoff heals that daemon (no Chief heal, no routing by `mux.parent`).
+    ///   - ownHost: the pane host of the Chief home's own acpmux (its environment) for a Chief
+    ///     on the app's acpmux: the daemon its subagents ran on before the move.
+    init(home: ChiefHome, local: any AgentPaneHostProviding, ensureHost: @escaping @Sendable () async -> Void,
+         ownHost: @escaping @Sendable (AcpmuxEnvironment?) -> any AgentPaneHostProviding = { AcpmuxHost(environment: $0) }) {
+        let host = Self.host(muxHome: home.muxHome)
+        self.host = host
+        // optchat-chief `brain::parent_tag`: optchat-chief:<home id>.
+        let tag = "optchat-chief:" + host.dropFirst("chief:".count)
+        let environment = Self.environment(home: home)
+        // One daemon: the Chief's new sessions are this Mac's, so their tabs attach like any chat
+        // and the app's own handoff heals that daemon. A subagent started before the move
+        // (#22900) still runs, or is kept, in the Chief home's own acpmux: its tab attaches there,
+        // starting that daemon again when it ended, never to the app's daemon, which lacks the
+        // chat and would say "This chat isn't available" (Lawrence 2026-10-21).
         if home.usesAppAcpmux {
-            paneHost = local
-            localRouter = { $0 }
+            let own = ownHost(environment)
+            let sessionsHome = home.acpmuxHome
+            let router: @Sendable (any AgentPaneHostProviding) -> any AgentPaneHostProviding = { local in
+                AcpmuxChiefSessionRouter(local: local, chief: own, chiefEnvironment: environment, sessionsHome: sessionsHome, parentTag: tag)
+            }
+            paneHost = router(local)
+            localRouter = router
             return
         }
-        let environment = Self.environment(home: home)
         // The Chief host owns this daemon (it starts it, with the Chief's env): a
         // tab only attaches, never starts one (cx-ebm.54). A daemon that runs a
         // replaced bundle is healed through its owner (ChiefAcpmuxHeal), while the app runs.
@@ -59,8 +73,6 @@ struct ChiefHomeAcpmux {
         }
         let chief = AcpmuxHost(environment: environment, startsDaemons: false, healReplaced: healReplaced)
         paneHost = chief
-        // optchat-chief `brain::parent_tag`: optchat-chief:<home id>.
-        let tag = "optchat-chief:" + host.dropFirst("chief:".count)
         localRouter = { local in AcpmuxChiefSessionRouter(local: local, chief: chief, chiefEnvironment: environment, parentTag: tag) }
     }
 

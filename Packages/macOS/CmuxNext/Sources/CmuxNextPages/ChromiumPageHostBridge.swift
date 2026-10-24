@@ -13,7 +13,7 @@ import os
 ///   sender's own context for `location.href` and `window === window.top` (both unforgeable), and
 ///   ``PageHostTrust`` checks them as for WebKit.
 /// - Replies go back into the sender's context only (`__cmuxPageHostResolve(seq, reply)`).
-/// - ``evaluate(_:)`` runs scripts in order, one at a time.
+/// - ``evaluate(_:)`` runs scripts in order; the ones queued together go in one `Runtime.evaluate`.
 @MainActor
 public final class ChromiumPageHostBridge: PageHostBridge {
     public let engine = PageHostEngine.cef
@@ -87,13 +87,39 @@ public final class ChromiumPageHostBridge: PageHostBridge {
     private func drain() async {
         defer { draining = false }
         while !scripts.isEmpty {
-            let script = scripts.removeFirst()
             guard let page else {
                 scripts.removeAll()
                 return
             }
-            _ = try? await page.devTools("Runtime.evaluate", params: ["expression": script, "silent": true])
+            // Everything queued so far goes in one round trip (a streaming reply queues one push per
+            // frame); scripts queued while it runs go in the next.
+            let batch = takeBatch()
+            _ = try? await page.devTools("Runtime.evaluate", params: ["expression": Self.batch(batch), "silent": true])
         }
+    }
+
+    /// The scripts at the head of the queue, up to ``maximumBatchBytes`` (at least one).
+    private func takeBatch() -> [String] {
+        var bytes = 0
+        var count = 0
+        for script in scripts {
+            bytes += script.utf8.count
+            if count > 0, bytes > Self.maximumBatchBytes { break }
+            count += 1
+        }
+        defer { scripts.removeFirst(count) }
+        return Array(scripts.prefix(count))
+    }
+
+    /// The most script bytes sent in one `Runtime.evaluate`.
+    nonisolated static let maximumBatchBytes = 2 << 20
+
+    /// One expression that runs `scripts` in order, each in its own block, so that one that throws
+    /// does not stop the ones after it (as separate evaluations did) and their declarations do not meet.
+    /// A single script is sent as it is.
+    nonisolated static func batch(_ scripts: [String]) -> String {
+        guard scripts.count > 1 else { return scripts.first ?? "" }
+        return scripts.map { "try {\n\($0)\n} catch (e) { console.error(e) }" }.joined(separator: "\n")
     }
 
     public func uninstall() {

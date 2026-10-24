@@ -25,6 +25,10 @@ Inside cmux your `cmux-subsessions` MCP server starts children instead:
 `start_session` (with `worktree: true` for a worktree of its own),
 `list_sessions`, `get_session`, `wait_for_sessions`, `send_message` and
 `stop_session`. Prefer them when you have them; this CLI is the fallback.
+At most `maxRunning` of your sub-sessions run at once (16 unless the user
+changed it); a start past it is queued and starts by itself when one finishes.
+`list_sessions` (under `self`) or `acpmux session limits @` shows your limits
+and how many run and wait; only the user or your parent session raises them.
 A lane is different: an agent with its own worktree and brief that reports
 back to you and outlives you. Start it with the one launcher command in
 section 3 (`acpmux new --worktree … --prompt-file …`), not a hand-made

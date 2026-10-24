@@ -9,7 +9,8 @@ import Darwin
 /// engine, why Chromium is unavailable (`unavailable`: `notBundled`,
 /// `downloading`, `downloadFailed`, `startFailed`, `shutDown`), where the
 /// runtime came from (`runtime`: Chromium on demand) and the WebKit
-/// fallbacks so far. Helper
+/// fallbacks so far, the external pump's counters (`pump`) and what the
+/// fork's page tracker read from host views (`tracker`). Helper
 /// processes are separate; measure them with `ps`.
 @MainActor
 enum DebugCEF {
@@ -43,6 +44,7 @@ enum DebugCEF {
         object["runtime"] = runtime(services.chromiumRuntime)
         object["devtools"] = .array(devTools(services))
         if let pump = services.cache.cef.pumpStats { object["pump"] = pumpReport(pump) }
+        object["tracker"] = trackerReport(services.cache.cef.trackerStats)
         object["windows"] = windows(services.cache.cef.windowReport)
         if let duration = report.loadDuration { object["load_ms"] = .number(milliseconds(duration)) }
         if let duration = report.initializeDuration { object["initialize_ms"] = .number(milliseconds(duration)) }
@@ -131,6 +133,21 @@ enum DebugCEF {
             "follow_up_runs": .number(Double(stats.followUpRuns)),
             "work_ms": .number(stats.workSeconds * 1_000),
             "fallback_ms": .number(stats.fallbackInterval * 1_000),
+        ])
+    }
+
+    /// Per action = the change of each counter over it (scripts/cmux-next/pane-perf-terminal.py --browser).
+    private static func trackerReport(_ stats: CEFTrackerStats) -> JSONValue {
+        .object([
+            "clip_reads": .number(Double(stats.clipReads)),
+            "occlusion_reads": .number(Double(stats.occlusionReads)),
+            "clip_builds": .number(Double(stats.clipBuilds)),
+            "clip_hits": .number(Double(stats.clipHits)),
+            "clip_ms": .number(stats.clipSeconds * 1_000),
+            "geometry_posts": .number(Double(stats.geometryPosts)),
+            "hosted_pages": .number(Double(stats.hostedPages)),
+            "hosting_refused": .number(Double(stats.hostingRefused)),
+            "geometry_skips": .number(Double(stats.geometrySkips)),
         ])
     }
 

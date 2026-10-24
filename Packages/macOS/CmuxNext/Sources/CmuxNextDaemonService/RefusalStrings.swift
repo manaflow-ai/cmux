@@ -92,7 +92,7 @@ public nonisolated enum RefusalStrings {
     /// updates it. Any other capability has no daemon half in this build yet.
     /// The id itself is never shown.
     public static func needsDaemonCapability(_ capability: String) -> String {
-        DaemonCapabilities.shared.isServedByBundledDaemon(capability) ? restartToUpdateDaemon : notInThisVersion
+        DaemonCapabilities.isServedByBundledDaemon(capability) ? restartToUpdateDaemon : notInThisVersion
     }
     /// The running local daemon is older than the app.
     public static var restartToUpdateDaemon: String {
@@ -199,6 +199,7 @@ public nonisolated enum RefusalStrings {
     public static var sessionLocalHasNoName: String { text("handlers.refusal.sessionLocalHasNoName", "session-local tabs have no name") }
     public static var pinnedTabKept: String { text("handlers.refusal.pinnedTabKept", "Pinned tabs stay open. Right-click the tab and choose Close Tab to close it.") }
     public static var sessionLocalCannotPin: String { text("handlers.refusal.sessionLocalCannotPin", "session-local tabs cannot be pinned") }
+    public static var neverHibernateNoSite: String { text("handlers.refusal.neverHibernateNoSite", "This tab shows no website.") }
     public static var hibernateVisibleTab: String { text("handlers.refusal.hibernateVisibleTab", "Only a hidden tab can hibernate.") }
     public static var hibernateUnsupported: String {
         text("handlers.refusal.hibernateUnsupported", "This page cannot keep its history when it hibernates.")

@@ -5,11 +5,15 @@ use super::*;
 impl Mux {
     pub fn surface_notification(&self, surface: SurfaceId) -> Option<SurfaceNotification> {
         let state = self.state.lock().unwrap();
-        let terminal_id = state
-            .surfaces
-            .get(&surface)
-            .or_else(|| state.terminal_runtime_by_id(surface))
-            .and_then(|surface| surface.terminal_public_id().cloned());
+        let terminal_id =
+            match state.surfaces.get(&surface).or_else(|| state.terminal_runtime_by_id(surface)) {
+                Some(runtime) => runtime.terminal_public_id().cloned(),
+                // A terminal tab whose host still adopts: its content binding.
+                None => match state.resource_indexes.content_ids.get(&surface) {
+                    Some(ContentPublicId::Terminal(terminal_id)) => Some(terminal_id.clone()),
+                    _ => None,
+                },
+            };
         drop(state);
         match terminal_id {
             Some(terminal_id) => {
@@ -44,6 +48,20 @@ impl Mux {
                 None => placement_notifications.get(surface_id),
             };
             if let Some(notification) = notification {
+                result.insert(*surface_id, *notification);
+            }
+        }
+        // A terminal tab with no runtime surface yet (its host still adopts
+        // after a restart, 81577dcd4b3) keeps its terminal's marker through
+        // the tab's content binding, which exists before the adoption: the
+        // ring and the workspace's unread count never blink out.
+        for (surface_id, content) in &state.resource_indexes.content_ids {
+            if state.surfaces.contains_key(surface_id) {
+                continue;
+            }
+            if let ContentPublicId::Terminal(terminal_id) = content
+                && let Some(notification) = terminal_notifications.get(terminal_id)
+            {
                 result.insert(*surface_id, *notification);
             }
         }
@@ -158,6 +176,18 @@ impl Mux {
         reply: bool,
     ) -> u64 {
         let id = self.next_notification_id();
+        // Who holds the terminal now: a reply typed into it later must reach this same program.
+        let poster = surface.and_then(|surface| self.surface(surface)).and_then(|surface| {
+            let pid = surface.process_id()?;
+            Some(NotificationPoster {
+                pid: crate::platform::foreground_leader(pid)?,
+                executable: crate::platform::foreground_process_name(pid)?,
+            })
+        });
+        self.notification_posts
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(public_id.clone(), NotificationPost { notification: id, poster });
         {
             const NOTIFICATION_LEDGER_CAPACITY: usize = 256;
             let mut ledger = self.notification_ledger.lock().unwrap();
@@ -182,6 +212,12 @@ impl Mux {
                 }
             }
             if !evicted.is_empty() {
+                let mut posts =
+                    self.notification_posts.lock().unwrap_or_else(PoisonError::into_inner);
+                for id in &evicted {
+                    posts.remove(id);
+                }
+                drop(posts);
                 let mut reads = self.notification_reads.lock().unwrap();
                 for id in &evicted {
                     reads.remove(id);
@@ -215,6 +251,19 @@ impl Mux {
             }
         }
         notifications
+    }
+
+    /// The event number and poster of a ledger row this run posted; `None`
+    /// for a row restored from disk or evicted.
+    pub fn notification_post(
+        &self,
+        notification: &NotificationPublicId,
+    ) -> Option<NotificationPost> {
+        self.notification_posts
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(notification)
+            .cloned()
     }
 
     /// Client ids that acknowledged `notification`, sorted and unique.

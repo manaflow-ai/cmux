@@ -18,14 +18,31 @@ public nonisolated struct AcpmuxChiefSessionRouter: AgentPaneHostProviding {
     }
 
     /// Asks the Chief home's acpmux (`environment`) whether it runs `session` for `parentTag`.
+    /// When that daemon does not answer (stopped, starting, or slower than the deadline), a
+    /// session it keeps on disk under `sessionsHome` (`<ACPMUX_HOME>/sessions/<id>`) is still
+    /// its own: the tab attaches there, never to a daemon that lacks the chat (which says
+    /// "This chat isn't available").
+    ///
+    /// - Parameter sessionsHome: the Chief home's `ACPMUX_HOME`; defaults to `environment`'s.
     public init(local: any AgentPaneHostProviding, chief: any AgentPaneHostProviding,
-                chiefEnvironment environment: AcpmuxEnvironment?, parentTag: String) {
+                chiefEnvironment environment: AcpmuxEnvironment?, sessionsHome: URL? = nil, parentTag: String) {
         let socket = environment?.socketPath
+        let kept = sessionsHome ?? environment?.home
         self.init(local: local, chief: chief) { session in
-            guard let socket, FileManager.default.fileExists(atPath: socket),
-                  let listing = try? await AcpmuxStatusClient.sessions(socketPath: socket, deadline: .seconds(2)) else { return false }
-            return Self.owns(listing.value, session: session, parentTag: parentTag)
+            if let socket, FileManager.default.fileExists(atPath: socket),
+               let listing = try? await AcpmuxStatusClient.sessions(socketPath: socket, deadline: .seconds(2)) {
+                return Self.owns(listing.value, session: session, parentTag: parentTag)
+            }
+            return Self.keeps(session: session, home: kept)
         }
+    }
+
+    /// Whether acpmux home `home` keeps session `session` on disk (`sessions/<id>`).
+    public static func keeps(session: String, home: URL?) -> Bool {
+        guard let home, !session.isEmpty, session != ".", session != "..", !session.contains("/") else { return false }
+        var directory: ObjCBool = false
+        let path = home.appendingPathComponent("sessions", isDirectory: true).appendingPathComponent(session).path
+        return FileManager.default.fileExists(atPath: path, isDirectory: &directory) && directory.boolValue
     }
 
     /// Whether `_acpmux/sessions` result `listing` has `session` tagged `mux.parent` = `parentTag`.
@@ -61,5 +78,9 @@ public nonisolated struct AcpmuxChiefSessionRouter: AgentPaneHostProviding {
 
     public func putFile(sessionId: String, name: String, data: Data) async throws -> String {
         try await host(for: sessionId).putFile(sessionId: sessionId, name: name, data: data)
+    }
+
+    public func putFile(sessionId: String, name: String, file: URL) async throws -> String {
+        try await host(for: sessionId).putFile(sessionId: sessionId, name: name, file: file)
     }
 }

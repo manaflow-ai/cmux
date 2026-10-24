@@ -11,10 +11,12 @@ public nonisolated struct AgentPageEvent: Equatable, Sendable {
     /// `command`, `focusLocation` or `transport`.
     public let kind: String
     public let value: JSONValue
+    let deliveryID: UInt64?
 
-    public init(kind: String, value: JSONValue = .null) {
+    public init(kind: String, value: JSONValue = .null, deliveryID: UInt64? = nil) {
         self.kind = kind
         self.value = value
+        self.deliveryID = deliveryID
     }
 
     /// The stream event: `{kind, value}`.
@@ -34,7 +36,7 @@ public nonisolated struct AgentPageEvent: Equatable, Sendable {
 
     /// Whether preview features show.
     public static func preview(_ on: Bool) -> AgentPageEvent { AgentPageEvent(kind: "preview", value: .bool(on)) }
-    /// Whether agents suggest tasks (the `agent.suggestedTasks` Debug Settings toggle, cx-lo9yf).
+    /// Whether agents suggest tasks (``AgentPaneSuggestedTasks``, cx-lo9yf).
     public static func suggestedTasks(_ on: Bool) -> AgentPageEvent { AgentPageEvent(kind: "suggestedTasks", value: .bool(on)) }
 
     /// Whether the in-session status cards show (the `agent.sessionStatus` tunable).

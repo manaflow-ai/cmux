@@ -8,6 +8,11 @@ import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRe
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { commandFolder } from "./commandFolder";
 import { cleanText, mcpCall, prettyOutput, prettyValue } from "./mcpCalls";
+import { plainText } from "./messageMenu";
+import { drawnThought } from "./thoughts";
+import { shellOutput } from "./toolFailure";
+import { toolResult } from "./toolResult";
+import { stripsEnvelopeImages } from "../toolImages";
 
 /** One match: the `occurrence`th match of the query in row `rowIndex`. */
 export type FindMatch = { rowIndex: number; rowId: string; occurrence: number };
@@ -24,11 +29,25 @@ const SEARCHED_KINDS = new Set(["user", "assistant"]);
 /// without the context a host injects into it, as ToolRow does.
 function drawnText(item: AcpmuxActivity): string {
   const tool = item.tool;
-  if (!tool) return item.text;
+  // A thought draws its headings without their marks (ThoughtRow.tsx, thoughts.ts thoughtParts).
+  if (!tool) return item.kind === "thought" ? drawnThought(item.text) : item.text;
   const call = mcpCall(tool);
-  if (call) return [prettyValue(call.args), prettyOutput(tool.output)].filter(Boolean).join("\n");
+  // A finished call's envelope images show in its strip, not its text (toolImages.ts).
+  const strip = stripsEnvelopeImages(tool);
+  if (call) return [prettyValue(call.args), prettyOutput(tool.output, strip)].filter(Boolean).join("\n");
   const shell = tool.kind === "execute" && Boolean(tool.command);
-  const output = shell || !tool.output ? tool.output : cleanText(tool.output);
+  // A shell draws its output without Claude Code's leading "Exit code N" line (toolFailure.ts), which
+  // its Shell block says once, at its end. Other output reads as ToolRow draws it: out of its envelope,
+  // without injected context (toolResult.ts), and Markdown as its words, without the marks
+  // (messageMenu.ts plainText).
+  const result = shell || !tool.output ? undefined : toolResult(tool.output, cleanText, strip);
+  const output = shell
+    ? shellOutput(tool)
+    : !result
+      ? tool.output
+      : result.lang === "markdown"
+        ? plainText(result.text)
+        : result.text;
   // The command as its rows draw it, without a leading `cd <folder> &&` (commandFolder).
   return [(tool.command && commandFolder(tool.command).rest) || tool.title, output].filter(Boolean).join("\n");
 }

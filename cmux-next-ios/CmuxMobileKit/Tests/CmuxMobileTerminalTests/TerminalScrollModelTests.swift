@@ -36,6 +36,35 @@ import Testing
         }
     }
 
+    /// "Sometimes the terminal doesn't have bottom content bounciness": a
+    /// fling into the bottom follows from there but keeps its rubber band.
+    /// The model hands the page back only after the deceleration (its
+    /// bounce included) ends; it never asks to stop it.
+    @Test func aFlingIntoTheBottomFollowsAndKeepsItsBounce() {
+        var model = TerminalScrollModel()
+        let a = TerminalDocumentLayout(originRow: 0, endRow: 600)
+        model.began()
+        model.scrolled(offsetY: bottom(a) - 400, bottomOffsetY: bottom(a))
+        model.scrolled(offsetY: bottom(a) + 30, bottomOffsetY: bottom(a))
+        model.flingReachedBottom()
+        #expect(model.isFollowing)
+        // Output grows during the bounce: the end of the deceleration lands
+        // on the new end, whatever offset the bounce stopped at.
+        let b = TerminalDocumentLayout(originRow: 0, endRow: 640)
+        model.settled(offsetY: bottom(a), bottomOffsetY: bottom(b), layout: b, rowHeight: cell)
+        #expect(model.isFollowing)
+        #expect(model.target(layout: b, rowHeight: cell, topInset: 62, bottomOffsetY: bottom(b)) == bottom(b))
+    }
+
+    @Test func onlyAGestureReachesTheBottom() {
+        var model = TerminalScrollModel()
+        let a = TerminalDocumentLayout(originRow: 0, endRow: 600)
+        model.began()
+        model.settled(offsetY: 100 * cell, bottomOffsetY: bottom(a), layout: a, rowHeight: cell)
+        model.flingReachedBottom()
+        #expect(!model.isFollowing)
+    }
+
     @Test func releasingNearTheBottomFollows() {
         var model = TerminalScrollModel()
         let a = TerminalDocumentLayout(originRow: 0, endRow: 600)

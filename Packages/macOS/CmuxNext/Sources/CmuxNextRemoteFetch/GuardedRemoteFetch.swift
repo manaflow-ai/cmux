@@ -33,6 +33,9 @@ public nonisolated struct GuardedRemoteFetch: Sendable {
     public var resolver: any RemoteAddressResolving
     public var transport: any RemoteFetchTransport
     public var clock: any Clock<Duration>
+    /// When set, every hop (the first request and each redirect) must be to one of these hosts
+    /// (``isListed(_:in:)``); a hop anywhere else fails the fetch before it connects.
+    public var hosts: Set<String>?
 
     public init(maximumBytes: Int, timeout: Duration, accept: String, resolver: any RemoteAddressResolving = SystemRemoteResolver(),
                 transport: any RemoteFetchTransport = PinnedTLSTransport(), clock: any Clock<Duration> = ContinuousClock()) {
@@ -57,6 +60,13 @@ public nonisolated struct GuardedRemoteFetch: Sendable {
         // resolver turns into its address) is judged by what it resolves to.
         if let literal = RemoteAddress(literal: host) { return literal.isPublic }
         return true
+    }
+
+    /// Whether `url` may be fetched (``allows(_:)``) and its host is exactly one of `hosts`
+    /// (lowercased names, never a suffix match), on the default https port.
+    public static func isListed(_ url: URL, in hosts: Set<String>) -> Bool {
+        guard allows(url), url.port == nil || url.port == 443, let host = host(of: url) else { return false }
+        return hosts.contains(host)
     }
 
     /// The host without IPv6 brackets, lowercased.
@@ -94,6 +104,7 @@ public nonisolated struct GuardedRemoteFetch: Sendable {
         for hop in 0...Self.maximumRedirects {
             guard !Task.isCancelled else { return .failure(.failed) }
             guard Self.allows(url), let host = Self.host(of: url) else { return .failure(.refused) }
+            if let hosts, !Self.isListed(url, in: hosts) { return .failure(.refused) }
             let addresses: [RemoteAddress]
             if let literal = RemoteAddress(literal: host) {
                 addresses = [literal]

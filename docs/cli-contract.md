@@ -90,7 +90,7 @@ profile only with its `profile` tool on its own bound connection.
 shutdown` (`shutdown`), `/model`, `/effort` and Ctrl+C in the chat (a note,
 no call), `cmux raw operation` or `cmux raw command` naming a `chief.*` write
 (`details.refused` the operation), and the app actions `home.newChief`,
-`home.archiveChief`, `home.stopChief` and `home.stopAllAgents` (by id or CLI
+`home.archiveChief`, `home.deleteChief`, `home.stopChief` and `home.stopAllAgents` (by id or CLI
 name; `details.refused` the name given) are refused the same way, before any
 connection.
 `cmux chief engine` with no change and the `chief.engine.get`,
@@ -339,6 +339,7 @@ Saved tab groups are personal and belong to a room (default: the default room).
 
 ```text
 cmux terminal list
+cmux terminal list --agents
 cmux terminal <selector> show
 cmux terminal <selector> write [--text <value>|--bytes-base64 <base64>]
 cmux terminal <selector> keys <key...>
@@ -354,6 +355,7 @@ cmux terminal <selector> copy [--mode screen|selection|scrollback]
 cmux terminal <selector> process show
 cmux terminal <selector> process wait [--timeout-ms <n>]
 cmux terminal <selector> wait --until idle|prompt [--timeout <500ms|30s|5m>|--timeout-ms <n>]
+cmux terminal <selector> send --text <message|-> [--wait idle|prompt|none] [--timeout <5m>] [--settle <3s>] [--force]
 cmux terminal <selector> viewport scroll --delta-rows <n>
 cmux terminal <selector> move|project --workspace <sel> --screen <sel> --pane <sel> --index <n>
 cmux terminal <selector> attach [--read-only]
@@ -381,6 +383,31 @@ stops answering. Both read shell state from OSC 133 marks: in a shell without
 integration `--until idle` returns while a command still runs. After the daemon
 reattaches to a running terminal host, the prompt and command state come back
 only with the shell's next mark.
+
+`list --agents` lists the terminals that run a coding agent, from one
+`session.snapshot`: the harness (Claude Code, Codex, … from hook or plugin
+agent records, else the app of an OSC 7501 status record), its state (`busy`,
+`idle`, `waiting-for-input` when a permission dialog or question waits,
+`ended`), the age of that state, the workspace and the title. Waiting agents
+sort first. `--json` prints `[{terminal, harness, state, title, workspace_id,
+workspace, cwd, updated_at_ms, age_ms, source}]`.
+
+`send` talks to the agent or shell in a terminal in one call. It types the
+message as one bracketed paste when the terminal has paste mode on (so a
+multi-line message stays one message in Claude Code, Codex or a line editor),
+presses Enter 300 ms later, and waits. `--wait idle` (default) ends when no
+agent record or OSC 7501 status newer than the send says `working`, no command
+or OSC 9;4 progress runs, and the screen has not changed for `--settle`
+(default 3s); an agent that stops on a dialog ends it as `waiting-for-input`.
+`--wait prompt` ends when the shell shows its prompt and the screen is still.
+`--wait none` returns after Enter. It prints only what the terminal printed
+after the message's echo (reading history pages when the reply is longer than
+the screen), less the harness's input box and status footer; `--json` prints
+`{terminal, harness, bracketed_paste, state, timed_out, waited_ms, anchored,
+output}`. `--timeout` (default 5m) exits 124 with the output so far. A
+terminal whose agent waits on a dialog is refused (`agent.waiting_for_input`)
+unless `--force`, because the text would answer the dialog. The MCP tools
+`agents_terminal_list` and `agents_terminal_send` run the same code.
 
 ### browser (daemon-owned)
 

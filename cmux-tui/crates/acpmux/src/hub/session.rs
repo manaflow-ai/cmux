@@ -263,6 +263,10 @@ pub(super) struct Applied {
     /// (`start_gate/preset_bind.rs`).
     pub preset_resolved: Option<String>,
     pub preset_spawned: Option<String>,
+    /// Its agent was started with OpenCode asked to ask before every tool
+    /// (`opencode_ask.rs`); false for an agent host reached again after a
+    /// daemon restart, which a narrower policy restarts (`policy_mode.rs`).
+    pub opencode_asks: bool,
 }
 
 /// `sessions` newest first. Each session's `updated_at` is read once: other

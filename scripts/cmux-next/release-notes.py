@@ -30,7 +30,7 @@ with internal commits (ci, test, refactor, docs, chore, red tests, lint and
 fleet work) left out. The update cards show its first lines, and `appcast`
 writes the same lines as plain text into the build's appcast <description>.
 
-  release-notes.py build --build B --short S --date D --head SHA [--since SHA] [--out DIR]
+  release-notes.py build --build B --short S --date D --head SHA [--since SHA] [--out DIR] [--pr-media]
   release-notes.py appcast --head SHA [--since SHA] --appcasts DIR --build B --feeds F...
   release-notes.py prs --head SHA [--since SHA] [--repo O/R] [--limit N]   the GitHub release's "PRs in this build"
   release-notes.py index --notes DIR/B.json [--previous index.json] [--keep 50] --out DIR/index.json
@@ -40,7 +40,7 @@ writes the same lines as plain text into the build's appcast <description>.
   release-notes.py verify --public-key BASE64 FILE  checks FILE.sig
   release-notes.py check --notes DIR/B.json         the release gate: fails a build with no or bad What's New entries
 """
-import argparse, base64, json, os, re, subprocess, sys, tempfile
+import argparse, base64, hashlib, json, os, re, subprocess, sys, tempfile, time
 from pathlib import Path
 
 HIGHLIGHTS = "release-notes/next/highlights"
@@ -203,6 +203,82 @@ def parse_highlight(path, text):
 
 PR_SUFFIX = re.compile(r"^(?P<title>.*?)\s*\(#(?P<pr>\d+)\)\s*$")
 
+# --pr-media: a highlight shows the first picture of the pull request that added it (Leo 2026-10-21,
+# What's New design pass), when that picture is one this repository published to pr-media
+# (scripts/pr-media.py). The notes carry its URL and hash; the app fetches it and shows it only when
+# the bytes match (ReleaseMediaStore.highlightData). Anything else leaves the highlight without one.
+PR_MEDIA_PREFIX = "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/"
+PR_MEDIA_IMAGE = re.compile(r"""(?:!\[[^\]]*\]\(\s*|<img\b[^>]*?\bsrc=["'])(?P<url>https://[^\s)"'>]+)""", re.I)
+# The app's limit (ReleaseMediaStore.maxImageBytes) and the picture types it decodes.
+PR_MEDIA_MAX_BYTES = 4 << 20
+PR_MEDIA_SIGNATURES = (b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff", b"GIF87a", b"GIF89a")
+# Each call waits at most PR_MEDIA_TIMEOUT seconds, and all of them together PR_MEDIA_BUDGET, so a slow
+# GitHub leaves later highlights without pictures instead of running the signing job out of time.
+PR_MEDIA_TIMEOUT = 10
+PR_MEDIA_BUDGET = 120
+
+
+def pr_media_picture(data):
+    """True for bytes the app would show: a PNG, JPEG, GIF or WebP within its size limit."""
+    webp = data[:4] == b"RIFF" and data[8:12] == b"WEBP"
+    return 12 <= len(data) <= PR_MEDIA_MAX_BYTES and (webp or data.startswith(PR_MEDIA_SIGNATURES))
+
+
+def pr_body(pr, fixture):
+    if fixture is not None:
+        return fixture["bodies"].get(str(pr), "")
+    result = subprocess.run(["gh", "api", f"repos/manaflow-ai/cmux/pulls/{pr}", "--jq", ".body // \"\""],
+                            capture_output=True, text=True, timeout=PR_MEDIA_TIMEOUT)
+    return result.stdout if result.returncode == 0 else ""
+
+
+def pr_download(url, fixture):
+    if fixture is not None:
+        path = fixture["files"].get(url)
+        return Path(path).read_bytes() if path else None
+    import urllib.request
+
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *args):
+            return None
+
+    request = urllib.request.Request(url, headers={"User-Agent": "cmux-release-notes/1"})
+    with urllib.request.build_opener(NoRedirect).open(request, timeout=PR_MEDIA_TIMEOUT) as response:
+        return response.read(PR_MEDIA_MAX_BYTES + 1)
+
+
+def add_pr_media(highlight, path, head, deadline):
+    """Gives `highlight` the first pr-media picture of the pull request whose commit added `path`.
+    Any failure (a timeout, a missing gh, a URL urllib rejects, a cut-off download) only leaves the
+    highlight without a picture: a PR body anyone can edit must never stop the notes."""
+    if time.monotonic() > deadline:
+        print(f"pr-media: {path}: out of time; left out", file=sys.stderr)
+        return
+    try:
+        find_pr_media(highlight, path, head)
+    except Exception as error:
+        print(f"pr-media: {path}: {type(error).__name__}: {error}; left out", file=sys.stderr)
+
+
+def find_pr_media(highlight, path, head):
+    fixture_path = os.environ.get("CMUX_RELEASE_NOTES_PR_FIXTURE")
+    fixture = json.loads(Path(fixture_path).read_text()) if fixture_path else None
+    subject = git("log", "--diff-filter=A", "--format=%s", "-1", head, "--", path).strip()
+    match = PR_SUFFIX.match(subject)
+    if not match:
+        return
+    for found in PR_MEDIA_IMAGE.finditer(pr_body(int(match["pr"]), fixture)):
+        url = found["url"]
+        if not url.startswith(PR_MEDIA_PREFIX):
+            continue
+        data = pr_download(url, fixture)
+        if data is None or not pr_media_picture(data):
+            print(f"pr-media: {path}: #{match['pr']} {url} is not a picture the app shows; left out", file=sys.stderr)
+            return
+        highlight["media"] = [{"url": url, "sha256": hashlib.sha256(data).hexdigest(), "kind": "image",
+                               "alt": highlight["title"]}]
+        return
+
 
 def change_item(subject, author):
     """One structured change (UPDATE-CARD "What's changed"): the subject's
@@ -338,8 +414,12 @@ def build(args):
     items = [change_item(subject, author) for subject, author in commits]
     added = git("log", "--diff-filter=A", "--name-only", "--format=", span, "--", HIGHLIGHTS).split()
     highlights = []
+    deadline = time.monotonic() + PR_MEDIA_BUDGET
     for path in sorted(set(p for p in added if p.endswith(".md"))):
-        highlights.append(parse_highlight(path, git("show", f"{args.head}:{path}")))
+        highlight = parse_highlight(path, git("show", f"{args.head}:{path}"))
+        if args.pr_media:
+            add_pr_media(highlight, path, args.head, deadline)
+        highlights.append(highlight)
     # "head": the commit these notes end at; the next build's span starts there (`since`), so a
     # build whose notes never published loses no change to the build after it.
     notes = {"version": 1, "build": args.build, "shortVersion": args.short, "date": args.date, "head": args.head,
@@ -509,6 +589,8 @@ def main():
     b.add_argument("--head", required=True)
     b.add_argument("--since", default="")
     b.add_argument("--out", default="notes")
+    b.add_argument("--pr-media", action="store_true",
+                   help="give each highlight the first pr-media picture of the pull request that added it (needs gh)")
     a = sub.add_parser("appcast")
     a.add_argument("--head", required=True)
     a.add_argument("--since", default="")

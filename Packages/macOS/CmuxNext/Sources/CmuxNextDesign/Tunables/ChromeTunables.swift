@@ -1,5 +1,6 @@
 public import CoreGraphics
 public import Foundation
+public import CmuxNextDesignTokens
 
 /// Fixed chrome constants (the 2 pt spacing grid, divider widths, insets)
 /// and the glass and scroll-fade parameters, as Debug Settings tunables.
@@ -63,7 +64,7 @@ public nonisolated enum ChromeTunables {
         "glass.overlayTintStrength", .glass, "Overlay tint strength", help: "Multiplier on the theme glass tint's alpha for overlay surfaces (palette, hover cards, browser bars, drop overlay).",
         default: 1.25, range: 0...3, step: 0.05, unit: .multiplier, code: "ChromeTunables.glassOverlayTintStrength")
     public static let cardOpacity = Tunable<Double>.number(
-        "glass.cardOpacity", .glass, "Card opacity", help: "Least opacity of the solid fill every floating card (popovers, palette, find and prompt bars; hover cards stay bare glass) lays on its glass; text keeps 4.5:1 over any backdrop above it.",
+        "glass.cardOpacity", .glass, "Card opacity", help: "Least opacity of the solid fill a card that opts into the card fill (no native overlay does; web pages read it as --cmux-card-tint) lays on its glass; text keeps 4.5:1 over any backdrop above it.",
         default: CardMaterial.defaultMinimumOpacity, range: 0.5...1, step: 0.01, unit: .fraction, code: "ChromeTunables.cardOpacity")
 
     // MARK: Scroll fade
@@ -85,7 +86,7 @@ public nonisolated enum ChromeTunables {
 public nonisolated enum DesignTunables {
     public static var all: [TunableDescriptor] {
         MotionTunables.all + MetricTunables.metrics.map(\.descriptor) + ChromeTunables.fixed + [Borders.tunable.descriptor] + FocusIndicatorTunables.all
-            + StatusIndicatorTunables.all + [LaunchMarkStyle.tunable.descriptor, AttentionHighlightLook.tunable.descriptor, AgentTurnRing.tunable.descriptor, GlassLensMode.tunable.descriptor] + MotionTunables.launchDelays.map(\.descriptor)
-            + ChromeTunables.mainPane
+            + StatusIndicatorTunables.all + [LaunchMarkStyle.tunable.descriptor, AttentionHighlightLook.tunable.descriptor, GlassLensMode.tunable.descriptor] + MotionTunables.launchDelays.map(\.descriptor)
+            + ChromeTunables.mainPane + [HoverCardEscapeGeometry.escapeSlotTunable.descriptor]
     }
 }

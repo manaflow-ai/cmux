@@ -2512,6 +2512,9 @@ fn codex_owned_entry_keys(key_hooks_path: &Path, root: &Map<String, Value>) -> B
 /// can sequence it BEFORE mutating hooks.json and commit it afterwards.
 struct PreparedCodexTrustWrite {
     edit: CodexTrustEdit,
+    /// `config.toml.cmux-lock` beside the unresolved config.toml (see
+    /// `lock_codex_config`).
+    lock_path: PathBuf,
     original: Option<String>,
     updated: String,
     mode: u32,
@@ -2616,6 +2619,7 @@ fn prepare_codex_trust_state(
         edit.config_path.parent().context("codex config path has no parent")?.to_path_buf();
     ensure_writable_directory(&target_parent)?;
     Ok(Some(PreparedCodexTrustWrite {
+        lock_path: parent.join(CODEX_CONFIG_LOCK_FILE),
         mode: existing_file_mode(&edit.config_path).unwrap_or(0o600),
         edit,
         original,
@@ -2624,6 +2628,10 @@ fn prepare_codex_trust_state(
 }
 
 fn commit_codex_trust_state(write: &PreparedCodexTrustWrite) -> anyhow::Result<()> {
+    // The re-read, compare and rename below run under the lock every other
+    // cmux writer of this config.toml takes, so neither write is built on a
+    // read the other one replaced. Released when `_lock` drops.
+    let _lock = lock_codex_config(&write.lock_path);
     // Close the preflight-to-commit window: if config.toml changed in between
     // (codex's own trust review or a user edit), re-render against the fresh
     // content instead of clobbering the concurrent edit with the stale
@@ -2641,6 +2649,53 @@ fn commit_codex_trust_state(write: &PreparedCodexTrustWrite) -> anyhow::Result<(
         // The concurrent edit already satisfies the trust entries.
         (_, None) => Ok(()),
     }
+}
+
+/// The advisory lock every cmux writer of a codex config.toml takes for its
+/// read-modify-rename: this installer and the Cloud devbox shell-start merge
+/// (web/services/vms/images/devbox/agent-config.sh, which flocks the same
+/// file name in the same directory). Without it, two writers that each re-read
+/// before their rename can still drop the other's keys (the provider block or
+/// the hook trust state) in the window between read and rename.
+const CODEX_CONFIG_LOCK_FILE: &str = "config.toml.cmux-lock";
+
+/// How long the installer waits for another writer's lock. The shell-start
+/// holders keep it for one bounded read and rename and give up after 5 s, but
+/// a stopped or hung holder must not stall an install forever.
+const CODEX_CONFIG_LOCK_WAIT: Duration = Duration::from_secs(15);
+
+/// Returns once this process holds `lock_path` exclusively, or `None` when it
+/// cannot: a directory that refuses the lock file, a filesystem without flock,
+/// or a holder that keeps it past `CODEX_CONFIG_LOCK_WAIT`. The write then
+/// goes ahead unlocked, as before the lock existed, instead of failing or
+/// hanging the install; the commit's own re-read still guards that case.
+#[cfg(unix)]
+fn lock_codex_config(lock_path: &Path) -> Option<fs::File> {
+    use std::os::unix::fs::OpenOptionsExt as _;
+    let file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(0o600)
+        .custom_flags(libc::O_CLOEXEC)
+        .open(lock_path)
+        .ok()?;
+    let deadline = Instant::now() + CODEX_CONFIG_LOCK_WAIT;
+    loop {
+        match file.try_lock() {
+            Ok(()) => return Some(file),
+            Err(fs::TryLockError::WouldBlock) if Instant::now() < deadline => {
+                // Lock contention, not synchronization: flock has no
+                // wait-with-timeout, so poll at a short interval to a deadline.
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            Err(_) => return None,
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn lock_codex_config(_lock_path: &Path) -> Option<fs::File> {
+    None
 }
 
 /// Captures a file's rollback snapshot (bytes and mode) before mutation.

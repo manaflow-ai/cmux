@@ -26,6 +26,7 @@ import { TeamAdmin } from "../../src/auth/team-admin.ts";
 import { ApiKeyAdminStore } from "../../src/db/api-keys.ts";
 import { ServiceKeys } from "../../src/auth/service-keys.ts";
 import { makeMeshFakes, type MeshFakeOptions } from "./mesh-fakes.ts";
+import { AgentStore, type ClientSessionRow } from "../../src/db/agents.ts";
 
 export const STACK_API_URL = "https://stack.test";
 export const STACK_PROJECT_ID = "project-test";
@@ -77,6 +78,8 @@ interface StoredKey extends ApiKeyRecord {
   readonly createdBy?: string;
   readonly createdAt?: Date;
   readonly revokedAt?: Date;
+  /** Set when the reaper finished an agent key. */
+  readonly cleanedAt?: Date;
 }
 
 export async function makeHarness(options: HarnessOptions = {}) {
@@ -97,6 +100,8 @@ export async function makeHarness(options: HarnessOptions = {}) {
   /** Team admins (Stack team_admin), per tenant. */
   const admins = new Map<string, Set<string>>();
   const upstream = makeFakeUpstream(UPSTREAM_KEY);
+  /** Client sessions (migration 0016), as cmux_vm.vm_client_sessions holds them. */
+  const clientSessions: ClientSessionRow[] = [];
   const upstreamClient = makeUpstreamClient({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), environment: "local", fetch: (request) => upstream.fetch(request) });
   const upstreamRequests = upstream.calls;
   const audit: AuditRow[] = [];
@@ -271,6 +276,49 @@ export async function makeHarness(options: HarnessOptions = {}) {
     webhookDeliveries.layer,
     s3a.layer(upstreamFetch),
     mesh.layer(upstreamFetch),
+    Layer.succeed(AgentStore, {
+      findAgentKey: (tenantId, id) =>
+        Effect.sync(() => {
+          const key = keys.find((k) => k.tenantId === tenantId && k.id === id && k.agent !== null);
+          return key === undefined || key.agent === null
+            ? null
+            : { id: key.id, tenantId: key.tenantId, createdBy: key.createdBy ?? "user:test", labels: key.agent.labels, expiresAt: key.expiresAt, revokedAt: key.revokedAt ?? null };
+        }),
+      revokeAgentKey: (tenantId, id, at) =>
+        Effect.sync(() => {
+          const index = keys.findIndex((k) => k.tenantId === tenantId && k.id === id && k.agent !== null);
+          const found = keys[index];
+          if (found === undefined) return false;
+          keys[index] = { ...found, revoked: true, revokedAt: found.revokedAt ?? at };
+          return true;
+        }),
+      dueAgentKeys: (now, limit) =>
+        Effect.sync(() =>
+          keys
+            .filter((k) => k.agent !== null && k.cleanedAt === undefined && (k.revoked || (k.expiresAt !== null && k.expiresAt <= now)))
+            .slice(0, limit)
+            .map((k) => ({ id: k.id, tenantId: k.tenantId, createdBy: k.createdBy ?? "user:test", labels: k.agent?.labels ?? {}, expiresAt: k.expiresAt, revokedAt: k.revokedAt ?? null })),
+        ),
+      markAgentCleaned: (tenantId, id, at) =>
+        Effect.sync(() => {
+          const index = keys.findIndex((k) => k.tenantId === tenantId && k.id === id);
+          const found = keys[index];
+          if (found !== undefined) keys[index] = { ...found, cleanedAt: found.cleanedAt ?? at };
+        }),
+      insertClientSession: (row) => Effect.sync(() => void clientSessions.push(row)),
+      liveClientSessions: (tenantId, vmId) =>
+        Effect.sync(() => clientSessions.filter((row) => row.tenantId === tenantId && row.vmId === vmId && row.revokedAt === null)),
+      findClientSession: (tenantId, vmId, id) =>
+        Effect.sync(() => clientSessions.find((row) => row.tenantId === tenantId && row.vmId === vmId && row.id === id) ?? null),
+      markClientSessionRevoked: (tenantId, id, at) =>
+        Effect.sync(() => {
+          const index = clientSessions.findIndex((row) => row.tenantId === tenantId && row.id === id);
+          const found = clientSessions[index];
+          if (found !== undefined && found.revokedAt === null) clientSessions[index] = { ...found, revokedAt: at };
+        }),
+      orphanClientSessions: (limit) =>
+        Effect.sync(() => clientSessions.filter((row) => row.revokedAt === null && deleted.has(row.vmId)).slice(0, limit)),
+    }),
     Layer.succeed(TeamAdmin, {
       isAdmin: (tenantId, userId) => Effect.sync(() => admins.get(tenantId)?.has(userId) ?? false),
     }),
@@ -288,6 +336,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
             name: key.name,
             createdBy: key.createdBy,
             createdAt: key.createdAt,
+            agent: key.agent ?? null,
           });
         }),
       list: (tenantId, limit) =>
@@ -318,7 +367,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
     }),
   );
 
-  const { handler, dispose } = makeWebHandler(
+  const { handler, dispose, reap } = makeWebHandler(
     services,
     options.stackWebhookSecret === undefined ? {} : { stackWebhookSecret: Redacted.make(options.stackWebhookSecret) },
   );
@@ -332,6 +381,17 @@ export async function makeHarness(options: HarnessOptions = {}) {
     recordFault,
     setProviderConfig(baseUrl = UPSTREAM_URL, apiKey = UPSTREAM_KEY) {
       Object.assign(upstreamClient, makeUpstreamClient({ baseUrl, apiKey: Redacted.make(apiKey), environment: "local", fetch: (request) => upstream.fetch(request) }));
+    },
+    /** One agent reaper run, as the Worker's cron does. */
+    reap,
+    /** Client sessions as the database holds them (identity ids, never tokens). */
+    clientSessions,
+    /** Moves an API key's expiry into the past, as time passing would. */
+    expireKey(id: string) {
+      const index = keys.findIndex((key) => key.id === id);
+      const found = keys[index];
+      if (found === undefined) throw new Error("expireKey: no such key");
+      keys[index] = { ...found, expiresAt: new Date(Date.now() - 1000) };
     },
     /** Whether the ownership row for `cmuxId` is marked deleted. */
     isDeleted: (cmuxId: string) => deleted.has(cmuxId),
@@ -425,6 +485,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
         hash: await Effect.runPromise(hashApiKey(secret)),
         revoked: options.revoked ?? false,
         expiresAt: options.expiresAt ?? null,
+        agent: null,
       });
       return secret;
     },

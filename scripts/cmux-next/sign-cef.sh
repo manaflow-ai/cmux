@@ -5,6 +5,7 @@
 #   Contents/Frameworks/Chromium Embedded Framework.framework
 #   Contents/Frameworks/libcmux_cef_shim.dylib
 #   Contents/Frameworks/<product> Helper{, (GPU), (Renderer), (Plugin), (Alerts)}.app
+#   Contents/Frameworks/<product> Chromium Host.app   (Debug builds only, prototype)
 #
 # The GPU and Renderer helpers get com.apple.security.cs.allow-jit (V8 and
 # the GPU process need it under the hardened runtime); the others get no
@@ -61,4 +62,9 @@ for helper in "$frameworks"/*" Helper.app" "$frameworks"/*" Helper ("*").app"; d
     *)
       codesign "${flags[@]}" "$helper" ;;
   esac
+done
+# The Chromium host app (embed-cef.sh, Debug builds): Chromium's browser
+# process, as the app itself is when it runs Chromium in process.
+for host_app in "$frameworks"/*" Chromium Host.app"; do
+  [[ -d "$host_app" ]] && codesign "${flags[@]}" "$host_app"
 done

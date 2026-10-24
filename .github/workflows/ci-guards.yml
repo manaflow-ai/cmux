@@ -413,6 +413,7 @@ jobs:
           python3 scripts/whats-new/test_validate.py
           python3 scripts/whats-new/test_community.py
           python3 tests/test_cmux_next_release_notes.py
+          python3 tests/test_release_notes_pr_media.py
 
       - name: Test the server bootstrap candidate renderer
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
@@ -631,6 +632,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_cargo_affected.py
 
+      - name: Validate Linux SwiftPM rolling cache keys
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_swift_packages_linux_cache.py
+
       - name: Validate Swift package result reuse
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_package_result_reuse.py
@@ -730,6 +735,10 @@ jobs:
       - name: Validate CI queue janitor policy
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_queue_janitor.py
+
+      - name: Validate the starved fleet runner label alert
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_starved_labels.py
 
       - name: Validate pull request macOS pool choice
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -987,8 +996,9 @@ jobs:
         run: |
           set -euo pipefail
           if ! command -v tesseract >/dev/null && [ "${GITHUB_ACTIONS:-}" = true ] && command -v apt-get >/dev/null; then
-            sudo apt-get update -qq || sudo apt-get update -qq
-            sudo apt-get install -y -qq --no-install-recommends tesseract-ocr tesseract-ocr-eng >/dev/null
+            # Wait for an unattended-upgrades or runner apt run instead of failing on the dpkg lock.
+            sudo apt-get -o DPkg::Lock::Timeout=120 update -qq || sudo apt-get -o DPkg::Lock::Timeout=120 update -qq
+            sudo apt-get -o DPkg::Lock::Timeout=120 install -y -qq --no-install-recommends tesseract-ocr tesseract-ocr-eng >/dev/null
           fi
           python3 tests/test_ci_pr_media_privacy.py -v SeededTermEndToEndTests
 
@@ -1337,6 +1347,16 @@ jobs:
           python3 tests/test_nightly_trusted_routing.py
           python3 tests/test_nightly_build_state.py
 
+      # .github/nightly-step-coverage.json: every step only the nightly runs
+      # names its pull-request dry run here or elsewhere, or a reviewed reason.
+      - name: Validate every nightly step has a pull request counterpart
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_step_coverage.py
+
+      - name: Dry-run the nightly's tested-DMG gate for the old feed
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: bash tests/test_nightly_next_legacy_tested_digest.sh
+
       - name: Validate feat-cmux-next runs these release guards
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_next_guards_route.py
@@ -1368,6 +1388,10 @@ jobs:
       - name: Validate the nightly-next release-ring tags
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_ring.py
+
+      - name: Validate the cmux NEXT Edge feed composer
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_edge_feed.py
 
       - name: Validate the nightly-next canary mode and its one-week flip
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
@@ -1589,8 +1613,8 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'quality-determinism' }}
         run: |
           if ! command -v zsh >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y zsh
+            sudo apt-get -o DPkg::Lock::Timeout=300 update
+            sudo apt-get -o DPkg::Lock::Timeout=300 install -y zsh
           fi
           python3 tests/test_issue_15067_bash_watcher_churn.py
           python3 tests/test_issue_1138_sidebar_pr_polling.py

@@ -9,6 +9,7 @@
 //! doing now and, for a workflow, how many of its agents returned.
 
 use super::*;
+use crate::no_panic::JsonExt;
 use std::path::{Path, PathBuf};
 
 /// The largest workflow journal read for its agent counts (a run has at most
@@ -52,10 +53,10 @@ impl Translator {
         }
         let mut update = json!({"sessionUpdate": "subagent_progress", "subagentSessionId": child});
         if let Some(name) = text("workflowName") {
-            update["name"] = json!(name);
+            update.set("name", json!(name));
         }
         if let Some(summary) = text("summary") {
-            update["task"] = json!(summary);
+            update.set("task", json!(summary));
         }
         Some(update)
     }
@@ -83,7 +84,7 @@ impl Translator {
             ("elapsedMs", usage("duration_ms")),
         ] {
             if let Some(value) = value {
-                update[key] = json!(value);
+                update.set(key, json!(value));
             }
         }
         let action = match &workflow {
@@ -91,7 +92,7 @@ impl Translator {
             None => text("summary").or(text("last_tool_name")),
         };
         if let Some(action) = action {
-            update["action"] = json!(action);
+            update.set("action", json!(action));
         }
         // Off the stdout loop: a big run's journal is megabytes, read on every progress line.
         let dir = workflow.flatten();
@@ -102,7 +103,7 @@ impl Translator {
             None => None,
         };
         if let Some((done, started)) = counts {
-            update["agents"] = json!({"done": done, "started": started});
+            update.set("agents", json!({"done": done, "started": started}));
         }
         Some(update)
     }

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -25,8 +26,8 @@ final class QuitCoordinator {
     /// The last dialog brought the app forward (`debug.quit`).
     private(set) var lastAskActivated = false
     private unowned let services: AppServices
-    /// The quit hook's participants (`QuitUnsavedRegistry.shared` in the app).
-    var unsaved: QuitUnsavedRegistry = .shared
+    /// The quit hook's participants (`AppServices.quitUnsaved`; tests replace it).
+    var unsaved: QuitUnsavedRegistry
     /// The app's main-thread watchdog (AppDelegate): a quit that is ending
     /// stops its debug hang assertion.
     weak var watchdog: MainThreadWatchdog?
@@ -41,6 +42,7 @@ final class QuitCoordinator {
 
     init(services: AppServices) {
         self.services = services
+        unsaved = services.quitUnsaved
     }
 
     /// Records the origin, then starts AppKit's termination. A second Cmd-Q
@@ -55,10 +57,7 @@ final class QuitCoordinator {
         // From a run-loop callout, not from inside the caller's main-queue
         // job (control socket, palette): terminateLater spins a nested run
         // loop, and the save Task could never get the main queue.
-        RunLoop.main.perform(inModes: [.common]) {
-            SheetDismissal.endAll()
-            NSApp.terminate(nil)
-        }
+        NSApplication.terminateFromRunLoop { SheetDismissal.endAll() }
     }
 
     /// SIGTERM, SIGINT, SIGHUP (`QuitSignal`): Quit, keep sessions, never an alert. Dev
@@ -110,7 +109,8 @@ final class QuitCoordinator {
     /// The unsaved step for `origin` (`QuitUnsavedStep.resolve`).
     private func resolveUnsaved(_ origin: QuitOrigin) async -> Bool {
         let window = sheetWindow()
-        return await QuitUnsavedStep.resolve(origin, registry: unsaved, scope: window.map { .window($0) } ?? .app)
+        return await QuitUnsavedStep.resolve(origin, registry: unsaved, scope: window.map { .window($0) } ?? .app,
+                                             writeDrafts: { [drafts = services.recoveryDrafts] in await drafts.writePending() })
     }
 
     /// A quit from the Dock or the app switcher while cmux is inactive is the

@@ -149,8 +149,16 @@ jobs:
             echo "a merge to feat-cmux-next or a batch dispatch tours"
             exit 0
           fi
-          # The files API lists at most 3000; past that the label decides.
-          if ! gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" --jq '.[].filename' \
+          # The changed paths from git, not the files API (a call per 100
+          # files on every push): the event's merge commit against its first
+          # parent, the base, fetched without blobs. With rename detection
+          # this is the files API's `.filename` set, less a change the base
+          # already carries. The files API is the fallback; it lists at most
+          # 3000, and past that the label decides.
+          if git fetch --no-tags --quiet --depth=2 --filter=blob:none origin "$GITHUB_SHA" \
+            && git diff --name-only -z -M "$GITHUB_SHA^1" "$GITHUB_SHA" | tr '\0' '\n' > "$RUNNER_TEMP/changed.txt"; then
+            echo "listed=true" >> "$GITHUB_OUTPUT"
+          elif ! gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" --jq '.[].filename' \
             > "$RUNNER_TEMP/changed.txt"; then
             echo "::warning::could not list the pull request's files; only the media-tour label tours"
             : > "$RUNNER_TEMP/changed.txt"
@@ -171,8 +179,17 @@ jobs:
           # the event, or the push's before and after.
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          LISTED: ${{ steps.decide.outputs.listed }}
         run: |
           set -euo pipefail
+          # A pull request whose merge commit the step above diffed: the same
+          # diff with every rename as both paths, and no 300-file cap.
+          if [ "$LISTED" = true ] && git diff --no-renames --name-only -z "$GITHUB_SHA^1" "$GITHUB_SHA" \
+            | tr '\0' '\n' | sort -u > "$RUNNER_TEMP/changed-paths.txt"; then
+            echo "$(wc -l < "$RUNNER_TEMP/changed-paths.txt") changed path(s)"
+            exit 0
+          fi
+          rm -f "$RUNNER_TEMP/changed-paths.txt"
           listing="$RUNNER_TEMP/changed-files.json"
           gh api "repos/$GITHUB_REPOSITORY/compare/$BASE...$HEAD" --jq '[.files[] | {filename, previous_filename}]' > "$listing"
           python3 - "$listing" "$RUNNER_TEMP/changed-paths.txt" <<'PY'
@@ -547,6 +564,32 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/media"
           cp "$RUNNER_TEMP/tour-scope.json" "$RUNNER_TEMP/media/capture-receipt.json"
+
+      # Whatever happened above. A cancel can land while the app starts, after
+      # tour.py's own cleanup ran: run 39199091515's chief host and acpmux
+      # daemon outlived the job by days and held 10 GiB of DerivedData open on
+      # cmux10s, which the prune keeps while it is open. This ends both apps'
+      # daemons and every process run from either bundle. A head branched
+      # before --stop takes tour.py from the run's commit.
+      - name: Stop this tour's apps and daemons
+        if: ${{ always() && env.TOUR_TAG != '' }}
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          tour=scripts/cmux-next/media/tour.py
+          if ! grep -q -- '--stop' "$tour" 2>/dev/null; then
+            git cat-file -e "$GITHUB_SHA^{commit}" 2>/dev/null || git fetch --no-tags origin "$GITHUB_SHA"
+            tour="$RUNNER_TEMP/media-stop/tour.py"
+            mkdir -p "${tour%/*}"
+            git show "$GITHUB_SHA:scripts/cmux-next/media/tour.py" > "$tour"
+          fi
+          shopt -s nullglob
+          args=()
+          for app in "$HOME/Library/Developer/Xcode/DerivedData/cmux-${TOUR_TAG}"-{base,head}/Build/Products/*/*.app; do
+            args+=(--stop "$app")
+          done
+          [ "${#args[@]}" -gt 0 ] || { echo "no app built under ${TOUR_TAG}; nothing to stop"; exit 0; }
+          python3 "$tour" "${args[@]}"
 
       - name: Keep the media for the publish job
         if: ${{ always() }}

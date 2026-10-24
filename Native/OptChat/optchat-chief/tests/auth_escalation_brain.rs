@@ -125,8 +125,40 @@ fn the_shipped_skill_installs_once_and_a_user_copy_is_kept() {
     let written = skills::install_builtin(&shared).unwrap();
     assert_eq!(
         written,
-        vec!["chief-auth-escalation".to_owned(), "cmux-setup".to_owned()]
+        vec![
+            "chief-auth-escalation".to_owned(),
+            "cmux-adoption".to_owned(),
+            "cmux-setup".to_owned(),
+            "github-signin".to_owned(),
+            "paid-plans".to_owned()
+        ]
     );
+    // Every Chief signs in to GitHub by default (chief-github-DESIGN.md): the device code, a fresh one when it
+    // ends (a self-wake timer), the token kept per Chief, and the granular options.
+    let gh = std::fs::read_to_string(shared.join("github-signin").join("SKILL.md")).unwrap();
+    assert_eq!(skills::front_matter(&gh).unwrap().0, "github-signin");
+    for word in [
+        "chief-github login",
+        "chief github login",
+        "https://github.com/login/device",
+        "chief-wake",
+        "sleep",
+        "3 hours",
+        "fine-grained",
+        "GitHub App",
+        "chief github mac",
+        "chief-github mac",
+        "logout",
+    ] {
+        assert!(gh.contains(word), "{word}");
+    }
+    // Chiefs offer a paid plan by default when a task needs one (paid-product-DESIGN.md section 8).
+    let paid = std::fs::read_to_string(shared.join("paid-plans").join("SKILL.md")).unwrap();
+    let (name, description) = skills::front_matter(&paid).unwrap();
+    assert_eq!(name, "paid-plans");
+    assert!(description.contains("cloud.plan.required"), "{description}");
+    assert!(paid.contains("cmux billing checkout --plan"), "{paid}");
+    assert!(paid.contains("Never say you bought"), "{paid}");
     let path = shared.join("chief-auth-escalation").join("SKILL.md");
     let text = std::fs::read_to_string(&path).unwrap();
     let (name, description) = skills::front_matter(&text).unwrap();

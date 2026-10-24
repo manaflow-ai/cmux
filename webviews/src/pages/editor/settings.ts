@@ -441,7 +441,8 @@ export function monacoOptions(
     ...scrollerOptions,
     // The page is the scroller's only owner; the native view handles the window.
     scrollbar: { ...scrollerOptions.scrollbar, alwaysConsumeMouseWheel: false },
-    // Monaco's own context menu inside the editor (R139 allows it); no popup while typing.
+    // Monaco's own context menu, only where the page has no native menu (the dev loop): in the app
+    // a right-click opens the app's macOS menu (nativeEditorMenu.ts). No popup while typing.
     contextmenu: true,
     quickSuggestions: settings.quickSuggestions && !large,
     padding: { top: 4 },

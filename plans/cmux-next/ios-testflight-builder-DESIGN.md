@@ -146,7 +146,15 @@ free disk, the newest build runs (public API, every 5 min), and
 `~/Library/Application Support/ios-internal-builder/status.json` and a JSON line
 per change to `~/Library/Logs/ios-internal-builder.log`. Alerts: `runner-down`,
 `disk-low`, `build-failed`. It prunes runner `_diag` logs older than 7 days and
-build outputs older than 3 days; it never deletes `.cache`.
+build outputs older than 3 days or beyond the newest 5 `*-testflight` folders. Below 60 GiB
+free, and only while no build runs (no `Runner.Worker`, `testflight-build.sh` or
+`build-xcframework.sh` process), it also trims caches, moving each into `.trash` first: the pre-rename `~/cnx-ios-builds`,
+every `.work` folder (failed builds' source and DerivedData), xcframeworks beyond the
+newest 3 keys, and the cargo target (rebuilt only on an xcframework cache miss).
+SwiftPM checkouts stay. `~/cmux-mobile-builds` on cmux23 belongs to this builder only. The admission hook does the same trim once before it refuses
+an archive job for disk, then checks again. (cmux23 fell to 39.9 GiB free on
+2026-10-22 and refused every archive job; the old root and failed builds' `.work`
+had no cleanup.)
 
 ```bash
 ssh cmux23 'python3 ~/ios-internal-builder/ios_internal_builder.py status'

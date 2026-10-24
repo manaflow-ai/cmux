@@ -82,6 +82,7 @@ pub(crate) fn create_state_schema(transaction: &Transaction<'_>) -> anyhow::Resu
     )?;
     super::tab_state_store::add_tab_icon_column(transaction)?;
     super::tab_state_store::add_tab_marked_unread_column(transaction)?;
+    super::tab_state_store::add_tab_attention_column(transaction)?;
     super::browser_devices::add_tab_emulation_column(transaction)?;
     super::browser_devices::create_schema(transaction)?;
     crate::workspace_registry::presentation_store::add_group_icon_column(

@@ -6,6 +6,7 @@ import Observation
 import os
 import CmuxNextErrorJournal
 public import WebKit
+import CmuxNextWakeups
 
 /// A view that is a cmux page. The key dispatcher reads it to know the focused surface is a page
 /// (`surfaceKind == page`); a page view adds no key handling of its own.
@@ -44,6 +45,12 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public internal(set) var engineDecision: PageEngineDecision
     /// The Chromium page while one shows the document (PageWebView+Chromium.swift).
     var chromiumSession: PageChromiumSession?
+    /// Rects in this view's coordinates where native UI of the window shows over the page
+    /// (PageWebView+NativeRects.swift): a Chromium page leaves them uncovered. WebKit draws in the
+    /// window's own view tree, under that UI, and needs none.
+    public var nativeRects: [CGRect] = [] {
+        didSet { if nativeRects != oldValue { applyNativeRects() } }
+    }
     /// The file of the last drag from outside that entered the Chromium page and that ``fileDrop``
     /// takes, with when it entered; the page's drop opens it once.
     var chromiumDragFile: (url: URL, at: Date)?
@@ -60,6 +67,11 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// Makes Chromium pages; the app sets it once at startup (its composition root). Nil keeps every
     /// page on WebKit (tests, a build without Chromium).
     public static var chromiumHosting: (any PageChromiumHosting)?
+    /// The app's made-ahead open panel for a page's `<input type="file">`; the app sets it once at startup with
+    /// ``chromiumHosting`` (its composition root). Nil: a file input does nothing (tests).
+    public static var openPanel: MadeAheadOpenPanel?
+    /// This page's file chooser (its web view holds the UI delegate weakly).
+    private var fileChooser: PageOpenPanel?
     var loaded = false
     var loadWaiters: [CheckedContinuation<Void, Never>] = []
     var shouldFocusOnAttach = false
@@ -75,7 +87,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     private var uiScaleObservation: Task<Void, Never>?
     /// The static status look (`WebTheme.statusIndicators`): the setting and Reduce Motion.
     private var statusLookObservation: Task<Void, Never>?
-    private var reduceMotionObservers: [any NSObjectProtocol] = []
+    private var reduceMotionObservers: [MainActorObservation] = []
     public var additionalZoom: Double = 1 {
         didSet { if additionalZoom != oldValue { applyUIScale() } }
     }
@@ -169,13 +181,32 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     /// The script that sets `data-<name>` attributes on `<html>`; nil for none. Names keep only
     /// lowercase letters, digits and dashes; values are JSON string literals.
+    ///
+    /// WebKit runs a document-start script once `<html>` exists, but Chromium runs a new-document
+    /// script (``PageChromiumDocumentScripts``) before the parser makes it, when
+    /// `document.documentElement` is null: setting the attributes then threw, and a Chromium page
+    /// (the agent chat by default) got none of them, so `data-needs-you="off"` never hid Needs you.
+    /// Without `<html>` the script waits for it with a MutationObserver, whose callback runs before
+    /// the page's first script.
     nonisolated static func attributesScript(_ attributes: [String: String]) -> String? {
         let safe = attributes.filter { name, _ in !name.isEmpty && name.allSatisfy { $0.isLowercase || $0.isNumber || $0 == "-" } }
         guard !safe.isEmpty else { return nil }
         let lines = safe.keys.sorted().map { name in
             "document.documentElement.setAttribute(\(JSONValue.string("data-" + name).compactText), \(JSONValue.string(safe[name] ?? "").compactText));"
         }
-        return lines.joined(separator: "\n")
+        return """
+        (() => {
+        const set = () => {
+        \(lines.joined(separator: "\n"))
+        };
+        if (document.documentElement) { set(); return; }
+        new MutationObserver((_, observer) => {
+          if (!document.documentElement) return;
+          observer.disconnect();
+          set();
+        }).observe(document, { childList: true });
+        })();
+        """
     }
 
     /// The DEBUG root override of a page (`CMUX_NEXT_PAGE_ROOT_cmux_history=/path`), else nil.
@@ -267,9 +298,13 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         // Web Inspector in every build (Inspect Element, Cmd-Opt-I).
         webView.isInspectable = true
         webView.navigationDelegate = self
-        webView.uiDelegate = PageOpenPanel.shared
+        fileChooser = Self.openPanel.map { PageOpenPanel(openPanel: $0) }
+        webView.uiDelegate = fileChooser
         webView.onUserEvent = { [weak self] in self?.noteTouch() }
-        webView.pageAcceptsFirstMouse = { [weak self] in self?.descriptor.acceptsFirstMouse ?? false }
+        webView.pageAcceptsFirstMouse = { [weak self] in
+            guard let self else { return false }
+            return descriptor.acceptsFirstMouse || engineOptions.acceptsFirstMouse
+        }
         setAccessibilityIdentifier("cmux.page.\(descriptor.id)")
         addSubview(webView)
         applyUIScale()
@@ -277,12 +312,14 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         PageRegistry.add(self)
         let scripts = scripts
         router.send = { envelope in scripts.send(envelope) }
+        router.sendWithDrop = { envelope, onDrop in scripts.send(envelope, onDrop: onDrop) }
         router.didClose = { [weak self] in
             scripts.reset()
             self?.popupHost?.hide()
         }
         router.titleBarDoubleClick = { [weak self] in self?.performTitleBarDoubleClick() }
         router.popup = { [weak self] op, params in self?.popup(op, params: params) ?? .object(["shown": .bool(false)]) }
+        router.contextMenu = { [weak self] params in await self?.contextMenu(params) ?? .object(["picked": .null]) }
         router.userGestureEvent = { [weak self] in self?.recentUserGestureEvent() }
         #if DEBUG
         // Automation launches (no activation, a GUI host whose windows macOS reports occluded):
@@ -304,12 +341,18 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         if engineDecision.engine == .cef, let hosting = chromium {
             startChromium(hosting: hosting)
         } else {
+            #if DEBUG
+            traceMark(.navigationStart)
+            #endif
             webView.load(URLRequest(url: descriptor.url(route: route)))
         }
     }
 
     /// The current document painted its first frame (``PagePaintProbe``, either engine).
     func notePainted() {
+        #if DEBUG
+        traceMark(.pagePainted)
+        #endif
         paintedUptime = ProcessInfo.processInfo.systemUptime
         let waiters = paintWaiters
         paintWaiters = []
@@ -325,8 +368,6 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         MainActor.assumeIsolated {
             uiScaleObservation?.cancel()
             statusLookObservation?.cancel()
-            reduceMotionObservers.forEach { NotificationCenter.default.removeObserver($0) }
-            reduceMotionObservers.forEach { NSWorkspace.shared.notificationCenter.removeObserver($0) }
         }
     }
 
@@ -341,16 +382,15 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         }
         // Reduce Motion is not observable through Observation.
         reduceMotionObservers = [
-            NSWorkspace.shared.notificationCenter.addObserver(
-                forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.applyTheme() } // main-proof: observer on queue: .main
+            MainActorObservation(NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, center: NSWorkspace.shared.notificationCenter) { [weak self] in
+                self?.applyTheme()
             },
-            NotificationCenter.default.addObserver(forName: Motion.reduceMotionDidChange, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.applyTheme() } // main-proof: observer on queue: .main
+            MainActorObservation(Motion.reduceMotionDidChange) { [weak self] in
+                self?.applyTheme()
             },
             // The master motion switch, a category switch or the speed: `data-cmux-motion` follows.
-            NotificationCenter.default.addObserver(forName: Motion.speedDidChange, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.applyTheme() } // main-proof: observer on queue: .main
+            MainActorObservation(Motion.speedDidChange) { [weak self] in
+                self?.applyTheme()
             },
         ]
     }
@@ -388,6 +428,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public override func layout() {
         super.layout()
         webView.frame = bounds
+        if !nativeRects.isEmpty { applyNativeRects() } // the unflipped Chromium view's rects move with the height
         // Not while the claim is pending: a refused document reloads, and its paint would end the
         // pane's hold before the reloaded one drew (finishClaim runs the probe on acknowledgement).
         if repaintsAtNextLayout, !claimState.pending, window != nil, !bounds.isEmpty, !(superview is PageHostParking) {

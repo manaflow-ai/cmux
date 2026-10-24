@@ -13,9 +13,12 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
     private var dials: [String: Int] = [:]
     /// What each Mac's daemon answers (`read-screen` text, workspace keys).
     let screens: [String: String]
+    /// Each Mac's `acpmux` service (by Mac id and request); nil leaves it unanswered.
+    let acpmux: (@Sendable (String, Data) -> [Data])?
 
-    init(screens: [String: String] = [:]) {
+    init(screens: [String: String] = [:], acpmux: (@Sendable (String, Data) -> [Data])? = nil) {
         self.screens = screens
+        self.acpmux = acpmux
     }
 
     func dialCount(_ macID: String) -> Int { lock.withLock { dials[macID] ?? 0 } }
@@ -24,7 +27,9 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
         let mac = endpoint.macDeviceID
         lock.withLock { dials[mac, default: 0] += 1 }
         let screen = screens[mac] ?? mac
+        let acpmux = acpmux
         return MockMacLink(transport: transport) { service, data in
+            if service == "acpmux", let acpmux { return acpmux(mac, data) }
             guard service == "daemon" else { return [] }
             return data.split(separator: 0x0A).compactMap { request -> Data? in
                 guard let object = try? JSONSerialization.jsonObject(with: Data(request)) as? [String: Any],

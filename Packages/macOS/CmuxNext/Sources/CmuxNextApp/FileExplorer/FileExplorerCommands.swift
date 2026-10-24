@@ -103,6 +103,12 @@ struct FileExplorerCommands {
         guard !row.isFolder, effects.openInCmux(row.url) else { throw FileExplorerError.notViewable(row.name) }
     }
 
+    /// Open as Text: the selected file's source in the code editor.
+    func openAsText() throws {
+        let row = try selected()
+        guard !row.isFolder, effects.openAsText(row.url) else { throw FileExplorerError.notViewable(row.name) }
+    }
+
     func revealInFinder() throws {
         effects.revealInFinder(try selected().url)
     }

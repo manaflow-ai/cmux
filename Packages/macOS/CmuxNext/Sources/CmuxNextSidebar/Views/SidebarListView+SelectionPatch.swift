@@ -13,7 +13,8 @@ extension SidebarListViewComponents {
     /// on the old and new rows only, then reveals the new active row as a
     /// reload would. False (nothing changed) when the change moves rows (a
     /// collapsed group or a "Done (N)" row draws a member it did not draw before) or a
-    /// drag holds the rows; the caller then reloads.
+    /// drag holds the rows; the caller then reloads. The old active row stays where it is even when only being active
+    /// kept it out of "Done (N)" or "Show N more": a click moves no row, and the next reload folds it.
     func patchSelection(from oldItem: SidebarItem?, oldSelection: Set<WorkspaceID>) -> Bool {
         guard drag == nil, external == nil, settling == nil, landing == nil, !displayed.rows.isEmpty else { return false }
         let oldActive: WorkspaceID? = if case let .workspace(id)? = oldItem { id } else { nil }

@@ -269,7 +269,7 @@ function devServerShell(): Plugin {
 /// directory), a second HTML entry beside the diff viewer's. The page itself runs the fragment
 /// handshake (devHost.ts) in Swift's place. Mirrors vite.config.acpmux-pane.mjs, which still
 /// serves the pane alone at its root.
-function agentPaneHost(): Plugin {
+export function agentPaneHost(): Plugin {
   const paneDir = path.join(webviewsRoot, "src/agent-session/acpmux");
   const paneURL = "/src/agent-session/acpmux";
   const sharedStyles = path.join(webviewsRoot, "src/agent-session/shared/styles.css");
@@ -494,7 +494,14 @@ function viewerEmptyHost(): Plugin {
   };
 }
 
-type SidecarHost = { sidecar: string; cmux: string; root: string; token: string; protocolVersion: number };
+type SidecarHost = {
+  sidecar: string;
+  cmux: string;
+  root: string;
+  token: string;
+  protocolVersion: number;
+  capabilities: string[];
+};
 
 /// The diff viewer: /diff/ is index.html with src/diff/dev.ts as its entry. The server plays
 /// the two app roles the viewer needs: the `cmuxDiff` WebKit handler (POST /__cmux-diff/rpc pipes
@@ -556,7 +563,15 @@ function diffHost(): Plugin {
       }),
       { mode: 0o600 },
     );
-    host = { sidecar, cmux, root, token, protocolVersion: handshake.result.value.protocolVersion };
+    const capabilities: unknown = handshake.result.value.capabilities;
+    host = {
+      sidecar,
+      cmux,
+      root,
+      token,
+      protocolVersion: handshake.result.value.protocolVersion,
+      capabilities: Array.isArray(capabilities) ? capabilities.filter((item) => typeof item === "string") : [],
+    };
     return host;
   }
 

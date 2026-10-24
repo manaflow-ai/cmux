@@ -23,7 +23,7 @@
     "typescript": "7.0.2"
   },
   "dependencies": {
-    "drizzle-orm": "0.45.3",
+    "drizzle-orm": "0.45.4",
     "libpg-query": "18.1.5",
     "mysql2": "3.23.1"
   },

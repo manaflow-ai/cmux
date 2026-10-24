@@ -40,11 +40,23 @@ final class ActionMenuPayload: NSObject {
     let id: ActionID
     let target: ActionTargetRef?
     let arguments: [String: ActionValue]
+    /// Focus facts the right-clicked object stands in for (`ActionRegistry.impliedContext(for:)`):
+    /// the item is enabled and runs with them added to the window's context, the same facts
+    /// that showed it (a Files row's menu runs the explorer's actions while a terminal has the keyboard).
+    let implied: ActionContext
 
-    init(id: ActionID, target: ActionTargetRef?, arguments: [String: ActionValue] = [:]) {
+    init(id: ActionID, target: ActionTargetRef?, arguments: [String: ActionValue] = [:], implied: ActionContext = []) {
         self.id = id
         self.target = target
         self.arguments = arguments
+        self.implied = implied
+    }
+
+    /// The run of this item in `registry`'s context, plus the implied facts.
+    func invocation(in registry: ActionRegistry, withArguments: Bool = true) -> ActionInvocation {
+        var invocation = ActionInvocation(target: target, arguments: withArguments ? arguments : [:])
+        if !implied.isEmpty { invocation.keyContext = registry.context.union(implied) }
+        return invocation
     }
 }
 
@@ -58,7 +70,7 @@ final class ActionMenuTarget: NSObject, NSMenuItemValidation {
 
     @objc func performAction(_ sender: NSMenuItem) {
         guard let registry, let payload = Self.payload(of: sender) else { return }
-        registry.perform(payload.id, invocation: ActionInvocation(target: payload.target, arguments: payload.arguments))
+        registry.perform(payload.id, invocation: payload.invocation(in: registry))
     }
 
     /// A key equivalent also asks the registry's `menuKeyEquivalentGate`,
@@ -80,7 +92,7 @@ final class ActionMenuTarget: NSObject, NSMenuItemValidation {
             menuItem.title = title
         }
         if let route = registry.keyWindowRoute?(registry.canonicalID(for: payload.id), invocation) { return route.enablesMenuItem }
-        guard ActionTargetReasons.canPerform(payload.id, invocation: ActionInvocation(target: payload.target), in: registry) else { return false }
+        guard ActionTargetReasons.canPerform(payload.id, invocation: payload.invocation(in: registry, withArguments: false), in: registry) else { return false }
         if let gate = registry.menuKeyEquivalentGate, !menuItem.keyEquivalent.isEmpty, registry.isDispatchingKeyDown() {
             return gate(payload.id)
         }

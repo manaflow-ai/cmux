@@ -63,6 +63,9 @@ import Testing
     }
 }
 
+// LiveCoordinator and ConnectionBannerState are iOS only; the job's iOS simulator
+// test step runs these.
+#if os(iOS)
 /// A WireGuard link that was up dropped (its tunnel stopped passing
 /// handshakes), the first redial failed, and the machine waits out its
 /// backoff before the next one. The phone showed "Can't reach … over
@@ -108,7 +111,10 @@ import Testing
             #expect(banner == .macOffline("Studio"))
         }
     }
+}
+#endif
 
+@Suite struct DroppedLinkRedialTests {
     /// Context for the banner: after a drop, the immediate redial and its
     /// silent retry fail and the machine waits (`.waiting`, attempt 2). This
     /// held before the change; the coordinator maps that phase to the banner.

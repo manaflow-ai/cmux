@@ -92,16 +92,30 @@ const sessions = [
     indicator: "input",
     updatedAt: ago(14),
   }),
+  // Its ask lives on the other computer: the row reads the question acpmux names
+  // (`waitingPrompt`), never the agent's last message (`preview`).
   session({
     sessionId: "s-remote",
     title: "Release notes on build box",
     host: "build-box",
     hostKind: "cloud",
+    peer: "build-box",
     indicator: "input",
+    pendingPermissions: 1,
     // Its ask lives on the build box: the row says the question its summary names, never this reply.
-    preview: "Drafted the notes from the merged pull requests.",
     waitingOn: { on: "question", prompt: "Which tag should the notes start from?" },
+    preview: "I drafted the notes from the merged PRs since the last nightly.",
     updatedAt: ago(32),
+  }),
+  // A permission whose tool is not read here reads as a permission, not a question.
+  session({
+    sessionId: "s-grouped",
+    title: "Clean the build cache",
+    pendingPermissions: 1,
+    indicator: "input",
+    waitingOn: { on: "permission" },
+    preview: "The cache holds 14 GB of old builds.",
+    updatedAt: ago(45),
   }),
 ];
 
@@ -135,12 +149,12 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/needsYou/NeedsYou.tsx", "agent-session/acpmux/needsYou/JumpPill.tsx#NeedsYouPill"],
   variants: {
     list: {
-      note: "The list open: this chat's command, the Chief's merge, a subagent's choice, a verify ask and a chat on another computer.",
+      note: "The list open: this chat's command, the Chief's merge, a subagent's choice, a verify ask, a question on another computer (its prompt, not the last message) and a permission not read here.",
       snapshot: snapshot(),
       play: openList,
     },
     "badge-and-pill": {
-      note: "Closed: the badge counts five asks and Jump to latest reads Needs your input · 5.",
+      note: "Closed: the badge counts six asks and Jump to latest reads Needs your input · 6.",
       snapshot: snapshot(),
     },
     "pill-one-ask": {
@@ -175,6 +189,11 @@ export default agentPaneEntry({
       note: "Nothing waits: the badge has no count and the list says so.",
       snapshot: chat(rows),
       play: openList,
+    },
+    "not-installed": {
+      note: "The App Store's Needs You item not installed (agentPane.needsYou.enabled off, the default): the header has no inbox and the other tools keep their pitch; `empty` is the same chat with it installed.",
+      snapshot: chat(rows),
+      documentAttributes: { "needs-you": "off" },
     },
     before: {
       note: "Both Debug toggles off: the pane as it drew before, with no badge and the plain Jump to latest.",

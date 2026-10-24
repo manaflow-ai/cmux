@@ -83,12 +83,6 @@
       ]
     },
     {
-      "reason": "Red on feat-cmux-next since fbae5c71f017 (version.workspace = true); only cmux-browser-host-release.yml runs it, on pushes and tags. #23752 fixes browser-host-release.py and runs it in cmux-next guards / tooling-tests, removing this entry.",
-      "tests": [
-        "tests/test_browser_host_release_smoke.py"
-      ]
-    },
-    {
       "reason": "Only nightly-next-feed-watch.yml runs it, on a schedule, and a schedule runs main's copy of the workflow and of scripts/ci/nightly_next_feed_watch.py. feat-cmux-next's copies are never executed and lag main's (main changed both after the last sync), so a feat pull request cannot break the watch; main's own pull requests (ci.yml guards) test the copy that runs.",
       "tests": [
         "tests/test_nightly_next_feed_watch.py"

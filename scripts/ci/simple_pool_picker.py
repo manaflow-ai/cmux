@@ -312,18 +312,28 @@ def _slots(raw: str | None) -> dict[str, int]:
     return result
 
 
-def observe(*, token: str, repository: str, jobs: int, env: Mapping[str, str], fork: bool) -> State:
-    """Read live runner and queue state once, degrading safely when unavailable."""
+def observe(*, token: str, repository: str, jobs: int, env: Mapping[str, str], fork: bool,
+            read_runners: bool = True) -> State:
+    """Read live runner and queue state once, degrading safely when unavailable.
+
+    A run with no macOS jobs reads nothing: pick() answers it from the fallback
+    alone. `read_runners=False` skips the org runners listing, which needs a
+    token with the organization runners permission (GITHUB_TOKEN always gets a
+    403 there); the owned pools are then skipped, as after that 403.
+    """
     fallback = (env.get("MACOS_RUNNER_PR") or BLACKSMITH[1]).strip() or BLACKSMITH[1]
     enabled = (env.get("CI_PR_POOL_OWNED") or "").strip() == "1"
     runners: list[Mapping[str, Any]] | None = None
     snapshot: Mapping[str, Any] | None = None
-    if token and repository:
+    if jobs > 0 and token and repository:
         api = LiveState(token, repository)
-        try:
-            runners = api.runners()
-        except Exception as error:  # noqa: BLE001 - owned pools are then skipped
-            print(f"::warning title=live runner state::{error}; owned pools skipped", file=sys.stderr)
+        if read_runners:
+            try:
+                runners = api.runners()
+            except Exception as error:  # noqa: BLE001 - owned pools are then skipped
+                print(f"::warning title=live runner state::{error}; owned pools skipped", file=sys.stderr)
+        else:
+            print("::notice title=live runner state::no routing token; owned pools skipped", file=sys.stderr)
         try:
             snapshot = api.snapshot()
         except Exception as error:  # noqa: BLE001 - queues then read as unknown (empty)
@@ -473,8 +483,11 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     repository = env.get("GH_REPO") or env.get("GITHUB_REPOSITORY") or ""
     head = env.get("HEAD_REPO") or repository
     trusted_fork = (env.get("CI_PR_POOL_FORK_ALLOWED") or "").strip() == "1"
+    # Only the routing App's token can list the org's runners; GH_TOKEN (the
+    # job's GITHUB_TOKEN) still reads the janitor snapshot.
     choice = pick(observe(token=env.get("ROUTE_TOKEN") or env.get("GH_TOKEN") or "", repository=repository,
-                       jobs=jobs, env=env, fork=head != repository and not trusted_fork))
+                       jobs=jobs, env=env, fork=head != repository and not trusted_fork,
+                       read_runners=bool(env.get("ROUTE_TOKEN"))))
     values = write_outputs(choice, jobs, env.get("GITHUB_OUTPUT"), env)
     for key, value in values.items():
         print(f"{key}={value}")

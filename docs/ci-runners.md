@@ -23,10 +23,24 @@
 
 ## Exact-head merging
 
-`gh-merge-green` requires a completed, successful `ci-status` check on the
-exact pull-request head. App diffs also require the completed
-`macos / macOS compile admission` check. A missing, queued, stale, or
-unsuccessful check is a refusal, and the helper prints the repair pointer.
+The branch rules are the source of required status checks. `gh-merge-green`
+is the main-branch helper because main's rules also carry the live freeze and
+fix-forward policy; it requires the checks that main's base actually reports,
+including `ci-status` when that workflow is present. It is not the
+feat-cmux-next landing command.
+
+The feat-cmux-next path is owned by `next-autoland` while its path-dependent
+compile and review predicates are being migrated into branch rules. It reads
+the exact head, treats ordinary pending and base-red findings as non-blocking,
+and still holds a required compile, risk, fast-gates or freeze verdict. Do not
+use `gh-merge-green` as a second gate for a feat-cmux-next PR.
+
+`ci-status` is an aggregate verdict, not a useful build step. On the feature
+line it waits on 11 legacy jobs even though its own verdict job took 3 seconds
+and the sampled run took 52 seconds from creation to completion (run
+40031108486, head `c1fe5958290d7199a32fba42256504a5da0a259e`). Main samples
+showed the same 3–4 second verdict after 36–125 minutes of upstream work.
+Those upstream jobs, rather than the verdict script, determine the wait.
 
 When a known red check is safe to waive, pass a written reason with at least
 eight words:
@@ -78,6 +92,10 @@ gh variable list --repo manaflow-ai/cmux
 | `MACOS_RUNNER_IOS` | the iOS image: simulator tests, TestFlight upload, and `ios-streamed-validate.yml` (`test-ios.yml`, `ios-testflight.yml`) | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26` |
 | `CI_PAID_MACOS_OVERFLOW` | the repository-side switch for metered capacity; gates the four paid-overflow variables above (see "Break-glass" below) | unset (free capacity) | unset means the Blacksmith fallback wins |
 | `MACOS_RUNNER_BACKGROUND` | non-urgent macOS work only: `build-ghosttykit` and the macOS legs of `cmux-tui-artifacts` (post-merge). See "Background lane" below | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
+
+Fork pull requests may use the same ephemeral Blacksmith size as the trusted
+Linux compile or test job. They keep read-only contents permissions and receive
+no secrets; small routing/status jobs may remain on the 4-vCPU lane.
 
 A runner variable names a **machine capability** — an OS version, a GUI, a
 simulator, both SDKs, or a larger instance — and every job needing that
@@ -876,7 +894,7 @@ incremental builds without trusting an old bundle stamp.
 | `app-host-test-rerun.yml` `rerun` | `CI_SIDE_LANE_RUNNER` for macOS 26 products, attempt 1 only; macOS 15 products on Blacksmith macOS 15 | gui; it takes the product's root itself (`glaeda-canonical-root take`) |
 | `cmux-tui.yml` macOS `lint`, `test`, `cdp-browser-smoke` | `CI_SIDE_LANE_RUNNER`, attempt 1 only | isolated (glaeda classes them by workflow and id) |
 | `cmux-tui.yml` release-path dogfood `build` (`cmux-tui-build-package.yml`) | Blacksmith macOS 15 | the release packaging build, shared with the release and nightly callers; on the side label it sat queued until the run was cancelled (#20612); never `MACOS_RUNNER_PR`, the 12 vCPU macOS 26 label the nightly app build needs |
-| `cmux-tui-artifacts.yml` `cmux-next-daemon-tests` | `CI_NEXT_DAEMON_POOL` when set, else `CI_NEXT_PROMOTE_POOL`, on attempt 1 of a feat-cmux-next push (set the daemon pool only to a label whose runners are online and admit cmux-tui-artifacts jobs: no owned-pool rescue watches that slot); else `CI_SIDE_LANE_RUNNER` on every attempt of a trusted event (a cmux-tui-pin-* push and a cmux-tui-artifacts-retry re-run included); Blacksmith macOS 15 when owned pools are off | isolated; never `MACOS_RUNNER_PR`, which a re-run used to reach |
+| `cmux-tui-artifacts.yml` `cmux-next-daemon-tests` | `CI_NEXT_DAEMON_POOL` when set, else `CI_NEXT_PROMOTE_POOL`, on attempt 1 of a feat-cmux-next push (set the daemon pool only to a label whose runners are online and admit cmux-tui-artifacts jobs: no owned-pool rescue watches that slot); else, on every attempt of a cmux-tui-pin-* push, `CI_PIN_DAEMON_POOL` when it names neither the side lane nor that daemon pool, else `blacksmith-16vcpu-ubuntu-2404` (a Linux run never writes the daemon-tests marker, so the feat-cmux-next push of that tree still tests it on macOS before promotion); else `CI_SIDE_LANE_RUNNER` on every attempt of another trusted event (a cmux-tui-artifacts-retry re-run included); Blacksmith macOS 15 when owned pools are off | isolated; never `MACOS_RUNNER_PR`, which a re-run used to reach |
 | `app-ffi-release.yml` `build` | `CI_NEXT_PROMOTE_POOL` on attempt 1 of a feat-cmux-next push; else `MACOS_RUNNER_26` | the FFI xcframework every app build links: built on the trusted promote mini (its hook admits only feat-cmux-next pushes), published by the separate ephemeral publish job; Blacksmith alone left it queued 12 hours (run 39402525970) |
 | `ci-macos.yml` `release-build` | owned side lane via the picker (`release-build`, the picked std pool's side label, never the light pool), pull requests (attempt 1 or a manual re-run) and main's full-suite dispatch (attempt 1); else `MACOS_RUNNER_26` | isolated: an unsigned universal Release into its own DerivedData, Xcode 26.6 |
 | `reload-build.yml` `build` | `CI_SIDE_LANE_RUNNER` for a macOS build when the runner input is `auto` or `blacksmith-6vcpu-macos-26`, attempt 1 only (iOS builds take Blacksmith); any other label as given | isolated: a Debug build into the workspace |

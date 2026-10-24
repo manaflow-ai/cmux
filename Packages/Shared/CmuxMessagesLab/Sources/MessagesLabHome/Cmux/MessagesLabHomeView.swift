@@ -196,6 +196,13 @@ public final class MessagesLabHomeView: NSView {
         set { controller.onPointerMoved = newValue }
     }
 
+    /// cmux: the field's height changed, so ``fieldTop`` moved without a size change (a long
+    /// draft, an attachment, a send). The host lays out what it keeps above the field.
+    public var onFieldTopChange: (() -> Void)? {
+        get { controller.onFieldTopChange }
+        set { controller.onFieldTopChange = newValue }
+    }
+
     /// cmux: the link chip under `screenPoint` with its pill's frame on screen, or nil (no chip
     /// there, or the transcript is not in a window). The same hit test as a click.
     public func linkChip(atScreenPoint screenPoint: CGPoint) -> HomeLinkChipHit? {
@@ -246,7 +253,11 @@ public final class MessagesLabHomeView: NSView {
     /// `intrinsicContentSize`; hidden in a pane too narrow to keep it clear of the avatar. Nil: none.
     public var headerTrailingAccessory: NSView? {
         get { controller.host.paneHeader.trailingAccessory }
-        set { controller.host.paneHeader.trailingAccessory = newValue }
+        set {
+            controller.host.paneHeader.trailingAccessory = newValue
+            // With no header the rows' top follows the accessory (`HostView.bareRowsTop`).
+            controller.host.needsLayout = true
+        }
     }
 
     /// The header avatar's text (one or two characters, an emoji); nil
@@ -689,8 +700,9 @@ public final class MessagesLabHomeView: NSView {
     /// Returns when every bubble picture asked for so far is ready (tests).
     public func mediaSettled() async { await projection.media.settled() }
 
-    /// The top of the area under the header (the first-run panel's top).
-    public var headerHeight: CGFloat { Fixture.headerHeight }
+    /// The top of the area under the header (the first-run panel's top); with no header
+    /// (``setBareTop()``), the rows' top.
+    public var headerHeight: CGFloat { controller.host.bareTop ? controller.host.bareRowsTop : Fixture.headerHeight }
     /// The field's top in this view (the first-run panel's bottom).
     public var fieldTop: CGFloat { controller.demo?.fieldTop ?? bounds.height }
 

@@ -5,8 +5,10 @@
 // Picking a slower channel the running build is not on shows the way back: Go Back restarts
 // once into the build this Mac kept from it (the host's rollback path), or a line says the
 // running build stays until that channel passes it.
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useSettingsState, useStore } from "../context";
+import { channelsQuery } from "../sectionQueries";
 import type { ChannelBuild, ChannelSwitch, ChannelTrack, ChannelsState } from "../ops";
 
 function BuildRow({ build, labels }: { build: ChannelBuild; labels: ChannelsState["labels"] }) {
@@ -140,16 +142,10 @@ export function ChannelsCard() {
   const store = useStore();
   // The row's value moves before the host has the write, so the card marks it, not a re-read.
   const ring = useSettingsState().rows.get("updates.channel")?.value;
-  const [state, setState] = useState<ChannelsState | null>(null);
   const shown = typeof ring === "string" ? ring : undefined;
-  // Read again when the row moves: the way back depends on the channel picked.
-  useEffect(() => {
-    let alive = true;
-    void store.channelsState(shown).then((next) => alive && setState(next));
-    return () => {
-      alive = false;
-    };
-  }, [store, shown]);
+  // One read per picked channel (the way back depends on it); the route's loader read the current
+  // one, and the last answer stays while a new pick's read is out.
+  const state = useQuery({ ...channelsQuery(store, shown), placeholderData: keepPreviousData }).data ?? null;
   if (!state) return null;
   return (
     <section className="group" data-card="channels">

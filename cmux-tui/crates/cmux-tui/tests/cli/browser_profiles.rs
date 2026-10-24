@@ -384,3 +384,63 @@ fn agents_retry_browser_profile_create_and_open_with_their_keys_through_mcp() {
     assert!(!selected, "--background true selected the tab: {record}");
     assert_eq!(record["browser_engine"], "webkit", "{record}");
 }
+
+/// #24432: `cmux browser profile proxy set|clear` binds a proxy to a profile
+/// (by name or id); `browser profile list` shows it. A URL with credentials
+/// is refused before anything is sent, so no secret reaches a record.
+#[test]
+fn a_profile_proxy_is_set_listed_and_cleared_through_the_cli() {
+    let server = HeadlessServer::start("browser-profile-proxy");
+    let work = text(find(&ok(&server, &["browser", "profile", "create", "--name", "US-A"]), "id"));
+    let set = ok(
+        &server,
+        &[
+            "browser",
+            "profile",
+            "proxy",
+            "set",
+            "--profile",
+            "US-A",
+            "--url",
+            "socks5://127.0.0.1:1080",
+        ],
+    );
+    assert_eq!(find(&set, "proxy").unwrap()["scheme"], "socks5", "{set}");
+    let listed = ok(&server, &["browser", "profile", "list"]);
+    let profiles = find(&listed, "profiles").or_else(|| find(&listed, "browser_profiles")).cloned();
+    let profiles = profiles.unwrap_or(listed.clone());
+    let us_a = profiles
+        .as_array()
+        .and_then(|all| all.iter().find(|p| p["id"] == work.as_str()))
+        .cloned()
+        .unwrap_or_else(|| panic!("no US-A in {listed}"));
+    assert_eq!(
+        us_a["proxy"],
+        serde_json::json!({"scheme":"socks5","host":"127.0.0.1","port":1080})
+    );
+
+    let secret = refused(
+        &server,
+        &[
+            "browser",
+            "profile",
+            "proxy",
+            "set",
+            "--profile",
+            "US-A",
+            "--url",
+            "http://me:pw@gw.test:8080",
+        ],
+    );
+    assert!(secret.contains("local relay"), "{secret}");
+    assert!(!secret.contains("pw@"), "the refusal echoed the secret: {secret}");
+    refused(
+        &server,
+        &["browser", "profile", "proxy", "set", "--profile", "US-A", "--url", "ftp://gw.test:21"],
+    );
+
+    ok(&server, &["browser", "profile", "proxy", "clear", "--profile", "US-A"]);
+    let listed = ok(&server, &["browser", "profile", "list"]);
+    assert!(listed.to_string().contains(&work), "{listed}");
+    assert!(!listed.to_string().contains("1080"), "the proxy stayed: {listed}");
+}

@@ -62,6 +62,17 @@ public struct ControlTopology: Sendable, Hashable {
         return nil
     }
 
+    /// The id of the tab that shows `terminal` (a daemon terminal id or a public `term_…` id), or
+    /// nil (another session's terminal): the caller's tab of `cmux open` and `browser.open_link`.
+    public func tabID(ofTerminal terminal: String) -> String? {
+        for workspace in workspaces {
+            for pane in workspace.panes {
+                if let tab = pane.tabs.first(where: { $0.terminalID == terminal || $0.terminalResourceID == terminal }) { return tab.id }
+            }
+        }
+        return nil
+    }
+
     public var tabCount: Int { workspaces.reduce(0) { $0 + $1.screens.reduce(0) { $0 + $1.panes.reduce(0) { $0 + $1.tabs.count } } } }
 }
 

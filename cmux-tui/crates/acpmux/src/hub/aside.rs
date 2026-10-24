@@ -54,6 +54,7 @@ impl Hub {
             .unwrap_or_default()
             .iter()
             .filter(|e| e.kind == "agent_message_chunk")
+            .filter(|e| !e.msg.get("params").is_some_and(crate::subagents::is_subagents))
             .filter_map(|e| e.msg.pointer("/params/update/content/text").and_then(Value::as_str))
             .collect();
         let agent_sid = aside.meta().agent_session_id;

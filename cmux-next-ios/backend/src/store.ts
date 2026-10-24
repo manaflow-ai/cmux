@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from "drizzle-orm"
+import { and, eq, inArray, isNull, sql } from "drizzle-orm"
 import type { Env } from "./env.ts"
 import { devices, pushTokens, teamPrefs } from "./schema.ts"
 
@@ -12,6 +12,8 @@ export interface Device {
   kind: DeviceKind
   name: string
   wgPublicKey: string | null
+  /** A Mac's machine id; null when it sent none (phones, older hosts). */
+  machineId: string | null
   createdAt: string
   updatedAt: string
   lastSeenAt: string | null
@@ -24,15 +26,35 @@ export interface DeviceInput {
   kind: DeviceKind
   name: string
   wgPublicKey: string | null
+  /** Undefined keeps the stored machine id (a host that predates it, or a phone). */
+  machineId?: string
 }
 
 export interface Prefs {
   color: string | null
   emoji: string | null
+  /** Draw the icon with no background. Only with an icon (a non-empty `emoji`); `color` stays the fallback. */
+  transparent: boolean
+}
+
+const NO_PREFS: Prefs = { color: null, emoji: null, transparent: false }
+
+/** True when `emoji` is an icon the user picked (not automatic `null` or none `""`). */
+export const hasIcon = (emoji: string | null): boolean => typeof emoji === "string" && emoji.length > 0
+
+/**
+ * The prefs after a PUT. A PUT that sets `color` without `transparent` (every build that predates it) picks a
+ * filled badge. A team without an icon is never transparent, so it always keeps a color.
+ */
+export function mergePrefs(cur: Prefs, patch: Partial<Prefs>): Prefs {
+  const color = patch.color !== undefined ? patch.color : cur.color
+  const emoji = patch.emoji !== undefined ? patch.emoji : cur.emoji
+  const transparent = patch.transparent ?? (patch.color !== undefined ? false : cur.transparent)
+  return { color, emoji, transparent: transparent && hasIcon(emoji) }
 }
 
 export type PushEnvironment = "sandbox" | "production"
-export const PUSH_KINDS = ["question", "permission", "completed", "failed", "chief"] as const
+export const PUSH_KINDS = ["question", "permission", "completed", "failed", "chief", "terminal"] as const
 export type PushKind = (typeof PUSH_KINDS)[number]
 
 export interface PushRegistration {
@@ -42,6 +64,10 @@ export interface PushRegistration {
   environment: PushEnvironment
   topic: string
   kinds: Array<PushKind>
+  /** Mac device ids this phone wants no push from. */
+  mutedMacs: Array<string>
+  /** Show previews: false hides content in the banner. */
+  previews: boolean
   updatedAt: string
 }
 
@@ -49,6 +75,13 @@ export interface Store {
   getDevice(deviceId: string): Promise<Device | undefined>
   /** Insert or update; "not_owner" when the id already belongs to another user (nothing changes). */
   upsertDevice(d: DeviceInput): Promise<{ device: Device; previousTeamId: string | null } | "not_owner">
+  /**
+   * Gives `machineId` to those of `deviceIds` that are Macs of `ownerUserId` with no machine id yet (other builds
+   * on the registering Mac, PROTOCOL.md "Devices"). A Mac's own report always wins. Returns every one of
+   * `deviceIds` that has this machine id now (claimed now or earlier), so a hub that missed an earlier claim
+   * catches up.
+   */
+  claimSiblings(ownerUserId: string, machineId: string, deviceIds: ReadonlyArray<string>): Promise<Array<string>>
   /** Every Mac one owner registered, in any team or personal space (`ownerUserId` is the owner key). */
   listOwnerMacs(ownerUserId: string): Promise<Array<Device>>
   /** Every device (Mac or phone) of one owner, with whether it has a push token. */
@@ -82,6 +115,7 @@ const row = (r: typeof devices.$inferSelect): Device => ({
   kind: r.kind,
   name: r.name,
   wgPublicKey: r.wgPublicKey,
+  machineId: r.machineId,
   createdAt: r.createdAt.toISOString(),
   updatedAt: r.updatedAt.toISOString(),
   lastSeenAt: iso(r.lastSeenAt)
@@ -94,6 +128,8 @@ const pushRow = (r: typeof pushTokens.$inferSelect): PushRegistration => ({
   environment: r.environment,
   topic: r.topic,
   kinds: r.kinds.split(",").filter((k): k is PushKind => (PUSH_KINDS as ReadonlyArray<string>).includes(k)),
+  mutedMacs: (r.mutedMacs ?? "").split(",").filter(Boolean),
+  previews: r.previews ?? true,
   updatedAt: r.updatedAt.toISOString()
 })
 
@@ -113,17 +149,30 @@ export const pgStore = async (hyperdrive: Hyperdrive): Promise<Store> => {
       // Read the previous team for the move; the conditional update (setWhere) still refuses a racing other owner.
       const [prev] = await db.select({ teamId: devices.teamId, owner: devices.ownerUserId }).from(devices).where(eq(devices.deviceId, d.deviceId)).limit(1)
       if (prev && prev.owner !== d.ownerUserId) return "not_owner"
+      const machine = d.machineId === undefined ? {} : { machineId: d.machineId }
       const [r] = await db
         .insert(devices)
-        .values({ ...d })
+        .values({ ...d, machineId: d.machineId ?? null })
         .onConflictDoUpdate({
           target: devices.deviceId,
-          set: { teamId: d.teamId, kind: d.kind, name: d.name, wgPublicKey: d.wgPublicKey, updatedAt: sql`now()` },
+          set: { teamId: d.teamId, kind: d.kind, name: d.name, wgPublicKey: d.wgPublicKey, ...machine, updatedAt: sql`now()` },
           setWhere: eq(devices.ownerUserId, d.ownerUserId)
         })
         .returning()
       if (!r) return "not_owner"
       return { device: row(r), previousTeamId: prev && prev.teamId !== d.teamId ? prev.teamId : null }
+    },
+    async claimSiblings(ownerUserId, machineId, deviceIds) {
+      if (!deviceIds.length) return []
+      await db
+        .update(devices)
+        .set({ machineId })
+        .where(and(eq(devices.ownerUserId, ownerUserId), eq(devices.kind, "mac"), isNull(devices.machineId), inArray(devices.deviceId, [...deviceIds])))
+      const rs = await db
+        .select({ deviceId: devices.deviceId })
+        .from(devices)
+        .where(and(eq(devices.ownerUserId, ownerUserId), eq(devices.kind, "mac"), eq(devices.machineId, machineId), inArray(devices.deviceId, [...deviceIds])))
+      return rs.map((r) => r.deviceId)
     },
     async listOwnerMacs(ownerUserId) {
       const rs = await db.select().from(devices).where(and(eq(devices.ownerUserId, ownerUserId), eq(devices.kind, "mac"))).orderBy(devices.name)
@@ -153,10 +202,14 @@ export const pgStore = async (hyperdrive: Hyperdrive): Promise<Store> => {
     },
     async setPush(p) {
       const kinds = p.kinds.join(",")
+      const mutedMacs = p.mutedMacs.length ? p.mutedMacs.join(",") : null
       const [r] = await db
         .insert(pushTokens)
-        .values({ ...p, kinds })
-        .onConflictDoUpdate({ target: pushTokens.deviceId, set: { ownerUserId: p.ownerUserId, token: p.token, environment: p.environment, topic: p.topic, kinds, updatedAt: sql`now()` } })
+        .values({ ...p, kinds, mutedMacs })
+        .onConflictDoUpdate({
+          target: pushTokens.deviceId,
+          set: { ownerUserId: p.ownerUserId, token: p.token, environment: p.environment, topic: p.topic, kinds, mutedMacs, previews: p.previews, updatedAt: sql`now()` }
+        })
         .returning()
       return pushRow(r!)
     },
@@ -171,18 +224,19 @@ export const pgStore = async (hyperdrive: Hyperdrive): Promise<Store> => {
     },
     async getPrefs(userId, teamId) {
       const [r] = await db.select().from(teamPrefs).where(and(eq(teamPrefs.userId, userId), eq(teamPrefs.teamId, teamId))).limit(1)
-      return { color: r?.color ?? null, emoji: r?.emoji ?? null }
+      return r ? { color: r.color, emoji: r.emoji, transparent: r.transparent && hasIcon(r.emoji) } : { ...NO_PREFS }
     },
     async putPrefs(userId, teamId, patch) {
       const set: Record<string, unknown> = { updatedAt: sql`now()` }
       if (patch.color !== undefined) set.color = patch.color
       if (patch.emoji !== undefined) set.emoji = patch.emoji
+      if (patch.transparent !== undefined) set.transparent = patch.transparent
       const [r] = await db
         .insert(teamPrefs)
-        .values({ userId, teamId, color: patch.color ?? null, emoji: patch.emoji ?? null })
+        .values({ userId, teamId, color: patch.color ?? null, emoji: patch.emoji ?? null, transparent: patch.transparent ?? false })
         .onConflictDoUpdate({ target: [teamPrefs.userId, teamPrefs.teamId], set })
         .returning()
-      return { color: r?.color ?? null, emoji: r?.emoji ?? null }
+      return r ? { color: r.color, emoji: r.emoji, transparent: r.transparent && hasIcon(r.emoji) } : { ...NO_PREFS }
     },
     async listTeamScopes() {
       const r = await client.query<{ project: string | null; team_id: string; device_ids: Array<string> | null }>(
@@ -208,9 +262,25 @@ export const memoryStore = (): Store => ({
     const prev = mem.devices.get(d.deviceId)
     if (prev && prev.ownerUserId !== d.ownerUserId) return "not_owner"
     const now = new Date().toISOString()
-    const device: Device = { ...d, createdAt: prev?.createdAt ?? now, updatedAt: now, lastSeenAt: prev?.lastSeenAt ?? null }
+    const device: Device = {
+      ...d,
+      machineId: d.machineId === undefined ? (prev?.machineId ?? null) : d.machineId,
+      createdAt: prev?.createdAt ?? now,
+      updatedAt: now,
+      lastSeenAt: prev?.lastSeenAt ?? null
+    }
     mem.devices.set(d.deviceId, device)
     return { device: { ...device }, previousTeamId: prev && prev.teamId !== d.teamId ? prev.teamId : null }
+  },
+  async claimSiblings(owner, machineId, ids) {
+    const claimed: Array<string> = []
+    for (const id of ids) {
+      const d = mem.devices.get(id)
+      if (!d || d.ownerUserId !== owner || d.kind !== "mac" || (d.machineId !== null && d.machineId !== machineId)) continue
+      if (d.machineId === null) mem.devices.set(id, { ...d, machineId })
+      claimed.push(id)
+    }
+    return claimed
   },
   async listOwnerMacs(owner) {
     return [...mem.devices.values()].filter((d) => d.ownerUserId === owner && d.kind === "mac").sort((a, b) => a.name.localeCompare(b.name))
@@ -237,7 +307,7 @@ export const memoryStore = (): Store => ({
     return gone
   },
   async setPush(p) {
-    const r = { ...p, kinds: [...p.kinds], updatedAt: new Date().toISOString() }
+    const r = { ...p, kinds: [...p.kinds], mutedMacs: [...p.mutedMacs], updatedAt: new Date().toISOString() }
     mem.push.set(p.deviceId, r)
     return { ...r }
   },
@@ -245,18 +315,24 @@ export const memoryStore = (): Store => ({
     mem.push.delete(id)
   },
   async listOwnerPush(owner) {
-    return [...mem.push.values()].filter((p) => p.ownerUserId === owner).map((p) => ({ ...p }))
+    return [...mem.push.values()].filter((p) => p.ownerUserId === owner).map((p) => ({ ...p, kinds: [...p.kinds], mutedMacs: [...p.mutedMacs] }))
   },
   async dropPushTokens(tokens) {
     for (const [k, p] of mem.push) if (tokens.includes(p.token)) mem.push.delete(k)
   },
   async getPrefs(u, t) {
-    return { ...(mem.prefs.get(`${u}\u0000${t}`) ?? { color: null, emoji: null }) }
+    return { ...(mem.prefs.get(`${u}\u0000${t}`) ?? NO_PREFS) }
   },
   async putPrefs(u, t, patch) {
     const k = `${u}\u0000${t}`
-    const cur = mem.prefs.get(k) ?? { color: null, emoji: null }
-    const next = { color: patch.color !== undefined ? patch.color : cur.color, emoji: patch.emoji !== undefined ? patch.emoji : cur.emoji }
+    const cur = mem.prefs.get(k) ?? NO_PREFS
+    const emoji = patch.emoji !== undefined ? patch.emoji : cur.emoji
+    const next: Prefs = {
+      color: patch.color !== undefined ? patch.color : cur.color,
+      emoji,
+      // As Postgres's read: never transparent without an icon.
+      transparent: (patch.transparent !== undefined ? patch.transparent : cur.transparent) && hasIcon(emoji)
+    }
     mem.prefs.set(k, next)
     return { ...next }
   },
@@ -278,6 +354,7 @@ export const memoryStore = (): Store => ({
 
 export const openStore = (env: Env): Promise<Store> => {
   if (env.HYPERDRIVE) return pgStore(env.HYPERDRIVE)
-  if (env.ENVIRONMENT === "test") return Promise.resolve(memoryStore())
+  // Tests, and `wrangler dev` of the local (top-level) config: rows live in the isolate's memory.
+  if (env.ENVIRONMENT === "test" || env.ENVIRONMENT === "local") return Promise.resolve(memoryStore())
   throw new Error("no database binding")
 }

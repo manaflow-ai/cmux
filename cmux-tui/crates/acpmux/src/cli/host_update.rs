@@ -1,22 +1,91 @@
 //! `acpmux host update`: bring ssh peers to this build (or the one for
 //! their target in `--binary-dir`), check the restarted daemon answers with
 //! it, and roll back what does not. The scripts it runs live in the parent
-//! module (`hosts.rs`), the unit migration in `host_migrate.rs`.
+//! module (`hosts.rs`), the unit migration in `host_migrate.rs`, the lock
+//! that keeps two updates of one host apart in `host_lock.rs`.
 
 use super::{
-    DAEMON_UNIT, MIGRATING, REFUSED, RESTORE_PREV, Remote, RemoteOut, SshRemote, connect_peer,
-    linux_restart, migrate, migrate_back, push_update, run, ssh_host,
+    DAEMON_UNIT, LockLost, MIGRATING, REFUSED, RESTORE_PREV, Remote, RemoteOut, SshRemote,
+    connect_peer, linux_restart, lock_updates, migrate, migrate_back, push_update, run, ssh_host,
 };
 use crate::cli::output::print_json;
 use crate::client::Client;
 use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::process::Child;
 use std::sync::Arc;
 
 /// Restart the launchd daemon of a macOS host, then give it
 /// [`super::LAUNCHD_START_GRACE`] (2 s) so its status is not read from the old one.
 const LAUNCHD_RESTART: &str = "{ launchctl kickstart -k gui/$(id -u)/com.acpmux.daemon 2>/dev/null || launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.acpmux.daemon.plist; } && sleep 2";
+
+/// Starts every script [`update_peer`] runs. The daemon's home and socket
+/// have one source, `acpmux.service` and its drop-ins: a move from a
+/// hand-written unit writes them there (`10-migrated.conf`, `host_migrate.rs`:
+/// the home unless it is `~/.acpmux` as written, the socket always), and
+/// every script reads them back here, as systemd gives them to the daemon.
+/// When the unit sets either, the pair replaces what the script inherited; a
+/// unit that sets neither leaves the inherited pair. So a status read or a
+/// check reaches the daemon the unit runs, not the one an ssh session's own
+/// environment would name. Read again by every script, so a drop-in a move
+/// just wrote counts at once.
+///
+/// `systemctl show -p Environment --value` prints the assignments separated
+/// by spaces and quotes one that needs it as a shell would read it
+/// (`"ACPMUX_HOME=/srv/agent data"`, `\"`, `\\`, `\$` and `` \` `` inside):
+/// `acpmux_word` splits it into words the way `sh` does, quotes anywhere in
+/// a word, with no expansion.
+const SERVICE_ENV: &str = r#"acpmux_env=$(command -v systemctl >/dev/null 2>&1 && systemctl --user show acpmux.service -p Environment --value 2>/dev/null)
+acpmux_char() { acpmux_c=${acpmux_env%"${acpmux_env#?}"}; acpmux_env=${acpmux_env#?}; }
+acpmux_word() {
+  acpmux_w=; acpmux_q=; acpmux_any=
+  while [ -n "$acpmux_env" ]; do
+    acpmux_char
+    if [ "$acpmux_q" = "'" ]; then
+      if [ "$acpmux_c" = "'" ]; then acpmux_q=; else acpmux_w=$acpmux_w$acpmux_c; fi
+    elif [ "$acpmux_q" = '"' ]; then
+      case $acpmux_c in '"') acpmux_q= ;; '\') acpmux_char; acpmux_w=$acpmux_w$acpmux_c ;; *) acpmux_w=$acpmux_w$acpmux_c ;; esac
+    else
+      case $acpmux_c in
+        ' '|'	') [ -z "$acpmux_any" ] || return 0 ;;
+        "'"|'"') acpmux_q=$acpmux_c; acpmux_any=1 ;;
+        '\') acpmux_char; acpmux_w=$acpmux_w$acpmux_c; acpmux_any=1 ;;
+        *) acpmux_w=$acpmux_w$acpmux_c; acpmux_any=1 ;;
+      esac
+    fi
+  done
+  [ -n "$acpmux_any" ]
+}
+acpmux_set=; acpmux_h=; acpmux_s=
+while acpmux_word; do case $acpmux_w in ACPMUX_HOME=?*) acpmux_h=${acpmux_w#ACPMUX_HOME=}; acpmux_set=1 ;; ACPMUX_SOCKET=?*) acpmux_s=${acpmux_w#ACPMUX_SOCKET=}; acpmux_set=1 ;; esac; done
+if [ -n "$acpmux_set" ]; then
+  unset ACPMUX_HOME ACPMUX_SOCKET
+  if [ -n "$acpmux_h" ]; then export ACPMUX_HOME="$acpmux_h"; fi
+  if [ -n "$acpmux_s" ]; then export ACPMUX_SOCKET="$acpmux_s"; fi
+fi
+"#;
+
+/// A host whose every script starts with [`SERVICE_ENV`].
+struct ServiceEnv<'a>(&'a dyn Remote);
+
+impl Remote for ServiceEnv<'_> {
+    fn host(&self) -> &str {
+        self.0.host()
+    }
+
+    fn exec(&self, script: &str, stdin: Option<&[u8]>) -> Result<RemoteOut> {
+        self.0.exec(&format!("{SERVICE_ENV}{script}"), stdin)
+    }
+
+    fn push(&self, local: &Path, remote: &str) -> Result<()> {
+        self.0.push(local, remote)
+    }
+
+    fn spawn(&self, script: &str) -> Result<Child> {
+        self.0.spawn(script)
+    }
+}
 
 /// Waits up to 20 s for a daemon to answer, then prints its
 /// `--json daemon status` (or the last reply, from none).
@@ -63,15 +132,16 @@ struct Probe {
     /// The running daemon's build; None when none answers.
     build: Option<String>,
     /// Its own sessions that run a turn or wait on a permission (asked
-    /// for); None when they could not be read.
+    /// for), but the caller's turn; None when they could not be read.
     busy: Option<Vec<String>>,
     /// Why its hand-written unit cannot be moved: a reason code and a message.
     refused: Option<(String, String)>,
 }
 
 impl Probe {
-    /// None when the script did not run (ssh failed).
-    fn parse(out: &RemoteOut) -> Option<Probe> {
+    /// None when the script did not run (ssh failed). The `caller`'s turn
+    /// counts only on another daemon than the caller's.
+    fn parse(out: &RemoteOut, caller: Option<&Caller>) -> Option<Probe> {
         let mut parts = vec![String::new()];
         for line in out.stdout.lines() {
             if line == PROBE_SPLIT {
@@ -87,7 +157,15 @@ impl Probe {
         let build = answering_build(&parts[1]);
         let replied = serde_json::from_str::<Value>(parts[1].trim()).is_ok();
         let busy = match (&build, replied) {
-            (Some(_), _) => busy_sessions(&parts[2]),
+            (Some(_), _) => {
+                let instance = serde_json::from_str::<Value>(parts[1].trim())
+                    .ok()
+                    .and_then(|v| v.get("personInstance")?.as_str().map(str::to_owned));
+                let own = caller
+                    .filter(|c| instance.as_deref() == Some(c.daemon.as_str()))
+                    .map(|c| c.session.as_str());
+                busy_sessions(&parts[2], own)
+            }
             // A daemon that is not running runs no turn.
             (None, true) => Some(Vec::new()),
             (None, false) => None,
@@ -114,8 +192,10 @@ fn answering_build(status: &str) -> Option<String> {
 
 /// The daemon's own sessions (not its peers') that run a turn or wait on a
 /// permission, by name, from its `acpmux --json ls`; None when that is not
-/// a session list.
-fn busy_sessions(ls: &str) -> Option<Vec<String>> {
+/// a session list. The turn of the session `caller` (the one this command
+/// runs in, on this daemon) does not count: it runs the update and never
+/// ends first. A permission it waits on still does.
+fn busy_sessions(ls: &str, caller: Option<&str>) -> Option<Vec<String>> {
     let v: Value = serde_json::from_str(ls.trim()).ok()?;
     let busy = v
         .get("sessions")?
@@ -123,8 +203,11 @@ fn busy_sessions(ls: &str) -> Option<Vec<String>> {
         .iter()
         .filter(|s| s.get("peer").is_none())
         .filter(|s| {
-            !s.get("turn").unwrap_or(&Value::Null).is_null()
-                || s.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) > 0
+            let asks = s.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) > 0;
+            if caller.is_some() && s.get("sessionId").and_then(Value::as_str) == caller {
+                return asks;
+            }
+            asks || !s.get("turn").unwrap_or(&Value::Null).is_null()
                 || matches!(s.get("status").and_then(Value::as_str), Some("running" | "waiting"))
         })
         .map(|s| s.get("name").and_then(Value::as_str).unwrap_or("?").to_owned())
@@ -340,15 +423,48 @@ pub(crate) struct UpdateOptions {
     pub binary_dir: Option<PathBuf>,
     /// Leave a peer whose sessions run a turn or wait on a permission alone.
     pub if_idle: bool,
+    /// The session this command runs in, and its daemon.
+    pub caller: Option<Caller>,
+}
+
+/// The session `host update` runs in: its `ACPMUX_SESSION_ID`, and the
+/// `personInstance` of the daemon it belongs to (the one this CLI talks
+/// to; random per daemon run). A session id is daemon-local, so only that
+/// daemon's session of that id is the caller.
+pub(crate) struct Caller {
+    pub session: String,
+    pub daemon: String,
+}
+
+/// [`update_peer`] holding the host's update lock ([`lock_updates`]), so
+/// another update of the host (a `host update`, `host setup` or `host enroll
+/// --fix` from another machine) does not change the binary or `acpmux.prev`
+/// under it; `updateRunning` (nothing changed) while one does.
+fn update_locked(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
+    match lock_updates(remote) {
+        Ok(Some(lock)) => update_peer(&lock.fence(remote), opts),
+        Ok(None) => {
+            let why = format!(
+                "another update of {} is running (a host update, setup or enroll --fix): run this again once it ended",
+                remote.host()
+            );
+            PeerUpdate::new().end(Outcome::Failed, "updateRunning", why)
+        }
+        Err(e) => PeerUpdate::new().end(Outcome::Failed, "unreachable", e.to_string()),
+    }
 }
 
 /// Update one peer: read it, push the binary, restart the daemon, check it
 /// answers with the pushed build, and roll back when it does not. Nothing
-/// changes on the peer before the push.
+/// changes on the peer before the push. Every script runs with the daemon's
+/// environment ([`SERVICE_ENV`]). The caller holds the host's update lock
+/// and passes `remote` fenced for it, so a step after the lease went fails.
 fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
+    let remote = &ServiceEnv(remote);
     let up = PeerUpdate::new();
+    let caller = opts.caller.as_ref();
     let probe = match remote.exec(&probe_script(opts.if_idle), None) {
-        Ok(out) => match Probe::parse(&out) {
+        Ok(out) => match Probe::parse(&out, caller) {
             Some(probe) => probe,
             None => {
                 let why = out.stderr.trim();
@@ -359,7 +475,7 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
                 );
             }
         },
-        Err(e) => return up.end(Outcome::Failed, "unreachable", e.to_string()),
+        Err(e) => return up.end(Outcome::Failed, lock_lost_or(&e, "unreachable"), e.to_string()),
     };
     let mut up =
         PeerUpdate { target: uname_target(&probe.uname), build: probe.build.clone(), ..up };
@@ -428,7 +544,7 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
         Ok(version) => version,
         // The install checks the pushed binary runs before it replaces
         // anything, so the installed one is still the old one.
-        Err(e) => return up.end(Outcome::Failed, "pushFailed", e.to_string()),
+        Err(e) => return up.end(Outcome::Failed, lock_lost_or(&e, "pushFailed"), e.to_string()),
     };
     let pushed = version_build(&version).map(str::to_owned);
     up.version = Some(version);
@@ -445,8 +561,14 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
     // sessions again right before the restart, and put the binary back
     // rather than restart under it.
     if opts.if_idle {
-        let again = remote.exec(&probe_script(true), None).ok();
-        let busy = match again.as_ref().and_then(Probe::parse) {
+        let again = match remote.exec(&probe_script(true), None) {
+            Ok(out) => Some(out),
+            Err(e) if e.is::<LockLost>() => {
+                return up.end(Outcome::Failed, "lockLost", e.to_string());
+            }
+            Err(_) => None,
+        };
+        let busy = match again.as_ref().and_then(|out| Probe::parse(out, caller)) {
             Some(Probe { busy: Some(names), .. }) if names.is_empty() => None,
             Some(Probe { busy: Some(names), .. }) => {
                 Some(("busy", format!("mid-turn or waiting on a permission: {}", names.join(", "))))
@@ -475,6 +597,10 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
         }
         Err(failure) => failure,
     };
+    // The lease went: nothing more runs there, a rollback neither.
+    if reason == "lockLost" {
+        return up.end(Outcome::Failed, &reason, why);
+    }
     // Refused before the daemon was touched: only the binary goes back.
     if restarted.refused {
         let mut why = why;
@@ -514,6 +640,11 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
     }
 }
 
+/// `lockLost` for an update whose lease went ([`LockLost`]), else `reason`.
+fn lock_lost_or<'a>(e: &anyhow::Error, reason: &'a str) -> &'a str {
+    if e.is::<LockLost>() { "lockLost" } else { reason }
+}
+
 /// A restart script's run, then the daemon's answer.
 struct Restarted {
     /// The hand-written unit a migration started moving the daemon from.
@@ -534,7 +665,7 @@ fn restart_checked(remote: &dyn Remote, script: &str, want: Option<&str>) -> Res
     };
     let out = match remote.exec(script, None) {
         Ok(out) => out,
-        Err(e) => return failed(None, false, "restartFailed", e.to_string()),
+        Err(e) => return failed(None, false, lock_lost_or(&e, "restartFailed"), e.to_string()),
     };
     let migrating = out.stdout.lines().find_map(|l| l.strip_prefix(MIGRATING)).map(str::to_owned);
     if !out.ok {
@@ -549,7 +680,7 @@ fn restart_checked(remote: &dyn Remote, script: &str, want: Option<&str>) -> Res
     }
     let status = match remote.exec(AWAIT_DAEMON, None) {
         Ok(out) => out.stdout.trim().to_owned(),
-        Err(e) => return failed(migrating, false, "noAnswer", e.to_string()),
+        Err(e) => return failed(migrating, false, lock_lost_or(&e, "noAnswer"), e.to_string()),
     };
     let Some(build) = answering_build(&status) else {
         let why = "the daemon did not answer within 20 s of its restart".to_owned();
@@ -602,7 +733,9 @@ fn cut(mut text: String, max: usize) -> String {
 ///   restarted daemon's status text (cut to 400 bytes), after a push.
 /// - `reason` and `error`, on every outcome but `updated` and `current`: a
 ///   code (`busy`, `unknown`, `noBinary`, `wrongPlatform`,
-///   `unsupportedPlatform`, `cloudMachine`, `unreachable`, `pushFailed`, `pushMismatch`,
+///   `unsupportedPlatform`, `cloudMachine`, `unreachable`, `updateRunning`
+///   (another update of the host holds its update lock), `lockLost` (this update's hold on that lock ended, its
+///   connection dropped: it changed nothing more), `pushFailed`, `pushMismatch`,
 ///   `restartFailed`, `noAnswer`, `buildMismatch`, and for a daemon under a
 ///   hand-written unit `unitConflict`, `listenConflict`, `unitArgs`,
 ///   `unitSettings`, `unitElsewhere`, `noLinger`) and a message.
@@ -634,7 +767,7 @@ pub(crate) async fn update(
     }
     let mut rows = Vec::new();
     for (n, host) in targets {
-        let up = update_peer(&SshRemote(&host), &opts);
+        let up = update_locked(&SshRemote(&host), &opts);
         if !json_out {
             if up.outcome.failed() {
                 eprintln!("{n} ({host}): {}", up.line());

@@ -61,7 +61,7 @@ export function NeedsYouPill({
   return (
     <button
       type="button"
-      className="ui-glass acpmux-jump-latest acpmux-needs-you-pill"
+      className="ui-glass ui-glass-floats acpmux-jump-latest acpmux-needs-you-pill"
       data-shown={shown ? "" : undefined}
       style={lift > 0 ? ({ "--acpmux-dock-space": `${lift}px` } as CSSProperties) : undefined}
       aria-label={label}

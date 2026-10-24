@@ -389,15 +389,17 @@ impl Hub {
             }
         }
 
+        let current = self.opencode_ask_now(session, profile).await;
+        let profile = current.as_ref().unwrap_or(profile);
         self.record_spawn_inputs(session, profile).await;
         let moves = super::processes::backgrounds_work(profile.kind);
         session.backgrounds_work.store(moves, Ordering::SeqCst);
         // A fresh agent: what acpmux set on the last one is replayed, not assumed.
-        self.fresh_agent(session, profile.preset_digest.clone());
+        self.fresh_agent(session, profile);
         session.closing.store(false, Ordering::SeqCst);
         // A pooled session claimed for this id (`pool/`): its host already
         // runs with the harness initialized and its session created.
-        if let Some(pooled) = self.pool_take_claimed(&session.id) {
+        if let Some(pooled) = self.pool_take_claimed_for(&session.id, profile) {
             match self.adopt_pooled(session, pooled).await {
                 // A harness whose own settings started it in full access: capped like a cold
                 // start, under the same budget. Its `session/set_mode` would otherwise wait
@@ -475,7 +477,7 @@ impl Hub {
         profile: &HarnessProfile,
     ) -> Result<Arc<ChildAgent>, RpcError> {
         // Its worktree back if cleanup reclaimed it, and reopened if stopped.
-        self.ready_to_start(session).await;
+        self.ready_to_start(session).await?;
         let meta = session.meta();
         let tap = self.session_tap(session);
         let is_claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;
@@ -630,6 +632,10 @@ impl Hub {
                 crate::launch_policy::spawn_error(e, |e| RpcError::internal(e.to_string()))
             })?
         };
+        // A direct start records the format its command was pinned to (a host's: hosts.rs).
+        if let Some(format) = child.preview_format {
+            self.record_preview_format(session, format);
+        }
         {
             // The shutdown marks itself started, then takes each session's
             // child: checked under that lock, either the shutdown finds this

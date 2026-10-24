@@ -80,13 +80,13 @@
 :root[data-settings-look="refined"] .settings .section-link:hover { background: var(--polish-hover); }
 :root[data-settings-look="refined"] .settings .section-icon svg { width: 16px; height: 16px; }
 
+/* The content pane is a fill, not an outlined card: its scroll fade (styles.css .content) masks
+   everything but the scrollbar's 14 px strip on the right, so an outline here showed only as a
+   stray rounded fragment at the pane's right edge (live QA 7b). */
 :root[data-settings-look="refined"] .settings > .content {
   --content-pad-end: 64px;
   padding: 32px clamp(24px, 4vw, 64px) var(--content-pad-end);
   margin: 6px 6px 6px 0;
-  border: 1px solid var(--polish-edge);
-  border-left: 0;
-  border-radius: 0 12px 12px 0;
   background: var(--polish-content);
 }
 
@@ -128,6 +128,7 @@
 :root[data-settings-look="refined"] .settings .group.ui-glass { border-radius: 12px; padding-top: 12px; }
 :root[data-settings-look="refined"] .settings .group.ui-glass > :not(.rows) { margin-inline: 16px; }
 :root[data-settings-look="refined"] .settings .group.ui-glass .group-title { margin-left: 0; }
+:root[data-settings-look="refined"] .settings .group.ui-glass > .group-title { margin-inline: 16px; }
 :root[data-settings-look="refined"] .settings .group.ui-glass > .rows {
   border: 0;
   border-radius: 0 0 12px 12px;
@@ -178,9 +179,6 @@
 
   :root[data-settings-look="refined"] .settings > .content {
     margin: 0 6px 6px;
-    border-left: 1px solid var(--polish-edge);
-    border-top: 0;
-    border-radius: 0 0 12px 12px;
   }
 }
 

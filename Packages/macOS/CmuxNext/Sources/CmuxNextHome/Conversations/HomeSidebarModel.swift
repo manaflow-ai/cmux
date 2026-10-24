@@ -55,18 +55,27 @@ public struct HomeSidebarItem: Hashable, Sendable, Identifiable {
 }
 
 /// The Home sidebar's content from the merged inbox (`HomeStore.rows`):
-/// the pinned grid, then every other conversation newest first; a search
-/// filters both and lists matching people the user has no DM with yet. In
+/// the pinned grid, then every other conversation newest first, then every
+/// team member the user has no DM with yet (``teammates``: everyone on the
+/// team is someone to chat to); a search filters both and lists matching
+/// people the user has no DM with yet (``people``). In
 /// the owner's order (`init(ordered:)`, its `home-inbox` rows) only the
 /// person's own pins are pinned; with this Mac's pins Chiefs are pinned by default.
 public struct HomeSidebarModel: Hashable, Sendable {
     public var pinned: [HomeSidebarItem]
     public var rows: [HomeSidebarItem]
     public var people: [HomeContact]
+    /// Team members the user has no DM with yet, listed after the conversations while no search runs.
+    public var teammates: [HomeContact] = []
     /// The Cloud rows' state from the owner (`home-inbox` `cloud`): only `unavailable` shows a quiet line.
     public var cloudState: String?
     /// The quiet line under the list (Cloud conversations not reachable), or nil.
     public var note: String? { HomeConversationStrings.cloudNote(cloudState) }
+
+    /// The conversations the list draws an unread dot on (unread messages or Mark as Unread),
+    /// pinned tiles first, without muted ones: what Home's unread indicator outside the list
+    /// (the sidebar's Home item, a Home tab, the Dock) counts. Read it from an unfiltered model.
+    public var unreadConversations: [ConversationID] { (pinned + rows).filter { $0.unread && !$0.isMuted }.map(\.id) }
 
     /// `unreadMarks`: conversations the user marked unread (Mark as Unread), shown unread until read.
     /// `chiefHarnesses`: each Chief's engine by participant id, for the rows' badges.
@@ -129,9 +138,13 @@ public struct HomeSidebarModel: Hashable, Sendable {
         }
         pinned = needle.isEmpty ? pinnedRows.map { item($0, true) } : []
         self.rows = needle.isEmpty ? rest.map { item($0, false) } : pinnedRows.map { item($0, true) } + rest.map { item($0, false) }
-        guard !needle.isEmpty else { people = []; return }
-        // People the user has no DM with yet, by name.
+        // People the user has no DM with yet: by name in a search, else the whole team.
         let dmPeers = Set(rows.filter { $0.kind == .direct }.flatMap { $0.summary.participants.map(\.id) })
+        guard !needle.isEmpty else {
+            people = []
+            teammates = contacts.filter { $0.source == .team && $0.id != me && !dmPeers.contains($0.id) }
+            return
+        }
         people = contacts.filter { !dmPeers.contains($0.id) && $0.name.localizedStandardContains(needle) }
     }
 }
@@ -177,12 +190,23 @@ extension InboxRow {
 
 extension HomeSidebarModel {
     /// The conversation `offset` places after `current` in the list's visual
-    /// order (the pinned grid, then the rows); nil past either end (Messages
-    /// stops there). With nothing shown, or one no longer listed, the first.
-    public func neighbor(of current: ConversationID?, offset: Int) -> ConversationID? {
+    /// order (the pinned grid, then the rows). Past either end: nil (Messages
+    /// stops there), or with `wrapping` the other end, as a pane's tabs cycle
+    /// (Ctrl-Tab on Home). With nothing shown, or one no longer listed, the first.
+    public func neighbor(of current: ConversationID?, offset: Int, wrapping: Bool = false) -> ConversationID? {
         let order = (pinned + rows).map(\.id)
         guard let current, let index = order.firstIndex(of: current) else { return order.first }
         let next = index + offset
+        if wrapping { return order[(next % order.count + order.count) % order.count] }
         return order.indices.contains(next) ? order[next] : nil
+    }
+
+    /// The `number`th conversation in the list's visual order (1-based), as
+    /// Select Tab 1…9 picks a tab: 9, or a number past the end, is the last.
+    /// Nil when the list is empty.
+    public func conversation(number: Int) -> ConversationID? {
+        let order = (pinned + rows).map(\.id)
+        guard !order.isEmpty else { return nil }
+        return number >= 9 ? order[order.count - 1] : order[min(max(number, 1) - 1, order.count - 1)]
     }
 }

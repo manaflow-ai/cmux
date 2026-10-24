@@ -19,6 +19,7 @@ enum AppActions {
         WindowHandlers.bind(into: registry, context: context)
         FilesPaneHandlers.bind(into: registry, context: context)
         HistoryHandlers.bind(into: registry, context: context)
+        StashHandlers.bind(into: registry, context: context)
         TabSearchHandlers.bind(into: registry, context: context)
         PaletteScopeHandlers.bind(into: registry, context: context)
         BookmarkHandlers.bind(into: registry, context: context)
@@ -114,6 +115,7 @@ enum AppActions {
         IconMenuVisibility.install(registry, context: context)
         TabSelectionTitles(context: context).install(in: registry)
         TopPages.installTabTargetReasons(services)
+        ActionTargetReasons.refuseHeadlessNameEditors(in: registry) { RefusalStrings.nameArgumentRequired }
         HomeRules.install(services)
         TopPages.registerProviders(services)
         context.observeRefusals()

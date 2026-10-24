@@ -20,8 +20,9 @@ import CmuxNextFocus
 ///    wins), with the context keys of the window the key goes to; a winning
 ///    Ghostty keybind goes to a focused terminal, which runs it itself;
 /// 4. the action's tier decides whether it may take the key from this focus
-///    (system always; navigation unless browser focus mode; content only
-///    when its content has the keyboard, never a text field): run it;
+///    (system always, but in browser focus mode only its exit chord and
+///    Quit; navigation unless browser focus mode; content only when its
+///    content has the keyboard, never a text field): run it;
 /// 5. else the focused surface gets the key (Ghostty keybinds, the page, the
 ///    field), after a Chrome extension shortcut of the focused Chromium tab;
 ///    a printable key on a screen with a primary input and no focused text
@@ -70,7 +71,10 @@ final class KeyRouter: BrowserKeyRouting {
     /// (Cmd-Opt-I, Cmd-Opt-J, Cmd-Opt-C) are not editing chords: they run
     /// from the page, the address bar, the find bar and DevTools itself.
     /// Browser focus mode still gives them to the page.
+    /// Browser focus mode gives the page every system action too (the command palette, Close
+    /// Tab), all but ``focusModeKeptActions``.
     nonisolated static func allows(_ tier: ActionKeyTier, id: ActionID, focus: FocusState) -> Bool {
+        if focus.isBrowserFocusModeActive, tier == .system { return focusModeKeptActions.contains(id) }
         if tier == .content, devToolsActions.contains(id), BrowserChordTable.isBrowserContext(focus.resolved),
            !focus.isBrowserFocusModeActive { return true }
         if tier == .content, browserChromeActions.contains(id), isBrowserChromeField(focus.resolved) { return true }
@@ -105,6 +109,9 @@ final class KeyRouter: BrowserKeyRouting {
         case typeAhead
         /// A panel or sheet over the window (or no cmux window) has it.
         case panel
+        /// The page gets the key first; this action runs only when the page
+        /// reports it did not handle the key (``KeyRouter/runUnhandledPageKey(_:)``).
+        case offerToPage(Candidate)
     }
 
     /// Steps 1 and 3-5 for a key-down in a window with `focus` (step 2, the
@@ -133,7 +140,9 @@ final class KeyRouter: BrowserKeyRouting {
                 if case .terminal = focus.resolved, !WhenClause.has(KeyContext.terminalCopyMode).evaluate(context) { return .deliver }
                 if candidate.tier == .content { return .deliver }
             }
-            if Self.allows(candidate.tier, id: candidate.id, focus: focus) { return .run(candidate) }
+            if Self.allows(candidate.tier, id: candidate.id, focus: focus) {
+                return Self.offersToPage(candidate, focus: focus, facts: facts) ? .offerToPage(candidate) : .run(candidate)
+            }
         }
         // The code editor's Cmd-[ / Cmd-] are outdent and indent (Monaco), not page Back / Forward.
         guard !context.bits.contains(.codeEditorFocused), consumesBrowserOnlyChord(event, focus: focus) else { return .deliver }
@@ -167,7 +176,7 @@ final class KeyRouter: BrowserKeyRouting {
     /// Runs from `CmuxApplication.sendEvent` for every key-down of the
     /// process, before any window or responder. `window` is where the key
     /// goes (the key window). Returns whether the key was consumed.
-    func interceptKeyDown(_ event: NSEvent, in window: NSWindow?) -> Bool {
+    func interceptKeyDown(_ event: NSEvent, in window: NSWindow?) -> Bool { // perf-hot: 0.5ms key-dispatch (every key-down of the process)
         guard event.type == .keyDown else { return false }
         if newTabInputCoordinator.capture(event, in: window) { return true }
         if creationInputCoordinator.capture(event, in: window) { return true }
@@ -223,7 +232,7 @@ final class KeyRouter: BrowserKeyRouting {
 
     /// Steps 1-5 for a key-down in `window`, a cmux window or a Chromium
     /// page window over `controller`'s window.
-    func dispatch(_ event: NSEvent, in window: NSWindow, controller: WindowController, facts: Facts) -> Bool {
+    func dispatch(_ event: NSEvent, in window: NSWindow, controller: WindowController, facts: Facts) -> Bool { // perf-hot: 2ms key-dispatch (every chord)
         // 1. The input method's keys reach it undecided (menus keep their rule).
         if Self.belongsToInputMethod(event, facts: facts) { return false }
         decided.add(event)
@@ -252,6 +261,9 @@ final class KeyRouter: BrowserKeyRouting {
             return true
         case .consume:
             return true
+        case .offerToPage(let candidate):
+            offerToPage(event, candidate: candidate, context: context, window: controller.state.id)
+            return false
         case .deliver, .panel, .primaryInput, .typeAhead:
             return runExtensionShortcut(event, focus: focus)
         }
@@ -345,6 +357,9 @@ final class KeyRouter: BrowserKeyRouting {
     // MARK: Chords
 
     var chords = ChordTracker()
+
+    /// The key-down a page has first, with the action to run if it reports the key unhandled.
+    var pageFirstOffer = PageFirstKeyOffer()
 
     /// Whether a chord, the Cmd-J leader included, may arm in `focus`:
     /// where content shortcuts run (a terminal, a page, an agent chat, the

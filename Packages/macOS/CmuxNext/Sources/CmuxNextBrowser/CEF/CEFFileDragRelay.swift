@@ -158,8 +158,8 @@ extension CEFHostView {
     }
 
     /// A session that ended with no exit or drop here (the view left its window mid-drag).
+    // NSView has no `draggingEnded:` of its own: no super call.
     override func draggingEnded(_ sender: any NSDraggingInfo) {
-        super.draggingEnded(sender)
         fileDrag.exited()
     }
 }

@@ -2,6 +2,7 @@
 //! controller started, and exchange frames with it.
 
 use super::*;
+use crate::no_panic::LockExt;
 use std::ffi::OsString;
 use std::sync::Arc;
 #[cfg(unix)]
@@ -67,7 +68,9 @@ pub async fn spawn_within(
             Ok(())
         });
     }
-    let mut child = cmd.spawn().with_context(|| format!("start {}", launcher.exe.display()))?;
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| crate::agent::spawn_error(&format!("start {}", launcher.exe.display()), e))?;
     let mut stdin = child.stdin.take().context("host stdin")?;
     let mut stdout = child.stdout.take().context("host stdout")?;
     // A host that never reports ready must not hold the session's spawn.
@@ -246,7 +249,7 @@ async fn connect_inner(record: HostRecord, resume_after: u64) -> Result<Connect>
                         modes,
                         config_options,
                     })) => {
-                        if let Some(reply) = queries.lock().unwrap().remove(&id) {
+                        if let Some(reply) = queries.lock_or_recover().remove(&id) {
                             let _ =
                                 reply.send(QueryReply { claude_session_id, modes, config_options });
                         }
@@ -255,7 +258,7 @@ async fn connect_inner(record: HostRecord, resume_after: u64) -> Result<Connect>
                 }
             }
             closed.store(true, std::sync::atomic::Ordering::SeqCst);
-            queries.lock().unwrap().clear();
+            queries.lock_or_recover().clear();
         });
     }
     tx.send((ControllerFrame::Resume { after: resume_after }, None))
@@ -338,12 +341,12 @@ impl Link {
     pub async fn query_within(&self, budget: std::time::Duration) -> Result<QueryReply> {
         let id = self.next_query.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let (tx, rx) = oneshot::channel();
-        self.queries.lock().unwrap().insert(id, tx);
+        self.queries.lock_or_recover().insert(id, tx);
         self.send(ControllerFrame::Query { id }).await?;
         match within("query", budget, rx).await {
             Ok(reply) => reply.map_err(|_| anyhow!("agent host closed before it answered")),
             Err(timeout) => {
-                self.queries.lock().unwrap().remove(&id);
+                self.queries.lock_or_recover().remove(&id);
                 Err(timeout.into())
             }
         }

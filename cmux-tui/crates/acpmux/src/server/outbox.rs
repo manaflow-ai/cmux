@@ -17,6 +17,7 @@
 //! `send_status {deliveryId, waitMs?}` answers the delivery's state, after waiting up to
 //! `waitMs` (at most [`MAX_STATUS_WAIT_MS`]) for it to settle.
 
+use crate::no_panic::JsonExt;
 use std::time::Duration;
 
 use super::*;
@@ -201,7 +202,7 @@ async fn attempt_once(
             crate::hub::person::CALLER_FIELD.to_owned(),
             json!({"sessionId": id, "token": crate::hub::person::caller_token(id)}),
         );
-        hello["_meta"] = json!({"acpmux": mux});
+        hello.set("_meta", json!({"acpmux": mux}));
     }
     let lines = [
         Message::request(1, method::INITIALIZE, hello).to_line(),
@@ -233,7 +234,8 @@ async fn attempt_once(
             Ok(Message::Notification { method: m, params: Some(p) })
                 if m == method::MUX_PROMPT_ACCEPTED
                     && p.get("promptId").and_then(Value::as_str) == Some(prompt_id.as_str())
-                    && !(p["duplicate"] == true && p["turnId"].is_null()) =>
+                    && !(p.get("duplicate") == Some(&Value::Bool(true))
+                        && p.get("turnId").is_none_or(Value::is_null)) =>
             {
                 return Ok(p);
             }

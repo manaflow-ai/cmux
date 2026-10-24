@@ -18,9 +18,9 @@ for what a person must do: an OAuth sign-in, a secret, a macOS switch.
 | Tailscale, mesh | CLI only | `cmux host enable/status --json`; needs Tailscale signed in | yes | yes |
 | MCP servers | docs only; chats cmux starts get them (acpmux `agent_tools`) | `cmux setup mcp [claude\|codex ...]`; `cmux agents doctor --json` checks cmux-cua | yes | yes |
 | Computer Use | GUI (Computer Use Setup) | `cmux setup computer-use`; the person allows it on the app's sheet, and grants are switches in System Settings | yes | yes |
-| Browser import | GUI (Import from Browser...) | `cmux bookmark import-from-browser`, `cmux browser import-cookies` (consent panel); history and passwords person-only | partly | bookmarks/history merge |
+| Browser import | GUI (Import from Browser...) | `cmux setup browser-import --browser B [--cookies]`: bookmarks, and cookies after the person's Allow on the consent panel; history and passwords person-only | yes | bookmarks yes; cookies ask again |
 | Keyboard shortcuts | GUI (Keyboard Shortcuts) | `cmux keybinding list/resolve --json`; edits only over the raw socket or keybindings.json | reads yes | yes |
-| Notifications | GUI (Settings) | `cmux settings get/set notifications.*`; macOS permission asked on first use | yes | set yes; toggle-workspace-mute no |
+| Notifications | GUI (Settings); macOS asks on the first banner | `cmux setup notifications` (the macOS permission); `cmux settings get/set notifications.*` | yes | yes; toggle-workspace-mute no |
 | Team invites | web dashboard | `POST /api/teams/<id>/invitations`; `cmux home invite --email` for Home conversations | API yes | no |
 
 There is no onboarding sequence in cmux NEXT (Lawrence, 2026-10-09): the
@@ -291,3 +291,105 @@ The Chief loads the `cmux-setup` skill (shipped in optchat-chief's
    would send a create, also one sent again with its key). When cloud-team-ready's `cloud
    list-machines` lands (owner personal|team), setup reads it instead of
    `cloud.machines`.
+7. `notifications`: lets cmux show macOS notifications. The state is the
+   app's `notifications.status` (`{authorization, alert, alert_style, sound,
+   badge, bundle_id}`, `UNUserNotificationCenter.notificationSettings`, read
+   without prompting; Release-safe, unlike `debug.notifications`).
+   `not_determined`: setup sends `notifications.request`, macOS shows its
+   prompt and setup waits for the person's click; allowed is `changed`,
+   not allowed, or the prompt left unanswered past the app's 600 s, is
+   `needs_user` (`kind` `declined`), and the agent asks before trying
+   again; macOS failing the request (`internal_error`) is `failed`. `denied` is `needs_user` (`kind` `grant`) whose
+   `command` opens cmux's page in System Settings > Notifications (`open
+   'x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=BUNDLE_ID'`).
+   macOS has no command that takes the permission back, so `undo` is that
+   pane command and `undo_note` says so. `authorized` and `provisional`
+   are `ok`, except `authorized` with banners off (`alert_style` `none`, or
+   `alert` false; `alert` is `alertSetting`, which can stay true with the
+   style None, and is all an older app sends): no banner shows, so it is
+   `kind` `grant` with the same pane. An app without the methods
+   (`method_not_found`) is `kind` `app` with the Notifications pane command. A launch that never uses the
+   system center (an automation launch, a GUI job, or a host that is not the
+   cmux app bundle) answers `unavailable`.
+   Which notifications show stays `notifications.*` settings. `cmux setup
+   status` adds a `notifications` check.
+8. `browser-import --browser BROWSER[:PROFILE] [--cookies [--domain D]
+   [--reason TEXT]]`: brings another browser's bookmarks, or its sign-ins,
+   into cmux. `--browser` reads the way the app's cookie import reads
+   `--from`: a browser (registry id or product name, ignoring case, spaces
+   and punctuation; the registry is the app's `browser-sources.json`,
+   compiled in), then optionally `:` and one profile (its folder or the
+   name the browser shows), for bookmarks and cookies alike; `chrome:` is
+   `chrome`. A browser with no name (`:Work`, a blank) is a usage error
+   (exit 2), since the app would open its picker, and so is a flag given
+   twice or a flag-like next word taken as a value (`--domain --dry-run`;
+   `--domain=--x` is meant). Without `--browser` it is `needs_user`
+   (`kind` `choose`): the agent asks which browser, or for bookmarks runs
+   `cmux action run bookmark.importFromBrowser` to show the person the
+   app's picker of the browsers it found (with `--cookies` its `command`
+   is null: the picker imports bookmarks).
+
+   Bookmarks are not secrets, so setup does them. The state is
+   `bookmark.list`, where each imported profile is one Bookmarks Bar folder
+   with `source_key` `<browser id>/<profile folder>` and the title
+   "Imported from <Browser> (<profile name>)". The check is per browser: a
+   browser any profile of which was imported counts as done (`ok`, nothing
+   runs); import another profile with `--browser ID:PROFILE`, which is
+   `ok` only when that profile's folder is there: setup asks the app's
+   `bookmark.importSources {browser, source?}` for the source keys the
+   import would use (the app matches the profile's folder or name; with no
+   profile, every profile of the browser) and looks for those, never at
+   the title, which is localized and the person may rename; a browser or
+   profile the app does not find, with no folder of it there yet, is
+   `needs_user` (`kind` `browser`); a profile the browser no longer has is
+   still `ok` when named by its folder (`chrome:Profile 9`), which the
+   stored source key keeps, though not by its shown name, which went with
+   it.
+   `bookmark.list` answers `loaded` false with an empty list until the app
+   has the stored bookmarks; setup reads again until 2 seconds after the
+   first answer (each reread gets only the time left), then is
+   `needs_user` (`kind` `wait`), so folders already there never count as
+   new. A dry run is `planned` with the `undo`
+   `cmux bookmark remove --target bookmark:FOLDER_ID`. Otherwise setup runs
+   `bookmark.importFromBrowser {browser, source?, profile}` (`profile` is
+   the cmux browser profile `bookmark.list` answered for) and reads the
+   list again: `changed`, with `after.folders` the folders of those source
+   keys that were not there before and the `undo` `cmux bookmark remove
+   --target bookmark:<id>` for each; the person's own folders and other
+   imports never enter it. A new folder of another profile of the browser
+   came from an import running at the same time (`chrome:Work` next to
+   `chrome:Default`): it is in `after.other`, with a `note`, and the undo
+   leaves it; it is no sign this run's import landed, so a run whose app
+   stopped waiting with only such folders in is still `wait`. Two runs of the same profile at once both name its folder;
+   the app's import returns no ids, so setup cannot tell them apart. The app replaces a folder of the same `source_key` in
+   place (same id, new title and children), as when the browser's
+   profiles changed between `bookmark.importSources` and the import: such
+   folders, whose title or
+   children changed, are in `after.refreshed`, and an answer that the
+   import ran with no new folder is `changed` with `undo` null and a `note`
+   that the folder was refreshed in place and the Undo on the app's toast
+   is its only undo. The app may stop waiting before the import ends
+   (`timeout`, or a lost answer): setup reads the list anyway, and the
+   folders that came in are `changed` as above, with their `undo` and a
+   `note` that the import may still be adding profiles (run `cmux setup
+   browser-import --browser B --dry-run` again to see them); none yet is
+   `needs_user` (`kind` `wait`: run it again in a few seconds). A browser
+   the app does not find, or with no readable profile, is `needs_user`
+   (`kind` `browser`); profiles that could not be read next to ones that
+   came in are named in `unread`.
+
+   Cookies are the person's: `--cookies` runs `browser.importCookies
+   {from, domain?, reason}` (from an agent or script, never origin `user`),
+   and the app asks the person on its consent panel (then macOS asks for
+   the browser's Keychain key). Allowed is `changed`. Denied, timed out, or
+   another request already waiting is `needs_user` (`kind` `declined`):
+   nothing was read, and the agent asks before trying again. An answer lost
+   after the panel (`timeout` or a dropped connection) is `kind` `app`
+   saying the outcome is unknown: the agent must not run `--cookies` again
+   without asking the person. The app reads no imported cookies back, so a
+   cookie run is never `ok` and running it again asks again; it has no
+   `undo` (clearing the profile's cookies clears every cookie), and
+   `undo_note` says so. History and passwords are person-only (Import from
+   Browser... in cmux); every result names that in `person`. `cmux setup
+   status` adds a `browser_import` check: the browsers whose bookmarks are
+   in.

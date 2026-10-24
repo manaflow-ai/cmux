@@ -5,8 +5,10 @@ import CmuxNextDesign
 /// popup of the shared native host (`NativePopupHost`), a borderless child
 /// panel of the window on the overlay glass (`Glass.makeOverlayPanel`), in the
 /// theme of the Home it opens from. It never covers the header: it opens
-/// below the pill (above it when the screen has no room), and it closes on a
-/// click outside, Escape, the pill again, or the window moving away.
+/// below the pill (above it when the screen has no room), centered on it as an
+/// `NSPopover` is (Leo 2026-10-20: it hung off the pill's leading edge, over the
+/// transcript), and it closes on a click outside, Escape, the pill again, or
+/// the window moving away.
 @MainActor
 public final class HomeChiefSettingsPopover {
     public let content: HomeChiefSettingsView
@@ -74,7 +76,7 @@ public final class HomeChiefSettingsPopover {
             }
         }
         let rect = window.convertToScreen(anchor.convert(CmuxPopoverAnchor.rect(in: anchor), to: nil))
-        guard popup.show(size: size(), anchor: rect, in: window, preferred: .below, makeKey: true) != nil else { return false }
+        guard popup.show(size: size(), anchor: rect, in: window, preferred: .below, centered: true, makeKey: true) != nil else { return false }
         // Like an NSPopover opened by a click: keys reach the card (Tab enters it, Escape closes
         // it), but no control shows a focus ring until the keyboard moves there. A ring on the
         // picture drew while open and vanished on the close's first frame (recording 2026-10-20).
@@ -93,8 +95,11 @@ public final class HomeChiefSettingsPopover {
     private func resize() {
         guard popup.isShown, let anchor, let window = anchor.window else { return }
         let rect = window.convertToScreen(anchor.convert(CmuxPopoverAnchor.rect(in: anchor), to: nil))
-        popup.show(size: size(), anchor: rect, in: window, preferred: .below, makeKey: popup.panel.isKeyWindow)
+        popup.show(size: size(), anchor: rect, in: window, preferred: .below, centered: true, makeKey: popup.panel.isKeyWindow)
     }
+
+    /// The card's frame on screen while shown (tests).
+    var cardFrame: CGRect { popup.cardFrame }
 
     /// The card's size: the settings' fixed width and the height of what shows.
     private func size() -> CGSize {

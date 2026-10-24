@@ -34,8 +34,12 @@ extension PageWebView {
             // its own reason, any other one is on WebKit because Chromium is missing.
             return PageEnginePolicy(preference: .chromium, chromiumAvailable: false).decide(for: descriptor, options: options)
         }
+        // A live web override reaches only WebKit pages; deciding also arms its watch, so a launch
+        // whose first page is a Chromium one still reads web-dev.json.
+        WebDevOverrideWatcher.shared.start()
         return PageEnginePolicy(preference: hosting.preference, chromiumAvailable: hosting.isAvailable,
-                                chromiumServes: hosting.serves(descriptor)).decide(for: descriptor, options: options)
+                                chromiumServes: hosting.serves(descriptor),
+                                liveWebOverride: WebDevOverride.current.isActive).decide(for: descriptor, options: options)
     }
 
     /// The view that takes the keyboard when the page is focused: Chromium's view or the WebKit view.
@@ -70,12 +74,21 @@ extension PageWebView {
     /// exists, so an ``open(route:)`` meanwhile wins); falls back to WebKit when that fails or the
     /// page does not reach the host in time.
     func startChromium(hosting: any PageChromiumHosting) {
+        #if DEBUG
+        traceMark(.chromiumStart)
+        #endif
         webView.isHidden = true
         let scripts = PageChromiumDocumentScripts(controller: webView.configuration.userContentController)
         let descriptor = descriptor
+        #if DEBUG
+        let traced = ChatOpenTrace.shared.isTraced(page: self)
+        #endif
         chromiumStart = Task { [weak self] in
             let page: any PageChromiumPage
             do {
+                #if DEBUG
+                ChatOpenTrace.shared.makingTracedPage = traced
+                #endif
                 page = try await hosting.makePage(descriptor)
             } catch {
                 self?.fallBackToWebKit(.chromiumFailed, detail: "\(error)")
@@ -85,6 +98,9 @@ extension PageWebView {
                 page.close()
                 return
             }
+            #if DEBUG
+            traceMark(.browserCreated)
+            #endif
             await self.attachChromium(page, scripts: scripts)
         }
     }
@@ -109,21 +125,30 @@ extension PageWebView {
             session.end()
             return
         }
+        #if DEBUG
+        traceMark(.setupDone)
+        #endif
         bridge.install { [weak self] message in await self?.receive(message) }
         bridge.onMessage = { [weak self] name, body in self?.chromiumMessage(name, body: body) }
         bridge.onFirstMessage = { [weak session] in session?.deadline.cancel() }
-        inputReadiness.inserter = { [weak page] text in
+        inputReadiness.editor = { [weak self, weak page] edit, expectedEpoch in
             guard let page else { return false }
-            return await Self.insert(text, in: page)
+            return await Self.apply(edit, token: self?.inputReadiness.editToken, expectedEpoch: expectedEpoch, in: page)
         }
         chromiumSession = session
         scriptTarget.bridge = bridge
         bridge.evaluate(DesignSettings.shared.interfaceScaleScript)
         page.setZoom(pageZoom)
+        // The WebKit page draws no background (`drawsBackground` off): the Chromium page neither.
+        page.setSeeThrough(true)
         page.contentView.frame = bounds
         page.contentView.autoresizingMask = [.width, .height]
         addSubview(page.contentView)
+        applyNativeRects()
         page.setVisible(window != nil && !isHiddenOrHasHiddenAncestor)
+        #if DEBUG
+        traceMark(.navigationStart)
+        #endif
         page.load(descriptor.url(route: route))
         let wait = chromiumDeadline
         // The page's first message cancels the deadline (onFirstMessage); ending the session too.
@@ -143,7 +168,7 @@ extension PageWebView {
         chromiumSession = nil
         chromiumUserEventUptime = nil
         chromiumDragFile = nil
-        inputReadiness.inserter = nil
+        inputReadiness.editor = nil
         scriptTarget.bridge = bridge
         engineDecision = .webKit(reason)
         webView.isHidden = false
@@ -158,7 +183,7 @@ extension PageWebView {
         chromiumStart = nil
         chromiumSession?.end()
         chromiumSession = nil
-        inputReadiness.inserter = nil
+        inputReadiness.editor = nil
     }
 
     // MARK: Events
@@ -281,9 +306,9 @@ extension PageWebView {
         return result["value"]
     }
 
-    /// Types `text` into the focused editable element of a Chromium page (``PageInputReadiness``).
-    private static func insert(_ text: String, in page: any PageChromiumPage) async -> Bool {
-        let expression = "(function (text) {\n\(PageInputReadiness.insertScript)\n})(\(JSONValue.string(text).compactText))"
+    /// Makes `edit` in the focused editable element of a Chromium page (``PageInputReadiness``).
+    private static func apply(_ edit: PageInputReadiness.Edit, token: String?, expectedEpoch: Int?, in page: any PageChromiumPage) async -> Bool {
+        let expression = "(function () {\n\(PageInputReadiness.editScript(edit, token: token, expectedEpoch: expectedEpoch))\n})()"
         guard let json = try? await page.devTools("Runtime.evaluate", params: ["expression": expression, "returnByValue": true]) else {
             return false
         }

@@ -92,8 +92,12 @@ impl Hub {
                         }
                     }
                     "agent_message_chunk" => {
-                        if let Some(t) =
-                            rec.msg.pointer("/params/update/content/text").and_then(Value::as_str)
+                        if let Some(t) = rec
+                            .msg
+                            .get("params")
+                            .filter(|p| !crate::subagents::is_subagents(p))
+                            .and_then(|p| p.pointer("/update/content/text"))
+                            .and_then(Value::as_str)
                         {
                             assistant
                                 .get_or_insert_with(|| Entry {

@@ -14,7 +14,8 @@ import {
   setInspectorSection,
   setInspectorWidth,
 } from "../src/agent-session/acpmux/inspector/inspectorState";
-import { assistant, chat, user } from "../src/gallery/fixtures/acpmux";
+import type { ProcessRegistry } from "../src/agent-session/acpmux/inspector/processes";
+import { activity, assistant, chat, tool, user } from "../src/gallery/fixtures/acpmux";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -174,4 +175,94 @@ test("opening, closing, resizing and folding the Inspector render the chat pane 
   paneRenders = 0;
   await close();
   expect(paneRenders).toBe(1);
+});
+
+// Leo, 2026-10-22: "why does it FLICKER". A streaming chat sends a new snapshot on every token and
+// tool event, and the registry lists the chat's background commands as it learns of them. None of
+// that may redraw the Inspector from scratch: open, it stays the same panel, shown, and a task row
+// stays the same row, including when the registry starts listing a command only the transcript knew
+// (its id turns from the call's into the registry's process id).
+function StreamPane({ snapshot, registry }: { snapshot: ReturnType<typeof chat>; registry: ProcessRegistry }) {
+  const [shell, setShell] = useState<HTMLElement | null>(null);
+  const inspector = useChatInspector({
+    snapshot,
+    machineName: "Studio",
+    shell,
+    processes: registry,
+    onStopProcess: async () => undefined,
+  });
+  return (
+    <section
+      className="acpmux-shell"
+      ref={(element) => {
+        if (element && element !== shell) setShell(element);
+      }}
+    >
+      {inspector.panel}
+    </section>
+  );
+}
+
+test("open, the Inspector and its task rows survive 50 streamed updates without a remount", async () => {
+  const container = installDom();
+  const call = tool("Type-check in watch mode", "execute", "in_progress", {
+    id: "call-tsc",
+    inputSummary: JSON.stringify({
+      command: "tsc --watch",
+      run_in_background: true,
+    }),
+  });
+  const rowsAt = (step: number) => [
+    user("Keep the type-checker running and write the notes", 6),
+    activity([call], 5, { id: "activity-tsc" }),
+    // The reply streams in: a new row object, and longer text, on every update.
+    assistant(`Working${".".repeat(step)}`, 1, {
+      id: "assistant-streaming",
+      version: step + 1,
+    }),
+  ];
+  const registryAt = (step: number): ProcessRegistry =>
+    // From update 20 the registry has listed the chat, the type-checker among its processes.
+    step < 20
+      ? { processes: [], listed: false }
+      : {
+          processes: [
+            {
+              id: "s1/tsc",
+              command: "tsc --watch",
+              toolCallId: "call-tsc",
+              startedAt: 1,
+              state: "running",
+            },
+          ],
+          listed: true,
+        };
+  const render = (step: number) =>
+    act(async () => {
+      root ??= createRoot(container);
+      root.render(<StreamPane snapshot={chat(rowsAt(step))} registry={registryAt(step)} />);
+    });
+  await render(0);
+  await act(async () => setInspectorSection("tasks", true));
+  await act(async () => setInspectorOpen(true));
+  const panel = () => container.querySelector<HTMLElement>("aside.acpmux-chat-inspector");
+  const taskRow = () =>
+    container.querySelector<HTMLElement>('[data-section="tasks"] .acpmux-chat-inspector-task--command');
+  const opened = panel();
+  const row = taskRow();
+  expect(opened?.dataset.presence).toBe("shown");
+  expect(row?.textContent).toContain("tsc --watch");
+  const seen: { step: number; panel: boolean; shown: boolean; row: boolean }[] = [];
+  for (let step = 1; step <= 50; step++) {
+    await render(step);
+    seen.push({
+      step,
+      panel: panel() === opened,
+      shown: panel()?.dataset.presence === "shown",
+      row: taskRow() === row,
+    });
+  }
+  expect(seen.filter((update) => !update.panel || !update.shown || !update.row)).toEqual([]);
+  // The registry lists it now: the same row has its Stop.
+  expect(row?.querySelector("button.acpmux-chat-inspector-stop")).not.toBeNull();
 });

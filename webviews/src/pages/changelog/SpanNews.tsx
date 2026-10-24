@@ -34,6 +34,8 @@ export function SpanNews({ view, ctx }: { view: ReleaseView; ctx: PartsContext }
   const cards = newsItems(view).filter((item) => !lead.includes(item));
   const security = view.groups.filter((g) => g.category === "security");
   const fixed = view.groups.find((g) => g.category === "fixed")?.items ?? [];
+  // When fixes are all the update's news, their list is open: one closed line would hide all of it.
+  const onlyFixes = lead.length === 0 && cards.length === 0 && security.length === 0;
   return (
     <>
       {lead.length > 0 && (
@@ -63,7 +65,7 @@ export function SpanNews({ view, ctx }: { view: ReleaseView; ctx: PartsContext }
       )}
       {security.length > 0 && <Groups view={{ ...view, groups: security }} ctx={ctx} />}
       {fixed.length > 0 && (
-        <details className="cln-fixed">
+        <details className="cln-fixed" open={onlyFixes}>
           <summary>
             {categoryLabel(ctx.strings, "fixed")}
             <span className="cl-count">{fixed.length}</span>

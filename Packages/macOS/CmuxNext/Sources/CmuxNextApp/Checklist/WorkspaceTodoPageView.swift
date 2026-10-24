@@ -1,5 +1,6 @@
 import CmuxNextDaemon
 import SwiftUI
+import CmuxNextTasks
 
 /// The Todo page: a field that adds an item, then the workspace's checklist.
 struct WorkspaceTodoPageView: View {

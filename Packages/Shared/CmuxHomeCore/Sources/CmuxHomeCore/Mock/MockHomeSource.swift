@@ -467,6 +467,24 @@ public actor MockHomeSource: HomeSource {
         return conversations[conversation]?.lastSeq
     }
 
+    /// Adds `kind` from `author` to part `partIndex` of message `messageID`, as the owner
+    /// commits another participant's `reaction.add` (a Chief's `react` tool, a group member's
+    /// tapback): the message's update reaches every subscriber. False when the message is unknown.
+    @discardableResult
+    public func react(_ kind: Reaction.Kind, to messageID: MessageID, from author: ParticipantID,
+                      in conversation: ConversationID, partIndex: Int = 0) -> Bool {
+        guard var list = stored[conversation], let index = list.firstIndex(where: { $0.id == messageID }),
+              var summary = conversations[conversation] else { return false }
+        let reaction = Reaction(author: author, partIndex: partIndex, kind: kind)
+        if !list[index].reactions.contains(reaction) { list[index].reactions.append(reaction) }
+        stored[conversation] = list
+        summary.rev += 1
+        if summary.lastMessage?.id == messageID { summary.lastMessage = list[index] }
+        conversations[conversation] = summary
+        publish(.message(list[index], rev: summary.rev))
+        return true
+    }
+
     /// Posts a message as someone else (incoming traffic for demos).
     public func receive(_ text: String, from author: ParticipantID, in conversation: ConversationID) {
         _ = try? commitMessage(in: conversation, author: author, parts: [.text(text)], key: .make())

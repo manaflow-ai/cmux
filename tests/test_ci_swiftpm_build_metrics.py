@@ -186,7 +186,12 @@ class SwiftPMBuildMetricsTests(unittest.TestCase):
             directory = Path(upload["with"]["path"].replace("${{ runner.temp }}", str(runner_temp)))
             self.assertEqual(json.loads((directory / f"{role}.json").read_text())["role"], role)
             self.assertTrue((directory / f"{role}.log").is_file())
-            self.assertEqual(upload["if"], "${{ always() }}")
+            # A failed build still uploads; the only skip is a run that reused an earlier pass
+            # on the same inputs (#24018), which built nothing.
+            self.assertIn(upload["if"], (
+                "${{ always() }}",
+                "${{ (always()) && steps.reuse.outputs.hit != 'true' }}",
+            ))
             self.assertTrue(upload["continue-on-error"])
 
 

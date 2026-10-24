@@ -32,9 +32,9 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
   const modes = (current: string) => ({
     currentModeId: current,
     availableModes: [
-      { id: "default", name: "Normal", description: "Ask before edits and commands" },
+      { id: "default", name: "Manual", description: "Always ask before making changes" },
       { id: "acceptEdits", name: "Accept edits", description: "Edit files without asking" },
-      { id: "bypassPermissions", name: "Full access", description: "Never ask" },
+      { id: "bypassPermissions", name: "Bypass permissions", description: "Accepts all permissions" },
     ],
   });
   const chat = (sessionId: string, title: string, reply: string, mode: string) => {
@@ -186,7 +186,10 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
     await page.goto(url(A.listed.sessionId));
     await page.getByText("Retry added.").waitFor();
     const CHIP = ".acpmux-access-trigger .acpmux-mode-text";
-    await page.waitForFunction((selector) => document.querySelector(selector)?.textContent === "Full access", CHIP);
+    await page.waitForFunction(
+      (selector) => document.querySelector(selector)?.textContent === "Bypass permissions",
+      CHIP,
+    );
     await page.evaluate((selector) => {
       const frames: { at: number; chip: string; old: boolean; fresh: boolean; text: string }[] = [];
       (window as unknown as { switchFrames: typeof frames }).switchFrames = frames;
@@ -220,8 +223,9 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
         ).switchFrames,
     );
     await page.close();
-    const oldFrame = (frame: (typeof frames)[number]) => frame.old && !frame.fresh && frame.chip === "Full access";
-    const newFrame = (frame: (typeof frames)[number]) => frame.fresh && !frame.old && frame.chip === "Normal";
+    const oldFrame = (frame: (typeof frames)[number]) =>
+      frame.old && !frame.fresh && frame.chip === "Bypass permissions";
+    const newFrame = (frame: (typeof frames)[number]) => frame.fresh && !frame.old && frame.chip === "Manual";
     const between = frames.filter((frame) => !oldFrame(frame) && !newFrame(frame));
     const firstNew = frames.findIndex(newFrame);
     const span = between.length ? between.at(-1)!.at - between[0].at : 0;
@@ -250,7 +254,8 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
         frames.push({
           at: performance.now(),
           painted: (window as { cmuxDevPaintedAt?: number }).cmuxDevPaintedAt !== undefined,
-          whole: text.includes("Retry added.") && document.querySelector(selector)?.textContent === "Full access",
+          whole:
+            text.includes("Retry added.") && document.querySelector(selector)?.textContent === "Bypass permissions",
           text: text.slice(0, 160).replace(/\s+/g, " "),
         });
         return performance.now() < 20_000;
@@ -281,7 +286,10 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
     await page.goto(url(A.listed.sessionId));
     await page.getByText("Retry added.").waitFor();
     const CHIP = ".acpmux-access-trigger .acpmux-mode-text";
-    await page.waitForFunction((selector) => document.querySelector(selector)?.textContent === "Full access", CHIP);
+    await page.waitForFunction(
+      (selector) => document.querySelector(selector)?.textContent === "Bypass permissions",
+      CHIP,
+    );
     await page.evaluate((selector) => {
       const frames: { at: number; chip: string; old: boolean; text: string }[] = [];
       (window as unknown as { reconnectFrames: typeof frames }).reconnectFrames = frames;
@@ -310,7 +318,7 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
           .reconnectFrames,
     );
     await page.close();
-    const lost = frames.filter((frame) => !frame.old || frame.chip !== "Full access");
+    const lost = frames.filter((frame) => !frame.old || frame.chip !== "Bypass permissions");
     console.log(
       `reconnect-frames: ${frames.length} frames, ${lost.length} without the chat or its chip` +
         (lost.length

@@ -106,13 +106,23 @@ export function glyphState(pr: SummaryPullRequest, live: InspectorPullRequestSta
 
 const ended = (state: PullRequestGlyphState) => state === "merged" || state === "closed";
 
+/// The pull requests Changes lists: one the agent only named in a reply (`#N` can be an issue)
+/// once the App has read it as a pull request.
+export const visibleChanges = (
+  pullRequests: readonly SummaryPullRequest[],
+  statuses: Readonly<Record<string, InspectorPullRequestStatus>>,
+): SummaryPullRequest[] => pullRequests.filter((pr) => !pr.mentioned || statuses[pr.url]?.state !== undefined);
+
 /// The rows in Claude's order: the ones still open (drafts and conflicting ones included) first,
-/// then the merged and closed, newest first within each.
+/// then the merged and closed, the most recently touched or named first within each.
 export function changesOrder(
   pullRequests: readonly SummaryPullRequest[],
   statuses: Readonly<Record<string, InspectorPullRequestStatus>>,
 ): SummaryPullRequest[] {
-  const newest = [...pullRequests].reverse();
+  const newest = pullRequests
+    .map((pr, index) => ({ pr, index, at: pr.touched ?? index }))
+    .sort((a, b) => b.at - a.at || b.index - a.index)
+    .map(({ pr }) => pr);
   const done = (pr: SummaryPullRequest) => ended(glyphState(pr, statuses[pr.url] ?? {}));
   return [...newest.filter((pr) => !done(pr)), ...newest.filter(done)];
 }
@@ -122,7 +132,7 @@ export function ChangesSection({
   statuses,
   onOpenBeside,
 }: {
-  /// Oldest first, as sessionSummary reads them.
+  /// In any order: Changes sorts them (changesOrder).
   pullRequests: readonly SummaryPullRequest[];
   statuses: Readonly<Record<string, InspectorPullRequestStatus>>;
   /// Opens a pull request in the browser beside the chat; the menu item hides without it, and a

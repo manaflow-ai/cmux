@@ -8,6 +8,8 @@ use super::*;
 /// for a peer's session.
 const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::INITIALIZE,
+    // The app pane's reply in place is checked against this daemon's chats (`app_reply.rs`).
+    method::MUX_APP_REPLY,
     method::AUTHENTICATE,
     method::SESSION_NEW,
     method::SESSION_LIST,
@@ -28,6 +30,11 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_START_MODE,
     method::MUX_IMPORT,
     method::MUX_SHUTDOWN,
+    // Briefs are daemon-scoped and dispatch selects its peer explicitly.
+    method::MUX_DISPATCH,
+    method::MUX_STEER,
+    method::MUX_BRIEFS,
+    method::MUX_REPORT,
     // An agent message is taken back on this daemon only (`hub/withdraw.rs`).
     method::MUX_PROMPT_WITHDRAW,
     // A message to deliver is this daemon's (`outbox.rs`), whatever session it names.
@@ -121,6 +128,18 @@ async fn forward_inner(
                 return Err(crate::hub::file_uploads::peer_unsupported(&peer));
             }
         }
+        if m == method::MUX_FILE_PUT_CHUNK {
+            crate::hub::file_uploads::check_chunk(params)?;
+            if !peer.supports_file_put() {
+                return Err(crate::hub::file_uploads::peer_unsupported(&peer));
+            }
+        }
+        // The media reader runs on the peer that owns the chat, if it has one (`hub/media_read.rs`).
+        if matches!(m, method::MUX_MEDIA_OPEN | method::MUX_MEDIA_RANGE)
+            && !peer.supports_media_read()
+        {
+            return Err(crate::hub::media_read::peer_unsupported(&peer, m));
+        }
         let mut p = if params.is_null() { json!({}) } else { params.clone() };
         if let Some(obj) = p.as_object_mut() {
             obj.remove("session");
@@ -128,6 +147,7 @@ async fn forward_inner(
             obj.insert("sessionId".into(), Value::String(id.clone()));
         }
         super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut p);
+        bound_page(m, params, &mut p);
         // A keyed prompt replaces only its sender's (`hub/supersede.rs`): the peer cannot see the
         // session this connection runs in, so it gets that session's name.
         if m == method::SESSION_PROMPT {
@@ -154,8 +174,7 @@ async fn forward_inner(
             }
             if peer.mark_attached(&id) && m != method::MUX_ATTACH {
                 // The link is not a person: only a client's own attach or view shows the chat.
-                let attach = json!({"sessionId": id, "limit": 0, "visible": false});
-                let _ = peer.request(method::MUX_ATTACH, attach).await;
+                let _ = peer.request(method::MUX_ATTACH, crate::peer::hidden_attach(&id)).await;
             }
         }
         // The peer answers a prompt when its turn (or a steer's step) ends; the client hears
@@ -182,7 +201,11 @@ async fn forward_inner(
             hub.peer_accepts.forget(&peer.name, prompt_id, token);
         }
         let mut result = result.map_err(|e| {
-                        if e.message.contains("Method not found") {
+            if matches!(m, method::MUX_FILE_PUT_BEGIN | method::MUX_FILE_PUT_CHUNK | method::MUX_FILE_PUT_FINISH | method::MUX_FILE_PUT_CANCEL)
+                && e.message.contains("Method not found")
+            {
+                crate::hub::file_uploads::peer_unsupported(&peer)
+            } else if e.message.contains("Method not found") {
                             RpcError::internal(format!("{}; peer {} runs acpmux build {} (this daemon: {}); run `acpmux host update {}`", e.message, peer.name, peer.remote_build().unwrap_or_else(|| "unknown".into()), crate::hub::BUILD, peer.name))
                         } else {
                             e
@@ -254,6 +277,17 @@ pub const PEER_HOPS_FIELD: &str = "peerHops";
 /// answer back and forth without end.
 pub const MAX_PEER_HOPS: u64 = 4;
 
+/// A history read (`attach`, `events`) goes to the peer with the byte limit this daemon would
+/// page to: a peer on an older build has no limit of its own and answers in one reply however
+/// large, and one of 32.8 MB reset the link with its 29 chats (2026-10-21).
+fn bound_page(m: &str, params: &Value, forwarded: &mut Value) {
+    if matches!(m, method::MUX_ATTACH | method::MUX_EVENTS)
+        && let Some(object) = forwarded.as_object_mut()
+    {
+        object.insert("maxBytes".into(), json!(crate::hub::page_bytes(params)));
+    }
+}
+
 /// Count one more forward of an answer, or refuse one past the limit.
 fn count_hop(forwarded: &mut Value) -> Result<(), RpcError> {
     let hops = forwarded
@@ -267,4 +301,28 @@ fn count_hop(forwarded: &mut Value) -> Result<(), RpcError> {
     }
     crate::hub::merge_mux_meta(forwarded, json!({PEER_HOPS_FIELD: hops + 1}));
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A history read forwarded to a peer names its byte limit: a peer on an older build pages to
+    /// no limit of its own, and 5000 records of long tool outputs were one 32.8 MB reply that reset
+    /// the link with its 29 chats (2026-10-21).
+    #[test]
+    fn a_forwarded_history_read_names_its_byte_limit() {
+        for m in [method::MUX_ATTACH, method::MUX_EVENTS] {
+            let mut p = json!({"sessionId": "s", "limit": 5000});
+            bound_page(m, &json!({"limit": 5000}), &mut p);
+            assert_eq!(p["maxBytes"], crate::hub::page_bytes(&json!({})), "{m}");
+            // A limit the client asked for goes as this daemon caps it.
+            let mut p = json!({"sessionId": "s"});
+            bound_page(m, &json!({"maxBytes": 1u64 << 40}), &mut p);
+            assert_eq!(p["maxBytes"], crate::hub::MAX_PAGE_BYTES, "{m}");
+        }
+        let mut p = json!({"sessionId": "s"});
+        bound_page(method::SESSION_PROMPT, &json!({}), &mut p);
+        assert!(p.get("maxBytes").is_none());
+    }
 }

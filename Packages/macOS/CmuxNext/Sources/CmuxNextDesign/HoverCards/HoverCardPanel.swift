@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesignTokens
 
 /// Where a card sits relative to its target.
 public enum HoverCardPlacement: Sendable {
@@ -8,8 +9,10 @@ public enum HoverCardPlacement: Sendable {
     case above
     /// Right of the target, top-aligned (the update card).
     case beside
-    /// Beside a sidebar row with an empty escape slot next to it: the card's near edge on the
-    /// row's middle, so the pointer leaves it in a few points (`HoverCardEscapeGeometry`).
+    /// Beside a sidebar row, one device pixel off the sidebar's edge (the anchor is the row's band
+    /// across the sidebar, `HoverCardEscapeGeometry.rowBand`), its top on the row's top as Chrome's
+    /// and Arc's tab cards (or on the row's middle, below an escape slot, under a Debug switch:
+    /// `HoverCardEscapeGeometry`).
     case besideRow
 }
 
@@ -75,6 +78,8 @@ final class HoverCardPanel: NSPanel {
     var bodyLines: [String] { (body as? any HoverCardTextReporting)?.reportedLines ?? [] }
     private weak var parentWindowRef: NSWindow?
     private var anchor: CGRect = .zero
+    /// The target's frame on screen the card is placed against (`debug.hover_cards`).
+    var anchorFrame: CGRect { anchor }
     private(set) var placement: HoverCardPlacement = .below
     /// The side the card rests on now: `placement`, or the other side when the screen has no room.
     private(set) var restingPlacement: HoverCardPlacement = .below
@@ -114,6 +119,14 @@ final class HoverCardPanel: NSPanel {
 
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
+
+    /// The window stays where `place()` puts it: `rest(for:)` already keeps the card on screen.
+    /// The window is the card plus its clear band (`windowMargin`), so a tab just under the menu
+    /// bar puts the band's top in the menu bar, and AppKit's default constraint moved the whole
+    /// window, card and all, down below it: the card hung a toolbar's height under its tab
+    /// (Austin 2026-10-20: "The cards, when I hover on the tabs, are not connected to the tabs
+    /// themselves"). The band is clear and click-through, so it may sit under the menu bar.
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
 
     /// The card's frame on screen at rest: the window less its clear band.
     var cardFrame: CGRect { activeMorph == nil ? frame.insetBy(dx: Self.windowMargin, dy: Self.windowMargin) : restCardFrame }
@@ -283,17 +296,19 @@ final class HoverCardPanel: NSPanel {
         let fitting = glass.fittingSize
         let size = CGSize(width: (fitting.width * scale).rounded(.up) / scale, height: (fitting.height * scale).rounded(.up) / scale)
         let screen = parentWindowRef?.screen ?? NSScreen.main
+        let alignment = HoverCardEscapeGeometry.currentAlignment
         let rest = Self.rest(for: placement, anchor: anchor, size: size, screen: screen?.frame,
                              visible: screen?.visibleFrame, window: parentWindowRef?.frame,
-                             margin: Metrics.space2, scale: scale)
+                             margin: Metrics.space2, scale: scale, rowAlignment: alignment)
         let origin = rest.origin
         isLeading = rest.isLeading
         restingPlacement = rest.placement
-        // A row card keeps its escape slot (`HoverCardEscapeGeometry`); `rest` placed it the same way.
+        // A row card keeps its geometry (`HoverCardEscapeGeometry`: its row, frame, gap strip, and the
+        // escape slot under the Debug middle layout); `rest` placed it the same way.
         escapeGeometry = placement == .besideRow
             ? HoverCardEscapeGeometry(anchor: anchor, cardSize: size,
-                                      visible: screen.map { $0.visibleFrame.insetBy(dx: Metrics.space2, dy: Metrics.space2) },
-                                      scale: scale)
+                                      visible: screen.map { HoverCardEscapeGeometry.room(visible: $0.visibleFrame, window: parentWindowRef?.frame, margin: Metrics.space2) },
+                                      scale: scale, alignment: alignment)
             : nil
         // R131: the window moves in the same frame (a window-frame slide restarted on every tab
         // trailed the pointer); a retarget's slide runs inside it (`slide(from:)`).
@@ -354,8 +369,9 @@ extension HoverCardPanel {
     /// ends first; with no room on its side it flips to the other side. Only a card that fits on
     /// neither side is clamped.
     static func rest(for placement: HoverCardPlacement, anchor: CGRect, size: CGSize, screen: CGRect?, visible: CGRect?,
-                     window: CGRect?, margin: CGFloat, scale: CGFloat = 2) -> HoverCardRest {
-        var origin = Self.origin(for: placement, anchor: anchor, size: size, scale: scale)
+                     window: CGRect?, margin: CGFloat, scale: CGFloat = 2,
+                     rowAlignment: HoverCardEscapeGeometry.RowAlignment = .top) -> HoverCardRest {
+        var origin = Self.origin(for: placement, anchor: anchor, size: size, scale: scale, rowAlignment: rowAlignment)
         guard var area = visible ?? screen else { return HoverCardRest(origin: origin, placement: placement) }
         var isLeading = false
         if let window {
@@ -389,10 +405,10 @@ extension HoverCardPanel {
             origin.x = clampX(origin.x)
             origin.y = clampY(origin.y)
         case .besideRow:
-            // Beside a sidebar row, its escape slot kept: it flips above the row's middle or to
-            // the row's left rather than clamping over the slot. The visible frame only, as before.
-            let room = (visible ?? screen ?? area).insetBy(dx: margin, dy: margin)
-            let geometry = HoverCardEscapeGeometry(anchor: anchor, cardSize: size, visible: room, scale: scale)
+            // Beside a sidebar row, top-aligned with it and clamped into the visible frame; left of
+            // the row when the screen ends first (`HoverCardEscapeGeometry`).
+            let room = HoverCardEscapeGeometry.room(visible: visible ?? screen ?? area, window: window, margin: margin)
+            let geometry = HoverCardEscapeGeometry(anchor: anchor, cardSize: size, visible: room, scale: scale, alignment: rowAlignment)
             origin = geometry.card.origin
             isLeading = geometry.isLeading
         }
@@ -402,13 +418,15 @@ extension HoverCardPanel {
     /// The room between a card and its tab: none. The card touches its tab, so the pointer never
     /// crosses empty space between them (Lawrence 2026-10-19: "there is a gap in between ... such
     /// that there is no gap in between"). A card beside a sidebar row stands
-    /// `HoverCardEscapeGeometry.rowGap` off it instead (Leo 2026-10-20).
+    /// `HoverCardEscapeGeometry.edgeGap(scale:)` off the sidebar's edge instead.
     static let targetGap: CGFloat = 0
 
     /// The card's origin (screen coordinates, y up) for `placement` next to `anchor`, before
     /// the screen clamp. The touching edge is snapped to a device pixel of `scale` toward the
-    /// target, so a fractional anchor overlaps it by under a pixel and never leaves a seam.
-    static func origin(for placement: HoverCardPlacement, anchor: CGRect, size: CGSize, scale: CGFloat = 2) -> CGPoint {
+    /// target, so a fractional anchor overlaps it by under a pixel and never leaves a seam. A
+    /// `.besideRow` card's place is `HoverCardEscapeGeometry`'s, the one rule for sidebar cards.
+    static func origin(for placement: HoverCardPlacement, anchor: CGRect, size: CGSize, scale: CGFloat = 2,
+                       rowAlignment: HoverCardEscapeGeometry.RowAlignment = .top) -> CGPoint {
         let scale = max(scale, 1)
         func up(_ value: CGFloat) -> CGFloat { (value * scale).rounded(.up) / scale }
         func down(_ value: CGFloat) -> CGFloat { (value * scale).rounded(.down) / scale }
@@ -419,8 +437,8 @@ extension HoverCardPanel {
         case .above: CGPoint(x: anchor.minX, y: down(anchor.maxY + targetGap))
         // The card's leading edge `rowGap` past the row's trailing edge, top-aligned.
         case .beside: CGPoint(x: down(anchor.maxX + HoverCardEscapeGeometry.rowGap), y: anchor.maxY - size.height)
-        // Right of the row, below its escape slot (before any flip the screen needs).
-        case .besideRow: HoverCardEscapeGeometry(anchor: anchor, cardSize: size, scale: scale).card.origin
+        // Right of the row, its top on the row's top (before any clamp or flip the screen needs).
+        case .besideRow: HoverCardEscapeGeometry(anchor: anchor, cardSize: size, scale: scale, alignment: rowAlignment).card.origin
         }
     }
 }

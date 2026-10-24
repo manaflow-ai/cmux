@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 public import Foundation
 import Security
 
@@ -53,7 +54,7 @@ public struct UpdateDropBack {
         helper.executableURL = URL(fileURLWithPath: command[0])
         helper.arguments = Array(command.dropFirst())
         do { try helper.run() } catch { return }
-        RunLoop.main.perform(inModes: [.common]) { NSApp.terminate(nil) }
+        NSApplication.terminateFromRunLoop()
     }
 
     /// The Developer ID team of a valid signed bundle, else nil.

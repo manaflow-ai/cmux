@@ -364,6 +364,12 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     this.drainWakes(now)
     // setAlarm refuses a time <= 0; a past time fires at once, so the alarm never goes before now.
     const at = Math.max(want, now)
+    // A non-finite time (NaN from a malformed due time) makes setAlarm throw in a detached promise, an
+    // unhandled rejection; the alarm already set stays, and the warning names the stream to look at.
+    if (!Number.isFinite(at)) {
+      console.warn(JSON.stringify({ msg: "alarm time not finite", stream: this.engine.stream, want }))
+      return
+    }
     void this.ctx.storage.getAlarm().then((t) => (t === null || t > at ? this.ctx.storage.setAlarm(at) : undefined))
   }
 
@@ -531,6 +537,6 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     const outboxAt = this.engine.outbox.nextDueAt(Date.now())
     const due = this.wakeAt(Date.now())
     const at = earliest(outboxAt, wakeRetryAt !== null && due !== null ? Math.max(due, wakeRetryAt) : due)
-    if (at !== null) await this.ctx.storage.setAlarm(Math.max(at, Date.now()))
+    if (at !== null && Number.isFinite(at)) await this.ctx.storage.setAlarm(Math.max(at, Date.now()))
   }
 }

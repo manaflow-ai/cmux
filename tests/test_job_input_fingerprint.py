@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """scripts/ci/job_input_fingerprint.py: a changed input never reuses a pass.
 
-CI_NEXT_JOB_REUSE reuses a fast-tier pass recorded under the same key. The key must change when anything the
-job could read changes: any file in the commit's tree, the whole cmux-next.yml, and the toolchain (Xcode for
-fast-tier; Rust and Zig for fast-tier-cargo). The same inputs must give the same key, so a rerun or a re-push
-of the same tree reuses. Each case builds a small repository and compares keys before and after one change.
+CI_NEXT_JOB_REUSE reuses a pass recorded under the same key. The key must change when anything the job could
+read changes. For the fast tiers that is any file in the commit's tree, the whole cmux-next.yml and the
+toolchain (Xcode for fast-tier; Rust and Zig for fast-tier-cargo). For the three Mac jobs (swift test, the
+Release compile, generated files) it is an explicit input list derived from the router and the CI target
+graph, so a base move that touches none of a job's inputs keeps its key. The same inputs must give the same
+key, so a rerun or a re-push of the same tree reuses. Each case builds a small repository and compares keys
+before and after one change.
 """
 
 from __future__ import annotations
@@ -271,6 +274,236 @@ class JobInputFingerprint(unittest.TestCase):
                 key, stderr = run(job, ROOT, TOOLCHAIN[job])
                 self.assertTrue(key.startswith(f"job-pass-{job}-"), stderr[-2000:])
                 self.assertTrue(re.search(r"^tree [0-9a-f]{40}", stderr, re.M), stderr[-2000:])
+
+
+# The three Mac jobs key an explicit input list, so a small repository holds files on both sides of it.
+MAC_FILES = {
+    "Packages/macOS/CmuxNext/Package.swift": 'let package = Package(name: "CmuxNext")\n',
+    "Packages/macOS/CmuxNext/Package.resolved": '{"pins": []}\n',
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift": "let app = 1\n",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Settings.swift": "let setting = 1\n",
+    "Packages/macOS/CmuxNext/ci-target-graph.json": """{"packages": {}, "targets": {
+  "CmuxNextAppTests": {"kind": "test", "path": "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests",
+                       "targets": [], "packages": [], "reads": ["docs/read-by-tests.json", "fixtures/read-dir/"]}
+}}
+""",
+    "Packages/Shared/CmuxTheme/Sources/Theme.swift": "let theme = 1\n",
+    "vendor/stack-auth-swift-sdk-prerelease/Package.swift": "// sdk\n",
+    ".xcode-version": "26.6\n",
+    "scripts/ci/xcode-pins.txt": "26 26.6\n",
+    "scripts/select-ci-xcode.sh": "echo select\n",
+    "scripts/cmux-next/check-release-compile.sh": "echo compile\n",
+    "scripts/cmux-next/cef-manifest.json": "{}\n",
+    "scripts/ci/defaults_guard.py": "print('guard')\n",
+    "scripts/ci/unrelated_tool.py": "print('unrelated')\n",
+    "schemas/settings/settings-schema.json": "{}\n",
+    "schemas/keybindings/vectors.json": "{}\n",
+    "plans/cmux-next/action-surfaces.json": "{}\n",
+    "plans/other/notes.md": "notes\n",
+    "docs/read-by-tests.json": "{}\n",
+    "docs/mdm/index.md": "mdm\n",
+    "fixtures/read-dir/case.json": "{}\n",
+    "webviews/src/app.ts": "export const app = 1\n",
+    "web/app/page.tsx": "export default 1\n",
+    "cmux-tui/Cargo.toml": "[workspace]\n",
+    "cmux-tui/Cargo.lock": "# lock\n",
+    "cmux-tui/crates/cmux-layout-reducer/src/lib.rs": "pub fn reduce() {}\n",
+    "cmux-tui/crates/cmux-daemon/src/lib.rs": "pub fn daemon() {}\n",
+    "iosapp/Notes.txt": "ios\n",
+}
+
+MAC_TOOLCHAIN = {
+    "xcode": "Xcode 26.6 Build version 17F55",
+    "macos": "26.0.1",
+    "macos_build": "25A362",
+    "arch": "arm64",
+    "pool": "owned",
+}
+# The env flags each Mac job passes; '' is a value (an empty swift filter runs every selected target).
+MAC_FLAGS = {
+    "swift-test": {"swift_targets": "CmuxNextAppTests", "swift_filter": "", "mini": "true",
+                   "xcode_app": "/Applications/Xcode_26.6.app", "web_bundles": "0123abcd"},
+    "generated-files": {"mini": "true", "xcode_app": "/Applications/Xcode_26.6.app", "web_bundles": "0123abcd"},
+    "release-compile": {"mini": "true", "xcode_app": "/Applications/Xcode_26.6.app"},
+}
+MAC_JOBS = tuple(MAC_FLAGS)
+
+# Inputs every Mac job keys (a change to any changes the key), and what each job adds.
+COMMON_INPUTS = (
+    "Packages/macOS/CmuxNext/Package.resolved", "Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift",
+    "Packages/Shared/CmuxTheme/Sources/Theme.swift", "vendor/stack-auth-swift-sdk-prerelease/Package.swift",
+    ".xcode-version", "scripts/ci/xcode-pins.txt", "scripts/select-ci-xcode.sh",
+    "scripts/cmux-next/check-release-compile.sh", "scripts/cmux-next/cef-manifest.json",
+    ".github/workflows/cmux-next.yml", "schemas/keybindings/vectors.json", "plans/cmux-next/action-surfaces.json",
+    "docs/read-by-tests.json", "fixtures/read-dir/case.json", "Packages/macOS/CmuxNext/ci-target-graph.json",
+)
+JOB_INPUTS = {
+    "swift-test": ("webviews/src/app.ts", "cmux-tui/Cargo.lock", "cmux-tui/crates/cmux-layout-reducer/src/lib.rs"),
+    "generated-files": ("webviews/src/app.ts", "scripts/ci/defaults_guard.py", "docs/mdm/index.md"),
+    "release-compile": ("LICENSE", "scripts/verify-app-bundle-licenses.sh",
+                        "cmux-tui/build-support/notices", "cmux-tui/rust-toolchain.toml",
+                        "cmux-tui/crates/ghostty-vt-sys/build.rs"),
+}
+# Files no Mac job reads: a base move that touches only these keeps every key.
+OUTSIDE = ("docs/readme.md", "web/app/page.tsx", "cmux-tui/crates/cmux-daemon/src/lib.rs", "plans/other/notes.md",
+           "scripts/ci/unrelated_tool.py", "iosapp/Notes.txt", "ws/crates/other/src/lib.rs")
+
+
+class MacJobInputs(unittest.TestCase):
+    """swift test, the Release compile and generated files key their own inputs, not the whole tree."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = Repo(Path(self.tmp.name))
+        for name, text in MAC_FILES.items():
+            self.repo.write(name, text)
+        self.repo.commit()
+        # generated-files keys its base (HEAD^1) too, as a merge commit has one.
+        self.repo.commit()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def run_job(self, job: str, rev: str = "HEAD", base_rev: str | None = "HEAD^1", extra: tuple[str, ...] = (),
+                **values: str | None) -> tuple[str, str]:
+        args = [sys.executable, "-I", str(SCRIPT), job, "--root", str(self.repo.root), "--rev", rev, *extra]
+        if base_rev is not None:
+            args += ["--base-rev", base_rev]
+        for name, value in {**MAC_TOOLCHAIN, **MAC_FLAGS[job], **values}.items():
+            if value is not None:
+                args += ["--extra", f"{name}={value}"]
+        result = subprocess.run(args, capture_output=True, text=True, timeout=120)
+        self.assertEqual(result.returncode, 0, result.stderr[-2000:])
+        lines = dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
+        return lines.get("key", ""), result.stderr
+
+    def key(self, job: str, **values: str | None) -> str:
+        key, stderr = self.run_job(job, **values)
+        self.assertTrue(key.startswith(f"job-pass-{job}-"), stderr[-2000:])
+        return key
+
+    def edit(self, name: str) -> None:
+        path = self.repo.root / name
+        # JSON stays JSON: the graph must still parse after the edit.
+        self.repo.write(name, (path.read_text() if path.exists() else "") + ("\n" if name.endswith(".json") else "// changed\n"))
+        self.repo.commit()
+
+    def test_a_base_move_outside_the_inputs_keeps_the_key(self):
+        for job in MAC_JOBS:
+            for name in OUTSIDE + ("notes/new-file.txt",):
+                with self.subTest(job=job, name=name):
+                    before = self.key(job)
+                    self.edit(name)
+                    self.assertEqual(before, self.key(job), f"{name} is not a {job} input")
+
+    def test_a_change_to_any_listed_input_changes_the_key(self):
+        for job in MAC_JOBS:
+            for name in COMMON_INPUTS + JOB_INPUTS[job]:
+                with self.subTest(job=job, name=name):
+                    before = self.key(job)
+                    self.edit(name)
+                    self.assertNotEqual(before, self.key(job), f"{name} is a {job} input")
+
+    def test_an_added_file_under_an_input_changes_the_key(self):
+        for job in MAC_JOBS:
+            with self.subTest(job=job):
+                before = self.key(job)
+                self.edit(f"Packages/macOS/CmuxNext/Sources/CmuxNextApp/New{job.replace('-', '')}.swift")
+                self.assertNotEqual(before, self.key(job))
+
+    def test_a_submodule_gitlink_bump_changes_the_key(self):
+        for job in MAC_JOBS:
+            for index, submodule in enumerate(("ghostty", "ghostty-next")):
+                with self.subTest(job=job, submodule=submodule):
+                    before = self.key(job)
+                    git(self.repo.root, "update-index", "--add", "--cacheinfo",
+                        f"160000,{(str(index + 1) + format(MAC_JOBS.index(job) + 10, 'x')) * 20},{submodule}")
+                    git(self.repo.root, "commit", "-q", "-m", "bump")
+                    self.assertNotEqual(before, self.key(job))
+
+    def test_the_toolchain_and_every_env_flag_count(self):
+        changed = {"xcode": "Xcode 26.6 Build version 17F56", "macos": "26.0.2", "macos_build": "25A363",
+                   "arch": "x86_64", "pool": "blacksmith", "image": "macos26-20261012.1", "mini": "false",
+                   "xcode_app": "/Applications/Xcode_26.7.app", "web_bundles": "4567cdef",
+                   "swift_targets": "all", "swift_filter": "^(CmuxNextAppTests)\\\\."}
+        for job in MAC_JOBS:
+            base = self.key(job)
+            for name, value in changed.items():
+                if name not in {**MAC_TOOLCHAIN, **MAC_FLAGS[job]} and name != "image":
+                    continue
+                with self.subTest(job=job, name=name):
+                    self.assertNotEqual(base, self.key(job, **{name: value}))
+
+    def test_a_missing_value_gives_no_key(self):
+        for job in MAC_JOBS:
+            for name in {**MAC_TOOLCHAIN, **MAC_FLAGS[job]}:
+                with self.subTest(job=job, name=name):
+                    key, stderr = self.run_job(job, **{name: None})
+                    self.assertEqual(key, "", f"no {name} value, no key")
+                    self.assertIn(name, stderr)
+            # A value the job does not declare is refused too, so a typo never keys silently.
+            with self.subTest(job=job, name="unknown"):
+                self.assertEqual(self.run_job(job, unknown_flag="1")[0], "")
+
+    def test_an_empty_flag_is_a_value_but_an_empty_toolchain_or_bundle_key_is_not(self):
+        self.key("swift-test", swift_filter="")
+        for job in MAC_JOBS:
+            for name in ("xcode", "pool") + (("web_bundles",) if "web_bundles" in MAC_FLAGS[job] else ()):
+                with self.subTest(job=job, name=name):
+                    self.assertEqual(self.run_job(job, **{name: " "})[0], "")
+
+    def test_generated_files_keys_the_settings_sources_of_its_base(self):
+        # check-stamp --base HEAD^1: the same head inputs over a base with other settings sources may judge
+        # differently, so the base's settings inputs count; a base change elsewhere does not.
+        self.edit("Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Settings.swift")
+        settings_base = git(self.repo.root, "rev-parse", "HEAD^1").strip()
+        self.edit("docs/readme.md")
+        head = git(self.repo.root, "rev-parse", "HEAD").strip()
+        docs_base = git(self.repo.root, "rev-parse", "HEAD^1").strip()
+        same = self.run_job("generated-files", rev=head, base_rev=docs_base)[0]
+        other = self.run_job("generated-files", rev=head, base_rev=settings_base)[0]
+        self.assertTrue(same and other)
+        self.assertNotEqual(same, other)
+        self.assertEqual(self.run_job("generated-files", rev=head, base_rev=None)[0], "", "no base, no key")
+        # The other two jobs read no base.
+        for job in ("swift-test", "release-compile"):
+            with self.subTest(job=job):
+                self.assertEqual(self.run_job(job, rev=head, base_rev=docs_base)[0],
+                                 self.run_job(job, rev=head, base_rev=settings_base)[0])
+
+    def test_the_input_list_derives_from_the_router_and_the_target_graph(self):
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+        import cmux_next_route as route
+
+        def listed(job: str) -> set[str]:
+            key, stderr = self.run_job(job, extra=("--list-inputs",))
+            return {line.split(" ", 1)[1] for line in stderr.splitlines() if line.startswith("input ")}
+
+        def norm(path: str) -> str:
+            return path.rstrip("*").rstrip("/")
+
+        for job in MAC_JOBS:
+            with self.subTest(job=job):
+                inputs = listed(job)
+                for path in route.FULL_INPUTS + route.VENDORED_PINS:
+                    self.assertTrue(any(norm(path) == i or norm(path).startswith(i + "/") for i in inputs), path)
+                for path in ("docs/read-by-tests.json", "fixtures/read-dir", "ghostty", "ghostty-next", "Packages"):
+                    self.assertIn(path, inputs)
+        swift = listed("swift-test")
+        for path in route.SWIFT_JOB_INPUTS + route.BUNDLE_INPUTS:
+            self.assertTrue(any(norm(path) == i or norm(path).startswith(i + "/") for i in swift), path)
+        generated = listed("generated-files")
+        for path in route.GENERATED_INPUTS:
+            self.assertTrue(any(norm(path) == i or norm(path).startswith(i + "/") for i in generated), path)
+
+    def test_the_real_tree_gives_every_mac_job_a_key(self):
+        for job in MAC_JOBS:
+            with self.subTest(job=job):
+                args = [sys.executable, "-I", str(SCRIPT), job, "--root", str(ROOT), "--base-rev", "HEAD"]
+                for name, value in {**MAC_TOOLCHAIN, **MAC_FLAGS[job]}.items():
+                    args += ["--extra", f"{name}={value}"]
+                result = subprocess.run(args, capture_output=True, text=True, timeout=120)
+                self.assertIn(f"key=job-pass-{job}-", result.stdout, result.stderr[-2000:])
 
 
 if __name__ == "__main__":

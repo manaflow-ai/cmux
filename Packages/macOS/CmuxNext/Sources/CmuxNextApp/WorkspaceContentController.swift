@@ -45,6 +45,9 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// through it.
     let focus: FocusCoordinator
     var nextGestureTransaction: UInt64 = UInt64(Date().timeIntervalSince1970 * 1000) << 8
+    /// The last key-turn pane create (New Column, New Row) still sending: the next one sends after
+    /// it, so one pressed on its stand-in names the daemon's pane (`createInKeysTurn`).
+    var pendingCreate: Task<Void, Never>?
     /// Kept mounted off screen by its window (a workspace it showed): its panes report hidden, so
     /// their surfaces pause and only the warm set's LRU may destroy one; it sends no focus events,
     /// because the window's focus follows the shown workspace.
@@ -102,7 +105,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         emptyWorkspaceRepair.createFirst = { [weak services, weak daemon] key in
             guard let services, let daemon, let workspace = daemon.store.workspaces.first(where: { $0.key == key }) else { throw DaemonError.notConnected }
             // Another machine's empty workspace gets a terminal: its chats start only when asked (cx-k21v).
-            if services.agentTabs.opensFirstPage(on: daemon) {
+            // So does every empty workspace in cmux Classic Mode (`tabs.terminalFirst`, #23021).
+            if !NewTabKind.terminalFirst(services), services.agentTabs.opensFirstPage(on: daemon) {
                 return try await services.agentTabs.openFirstPage(in: workspace, on: daemon, services: services)
             }
             return try await fallbackCreate(key)
@@ -167,7 +171,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         }
     }
 
-    /// Panes whose shown tab holds an unread notification draw the attention
+    /// Panes whose shown tab reads unread (a notification or Mark as Unread) draw the attention
     /// ring; this window's tab selection decides which tab a pane shows.
     private func observeAttention() {
         let notifications = services.notifications, workspace = workspace
@@ -198,7 +202,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         // Commands translate through the current handles even when the tree is unchanged (the
         // daemon's echo of an optimistic split renumbers only the new pane): no apply then.
         let topologyMoved = adoptHandles(result.handles)
-        guard appliedTree.update(result, edgeDocks: daemon.supports(DaemonCapabilities.shared.edgeDocks), rows: daemon.supports(DaemonCapabilities.shared.rows)) || force else {
+        guard appliedTree.update(result, edgeDocks: daemon.supports(DaemonCapabilities.edgeDocks), rows: daemon.supports(DaemonCapabilities.rows)) || force else {
             if topologyMoved {
                 // The one topology of this change (adoptions inside sent none); the focus it lands
                 // rings in this frame.

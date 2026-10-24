@@ -141,7 +141,10 @@ impl MeshDriver {
             self.run_timers();
             match event {
                 Event::Datagram(count, source) => {
-                    self.handle_datagram(&datagram[..count], source.map(PeerRoute::Udp));
+                    // A count past the buffer is not a datagram: drop it.
+                    if let Some(received) = datagram.get(..count) {
+                        self.handle_datagram(received, source.map(PeerRoute::Udp));
+                    }
                     self.receive_ready(&mut datagram);
                 }
                 Event::Gateway(received) => self.receive_gateways(received),
@@ -163,7 +166,9 @@ impl MeshDriver {
         for _ in 1..RECEIVE_BATCH {
             match self.out.udp.socket().try_recv_from(buffer) {
                 Ok((count, source)) => {
-                    self.handle_datagram(&buffer[..count], Some(PeerRoute::Udp(source)));
+                    if let Some(received) = buffer.get(..count) {
+                        self.handle_datagram(received, Some(PeerRoute::Udp(source)));
+                    }
                 }
                 // WouldBlock, or an error the next wait reports.
                 Err(_) => break,

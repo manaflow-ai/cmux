@@ -7,11 +7,9 @@
 //!
 //! Only the unix socket may send it (`remote_guard.rs` refuses every other origin with
 //! `provenance.origin_refused`), so a remote client cannot pass its words off as an agent's.
-//! One exception: the app's own pane (`Origin::LocalApp`) may send a reply: `replyTo` names an
-//! agent message that chat `from` (`acp:<id>`, a chat of this daemon) got from the prompt's chat
-//! `to` (`acp:<id>`) (`Hub::app_reply_fits`), and acpmux signs it with that chat's own name. It
-//! is the person's answer to that message, typed in place in the chat it came to
-//! (IncomingMessageCard.tsx), so it lands in the sender's chat in its thread.
+//! The app's own pane included: its reply in place to an agent message is no prompt, it is
+//! checked and signed by `_acpmux/app_reply` (`server/app_reply.rs`) and sent by the app as the
+//! replying chat's cmux agent message, which the daemon's pump delivers here.
 //! A queued prompt keeps it, across a restart too (`queue.rs`); an edit of a waiting prompt
 //! (`_acpmux/queue_edit`) drops it: the person rewrote the prompt.
 //!
@@ -72,23 +70,20 @@ pub fn withdraw_origin_refused() -> RpcError {
 pub enum Sender {
     /// The unix socket: any provenance.
     Local,
-    /// The app's own pane: only a reply (see the module doc).
-    App,
     /// Anything else: none.
     Other,
 }
 
 /// The provenance of a `session/prompt`'s `params`, with only the fields above: `None` when
-/// absent or null. A reply from the app is checked for its fields here; the caller checks the
-/// message it answers (`Hub::app_reply_fits`).
+/// absent or null. `server/app_reply.rs` checks the app pane's reply in place with it too, as a
+/// unix-socket provenance, before `Hub::app_reply_fits` checks the message it answers.
 pub fn of(params: &Value, sender: Sender) -> Result<Option<Value>, RpcError> {
     let raw = match params.pointer("/_meta/acpmux/provenance") {
         None | Some(Value::Null) => return Ok(None),
         Some(Value::Object(raw)) => raw,
         Some(_) => return Err(refusal("provenance.value_refused", "provenance must be an object")),
     };
-    let reply = raw.get("replyTo").is_some_and(|r| !r.is_null());
-    if !(sender == Sender::Local || (sender == Sender::App && reply)) {
+    if sender != Sender::Local {
         return Err(origin_refused());
     }
     if raw.get("kind").and_then(Value::as_str) != Some("agent_message") {

@@ -136,6 +136,29 @@ public actor DaemonClient {
         return results
     }
 
+    /// Writes one request and returns its id once the write is done, without
+    /// waiting for the reply (``reply(to:)``). A caller that awaits each
+    /// submit before the next keeps its requests in order on the channel
+    /// while several are unanswered (the daemon handles a connection's lines
+    /// in order).
+    public func submit(_ cmd: String, params: [String: Any] = [:]) async throws -> String {
+        start()
+        let id = nextRequestID()
+        let line = try line(id: id, cmd: cmd, params: params)
+        expected.insert(id)
+        do { try await channel.send(line) } catch {
+            expected.remove(id)
+            early[id] = nil
+            throw error
+        }
+        return id
+    }
+
+    /// The reply to a ``submit(_:params:)``ed request, which may already have come.
+    public func reply(to id: String) async throws -> Data {
+        try await reply(id)
+    }
+
     /// The reply to batch request `id`, which may already have come.
     private func reply(_ id: String) async throws -> Data {
         if let line = early.removeValue(forKey: id) { return line }

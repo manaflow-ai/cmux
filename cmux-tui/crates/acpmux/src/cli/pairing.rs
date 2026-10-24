@@ -116,7 +116,16 @@ fn parse_ttl(text: &str) -> Result<u64> {
 
 fn install_command(ticket: &str) -> String {
     let url = std::env::var("CMUX_INSTALL_URL").unwrap_or_else(|_| INSTALL_URL.to_owned());
-    format!("curl -fsSL {url} | sh -s -- '{ticket}'")
+    install_line(&url, ticket)
+}
+
+/// Installs cmux, then joins with the CLI it installed (at the script's
+/// default `~/.cmux/bin`). The ticket goes to `cmux host join`, not to the
+/// script: a script that does not join (cmux.com served one on 2026-10-22)
+/// would install and stop, and a script that does join would spend the
+/// single-use ticket before a second join.
+fn install_line(url: &str, ticket: &str) -> String {
+    format!("curl -fsSL {url} | sh && \"$HOME/.cmux/bin/cmux\" host join --serve '{ticket}'")
 }
 
 fn print_minted(v: &Value) {
@@ -317,4 +326,60 @@ async fn redeem(ticket: &Ticket, params: Value) -> Result<Value> {
     Err(anyhow!(
         "the other machine closed the connection: the ticket is unknown, expired, revoked or used"
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::install_line;
+
+    /// A scratch folder removed at drop.
+    struct Dir(std::path::PathBuf);
+    impl Dir {
+        fn path(&self) -> &std::path::Path {
+            &self.0
+        }
+    }
+    impl Drop for Dir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// The line a person pastes on the new machine joins it even when the
+    /// install script it pipes into ignores its arguments, as the script
+    /// cmux.com served on 2026-10-22 did (it installed cmux and stopped).
+    #[test]
+    fn the_pasted_line_joins_even_through_an_install_script_that_ignores_the_ticket() {
+        let root = std::env::temp_dir().join(format!("acpmux-pair-line-{}", uuid::Uuid::now_v7()));
+        let dir = Dir(root);
+        let home = dir.path().join("home");
+        let bin = dir.path().join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::create_dir_all(&home).unwrap();
+        let log = dir.path().join("cmux.log");
+        // An old install script: it installs a cmux that logs its arguments,
+        // and never reads "$@".
+        let script = format!(
+            "mkdir -p \"$HOME/.cmux/bin\"\nprintf '#!/bin/sh\\necho \"$*\" >> {log}\\n' > \"$HOME/.cmux/bin/cmux\"\nchmod 755 \"$HOME/.cmux/bin/cmux\"\n",
+            log = log.display()
+        );
+        let script_path = dir.path().join("install.sh");
+        std::fs::write(&script_path, script).unwrap();
+        let curl = format!("#!/bin/sh\ncat '{}'\n", script_path.display());
+        std::fs::write(bin.join("curl"), curl).unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(bin.join("curl"), std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let line = install_line("https://cmux.example/install.sh", "cmxt1.abc");
+        let status = std::process::Command::new("/bin/sh")
+            .arg("-c")
+            .arg(&line)
+            .env("HOME", &home)
+            .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+            .status()
+            .unwrap();
+        assert!(status.success(), "{line}");
+        let calls = std::fs::read_to_string(&log).unwrap_or_default();
+        assert_eq!(calls.trim(), "host join --serve cmxt1.abc", "{line}");
+    }
 }

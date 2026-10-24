@@ -111,6 +111,10 @@ enum DebugLayers {
             ((plane.home as? LayoutRootView)?.overlayRings ?? []).allSatisfy { $0.ringInSync }
         }
         var fields: [String: JSONValue] = [:]
+        // The window's screen less the menu bar and Dock, and the whole screen (screen points, null
+        // on no screen): a caller checks that the window lies on its screen below the menu bar.
+        fields["screen_visible_frame"] = window.screen.map { rect($0.visibleFrame) } ?? .null
+        fields["screen_frame"] = window.screen.map { rect($0.frame) } ?? .null
         #if DEBUG
         fields["ring_layout_passes"] = .number(Double(layer.ringLayoutPasses))
         fields["ring_lag_passes"] = .number(Double(layer.ringLagPasses))
@@ -133,6 +137,7 @@ enum DebugLayers {
             "divider_areas_in_window": .array(layer.dividerAreas.map { rect($0.rect) }),
             "sidebar_resize_area_in_window": layer.sidebarResizeArea.map { rect($0.rect) } ?? .null,
             "divider_catchers_in_window": .array(layer.catchers.framesInWindow.sorted { $0.key < $1.key }.map { rect($0.value) }),
+            "divider_catcher_updates": .number(Double(layer.catchers.panelUpdates)),
             "reorders": .number(Double(layer.reorderCount)),
             "child_window_violations": .array(ChildWindowPolicy.violations.map(JSONValue.string)),
             "pages_in_sync": .bool(pagesInSync),
@@ -168,7 +173,13 @@ enum DebugLayers {
             target.origin = CGPoint(x: visible.midX - target.width / 2, y: visible.midY - target.height / 2)
         }
         window.setFrame(target, display: true)
-        return .object(["frame": rect(window.frame), "screen": .string(window.screen?.localizedName ?? "")])
+        // `visible_frame`: the window's screen less the menu bar and Dock; `screen_frame`: the whole
+        // screen (screen points, null on no screen). A caller places the window on its screen with them
+        // and checks that it lies there.
+        let visible: JSONValue = window.screen.map { rect($0.visibleFrame) } ?? .null
+        let whole: JSONValue = window.screen.map { rect($0.frame) } ?? .null
+        return .object(["frame": rect(window.frame), "screen": .string(window.screen?.localizedName ?? ""),
+                        "visible_frame": visible, "screen_frame": whole])
     }
 
     /// `debug.drop_highlight` (DEBUG builds): drives the layout's in-process

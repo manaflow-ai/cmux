@@ -9,6 +9,13 @@ import CmuxNextHostedChief
 extension HomeService {
     /// The Home list's Chiefs: all of them, the main one on the host the user picked.
     var chiefRoster: HomeChiefRoster {
+        let live = liveChiefRoster
+        // Until the cloud Chiefs are read, the last launch's Main and places (HomeService+LaunchList).
+        guard !cloudChiefsRead, let last = launchRoster else { return live }
+        return live.launching(last: last)
+    }
+
+    private var liveChiefRoster: HomeChiefRoster {
         let tab = tabChiefs
         let rows: [InboxRow] = homeStore.rows
         let chiefRows = rows.filter { $0.kind == .chief }

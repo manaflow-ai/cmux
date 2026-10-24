@@ -60,6 +60,9 @@ export type AgentSessionTheme = {
   /// A running turn's status line as its last row (Debug Settings `agentPane.debug.liveLineBelow`,
   /// acpmux liveLineBelow.ts). Absent or true draws it there; false keeps it over the turn's work.
   liveLineBelow?: boolean;
+  /// A collapsed tool run's look (acpmux toolRunLook.ts): `kind` (absent), `pencil`, `quiet` or
+  /// `quiet-pencil`. Only the gallery sends it, for the versions it keeps beside the default.
+  toolRunLook?: string;
   /// The answer footer's copy/retry/fork controls: right by default, or left when selected by the host.
   turnActionsPlacement?: "left" | "right";
   /// The host's motion durations in seconds (MotionFade after ui.animationSpeed and Reduce
@@ -78,6 +81,10 @@ export type AgentSessionTheme = {
   /// `agentPane.debug.subagentTray`, acpmux subagents/runningTray.ts). Absent or true is the tray;
   /// false keeps the transcript's group cards and the agents pill.
   subagentTray?: boolean;
+  /// The transcript's scrollbar fades out at rest (Debug Settings `agentPane.debug.scrollerFade`):
+  /// sets `data-cmux-scroller-fade` on the root (scrollers.ts). Absent or false keeps it shown while
+  /// the chat overflows.
+  scrollerFade?: boolean;
 };
 
 export type AppContext = {

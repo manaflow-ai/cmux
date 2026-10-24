@@ -4,6 +4,8 @@
 
 use crate::config::PermissionPolicy;
 use crate::hub::{EventFilter, Hub, HubEvent, VERSION};
+use crate::no_panic::JsonExt;
+use crate::no_panic::LockExt;
 use crate::rpc::{Message, RpcError, method};
 use crate::session_identity::SessionReceipt;
 use anyhow::{Context, Result};
@@ -74,6 +76,8 @@ pub struct Conn {
     /// The ephemeral sessions it created, purged when it closes (`ephemeral.rs`);
     /// None once it closed.
     ephemeral: StdMutex<Option<Vec<String>>>,
+    /// The media files it opened (`hub/media_read.rs`), closed when it closes.
+    media: crate::hub::media_handles::Handles,
 }
 
 impl Conn {
@@ -165,26 +169,25 @@ impl Conn {
         }
     }
     fn sub_opts(&self, session_id: &str) -> Option<SubOpts> {
-        self.subs.lock().unwrap().get(session_id).cloned()
+        self.subs.lock_or_recover().get(session_id).cloned()
     }
     pub(super) fn bind_mailbox_receipt(&self, receipt: SessionReceipt) {
-        self.mailbox_bindings.lock().unwrap().insert(receipt.mux_session_id.clone(), receipt);
+        self.mailbox_bindings.lock_or_recover().insert(receipt.mux_session_id.clone(), receipt);
     }
     pub(super) fn mailbox_receipt(&self, session_id: &str) -> Option<SessionReceipt> {
         let key = session_id.strip_prefix("acp:").unwrap_or(session_id);
         self.mailbox_bindings
-            .lock()
-            .unwrap()
+            .lock_or_recover()
             .values()
             .find(|receipt| key == receipt.mux_session_id || key == receipt.qualified_id())
             .cloned()
     }
     pub(super) fn unbind_mailbox_receipt(&self, session_id: &str) {
-        self.mailbox_bindings.lock().unwrap().remove(session_id);
+        self.mailbox_bindings.lock_or_recover().remove(session_id);
     }
     /// Subscribe with default options; keeps options already set.
     fn subscribe(&self, session_id: &str) -> bool {
-        let mut subs = self.subs.lock().unwrap();
+        let mut subs = self.subs.lock_or_recover();
         if subs.contains_key(session_id) {
             return false;
         }
@@ -193,11 +196,15 @@ impl Conn {
     }
     /// Subscribe, replacing any options. True when the subscription is new.
     fn subscribe_with(&self, session_id: &str, opts: SubOpts) -> bool {
-        self.subs.lock().unwrap().insert(session_id.to_owned(), opts).is_none()
+        self.subs.lock_or_recover().insert(session_id.to_owned(), opts).is_none()
     }
     fn label(&self) -> String {
-        let n = self.name.lock().unwrap().clone();
-        if n.is_empty() { self.id.clone() } else { format!("{n}#{}", &self.id[..6]) }
+        let n = self.name.lock_or_recover().clone();
+        if n.is_empty() {
+            self.id.clone()
+        } else {
+            format!("{n}#{}", self.id.get(..6).unwrap_or(self.id.as_str()))
+        }
     }
 }
 
@@ -363,6 +370,19 @@ pub struct WsAuth {
 /// is the local app (`local_app.rs`); after it, it is remote-origin.
 const FIRST_FRAME: std::time::Duration = std::time::Duration::from_secs(10);
 
+/// The largest WebSocket frame or message a connection reads. The app's agent pane sends a frame
+/// of up to 32 MiB (`AcpmuxPaneMethods.maximumFrameBytes`); a prompt with a few screenshots is
+/// past tungstenite's 16 MiB frame default, which ended the read with no log line and reset the
+/// socket mid-send ("The agent connection was interrupted", 2026-10-20).
+pub const WS_MAX_MESSAGE_BYTES: usize = 64 << 20;
+
+/// The listener's and the peer client's WebSocket limits (`WS_MAX_MESSAGE_BYTES`).
+pub fn ws_config() -> tokio_tungstenite::tungstenite::protocol::WebSocketConfig {
+    tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default()
+        .max_message_size(Some(WS_MAX_MESSAGE_BYTES))
+        .max_frame_size(Some(WS_MAX_MESSAGE_BYTES))
+}
+
 /// `serve_ws` with this launch's LocalApp and peer tokens: a connection
 /// that meets every LocalApp condition is served as `Origin::LocalApp`, one
 /// that proves the peer token as `Origin::Peer`, any other as `Origin::Web`.
@@ -419,7 +439,7 @@ pub async fn serve_ws_with(
             // The peek only routes the request. Each path checks the full
             // head it parses: serve_http reads it, tungstenite parses the
             // upgrade request for the callback.
-            let head_text = String::from_utf8_lossy(&head[..n]).into_owned();
+            let head_text = String::from_utf8_lossy(head.get(..n).unwrap_or(&head)).into_owned();
             if !head_text.to_ascii_lowercase().contains("upgrade: websocket") {
                 serve_http(stream, &policy, &token, peer).await;
                 return;
@@ -444,10 +464,11 @@ pub async fn serve_ws_with(
                         .collect::<Vec<_>>()
                 };
                 let refuse = |refusal: Refusal| {
-                    tokio_tungstenite::tungstenite::http::Response::builder()
-                        .status(refusal.status())
-                        .body(Some(refusal.reason().to_owned()))
-                        .expect("static response")
+                    use tokio_tungstenite::tungstenite::http::{Response, StatusCode};
+                    let mut response = Response::new(Some(refusal.reason().to_owned()));
+                    *response.status_mut() =
+                        StatusCode::from_u16(refusal.status()).unwrap_or(StatusCode::FORBIDDEN);
+                    response
                 };
                 if let Err(refusal) = policy.check(&values("host"), &values("origin")) {
                     return Err(refuse(refusal));
@@ -467,7 +488,13 @@ pub async fn serve_ws_with(
                 *record_admitted.lock().unwrap_or_else(|e| e.into_inner()) = proof.map_err(refuse)?;
                 Ok(resp)
             };
-            let ws = match tokio_tungstenite::accept_hdr_async(stream, callback).await {
+            let ws = match tokio_tungstenite::accept_hdr_async_with_config(
+                stream,
+                callback,
+                Some(ws_config()),
+            )
+            .await
+            {
                 Ok(ws) => ws,
                 Err(e) => {
                     tracing::warn!("ws handshake from {peer} rejected: {e}");
@@ -530,7 +557,15 @@ pub async fn serve_ws_with(
                 return;
             }
             let reader = tokio::spawn(async move {
-                while let Some(Ok(frame)) = source.next().await {
+                while let Some(frame) = source.next().await {
+                    let frame = match frame {
+                        Ok(frame) => frame,
+                        // A read error ends the connection; say why, or the client sees only a reset.
+                        Err(e) => {
+                            tracing::warn!("closing a {origin:?} connection from {peer}: {e}");
+                            break;
+                        }
+                    };
                     if let tokio_tungstenite::tungstenite::Message::Text(t) = frame
                         && in_tx.send(t.to_string()).await.is_err()
                     {
@@ -642,7 +677,7 @@ async fn read_http_head(stream: &mut tokio::net::TcpStream) -> Option<String> {
             if n == 0 {
                 return None;
             }
-            head.extend_from_slice(&chunk[..n]);
+            head.extend_from_slice(chunk.get(..n).unwrap_or(&chunk));
         }
         Some(String::from_utf8_lossy(&head).into_owned())
     };
@@ -794,6 +829,7 @@ async fn serve_connection_from(
         unproven_caller: std::sync::OnceLock::new(),
         peer_leases: StdMutex::new(Some(Vec::new())),
         ephemeral: StdMutex::new(Some(Vec::new())),
+        media: crate::hub::media_handles::Handles::default(),
     });
     tracing::debug!(conn = %conn.id, "client connected");
 
@@ -841,6 +877,7 @@ async fn serve_connection_from(
         }
     }
     fan.abort();
+    conn.media.close_all();
     view::release_all(&hub, &conn);
     // Leases first: ending one is cheap and synchronous, while the ephemeral
     // release awaits each session's kill. A leased peer must not keep
@@ -911,7 +948,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                 && m == method::SESSION_UPDATE
             {
                 let mut params = rec.msg.get("params").cloned().unwrap_or(json!({}));
-                params["sessionId"] = Value::String(ev.session_id.clone());
+                params.set("sessionId", Value::String(ev.session_id.clone()));
                 crate::hub::merge_mux_meta(
                     &mut params,
                     json!({"seq": rec.seq, "at": rec.at, "kind": rec.kind}),
@@ -964,12 +1001,14 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             // `replaced`: the same chat came back under this id (`Session::replaced`).
             let mut params = json!({"sessionId": ev.session_id, "session": {"sessionId": ev.session_id}, "kind": "purged", "recordKind": "purged", "seq": rec.seq});
             if rec.msg.get("replaced") == Some(&Value::Bool(true)) {
-                params["replaced"] = Value::Bool(true);
+                params.set("replaced", Value::Bool(true));
             }
             conn.send(&Message::notification(method::MUX_SESSION_CHANGED, params));
             return;
         }
-        if rec.dir != "mux" {
+        // A deferred new chat has no attachment yet. Its command publication must still wake
+        // the page's read of that chat's command list, including when skills arrive after creation.
+        if rec.dir != "mux" && rec.kind != "available_commands_update" {
             return;
         }
         let Some(kind) = change_kind::session_change_kind(&rec.kind) else { return };
@@ -1005,6 +1044,7 @@ fn mux_meta(params: &Value) -> Option<&Value> {
 }
 
 mod agent_messages;
+mod app_reply;
 mod clock_text;
 pub(crate) use clock_text::iso;
 mod change_kind;

@@ -1,7 +1,8 @@
 // A message to another agent is one collapsed line, as Claude draws its message rows (Leo
-// 2026-10-21): "Sent to <recipient>", the message's first line, a chevron. Opened, it shows the
-// whole message and how far it got (Leo 2026-10-13): a status glyph that goes sending -> sent ->
-// delivered, and the delivery receipt as one status line, its id never shown.
+// 2026-10-21): "Sent to <recipient>", the message's first line, a chevron, and how far it got as
+// one muted word (Sent, Queued, Delivered, Failed). The recipient is a name, never a hex id.
+// Opened, the message grows in place and nothing else draws: never the send's raw result (Leo
+// 2026-10-21: "THIS SHOW MORE IS IMMEDIATELY TMI"). Copy sits in the line's hover row.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -78,14 +79,16 @@ test("a sent message starts as one collapsed line: Sent to, the recipient, a one
   expect(row.querySelector(".cv-agentmsg__name")?.textContent).toBe("coordinator");
   expect(row.querySelector(".cv-agentmsg__preview")?.textContent).toBe("first line");
   expect(toggle().getAttribute("aria-expanded")).toBe("false");
-  // Closed, nothing else draws: no body, no status line, no Show more.
+  // Closed, how far it got is one word on the line; nothing else draws: no body, no Show more.
+  expect(row.querySelector(".cv-agentmsg__line > .cv-message__status")?.textContent).toBe("Delivered");
   expect(row.querySelector(".cv-agentmsg__card")).toBeNull();
-  expect(row.querySelector(".cv-message__status")).toBeNull();
+  expect(row.querySelectorAll(".cv-message__status")).toHaveLength(1);
   expect(row.textContent).not.toContain("second line");
   expect(row.textContent).not.toContain("Show more");
 });
 
-test("opening it shows the whole message, selectable, and the receipt as a status line", async () => {
+test("opening it grows the message in place: the card holds the text and nothing else", async () => {
+  // Leo 2026-10-21: "THIS SHOW MORE IS IMMEDIATELY TMI". Opened, no status block, no output block.
   await render(
     send("completed", "delivered to leoli-24 (id 9defc4d0ed87)\n", 'tell-coordinator "first line\\nsecond line"'),
   );
@@ -95,35 +98,148 @@ test("opening it shows the whole message, selectable, and the receipt as a statu
   expect(card.textContent).toBe("first line\nsecond line");
   expect(card.classList.contains("selectable")).toBe(true);
   expect(toggle().getAttribute("aria-controls")).toBe(card.id);
+  // One scroller in the card, the message's text, capped by the stylesheet (conversation.css).
+  expect([...card.children].map((child) => child.className)).toEqual(["cv-message__text"]);
   // The preview steps aside for the card.
   expect(host.querySelector(".cv-agentmsg__preview")?.textContent).toBe("");
   const row = host.querySelector(".cv-message")!;
+  // Nothing but the line and the card: no receipt line, no output block, no Show more.
+  expect([...row.children].map((child) => child.className)).toEqual([
+    "cv-tool cv-agentmsg__line is-strong",
+    "cv-agentmsg__card selectable",
+  ]);
+  expect(row.querySelector(".cv-tool-output")).toBeNull();
+  expect(row.textContent).not.toContain("Show more");
   expect(row.getAttribute("data-delivery")).toBe("delivered");
-  expect(row.querySelector(".cv-message__status")?.textContent).toBe("Delivered to leoli-24");
   // The receipt's id is plumbing, not something to read.
   expect(row.textContent).not.toContain("9defc4d0ed87");
   await act(async () => toggle().click());
   expect(host.querySelector(".cv-agentmsg__card")).toBeNull();
 });
 
-test("a message moves through sending and sent", async () => {
+test("how far a send got is one muted word on its line: Sending shows none, then Sent", async () => {
   await render(send("in_progress"));
   expect(host.querySelector(".cv-message")?.getAttribute("data-delivery")).toBe("sending");
   expect(host.querySelector(".cv-agentmsg__line")?.textContent).toContain("Sending to");
-  await act(async () => toggle().click());
-  expect(host.querySelector(".cv-message__status")?.textContent).toBe("Sending…");
+  expect(host.querySelector(".cv-message__status")).toBeNull();
   await render(send("completed"));
   expect(host.querySelector(".cv-message")?.getAttribute("data-delivery")).toBe("sent");
-  await act(async () => toggle().click());
-  expect(host.querySelector(".cv-message__status")?.textContent).toBe("Sent");
+  expect(host.querySelector(".cv-agentmsg__line > .cv-message__status")?.textContent).toBe("Sent");
 });
 
-test("an opened delivered message shows what else the send printed, without the receipt", async () => {
-  // Review of the redesign: a receipt hid every other line the send printed.
-  await render(send("completed", "delivered to leoli-24 (id 9defc4d0ed87)\nqueued behind 2 messages\n"));
-  await act(async () => toggle().click());
-  expect(host.querySelector(".cv-tool-output")?.textContent).toBe("queued behind 2 messages");
-  expect(host.textContent).not.toContain("9defc4d0ed87");
+const sendMessage = (to: string, output: string, status = "completed") => ({
+  id: "activity-2",
+  kind: "activity",
+  at: 1_000,
+  settled: status !== "in_progress",
+  items: [
+    {
+      kind: "tool",
+      text: "SendMessage",
+      tool: {
+        id: "t2",
+        title: "SendMessage",
+        kind: "other",
+        status,
+        inputSummary: JSON.stringify({ to, message: "Rebase on main, then rerun the grid tests." }),
+        output,
+      },
+    },
+  ],
+});
+
+const RESULTS = {
+  queued: JSON.stringify({
+    success: true,
+    message: "Message queued for delivery to a39e817af38ddf5e7 at its next tool round.",
+    pin: { id: "p1", at: 1 },
+  }),
+  delivered: JSON.stringify({ success: true, message: "Message delivered to a39e817af38ddf5e7." }),
+  sent: JSON.stringify({ success: true, message: "Message sent to a39e817af38ddf5e7." }),
+};
+
+for (const [delivery, output] of Object.entries(RESULTS))
+  test(`a SendMessage whose result says ${delivery} shows the word, never the result's JSON`, async () => {
+    await render(sendMessage("a39e817af38ddf5e7", output));
+    const row = host.querySelector(".cv-message")!;
+    expect(row.getAttribute("data-delivery")).toBe(delivery);
+    const word = { queued: "Queued", delivered: "Delivered", sent: "Sent" }[delivery];
+    expect(row.querySelector(".cv-agentmsg__line > .cv-message__status")?.textContent).toBe(word!);
+    for (const opened of [false, true]) {
+      if (opened) await act(async () => toggle().click());
+      for (const raw of ['{"success"', '"pin"', "queued for delivery", "a39e817af38ddf5e7"])
+        expect(row.textContent).not.toContain(raw);
+    }
+  });
+
+test("a send that did not arrive says why, never Sent: a stopped agent, no such agent, or just Not delivered", async () => {
+  // Leo 2026-10-21: a card read "✓ Sent" over a success:false result.
+  const cases: [string, string][] = [
+    [
+      JSON.stringify({
+        success: false,
+        message: "Agent a5b7309ddf7afa44d was stopped by the user and won't be resumed.",
+      }),
+      "Not delivered: agent stopped",
+    ],
+    [JSON.stringify({ success: false, error: "No agent named grid-fix" }), "Not delivered: no such agent"],
+    [JSON.stringify({ success: false }), "Not delivered"],
+  ];
+  for (const [output, word] of cases) {
+    await render(sendMessage("grid-fix", output));
+    const row = host.querySelector(".cv-message")!;
+    expect(row.getAttribute("data-delivery")).toBe("failed");
+    expect(row.querySelector(".cv-agentmsg__line > .cv-message__status")?.textContent).toBe(word);
+    await act(async () => toggle().click());
+    for (const raw of ['{"success"', "won't be resumed", "No agent named"]) expect(row.textContent).not.toContain(raw);
+  }
+});
+
+async function renderNamed(to: string, names: Map<string, string>) {
+  const { createRoot } = await import("react-dom/client");
+  const { ToolRows } = await import("../src/agent-session/acpmux/conversation/TurnRows");
+  const { AgentNamesContext } = await import("../src/agent-session/acpmux/conversation/agentNames");
+  const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
+  act(() => root?.unmount());
+  resetTranscriptDisclosure();
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <AgentNamesContext.Provider value={names}>
+        <ToolRows row={sendMessage(to, RESULTS.queued) as never} />
+      </AgentNamesContext.Provider>,
+    ),
+  );
+}
+
+test("the recipient is the Agent call's description for its agentId, or a short id, never the hex id", async () => {
+  await renderNamed("a39e817af38ddf5e7", new Map([["a39e817af38ddf5e7", "Fix grid jump"]]));
+  const line = host.querySelector(".cv-agentmsg__line")!;
+  expect(line.querySelector(".cv-agentmsg__name")?.textContent).toBe("Fix grid jump");
+  expect(line.textContent).not.toContain("This agent");
+  expect(host.textContent).not.toContain("a39e817af38ddf5e7");
+  // The full id is the chip's tooltip.
+  expect(line.querySelector(".cv-agentmsg__name")?.getAttribute("title")).toBe("Agent ID: a39e817af38ddf5e7");
+  // An id nothing names reads as a short id, the full one in the tooltip.
+  await renderNamed("a5f0c2b9e1d4a7c3b", new Map());
+  expect(host.querySelector(".cv-agentmsg__name")?.textContent).toBe("a5f0c2b9");
+  expect(host.querySelector(".cv-agentmsg__name")?.getAttribute("title")).toBe("Agent ID: a5f0c2b9e1d4a7c3b");
+  expect(host.textContent).not.toContain("a5f0c2b9e1d4a7c3b");
+  // A name the call gives (a teammate, an acpmux session) shows as it is, with no tooltip.
+  await renderNamed("grid-fix", new Map());
+  expect(host.querySelector(".cv-agentmsg__name")?.textContent).toBe("grid-fix");
+  expect(host.querySelector(".cv-agentmsg__name")?.hasAttribute("title")).toBe(false);
+});
+
+test("Copy is in the line's hover row, after the status word, not over the line's words", async () => {
+  await render(send("completed", "", 'tell-coordinator "first line\\nsecond line"'));
+  const line = host.querySelector(".cv-agentmsg__line")!;
+  const actions = line.querySelector(":scope > .cv-sent-actions")!;
+  expect(actions).not.toBeNull();
+  expect(actions.querySelector("button")?.getAttribute("aria-label")).toBe("Copy");
+  // The line's last child: the words, chip, preview and status word all come before it.
+  expect(line.lastElementChild).toBe(actions);
+  expect(actions.previousElementSibling?.classList.contains("cv-message__status")).toBe(true);
 });
 
 test("the shared row draws a received message too: the caller's icon, a chip that opens the chat, end actions", async () => {

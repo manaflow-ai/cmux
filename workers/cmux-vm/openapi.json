@@ -5201,6 +5201,456 @@
         "summary": "Revoke an API key; it stops working at once"
       }
     },
+    "/v1/agent-keys": {
+      "post": {
+        "tags": [
+          "agents"
+        ],
+        "operationId": "agents.createAgentKey",
+        "parameters": [
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "CreatedAgentKey",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedAgentKey"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BadRequest"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Issue an agent key. Requires the vm:write scope, from a credential that is not itself an agent key or limited to specific resources. The key reaches only VMs labelled cmux.agent=<its id> (plus any labels the issuer is confined to); every VM it creates gets those labels. Defaults: scopes vm:read, vm:write, vm:exec, ttlSeconds 14400 (at most 86400, never past the issuer's expiry), maxVms 5 (at most 20), maxUsdPerHour 2 (at most 50). When it expires or is revoked, its VMs and their client sessions are deleted within minutes.",
+        "summary": "Issue an agent key",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAgentKeyRequest"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/v1/agent-keys/{keyId}": {
+      "delete": {
+        "tags": [
+          "agents"
+        ],
+        "operationId": "agents.revokeAgentKey",
+        "parameters": [
+          {
+            "name": "keyId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Revoke an agent key at once, then delete its VMs and their client sessions (the background cleanup finishes anything left). Allowed for the credential that issued it, an admin key or team admin, and the agent key itself. Anything else is 404.",
+        "summary": "Revoke an agent key and delete its VMs"
+      }
+    },
+    "/v1/vms/{vmId}/client-session": {
+      "post": {
+        "tags": [
+          "agents"
+        ],
+        "operationId": "agents.createClientSession",
+        "parameters": [
+          {
+            "name": "vmId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "ClientSession",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientSession"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BadRequest"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Mint a provider access token scoped to this VM and one Linux user. Requires the vm:exec scope. The token works only on this VM, is shown once, and is revoked when the VM is deleted or the session is revoked. Another tenant's or another agent's VM is 404.",
+        "summary": "Mint a provider token for one VM",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateClientSessionRequest"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/v1/vms/{vmId}/client-sessions/{sessionId}": {
+      "delete": {
+        "tags": [
+          "agents"
+        ],
+        "operationId": "agents.revokeClientSession",
+        "parameters": [
+          {
+            "name": "vmId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "sessionId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Revoke a client session's provider token at once. Requires the vm:exec scope. Revoking twice is not an error.",
+        "summary": "Revoke a VM's client session"
+      }
+    },
     "/v1/meshes": {
       "post": {
         "tags": [
@@ -9299,7 +9749,9 @@
               "firewallRule.account",
               "aclApply.perMeshPerMinute",
               "enrollmentCode.perMeshPerHour",
-              "address.perDevice"
+              "address.perDevice",
+              "agent_vms",
+              "agent_usd_per_hour"
             ]
           },
           "_tag": {
@@ -11226,6 +11678,214 @@
         },
         "additionalProperties": false
       },
+      "CreateAgentKeyRequest": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "a string at most 200 character(s) long",
+            "title": "maxLength(200)",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "vm:read",
+                "vm:write",
+                "vm:network",
+                "vm:exec",
+                "vm:files",
+                "vm:terminal",
+                "snapshot:*",
+                "snapshot:read",
+                "snapshot:write",
+                "domain:*",
+                "deploy:*",
+                "git:*",
+                "mesh:read",
+                "mesh:write",
+                "mesh:join",
+                "acl:read",
+                "acl:write",
+                "admin"
+              ]
+            },
+            "description": "an array of at most 3 item(s)",
+            "title": "maxItems(3)",
+            "minItems": 1,
+            "maxItems": 3
+          },
+          "ttlSeconds": {
+            "$ref": "#/components/schemas/Int",
+            "description": "a number between 60 and 86400",
+            "title": "between(60, 86400)",
+            "minimum": 60,
+            "maximum": 86400
+          },
+          "maxVms": {
+            "$ref": "#/components/schemas/Int",
+            "description": "a number between 1 and 20",
+            "title": "between(1, 20)",
+            "minimum": 1,
+            "maximum": 20
+          },
+          "maxUsdPerHour": {
+            "type": "number",
+            "description": "a number less than or equal to 50",
+            "title": "lessThanOrEqualTo(50)",
+            "exclusiveMinimum": 0,
+            "maximum": 50
+          }
+        },
+        "additionalProperties": false
+      },
+      "CreatedAgentKey": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "key",
+          "scopes",
+          "labels",
+          "createdAt",
+          "expiresAt",
+          "maxVms",
+          "maxUsdPerHour"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "a string matching the pattern ^vmk_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^vmk_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "name": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "x-extensible-enum": [
+                "vm:read",
+                "vm:write",
+                "vm:network",
+                "vm:exec",
+                "vm:files",
+                "vm:terminal",
+                "snapshot:*",
+                "snapshot:read",
+                "snapshot:write",
+                "domain:*",
+                "deploy:*",
+                "git:*",
+                "mesh:read",
+                "mesh:write",
+                "mesh:join",
+                "acl:read",
+                "acl:write",
+                "admin"
+              ]
+            }
+          },
+          "labels": {
+            "type": "object",
+            "required": [],
+            "properties": {},
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "maxVms": {
+            "$ref": "#/components/schemas/Int"
+          },
+          "maxUsdPerHour": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CreateClientSessionRequest": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "linuxUser": {
+            "type": "string",
+            "description": "a string matching the pattern ^[a-z_][a-z0-9_-]{0,31}$",
+            "pattern": "^[a-z_][a-z0-9_-]{0,31}$"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ClientSession": {
+        "type": "object",
+        "required": [
+          "id",
+          "vmId",
+          "token",
+          "providerVmId",
+          "linuxUser",
+          "apiBaseUrl",
+          "ssh",
+          "createdAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "a string matching the pattern ^vcs_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^vcs_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "vmId": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          },
+          "providerVmId": {
+            "type": "string"
+          },
+          "linuxUser": {
+            "type": "string"
+          },
+          "apiBaseUrl": {
+            "type": "string"
+          },
+          "ssh": {
+            "type": "object",
+            "required": [
+              "host",
+              "user"
+            ],
+            "properties": {
+              "host": {
+                "type": "string"
+              },
+              "user": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
       "CreateMeshRequest": {
         "type": "object",
         "required": [],
@@ -12376,6 +13036,9 @@
     },
     {
       "name": "apiKeys"
+    },
+    {
+      "name": "agents"
     },
     {
       "name": "mesh"

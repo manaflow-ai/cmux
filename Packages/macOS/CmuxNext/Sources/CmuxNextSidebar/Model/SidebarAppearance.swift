@@ -14,6 +14,17 @@ public nonisolated enum WorkspaceIcon: Hashable, Sendable {
     /// The front tab's favicon, drawn as is.
     case favicon(SidebarFavicon)
 
+    /// This icon without the workspace's color (`sidebar.showColors` off): a swatch is no icon, a
+    /// symbol is untinted and an emoji has no chip; a favicon is the page's own.
+    public var uncolored: WorkspaceIcon? {
+        switch self {
+        case .swatch: nil
+        case let .symbol(name, _): .symbol(name, tint: nil)
+        case let .emoji(text, _): .emoji(text, chip: nil)
+        case .favicon: self
+        }
+    }
+
     /// The workspace record's `icon` string (workspace-metadata-v1) through
     /// the one icon rule (``IconValue``); nil when it is not an emoji or a
     /// symbol name. Image and SVG assets draw as a placeholder symbol while
