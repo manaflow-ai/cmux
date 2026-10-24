@@ -58,6 +58,7 @@ import importlib.util
 import json
 import math
 import os
+import pwd  # the account home: a cmux-ci step sets HOME to its own dir, the app does not use it
 import shutil
 import statistics
 import sys
@@ -207,7 +208,7 @@ def measure_rate(run, opts, rate, selector, live=False):
 
 def fresh_session(tag):
     """Removes the tag's saved daemon session, so the launch starts with one empty workspace."""
-    shutil.rmtree(os.path.expanduser(f"~/Library/Application Support/cmux/tags/{tag}/tui"), ignore_errors=True)
+    shutil.rmtree(os.path.join(pwd.getpwuid(os.getuid()).pw_dir, f"Library/Application Support/cmux/tags/{tag}/tui"), ignore_errors=True)
 
 
 def one_run(tag, opts, legs):
