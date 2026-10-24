@@ -20,6 +20,7 @@ import { PublicationNotFoundError } from "../../../../services/vm-publications/r
 import { deleteVmPublicationsForVmDeletion } from "../../../../services/vm-publications/vmDeletion";
 import { publicationErrorResponse } from "../publications/routeShared";
 import { vmModelPlaneRevoker } from "../../../../services/vms/modelPlaneGateway";
+import { gcpCredentialFromRequest, wipeProviderCredential } from "../../../../services/vms/routeInput";
 
 
 // Mirrors VM_ROUTE_DEADLINES (services/vms/routeDeadline.ts): work past the
@@ -40,6 +41,7 @@ export async function GET(
       const account = resolveVmRouteAccountScope(user, request);
       if (!account.ok) return account.response;
       setSpanAttributes(span, { "cmux.vm.id": id });
+      const providerCredential = gcpCredentialFromRequest(request);
       const run = await runVmRoute(getVm({
         userId: user.id,
         billingTeamId: account.entitlements.billingTeamId,
@@ -48,7 +50,8 @@ export async function GET(
         // A status read is how a gone machine is usually noticed first, and the
         // row it retires is one no destroy or cron pass can revisit.
         modelPlane: vmModelPlaneRevoker(),
-      }), { request, readDeadline: { operation: "getVm" } });
+        providerCredential,
+      }), { request, readDeadline: { operation: "getVm" } }).finally(() => wipeProviderCredential(providerCredential));
       if (!run.ok) return run.response;
       const vm = run.value;
       const live = vm.status === "running" || vm.status === "provisioning";
@@ -173,13 +176,15 @@ export async function DELETE(
         }
         return publicationErrorResponse(err);
       }
+      const providerCredential = gcpCredentialFromRequest(request);
       const run = await runVmRoute(destroyVm({
         userId: user.id,
         billingTeamId: account.entitlements.billingTeamId,
         teamIds: user.teamIds,
         providerVmId: id,
         modelPlane: vmModelPlaneRevoker(),
-      }), { request, deadline: { operation: "destroy" } });
+        providerCredential,
+      }), { request, deadline: { operation: "destroy" } }).finally(() => wipeProviderCredential(providerCredential));
       if (!run.ok) return run.response;
       return jsonResponse({ ok: true });
     },

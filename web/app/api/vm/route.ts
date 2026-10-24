@@ -97,7 +97,7 @@ import {
 import { getGoVmUsage, GO_SAVED_VM_LIMIT } from "../../../services/vms/goUsage";
 import { getPlanBudgetUsage, isBudgetPlanId, type PlanBudgetUsage } from "../../../services/vms/planUsage";
 import { publishVmOps, vmSyncReplaceOp } from "../../../services/vms/presencePublisher";
-import { idempotencyKeyFromRequest } from "../../../services/vms/routeInput";
+import { gcpCredentialFromRequest, gcpProviderMetadataFromRequest, idempotencyKeyFromRequest, wipeProviderCredential } from "../../../services/vms/routeInput";
 import { enforceVmAllocationRateLimit } from "../../../services/vms/allocationRateLimit";
 
 
@@ -434,6 +434,11 @@ export async function POST(request: Request): Promise<Response> {
       admissionStartedAt = performance.now();
       recordAdmission();
 
+      // Delay allocating SecretBytes until every early validation return has
+      // passed; the finally below then owns the entire provider operation.
+      const providerCredential = provider === "gcp" ? gcpCredentialFromRequest(request) : undefined;
+      const providerMetadata = provider === "gcp" ? gcpProviderMetadataFromRequest(request) : undefined;
+
       // Wire the machine to coderouter inside the workflow: the route token
       // is bound to the VM row id, so provisioning runs after the row exists
       // and before the provider call, and a failure fails the create.
@@ -452,6 +457,8 @@ export async function POST(request: Request): Promise<Response> {
         image,
         imageVersion: imageSelection.imageVersion,
         provider,
+        providerCredential,
+        providerMetadata,
         idempotencyKey,
         displayName: body.displayName,
         persistentHome: homeVolumeRequested && candidate.persistentHome === true,
@@ -469,7 +476,7 @@ export async function POST(request: Request): Promise<Response> {
         request,
         ...createRouteAnswerDeadline(idempotencyKey),
         onError: createErrorResponders(entitlements),
-      });
+      }).finally(() => wipeProviderCredential(providerCredential));
       if (!run.ok) return run.response;
       const created = run.value;
       setSpanAttributes(span, { "cmux.vm.id": created.providerVmId });
