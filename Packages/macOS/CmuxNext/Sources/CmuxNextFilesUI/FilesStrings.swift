@@ -104,14 +104,14 @@ nonisolated enum FilesStrings {
 
     static func infoBytes(_ size: String, _ bytes: Int64,
                           preferredLocalizations: [String] = Bundle.module.preferredLocalizations, locale: Locale = .current) -> String {
-        Bundle.module.localizedString(forKey: "files.info.bytes", value: "%1$@ (%2$lld bytes)", table: "Files",
-                                      arguments: [.text(size), .count(Int(clamping: bytes))],
+        Bundle.module.localizedString(forKey: "files.info.bytes", value: "%1$@ (%2$@)", table: "Files",
+                                      arguments: [.text(size), .byteCount(bytes)],
                                       preferredLocalizations: preferredLocalizations, locale: locale)
     }
 
     static func infoFolderSize(_ size: String, _ items: Int,
                                preferredLocalizations: [String] = Bundle.module.preferredLocalizations, locale: Locale = .current) -> String {
-        Bundle.module.localizedString(forKey: "files.info.folderSize", value: "%1$@ for %2$lld items", table: "Files",
+        Bundle.module.localizedString(forKey: "files.info.folderSize", value: "%1$@ (items: %2$lld)", table: "Files",
                                       arguments: [.text(size), .count(items)],
                                       preferredLocalizations: preferredLocalizations, locale: locale)
     }

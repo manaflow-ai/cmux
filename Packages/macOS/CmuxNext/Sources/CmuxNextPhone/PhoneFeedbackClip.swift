@@ -25,7 +25,7 @@ public struct PhoneFeedbackClip: Sendable, Hashable {
     /// The summary's count of recorded inputs and taps.
     static func inputs(_ inputs: Int, taps: Int,
                        preferredLocalizations: [String] = Bundle.module.preferredLocalizations, locale: Locale = .current) -> String {
-        Bundle.module.localizedString(forKey: "phone.feedback.inputs", value: "%lld inputs, %lld taps", table: nil,
+        Bundle.module.localizedString(forKey: "phone.feedback.inputs", value: "Inputs: %1$lld, taps: %2$lld", table: nil,
                                       arguments: [.count(inputs), .count(taps)], preferredLocalizations: preferredLocalizations,
                                       locale: locale)
     }

@@ -35,7 +35,7 @@ enum HistoryAppStrings {
     static func undoClosesPanes(_ count: Int,
                                 preferredLocalizations: [String] = Bundle.module.preferredLocalizations, locale: Locale = .current) -> String {
         Bundle.module.localizedString(forKey: "history.refusal.undoClosesPanes",
-                                      value: "Undo closes %lld pane(s). Run Undo Layout Change again to confirm.",
+                                      value: "Undo closes %lld panes. Run Undo Layout Change again to confirm.",
                                       table: "History",
                                       arguments: [.count(count)], preferredLocalizations: preferredLocalizations, locale: locale)
     }

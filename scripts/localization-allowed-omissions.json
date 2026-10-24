@@ -6820,5 +6820,9 @@
     "identityLocales": {
       "de": "Text is the German noun, spelled as in English; the translated entry is still required."
     }
+  },
+  "files.info.bytes": {
+    "class": "format",
+    "source": "%1$@ (%2$@)"
   }
 }

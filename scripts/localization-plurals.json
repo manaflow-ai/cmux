@@ -717,5 +717,65 @@
     "arguments": [
       1
     ]
+  },
+  "history.refusal.undoClosesPanes": {
+    "source": "Undo closes %lld panes. Run Undo Layout Change again to confirm.",
+    "arguments": [
+      1
+    ]
+  },
+  "globalSearch.matchCount": {
+    "source": "%lld matches",
+    "arguments": [
+      1
+    ]
+  },
+  "browser.find.count": {
+    "source": "%lld matches",
+    "arguments": [
+      1
+    ]
+  },
+  "handlers.refusal.screenCount": {
+    "source": "the workspace has %lld screens",
+    "arguments": [
+      1
+    ]
+  },
+  "files.status.items": {
+    "source": "%lld items",
+    "arguments": [
+      1
+    ]
+  },
+  "files.status.copying": {
+    "source": "Copying %lld items…",
+    "arguments": [
+      1
+    ]
+  },
+  "files.rename.title": {
+    "source": "Rename %lld Items",
+    "arguments": [
+      1
+    ]
+  },
+  "files.delete.confirm": {
+    "source": "Are you sure you want to delete these %lld items immediately?",
+    "arguments": [
+      1
+    ]
+  },
+  "passwords.delete.count": {
+    "source": "%lld saved passwords",
+    "arguments": [
+      1
+    ]
+  },
+  "updater.card.moreChanges": {
+    "source": "%lld more changes",
+    "arguments": [
+      1
+    ]
   }
 }

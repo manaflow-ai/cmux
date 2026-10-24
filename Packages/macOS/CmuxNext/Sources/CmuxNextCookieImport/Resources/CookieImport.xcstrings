@@ -4457,132 +4457,133 @@
       }
     },
     "cookieImport.toast.done" : {
+      "comment" : "Toast after Import Cookies from Browser (%1$lld: the number of cookies imported, %2$@: the browser's name). The count follows a label, so no noun has to agree with it; keep that shape.",
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "تم استيراد %1$lld من ملفات تعريف الارتباط من %2$@."
+            "value" : "ملفات تعريف الارتباط المستوردة من %2$@: %1$lld."
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Uvezeno kolačića: %1$lld iz %2$@."
+            "value" : "Kolačići uvezeni iz %2$@: %1$lld."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Importerede %1$lld cookies fra %2$@."
+            "value" : "Cookies importeret fra %2$@: %1$lld."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "%1$lld Cookies aus %2$@ importiert."
+            "value" : "Aus %2$@ importierte Cookies: %1$lld."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Imported %1$lld cookies from %2$@."
+            "value" : "Cookies imported from %2$@: %1$lld."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Se importaron %1$lld cookies de %2$@."
+            "value" : "Cookies importadas de %2$@: %1$lld."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "%1$lld cookies importés depuis %2$@."
+            "value" : "Cookies importés depuis %2$@ : %1$lld."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Importati %1$lld cookie da %2$@."
+            "value" : "Cookie importati da %2$@: %1$lld."
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "%2$@ から %1$lld 個のCookieを読み込みました。"
+            "state" : "needs_review",
+            "value" : "%2$@ から読み込んだCookie: %1$lld。"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "បាននាំចូលខូគី %1$lld ពី %2$@។"
+            "value" : "ខូគីដែលបាននាំចូលពី %2$@៖ %1$lld។"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "%2$@에서 쿠키 %1$lld개를 가져왔습니다."
+            "value" : "%2$@에서 가져온 쿠키: %1$lld."
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Importerte %1$lld informasjonskapsler fra %2$@."
+            "value" : "Informasjonskapsler importert fra %2$@: %1$lld."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Zaimportowano %1$lld plików cookie z %2$@."
+            "value" : "Pliki cookie zaimportowane z %2$@: %1$lld."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "%1$lld cookies importados de %2$@."
+            "value" : "Cookies importados de %2$@: %1$lld."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Импортировано cookie: %1$lld из %2$@."
+            "value" : "Cookie, импортированные из %2$@: %1$lld."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "นำเข้าคุกกี้ %1$lld รายการจาก %2$@ แล้ว"
+            "value" : "คุกกี้ที่นำเข้าจาก %2$@: %1$lld"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "%2$@ tarayıcısından %1$lld çerez içe aktarıldı."
+            "value" : "%2$@ tarayıcısından içe aktarılan çerezler: %1$lld."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Імпортовано файлів cookie: %1$lld з %2$@."
+            "value" : "Файли cookie, імпортовані з %2$@: %1$lld."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Đã nhập %1$lld cookie từ %2$@."
+            "value" : "Cookie đã nhập từ %2$@: %1$lld."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "已从 %2$@ 导入 %1$lld 个 Cookie。"
+            "value" : "从 %2$@ 导入的 Cookie：%1$lld。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "已從 %2$@ 匯入 %1$lld 個 Cookie。"
+            "value" : "從 %2$@ 匯入的 Cookie：%1$lld。"
           }
         }
       }

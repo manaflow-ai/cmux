@@ -93,11 +93,11 @@ nonisolated enum UpdaterStrings {
     }
     static var keepsRunning: String { text("updater.card.keepsRunning", "Your terminals and agents keep running.") }
     static var whatsChanged: String { text("updater.card.whatsChanged", "What's changed") }
+    /// "N more changes" under the update card's change list; the count picks the plural form.
     static func moreChanges(_ count: Int,
                             preferredLocalizations: [String] = Bundle.module.preferredLocalizations, locale: Locale = .current) -> String {
-        count == 1 ? text("updater.card.oneMoreChange", "1 more change")
-            : Bundle.module.localizedString(forKey: "updater.card.moreChanges", value: "%ld more changes", table: nil,
-                                            arguments: [.count(count)], preferredLocalizations: preferredLocalizations, locale: locale)
+        Bundle.module.localizedString(forKey: "updater.card.moreChanges", value: "%lld more changes", table: nil,
+                                      arguments: [.count(count)], preferredLocalizations: preferredLocalizations, locale: locale)
     }
 
     // The tips card (BOTTOM-LEFT-CARDS K1)
