@@ -1775,7 +1775,8 @@ RULES = (
 # ---------------------------------------------------------------- diff
 
 def parse_diff(diff: str) -> dict[str, FileChange]:
-    """The files of a `-U0` diff run with `--src-prefix=a/ --dst-prefix=b/` (a user's diff.noprefix is ignored)."""
+    """The files of a `-U0 --inter-hunk-context=0` diff run with `--src-prefix=a/ --dst-prefix=b/` (a user's
+    diff.noprefix and diff.interHunkContext are ignored). A context line, should one come, is on both sides."""
     changes: dict[str, FileChange] = {}
     current: FileChange | None = None
     number, old_number, pending_new, old_path = 0, 0, False, ""
@@ -1815,6 +1816,9 @@ def parse_diff(diff: str) -> dict[str, FileChange]:
             number += 1
         elif current is not None and line.startswith("-"):
             current.removed.append(Added(current.path, old_number, line[1:]))
+            old_number += 1
+        elif current is not None and line.startswith(" "):
+            number += 1
             old_number += 1
     return changes
 
@@ -2065,14 +2069,16 @@ def settle(found: list[tuple[Rule, list[Added]]], warnings: list[tuple[str, str]
 
 def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Added]]], list[tuple[str, str]]]:
     """([(rule, every hit, measurements and warning hits included)], warnings) for what HEAD adds over BASE."""
-    # Fixed prefixes: a user's diff.noprefix / diff.srcPrefix would otherwise drop every file from the parse.
+    # Fixed prefixes: a user's diff.noprefix / diff.srcPrefix would otherwise drop every file from the parse. No
+    # inter-hunk context: a user's diff.interHunkContext would join nearby hunks with unchanged lines between them.
     specs = ["--", SWIFT_SOURCES, SWIFT_TESTS, *SHIPPED_BUILD_SPECS]
     env = {k: v for k, v in os.environ.items() if k not in ("GIT_INDEX_FILE", "GIT_WORK_TREE")}
     # The content diff and the blob read each decompress the same objects: on the slowest real pushes (242 files,
     # load 37) each took 0.7-1 s one after the other. The changed paths come first from a cheap name-only diff, so
     # the blobs are read while the content diff runs.
-    diff_proc = subprocess.Popen(["git", "-C", str(repo), "diff", "-U0", "--no-color", "--no-renames", "--no-ext-diff",
-                                  "--src-prefix=a/", "--dst-prefix=b/", base, head, *specs],
+    diff_proc = subprocess.Popen(["git", "-C", str(repo), "diff", "-U0", "--inter-hunk-context=0", "--no-color",
+                                  "--no-renames", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", base, head,
+                                  *specs],
                                  stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env)
     names = git(repo, "diff", "--name-only", "--no-renames", base, head, check=False)
     early = sorted(p for p in set(names.split("\n")) if p and in_diff_scope(p))
