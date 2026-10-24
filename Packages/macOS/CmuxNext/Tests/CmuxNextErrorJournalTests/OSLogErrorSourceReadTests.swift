@@ -20,7 +20,8 @@ import Testing
 
         func entries(since date: Date, matching predicate: NSPredicate?) throws -> [OSLogRecord] {
             let found = records.filter { record in
-                record.date >= date && (predicate?.evaluate(with: ["messageType": record.level.messageType]) ?? true)
+                record.date >= date && (predicate?.evaluate(with: ["messageType": record.level.messageType,
+                                                                    "subsystem": record.subsystem]) ?? true)
             }
             delivered = found.count
             return found
@@ -40,5 +41,21 @@ import Testing
 
         #expect(harvest.events.map(\.message) == ["it failed", "it broke"])
         #expect(log.delivered == 2, "the log store decoded \(log.delivered) entries for 2 errors and faults")
+    }
+
+    /// A page's console errors reach the journal when they happen (``ConsoleErrorCapture`` records
+    /// them itself, so a crash loses none and no harvest is needed for them). The unified log still
+    /// has them for Console.app, so the harvest must leave them out: read again from the log, each
+    /// would count twice.
+    @Test func theSourceLeavesPageConsoleLinesToTheCapture() async throws {
+        let launch = Date(timeIntervalSince1970: 1_000)
+        let log = FakeLog(records: [
+            OSLogRecord(date: launch + 1, level: .error, subsystem: ConsoleErrorCapture.subsystem, category: "settings",
+                        message: "theme missing"),
+            OSLogRecord(date: launch + 2, level: .error, subsystem: "com.cmuxterm.app", category: "acp", message: "it failed"),
+        ])
+        let harvest = try await OSLogErrorSource(processID: 7, launchDate: launch, reader: log).collect(after: nil)
+        #expect(harvest.events.map(\.message) == ["it failed"])
+        #expect(log.delivered == 1, "the log store decoded the page console line the capture already recorded")
     }
 }
