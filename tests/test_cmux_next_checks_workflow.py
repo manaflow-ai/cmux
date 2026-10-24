@@ -2028,10 +2028,10 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
         self.assertNotEqual(fast["name"], "cmux-next Release compile (Xcode 26)")
         self.assertEqual(admitted["name"], "cmux-next Release compile (Xcode 26)")
         # The admission job runs whenever the fast check ran without handing off to the Mac
-        # fallback and is green only on pass, so a fleet error or a fast check refused before
-        # a verdict stays red under the gate name; unavailable leaves it to the Mac fallback.
+        # fallback and is green only on pass, so a fleet error stays red under the gate name;
+        # unavailable, or a fast check refused before a verdict, leaves it to the Mac fallback.
         for verdict, result, runs in (("pass", "success", True), ("unavailable", "success", False),
-                                      ("fail", "failure", True), ("", "failure", True),
+                                      ("fail", "failure", True), ("", "failure", False),
                                       ("", "skipped", False), ("", "cancelled", False)):
             with self.subTest(verdict=verdict, result=result):
                 context = {"github.event_name": "push", "github.ref": "refs/heads/feat-cmux-next",
@@ -2046,6 +2046,25 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
         for name in ("release-compile-fast", "release-compile"):
             with self.subTest(job=name):
                 self.assertNotIn("CI_NEXT_PROMOTE_POOL", str(jobs[name]["runs-on"]))
+
+    def test_exactly_one_job_carries_the_gate_name_for_each_fast_check_outcome(self):
+        # push attribution and the nightly feed watch read the first job with the gate name, so a
+        # red admission beside a green fallback would report a failure the fallback cleared.
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        gate = [job for job in jobs.values() if job.get("name") == "cmux-next Release compile (Xcode 26)"]
+        self.assertEqual(len(gate), 2)
+        for verdict, result in (("pass", "success"), ("unavailable", "success"), ("fail", "failure"),
+                                ("", "failure"), ("", "skipped")):
+            with self.subTest(verdict=verdict, result=result):
+                context = {"github.event_name": "push", "github.ref": "refs/heads/feat-cmux-next",
+                           "github.repository_owner": "manaflow-ai", "github.repository": "manaflow-ai/cmux",
+                           "github.base_ref": "", "github.run_attempt": 1,
+                           "needs.path_route.outputs.native": "true",
+                           "needs.push-head-preflight.outputs.current": "true",
+                           "needs.app-compile-fleet.outputs.verdict": "",
+                           "needs.release-compile-fast.result": result,
+                           "needs.release-compile-fast.outputs.verdict": verdict}
+                self.assertEqual(sum(bool(evaluate(job["if"], context)) for job in gate), 1)
 
     def test_the_fast_admission_gate_requests_promotion_itself(self):
         # The fast check's own request reached main's promote job before the admission job

@@ -3630,15 +3630,16 @@ jobs:
   # Promotion admission keys off this exact job name. Keep it separate from
   # the fast-check wrapper so unavailable fast checks cannot satisfy the gate.
   # It runs whenever the fast check ran and did not hand off to the Mac
-  # fallback (verdict unavailable), and is green only on a pass: a fleet
-  # compile error, or a fast check refused before a verdict (runner setup),
-  # stays red under the gate name instead of leaving no gate at all.
+  # fallback, and is green only on a pass: a fleet compile error stays red
+  # under the gate name. The fallback takes over on verdict unavailable and on
+  # a fast check refused before a verdict (runner setup), so exactly one job
+  # carries the gate name for a push.
   # It requests promotion itself, once green: a request from the fast check
   # reached main before this job existed (main waits about 30 s for it), and a
   # rerun of only this gate never reruns a downstream request skipped earlier.
   release-compile-fast-admission:
     needs: release-compile-fast
-    if: ${{ always() && !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.release-compile-fast.result != 'skipped' && needs.release-compile-fast.result != 'cancelled' && needs.release-compile-fast.outputs.verdict != 'unavailable' }}
+    if: ${{ always() && !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.release-compile-fast.result != 'skipped' && needs.release-compile-fast.result != 'cancelled' && needs.release-compile-fast.outputs.verdict != 'unavailable' && !(needs.release-compile-fast.result == 'failure' && needs.release-compile-fast.outputs.verdict == '') }}
     name: cmux-next Release compile (Xcode 26)
     runs-on: blacksmith-2vcpu-ubuntu-2404
     permissions:
