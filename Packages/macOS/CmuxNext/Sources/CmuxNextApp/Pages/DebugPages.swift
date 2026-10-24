@@ -20,8 +20,9 @@ import WebKit
 //   halves a page's rate in it by itself; `debug.low_power_mode` does not reach it), `painted` (the document's first frame, with
 //   `painted_uptime` in host systemUptime seconds and `painted_ms` on the page clock), `instance`,
 //   `parked`, `window_number` and `claim` (how a pooled host took its last claim: `path`
-//   acknowledged / refused / timedOut / loaded, `ms`) and `in_flight` (the page's calls still
-//   running: id, op, age_ms);
+//   acknowledged / refused / timedOut / loaded, `ms`), `in_flight` (the page's calls still
+//   running: id, op, age_ms), `events_held` (nobody sees the page, so its events wait) and
+//   `events_waiting` (how many);
 // - `frames` (`window_ms` default 1000, at most 1500; `scroll_px`, default 0; `selector`?): the
 //   page's own requestAnimationFrame intervals over the window (`PageFrameCadence`: frames,
 //   observed_fps, p50/p95/max_ms, long_frames over 1.5 refreshes (null without display_fps),
@@ -83,6 +84,9 @@ enum DebugPages {
                 members.merge(identity(page)) { _, new in new }
                 members["subscriptions"] = .number(Double(page.router.subscriptionCount))
                 members["in_flight"] = .array(page.router.inFlightCalls())
+                // A page nobody can see gets no events until it shows (PageRouter.isPageHidden).
+                members["events_held"] = .bool(page.router.holdsEvents)
+                members["events_waiting"] = .number(Double(page.router.heldCount))
                 // The first frame of this document (preflights wait on it with a deadline).
                 members["painted"] = .bool(page.hasPainted)
                 members["painted_uptime"] = page.paintedUptime.map { .number($0) } ?? .null

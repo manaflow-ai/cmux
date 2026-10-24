@@ -10,7 +10,13 @@ public import Foundation
 /// - only ops and streams the descriptor admits reach a provider; the rest is `unknown_op`;
 /// - params must be an object; an `origin` or a confirmation the page sends is refused (the host
 ///   stamps `page`; only a native confirmation sheet makes a call the user's);
-/// - events of one subscription are numbered from 1; an unsubscribe or ``close()`` cancels.
+/// - events of one subscription are numbered from 1; an unsubscribe or ``close()`` cancels;
+/// - a page nobody can see (``isPageHidden``) gets no event: they wait, in order, and go together
+///   in one `send` when it shows, or before anything else reaches the page (a host call, a
+///   command, a popup event, the reply to a message the page posted), so nothing reorders. Each
+///   event to a hidden page was a main-thread script evaluation and a render in its web process
+///   (#8900: a hidden notifications page took 50-61 % of the main thread). A page whose owner
+///   paces its own events opts out (``PageDescriptor/holdsEventsWhileHidden``).
 @MainActor
 public final class PageRouter {
     public private(set) var descriptor: PageDescriptor
@@ -39,8 +45,23 @@ public final class PageRouter {
     public private(set) var connected = true
 
     /// Whether nobody can see the page now: out of a window, hidden, parked, or its window covered
-    /// (the page view sets it, ``PageWebView``).
-    public var isPageHidden = false
+    /// (the page view sets it, ``PageWebView``). While it is, events wait; setting it false sends
+    /// what waits at once, in one `send`.
+    public var isPageHidden = false {
+        didSet { if !holdsEvents { releaseHeld() } }
+    }
+    /// Events waiting for the page to show, oldest first.
+    private var held: [PageDelivery] = []
+    /// Most events a hidden page waits for; at it they go in one `send`. Streams carry deltas
+    /// (`settings.changed` keys), so the router keeps every event and cannot keep only the latest:
+    /// the bound keeps a busy stream behind another tab at one script per this many events and
+    /// this many envelopes of memory. A batch this size is over the pipeline's inline budget, so
+    /// it renders off the main actor (``PageScriptPipeline``).
+    static let heldLimit = 1024
+    /// Events waiting for the page to show (tests, `debug.page`).
+    public var heldCount: Int { held.count }
+    /// Whether events wait now: the page is hidden and its kind holds them.
+    public var holdsEvents: Bool { isPageHidden && descriptor.holdsEventsWhileHidden }
 
     public init(descriptor: PageDescriptor, routes: [PageRoute]) {
         self.descriptor = descriptor
@@ -75,6 +96,13 @@ public final class PageRouter {
     /// Handles one envelope the page posted and returns the reply envelope (or `null` for
     /// messages that need none: `unsub`, and replies to host calls).
     public func handle(_ message: JSONValue) async -> JSONValue {
+        let reply = await reply(to: message)
+        // The reply reaches the page after the events before it: a page that posts is awake.
+        releaseHeld()
+        return reply
+    }
+
+    private func reply(to message: JSONValue) async -> JSONValue {
         guard let type = message["t"]?.stringValue else { return Self.error(id: 0, .invalidParams("missing t")) }
         let id = message["id"]?.doubleValue.map { UInt64(max(0, $0)) } ?? 0
         switch type {
@@ -239,7 +267,9 @@ public final class PageRouter {
         return (route.provider, params)
     }
 
-    private func deliver(sub: UInt64, _ data: JSONValue, publicationID: UInt64? = nil) {
+    /// Sends one event of `sub`, or holds it while the page is hidden. `intent` (a command, a popup
+    /// event: the person's own action) goes at once, after what waits.
+    private func deliver(sub: UInt64, _ data: JSONValue, publicationID: UInt64? = nil, intent: Bool = false) { // perf-hot: 0.1ms page-event (every subscription event of every page; a hidden page's cost is one append)
         guard subscriptions[sub] != nil || builtIn[sub] != nil || activeStreams.contains(sub) else { return }
         let seq = (sequences[sub] ?? 0) + 1
         sequences[sub] = seq
@@ -249,7 +279,25 @@ public final class PageRouter {
             guard let stream else { return }
             stream.provider.eventDeliveryDropped(stream: stream.name, data: data, publicationID: publicationID)
         }
-        send?([PageDelivery(envelope, dropped: dropped)])
+        let delivery = PageDelivery(envelope, dropped: dropped)
+        guard holdsEvents, !intent else {
+            send?(takeHeld() + [delivery])
+            return
+        }
+        held.append(delivery)
+        if held.count >= Self.heldLimit { releaseHeld() }
+    }
+
+    /// What waits, oldest first, and nothing waits after.
+    private func takeHeld() -> [PageDelivery] {
+        defer { held.removeAll() }
+        return held
+    }
+
+    /// Sends every waiting event in one `send`.
+    private func releaseHeld() {
+        guard !held.isEmpty else { return }
+        send?(takeHeld())
     }
 
     private func unsubscribe(_ sub: UInt64) {
@@ -258,6 +306,9 @@ public final class PageRouter {
         streamProviders.removeValue(forKey: sub)
         builtIn.removeValue(forKey: sub)
         sequences.removeValue(forKey: sub)
+        // Its waiting events belong to a subscription the page ended: nobody is to get them.
+        let number = JSONValue.number(Double(sub))
+        held.removeAll { $0.envelope["sub"] == number }
     }
 
     // MARK: Built-in streams
@@ -270,13 +321,13 @@ public final class PageRouter {
         var data = arguments
         data["command"] = .string(command)
         let subs = builtIn.filter { $0.value == PageNativeOp.pageCommand }.keys.sorted()
-        for sub in subs { deliver(sub: sub, .object(data)) }
+        for sub in subs { deliver(sub: sub, .object(data), intent: true) }
         return !subs.isEmpty
     }
 
     /// Sends a popup event (`{type, id?}`) to the page's popup subscribers.
     public func publishPopup(_ event: JSONValue) {
-        for sub in builtIn.filter({ $0.value == PageNativeOp.pagePopup }).keys.sorted() { deliver(sub: sub, event) }
+        for sub in builtIn.filter({ $0.value == PageNativeOp.pagePopup }).keys.sorted() { deliver(sub: sub, event, intent: true) }
     }
 
     /// Records the owner link state and tells the page's connection subscribers when it changes.
@@ -297,7 +348,8 @@ public final class PageRouter {
         nextCall += 1
         return try await withCheckedThrowingContinuation { continuation in
             pendingCalls[id] = continuation
-            send([PageDelivery(["t": "call", "id": .number(Double(id)), "op": .string(op), "params": params])])
+            // The page answers with the state the events before this call left.
+            send(takeHeld() + [PageDelivery(["t": "call", "id": .number(Double(id)), "op": .string(op), "params": params])])
         }
     }
 
@@ -315,6 +367,8 @@ public final class PageRouter {
     public func close() {
         closed = true
         didClose?()
+        // After the script FIFO's drops (older envelopes): providers replay in send order.
+        for delivery in takeHeld() { delivery.dropped() }
         for subscription in subscriptions.values { subscription.cancel() }
         subscriptions.removeAll()
         activeStreams.removeAll()
