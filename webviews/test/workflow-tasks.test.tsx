@@ -9,6 +9,12 @@ import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
 import { WorkflowTasks } from "../src/agent-session/acpmux/inspector/WorkflowTasks";
+import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { finishedTrayItems, trayItems, withSubagentLines } from "../src/agent-session/acpmux/subagents/runningTray";
+import { SUBAGENTS } from "../src/agent-session/acpmux/subagents/subagentFold";
+import { SUBAGENT_DONE, WORKFLOW_CARD } from "../src/agent-session/acpmux/subagents/subagentRows";
+import { WorkflowCard } from "../src/agent-session/acpmux/summary/WorkflowCard";
+import { turnViewFrom } from "../src/agent-session/acpmux/conversation/turns";
 import {
   createWorkflowAdapter,
   modelName,
@@ -117,4 +123,106 @@ test("blocked and skipped agents count as ended without finishing, never as unkn
   expect(workflow!.agents.map((agent) => agent.state).slice(4)).toEqual(["failed", "cancelled"]);
   expect(tally(workflow!.agents)).toEqual({ running: 1, queued: 0, done: 3, failed: 2, total: 6 });
   expect(workflow!.phases[1]!.state).toBe("running");
+});
+
+test("the transcript card names the workflow, its size and time, with a dot per agent", () => {
+  const [node] = workflowFixture("running", NOW).filter((each) => each.kind === "workflow");
+  const html = renderToStaticMarkup(<WorkflowCard node={{ ...node!, endedAt: node!.startedAt + 13_000 }} />);
+  expect(text(html)).toBe("demo-name-tournament Workflow 6 agents 13s");
+  expect(html.match(/acpmux-workflow-dot"/g)?.length).toBe(6);
+  // No handler: the card is no button anyone can press.
+  expect(html).toContain("disabled");
+});
+
+test("with Labs, a workflow a group started is a card in the group's place and leaves no done line", () => {
+  const nodes = workflowFixture("finished", NOW);
+  const plain = { ...nodes[0]!, id: "acp-1/toolu_plain", kind: "Explore", name: "Explore", workflowAgents: undefined };
+  const rows: AcpmuxRow[] = [
+    { id: "u", version: 1, at: NOW - 200_000, kind: "user", text: "go" },
+    { id: "g", version: 1, at: NOW - 120_000, kind: SUBAGENTS, subagents: [...nodes, plain] },
+    { id: "a", version: 1, at: NOW - 10_000, kind: "assistant", text: "done" },
+  ];
+  const labs = withSubagentLines(rows, new Map(), true);
+  expect(labs.map((row) => row.kind)).toEqual(["user", WORKFLOW_CARD, SUBAGENT_DONE, "assistant"]);
+  expect(labs[1]!.subagents?.map((node) => node.id)).toEqual([nodes[0]!.id]);
+  // A pause alone (the state kept, only the flag) draws the card again: its row's version moves.
+  const cache = new Map();
+  const first = withSubagentLines(rows, cache, true)[1]!;
+  const paused = rows.map((row) =>
+    row.kind === SUBAGENTS
+      ? {
+          ...row,
+          subagents: row.subagents!.map((node) => (node.kind === "workflow" ? { ...node, paused: true } : node)),
+        }
+      : row,
+  );
+  expect(withSubagentLines(paused, cache, true)[1]!.version).not.toBe(first.version);
+  expect(labs[2]!.subagents?.[0]!.id).toBe(plain.id);
+  // Without Labs, the workflow is a done line like any subagent.
+  expect(withSubagentLines(rows, new Map()).map((row) => row.kind)).toEqual([
+    "user",
+    SUBAGENT_DONE,
+    SUBAGENT_DONE,
+    "assistant",
+  ]);
+});
+
+test("each workflow a group started is its own card row, so each row is one card tall", () => {
+  const [node] = workflowFixture("finished", NOW);
+  const rows: AcpmuxRow[] = [
+    {
+      id: "g",
+      version: 1,
+      at: NOW - 120_000,
+      kind: SUBAGENTS,
+      subagents: [node!, { ...node!, id: "acp-1/toolu_wf2" }],
+    },
+  ];
+  const cards = withSubagentLines(rows, new Map(), true);
+  expect(cards.map((row) => [row.kind, row.subagents?.length])).toEqual([
+    [WORKFLOW_CARD, 1],
+    [WORKFLOW_CARD, 1],
+  ]);
+});
+
+test("a finished turn's fold keeps the workflow card outside it, where the workflow started", () => {
+  const [node] = workflowFixture("finished", NOW);
+  const rows: AcpmuxRow[] = [
+    { id: "u", version: 1, at: NOW - 200_000, kind: "user", text: "go" },
+    {
+      id: "w1",
+      version: 1,
+      at: NOW - 190_000,
+      kind: "activity",
+      items: [{ kind: "tool", text: "Read a.ts" }],
+      toolCount: 1,
+    },
+    { id: "g", version: 1, at: NOW - 180_000, kind: SUBAGENTS, subagents: [node!] },
+    { id: "a", version: 1, at: NOW - 10_000, kind: "assistant", text: "done" },
+    { id: "s", version: 1, at: NOW - 9_000, kind: "turnSummary", durationMs: 190_000, toolCount: 1 },
+  ];
+  const view = turnViewFrom(withSubagentLines(rows, new Map(), true), new Set(), { now: NOW });
+  // The turn folded its work (the read) but the card is still drawn.
+  expect(view.rows.some((row) => row.id === "w1")).toBe(false);
+  expect(view.rows.some((row) => row.kind === WORKFLOW_CARD)).toBe(true);
+});
+
+test("with Labs, a workflow is in neither tray list, running or ended (App.tsx trayAgents)", () => {
+  const running = workflowFixture("running", NOW);
+  const finished = workflowFixture("finished", NOW);
+  const plain = {
+    ...finished[0]!,
+    id: "acp-1/toolu_plain",
+    kind: "Explore",
+    name: "Explore",
+    workflowAgents: undefined,
+  };
+  const labs = (agents: typeof running) => agents.filter((agent) => agent.kind !== "workflow");
+  expect(trayItems(labs(running), [], [], true)).toEqual([]);
+  expect(
+    finishedTrayItems(labs([...finished, plain]), []).map((item) => (item.kind === "agent" ? item.agent.id : "")),
+  ).toEqual([plain.id]);
+  // Without Labs, both lists carry it, as before.
+  expect(trayItems(running, [], [], true).length).toBe(1);
+  expect(finishedTrayItems(finished, []).length).toBe(1);
 });
