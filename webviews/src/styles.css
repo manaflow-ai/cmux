@@ -122,7 +122,7 @@ html {
   --cmux-diff-files-sticky-bg: var(--cmux-diff-header-bg);
   --cmux-diff-files-filter: none;
   --cmux-diff-files-layer-bg: transparent;
-  --cmux-diff-tree-name: var(--cmux-diff-fg);
+  --cmux-diff-tree-name-strength: 65%;
   /* A clear film: a tint of the text color, not the theme surface (no navy or other theme hue),
      with the blur doing the work where the engine can blur. */
   --cmux-diff-header-bg: color-mix(in srgb, var(--cmux-diff-fg) 5%, transparent);

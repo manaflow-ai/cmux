@@ -320,11 +320,16 @@ export function fileTreeUnsafeCSS(): string {
     [data-item-git-status='renamed'] {
       --trees-item-git-status-color: var(--cmux-tree-modified);
     }
-    /* Over an image or a see-through window a colored name is hard to read on the film, so names
-       take the text color there (--cmux-diff-tree-name, styles.css); the icon and the change
-       square keep the status color. */
+    /* Over an image or a see-through window a status-colored name loses contrast against the
+       backdrop, so it is mixed toward the text color there (--cmux-diff-tree-name-strength,
+       styles.css): the same hue, brighter in a dark theme, darker in a light one. Elsewhere the
+       strength is 100%, the status color itself. */
     [data-item-git-status] > [data-item-section='content'] {
-      color: var(--cmux-diff-tree-name, var(--trees-item-git-status-color));
+      color: color-mix(
+        in oklab,
+        var(--trees-item-git-status-color) var(--cmux-diff-tree-name-strength, 100%),
+        var(--cmux-diff-fg)
+      );
     }
     [data-file-tree-sticky-overlay-content] {
       background-color: var(--cmux-diff-files-sticky-bg, var(--cmux-diff-files-bg, var(--cmux-diff-solid-bg))) !important;
