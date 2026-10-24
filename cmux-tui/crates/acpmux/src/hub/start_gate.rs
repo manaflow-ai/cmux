@@ -416,6 +416,13 @@ impl Hub {
         let applied = match checked {
             Ok(grant) => match self.set_mode(s, &start.mode).await {
                 Ok(_) => {
+                    // A mode granted because the caller runs in it is cmux's own only when the
+                    // caller's is: a mode the caller's harness reported by itself passes on no
+                    // `mode_set_by_cmux` (`trust_wait.rs` `full_access_by_cmux`).
+                    if matches!(grant, StartGrant::Inherit) && !self.mode_is_cmux_set(caller) {
+                        s.meta.lock().unwrap_or_else(|e| e.into_inner()).mode_set_by_cmux = None;
+                        self.save_meta(s);
+                    }
                     self.note_start_grant(s, grant, bound);
                     Ok(())
                 }
@@ -430,6 +437,14 @@ impl Hub {
             return Err(e);
         }
         Ok(())
+    }
+
+    /// Whether session `caller` runs in the mode cmux last set on it (`SessionMeta::mode_set_by_cmux`).
+    fn mode_is_cmux_set(&self, caller: Option<&str>) -> bool {
+        caller.and_then(|id| self.resolve(id).ok().filter(|s| s.id == id)).is_some_and(|s| {
+            let m = s.meta();
+            m.mode_set_by_cmux.is_some() && crate::web_modes::mode_of(&m) == m.mode_set_by_cmux
+        })
     }
 
     /// A bare "agent process closed" from a process that died while it

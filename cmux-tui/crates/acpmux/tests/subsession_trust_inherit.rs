@@ -161,6 +161,7 @@ async fn a_full_access_chat_lends_its_folder_trust_to_sub_sessions_under_it() {
         "undecided/lanes",
         "web/lanes",
         "spoof/lanes",
+        "spoof/child",
         "elsewhere/lanes",
     ] {
         std::fs::create_dir_all(root.join(folder)).unwrap();
@@ -258,6 +259,19 @@ async fn a_full_access_chat_lends_its_folder_trust_to_sub_sessions_under_it() {
     assert!(
         start_waits_on_a_card(&hub, &mut app, &spoof, &root.join("spoof/lanes")).await,
         "a harness's own claim of full access lent its folder's trust"
+    );
+
+    // Nor does a child it starts in its own trusted folder, which inherits the claimed mode: the
+    // child's mode came from that claim, not from cmux, so the child's own start under the folder
+    // still waits on a card.
+    let mut agent = Client::as_session(&hub, &spoof).await;
+    let start = json!({"prompt": "echo hi", "name": "child", "cwd": root.join("spoof"), "harness": "fake-ask"});
+    let child = agent.ok(START, start).await["sessionId"].as_str().unwrap().to_owned();
+    let info = app.ok("_acpmux/info", json!({"sessionId": child})).await;
+    assert_eq!(info["modes"]["currentModeId"], "full-access", "{info}");
+    assert!(
+        start_waits_on_a_card(&hub, &mut app, &child, &root.join("spoof/child")).await,
+        "a child of a claimed full access lent its folder's trust"
     );
 
     // A chat in full access whose own folder nobody decided: a start under it waits on a card.

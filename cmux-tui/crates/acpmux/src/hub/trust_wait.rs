@@ -450,7 +450,7 @@ impl Hub {
 /// Whether chat `m` runs in full access by cmux's own doing: its profile's command skips the checks,
 /// or its mode is a full-access mode cmux set itself (`SessionMeta::mode_set_by_cmux`). A mode the
 /// harness reported on its own (`current_mode_update`) is not enough: the agent controls that.
-fn full_access_by_cmux(m: &SessionMeta) -> bool {
+pub(super) fn full_access_by_cmux(m: &SessionMeta) -> bool {
     if super::subsession_guard::argv_full_access(&m.harness_argv).is_some() {
         return true;
     }
