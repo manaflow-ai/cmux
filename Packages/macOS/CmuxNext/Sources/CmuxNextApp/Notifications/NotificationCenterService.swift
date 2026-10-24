@@ -48,9 +48,9 @@ final class NotificationCenterService {
     /// A press on a pane's tab strip, read on its mouse-up unless it dragged
     /// (`NotificationCenterService+StripPress`).
     @ObservationIgnored var stripPress: StripPress?
-    /// Tabs a strip press picked up, whose focus is not a look until the person goes into them
+    /// Tabs a strip press picked up, whose focus is not a look until the person's next input
     /// (`NotificationCenterService+StripPress`).
-    @ObservationIgnored var viewHolds: [String: ViewHold] = [:]
+    @ObservationIgnored var viewHolds: Set<String> = []
     /// Whether the left button is still down, and where the pointer is (screen coordinates);
     /// tests stand in for the hardware.
     @ObservationIgnored var leftButtonIsDown: @MainActor () -> Bool = { NSEvent.pressedMouseButtons & 1 != 0 }
@@ -218,12 +218,18 @@ final class NotificationCenterService {
     /// outside the panes (sidebar, titlebar, tab bar gaps) reads nothing. A
     /// left press on a pane's tab strip waits for its mouse-up (``noteMouseUp(in:at:)``):
     /// it may start dragging the tab or the pane, and the ring goes with it.
-    func noteMouseDown(in window: NSWindow?, at location: NSPoint, left: Bool = true) {
-        if let press = stripPress, viewHolds[press.tab] == .pressing { viewHolds[press.tab] = nil }
+    /// `screen`: where it went down before dispatch (a titlebar press may have moved the window
+    /// since); `synthetic`: the app's own input (`SyntheticInput`), whose button is no hardware's.
+    func noteMouseDown(in window: NSWindow?, at location: NSPoint, left: Bool = true,
+                       screen: NSPoint? = nil, synthetic: Bool = false) {
+        // A right or middle press during a strip drag leaves the drag alone.
+        if !left, stripPress != nil, leftButtonIsDown() { return }
+        // Any new press ends the holds of earlier moves: the person has moved on.
         stripPress = nil
+        endViewHolds()
         guard let press = clickedTab(in: window, at: location) else { return }
         if left, press.onStrip, let window {
-            beginStripPress(tab: press.tab, in: window, at: location)
+            beginStripPress(tab: press.tab, at: screen ?? window.convertPoint(toScreen: location), synthetic: synthetic)
             return
         }
         interacted(.click, tabID: press.tab)
@@ -313,7 +319,7 @@ final class NotificationCenterService {
 
     func interacted(_ trigger: NotificationTrigger, tab: TabModel) {
         // Going into a tab a strip press held ends the hold: its focus is a look again.
-        if [.click, .keystroke, .open].contains(trigger), !viewHolds.isEmpty { viewHolds[tab.id] = nil }
+        if [.click, .keystroke, .open].contains(trigger), !viewHolds.isEmpty { viewHolds.remove(tab.id) }
         // Any look at the tab sees its OSC 7501 done and error records and an
         // agent chat's completed turn (client view state; the owners keep the facts).
         ProgramStatusSeenStore.shared.markSeen(tab)

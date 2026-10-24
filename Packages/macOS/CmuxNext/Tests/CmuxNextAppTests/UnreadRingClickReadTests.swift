@@ -155,7 +155,8 @@ struct UnreadRingClickReadTests {
     }
 
     /// In the titlebar row the window's own tracking loop takes the mouse-up before the press is
-    /// seen: a press that stayed put reads its pane at once, one that moved the window reads nothing.
+    /// seen, and may have moved the window: a press that stayed put reads its pane at once, one
+    /// that dragged the window reads nothing (measured from where it went down, before dispatch).
     @Test func aPressWhoseMouseUpWasTakenResolvesAtOnce() async throws {
         let fixture = try await Self.open()
         defer {
@@ -166,16 +167,38 @@ struct UnreadRingClickReadTests {
         let clicked = try #require(fixture.other.tabs.first)
         let point = try Self.stripCenter(of: fixture.other, in: fixture)
         let screen = fixture.window.convertPoint(toScreen: point)
+        let moved = NSPoint(x: screen.x + TabTunables.dragStartDistance.value + 60, y: screen.y)
         notifications.leftButtonIsDown = { false }
-        notifications.pointerLocation = { NSPoint(x: screen.x + TabTunables.dragStartDistance.value + 60, y: screen.y) }
-        notifications.noteMouseDown(in: fixture.window, at: point)
+        // The window moved with the pointer: the window point is under the pointer again, the press point is not.
+        notifications.pointerLocation = { moved }
+        notifications.noteMouseDown(in: fixture.window, at: point, screen: screen)
         #expect(!notifications.log.contains { $0.hasPrefix("ack ") }, "a window drag from the strip read its pane")
         notifications.pointerLocation = { screen }
-        notifications.noteMouseDown(in: fixture.window, at: point)
+        notifications.noteMouseDown(in: fixture.window, at: point, screen: screen)
         #expect(notifications.log.contains("ack \(clicked.id)"), "a click the titlebar tracked kept its ring")
     }
 
-    /// A right-click on a strip is no drag: it reads its pane at once, as before.
+    /// The app's own input (`debug.mouse`) holds no hardware button: its strip press waits for its
+    /// own mouse-up rather than ending at once from the person's pointer.
+    @Test func aSyntheticStripPressWaitsForItsMouseUp() async throws {
+        let fixture = try await Self.open()
+        defer {
+            fixture.controller.teardown()
+            fixture.window.close()
+        }
+        let notifications = fixture.services.notifications
+        let clicked = try #require(fixture.other.tabs.first)
+        let point = try Self.stripCenter(of: fixture.other, in: fixture)
+        notifications.leftButtonIsDown = { false }
+        notifications.pointerLocation = { NSPoint(x: -10_000, y: -10_000) }
+        notifications.noteMouseDown(in: fixture.window, at: point, synthetic: true)
+        #expect(notifications.stripPress != nil, "a synthetic strip press ended at the person's pointer")
+        notifications.noteMouseUp(in: fixture.window, at: point)
+        #expect(notifications.log.contains("ack \(clicked.id)"), "a synthetic strip click kept its ring")
+    }
+
+    /// A right-click on a strip is no drag: it reads its pane at once, as before. One during a
+    /// strip drag leaves the drag alone.
     @Test func aRightClickOnAStripReadsItsPane() async throws {
         let fixture = try await Self.open()
         defer {
@@ -184,15 +207,23 @@ struct UnreadRingClickReadTests {
         }
         let notifications = fixture.services.notifications
         let clicked = try #require(fixture.other.tabs.first)
-        notifications.noteMouseDown(in: fixture.window, at: try Self.stripCenter(of: fixture.other, in: fixture), left: false)
+        let point = try Self.stripCenter(of: fixture.other, in: fixture)
+        notifications.noteMouseDown(in: fixture.window, at: point, left: false)
         #expect(notifications.log.contains("ack \(clicked.id)"), "a right-click on the strip kept its ring")
         #expect(notifications.stripPress == nil && notifications.viewHolds.isEmpty, "a right-click held its tab")
+
+        let kept = try #require(fixture.focused.tabs.first)
+        let strip = try Self.stripCenter(of: fixture.focused, in: fixture)
+        notifications.noteMouseDown(in: fixture.window, at: strip)
+        notifications.noteMouseDown(in: fixture.window, at: strip, left: false)
+        #expect(notifications.stripPress?.tab == kept.id, "a right-click ended the strip drag under way")
+        #expect(!notifications.log.contains("ack \(kept.id)"), "a right-click during a strip drag read the dragged tab")
     }
 
-    /// The press focuses its tab and the drop focuses it where it lands; neither is a look. Under
-    /// the `focus` dismissal policy and for Mark as Unread (cleared on coming into view), the moved
-    /// tab keeps its ring until it is gone into, or seen and left.
-    @Test func aMovedTabsFocusIsNoLookUntilItIsGoneInto() async throws {
+    /// The press focuses its tab and the drop focuses it where it lands, in either order with the
+    /// daemon's echo; neither is a look. Under the `focus` dismissal policy and for Mark as Unread
+    /// (cleared on coming into view), the moved tab keeps its ring until the person's next input.
+    @Test func aMovedTabsFocusIsNoLookUntilTheNextInput() async throws {
         let fixture = try await Self.open()
         defer {
             fixture.controller.teardown()
@@ -201,20 +232,22 @@ struct UnreadRingClickReadTests {
         let notifications = fixture.services.notifications
         let moved = try #require(fixture.other.tabs.first)
         let point = try Self.stripCenter(of: fixture.other, in: fixture)
+        let away = NSPoint(x: point.x + TabTunables.dragStartDistance.value + 40, y: point.y)
         notifications.noteMouseDown(in: fixture.window, at: point)
         #expect(notifications.unheld([moved]).isEmpty, "the press's focus read the tab it picked up")
-        notifications.noteMouseUp(in: fixture.window, at: NSPoint(x: point.x + TabTunables.dragStartDistance.value + 40, y: point.y))
-        // Focused at the drop: still no look, and its mark counts as in view all along.
+        notifications.noteMouseUp(in: fixture.window, at: away)
+        // Out of view while the move lands, then focused at the drop: still no look.
+        #expect(notifications.unheld([]).isEmpty)
         #expect(notifications.unheld([moved]).isEmpty, "the drop's focus read the moved tab")
         notifications.clearTabMarks(entering: [], held: [moved.id])
         #expect(notifications.viewedTabIDs.contains(moved.id), "the moved tab's mark would clear as it comes into view")
-        // Left and viewed again: an ordinary look.
-        #expect(notifications.unheld([]).isEmpty)
-        #expect(notifications.unheld([moved]).map(\.id) == [moved.id], "a moved tab seen and left stayed held")
+        // A key ends the hold.
+        notifications.endViewHolds()
+        #expect(notifications.unheld([moved]).map(\.id) == [moved.id], "a key left the moved tab held")
 
-        // Going into a held tab ends the hold at once.
+        // So does a click, here or in the tab itself.
         notifications.noteMouseDown(in: fixture.window, at: point)
-        notifications.noteMouseUp(in: fixture.window, at: NSPoint(x: point.x + TabTunables.dragStartDistance.value + 40, y: point.y))
+        notifications.noteMouseUp(in: fixture.window, at: away)
         #expect(notifications.unheld([moved]).isEmpty)
         notifications.noteMouseDown(in: fixture.window, at: try Self.center(of: fixture.other, in: fixture))
         #expect(notifications.unheld([moved]).map(\.id) == [moved.id], "a click into the moved tab left it held")
