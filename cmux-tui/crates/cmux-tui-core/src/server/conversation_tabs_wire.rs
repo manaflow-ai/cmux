@@ -152,7 +152,7 @@ pub(super) struct AgentSessionParams {
 const MACHINE_HOST_PREFIX: &str = "registry:";
 
 /// A session for a `registry:` tab from anywhere but that machine's own
-/// `agent-session-start` (cx-k21v): a session never leaves its machine, so
+/// `agent-session-start` or `agent-session-adopt` (cx-k21v): a session never leaves its machine, so
 /// another machine's chat (a Mac's acpmux session or an outside chat it
 /// resumes) is never bound into a tab of this one. Two exceptions, both chats
 /// of this machine's own acpmux ([`landed_here`]): a chat this daemon itself
@@ -231,8 +231,8 @@ fn record_of(
         }
         (None, None, Some(AgentSessionParams { host, session, harness, host_name }), None) => {
             // A machine's own tab is created without a session; only that
-            // machine's agent-session-start binds one, or it names a chat
-            // this daemon landed.
+            // machine's agent-session-start or agent-session-adopt binds one,
+            // or it names a chat this daemon landed.
             if host.starts_with(MACHINE_HOST_PREFIX)
                 && let Some(session) = &session
                 && !landed_here(mux, &host, session)
@@ -341,8 +341,9 @@ pub(super) fn bind(
     params: BindSessionParams,
 ) -> anyhow::Result<Value> {
     let BindSessionParams { surface, session, expected_session, harness } = params;
-    // A machine's own tab binds only through agent-session-start (which
-    // binds in the store directly, never through this command).
+    // A machine's own tab binds only through agent-session-start or
+    // agent-session-adopt (which bind in the store directly, never through
+    // this command).
     let machine_tab = mux.surface(surface).and_then(|runtime| mux.conversation_tab_of(&runtime));
     if let Some(ConversationTabRecord::AgentSession { host, .. }) = machine_tab
         && host.starts_with(MACHINE_HOST_PREFIX)

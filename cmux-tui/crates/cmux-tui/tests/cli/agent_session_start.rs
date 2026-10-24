@@ -23,6 +23,8 @@ mod agent_focus_cli;
 mod agent_home_reopen;
 #[path = "agent_input_hint.rs"]
 mod agent_input_hint;
+#[path = "agent_session_adopt.rs"]
+mod agent_session_adopt;
 #[path = "agents_chat_tools.rs"]
 mod agents_chat_tools;
 #[path = "agents_cli_receipt.rs"]

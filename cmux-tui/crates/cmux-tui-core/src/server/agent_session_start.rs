@@ -81,8 +81,8 @@ const MAX_STARTS: usize = 8;
 const MAX_CWD_BYTES: usize = 4096;
 /// A harness spawns and answers `session/new` (a cold agent can take long).
 const NEW_TIMEOUT: Duration = Duration::from_secs(60);
-const CALL_TIMEOUT: Duration = Duration::from_secs(5);
-const THREAD_STACK_BYTES: usize = 256 * 1024;
+pub(super) const CALL_TIMEOUT: Duration = Duration::from_secs(5);
+pub(super) const THREAD_STACK_BYTES: usize = 256 * 1024;
 
 /// Reads this machine's [`AgentStartHost`] (a few file checks), at each start.
 pub type AgentStartHostSource = Arc<dyn Fn() -> AgentStartHost + Send + Sync>;
@@ -109,7 +109,7 @@ impl AgentSessionStarts {
     /// Ok on an allowed host; the refusal otherwise (also when unset). The
     /// kind is read again for every start, so a bind or team enroll that
     /// lands after the daemon started counts at once.
-    fn host_gate(&self) -> Result<(), Refusal> {
+    pub(super) fn host_gate(&self) -> Result<(), Refusal> {
         let source = self.host.lock().unwrap_or_else(|e| e.into_inner()).clone();
         match source.map(|read| read()) {
             Some(AgentStartHost::Allowed) => Ok(()),
@@ -124,7 +124,7 @@ impl AgentSessionStarts {
 
     /// Takes `surface`'s start slot; None while it starts or at the cap.
     /// The slot is given back when the returned guard drops (also on a panic).
-    fn reserve(mux: &Arc<Mux>, surface: SurfaceId) -> Option<StartSlot> {
+    pub(super) fn reserve(mux: &Arc<Mux>, surface: SurfaceId) -> Option<StartSlot> {
         let starts = &mux.control_clients.agent_sessions.starts;
         let mut starting = starts.starting.lock().unwrap_or_else(|e| e.into_inner());
         (starting.len() < MAX_STARTS && starting.insert(surface))
@@ -133,7 +133,7 @@ impl AgentSessionStarts {
 }
 
 /// A taken start slot.
-struct StartSlot {
+pub(super) struct StartSlot {
     mux: Arc<Mux>,
     surface: SurfaceId,
 }
@@ -313,7 +313,7 @@ pub(crate) fn keyed_restart_reason(status: Option<&Value>) -> Value {
 }
 
 /// Ok when `surface` is an unbound agent tab whose record names this store.
-fn startable(mux: &Mux, surface: SurfaceId) -> Result<(), Refusal> {
+pub(super) fn startable(mux: &Mux, surface: SurfaceId) -> Result<(), Refusal> {
     let runtime = mux.surface(surface).ok_or(Refusal::UnknownTab)?;
     match mux.conversation_tab_of(&runtime) {
         Some(ConversationTabRecord::AgentSession { host, session, .. })
@@ -499,6 +499,59 @@ fn refused_family(table: &Value, family: &str) -> bool {
         .is_some_and(|refused| refused.iter().any(|name| name.as_str() == Some(family)))
 }
 
+/// Whether a `_acpmux/web_modes {sessionId}` answer's session asks before
+/// acting (its family is not refused and its mode is one of the family's
+/// asking modes; no mode counts as asking), and the family's asking default.
+pub(super) fn asks(table: &Value) -> (bool, Option<String>) {
+    let family = table.pointer("/session/family").and_then(Value::as_str).unwrap_or_default();
+    let modes: Vec<&str> = table
+        .pointer(&format!("/families/{}", family.replace('~', "~0").replace('/', "~1")))
+        .and_then(Value::as_array)
+        .map(|modes| modes.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+    let default = modes.first().map(|mode| mode.to_string());
+    if family.is_empty() || refused_family(table, family) {
+        return (false, None);
+    }
+    let asks = match table.pointer("/session/mode").and_then(Value::as_str) {
+        None => true,
+        Some(mode) => modes.contains(&mode),
+    };
+    (asks, default)
+}
+
+/// `session`'s mode in a `_acpmux/web_modes {sessionId}` answer, as the adopt
+/// reply carries it: its family, its mode and whether it asks before acting
+/// ([`asks`]); the app shows `asking: false` as the bypass badge.
+fn mode_facts(session: &str, table: &Value) -> Value {
+    let (asking, _) = asks(table);
+    json!({
+        "session": session,
+        "family": table.pointer("/session/family").and_then(Value::as_str).unwrap_or_default(),
+        "mode": table.pointer("/session/mode").and_then(Value::as_str),
+        "asking": asking,
+    })
+}
+
+/// [`mode_facts`] of `session` in `table`, only when acpmux knows that
+/// session by exactly this id (an unknown or purged one has no `session`, and
+/// a prefix resolves to another id): never facts for a chat that is not there.
+pub(super) fn checked_mode(session: &str, table: &Value) -> Result<Value, Refusal> {
+    if table.pointer("/session/sessionId").and_then(Value::as_str) != Some(session) {
+        return Err(Refusal::UnknownSession);
+    }
+    Ok(mode_facts(session, table))
+}
+
+/// A Home Chief session (acpmux `hub/route_switch.rs` is_chief, the app's
+/// `AcpmuxSessionCensus.isChief`), from a `_acpmux/sessions` summary.
+pub(in crate::server) fn is_chief(summary: &Value) -> bool {
+    let text = |key: &str| summary[key].as_str().unwrap_or_default();
+    summary.field("tags").get("cmux.chief").is_some()
+        || text("name").starts_with("optchat-")
+        || text("harness").starts_with("optchat-compact-")
+}
+
 /// acpmux's remote rule for a new session: its family is not refused and
 /// its mode asks (no mode counts as asking), else it moves to the family's
 /// asking default; anything else is refused. Returns the session's family.
@@ -506,23 +559,6 @@ fn settle_asking_mode(link: &AcpmuxLink, session: &str) -> Result<String, Refusa
     let read = || {
         link.call("_acpmux/web_modes", json!({"sessionId": session}), CALL_TIMEOUT)
             .map_err(Refusal::of)
-    };
-    let asks = |table: &Value| -> (bool, Option<String>) {
-        let family = table.pointer("/session/family").and_then(Value::as_str).unwrap_or_default();
-        let modes: Vec<&str> = table
-            .pointer(&format!("/families/{}", family.replace('~', "~0").replace('/', "~1")))
-            .and_then(Value::as_array)
-            .map(|modes| modes.iter().filter_map(Value::as_str).collect())
-            .unwrap_or_default();
-        let default = modes.first().map(|mode| mode.to_string());
-        if family.is_empty() || refused_family(table, family) {
-            return (false, None);
-        }
-        let asks = match table.pointer("/session/mode").and_then(Value::as_str) {
-            None => true,
-            Some(mode) => modes.contains(&mode),
-        };
-        (asks, default)
     };
     let table = read()?;
     let family =

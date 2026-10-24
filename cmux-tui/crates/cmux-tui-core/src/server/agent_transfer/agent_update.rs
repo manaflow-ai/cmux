@@ -348,7 +348,9 @@ fn threads(sessions: &Value) -> (usize, usize) {
     let list = sessions.get("sessions").unwrap_or(sessions);
     let (mut live, mut running) = (0, 0);
     for summary in list.as_array().into_iter().flatten() {
-        if summary.get("peer").is_some_and(|peer| !peer.is_null()) || is_chief(summary) {
+        if summary.get("peer").is_some_and(|peer| !peer.is_null())
+            || agent_session_start::is_chief(summary)
+        {
             continue;
         }
         match summary.field("status").as_str() {
@@ -361,15 +363,6 @@ fn threads(sessions: &Value) -> (usize, usize) {
         }
     }
     (live, running)
-}
-
-/// A Home Chief session (acpmux `hub/route_switch.rs` is_chief, the app's
-/// `AcpmuxSessionCensus.isChief`).
-fn is_chief(summary: &Value) -> bool {
-    let text = |key: &str| summary[key].as_str().unwrap_or_default();
-    summary.field("tags").get("cmux.chief").is_some()
-        || text("name").starts_with("optchat-")
-        || text("harness").starts_with("optchat-compact-")
 }
 
 // MARK: Apply
