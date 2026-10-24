@@ -132,10 +132,11 @@ final class BrowserHibernation {
 
     /// - Parameters:
     ///   - cache: The tab content cache whose hidden pages hibernate.
-    ///   - cmuxPages: The freeze policy of cmux's own pages, kept on this hibernation's setting
-    ///     (a fresh one by default, for tests of browser tabs only).
+    ///   - cmuxPages: The freeze policy of cmux's own pages, kept on this hibernation's setting.
+    ///     Required, with no default: the app passes the one its page host hands to every page
+    ///     (`AppServices.cmuxPages`), so a call that leaves it out does not compile.
     ///   - lowPower: Low Power Mode, which turns the awake neighbor tabs off.
-    init(cache: TabContentCache, cmuxPages: CmuxPageFreezing = CmuxPageFreezing(), lowPower: LowPowerMode = .system) {
+    init(cache: TabContentCache, cmuxPages: CmuxPageFreezing, lowPower: LowPowerMode = .system) {
         self.cache = cache
         self.cmuxPages = cmuxPages
         self.lowPower = lowPower
@@ -442,14 +443,13 @@ final class BrowserHibernation {
     private func replanFreeze(_ hidden: [HibernationPlanner.Candidate]) {
         guard let cache else { return }
         let now = ContinuousClock.now
-        let threshold = setting.freezeSeconds
         var recheck: Double?
         let candidates = hidden.filter { candidate in
             guard !frozen.contains(candidate.key), !freezeProbing.contains(candidate.key),
                   let tab = cache.browsers[candidate.key]?.tab, freezer(tab) != nil else { return false }
-            if let kept = freezeKeptAt[candidate.key], let threshold {
-                let left = threshold - (now - kept).seconds
-                if left > 0 { recheck = min(recheck ?? left, left); return false }
+            // A page the probe kept is asked again on the same rule, counted from the probe.
+            if let kept = freezeKeptAt[candidate.key], let left = setting.freezeTimeLeft(hiddenFor: now - kept) {
+                if left > .zero { recheck = min(recheck ?? left.inSeconds, left.inSeconds); return false }
                 freezeKeptAt[candidate.key] = nil
             }
             return true

@@ -101,16 +101,15 @@ public final class CmuxPageFreezing: PageFreezePolicy {
     /// comes due (a clock sleep ends at or after its deadline), with no rounding margin.
     func replan() {
         hidden = hidden.filter { $0.value.page != nil }
-        guard let seconds = setting.freezeSeconds else {
-            deadline.cancel()
-            return
-        }
-        let grace = Duration.seconds(seconds)
         let current = now()
         var next: Duration?
         // Iterates a copy: removing a frozen page below does not disturb the loop.
         for (key, entry) in hidden {
-            let remaining = grace - (current - entry.since)
+            // The shared rule (`BrowserHibernationSetting.freezeTimeLeft`), as for browser tabs.
+            guard let remaining = setting.freezeTimeLeft(hiddenFor: current - entry.since) else {
+                deadline.cancel()
+                return
+            }
             guard remaining <= .zero else {
                 next = min(next ?? remaining, remaining)
                 continue

@@ -58,6 +58,25 @@ import Testing
         #expect(setting.freezeSeconds == expected)
     }
 
+    /// A number outside 5...3600 seconds is a diagnostic, not a value: past ~1.7e20 seconds no
+    /// `Duration` holds it, and both freeze paths built one from it at every settings apply ("never"
+    /// is `off`). The Settings control offers the same range.
+    @Test(arguments: [3_601.0, 1e21, 4.0])
+    func aNumberOutsideTheRangeKeepsTheDefault(seconds: Double) {
+        let (setting, diagnostics) = BrowserHibernationSetting.parse(.object(["browser": .object(["freezeHiddenTabs": .number(seconds)])]))
+        #expect(setting.freezeSeconds == 30)
+        #expect(diagnostics.map(\.path) == ["browser.freezeHiddenTabs"])
+    }
+
+    /// The one freeze rule both freeze paths ask (browser tabs here, cmux pages in CmuxPageFreezing).
+    @Test func theFreezeRuleIsTheTimeLeftOfTheGrace() {
+        #expect(BrowserHibernationSetting.fallback.freezeTimeLeft(hiddenFor: .seconds(10)) == .seconds(20))
+        #expect(BrowserHibernationSetting.fallback.freezeTimeLeft(hiddenFor: .seconds(30)) == .zero)
+        var off = BrowserHibernationSetting.fallback
+        off.freezeSeconds = nil
+        #expect(off.freezeTimeLeft(hiddenFor: .seconds(1_000)) == nil)
+    }
+
     @Test func aBadValueKeepsTheDefault() {
         let (setting, diagnostics) = BrowserHibernationSetting.parse(.object(["browser": .object(["freezeHiddenTabs": .string("soon")])]))
         #expect(setting.freezeSeconds == 30)

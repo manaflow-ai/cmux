@@ -1,6 +1,7 @@
 import CmuxNextBridge
 import Foundation
 import CmuxNextSettings
+import CmuxNextWakeups
 
 /// Which hidden pages hibernate now, and when to look again
 /// (plans/cmux-next/tab-lifecycle.md). Pure: the App feeds it facts and a
@@ -115,15 +116,16 @@ struct HibernationPlanner {
     /// tabs (unless they hibernate too), excluded hosts, open DevTools and capture.
     static func freezePlan(_ setting: BrowserHibernationSetting, candidates: [Candidate]) -> Plan {
         var plan = Plan()
-        guard let threshold = setting.freezeSeconds else { return plan }
         for candidate in candidates {
             if candidate.hasDevTools || candidate.isCapturing || candidate.hasAgentLease || setting.excludes(host: candidate.host)
                 || (candidate.isPinned && !setting.includesPinnedTabs) { continue }
-            let remaining = threshold - candidate.hiddenFor
-            if remaining <= 0 {
+            // The shared rule (`BrowserHibernationSetting.freezeTimeLeft`), as for cmux's own pages.
+            // Off (nil) freezes nothing.
+            guard let left = setting.freezeTimeLeft(hiddenFor: .seconds(candidate.hiddenFor)) else { return plan }
+            if left <= .zero {
                 plan.due.append(candidate.key)
             } else {
-                plan.nextCheck = min(plan.nextCheck ?? remaining, remaining)
+                plan.nextCheck = min(plan.nextCheck ?? left.inSeconds, left.inSeconds)
             }
         }
         return plan

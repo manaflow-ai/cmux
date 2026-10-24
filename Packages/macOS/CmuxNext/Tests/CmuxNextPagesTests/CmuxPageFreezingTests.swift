@@ -13,32 +13,10 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct CmuxPageFreezingTests {
-    /// A clock whose time the test steps and whose sleeps end only when cancelled: the test runs
-    /// each pass by hand.
-    private struct StalledClock: Clock {
-        let time: TestTime
-        var now: ContinuousClock.Instant { time.now }
-        var minimumResolution: Duration { .nanoseconds(1) }
-
-        func sleep(until deadline: ContinuousClock.Instant, tolerance: Duration?) async throws {
-            // A stream nobody yields to: iterating it ends only when the task is cancelled.
-            let (pending, continuation) = AsyncStream<Void>.makeStream()
-            for await _ in pending {}
-            withExtendedLifetime(continuation) {}
-            try Task.checkCancellation()
-        }
-    }
-
-    /// The time the policy reads, stepped by the test.
-    // Read and stepped only on the main actor: the suite is @MainActor and .serialized, and the
-    // policy reads its clock on the main actor.
-    private nonisolated final class TestTime: @unchecked Sendable {
-        var now = ContinuousClock.now
-    }
-
     private let root: URL
     private let stage = PageTestWindow()
-    private let time = TestTime()
+    /// The policy's and the pages' one time source, stepped by the test.
+    private let clock = SteppedClock()
 
     init() throws {
         root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-page-freezing-\(UUID().uuidString)", isDirectory: true)
@@ -47,7 +25,7 @@ struct CmuxPageFreezingTests {
     }
 
     private func policy() -> CmuxPageFreezing {
-        CmuxPageFreezing(clock: StalledClock(time: time))
+        CmuxPageFreezing(clock: clock)
     }
 
     /// A started Chromium page that booted (its first message reached the host), in a pane that
@@ -56,7 +34,7 @@ struct CmuxPageFreezingTests {
         let pane = stage.show(NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300)))
         let descriptor = PageDescriptor(id: "test.cmux-page-freezing", resource: "cmux-page-freezing", namespaces: [])
         let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: hosting))
-        view.chromiumClock = StalledClock(time: time)
+        view.chromiumClock = clock
         pane.addSubview(view)
         await view.chromiumStart?.value
         let page = try #require(hosting.made.first)
@@ -65,7 +43,7 @@ struct CmuxPageFreezingTests {
     }
 
     private func pass(after seconds: Double, _ freezing: CmuxPageFreezing) {
-        time.now += .milliseconds(Int64(seconds * 1000))
+        clock.advance(by: .milliseconds(Int64(seconds * 1000)))
         freezing.replan()
     }
 

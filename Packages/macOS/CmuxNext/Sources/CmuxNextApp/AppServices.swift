@@ -39,6 +39,10 @@ final class AppServices {
     let sidebarSnapshots: SidebarSnapshotStore
     /// Launch load-in by region; tests inject one with their own clock.
     let launchReveal: LaunchReveal
+    /// The one freeze policy of cmux's own pages in Chromium: the hibernation keeps it on
+    /// `browser.freezeHiddenTabs` (`startHibernation`) and the page host hands it to every page
+    /// (`makeChromiumPageHost`). Tests inject one with their own clock.
+    let cmuxPages: CmuxPageFreezing
     /// Run marker, restart notice, crash reports (`debug.crashes`).
     let crashRecovery: CrashRecoveryService
     /// Crash and exception reports to Sentry (cx-urd.58); started only for the app process.
@@ -347,13 +351,15 @@ final class AppServices {
     private(set) lazy var remoteTerminals: RemoteTerminalService = RemoteTerminalService(services: self)  // first read in init (no IUO)
     /// Cross-build session discovery and acknowledge-then-close handoff.
     private(set) lazy var sessionTransfer = SessionTransferService(services: self)
-    /// - Parameter launchReveal: The launch load-in the windows' sidebars
-    ///   hold for; the app-wide one by default.
-    init(environment: AppEnvironment, launchReveal: LaunchReveal = .shared, agentPaneEnvironment: [String: String]? = nil) {
+    /// - Parameters:
+    ///   - launchReveal: The launch load-in the windows' sidebars hold for; the app-wide one by default.
+    ///   - cmuxPages: The freeze policy of cmux's own pages (one on the continuous clock by default).
+    init(environment: AppEnvironment, launchReveal: LaunchReveal = .shared, agentPaneEnvironment: [String: String]? = nil,
+         cmuxPages: CmuxPageFreezing = CmuxPageFreezing()) {
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
         // Before any connection: a build with the sidebar document orders rows from it only (placement-shift-v1).
         DaemonCapabilities.echoesPlacementShift = SidebarMirror.isLinked
-        self.launchReveal = launchReveal
+        self.launchReveal = launchReveal; self.cmuxPages = cmuxPages
         sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
         let contextMenus = BrowserContextMenuBuilder.shared
         self.contextMenus = contextMenus

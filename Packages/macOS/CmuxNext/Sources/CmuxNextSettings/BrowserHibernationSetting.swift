@@ -44,6 +44,10 @@ public nonisolated struct BrowserHibernationSetting: Sendable, Hashable {
     /// Seconds hidden before a page freezes by default: long enough for a
     /// quick switch back, short against the ~1 Hz wakeups of each hidden renderer.
     public static let defaultFreezeSeconds: Double = 30
+    /// The seconds `browser.freezeHiddenTabs` accepts, in the file and in Settings (one range for
+    /// both). A value outside it is a diagnostic, never a silent clamp: "never" is `off`, so a huge
+    /// number does not have to mean it (and could not: past ~1.7e20 seconds no `Duration` holds it).
+    public static let freezeSecondsRange: ClosedRange<Double> = 5...3_600
     /// Tabs on each side of each pane's shown tab that stay awake (0 turns it off).
     public var neighborRadius: Int
     /// One tab on each side by default: Ctrl-Tab, Cmd-Shift-[ ] and the next click are warm.
@@ -67,6 +71,19 @@ public nonisolated struct BrowserHibernationSetting: Sendable, Hashable {
     public static let exclusionsPath = ["browser", "hibernationExclusions"]
 
     public var isEnabled: Bool { mode != .off }
+
+    /// How long a page hidden for `hiddenFor` stays awake before it freezes: zero or less means it
+    /// freezes now; nil means it never does (`browser.freezeHiddenTabs` off).
+    ///
+    /// The one freeze rule: the hibernation's plan for browser tabs (after its exemptions) and the
+    /// freeze of cmux's own pages (`CmuxPageFreezing`) both ask it, so a change here reaches both.
+    ///
+    /// - Parameter hiddenFor: How long the page has been hidden (or since it last woke).
+    /// - Returns: The time left before the freeze, or nil when freezing is off.
+    public func freezeTimeLeft(hiddenFor: Duration) -> Duration? {
+        guard let freezeSeconds else { return nil }
+        return .seconds(freezeSeconds) - hiddenFor
+    }
 
     /// Minutes hidden before a page hibernates; nil when off.
     public var hiddenMinutes: Double? {
@@ -139,13 +156,13 @@ public nonisolated struct BrowserHibernationSetting: Sendable, Hashable {
             }
         }
         if let value = browser["freezeHiddenTabs"] {
-            if let number = value.doubleValue, number > 0 {
+            if let number = value.doubleValue, freezeSecondsRange.contains(number) {
                 setting.freezeSeconds = number
             } else if value.stringValue == "off" {
                 setting.freezeSeconds = nil
             } else {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "browser.freezeHiddenTabs",
-                                                      message: "expected \"off\" or a number of seconds > 0"))
+                                                      message: "expected \"off\" or a number of seconds from 5 to 3600"))
             }
         }
         if let value = browser["keepNeighborTabsAwake"] {

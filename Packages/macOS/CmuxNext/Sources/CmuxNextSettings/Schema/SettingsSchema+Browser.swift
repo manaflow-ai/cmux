@@ -115,7 +115,8 @@ nonisolated enum BrowserSettingsSchema {
                 ),
                 kind: .choiceOrNumber([
                     SettingChoice("off", SettingsText.keyed("settings.choice.never", "Never")),
-                ], SettingNumber(5...3_600, step: 5, unit: .seconds, placeholder: BrowserHibernationSetting.defaultFreezeSeconds)),
+                ], SettingNumber(BrowserHibernationSetting.freezeSecondsRange, step: 5, unit: .seconds,
+                                 placeholder: BrowserHibernationSetting.defaultFreezeSeconds)),
                 default: .number(BrowserHibernationSetting.defaultFreezeSeconds), keywords: ["power", "battery", "energy", "sleep", "suspend"]
             ),
             SettingDescriptor(

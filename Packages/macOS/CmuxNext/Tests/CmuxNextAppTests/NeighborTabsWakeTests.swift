@@ -152,7 +152,7 @@ import Testing
         init(freezes: Bool = true) throws {
             _ = NSApplication.shared
             services = AppServices(environment: AppEnvironment.current([:]))
-            hibernation = BrowserHibernation(cache: services.cache, lowPower: lowPower)
+            hibernation = BrowserHibernation(cache: services.cache, cmuxPages: services.cmuxPages, lowPower: lowPower)
             services.cache.hibernation = hibernation
             hibernation.apply(BrowserHibernationSetting(mode: .off, freezeSeconds: freezes ? 0.05 : nil))
             hibernation.start()
