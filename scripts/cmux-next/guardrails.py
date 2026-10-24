@@ -287,47 +287,82 @@ def escape_neighbours(lines: list[str], touched: set[int]) -> set[int]:
     return {i for i in out if 0 <= i < len(lines)}
 
 
-def debt_in(version: Version, changed: list[Added], matcher: Matcher) -> list[Added]:
-    """The debt among VERSION's CHANGED lines, plus unchanged matches whose escape or context the push changed.
+def is_debt(version: Version, index: int, matcher: Matcher) -> tuple[bool, list[int]]:
+    """(VERSION's line INDEX is debt: KEEP holds for it and it carries no escape, the 1-based openers KEEP read)."""
+    kept, openers = matcher.keep(version, index) if matcher.keep is not None else (True, [])
+    if not kept or (matcher.escape is not None and escaped(version.lines, index, matcher.escape, matcher.window)):
+        return False, openers
+    return True, openers
 
-    A line counts when MATCHER's pattern matches its code, KEEP holds for it in VERSION's text and it carries
-    no escape there. An unchanged line also counts when its escape window holds a touched line (the push
-    deleted or reworded the `// <rule>-allow:` comment, or put a line between it and the code), and, for a
-    context rule, when an opener that makes it debt is a changed line: `struct` -> `final class` around an old
-    static, a view renamed to `...Row` around an old store reference. On the base side the same lines are the
-    debt the push takes away, so an edit that keeps the escape or the context (a reworded reason,
-    `final class A {` -> `final class A: Sendable {`) pairs with itself.
-    """
-    out = []
+
+def rejudged(version: Version, matcher: Matcher) -> set[int]:
+    """0-based unchanged lines of VERSION that match MATCHER and whose debt the push may have changed: the escape
+    window holds a touched line (the push deleted or reworded the `// <rule>-allow:` comment, or put a line
+    between it and the code), or, for a context rule, an opener that KEEP reads is a changed line (`struct` ->
+    `final class` around an old static, a view renamed to `...Row` around an old store reference)."""
     lines = version.lines
-
-    def is_debt(index: int) -> tuple[bool, list[int]]:
-        kept, openers = matcher.keep(version, index) if matcher.keep is not None else (True, [])
-        if not kept or (matcher.escape is not None and escaped(lines, index, matcher.escape, matcher.window)):
-            return False, openers
-        return True, openers
 
     def matches(index: int) -> bool:
         return (index + 1 not in version.changed and matcher.pattern.search(lines[index]) is not None
                 and matcher.pattern.search(matcher.code(lines[index])) is not None)
 
-    for line in changed:
-        if matcher.pattern.search(matcher.code(line.text)) and is_debt(line.number - 1)[0]:
-            out.append(line)
     found: set[int] = set()
     if matcher.escape is not None and version.touched:
-        for index in sorted(escape_neighbours(lines, version.touched)):
-            if matches(index) and any(j + 1 in version.touched for j in matcher.window(lines, index)) and is_debt(index)[0]:
-                found.add(index)
+        found.update(index for index in escape_neighbours(lines, version.touched)
+                     if matches(index) and any(j + 1 in version.touched for j in matcher.window(lines, index)))
     if matcher.keep is not None and version.changed:
-        for index in range(len(lines)):
-            if index in found or not matches(index):
-                continue
-            debt, openers = is_debt(index)
-            if debt and any(o in version.changed for o in openers):
-                found.add(index)
-    out += [Added(version.path, index + 1, lines[index]) for index in sorted(found)]
-    return out
+        found.update(index for index in range(len(lines)) if index not in found and matches(index)
+                     and any(o in version.changed for o in is_debt(version, index, matcher)[1]))
+    return found
+
+
+def unchanged_pairs(change: FileChange) -> dict[int, int]:
+    """{0-based head line: 0-based base line} for every line the push did not change.
+
+    The diff's unchanged lines are the same lines in the same order on both sides, so the n-th unchanged head
+    line is the n-th unchanged base line. A final newline adds no line (`text.split("\\n")` leaves a last "").
+    """
+    def unchanged(lines: list[str], changed: set[int]) -> list[int]:
+        count = len(lines) - (1 if lines and lines[-1] == "" else 0)
+        return [i for i in range(count) if i + 1 not in changed]
+
+    head = unchanged(change.head_lines, {a.number for a in change.added})
+    base = unchanged(change.base_lines, {r.number for r in change.removed})
+    if len(head) != len(base):
+        raise ValueError(f"{change.path}: the diff leaves {len(head)} lines unchanged at head and {len(base)} at "
+                         "base; the diff and the file texts disagree")
+    return dict(zip(head, base))
+
+
+def file_debt(change: FileChange, matcher: Matcher) -> tuple[list[Added], list[Added]]:
+    """(head debt, base debt) of one changed file: its changed lines that are debt on their side, plus every
+    unchanged line whose debt the push may have changed, judged on both sides.
+
+    An unchanged line rejudged() finds on either side is judged on both: at head it is debt the push leaves, at
+    base debt the push takes away, and resolve() pairs the two copies (same text). So an edit that keeps the
+    escape or the context (a reworded reason, `final class A {` -> `final class A: Sendable {`) or only touches
+    lines next to old unescaped debt (a deleted code line above its comment block, a new class opened around an
+    old static of a class) adds none, and only a line that is debt at head and was not at base is new. Judging
+    each side's candidates on that side alone counted old debt as new when only the head reached the edit.
+    """
+    head, base = change.head, change.base
+    head_debt = [a for a in change.added if matcher.pattern.search(matcher.code(a.text))
+                 and is_debt(head, a.number - 1, matcher)[0]]
+    base_debt = [r for r in change.removed if matcher.pattern.search(matcher.code(r.text))
+                 and is_debt(base, r.number - 1, matcher)[0]]
+    head_lines, base_lines = rejudged(head, matcher), rejudged(base, matcher)
+    if not head_lines and not base_lines:
+        return head_debt, base_debt
+    to_base = unchanged_pairs(change)
+    to_head = {b: h for h, b in to_base.items()}
+    for h, b in sorted({(h, to_base[h]) for h in head_lines} | {(to_head[b], b) for b in base_lines}):
+        if head.lines[h] != base.lines[b]:
+            raise ValueError(f"{change.path}: unchanged head line {h + 1} is not base line {b + 1}")
+        if is_debt(head, h, matcher)[0]:
+            head_debt.append(Added(change.path, h + 1, head.lines[h]))
+        if is_debt(base, b, matcher)[0]:
+            base_debt.append(Added(change.path, b + 1, base.lines[b]))
+    return head_debt, base_debt
 
 
 ACCESS_WORDS = re.compile(r"\b(public|package|internal|private|fileprivate|open)\s+(?!\()|\b(public|package|internal)\s+import\b")
@@ -381,7 +416,7 @@ def resolve(found: list[tuple[list[Added], list[Added]]]) -> list[Added]:
 
 def matcher_rule(matcher: Matcher) -> Callable[[list[FileChange], collections.Counter], list[Added]]:
     def find(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
-        return resolve([(debt_in(c.head, c.added, matcher), debt_in(c.base, c.removed, matcher)) for c in changes])
+        return resolve([file_debt(c, matcher) for c in changes])
     return find
 
 
