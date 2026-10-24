@@ -12,8 +12,11 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
-// This process runs stand-in agents (the fake agents under tests/).
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+// This process runs stand-in agents (the fake agents under tests/). It keeps
+// the user manager's address, no credential: `systemctl --user` and
+// `systemd-run --user` find the manager through it.
+const HERMETIC: daemon_env::Process =
+    daemon_env::Process::stand_in().keep(&["XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS"]);
 
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
