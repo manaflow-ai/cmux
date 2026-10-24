@@ -46,6 +46,8 @@ check("SOURCE_RUN_ID: ${{ inputs.source_run_id }}" in publish_text,
       "the publisher must resolve the exact dispatched source run")
 check("finishedRuns.slice(0, 10)" not in text,
       "the dispatcher must not hide an older app behind ten failed source runs")
+check("    continue-on-error: true\n    needs: sign\n" in publish_text,
+      "a red advisory verify must not fail the run and re-trigger the same publication")
 check("has no current Release app artifact; retry the handoff" in publish_text,
       "a missing source artifact must fail publication so the dispatcher retries")
 

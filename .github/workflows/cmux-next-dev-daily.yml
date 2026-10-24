@@ -219,6 +219,10 @@ jobs:
   verify:
     name: Verify signed cmux NEXT DEV
     # No environment and no secrets: this job runs the app's diff sidecar.
+    # Advisory: publish does not wait for it, and a red verify must not fail
+    # the run, or the dispatcher (which treats only successful publisher runs
+    # as handled) would sign and publish the same source run every tick.
+    continue-on-error: true
     needs: sign
     if: needs.sign.outputs.signed == 'true'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
