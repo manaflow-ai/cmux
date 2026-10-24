@@ -1091,7 +1091,9 @@ fn a_snapshot_becomes_the_prologue_a_restarted_daemon_starts_from() {
 
 /// Review 2: a holder shell gets the open-file limit cmux started with (not
 /// the daemon's raised one) and no descriptor the daemon inherited without
-/// close-on-exec.
+/// close-on-exec. The variable that names that limit never reaches the
+/// shell, even when the request's env carries it (pl-cef-tab-nofile review:
+/// a cmux started in that shell took it as its own launch limit).
 #[test]
 fn a_shell_gets_the_open_file_limit_cmux_started_with_and_no_inherited_descriptor() {
     let dir = temp_dir();
@@ -1107,12 +1109,13 @@ fn a_shell_gets_the_open_file_limit_cmux_started_with_and_no_inherited_descripto
     unsafe { libc::close(leaked) };
     let (mut client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
     let mut request = shell(1);
+    request.env.push(format!("{NOFILE_SOFT_ENV}=200").into_bytes());
     request.argv = vec![
         b"/bin/sh".to_vec(),
         b"-c".to_vec(),
         format!(
-            "echo limit=$(ulimit -n); if [ -e /dev/fd/{leaked} ]; then echo fd=open; \
-             else echo fd=closed; fi; exec cat"
+            "echo limit=$(ulimit -n) env=${{{NOFILE_SOFT_ENV}-unset}}; \
+             if [ -e /dev/fd/{leaked} ]; then echo fd=open; else echo fd=closed; fi; exec cat"
         )
         .into_bytes(),
     ];
@@ -1123,6 +1126,7 @@ fn a_shell_gets_the_open_file_limit_cmux_started_with_and_no_inherited_descripto
     pump_until(&mut client, &mut screens, |_| "\n".to_string());
     let text = screens[&1].text();
     assert!(text.contains("limit=200"), "the shell kept the daemon's raised limit: {text}");
+    assert!(text.contains("env=unset"), "the shell got {NOFILE_SOFT_ENV}: {text}");
     assert!(text.contains("fd=closed"), "the shell inherited the daemon's descriptor: {text}");
     drop(screens);
     kill(holder);
