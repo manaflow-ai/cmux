@@ -97,6 +97,7 @@ async function mount(
     model?: string;
     effort?: string;
     folderProfile?: boolean;
+    currentFolder?: boolean;
   } = {},
 ) {
   const { createRoot } = await import("react-dom/client");
@@ -138,10 +139,13 @@ async function mount(
     },
   };
   function Host() {
+    const initialHarness = options.currentFolder ? "machine-profile" : "claude";
+    const initialModel = options.currentFolder ? "machine-model" : "claude-opus-5-5";
     const [state, setState] = useState({
-      model: options.model ?? "claude-opus-5-5",
+      model: options.model ?? initialModel,
       effort: options.effort ?? "medium",
       fast: "off",
+      harness: initialHarness,
     });
     const snapshot: Snapshot = {
       type: "snapshot",
@@ -155,7 +159,7 @@ async function mount(
       catalog: acpmux,
       summary: {
         sessionId: "s1",
-        harness: "claude",
+        harness: state.harness,
         model: state.model,
         turnCount: options.turnCount ?? 0,
         configOptions: [
@@ -185,7 +189,7 @@ async function mount(
         ],
       },
     } as Snapshot;
-    const picker = usePickerCatalog(snapshot.catalog, { harness: "claude" }, snapshot.sessions);
+    const picker = usePickerCatalog(snapshot.catalog, { harness: state.harness }, snapshot.sessions);
     return (
       <ComposerPickers
         snapshot={snapshot}
@@ -375,6 +379,13 @@ test("machine profiles stay out of the harness rail", async () => {
   expect(labels).toContain("Claude Code");
   expect(labels).toContain("Codex");
   expect(labels).not.toContain("Build machine");
+});
+
+test("the current machine profile keeps its compact model list without a rail", async () => {
+  await mount({ routes: [] }, { folderProfile: true, currentFolder: true });
+  await open();
+  expect(menu()!.querySelector(".acpmux-quick-rail")).toBeNull();
+  expect(modelNames(menu()!)).toContain("Machine model");
 });
 
 test("More models is a submenu: the harness's other models, then Add harness…", async () => {

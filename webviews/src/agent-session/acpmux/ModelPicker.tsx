@@ -610,7 +610,9 @@ export function ModelPicker(props: ModelPickerProps) {
   const quickFamilies = useMemo(() => {
     // A started chat's compact menu lists its own harness's models with no rail; More models
     // opens the full picker, which has no rail either.
-    if (!quick || (harnessFixed && !fork)) return undefined;
+    // A folder profile is a machine choice, so its current models stay in the plain compact list
+    // while the harness-only rail remains absent.
+    if (!quick || (harnessFixed && !fork) || current?.folder) return undefined;
     const row = (entry: HarnessChoice, model: ModelChoice): QuickModel => ({
       id: model.id,
       name: model.name,
