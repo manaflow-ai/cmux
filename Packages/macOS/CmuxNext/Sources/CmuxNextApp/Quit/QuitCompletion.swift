@@ -30,16 +30,19 @@ struct QuitSteps {
     /// the terminals; returns its failure, if any.
     var endLocalAgents: @MainActor () async -> [EndSessionsFailure] = { [] }
     var stopBrowserEngines: @MainActor () async -> Void
-    /// The error journal's quit harvest and write (`ErrorJournalService.stop`): what this run
-    /// logged, which no later launch can read. It runs beside the other steps and ends before the
-    /// engines stop.
+    /// The error journal's quit harvest and write (`ErrorJournalService.stop`): what frameworks
+    /// (and cmux sites still on `Logger`) logged in this run, which no later launch can read. Best
+    /// effort: it runs beside the other steps, off the main thread, and the quit awaits it only
+    /// after the engines began to stop, under the quit's deadline (`QuitDeadline`), so it never
+    /// holds up the quit.
     var harvestErrors: @MainActor () async -> Void = {}
 }
 
 enum QuitCompletion {
     @MainActor
     static func run(_ choice: QuitSessionsChoice, remember: Bool, _ steps: QuitSteps) async {
-        // An OSLogStore read (about a second on a loaded machine): beside the steps, not after them.
+        // An OSLogStore read (seconds after a long run): beside the steps, awaited only under the
+        // deadline that stopBrowserEngines arms, so it never delays the engines or the reply.
         let harvestErrors = steps.harvestErrors
         async let harvested: Void = harvestErrors()
         if remember { await steps.remember(QuitPolicy.remembered(choice)) }
@@ -50,7 +53,7 @@ enum QuitCompletion {
                 failures = await steps.endLocalAgents() + steps.endLocalSessions(choice)
             }
         }
-        await harvested
         await steps.stopBrowserEngines()
+        await harvested
     }
 }
