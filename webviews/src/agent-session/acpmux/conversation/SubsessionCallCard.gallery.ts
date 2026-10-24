@@ -173,58 +173,70 @@ export default agentPaneEntry({
     },
     "recorded-wait": {
       note: "A recorded wait_for_sessions through the cmux server: review done with its last reply as Markdown (cut to three lines, Show more), net-retries still working.",
-      snapshot: withChildren([
-        user("Wait for the review.", 2),
-        activity(
-          [
-            viaCmux(
-              "wait_for_sessions",
-              { sessionIds: ["sub-review", "sub-retries"], timeoutSeconds: 50 },
-              {
-                sessions: [
-                  {
-                    children: 0,
-                    depth: 1,
-                    harness: "codex",
-                    indicator: "done",
-                    lastReply: REVIEW_REPLY,
-                    sessionId: "sub-review",
-                    shortName: "review",
-                    state: "idle",
-                  },
-                  { depth: 1, harness: "claude", sessionId: "sub-retries", shortName: "net-retries", state: "working" },
-                ],
-              },
-            ),
-          ],
-          1.8,
-        ),
-        assistant("The review says SHIP; net-retries is still working.", 1.5),
-      ], { isWorking: true }),
+      snapshot: withChildren(
+        [
+          user("Wait for the review.", 2),
+          activity(
+            [
+              viaCmux(
+                "wait_for_sessions",
+                { sessionIds: ["sub-review", "sub-retries"], timeoutSeconds: 50 },
+                {
+                  sessions: [
+                    {
+                      children: 0,
+                      depth: 1,
+                      harness: "codex",
+                      indicator: "done",
+                      lastReply: REVIEW_REPLY,
+                      sessionId: "sub-review",
+                      shortName: "review",
+                      state: "idle",
+                    },
+                    {
+                      depth: 1,
+                      harness: "claude",
+                      sessionId: "sub-retries",
+                      shortName: "net-retries",
+                      state: "working",
+                    },
+                  ],
+                },
+              ),
+            ],
+            1.8,
+          ),
+          assistant("The review says SHIP; net-retries is still working.", 1.5),
+        ],
+        { isWorking: true },
+      ),
     },
     "recorded-list": {
       note: "A list_sessions through the cmux server: each sub-session's card with its live state.",
-      snapshot: withChildren([
-        user("What are the lanes doing?", 2),
-        activity(
-          [
-            viaCmux(
-              "list_sessions",
-              {},
-              {
-                self: { depth: 0, sessionId: SESSION_ID },
-                sessions: [
-                  { sessionId: "sub-retries", shortName: "net-retries", harness: "claude", state: "working" },
-                  { sessionId: "sub-docs", shortName: "docs", harness: "claude", state: "input" },
-                  { sessionId: "sub-review", shortName: "review", harness: "codex", state: "idle" },
-                ],
-              },
-            ),
-          ],
-          1.8,
-        ),
-        assistant("Three lanes: one working, docs waiting on you, review done.", 1.5),
-      ], { isWorking: true }),
+      snapshot: withChildren(
+        [
+          user("What are the lanes doing?", 2),
+          activity(
+            [
+              viaCmux(
+                "list_sessions",
+                {},
+                {
+                  self: { depth: 0, sessionId: SESSION_ID },
+                  sessions: [
+                    { sessionId: "sub-retries", shortName: "net-retries", harness: "claude", state: "working" },
+                    { sessionId: "sub-docs", shortName: "docs", harness: "claude", state: "input" },
+                    { sessionId: "sub-review", shortName: "review", harness: "codex", state: "idle" },
+                  ],
+                },
+              ),
+            ],
+            1.8,
+          ),
+          assistant("Three lanes: one working, docs waiting on you, review done.", 1.5),
+        ],
+        { isWorking: true },
+      ),
     },
     started: {
       note: "Five sub-sessions started, each with its state now: tests working (what it does under it, 2 queued), docs waiting on a question (its prompt after), deps waiting for permission, bench failed, lint done. A name opens that chat beside this one.",
