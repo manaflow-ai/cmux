@@ -66,6 +66,10 @@ Usage (a fleet GUI host, never Lawrence's Mac):
   trace.py record --bundle APP --out DIR [--socket S] [--seconds-cap 600] -- python3 scripts/cmux-next/every-action-sweep.py ...
   trace.py export DIR          rebuild DIR/trace.json.gz and the summary from DIR's raw files
   trace.py summary DIR         print DIR's summary again
+  trace.py check-import DIR --trace-processor BIN
+                               load DIR/trace.json.gz with Perfetto's trace_processor_shell: every signposts,
+                               watchdog-stalls and daemon-spans track is its own named thread track with all its
+                               slices, and the importer reports no error or data loss (DIR/import-check.json)
   trace.py --self-test         check the parsers (hand-written export shapes, not yet a real xctrace export),
                                the merge, the clock alignment, the stage bounds, the stop path, the export,
                                the signals, the one SIGINT to xctrace and the uint32 track ids
@@ -1998,7 +2002,9 @@ def daemon_span_events(out, daemon_pid, tracks):
                 events.append({"ph": "X", "pid": daemon_pid, "tid": tid, "ts": start + previous, "dur": at - previous,
                                "name": str(name), "cat": "daemon.spans"})
             previous = max(previous, at)
-    return events, {"lines": lines, "lanes": len(lanes.stacks)}, rows
+    names = {(daemon_pid, tracks.tid(daemon_pid, ("daemon spans", lane))): "daemon spans" + (f" {lane + 1}" if lane else "")
+             for lane in range(len(lanes.stacks))}
+    return events, {"lines": lines, "lanes": len(lanes.stacks), "track_names": names}, rows
 
 
 def build(out):
@@ -2117,6 +2123,7 @@ def build(out):
                         "end_us": ts + duration / 1000.0, "call": call, "class": reason, "stack": list(stack)[:30]})
     # Daemon spans, Chromium, the driver.
     span_events, span_info, span_rows = daemon_span_events(out, daemon_pid, tracks)
+    lane_names.update(span_info.pop("track_names"))
     events += span_events
     events += chrome
     driver = read_json(os.path.join(out, "driver.json"), []) or []
@@ -2504,6 +2511,97 @@ def summary_text(s):
     return "\n".join(lines)
 
 
+# ---------------------------------------------------------------- Perfetto import check
+
+# The tracks that must import as their own thread tracks, by name prefix (the synthetic tracks build() names).
+IMPORT_TRACKS = ("signposts ", "watchdog stalls", "daemon spans")
+IMPORT_QUERY_TRACKS = """
+select p.pid as pid, t.tid as tid, t.name as name, count(s.id) as slices
+from thread t left join process p using (upid)
+left join thread_track tt using (utid) left join slice s on s.track_id = tt.id
+group by t.utid
+"""
+IMPORT_QUERY_STATS = """
+select name, idx, severity, source, value from stats where value > 0 and severity in ('error', 'data_loss')
+"""
+IMPORT_TIMEOUT_S = 600  # one trace_processor_shell query over a trace of up to a few hundred MB
+
+
+def expected_slices(events):
+    """{(pid, tid): slices} the JSON importer must make: complete (X), begin (B) and thread-scoped instant
+    (i / I without s, or s=t) events. Also {(pid, tid): thread name}."""
+    slices, names = collections.Counter(), {}
+    for e in events:
+        ph, key = e.get("ph"), (e.get("pid"), e.get("tid"))
+        if ph == "M" and e.get("name") == "thread_name":
+            names[key] = (e.get("args") or {}).get("name")
+        elif ph in ("X", "B") or (ph in ("i", "I") and e.get("s", "t") == "t"):
+            slices[key] += 1
+    return slices, names
+
+
+def run_query(trace_processor, trace, sql):
+    """Rows (dicts) of one SQL query through `trace_processor_shell -q`, which prints the result as CSV."""
+    import csv, io
+    with tempfile.NamedTemporaryFile("w", suffix=".sql", delete=False) as f:
+        f.write(sql)
+        query = f.name
+    try:
+        done = subprocess.run([trace_processor, "-q", query, trace], capture_output=True, text=True,
+                              timeout=IMPORT_TIMEOUT_S)
+    finally:
+        os.unlink(query)
+    if done.returncode != 0:
+        raise RuntimeError(f"trace_processor_shell exited {done.returncode}: {done.stderr[-600:]}")
+    lines = [l for l in done.stdout.splitlines() if l.strip()]
+    start = next((i for i, l in enumerate(lines) if l.startswith('"')), None)  # the header row; logs come before it
+    if start is None:
+        raise RuntimeError(f"trace_processor_shell printed no CSV header: {done.stdout[:600]!r} {done.stderr[-300:]!r}")
+    return list(csv.DictReader(io.StringIO("\n".join(lines[start:]))))
+
+
+def check_import(out, trace_processor):
+    """Loads OUT/trace.json.gz with trace_processor_shell (Perfetto's importer, the one ui.perfetto.dev runs)
+    and checks that every signposts, watchdog-stalls and daemon-spans track imports as its own named thread
+    track with every slice the JSON holds, and that the importer reports no error or data loss. Writes
+    OUT/import-check.json; returns (ok, report)."""
+    trace = os.path.join(out, "trace.json.gz")
+    with gzip.open(trace, "rt") as f:
+        events = json.load(f)["traceEvents"]
+    want, names = expected_slices(events)
+    rows = run_query(trace_processor, trace, IMPORT_QUERY_TRACKS)
+    got = {}
+    for row in rows:
+        try:
+            got[(int(row["pid"]), int(row["tid"]))] = (row["name"], int(row["slices"]))
+        except (TypeError, ValueError, KeyError):
+            continue
+    stats = run_query(trace_processor, trace, IMPORT_QUERY_STATS)
+    problems, tracks = [], []
+    for key, name in sorted(names.items(), key=lambda kv: str(kv)):
+        if not (name or "").startswith(IMPORT_TRACKS):
+            continue
+        imported = got.get(key)
+        tracks.append({"pid": key[0], "tid": key[1], "name": name, "json_slices": want.get(key, 0),
+                       "imported": imported})
+        if imported is None:
+            problems.append(f"{name} (pid {key[0]} tid {key[1]}) is not a thread in the import")
+        elif imported[0] != name:
+            problems.append(f"{name} imported as {imported[0]!r}")
+        elif imported[1] != want.get(key, 0):
+            problems.append(f"{name}: {want.get(key, 0)} slices in the JSON, {imported[1]} imported")
+    kinds = {prefix.strip(): sum(1 for t in tracks if t["name"].startswith(prefix)) for prefix in IMPORT_TRACKS}
+    utids = {(t["pid"], t["tid"]) for t in tracks}
+    if len(utids) != len(tracks):
+        problems.append("two named tracks share one thread")
+    for row in stats:
+        problems.append(f"importer stat {row.get('name')}[{row.get('idx')}] = {row.get('value')} ({row.get('severity')})")
+    report = {"ok": not problems, "problems": problems, "tracks_by_kind": kinds, "tracks": tracks, "stats": stats,
+              "threads_imported": len(got), "events": len(events)}
+    write_json(os.path.join(out, "import-check.json"), report)
+    return not problems, report
+
+
 # ---------------------------------------------------------------- self-test
 
 TP_XML = """<?xml version="1.0"?><trace-query-result><node xpath="x"><schema name="time-profile"/>
@@ -2577,6 +2675,10 @@ def check_parsers_and_merge():
         assert summary["waits"]["stall:lock"]["count"] == 1 and "unattributed" not in summary["waits"], summary["waits"]
         span = next(e for e in trace["traceEvents"] if e.get("name") == "daemon new-tab")
         assert span["ts"] == 2000.0 and span["dur"] == 3000.0, span
+        # Every synthetic track has a name (Perfetto shows an unnamed one as "Thread <tid>").
+        named = {(e.get("pid"), e.get("tid")): e["args"]["name"] for e in trace["traceEvents"]
+                 if e.get("ph") == "M" and e.get("name") == "thread_name"}
+        assert named.get((span["pid"], span["tid"])) == "daemon spans", named
         assert summary["sources"]["chromium"]["clock"]["offset_us"] == 0.0, summary["sources"]["chromium"]
         assert summary["top_stalls"][0]["chromium_main_thread"][0]["event"].startswith("ThreadControllerImpl::RunTask (OnFrame)"), summary
         task = next(e for e in trace["traceEvents"] if e.get("name") == "ThreadControllerImpl::RunTask")
@@ -3129,13 +3231,56 @@ def check_real_xctrace_exports():
         print(f"{folder}: {len(spin)} spin samples, {len(begins)} signpost intervals, {len(sleeps)} sleeps")
 
 
+def check_import_with_a_fake_trace_processor():
+    """check_import counts what the JSON importer must make and compares it with what trace_processor_shell
+    reports: a track with a dropped slice, an importer stat and a missing track each fail it."""
+    with tempfile.TemporaryDirectory() as out:
+        events = [{"ph": "M", "pid": 1, "tid": 7, "name": "thread_name", "args": {"name": "signposts action"}},
+                  {"ph": "M", "pid": 1, "tid": 8, "name": "thread_name", "args": {"name": "watchdog stalls"}},
+                  {"ph": "M", "pid": 2, "tid": 9, "name": "thread_name", "args": {"name": "daemon spans"}},
+                  {"ph": "M", "pid": 1, "tid": 5, "name": "thread_name", "args": {"name": "Main Thread"}},
+                  {"ph": "X", "pid": 1, "tid": 7, "ts": 1, "dur": 2, "name": "a"},
+                  {"ph": "X", "pid": 1, "tid": 7, "ts": 1, "dur": 1, "name": "b"},
+                  {"ph": "i", "s": "t", "pid": 1, "tid": 8, "ts": 1, "name": "c"},
+                  {"ph": "i", "s": "g", "pid": 1, "tid": 8, "ts": 1, "name": "global"},
+                  {"ph": "X", "pid": 2, "tid": 9, "ts": 1, "dur": 2, "name": "d"},
+                  {"ph": "X", "pid": 1, "tid": 5, "ts": 1, "dur": 2, "name": "e"}]
+        with gzip.open(os.path.join(out, "trace.json.gz"), "wt") as f:
+            json.dump({"traceEvents": events}, f)
+        fake = os.path.join(out, "trace_processor_shell")
+
+        def write_fake(track_rows, stat_rows):
+            with open(fake, "w") as f:
+                f.write("#!/bin/sh\n"
+                        "if grep -q 'from stats' \"$2\"; then cat <<'EOF'\n" + stat_rows + "EOF\n"
+                        "else cat <<'EOF'\n" + track_rows + "EOF\nfi\n")
+            os.chmod(fake, 0o755)
+
+        header = 'Loading trace: 0.01 MB\n"pid","tid","name","slices"\n'
+        good = header + '1,7,"signposts action",2\n1,8,"watchdog stalls",1\n2,9,"daemon spans",1\n1,5,"Main Thread",1\n'
+        no_stats = '"name","idx","severity","source","value"\n'
+        write_fake(good, no_stats)
+        ok, report = check_import(out, fake)
+        assert ok and report["tracks_by_kind"] == {"signposts": 1, "watchdog stalls": 1, "daemon spans": 1}, report
+        write_fake(good.replace('"signposts action",2', '"signposts action",1'), no_stats)
+        ok, report = check_import(out, fake)
+        assert not ok and "2 slices in the JSON, 1 imported" in report["problems"][0], report["problems"]
+        write_fake(good, no_stats + '"json_parser_failure","[NULL]","error","trace",3\n')
+        ok, report = check_import(out, fake)
+        assert not ok and "json_parser_failure" in report["problems"][0], report["problems"]
+        write_fake(good.replace('2,9,"daemon spans",1\n', ""), no_stats)
+        ok, report = check_import(out, fake)
+        assert not ok and "daemon spans (pid 2 tid 9) is not a thread" in report["problems"][0], report["problems"]
+
+
 SELF_TESTS = [check_real_xctrace_exports, check_parsers_and_merge, check_stage_bounds, check_stage_errors,
               check_hold_defers_the_bound,
               check_stop_survives_a_failing_source, check_record_ends_cleanly, check_xctrace_held_before_start,
               check_wrapped_group_ends,
               check_export_part_files, check_xctrace_clock, check_cef_validity, check_bound_inside_a_swallowing_wait,
               check_signal_after_the_stop, check_xctrace_gets_one_sigint, check_synthetic_tids_fit_uint32,
-              check_cli_named_cmux_is_not_the_app, check_refuses_a_running_bundle]
+              check_cli_named_cmux_is_not_the_app, check_refuses_a_running_bundle,
+              check_import_with_a_fake_trace_processor]
 
 
 def self_test():
@@ -3183,6 +3328,9 @@ def main():
     exp.add_argument("dir")
     show = sub.add_parser("summary", help="print DIR's summary")
     show.add_argument("dir")
+    imp = sub.add_parser("check-import", help="load DIR/trace.json.gz with trace_processor_shell and check its tracks")
+    imp.add_argument("dir")
+    imp.add_argument("--trace-processor", required=True, help="a trace_processor_shell binary (Perfetto)")
     opts = parser.parse_args()
     if opts.self_test:
         return self_test()
@@ -3198,6 +3346,11 @@ def main():
         export_xctrace(opts.dir)
         print(summary_text(build(opts.dir)))
         return 0
+    if opts.verb == "check-import":
+        ok, report = check_import(opts.dir, opts.trace_processor)
+        print(f"trace: import check {'ok' if ok else 'FAILED'}: tracks {report['tracks_by_kind']}, "
+              f"{report['threads_imported']} threads imported" + "".join(f"\n  {p}" for p in report["problems"]))
+        return 0 if ok else 1
     if opts.verb == "summary":
         summary = read_json(os.path.join(opts.dir, "summary.json"))
         if summary is None:
