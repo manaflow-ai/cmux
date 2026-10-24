@@ -355,5 +355,101 @@
       "hidesWhenTyping": false,
       "entersScope": false
     }
+  },
+  {
+    "id": "action:agentChat.copyName",
+    "section": { "id": "actions", "title": "Actions", "order": 0 },
+    "entry": {
+      "actionID": "agentChat.copyName",
+      "title": "Copy Agent Name",
+      "keywords": ["agent", "chat", "harness", "name", "provider", "copy"],
+      "rankBias": 0,
+      "frecencyKey": "action:agentChat.copyName",
+      "hasShortcut": false,
+      "hidesWhenTyping": false,
+      "isEnabled": true,
+      "isVisibleWhenQueryEmpty": true,
+      "entersScope": false
+    }
+  },
+  {
+    "id": "action:agentChat.copyHarnessSessionID",
+    "section": { "id": "actions", "title": "Actions", "order": 0 },
+    "entry": {
+      "actionID": "agentChat.copyHarnessSessionID",
+      "title": "Copy Harness Session ID",
+      "keywords": ["agent", "chat", "harness", "session", "id", "identifier", "claude", "codex", "copy"],
+      "rankBias": 0,
+      "frecencyKey": "action:agentChat.copyHarnessSessionID",
+      "hasShortcut": false,
+      "hidesWhenTyping": false,
+      "isEnabled": true,
+      "isVisibleWhenQueryEmpty": true,
+      "entersScope": false
+    }
+  },
+  {
+    "id": "action:agentChat.copyConversation",
+    "section": { "id": "actions", "title": "Actions", "order": 0 },
+    "entry": {
+      "actionID": "agentChat.copyConversation",
+      "title": "Copy Conversation as Markdown",
+      "keywords": ["agent", "chat", "conversation", "transcript", "markdown", "messages", "copy"],
+      "rankBias": 0,
+      "frecencyKey": "action:agentChat.copyConversation",
+      "hasShortcut": false,
+      "hidesWhenTyping": false,
+      "isEnabled": true,
+      "isVisibleWhenQueryEmpty": true,
+      "entersScope": false
+    }
+  },
+  {
+    "id": "action:agentChat.copySessionDetails",
+    "section": { "id": "actions", "title": "Actions", "order": 0 },
+    "entry": {
+      "actionID": "agentChat.copySessionDetails",
+      "title": "Copy Session Details",
+      "keywords": ["agent", "chat", "session", "details", "files", "config", "transcript", "cwd", "host", "copy"],
+      "rankBias": 0,
+      "frecencyKey": "action:agentChat.copySessionDetails",
+      "hasShortcut": false,
+      "hidesWhenTyping": false,
+      "isEnabled": true,
+      "isVisibleWhenQueryEmpty": true,
+      "entersScope": false
+    }
+  },
+  {
+    "id": "action:agentChat.copyWorkingDirectory",
+    "section": { "id": "actions", "title": "Actions", "order": 0 },
+    "entry": {
+      "actionID": "agentChat.copyWorkingDirectory",
+      "title": "Copy Working Directory",
+      "keywords": ["agent", "chat", "session", "cwd", "directory", "folder", "path", "copy"],
+      "rankBias": 0,
+      "frecencyKey": "action:agentChat.copyWorkingDirectory",
+      "hasShortcut": false,
+      "hidesWhenTyping": false,
+      "isEnabled": true,
+      "isVisibleWhenQueryEmpty": true,
+      "entersScope": false
+    }
+  },
+  {
+    "id": "action:agentChat.copyHost",
+    "section": { "id": "actions", "title": "Actions", "order": 0 },
+    "entry": {
+      "actionID": "agentChat.copyHost",
+      "title": "Copy Chat Host",
+      "keywords": ["agent", "chat", "session", "host", "machine", "remote", "copy"],
+      "rankBias": 0,
+      "frecencyKey": "action:agentChat.copyHost",
+      "hasShortcut": false,
+      "hidesWhenTyping": false,
+      "isEnabled": true,
+      "isVisibleWhenQueryEmpty": true,
+      "entersScope": false
+    }
   }
 ]
