@@ -105,6 +105,9 @@ final class EventInbox: Sendable {
     /// Events a newer one replaced so far (debug).
     var coalescedCount: Int { state.withLock { $0.coalesced } }
 
+    /// Events buffered and not taken yet (debug, tests).
+    var bufferedCount: Int { state.withLock { $0.live } }
+
     /// While collapsed: keep lifecycle and bookmark events and one echo per transaction
     /// (as a `tree-changed` carrying it), drop the rest.
     private static func keep(_ envelope: DaemonEventEnvelope, in state: inout State) {
