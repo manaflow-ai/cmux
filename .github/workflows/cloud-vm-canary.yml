@@ -125,8 +125,14 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
-          previous=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow cloud-vm-canary.yml --event schedule \
-            --status completed --limit 1 --json conclusion --jq '.[0].conclusion // "success"')
+          # The lookup shares the repo's installation API quota. When it is
+          # exhausted, say nothing: failing here would mark a green canary red
+          # and make the next run post a false "recovered".
+          if ! previous=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow cloud-vm-canary.yml --event schedule \
+            --status completed --limit 1 --json conclusion --jq '.[0].conclusion // "success"'); then
+            echo "::warning::could not read the previous canary run; no message"
+            exit 0
+          fi
           # A cancelled or skipped run says nothing about production.
           [ "$previous" = "failure" ] || previous=success
           if [ "$OUTCOME" = "success" ] && [ "$previous" = "failure" ]; then
