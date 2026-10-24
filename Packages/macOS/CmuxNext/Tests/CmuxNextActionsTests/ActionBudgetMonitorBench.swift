@@ -66,6 +66,24 @@ struct ActionBudgetMonitorBench {
         let withSpan = Double(ActionBudgetMonitor.now() - spanStart) / Double(Self.runs)
         print(String(format: "action-budget bench: with the board span: %.1f ns/run (record + span begin and end)", withSpan))
 
+        // As in DEBUG and bench launches: the watchdog's task start hook is installed, so every span
+        // begin copies it under its lock and signals a semaphore.
+        let watched = MainTaskBoard()
+        let wake = DispatchSemaphore(value: 0)
+        watched.setTaskStartHook { wake.signal() }
+        let hooked = ActionBudgetMonitor(board: watched)
+        let hookedIndices = ids.map(hooked.intern)
+        let hookStart = ActionBudgetMonitor.now()
+        for index in 0..<Self.runs {
+            let start = UInt64(index)
+            let span = hooked.beginSpan(hookedIndices[index & 3], start: start)
+            hooked.record(hookedIndices[index & 3], .key, start: start, end: start &+ 1_000, inputAgeMilliseconds: 1.5,
+                          outcome: .committed, span: span)
+        }
+        let withHook = Double(ActionBudgetMonitor.now() - hookStart) / Double(Self.runs)
+        print(String(format: "action-budget bench: with the span and the watchdog hook (DEBUG, bench launches): %.1f ns/run "
+                     + "(not the whole time() path: input age, signpost message and commit observers are not in it)", withHook))
+
         let line = String(format: "action-budget bench: macOS %@, %d runs: record %.1f ns/run, clock read %.1f ns, always-on %.1f ns/run; "
                           + "batch hand-off %.0f ns per %d runs (%.1f ns/run amortized, %llu runs dropped) (sink %llu)",
                           ProcessInfo.processInfo.operatingSystemVersionString, Self.runs, perRun, clockNanos, perRun + 2 * clockNanos,
