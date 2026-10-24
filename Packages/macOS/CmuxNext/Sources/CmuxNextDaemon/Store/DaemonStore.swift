@@ -149,9 +149,6 @@ public final class DaemonStore: StateResourceQueries {
     /// The last live snapshot per workspace and what changed since (``SnapshotMemo``): the next
     /// snapshot applies only the workspaces that differ.
     @ObservationIgnored var snapshotMemo = SnapshotMemo()
-    /// Workspace snapshots the main actor compared or keyed for ``snapshotMemo`` since creation
-    /// (tests: a live resync with its off-main ``SnapshotDiff`` walks none).
-    @ObservationIgnored var snapshotWorkspacesWalkedOnMain = 0
     /// Set while `run(connection:scheduler:)` drives the store.
     @ObservationIgnored var driver: StoreDriver?
     @ObservationIgnored var isResyncing = false
@@ -261,17 +258,16 @@ public final class DaemonStore: StateResourceQueries {
     /// found (``SnapshotDiff``, computed off the main thread by the resync); nil or a diff of an
     /// older memo compares here. Only the changed, new and removed workspaces, and those an event
     /// touched since, are applied, indexed and laid; a snapshot the memo cannot vouch for
-    /// (``incrementalDiff(_:diff:)``) applies in full.
+    /// (``incrementalChanges(_:diff:)``) applies in full.
     func apply(snapshot tree: DaemonTree, diff: SnapshotDiff?) {
         withOverlayLifted(snapshot: true) {
-            if let diff = incrementalDiff(tree, diff: diff) {
-                applyTreeIncrementally(tree, touching: touchedWorkspaces(diff))
-                advanceSnapshotMemo(tree, applying: diff)
+            if let touched = incrementalChanges(tree, diff: diff) {
+                applyTreeIncrementally(tree, touching: touched)
             } else {
                 applyTree(tree)
                 rebuildIndex()
-                recordSnapshotMemo(tree)
             }
+            recordSnapshotMemo(tree)
             if isProvisional { isProvisional = false }
             if !isLoaded {
                 isLoaded = true

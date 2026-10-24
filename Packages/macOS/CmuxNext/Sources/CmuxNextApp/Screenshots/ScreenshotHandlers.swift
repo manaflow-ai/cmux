@@ -175,17 +175,15 @@ enum ScreenshotHandlers {
     /// Encodes and writes `capture` where `output` says.
     private static func deliver(_ capture: Capture, output: ScreenshotOutput, copies: Bool) async throws -> [String: ActionResultValue] {
         let image = capture.image
-        let encoded = await encode(image)
-        guard !encoded.blank else { throw ActionWorkFailure(code: unavailableCode, reason: ScreenshotStrings.blank) }
-        guard let png = encoded.png else { throw ActionWorkFailure(code: unavailableCode, reason: BrowserPageStrings.encodeFailed) }
+        guard !image.isFullyTransparent else { throw ActionWorkFailure(code: unavailableCode, reason: ScreenshotStrings.blank) }
+        guard let png = await encode(image) else { throw ActionWorkFailure(code: unavailableCode, reason: BrowserPageStrings.encodeFailed) }
         var result: [String: ActionResultValue] = [
             "width": .int(image.width), "height": .int(image.height), "scale": .double(capture.scale), "method": .string(capture.method),
         ]
         do {
             switch output {
             case .inline where png.count <= AppBrowserPage.inlinePNGLimit:
-                // Up to 4 MiB of PNG grows to 5.3 MiB of text: off the main actor.
-                result["png_base64"] = .string(await AppBrowserPage.base64(png))
+                result["png_base64"] = .string(png.base64EncodedString())
             case .inline, .temporary:
                 result["path"] = .string(try await saveTemporary(png))
             case .file(let url):
@@ -202,12 +200,10 @@ enum ScreenshotHandlers {
         return result
     }
 
-    /// The blank check (a 64 x 64 redraw) and the PNG encoding, off the main actor: a Retina
-    /// window is several megapixels. `png` is nil for a blank image or a failed encoding.
+    /// Encodes off the main actor: a Retina window is several megapixels.
     @concurrent
-    nonisolated private static func encode(_ image: CGImage) async -> (blank: Bool, png: Data?) {
-        if image.isFullyTransparent { return (true, nil) }
-        return (false, image.pngData())
+    nonisolated private static func encode(_ image: CGImage) async -> Data? {
+        image.pngData()
     }
 
     @concurrent

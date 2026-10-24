@@ -59,12 +59,9 @@ public final class DaemonService {
     /// The connection Quit's end choice runs on, kept after
     /// `shutdownConnection` so Retry ends the same daemon (`endSessionsAndStop`).
     @ObservationIgnored var endingConnection: DaemonConnection?
-    /// The daemon's event batches, on the frame class (every frame, whole, unbudgeted): a batch holds
-    /// the echoes of the person's own actions, and most of them have no intent (close other tabs, close
-    /// a workspace, duplicate, move to a new window, reopen), so the echo is the first time the change
-    /// shows. Under a budgeted class it waited while a key was pending or other visible work spent the
-    /// frame, and the backlog grew without bound under steady churn (review 2 of pl-main-bc).
-    @ObservationIgnored let drainScheduler: FrameBatcher
+    /// The daemon's event batches: visible updates no action of the person caused (the person's own
+    /// change shows in the key's turn through an intent), so they run under the visible budget.
+    @ObservationIgnored private let scheduler = FrameBatcher(owner: "DaemonStore.drain", kind: .budgeted(.visible))
     @ObservationIgnored public let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.daemon")
     /// The window records of the daemon's launch snapshot, drawn before the
     /// first connection (`LaunchSnapshotWindow`); nil without one.
@@ -79,12 +76,9 @@ public final class DaemonService {
     /// - Parameters:
     ///   - machineID: `local`, or the remote machine's id.
     ///   - echoesPlacementShift: The App passes `SidebarMirror.isLinked`; tests leave it off.
-    ///   - frames: The frame scheduler the store's event batches run on (the app's, ``FrameScheduler/app``;
-    ///     a test passes one it ticks by hand).
-    public init(machineID: String = "local", echoesPlacementShift: Bool = false, frames: FrameScheduler = .app) {
+    public init(machineID: String = "local", echoesPlacementShift: Bool = false) {
         self.machineID = machineID
         self.echoesPlacementShift = echoesPlacementShift
-        drainScheduler = FrameBatcher(owner: "DaemonStore.drain", kind: .frame, scheduler: frames)
         retryWake = RetryWake(owner: "DaemonService.retry \(machineID)")
         // The local daemon's kept tabs restart at its first connect (`relaunchKeptLayoutIfNeeded`).
         keptTabRestarts = isLocal ? .expected : .none
@@ -218,7 +212,7 @@ public final class DaemonService {
         armStartupDeadline()
         observeRetryEvents()
         let wake = retryWake
-        runTask = Task { [weak self, drainScheduler, logger] in
+        runTask = Task { [weak self, scheduler, logger] in
             let clock = self?.startupClock ?? ContinuousClock()
             weak let weakSelf = self
             let onFailure: @Sendable (DaemonError) async -> Void = { error in await weakSelf?.noteStartupFailure(error) }
@@ -247,7 +241,7 @@ public final class DaemonService {
             logger.info("cmux-tui \(identity.version, privacy: .public) session \(identity.session, privacy: .public)")
             // task-owner: one hop to read the endpoint; the store run below owns the connection
             Task { await self.rememberSocket(identity, connection: connection) }
-            await store.run(connection: connection, scheduler: drainScheduler)
+            await store.run(connection: connection, scheduler: scheduler)
         }
     }
 
@@ -284,7 +278,7 @@ public final class DaemonService {
         let clock = startupClock
         var configuration = DaemonConnection.Configuration(retryWake: wake, terminalEnvironment: nil, sessionEvents: true)
         configuration.echoesPlacementShift = echoesPlacementShift
-        runTask = Task { [weak self, drainScheduler, logger, configuration] in
+        runTask = Task { [weak self, scheduler, logger, configuration] in
             weak let weakSelf = self
             var ends = RetryPacer(.firstConnect)
             // wakeup-allow: each iteration runs a connection to its end, then waits in RetryPacer
@@ -327,7 +321,7 @@ public final class DaemonService {
                 }
                 self.didConnect(connection, identity: identity)
                 logger.info("\(machineID, privacy: .public): cmux-tui \(identity.version, privacy: .public) session \(identity.session, privacy: .public)")
-                await store.run(connection: connection, scheduler: drainScheduler)
+                await store.run(connection: connection, scheduler: scheduler)
                 await connection.close()
                 if Task.isCancelled { return }
                 guard await ends.waitAfterFailure(wake: wake, clock: clock) else { return }
