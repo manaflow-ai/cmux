@@ -13,7 +13,7 @@ extension AgentPaneRequest {
             guard let name = params["name"] as? String, AgentPaneUpload.isFileName(name),
                   let size = (params["size"] as? NSNumber)?.intValue, size >= 0, size <= maximumUploadStageFile else { return .unsupported(method) }
             let batchToken = params["batchToken"] as? String
-            var batch: [(name: String, size: Int)]?
+            var batch: [AgentPaneUploadBatchEntry]?
             if let list = params["batch"] as? [[String: Any]] {
                 guard !list.isEmpty, list.count <= 64 else { return .unsupported(method) }
                 let parsed = list.compactMap { item -> (String, Int)? in
@@ -22,7 +22,7 @@ extension AgentPaneRequest {
                     return (n, s)
                 }
                 guard parsed.count == list.count else { return .unsupported(method) }
-                batch = parsed.map { (name: $0.0, size: $0.1) }
+                batch = parsed.map { AgentPaneUploadBatchEntry(name: $0.0, size: $0.1) }
             }
             return .uploadStage(.begin(name: name, size: size, batchToken: batchToken, batch: batch))
         case "chat.upload.chunk":
