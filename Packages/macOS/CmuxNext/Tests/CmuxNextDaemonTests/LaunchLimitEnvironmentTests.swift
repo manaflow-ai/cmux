@@ -21,4 +21,11 @@ struct LaunchLimitEnvironmentTests {
         let stray = ["PATH": "/usr/bin:/bin", Self.key: "256"]
         #expect(TerminalEnvironment.instance.daemon(login: stray, base: stray, overrides: [:])[Self.key] == nil)
     }
+
+    /// The Chief owner keeps the launch limit the app gives it (its brains and their tool shells
+    /// get it back) and still drops every build identity.
+    @Test func theChiefOwnerKeepsTheLaunchLimit() {
+        let base = ["HOME": "/Users/someone", Self.key: "256", "CMUX_SOCKET_PATH": "/tmp/cmux.sock"]
+        #expect(DaemonLauncher.chiefEnvironment(base) == ["HOME": "/Users/someone", Self.key: "256"])
+    }
 }
