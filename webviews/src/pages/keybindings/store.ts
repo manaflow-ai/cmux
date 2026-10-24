@@ -47,6 +47,8 @@ export type Recording =
       /** Why the recorded keys were not saved (the app's refusal: a key another action always
        *  runs); the next key clears it. */
       refusal?: string;
+      /** Counts the times the recorder said keys are taken (its red light plays on each). */
+      warned: number;
     };
 
 /** New keys that take other actions' keys, waiting for Overwrite, Ignore or Cancel. */
@@ -283,7 +285,16 @@ export class KeybindingsStore {
     if (this.snapshot.recording) this.endRecording();
     const row = identity(binding);
     this.set({ editing: undefined, selection: row });
-    await this.beginRecording({ target: "row", row, binding, key: "", display: "", held: "", confirmed: 0 });
+    await this.beginRecording({
+      target: "row",
+      row,
+      binding,
+      key: "",
+      display: "",
+      held: "",
+      confirmed: 0,
+      warned: 0,
+    });
   }
 
   stopRecording(): void {
@@ -303,38 +314,46 @@ export class KeybindingsStore {
     else this.endRecording();
   }
 
-  /** The recorder's answer to new keys that take another action's: `overwrite` saves them and
-   *  removes them from the other actions, `ignore` saves them and leaves both, `cancel` saves
-   *  nothing. The recording then goes on (or closes, when Close or Return asked). */
-  async resolveConflict(choice: "overwrite" | "ignore" | "cancel"): Promise<void> {
+  /** The recorder's answer to keys another action has: `overwrite` takes them from the other
+   *  actions first, then saves them (a key that action always runs is free then); `close` saves
+   *  nothing and closes. A new shortcut instead drops the question (onRecorded). */
+  async resolveConflict(choice: "overwrite" | "close"): Promise<void> {
     const recording = this.snapshot.recording;
     if (recording?.target !== "row" || !recording.prompt) return;
     const { prompt } = recording;
-    const asked = { ...recording, prompt: undefined, key: prompt.key, display: prompt.display, held: "" };
-    if (choice === "cancel") {
-      if (prompt.after === "close") this.endRecording();
-      else await this.recapture({ ...asked, key: "", display: "" });
+    if (choice === "close") {
+      this.endRecording();
       return;
     }
+    const asked = {
+      ...recording,
+      prompt: undefined,
+      refusal: undefined,
+      key: prompt.key,
+      display: prompt.display,
+      held: "",
+    };
     this.set({ recording: asked });
-    // The app refuses keys another action has in the same place unless the person keeps both;
-    // Overwrite saves first, then takes the keys from the others.
-    const saved = await this.save(asked, { keepBoth: true });
-    if (saved && choice === "overwrite") {
-      for (const other of prompt.conflicts) {
-        try {
-          await this.client?.call(KeybindingOps.remove, {
-            command: other.command,
-            key: other.key,
-            when: other.when,
-            idempotency_key: this.key(),
-          });
-        } catch (error) {
-          this.set(failure(error));
-        }
+    for (const other of prompt.conflicts) {
+      try {
+        await this.client?.call(KeybindingOps.remove, {
+          command: other.command,
+          key: other.key,
+          when: other.when,
+          idempotency_key: this.key(),
+        });
+      } catch (error) {
+        // The keys stay the other action's: the recorder says why and saves nothing.
+        const current = this.snapshot.recording;
+        const shown = failure(error);
+        if (current?.target === "row" && shown.notice?.kind === "failed") {
+          this.set({ recording: { ...current, refusal: shown.notice.message, warned: current.warned + 1 } });
+        } else this.set(shown);
+        await this.reload();
+        return;
       }
-      await this.reload();
     }
+    await this.save(asked);
     const current = this.snapshot.recording;
     // Another row's recorder took over while the writes ran: it stays as it is.
     if (current?.target !== "row" || current.binding.command !== recording.binding.command) return;
@@ -382,7 +401,7 @@ export class KeybindingsStore {
     if (recording.target === "row" && recording.prompt) {
       const only = strokes(event.key);
       if (event.cancelled) {
-        void this.resolveConflict("cancel");
+        void this.resolveConflict("close");
         return;
       }
       if (only.length === 1 && (only[0] === "return" || only[0] === "enter")) {
@@ -449,13 +468,16 @@ export class KeybindingsStore {
     const current = this.snapshot.recording;
     // Newer keys went down (or another row records) while the app answered: they decide.
     if (current?.target !== "row" || current.row !== recording.row || current.key !== key || current.prompt) return;
-    if (refusal) {
-      // Never saved: the recorder says why and records the next shortcut.
-      await this.recapture({ ...current, key, display, held: "", refusal });
+    const warned = current.warned + 1;
+    if (conflicts.length) {
+      // Taken: the recorder asks (Overwrite, or record a new shortcut); Overwrite also frees a
+      // key the other action always runs.
+      await this.recapture({ ...current, key, display, held: "", warned, prompt: { key, display, conflicts, after } });
       return;
     }
-    if (conflicts.length) {
-      await this.recapture({ ...current, key, display, held: "", prompt: { key, display, conflicts, after } });
+    if (refusal) {
+      // Never saved: the recorder says why and records the next shortcut.
+      await this.recapture({ ...current, key, display, held: "", warned, refusal });
       return;
     }
     const saved = await this.save({ ...current, key, display });
@@ -483,10 +505,7 @@ export class KeybindingsStore {
 
   /** Saves the recording's keys as its row's (the shortcut so far, a release or a confirmed
    *  conflict); the recording goes on, its light confirming. False when the write failed. */
-  private async save(
-    recording: Extract<Recording, { target: "row" }>,
-    options: { keepBoth?: boolean } = {},
-  ): Promise<boolean> {
+  private async save(recording: Extract<Recording, { target: "row" }>): Promise<boolean> {
     const { binding, key, display } = recording;
     const same = !binding.unset && keyMatches(key, { key: binding.key, exact: true });
     // The recorder follows the new keys before the write: the provider's `changed` re-read can
@@ -495,7 +514,6 @@ export class KeybindingsStore {
     this.set({ recording: { ...recording, binding: saved }, notice: undefined });
     if (!same) {
       const params = this.setParams(binding, key, binding.when);
-      if (options.keepBoth) params.keep_both = true;
       try {
         await this.client?.call(KeybindingOps.set, params);
       } catch (error) {
@@ -504,7 +522,7 @@ export class KeybindingsStore {
         // A refused save shows in the recorder (its keys and why), not in the page's notice.
         if (current?.target === "row" && current.row === recording.row) {
           if (shown.notice?.kind === "failed") {
-            this.set({ recording: { ...current, binding, refusal: shown.notice.message } });
+            this.set({ recording: { ...current, binding, refusal: shown.notice.message, warned: current.warned + 1 } });
             return false;
           }
           this.set({ recording: { ...current, binding } });

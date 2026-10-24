@@ -553,9 +553,32 @@
   color: var(--cmux-app-danger, #ff453a);
 }
 
+.keys-recorder-refusal .keys-recorder-owner {
+  font-weight: 700;
+}
+
 .keys-recorder-keys.refused .keys-recorder-cap {
   color: var(--cmux-app-danger, #ff453a);
   background: color-mix(in srgb, var(--cmux-app-danger, #ff453a) 18%, transparent);
+}
+
+/* The keys turn red as the taken light shines through (with motion; at once without). */
+:root:not([data-cmux-motion="off"]) .keys-recorder-cap {
+  transition:
+    color var(--cmux-motion-standard, 180ms) ease-out,
+    background-color var(--cmux-motion-standard, 180ms) ease-out;
+}
+
+/* The taken light: the green light's red twin, shining down through the whole glass. */
+.keys-recorder-light.danger {
+  inset: 0;
+  height: auto;
+  background: radial-gradient(
+    90% 70% at 50% 0%,
+    color-mix(in srgb, var(--cmux-app-danger, #ff453a) 40%, transparent) 0%,
+    transparent 80%
+  );
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--cmux-app-danger, #ff453a) 80%, transparent);
 }
 
 .keys-recorder-stroke {

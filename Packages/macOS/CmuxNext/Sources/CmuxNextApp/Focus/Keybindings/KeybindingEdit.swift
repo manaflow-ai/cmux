@@ -16,8 +16,7 @@ enum KeybindingEdit {
         guard let settings = services.settings else {
             throw PageError(code: "cmux.keybindings.unsupported", message: KeybindingStrings.editingUnsupported)
         }
-        var writes = KeybindingPageWrites(registry: services.registry, settings: settings, file: services.keybindingsFile)
-        writes.keepsBoth = params["keep_both"]?.boolValue == true
+        let writes = KeybindingPageWrites(registry: services.registry, settings: settings, file: services.keybindingsFile)
         switch self {
         case .set: try await writes.set(params)
         case .remove: try await writes.remove(params)

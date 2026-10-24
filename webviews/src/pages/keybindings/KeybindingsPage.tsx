@@ -1,7 +1,7 @@
 // The Keyboard Shortcuts page (plans/cmux-next/keybindings.md 8). State lives in
 // `KeybindingsStore`; this file only renders it and turns plain keys and clicks into store
 // intents. Cmd/Ctrl chords never reach page handlers; recording goes through the app's dispatcher.
-import { useState, useSyncExternalStore, type KeyboardEvent } from "react";
+import { useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from "react";
 import { Popover, type UiAnchor, type UiVirtualAnchor } from "../../ui/Popover";
 import type { Strings } from "../shared/i18n";
 import {
@@ -279,6 +279,20 @@ type RowRecording = Extract<Recording, { target: "row" }>;
  *  with it, and focus on one would end on nothing. */
 const keepFocus = (event: { preventDefault(): void }) => event.preventDefault();
 
+/** A string with `parts` in its `%@` / `%N$@` places ("Already used by <strong>Close Tab</strong>"). */
+function fill(text: string, parts: readonly ReactNode[]): ReactNode[] {
+  let next = 0;
+  const out: ReactNode[] = [];
+  let last = 0;
+  for (const match of text.matchAll(/%(?:(\d+)\$)?@/g)) {
+    out.push(text.slice(last, match.index));
+    out.push(parts[match[1] ? Number(match[1]) - 1 : next++] ?? "");
+    last = match.index + match[0].length;
+  }
+  out.push(text.slice(last));
+  return out;
+}
+
 /** A string with keycaps in its `%@` / `%N$@` places ("Press ⌫ to delete"). */
 function withKeys(text: string, keys: readonly string[]) {
   let next = 0;
@@ -342,9 +356,11 @@ function Recorder({
     ? binding.conflicts.flatMap((id) => bindings.filter((other) => other.id === id && !other.removed))
     : [];
   const prompt = recording.prompt;
-  // Asking: the actions the new keys would take; after a save: the saved keys' conflicts.
-  const others = prompt ? prompt.conflicts : saved;
-  const titles = [...new Set(others.map((other) => other.title))];
+  // Taken: the actions the new keys would take; the title names them.
+  const owners = prompt ? [...new Set(prompt.conflicts.map((other) => other.title))].join(", ") : "";
+  // After a save: the saved keys' conflicts.
+  const titles = prompt ? [] : [...new Set(saved.map((other) => other.title))];
+  const taken = Boolean(prompt || recording.refusal);
   return (
     <Popover
       open
@@ -361,12 +377,25 @@ function Recorder({
         else store.closeRecording();
       }}
     >
-      {recording.confirmed > 0 && (
+      {recording.confirmed > 0 && !taken && (
         // The confirm light: a green glow along the glass's top edge, once per save.
         <span key={recording.confirmed} className="keys-recorder-light" aria-hidden="true" />
       )}
-      {recording.refusal ? (
-        // Not saved: the app's reason in place of the hint, the keys it refused in red.
+      {recording.warned > 0 && taken && (
+        // The taken light: red, shining down through the glass as the keys turn red.
+        <span key={`warned-${recording.warned}`} className="keys-recorder-light danger" aria-hidden="true" />
+      )}
+      {prompt ? (
+        // Taken: "Already used by <action>", the keys in red, "Overwrite it or record a new shortcut".
+        <output className="keys-recorder-refusal">
+          {fill(t("keybindings.page.recorder.alreadyUsedBy"), [
+            <strong key="owner" className="keys-recorder-owner">
+              {owners}
+            </strong>,
+          ])}
+        </output>
+      ) : recording.refusal ? (
+        // Not saved, and no action to take the keys from: the app's reason, the keys in red.
         <output className="keys-recorder-refusal">{recording.refusal}</output>
       ) : (
         !binding.unset &&
@@ -374,7 +403,7 @@ function Recorder({
       )}
       <button
         type="button"
-        className={`keys-recorder-keys${live ? " recorded" : ""}${recording.refusal ? " refused" : ""}`}
+        className={`keys-recorder-keys${live ? " recorded" : ""}${taken ? " refused" : ""}`}
         aria-label={t("keybindings.page.recorder.edit")}
         aria-live="polite"
         onMouseDown={keepFocus}
@@ -397,7 +426,11 @@ function Recorder({
           <span className="keys-placeholder">{t("keybindings.page.pressKeys")}</span>
         )}
       </button>
-      {!prompt && !recording.refusal && <div className="keys-recorder-hint">{t("keybindings.page.recorder.edit")}</div>}
+      {prompt ? (
+        <div className="keys-recorder-hint">{t("keybindings.page.recorder.overwriteOrRecord")}</div>
+      ) : (
+        !recording.refusal && <div className="keys-recorder-hint">{t("keybindings.page.recorder.edit")}</div>
+      )}
       {titles.length > 0 && (
         <output className="keys-recorder-conflict">
           <span className="keys-recorder-conflict-label">
@@ -412,7 +445,7 @@ function Recorder({
           {binding.title}
         </span>
         {prompt ? (
-          // The app's recorder answers Escape (Cancel) and Return (Overwrite); a new shortcut
+          // The app's recorder answers Escape (Close) and Return (Overwrite); a new shortcut
           // drops the question.
           <span className="keys-recorder-choices">
             <button
@@ -420,17 +453,9 @@ function Recorder({
               className="keys-recorder-button"
               aria-keyshortcuts="Escape"
               onMouseDown={keepFocus}
-              onClick={() => void store.resolveConflict("cancel")}
+              onClick={() => void store.resolveConflict("close")}
             >
-              {withKeys(t("keybindings.page.recorder.cancel"), ["esc"])}
-            </button>
-            <button
-              type="button"
-              className="keys-recorder-button"
-              onMouseDown={keepFocus}
-              onClick={() => void store.resolveConflict("ignore")}
-            >
-              {t("keybindings.page.recorder.ignore")}
+              {withKeys(t("keybindings.page.recorder.closeOnly"), ["esc"])}
             </button>
             <button
               type="button"

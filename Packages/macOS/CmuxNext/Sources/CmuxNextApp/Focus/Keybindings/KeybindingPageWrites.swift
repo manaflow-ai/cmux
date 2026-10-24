@@ -24,11 +24,8 @@ struct KeybindingPageWrites {
     let registry: ActionRegistry
     let settings: SettingsController
     let file: KeybindingsFileService
-    /// `keep_both` on `set`: the person chose to keep another action's keys too (the page's
-    /// Ignore and Overwrite): a conflict in the same place is no refusal.
-    var keepsBoth = false
 
-    /// `{command, key, when?, args?, replaces?: {key, when}, keep_both?}`.
+    /// `{command, key, when?, args?, replaces?: {key, when}}`.
     func set(_ params: [String: JSONValue]) async throws {
         let id = try command(params)
         let target = try entry(id, params["replaces"]?.objectValue)
@@ -231,7 +228,8 @@ struct KeybindingPageWrites {
 
     /// The refusal of `key` for `command` before any write (`cmux.keybindings.conflicts`): the
     /// recorder's rules, as `set` checks them (a key another action always runs, a reserved key).
-    /// Nil when they may be saved; a conflict the person can keep is the page's question, not this.
+    /// Nil when they may be saved; another action's keys in the same place are the page's
+    /// question (Overwrite takes them first), not this.
     func refusal(_ params: [String: JSONValue]) -> String? {
         guard let id = try? command(params), let keys = KeybindingReports.keys(from: params["key"]?.stringValue ?? ""),
               let first = keys.first else { return nil }
@@ -264,7 +262,7 @@ struct KeybindingPageWrites {
         case .refused(let refusal):
             throw PageError(code: "cmux.keybindings.refused", message: text.refusal(refusal, shortcut: shortcut, id: id))
         case .conflict(let owners, let canKeepBoth, _, _):
-            guard canKeepBoth || keepsBoth else {
+            guard canKeepBoth else {
                 throw PageError(code: "cmux.keybindings.conflict", message: text.conflict(shortcut, owners: owners, canKeepBoth: false))
             }
         }
