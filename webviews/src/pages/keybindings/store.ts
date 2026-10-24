@@ -409,14 +409,8 @@ export class KeybindingsStore {
   private onRecorded(event: RecordedEvent): void {
     let recording = this.snapshot.recording;
     if (!recording) return;
-    // A refusal shows until other keys go down (the next shortcut); the same keys again keep it.
-    if (
-      recording.target === "row" &&
-      recording.refusal &&
-      event.key &&
-      event.key !== recording.key &&
-      !event.released
-    ) {
+    // A refusal shows until the next key goes down (the next shortcut, shown live).
+    if (recording.target === "row" && recording.refusal && (event.key || event.held) && !event.released) {
       recording = { ...recording, refusal: undefined, refusalOwner: undefined };
       this.set({ recording });
     }
@@ -432,8 +426,9 @@ export class KeybindingsStore {
         void this.resolveConflict("overwrite");
         return;
       }
-      // The same keys again get the same answer: the question stays.
-      if (event.released || !event.key || event.key === recording.prompt.key) return;
+      // Any key going down drops the question and shows live; the same keys again get the same
+      // answer at the release.
+      if (event.released || (!event.key && !event.held)) return;
       recording = { ...recording, prompt: undefined };
       this.set({ recording });
     }
