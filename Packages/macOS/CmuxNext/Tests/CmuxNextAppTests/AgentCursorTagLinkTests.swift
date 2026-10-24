@@ -1,5 +1,6 @@
 import CmuxAgentCursor
 @testable import CmuxNextAgentCursor
+import CmuxNextAgentCursorVisibility
 @testable import CmuxNextApp
 import CmuxNextControl
 import CmuxNextDesign

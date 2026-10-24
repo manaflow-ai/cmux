@@ -1,4 +1,3 @@
-public import CmuxNextAgentCursor
 public import CoreGraphics
 
 extension AgentCursorVisibility {

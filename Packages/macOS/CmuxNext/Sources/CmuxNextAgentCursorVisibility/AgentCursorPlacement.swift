@@ -3,7 +3,9 @@ public import CoreGraphics
 /// Where an agent's target is in this window right now, in overlay
 /// (layout-root, y-down) coordinates. Answered by the layout at the moment an
 /// input event arrives, never cached across events: panes, columns and tabs
-/// can move between two events.
+/// can move between two events. A value of the visibility rules
+/// (``AgentCursorVisibility/placement(forWindow:)``), so it lives with them
+/// and the cursor (CmuxNextAgentCursor) depends on the rules, not the reverse.
 public enum AgentCursorPlacement: Equatable, Sendable {
     /// The target tab is on screen. `content` is its page viewport, `clip`
     /// the part of it not scrolled out or under a docked column, `zoom` the
@@ -15,11 +17,4 @@ public enum AgentCursorPlacement: Equatable, Sendable {
     case hidden(anchor: CGRect)
     /// Not in this window (other workspace, other window, other Space).
     case elsewhere
-}
-
-/// Answers where a target is. The stand-in for the visibility resolver
-/// (owner a9: a pure resolver with vectors); the App supplies the live one.
-@MainActor
-public protocol AgentCursorTargetResolving: AnyObject {
-    func placement(forTarget targetID: String) -> AgentCursorPlacement
 }

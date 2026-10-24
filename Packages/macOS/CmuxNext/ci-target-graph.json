@@ -85,6 +85,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentCursor",
       "targets": [
+        "CmuxNextAgentCursorVisibility",
         "CmuxNextDesign"
       ],
       "packages": [
@@ -94,9 +95,7 @@
     "CmuxNextAgentCursorVisibility": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentCursorVisibility",
-      "targets": [
-        "CmuxNextAgentCursor"
-      ],
+      "targets": [],
       "packages": []
     },
     "CmuxNextAgentIntegrations": {
@@ -355,6 +354,7 @@
         "CmuxNextActions",
         "CmuxNextAgentActivity",
         "CmuxNextAgentCursor",
+        "CmuxNextAgentCursorVisibility",
         "CmuxNextAgentLanes",
         "CmuxNextAgentUpdates",
         "CmuxNextApp",

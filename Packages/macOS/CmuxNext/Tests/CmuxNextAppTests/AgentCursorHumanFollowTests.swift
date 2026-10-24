@@ -1,5 +1,6 @@
 import CmuxAgentCursor
 @testable import CmuxNextAgentCursor
+import CmuxNextAgentCursorVisibility
 import CoreGraphics
 import Testing
 

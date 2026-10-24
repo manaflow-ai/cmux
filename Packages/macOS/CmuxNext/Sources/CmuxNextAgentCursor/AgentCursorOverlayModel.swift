@@ -1,4 +1,5 @@
 public import CmuxAgentCursor
+import CmuxNextAgentCursorVisibility
 import CmuxNextDesign
 public import CoreGraphics
 

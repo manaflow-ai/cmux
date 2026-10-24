@@ -1,4 +1,5 @@
 public import CmuxAgentCursor
+import CmuxNextAgentCursorVisibility
 public import QuartzCore
 
 /// One window's agent cursor stack on the window-level cursor layer

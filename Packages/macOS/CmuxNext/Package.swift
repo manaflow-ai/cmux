@@ -74,8 +74,8 @@ import PackageDescription
 //     no daemon; the App supplies the samples). Tabs and Sidebar show it.
 //   CmuxNextAgentPane -> Design, Actions, Dictation (WKWebView host for the React agent pane and the acpmux
 //     handshake; the page talks to acpmux itself; no daemon)
-//   CmuxNextAgentCursor -> CmuxAgentCursor (vendored; agent cursor commands from input events and the layout)
-//   CmuxNextAgentCursorVisibility -> AgentCursor (pure visibility rules for a cursor target: snapshot in,
+//   CmuxNextAgentCursor -> AgentCursorVisibility, CmuxAgentCursor (vendored; agent cursor commands from input events and the layout)
+//   CmuxNextAgentCursorVisibility -> nothing (pure visibility rules for a cursor target: snapshot in,
 //     visible / hidden anchor / not drawn out; no AppKit; the App builds the snapshot from the live models)
 //   CmuxNextWorkspaceNaming -> Bridge, Compat, Daemon, DesignTokens (hq#1957: the name a workspace takes from a moved
 //     tab or its front tab, and the one-time rename; pure rules; the App supplies its pages and the rename command)
@@ -721,7 +721,7 @@ let package = Package(
         // resolver and the layer host.
         .target(
             name: "CmuxNextAgentCursor",
-            dependencies: ["CmuxNextDesign", .product(name: "CmuxAgentCursor", package: "CmuxAgentCursor")],
+            dependencies: ["CmuxNextAgentCursorVisibility", "CmuxNextDesign", .product(name: "CmuxAgentCursor", package: "CmuxAgentCursor")],
             swiftSettings: uiSwiftSettings
         ),
         // Agent cursor visibility (agent-cursor.md section 3, decisions
@@ -729,7 +729,7 @@ let package = Package(
         // replayed from schemas/agent-cursor-visibility/vectors.json.
         .target(
             name: "CmuxNextAgentCursorVisibility",
-            dependencies: ["CmuxNextAgentCursor"],
+            dependencies: [],
             swiftSettings: uiSwiftSettings
         ),
         // Workspace naming (hq#1957): the name a workspace made from a moved tab
@@ -1606,6 +1606,7 @@ let package = Package(
                 "CmuxNextActions",
                 "CmuxNextAgentActivity",
                 "CmuxNextAgentCursor",
+                "CmuxNextAgentCursorVisibility",
                 "CmuxNextAgentLanes",
                 "CmuxNextAgentUpdates",
                 "CmuxNextApp",
