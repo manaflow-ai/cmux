@@ -150,18 +150,18 @@ final class UiLayerControlServer: @unchecked Sendable {
         func start() {
             let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] timer in
                 Task { @MainActor [weak self] in
-                    guard let self else { timer.invalidate(); return }
-                    self.tick(timer)
+                    guard let self else { return }
+                    self.tick()
                 }
             }
             self.timer = timer
             RunLoop.main.add(timer, forMode: .common)
         }
 
-        private func tick(_ timer: Timer) {
+        private func tick() {
             let elapsed = Double(DispatchTime.now().uptimeNanoseconds - started) / 1_000_000_000
             guard elapsed <= seconds else {
-                timer.invalidate()
+                timer?.invalidate()
                 self.timer = nil
                 finish()
                 return
@@ -179,7 +179,7 @@ final class UiLayerControlServer: @unchecked Sendable {
                 times.append(elapsed)
                 frame += 1
             } catch {
-                timer.invalidate()
+                timer?.invalidate()
                 self.timer = nil
                 finish()
             }
