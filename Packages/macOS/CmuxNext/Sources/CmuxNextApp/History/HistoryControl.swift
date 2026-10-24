@@ -1,12 +1,8 @@
 import CmuxNextCompat
 import CmuxNextControl
-import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextHistory
 import Foundation
-
-/// The control reply's JSON (CmuxNextDaemon has its own `JSONValue`; this file imports both).
-private typealias JSONValue = CmuxNextSettings.JSONValue
 
 /// `history.list {kind?, text?, limit?, range?}` for `cmux history list`
 /// and `cmux history search` (plans/cmux-next/history.md 5.3). The main
@@ -45,10 +41,10 @@ enum HistoryControl {
             .mainActor("debug.closed_ids") { [weak services] _ in
                 guard let services else { throw ControlError.invalidParams("the app is closing") }
                 let daemon = services.daemon
-                guard daemon.store.servesStateResources, let connection = daemon.connection else {
+                guard daemon.store.servesStateResources, daemon.connection != nil else {
                     throw ControlError(code: "unavailable", message: "the local daemon records no closed history")
                 }
-                return .followUp { try await closedIDs(daemon, connection) }
+                return .followUp { try await closedIDs(daemon) }
             },
             .mainActor("debug.history_cookie_backups") { [weak services] call in
                 guard let services else { throw ControlError.invalidParams("the app is closing") }
@@ -72,20 +68,19 @@ enum HistoryControl {
     }
 
     #if DEBUG
-    /// `debug.closed_ids`' answer: the sync barrier on `connection`, then the
-    /// store's closed items (`session.events`), unfiltered.
+    /// `debug.closed_ids`' answer: the daemon's sync barrier, then the store's closed items
+    /// (`session.events`), unfiltered.
     @MainActor
-    static func closedIDs(_ daemon: DaemonService, _ connection: DaemonConnection) async throws -> JSONValue {
-        _ = try await connection.request(IdentifyRequest())
-        await daemon.store.applied(through: await connection.eventSequence())
-        await daemon.store.sessionStateResolved()
-        // A reconnect in between: the list may lack closes the old connection's events carried.
-        guard daemon.connection === connection else {
-            throw ControlError(code: "unavailable", message: "the local daemon reconnected during the read")
+    static func closedIDs(_ daemon: DaemonService) async throws -> JSONValue {
+        let sequence: UInt64
+        do {
+            sequence = try await daemon.appliedThroughSyncBarrier()
+        } catch {
+            throw ControlError(code: "unavailable", message: "the local daemon did not answer the barrier: \(error)")
         }
         return .object([
             "closed_ids": .array(daemon.store.closedItems.map { .string(DaemonClosedHistory.historyID($0.id)) }),
-            "sequence": JSONValue.number(Double(daemon.store.appliedSequence)),
+            "sequence": .number(Double(sequence)),
         ])
     }
     #endif
