@@ -16,14 +16,14 @@ import Testing
     }
 
     @Test func aQuickInstallKeepsTheShortText() {
-        let shown = Self.presentation(UpdateInstallStatus(elapsed: .seconds(3), blockers: nil))
+        let shown = Self.presentation(UpdateInstallStatus(elapsed: .seconds(3)))
         #expect(shown.title == UpdaterStrings.installingUpdate)
         #expect(shown.detail == UpdaterStrings.relaunchingDetail)
         #expect(shown.showsProgress && !shown.dismissible)
     }
 
     @Test func aSlowInstallSaysWhatItDoesAndHowLong() throws {
-        let shown = Self.presentation(UpdateInstallStatus(elapsed: .seconds(42), blockers: nil))
+        let shown = Self.presentation(UpdateInstallStatus(elapsed: .seconds(42)))
         let detail = try #require(shown.detail)
         #expect(detail != UpdaterStrings.relaunchingDetail, "a 42 s install still says it relaunches in a moment")
         #expect(detail.contains("42"), "the card does not say how long it has waited: \(detail)")
@@ -40,7 +40,7 @@ import Testing
     }
 
     @Test func anInstallThatNeverRelaunchesSaysSo() {
-        let status = UpdateInstallStatus(elapsed: UpdateInstallStatus.giveUpAfter + .seconds(1), blockers: nil)
+        let status = UpdateInstallStatus(elapsed: UpdateInstallStatus.giveUpAfter + .seconds(1))
         #expect(status.stage == .stalled)
         let shown = Self.presentation(status)
         #expect(shown.title != UpdaterStrings.installingUpdate)

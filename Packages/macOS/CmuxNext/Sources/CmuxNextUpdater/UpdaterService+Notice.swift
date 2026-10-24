@@ -47,7 +47,6 @@ extension UpdaterService {
         case .details: presentUpdateUI?()
         case .releaseNotes: break
         case .rollBack, .waitForFix: pulledWatch.perform(action)
-        case .relaunchNow: relaunchNow()
         }
     }
 
