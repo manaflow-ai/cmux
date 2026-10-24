@@ -119,6 +119,8 @@ impl MuxLaneTracker {
                 "output" | "vt-state" | "render-state" | "render-delta" | "frame"
                 | "browser-state" | "resized" | "colors-changed" | "scroll-changed"
                 | "detached" => Lane::Bulk,
+                // A client stream's end follows its queued output.
+                "stream-end" => Lane::Bulk,
                 // Forwarded loopback bytes and their stream lifecycle stay in
                 // one ordered lane, away from keystrokes and control replies.
                 name if name.starts_with("loopback-") => Lane::Bulk,
@@ -176,6 +178,9 @@ pub(crate) fn classify_client_line(line: &[u8]) -> Lane {
         Some("attach-surface" | "read-screen" | "read-scrollback" | "vt-state" | "paste-image") => {
             Lane::Bulk
         }
+        // `attach-streams-v1`: a stream's cancel follows the attach it
+        // cancels in one ordered lane, so it never runs before that attach.
+        Some("cancel-stream") => Lane::Bulk,
         Some("copy") if envelope.mode.as_ref().map(MuxName::as_str) == Some("scrollback") => {
             Lane::Bulk
         }
