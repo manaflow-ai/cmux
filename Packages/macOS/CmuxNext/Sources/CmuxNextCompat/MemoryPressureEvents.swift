@@ -1,55 +1,39 @@
-import Dispatch
-
-/// The kernel's memory pressure, observed through one main-queue dispatch source that calls only
-/// its subscribers, on the main actor (event-driven, nothing polls).
+/// The memory pressure level, from one ``MemoryPressureSource``, handed to every subscriber on the
+/// main actor (event-driven, nothing polls).
 ///
-/// Make one at the composition root and inject it, so the app keeps one source however many
-/// owners react to pressure. Each subscriber keeps the registration ``observe(_:)`` returns and
-/// stops when it releases it (on any thread) or cancels it; a cancelled subscriber gets no later
-/// event, because events are delivered synchronously on the main queue. The source starts with
-/// the first subscriber and is cancelled when this object goes.
+/// Make one at the composition root with ``KernelMemoryPressureSource`` and inject it, so one source
+/// serves every owner that reacts to pressure; a test passes a source it drives. Each subscriber keeps
+/// the registration ``observe(_:)`` returns and stops when it releases it (on any thread) or cancels
+/// it: a cancelled subscriber gets no later event, because the source delivers on the main actor and
+/// cancelling removes the handler at once. The source starts in the init and is cancelled in the deinit.
 ///
 /// ```swift
+/// let memoryPressure = MemoryPressureEvents(source: KernelMemoryPressureSource())
 /// pressureObservation = memoryPressure.observe { [weak self] level in self?.pressureDidChange(level) }
 /// ```
 public final class MemoryPressureEvents: Sendable {
-    private let handlers = MainActorHandlers<KernelMemoryPressure>()
-    /// The dispatch source, made on the first ``observe(_:)``; in a Mutex so that any thread may
-    /// subscribe and the deinit cancels it on any thread.
-    private let source = Mutex<(any DispatchSourceMemoryPressure)?>(nil)
+    private let handlers = MainActorHandlers<MemoryPressureLevel>()
+    private let source: any MemoryPressureSource
 
-    /// Makes the observer; the dispatch source starts with the first subscriber.
-    public init() {}
+    /// Starts `source`, handing each level it reports to the subscribers.
+    ///
+    /// - Parameter source: The pressure source; ``KernelMemoryPressureSource`` in the app.
+    public init(source: any MemoryPressureSource) {
+        self.source = source
+        source.start { [handlers] level in handlers.call(level) }
+    }
 
     /// Calls `handler` on the main actor with each memory pressure change until the returned
     /// registration is released or cancelled.
     ///
     /// - Parameter handler: Main-actor work for each new level (normal, warning or critical).
     /// - Returns: The registration; keep it in a stored property.
-    public func observe(_ handler: @escaping @MainActor @Sendable (KernelMemoryPressure) -> Void)
-        -> MainActorHandlerRegistration<KernelMemoryPressure> {
-        let registration = handlers.add(handler)
-        source.withLock { source in
-            if source == nil { source = makeMainQueueSource(calling: handlers) }
-        }
-        return registration
+    public func observe(_ handler: @escaping @MainActor @Sendable (MemoryPressureLevel) -> Void)
+        -> MainActorHandlerRegistration<MemoryPressureLevel> {
+        handlers.add(handler)
     }
 
     deinit {
-        source.withLock { $0?.cancel() }
+        source.cancel()
     }
-}
-
-/// A started memory pressure source on the main queue that hands each event to `handlers`.
-private func makeMainQueueSource(calling handlers: MainActorHandlers<KernelMemoryPressure>)
-    -> any DispatchSourceMemoryPressure {
-    let source = DispatchSource.makeMemoryPressureSource(eventMask: [.normal, .warning, .critical], queue: .main)
-    source.setEventHandler { [weak source] in
-        guard let event = source?.data else { return }
-        let level: KernelMemoryPressure = event.contains(.critical) ? .critical : event.contains(.warning) ? .warning : .normal
-        // main-proof: the source delivers on the main queue (queue: .main).
-        MainActor.assumeIsolated { handlers.call(level) }
-    }
-    source.activate()
-    return source
 }
