@@ -497,7 +497,15 @@ EXPECT = {
 EXPECT_BY_ENTRY = {"palette.newAgentChat": {"key": "chat_dock+", "action": "tab+"}}
 # The directional focus moves: each row starts from a pane that has a neighbor that way (start_pane). From a pane
 # with none, PaneHandlers.bindFocus refuses quietly and the row would time a refusal, not a focus move.
-DIRECTIONS = {"focusLeft": "left", "focusRight": "right", "focusUp": "up", "focusDown": "down"}
+DIRECTIONS = {"focusLeft": "left", "focusRight": "right", "focusUp": "up", "focusDown": "down",
+              "swapPaneLeft": "left", "swapPaneRight": "right", "swapPaneUp": "up", "swapPaneDown": "down"}
+# Refusals that are the action's correct answer in any session the sweep builds: the row's check is `refused`
+# and the refusal is no error (a policy, not a missing fixture). Each names the words of the reason it expects.
+EXPECTED_REFUSALS = {
+    # browser.enabled is the person's own setting: agents, scripts and pages cannot change it (the sweep is a script).
+    "palette.disableBrowser": "can be changed only by you",
+    "palette.enableBrowser": "can be changed only by you",
+}
 # A pane frame's edge sits on its neighbor's within this many points (frames are rounded to points).
 EDGE_PT = 1.0
 TOGGLES = r"(?i)(toggle|Toggle|zoom(?!In|Out|Reset)|^show|^hide|Sidebar$|fullScreen|pin|mute)"
@@ -563,6 +571,22 @@ def neighbor(cell, other, direction):
             "up": across_x and oy + oh <= y + EDGE_PT, "down": across_x and oy >= y + h - EDGE_PT}[direction]
 
 
+def newest_history_id():
+    """The newest history entry's id (`history.list`), for history.open; None when the history is empty."""
+    reply = rpc("history.list", {"range": "all", "limit": 1})
+    entries = reply.get("entries") if isinstance(reply, dict) and not error_of(reply) else None
+    return next((e.get("id") for e in entries or [] if isinstance(e, dict) and e.get("id")), None)
+
+
+# Arguments a plain value cannot stand in for: a fixture gives a value the action accepts in the sweep's session,
+# or None with the reason no fixture exists yet (the row is skipped with it, so the gap shows in the report).
+ARGUMENT_FIXTURES = {
+    # A string argument with suggested values (CatalogArgument.fitChoice): an aspect ratio the page accepts.
+    ("browserFit", "fit"): lambda base: ("16:9", None),
+    ("history.open", "id"): lambda base: (lambda found: (found, None) if found else (None, "the history is empty"))(newest_history_id()),
+}
+
+
 def argument_values(action, base):
     """Values for required arguments, or (None, reason)."""
     values = {}
@@ -570,7 +594,13 @@ def argument_values(action, base):
         if not argument.get("required"):
             continue
         kind, name = argument.get("kind"), argument.get("name")
-        if kind == "string":
+        fixture = ARGUMENT_FIXTURES.get((action["id"], name))
+        if fixture:
+            value, why = fixture(base)
+            if value is None:
+                return None, why
+            values[name] = value
+        elif kind == "string":
             values[name] = "sweep"
         elif kind == "int":
             values[name] = argument.get("min", 1)
@@ -1266,6 +1296,10 @@ class Sweep:
             check, result_ms = self.check(expectation(ident, entry), before, shape(after_topo), sample)
             if err and check == "wrong" and refusal(err):
                 check = "refused"  # a typed refusal (launch denied, not available here) made nothing: not a wrong result
+            if err and expected_refusal(ident, err):
+                errors.pop()  # the action's correct answer in this session (EXPECTED_REFUSALS): not an error
+                row["expected_refusal"] = err[:160]
+                check = "refused"
             sample["check"] = check
             if result_ms is not None:
                 sample["result_ms"] = result_ms
@@ -1893,6 +1927,12 @@ def misses(row):
     if row.get("check") == "wrong":
         why.append("wrong result")
     return why
+
+
+def expected_refusal(ident, error):
+    """Whether `error` is the refusal EXPECTED_REFUSALS names for `ident`."""
+    words = EXPECTED_REFUSALS.get(ident)
+    return bool(words) and words in error
 
 
 def refusal(error):
