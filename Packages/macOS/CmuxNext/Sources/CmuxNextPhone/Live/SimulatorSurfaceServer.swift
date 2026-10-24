@@ -1,6 +1,5 @@
 public import Foundation
 import IOSurface
-import Network
 import os
 
 private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "phone.surface")
@@ -35,7 +34,7 @@ public final class SimulatorSurfaceServer {
     private let service: PhoneService
     private let device: PhoneDeviceID
     public let secret = UUID().uuidString.replacingOccurrences(of: "-", with: "") + UUID().uuidString.replacingOccurrences(of: "-", with: "")
-    private var listener: NWListener?
+    private var listener: LoopbackListener?
     private var sessions: [ObjectIdentifier: Session] = [:]
     private var ready: [CheckedContinuation<UInt16, any Error>] = []
     /// Runs once when the source stops (``stop()``, or its listener failed).
@@ -54,19 +53,12 @@ public final class SimulatorSurfaceServer {
     public func start() async throws -> UInt16 {
         guard device.mode == .simulator else { throw Failure.notSimulator }
         guard let live = service.live, live.isAvailable() else { throw Failure.noLiveScreen }
-        let parameters = NWParameters.tcp
-        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
-        parameters.acceptLocalOnly = true
-        let listener: NWListener
-        do { listener = try NWListener(using: parameters) } catch { throw Failure.listener("\(error)") }
-        listener.stateUpdateHandler = { [weak self] state in
-            MainActor.assumeIsolated { self?.listenerChanged(state) } // main-proof: listener.start(queue: .main) below
+        do {
+            listener = try LoopbackListener(ready: { [weak self] in self?.listenerChanged($0) },
+                                            accept: { [weak self] in self?.accept($0) })
+        } catch {
+            throw Failure.listener("\(error)")
         }
-        listener.newConnectionHandler = { [weak self] connection in
-            MainActor.assumeIsolated { self?.accept(connection) } // main-proof: listener.start(queue: .main) below
-        }
-        self.listener = listener
-        listener.start(queue: .main)
         return try await withCheckedThrowingContinuation { ready.append($0) }
     }
 
@@ -85,24 +77,19 @@ public final class SimulatorSurfaceServer {
         end?()
     }
 
-    private func listenerChanged(_ state: NWListener.State) {
-        switch state {
-        case .ready:
-            guard let port = listener?.port?.rawValue else { return }
-            let waiting = ready
-            ready = []
+    private func listenerChanged(_ result: Result<UInt16, any Error>) {
+        let waiting = ready
+        ready = []
+        switch result {
+        case .success(let port):
             waiting.forEach { $0.resume(returning: port) }
-        case .failed(let error):
-            let waiting = ready
-            ready = []
+        case .failure(let error):
             waiting.forEach { $0.resume(throwing: Failure.listener("\(error)")) }
             stop()
-        default:
-            break
         }
     }
 
-    private func accept(_ connection: NWConnection) {
+    private func accept(_ connection: LoopbackConnection) {
         guard let live = service.live else { return connection.cancel() }
         let id = ObjectIdentifier(connection)
         let session = Session(connection: connection, secret: secret, udid: device.raw, device: device, live: live, service: service,
@@ -119,7 +106,7 @@ extension SimulatorSurfaceServer {
     /// One hostd connection: the hello, then frames out and input in.
     @MainActor
     final class Session {
-        private let connection: NWConnection
+        private let connection: LoopbackConnection
         private let secret: String
         private let udid: String
         private let device: PhoneDeviceID
@@ -149,7 +136,7 @@ extension SimulatorSurfaceServer {
         private var visible = true
         private var closed = false
 
-        init(connection: NWConnection, secret: String, udid: String, device: PhoneDeviceID, live: SimulatorKitHID,
+        init(connection: LoopbackConnection, secret: String, udid: String, device: PhoneDeviceID, live: SimulatorKitHID,
              service: PhoneService, stillShown: @escaping @MainActor () -> Bool, stale: @escaping @MainActor () -> Void,
              ended: @escaping @MainActor () -> Void) {
             (inputs, queue) = AsyncStream.makeStream(of: [String: SurfaceSourceValue].self,
@@ -166,13 +153,7 @@ extension SimulatorSurfaceServer {
         }
 
         func start() {
-            connection.stateUpdateHandler = { [weak self] state in
-                switch state {
-                case .failed, .cancelled: MainActor.assumeIsolated { self?.end() } // main-proof: connection.start(queue: .main)
-                default: break
-                }
-            }
-            connection.start(queue: .main)
+            connection.start(ended: { [weak self] in self?.end() })
             let inputs = inputs
             // task-owner: the session's one input applier; ends with the stream in end()
             applying = Task { [weak self] in
@@ -200,18 +181,16 @@ extension SimulatorSurfaceServer {
         static func now() -> UInt64 { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) / 1000 }
 
         private func receive() {
-            connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self] data, _, complete, error in
-                MainActor.assumeIsolated { // main-proof: connection.start(queue: .main)
-                    guard let self, !self.closed else { return }
-                    if let data { self.wire.append(data) }
-                    do {
-                        while let frame = try self.wire.next() { self.handle(frame) }
-                    } catch {
-                        return self.end()
-                    }
-                    if complete || error != nil { return self.end() }
-                    self.receive()
+            connection.receive(maximum: 64 * 1024) { [weak self] data, finished in
+                guard let self, !self.closed else { return }
+                if let data { self.wire.append(data) }
+                do {
+                    while let frame = try self.wire.next() { self.handle(frame) }
+                } catch {
+                    return self.end()
                 }
+                if finished { return self.end() }
+                self.receive()
             }
         }
 
@@ -219,16 +198,12 @@ extension SimulatorSurfaceServer {
         private func fail(_ message: String) {
             logger.error("surface source \(self.udid, privacy: .public): \(message, privacy: .public)")
             guard !closed else { return }
-            connection.send(content: SurfaceSourceWire.json(["t": "error", "message": message]),
-                            completion: .contentProcessed { [weak self] _ in
-                                // main-proof: connection.start(queue: .main), so Network completes on main.
-                                MainActor.assumeIsolated { self?.end() }
-                            })
+            connection.send(SurfaceSourceWire.json(["t": "error", "message": message]), sent: { [weak self] in self?.end() })
         }
 
         private func send(_ data: Data) {
             guard !closed else { return }
-            connection.send(content: data, completion: .contentProcessed { _ in })
+            connection.send(data)
         }
 
         private func handle(_ frame: SurfaceSourceWire.Frame) {
@@ -313,13 +288,8 @@ extension SimulatorSurfaceServer {
             let captured = latestAt
             let connection = connection
             encoder.encode(surface, forceKeyframe: idr) { result in
-                // NWConnection.send is safe from any thread; the order of sends is kept.
-                guard let result else {
-                    connection.send(content: SurfaceSourceWire.json(["t": "skip"]), completion: .contentProcessed { _ in })
-                    return
-                }
-                connection.send(content: SurfaceSourceWire.accessUnit(idr: result.keyframe, captureMicros: captured, annexB: result.data),
-                                completion: .contentProcessed { _ in })
+                guard let result else { return connection.sendFromAnyThread(SurfaceSourceWire.json(["t": "skip"])) }
+                connection.sendFromAnyThread(SurfaceSourceWire.accessUnit(idr: result.keyframe, captureMicros: captured, annexB: result.data))
             }
         }
 
