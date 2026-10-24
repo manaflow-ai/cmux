@@ -1139,6 +1139,22 @@ class FixtureTests(unittest.TestCase):
         self.assertEqual(row.get("skip_kind"), "gap")
         self.assertIn("setup test.refuse failed", row.get("skipped", ""))
 
+    def test_a_tab_click_or_drag_gets_a_second_tab_that_is_not_selected(self):
+        # The light base pane holds one tab: click.tab clicked the selected tab (no switch) and drag.tab_to_pane
+        # emptied and closed the pane; both rows read `wrong` (sweep 2026-10-24).
+        fake = FakeApp()
+        with contextlib.ExitStack() as stack:
+            for patch in self.patches(fake, 1):
+                stack.enter_context(patch)
+            sweep, base, measured = light_sweep(fake, kinds=("terminal",))
+            other = sweep.second_tab()
+            tabs = measured["tabs"]
+            self.assertEqual(len(tabs), 2)
+            self.assertEqual(other, next(t["id"] for t in tabs if not t["selected"]))
+            again = sweep.second_tab()
+        self.assertEqual(len(measured["tabs"]), 2, "a second call added another tab")
+        self.assertEqual(again, other)
+
     def test_swaps_start_from_a_pane_with_a_neighbor(self):
         for ident in ("swapPaneLeft", "swapPaneRight", "swapPaneUp", "swapPaneDown"):
             self.assertIn(ident, sweep_mod.DIRECTIONS)
