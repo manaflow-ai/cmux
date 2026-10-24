@@ -96,8 +96,13 @@ final class LineTransport: Sendable {
     /// reaped when the connection closes.
     private let child: BridgeChild?
 
-    init(path: String, bridge: DaemonBridge? = nil) throws(DaemonError) {
+    /// The `daemon.request` interval of each awaited request (tests pass a recorder).
+    let requestSignposts: any DaemonRequestSignposting
+
+    init(path: String, bridge: DaemonBridge? = nil,
+         requestSignposts: any DaemonRequestSignposting = OSDaemonRequestSignposts()) throws(DaemonError) {
         self.path = path
+        self.requestSignposts = requestSignposts
         let fd: Int32
         if let bridge {
             let opened = try bridge.open()
@@ -195,6 +200,8 @@ final class LineTransport: Sendable {
         #endif
         // A failed submit resolved the slot already.
         guard case .success(let id) = submitted else { return try await slot.value() }
+        let signpost = requestSignposts.begin(method: cmd, id: id)
+        defer { requestSignposts.end(signpost) }
         let timer = DemandTimer(owner: "LineTransport.deadline")
         defer { timer.cancel() }
         if let timeout { timer.schedule(after: timeout) { [weak self] in self?.expire(id: id, after: timeout) } }

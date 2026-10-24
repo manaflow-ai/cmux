@@ -19,6 +19,9 @@ public nonisolated enum SignpostCategory: String, Sendable, CaseIterable {
     case cef
     /// Launch phases.
     case launch
+    /// App-to-daemon requests: a request written to the daemon socket to its reply in the
+    /// requester (PL-trace joins it to the daemon's span by the request id).
+    case daemon
     /// Main-thread spans the stall bench measures (palette open, surface creation).
     case stall
 
