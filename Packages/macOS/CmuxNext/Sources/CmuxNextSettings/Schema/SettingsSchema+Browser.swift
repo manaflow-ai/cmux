@@ -10,6 +10,7 @@ nonisolated enum BrowserSettingsSchema {
         let toolbar = SettingsText.keyed("settings.group.toolbar", "Toolbar")
         let extensions = SettingsText.keyed("settings.group.extensions", "Extensions")
         let agentInput = SettingsText.keyed("settings.group.agentInput", "Agent Input")
+        let scrolling = SettingsText.keyed("settings.group.scrolling", "Scrolling")
         return [
             BrowserToolbarButtonsSetting.descriptor(group: toolbar),
             SettingDescriptor(
@@ -76,6 +77,12 @@ nonisolated enum BrowserSettingsSchema {
                 kind: .number(SettingNumber(AgentMouseSetting().maxMoveMsRange, step: 10, unit: .milliseconds)),
                 default: .number(AgentMouseSetting().fallback.maxMoveMs),
                 keywords: ["agent", "mouse", "pointer", "speed", "duration"]
+            ),
+            SettingDescriptor(
+                BrowserSmoothWheelSetting().configPath, section: .browser, group: scrolling,
+                title: SettingsText.keyed("settings.browser.smoothWheelScroll", "Smooth Mouse Wheel Scrolling"),
+                help: SettingsText.keyed("settings.browser.smoothWheelScroll.help", "A mouse wheel scrolls web pages with an animation, as Chrome does. The trackpad is not changed. Reduce Motion turns it off."),
+                kind: .toggle, default: .bool(BrowserSmoothWheelSetting().fallback), keywords: ["scroll", "smooth", "mouse", "wheel", "animation", "chrome"]
             ),
             SettingDescriptor(
                 BuiltInAdBlockerSetting().configPath, section: .browser, group: extensions,

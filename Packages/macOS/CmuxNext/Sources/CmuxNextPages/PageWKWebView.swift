@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import Foundation
 import WebKit
 
@@ -30,6 +31,14 @@ final class PageWKWebView: WKWebView {
       return false;
     })()
     """
+
+    /// Chrome-style smooth scrolling for a mouse wheel (``SmoothWheel``).
+    lazy var smoothWheel = SmoothWheel { [weak self] event in self?.deliverWheel(event) }
+    private func deliverWheel(_ event: NSEvent) { super.scrollWheel(with: event) }
+    override func scrollWheel(with event: NSEvent) {
+        if smoothWheel.handle(event, in: self) { return }
+        super.scrollWheel(with: event)
+    }
 
     override init(frame: CGRect, configuration: WKWebViewConfiguration) {
         super.init(frame: frame, configuration: configuration)

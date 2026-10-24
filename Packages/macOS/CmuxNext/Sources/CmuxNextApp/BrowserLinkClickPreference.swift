@@ -26,6 +26,11 @@ extension BrowserLinkClickMapping {
 enum BrowserLinkClickPreference {
     static func follow(_ settings: SettingsController, webKit: WebKitEngine, cef: CEFEngine) {
         cef.builtInAdBlocker = { [weak settings] in settings?.snapshot.browserBuiltInAdBlocker ?? true }  // browser.builtInAdBlocker, read at Chromium start
+        SmoothWheel.isEnabled = settings.snapshot.browserSmoothWheelScroll
+        Task { [weak settings] in
+            guard let settings else { return }
+            for await enabled in ObservationStream({ settings.snapshot.browserSmoothWheelScroll }) { SmoothWheel.isEnabled = enabled }
+        }
         // Chrome enterprise policies follow from here too: AppDelegate, which starts the followers, is at its line budget.
         BrowserManagedPolicyPreference.follow(settings, webKit: webKit, cef: cef)
         Task { [weak settings, weak webKit, weak cef] in

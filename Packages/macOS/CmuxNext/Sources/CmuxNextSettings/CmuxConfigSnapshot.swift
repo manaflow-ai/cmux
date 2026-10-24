@@ -49,6 +49,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var homeChiefBubbleStyle = HomeChiefBubbleStyleSetting.defaultStyle
     /// `chief.reactionsCanWake`, `chief.reactionClassifier.*`: whether a tapback can wake the Chief, and the classifier (Claude Haiku) that decides.
     public var chiefReactions = ChiefReactionSettings.fallback
+    /// `browser.smoothWheelScroll`; on when unset.
+    public var browserSmoothWheelScroll = BrowserSmoothWheelSetting().fallback
     /// `browser.builtInAdBlocker`; on when unset.
     public var browserBuiltInAdBlocker = BuiltInAdBlockerSetting().fallback
     /// `browser.showAgentCursor`; on when unset.
@@ -300,6 +302,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(BookmarksBarSetting.parse(root), \.browserShowBookmarksBar)
         snapshot.take(HomeChiefBubbleStyleSetting.parse(root), \.homeChiefBubbleStyle)
         snapshot.take(BuiltInAdBlockerSetting().parse(root), \.browserBuiltInAdBlocker)
+        snapshot.take(BrowserSmoothWheelSetting().parse(root), \.browserSmoothWheelScroll)
         snapshot.take(AgentCursorSetting().parse(root), \.browserShowAgentCursor)
         snapshot.take(AgentMouseSetting().parse(root), \.browserAgentMouse)
         snapshot.takeHome(root)

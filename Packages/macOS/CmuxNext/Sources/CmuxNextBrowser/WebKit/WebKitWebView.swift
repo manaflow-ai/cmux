@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import WebKit
 
 /// `WKWebView` with cmux context menu wording. App shortcuts reach the host
@@ -35,6 +36,14 @@ final class WebKitWebView: WKWebView {
     private var suppressesNextMenu = false
     /// The right-button press automation is delivering now.
     var agentMenuEvent: NSEvent?
+
+    /// Chrome-style smooth scrolling for a mouse wheel (``SmoothWheel``).
+    private lazy var smoothWheel = SmoothWheel { [weak self] event in self?.deliverWheel(event) }
+    private func deliverWheel(_ event: NSEvent) { super.scrollWheel(with: event) }
+    override func scrollWheel(with event: NSEvent) {
+        if smoothWheel.handle(event, in: self) { return }
+        super.scrollWheel(with: event)
+    }
 
     override func otherMouseDown(with event: NSEvent) {
         lastUserInput = .now

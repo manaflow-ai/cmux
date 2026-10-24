@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextPages
 public import Foundation
@@ -21,6 +22,14 @@ final class AgentPaneWKWebView: WKWebView {
     var onFilesDropped: (@MainActor ([URL]) -> Void)?
     /// A paste is about to reach the page (``AgentPaneDroppedPaths``).
     var onPaste: (@MainActor () -> Void)?
+
+    /// Chrome-style smooth scrolling for a mouse wheel (``SmoothWheel``).
+    private lazy var smoothWheel = SmoothWheel { [weak self] event in self?.deliverWheel(event) }
+    private func deliverWheel(_ event: NSEvent) { super.scrollWheel(with: event) }
+    override func scrollWheel(with event: NSEvent) {
+        if smoothWheel.handle(event, in: self) { return }
+        super.scrollWheel(with: event)
+    }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         if let onFilesDropped {

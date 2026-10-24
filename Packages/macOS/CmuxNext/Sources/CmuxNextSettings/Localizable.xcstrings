@@ -1,6 +1,28 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.browser.smoothWheelScroll": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Smooth Mouse Wheel Scrolling"
+          }
+        }
+      }
+    },
+    "settings.browser.smoothWheelScroll.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A mouse wheel scrolls web pages with an animation, as Chrome does. The trackpad is not changed. Reduce Motion turns it off."
+          }
+        }
+      }
+    },
     "settings.deviceHub.url": {
       "extractionState": "manual",
       "localizations": {
@@ -1702,6 +1724,17 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Chief 聊天"
+          }
+        }
+      }
+    },
+    "settings.group.scrolling": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scrolling"
           }
         }
       }
