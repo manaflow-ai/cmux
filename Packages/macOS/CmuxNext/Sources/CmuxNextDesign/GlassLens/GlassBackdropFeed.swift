@@ -65,11 +65,12 @@ public final class GlassBackdropFeed {
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // Reads Sendable state only (`FrameClient` is a main-actor class): the pending frame leaves its
+    // scheduler on the main thread, inline when the feed is released there, otherwise on the next
+    // turn of the main queue.
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            nextFrame?.deactivate()
-        }
+        guard let nextFrame else { return }
+        MainDelivery().run { nextFrame.deactivate() }
     }
 
     /// Pushes what changed now. `newDocument`: the page's document is new and has nothing yet.
