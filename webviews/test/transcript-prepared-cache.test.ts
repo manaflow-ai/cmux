@@ -1,10 +1,11 @@
 import { expect, test } from "bun:test";
+import type { PreparedText } from "@chenglou/pretext";
 import { layoutConversation, type PreparedRow } from "../src/agent-session/acpmux/model";
 
-class CountingPrepared extends Map<string, unknown> {
+class CountingPrepared extends Map<string, PreparedText | null> {
   misses = 0;
 
-  override get(key: string): unknown {
+  override get(key: string): PreparedText | null | undefined {
     const value = super.get(key);
     if (value === undefined) this.misses += 1;
     return value;
