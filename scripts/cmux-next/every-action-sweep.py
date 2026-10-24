@@ -601,6 +601,19 @@ class Sweep:
                 self.builder.focus_pane(self.base["pane"])
                 self.snapshot_base(base_ws)
                 return
+        # Reopen Closed (Cmd-Shift-T) brings closed panes and tabs back in one step each: much cheaper than a
+        # rebuild of the STRESS grid. The reopened ones have new ids, so the base is taken again by counts.
+        if base_ws in after["workspaces"] and not lost.get("workspaces") and not lost.get("windows"):
+            want = counts({"windows": [], "workspaces": {base_ws: before["workspaces"][base_ws]}, "focus": {}})
+            for _ in range(6):
+                now = counts({"windows": [], "workspaces": {base_ws: shape(topology())["workspaces"].get(base_ws, {})}, "focus": {}})
+                if now["panes"] >= want["panes"] and now["tabs"] >= want["tabs"]:
+                    note(f"every-action: {self.session}: Reopen Closed brought back {lost}")
+                    self.builder.focus_pane(next(iter(shape(topology())["workspaces"][base_ws])))
+                    self.snapshot_base(base_ws)
+                    return
+                act("reopenClosedBrowserPanel", origin="script")
+                time.sleep(0.3)  # test script: the reopened pane or tab lands before the next count
         note(f"every-action: {self.session}: rebuilding after {lost}")
         if self.session == "stress":
             workspace = self.builder.build_measured()

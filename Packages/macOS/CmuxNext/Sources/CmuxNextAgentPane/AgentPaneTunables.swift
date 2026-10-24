@@ -312,7 +312,7 @@ public nonisolated struct AgentPaneTunables {
                    thoughtFoldThreshold: thoughtFoldThreshold.value,
                    needsYou: needsYouStyle(installed: needsYouInstalled(), debug: needsYou.value),
                    needsYouPill: needsYouPill.value, turnPreviewCards: turnPreviewCards.value,
-                   streamWords: streamWords.value)
+                   streamWords: streamWords.value, iconFamily: IconFamily.tunable.value)
     }
 
     static func attributes(foldLongThoughts: Bool, topStripStyle: AgentPaneTopStripStyle,
@@ -321,7 +321,7 @@ public nonisolated struct AgentPaneTunables {
                            thoughtFoldThreshold: AgentPaneThoughtFoldThreshold = .every,
                            needsYou: AgentPaneNeedsYouStyle = .pinned, needsYouPill: Bool = true,
                            turnPreviewCards: Bool = false,
-                           streamWords: Bool = true) -> [String: String] {
+                           streamWords: Bool = true, iconFamily: IconFamily = .pack) -> [String: String] {
         var attributes: [String: String] = [:]
         if needsYou != .pinned { attributes["needs-you"] = needsYou.rawValue }
         if !needsYouPill { attributes["needs-you-pill"] = "off" }
@@ -332,6 +332,8 @@ public nonisolated struct AgentPaneTunables {
         if topStripStyle != .default { attributes["top-strip"] = topStripStyle.rawValue }
         if turnPreviewCards { attributes["turn-preview-cards"] = "on" }
         if !streamWords { attributes["stream-words"] = "off" }
+        // Debug Settings `icons.family`: the page lays the same overlay over its icon pack (iconPack.ts).
+        if let overlay = iconFamily.overlay { attributes["icon-family"] = overlay }
         return attributes
     }
 
