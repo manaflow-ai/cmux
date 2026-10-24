@@ -47,7 +47,10 @@ fn shipped_packs_parse_and_github_keeps_a607s_constants() {
         let p = toolpacks::parse(toml).unwrap_or_else(|e| panic!("{name}: {e}"));
         assert_eq!(p.name, name);
         assert!(p.managed, "{name} carries cmux-managed");
-        assert!(optchat_chief::skills::front_matter(skill).is_some(), "{name} SKILL.md");
+        assert!(
+            optchat_chief::skills::front_matter(skill).is_some(),
+            "{name} SKILL.md"
+        );
     }
     let gh = toolpacks::builtin("github").unwrap();
     assert_eq!(gh.tool.bin, "gh");
@@ -64,12 +67,21 @@ fn shipped_packs_parse_and_github_keeps_a607s_constants() {
     assert_eq!(gh.share.as_ref().unwrap().command[0], "gh");
     // The same files as before packs: an existing sign-in keeps working.
     let home = Path::new("/h");
-    assert_eq!(toolpacks::secret_file(home, "github"), Path::new("/h/optchat/secrets/github.json"));
-    assert_eq!(toolpacks::status_path(home, "github"), Path::new("/h/optchat/github.json"));
+    assert_eq!(
+        toolpacks::secret_file(home, "github"),
+        Path::new("/h/optchat/secrets/github.json")
+    );
+    assert_eq!(
+        toolpacks::status_path(home, "github"),
+        Path::new("/h/optchat/github.json")
+    );
     // The second service is data only.
     let vercel = toolpacks::builtin("vercel").unwrap();
     assert_eq!(vercel.inject.as_ref().unwrap().env, ["VERCEL_TOKEN"]);
-    assert!(vercel.share.is_none(), "sharing the person's login is opt-in");
+    assert!(
+        vercel.share.is_none(),
+        "sharing the person's login is opt-in"
+    );
     // Packs that only teach a CLI have no secret and no wrapper.
     assert!(toolpacks::builtin("cmux").unwrap().inject.is_none());
 }
@@ -84,17 +96,35 @@ fn own_beats_shared_beats_shipped_and_a_users_copy_is_kept() {
 
     let written = toolpacks::install_builtin(&shared).unwrap();
     assert_eq!(written, ["browser", "cmux", "github", "vercel"]);
-    assert!(toolpacks::install_builtin(&shared).unwrap().is_empty(), "no rewrite");
+    assert!(
+        toolpacks::install_builtin(&shared).unwrap().is_empty(),
+        "no rewrite"
+    );
     // A user copy (no marker) survives an update; a stale managed one is rewritten.
     let mine = "name = \"vercel\"\ntitle = \"My Vercel\"\n[tool]\nbin = \"vercel\"\n";
     put(&shared, "vercel", mine);
-    put(&shared, "cmux", "# cmux-managed: true\nname = \"cmux\"\ntitle = \"old\"\n[tool]\nbin = \"cmux\"\n");
+    put(
+        &shared,
+        "cmux",
+        "# cmux-managed: true\nname = \"cmux\"\ntitle = \"old\"\n[tool]\nbin = \"cmux\"\n",
+    );
     assert_eq!(toolpacks::install_builtin(&shared).unwrap(), ["cmux"]);
-    assert_eq!(std::fs::read_to_string(shared.join("vercel/pack.toml")).unwrap(), mine);
+    assert_eq!(
+        std::fs::read_to_string(shared.join("vercel/pack.toml")).unwrap(),
+        mine
+    );
 
     put(&shared, "acme", ACME);
-    put(&toolpacks::chief_dir(&home), "acme", &ACME.replace("title = \"Acme\"", "title = \"Acme (mine)\""));
-    put(&shared, "github", "# cmux-managed: true\nname = \"github\"\nenabled = false\n[tool]\nbin = \"gh\"\n");
+    put(
+        &toolpacks::chief_dir(&home),
+        "acme",
+        &ACME.replace("title = \"Acme\"", "title = \"Acme (mine)\""),
+    );
+    put(
+        &shared,
+        "github",
+        "# cmux-managed: true\nname = \"github\"\nenabled = false\n[tool]\nbin = \"gh\"\n",
+    );
     let packs = toolpacks::load(&home);
     let title = |n: &str| packs.iter().find(|p| p.name == n).map(|p| p.title.clone());
     assert_eq!(title("vercel").as_deref(), Some("My Vercel"));
@@ -132,9 +162,16 @@ fn tokens_are_checked_per_pack_and_kept_private_per_pack() {
     let t = "acme_0123456789abcdefABCDEF0123456789";
     s.set(t).unwrap();
     assert_eq!(s.get().as_deref(), Some(t));
-    assert_eq!(std::fs::metadata(&s.path).unwrap().permissions().mode() & 0o777, 0o600);
     assert_eq!(
-        std::fs::metadata(s.path.parent().unwrap()).unwrap().permissions().mode() & 0o777,
+        std::fs::metadata(&s.path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    assert_eq!(
+        std::fs::metadata(s.path.parent().unwrap())
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
         0o700
     );
     assert!(s.set("not a token").is_err());
@@ -180,11 +217,17 @@ fn a_data_only_pack_reaches_its_cli_and_git_on_every_turn() {
     assert!(gh.contains("GH_TOKEN=$t"));
     assert!(gh.contains("exec gh \"$@\""));
     let helper = std::fs::read_to_string(paths.bin.join("git-credential-chief-github")).unwrap();
-    assert!(helper.contains("\"$self_dir/gh\" auth git-credential \"$@\""), "{helper}");
+    assert!(
+        helper.contains("\"$self_dir/gh\" auth git-credential \"$@\""),
+        "{helper}"
+    );
     // Vercel and Acme with no Rust of their own.
     assert!(paths.bin.join("vercel").exists());
     assert!(paths.bin.join("git-credential-chief-acme").exists());
-    assert!(!paths.bin.join("cmux").exists(), "a pack with no secret leaves its CLI alone");
+    assert!(
+        !paths.bin.join("cmux").exists(),
+        "a pack with no secret leaves its CLI alone"
+    );
 
     let settings: serde_json::Value = serde_json::from_slice(
         &std::fs::read(paths.session.join(".claude").join("settings.json")).unwrap(),
@@ -195,8 +238,14 @@ fn a_data_only_pack_reaches_its_cli_and_git_on_every_turn() {
     let keys: Vec<&str> = (0..4)
         .map(|i| env[format!("GIT_CONFIG_KEY_{i}")].as_str().unwrap())
         .collect();
-    assert!(keys.contains(&"credential.https://github.com.helper"), "{keys:?}");
-    assert!(keys.contains(&"credential.https://git.acme.dev.helper"), "{keys:?}");
+    assert!(
+        keys.contains(&"credential.https://github.com.helper"),
+        "{keys:?}"
+    );
+    assert!(
+        keys.contains(&"credential.https://git.acme.dev.helper"),
+        "{keys:?}"
+    );
 
     // The wrapper asks the Chief for the token on each call and runs the real CLI with it.
     std::fs::write(
@@ -213,7 +262,11 @@ fn a_data_only_pack_reaches_its_cli_and_git_on_every_turn() {
     .unwrap();
     std::fs::set_permissions(real.join("acme"), std::fs::Permissions::from_mode(0o755)).unwrap();
     let path = format!("{}:{}:/usr/bin:/bin", paths.bin.display(), real.display());
-    let out = output(Command::new(paths.bin.join("acme")).arg("whoami").env("PATH", &path));
+    let out = output(
+        Command::new(paths.bin.join("acme"))
+            .arg("whoami")
+            .env("PATH", &path),
+    );
     assert_eq!(
         String::from_utf8_lossy(&out.stdout).trim(),
         "argv=whoami token=acme_0123456789abcdefABCDEF key=acme_0123456789abcdefABCDEF"
@@ -226,7 +279,11 @@ fn a_data_only_pack_reaches_its_cli_and_git_on_every_turn() {
         String::from_utf8_lossy(&out.stdout),
         "username=x-access-token\npassword=acme_0123456789abcdefABCDEF\n"
     );
-    let out = output(Command::new(paths.bin.join("git-credential-chief-acme")).arg("store").env("PATH", &path));
+    let out = output(
+        Command::new(paths.bin.join("git-credential-chief-acme"))
+            .arg("store")
+            .env("PATH", &path),
+    );
     assert!(out.stdout.is_empty());
 }
 

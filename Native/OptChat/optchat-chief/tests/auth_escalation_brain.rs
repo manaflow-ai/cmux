@@ -129,8 +129,12 @@ fn the_shipped_skill_installs_once_and_a_user_copy_is_kept() {
             "chief-auth-escalation".to_owned(),
             "cmux-adoption".to_owned(),
             "cmux-setup".to_owned(),
+            // The shipped tool packs' skills (chief-toolpacks-DESIGN.md).
+            "browser".to_owned(),
+            "cmux-cli".to_owned(),
             "github-signin".to_owned(),
-            "paid-plans".to_owned()
+            "paid-plans".to_owned(),
+            "vercel".to_owned()
         ]
     );
     // Every Chief signs in to GitHub by default (chief-github-DESIGN.md): the device code, a fresh one when it
