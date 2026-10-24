@@ -76,6 +76,13 @@ if out="$(run)"; then fail "a Swift-only move passed: $out"; fi
 write_json "sidebar-layout-v1 workspace-groups-v1" "remote-terminal-tabs-v1"
 out="$(run)" || fail "the regenerated export failed: $out"
 
+# The base autofix uses the same source parser and renderer to repair a stale
+# export without a Swift build.
+write_json "workspace-groups-v1" "remote-terminal-tabs-v1"
+out="$(python3 "$check" --repo "$tmp" --write 2>&1)" || fail "write mode did not repair the export: $out"
+[[ "$out" == *"wrote plans/cmux-next/daemon-capabilities.json"* ]] || fail "write mode lacks its receipt: $out"
+out="$(run)" || fail "the write-mode export failed freshness: $out"
+
 # A named constant in no list fails (DaemonCapabilityExportTests checked it with Mirror while the
 # catalog had an instance).
 write_swift "workspaceGroups,

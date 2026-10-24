@@ -22,4 +22,14 @@ extension PageWebView {
         }
         return JSONValue(foundation: host.show(model)) ?? .object(["shown": .bool(false)])
     }
+
+    /// A right-click menu of the page (`cmux.app.contextMenu.show`) as a standard macOS menu at the
+    /// pointer; answers the chosen row's id once it closes.
+    func contextMenu(_ params: [String: Any]) async -> JSONValue {
+        guard let menu = WebContextMenu(params) else { return .object(["picked": .null]) }
+        let picked: String? = await withCheckedContinuation { continuation in
+            menu.present(in: focusView, zoom: CGFloat(pageZoom)) { continuation.resume(returning: $0) }
+        }
+        return .object(["picked": picked.map(JSONValue.string) ?? .null])
+    }
 }

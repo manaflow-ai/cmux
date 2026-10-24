@@ -87,7 +87,8 @@ function navigationRows(
   context: { omnibar: OmnibarContext; home?: string; ask?: ScreenAsk },
 ): ScreenRow[] {
   const intent = classifyNewTabInput(text, context.home ? { home: context.home } : {});
-  if (intent.kind === "none" || intent.kind === "terminal") return [];
+  // A pairing link offers nothing: no search, no Ask, no address, no create row (they carry the text).
+  if (intent.kind === "none" || intent.kind === "terminal" || intent.kind === "refused") return [];
   const query = text.trim();
   const search: ScreenRow = { type: "search", text: query };
   const ask: ScreenRow[] = context.ask ? [{ type: "ask", text: query, ...context.ask }] : [];
@@ -127,6 +128,12 @@ export function inlineCompletion(text: string, rows: readonly ScreenRow[]): stri
 /// Whether Return on `text` with no row is an address (it never becomes a prompt).
 export function isAddress(text: string, home?: string): boolean {
   return classifyNewTabInput(text, home ? { home } : {}).kind === "url";
+}
+
+/// Whether `text` is refused outright (an old pairing link): it never becomes a prompt, a search
+/// or an address, and Return hands it to the host only to show the refusal.
+export function pairingLinkRefused(text: string): boolean {
+  return classifyNewTabInput(text).kind === "refused";
 }
 
 /// The selection after Down/Ctrl-N (`step` 1) or Up/Ctrl-P (`step` -1), wrapping; from no

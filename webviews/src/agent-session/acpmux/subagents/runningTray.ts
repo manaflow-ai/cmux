@@ -51,7 +51,7 @@ export type TrayItem =
 /// (Leo 2026-10-21 on "2 subagents running · 2 commands · 32 sessions": "THIS IS LYING"). The
 /// running subagents, each nested one right under the one that spawned it, then the background
 /// commands still running, then the started chats whose turn runs or that wait on the person.
-/// What ended sits behind one folded line (``finishedTrayItems``).
+/// What ended is shown as bounded status cards after the live rows (``finishedTrayItems``).
 ///
 /// Between turns only work that outlives its turn shows. A foreground subagent a cancel or a
 /// reconnect left "running" pins nothing. A command shows whenever acpmux's process registry says
@@ -78,8 +78,8 @@ export function trayItems(
 
 const liveSession = (session: StartedSession) => session.state === "running" || session.state === "waiting";
 
-/// The chat's subagents and started chats that ended, for the tray's one folded "N subagents done"
-/// line: the subagents in the order they started (nested ones under their parent), then the chats.
+/// The chat's subagents and started chats that ended, for the tray's bounded status cards: the
+/// subagents in the order they started (nested ones under their parent), then the chats.
 export function finishedTrayItems(agents: readonly Subagent[], sessions: readonly StartedSession[]): TrayItem[] {
   const ended = agents
     .filter((agent) => agent.state !== "running")

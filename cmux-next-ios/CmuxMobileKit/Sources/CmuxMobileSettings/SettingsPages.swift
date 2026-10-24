@@ -301,6 +301,8 @@ struct ComposerPage: View {
 /// TestFlight builds (push) also get notifications from the Macs.
 struct NotificationsPage: View {
     let settings: SettingsStore
+    /// The account's Macs, for per-Mac on and off.
+    var macs: [MacDevice] = []
     @State private var permission: NotificationPermission?
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
@@ -351,19 +353,50 @@ struct NotificationsPage: View {
         }
     }
 
+    @ViewBuilder
     private func kindsSection(settings: Bindable<SettingsStore>) -> some View {
         let off = permission == .off
-        return Section {
-            Toggle(isOn: settings.notifyQuestions) { SettingsLabel("Questions and permissions", symbol: "questionmark.bubble") }
-            Toggle(isOn: settings.notifyFinished) { SettingsLabel("Finished tasks", symbol: "checkmark.circle") }
-            Toggle(isOn: settings.notifyErrors) { SettingsLabel("Errors", symbol: "exclamationmark.triangle") }
-        } header: {
-            Text("Notify me about")
-        } footer: {
-            if off {
-                Text("Turn on notifications in iOS Settings to choose what you get.")
-            } else {
-                Text("Your Macs send these through the cmux service. A notification names the agent and workspace only, never what the agent wrote.")
+        Group {
+            Section {
+                Picker(selection: settings.notifyLevel) {
+                    ForEach(NotificationLevel.allCases) { level in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(level.title)
+                            Text(level.detail).font(.footnote).foregroundStyle(theme.colors.label2)
+                        }
+                        .tag(level)
+                        .accessibilityIdentifier("settings.notifications.level.\(level.rawValue)")
+                    }
+                } label: {
+                    EmptyView()
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+            } header: {
+                Text("Notify me")
+            } footer: {
+                if off { Text("Turn on notifications in iOS Settings to choose what you get.") }
+            }
+            if !macs.isEmpty {
+                Section {
+                    ForEach(macs) { mac in
+                        Toggle(isOn: Binding(get: { self.settings.notifies(macID: mac.id) },
+                                             set: { self.settings.setNotifications(macID: mac.id, on: $0) })) {
+                            SettingsLabel("\(mac.name)", symbol: "desktopcomputer")
+                        }
+                        .accessibilityIdentifier("settings.notifications.mac.\(mac.id)")
+                    }
+                } header: {
+                    Text("Macs")
+                }
+            }
+            Section {
+                Toggle(isOn: settings.notifyPreviews) { SettingsLabel("Show previews", symbol: "text.bubble") }
+                    .accessibilityIdentifier("settings.notifications.previews")
+            } footer: {
+                Text(self.settings.notifyPreviews
+                    ? "Notifications show the question, the command or the last lines, so you can answer from the notification."
+                    : "The lock screen shows only who needs you and on which Mac.")
             }
         }
         .disabled(off)

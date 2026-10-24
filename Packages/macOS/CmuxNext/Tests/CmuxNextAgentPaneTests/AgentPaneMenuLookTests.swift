@@ -4,10 +4,9 @@ import CmuxNextDesign
 import CmuxNextPages
 import Testing
 
-/// The agent chat's message menu looks like every other cmux NEXT menu: each row is cmux-drawn
-/// (`ThemedMenuRowView`, the theme's glass highlight instead of the system blue) with an icon, and
-/// a chosen row still runs. The pane's own rows run once the menu's tracking has ended; WebKit's
-/// own rows (Copy, Look Up...) run as the menu closes, while WebKit still holds the menu.
+/// The agent chat's message menu is a standard macOS menu like every other right-click menu
+/// (Lawrence 2026-10-23): each row is a plain AppKit row with an icon, and a chosen row still runs.
+/// WebKit's own rows (Copy, Look Up...) run as the menu closes, while WebKit still holds the menu.
 @Suite(.serialized)
 @MainActor
 struct AgentPaneMenuLookTests {
@@ -41,7 +40,7 @@ struct AgentPaneMenuLookTests {
                                               links: [docs, docs.appending(path: "blog")])
 
     @Test(arguments: ["prompt", "reply", "links", "selection"])
-    func everyRowIsCmuxDrawnWithAnIcon(_ kind: String) throws {
+    func everyRowIsNativeWithAnIcon(_ kind: String) throws {
         let menu = switch kind {
         case "prompt": Self.menu(target: Self.prompt)
         case "reply": Self.menu(target: Self.reply)
@@ -51,15 +50,15 @@ struct AgentPaneMenuLookTests {
         let rows = Self.rows(of: menu)
         #expect(rows.count > 3, "\(kind): \(rows.map(\.title))")
         for item in rows {
-            #expect(item.view is ThemedMenuRowView, "\(kind): \(item.title) is drawn by AppKit, in the system blue")
+            #expect(item.view == nil, "\(kind): \(item.title) is custom-drawn, not a standard macOS row")
             #expect(item.image != nil, "\(kind): \(item.title) has no icon")
         }
-        // WebKit's Copy is kept, drawn and given the catalog's Copy symbol; its Reload is not kept.
+        // WebKit's Copy is kept and given the catalog's Copy symbol; its Reload is not kept.
         #expect(menu.items.contains { $0.identifier?.rawValue == "WKMenuItemIdentifierCopy" })
         #expect(!menu.items.contains { $0.identifier?.rawValue == "WKMenuItemIdentifierReload" })
     }
 
-    /// Clicking Copy Message on a reply copies its Markdown once the menu's tracking has ended.
+    /// Choosing Copy Message on a reply copies its Markdown.
     @Test func aChosenPaneRowStillRuns() throws {
         var copied: [String] = []
         let menu = Self.menu(target: Self.reply, copied: { copied.append($0) })
@@ -98,15 +97,10 @@ struct AgentPaneMenuLookTests {
         menu.items.filter { !$0.isSeparatorItem }.flatMap { [$0] + ($0.submenu.map(rows(of:)) ?? []) }
     }
 
-    /// A press and release on the item's row.
+    /// Chooses the item, as AppKit does when its row is clicked.
     private static func click(_ item: NSMenuItem) throws {
-        let row = try #require(item.view as? ThemedMenuRowView)
-        let point = NSPoint(x: 30, y: row.bounds.midY)
-        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-            let event = try #require(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: 0, windowNumber: 0,
-                                                        context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
-            type == .leftMouseDown ? row.mouseDown(with: event) : row.mouseUp(with: event)
-        }
+        let menu = try #require(item.menu)
+        menu.performActionForItem(at: menu.index(of: item))
     }
 
     /// Runs the main run loop in its default mode until `done` or a short deadline.

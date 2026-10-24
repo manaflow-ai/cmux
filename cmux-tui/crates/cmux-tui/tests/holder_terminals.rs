@@ -545,6 +545,44 @@ exec sleep 3600
 const FLOOD_LINES: u64 = 10_000;
 const FLOOD_LETTERS: &str = "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwx";
 
+/// Holder item 5: clear-history on a holder terminal is not undone by a
+/// daemon restart. The restart restores from the holder (its prologue and
+/// ring), which still held the cleared history; the daemon now hands the
+/// holder the cleared screen as its prologue.
+#[test]
+fn a_restart_after_clear_history_does_not_bring_the_history_back() {
+    let mut daemon = Daemon::start();
+    let script = r#"stty -echo; i=0; while [ $i -lt 200 ]; do echo "old-line-$i"; i=$((i + 1)); done; exec cat"#;
+    let created = request(
+        &daemon.socket,
+        json!({"cmd": "run", "argv": ["/bin/sh", "-c", script], "new_workspace": true,
+            "name": "clear-history", "cols": 80, "rows": 24}),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+    daemon.track(surface);
+    screen_contains(&daemon.socket, surface, "old-line-199");
+    assert!(history(&daemon.socket, surface).iter().any(|row| row_text(row) == "old-line-0"));
+    request(&daemon.socket, json!({"cmd": "clear-history", "surface": surface}));
+    send(&daemon.socket, surface, "after-clear");
+    screen_contains(&daemon.socket, surface, "after-clear");
+    let old = |socket: &Path, surface: u64| {
+        let screen = request(socket, json!({"cmd": "read-screen", "surface": surface}))["text"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+        screen.contains("old-line-")
+            || history(socket, surface).iter().any(|row| row_text(row).contains("old-line-"))
+    };
+    assert!(!old(&daemon.socket, surface), "clear-history kept the old lines");
+
+    daemon.sigkill();
+    daemon.restart();
+    let restored = running_surface(&daemon.socket, &terminal_id);
+    screen_contains(&daemon.socket, restored, "after-clear");
+    assert!(!old(&daemon.socket, restored), "the restart brought the cleared history back");
+}
+
 /// A new terminal's shell is the current holder's child: its parent is the
 /// holder (and the test ends both at drop).
 fn probe_holder(daemon: &mut Daemon, name: &str) -> i32 {

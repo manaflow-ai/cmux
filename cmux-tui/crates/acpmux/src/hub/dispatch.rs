@@ -100,8 +100,19 @@ impl Briefs {
         let mut rows = self.rows.lock().unwrap_or_else(|e| e.into_inner());
         let row = rows.get_mut(id)?;
         patch(row);
+        let updated = row.clone();
         self.save(&rows);
-        Some(row.clone())
+        Some(updated)
+    }
+
+    pub(crate) fn release(&self, id: &str) {
+        let mut rows = self.rows.lock().unwrap_or_else(|e| e.into_inner());
+        if rows.get(id).and_then(|row| row.get("status")).and_then(Value::as_str)
+            == Some("starting")
+        {
+            rows.remove(id);
+            self.save(&rows);
+        }
     }
 
     pub(crate) fn list(&self, status: Option<&str>, limit: usize) -> Vec<Value> {
