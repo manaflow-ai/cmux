@@ -88,6 +88,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// The static status look (`WebTheme.statusIndicators`): the setting and Reduce Motion.
     private var statusLookObservation: Task<Void, Never>?
     private var reduceMotionObservers: [MainActorObservation] = []
+    /// The window it is leaving while it moves (``viewWillMove(toWindow:)``), for its occlusion family.
+    private weak var windowBeforeMove: NSWindow?
     public var additionalZoom: Double = 1 {
         didSet { if additionalZoom != oldValue { applyUIScale() } }
     }
@@ -311,8 +313,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         observeUIScale()
         PageRegistry.add(self)
         let scripts = scripts
-        router.send = { envelope in scripts.send(envelope) }
-        router.sendWithDrop = { envelope, onDrop in scripts.send(envelope, onDrop: onDrop) }
+        router.send = { deliveries in scripts.send(deliveries) }
+        // Out of a window until it is shown (PageWebView+Visibility.swift).
+        updatePageVisibility()
         router.didClose = { [weak self] in
             scripts.reset()
             self?.popupHost?.hide()
@@ -535,11 +538,18 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         applyTheme()
     }
 
+    public override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        windowBeforeMove = window
+    }
+
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         // Its tab or window closed: the page's popup ends with it.
         if window == nil { popupHost?.dismiss() }
         chromiumSession?.page.setVisible(window != nil && !isHiddenOrHasHiddenAncestor)
+        followWindowVisibility(leaving: windowBeforeMove)
+        windowBeforeMove = nil
         applyTheme()
         windowDidChangeChrome()
         if shouldFocusOnAttach, window != nil {
@@ -553,11 +563,13 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         super.viewDidHide()
         popupHost?.dismiss()
         chromiumSession?.page.setVisible(false)
+        updatePageVisibility()
     }
 
     public override func viewDidUnhide() {
         super.viewDidUnhide()
         chromiumSession?.page.setVisible(window != nil)
+        updatePageVisibility()
     }
 
     public override func viewDidChangeEffectiveAppearance() {
@@ -568,6 +580,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
         themeFollower.rebind()
+        // Into or out of the pool's parking, or under a hidden or parked ancestor in the same window.
+        updatePageVisibility()
     }
 
     func applyTheme(force: Bool = false) {
