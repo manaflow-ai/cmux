@@ -328,6 +328,7 @@ import { setTabRow, tabRowStyle, useTabRow, useTabRowTools } from "./header/tabR
 import { PullRequestDock } from "./summary/PullRequestDock";
 import { SubagentPaneFooter } from "./subagents/SubagentPaneFooter";
 import { RecapCard, useRecapCard } from "./RecapCard";
+import { HarnessStatusCard } from "./HarnessStatusCard";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import { chatColumnOf, configureChatWidth, useChatWidth } from "./chatWidth";
 import { registerChatDisplayHost, useChatDisplay } from "./chatDisplay";
@@ -3927,6 +3928,7 @@ function AcpmuxPane() {
   // Why the last `/btw` did not start its side session, for the chat it was asked in; "" when
   // acpmux gave no reason.
   const [btwFailure, setBtwFailure] = useState<{ sessionId: string; reason: string }>();
+  const [statusCardOpen, setStatusCardOpen] = useState(false);
   // The host answered the handshake: the page shows what it is (a new chat's hero, a session).
   const [handshaken, setHandshaken] = useState(false);
   const handshakenRef = useRef(false);
@@ -4942,6 +4944,7 @@ function AcpmuxPane() {
   );
   // Tool call ids belong to one session.
   useEffect(() => setHunkDecisions((current) => (current.size ? new Map() : current)), [snapshot.sessionId]);
+  useEffect(() => setStatusCardOpen(false), [snapshot.sessionId]);
   // Retry with another model (cx-ncc.62): the models the composer's picker lists for the chat's
   // harness (user-hidden ones left out, aliases folded, the session's own choices added) that it can
   // run now, kept the same array while they stay the same.
@@ -5864,6 +5867,7 @@ function AcpmuxPane() {
   }, [showsWhatItIs, drewKeptTail]);
   const composerSnapshot = useMemo(() => {
     const enabledCmuxActions = new Set<CmuxCommand["action"]>(["import"]);
+    if (snapshot.summary) enabledCmuxActions.add("status");
     if (forkable && forkSeq !== undefined) enabledCmuxActions.add("fork");
     if (continueAvailable) enabledCmuxActions.add("continue");
     // A side session asks nothing aside: its composer answers in it.
@@ -8144,6 +8148,13 @@ function AcpmuxPane() {
             />
           </SubagentClockContext.Provider>
         )}
+        {statusCardOpen && (
+          <HarnessStatusCard
+            summary={snapshot.summary}
+            rows={snapshot.rows}
+            onDismiss={() => setStatusCardOpen(false)}
+          />
+        )}
         {/* An attached image opens in the chat's image viewer, as a transcript image does. */}
         <ImageViewerContext.Provider value={openImage}>
           <Composer
@@ -8159,6 +8170,10 @@ function AcpmuxPane() {
             onUnsentDraft={quick ? undefined : postUnsentDraft}
             keptAttachments={quick ? undefined : keptAttachments}
             onCmuxCommand={(command, args) => {
+              if (command.action === "status") {
+                setStatusCardOpen(true);
+                return true;
+              }
               if (command.action === "btw") {
                 const question = args?.trim();
                 const sessionId = snapshot.sessionId;

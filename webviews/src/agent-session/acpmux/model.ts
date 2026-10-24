@@ -555,6 +555,13 @@ export type AcpmuxSnapshot = {
     /// The harness family acpmux files the session under (`codex`, `opencode`, ...), when it says.
     family?: string;
     model?: string;
+    /// Harness-reported metadata used by `/status`; values must be labels, never credentials.
+    agentInfo?: Record<string, unknown>;
+    authSource?: string;
+    baseUrl?: string;
+    route?: string;
+    settingsSources?: unknown;
+    usageLimits?: string;
     /// The model the agent last reported, when the pane draws a pick (`model`) it has not
     /// confirmed yet (harnessSwitch.ts). Unset otherwise: `model` is what it reported.
     confirmedModel?: string;
