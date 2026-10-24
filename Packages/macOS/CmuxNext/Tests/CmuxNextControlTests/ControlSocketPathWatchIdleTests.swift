@@ -172,6 +172,22 @@ import Testing
         #expect(try await eventually { watch.checks.load(ordering: .relaxed) > settled }, "the watch is not on /tmp")
         queue.sync {}
         #expect(restores.value.load(ordering: .relaxed) == 0, "a /tmp event ran the restore on a live socket")
+        // Nor does a /tmp event connect to that socket again: its queue holds only this test's
+        // probe above and the watch start's.
+        #expect(Self.pendingConnections(descriptor) == 2, "a /tmp event probed the held socket again")
+    }
+
+    /// Takes every connection waiting in `listener`'s accept queue (closed ones too) and returns
+    /// how many there were.
+    static func pendingConnections(_ listener: Int32) -> Int {
+        _ = fcntl(listener, F_SETFL, fcntl(listener, F_GETFL) | O_NONBLOCK)
+        var count = 0
+        while true {  // ends at EAGAIN: the queue is bounded by the listen backlog
+            let connection = accept(listener, nil, nil)
+            guard connection >= 0 else { return count }
+            close(connection)
+            count += 1
+        }
     }
 
     /// A classic cmux of the same channel or tag holds the /tmp compatibility link's path with its
