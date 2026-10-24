@@ -990,7 +990,12 @@ export function Composer({
         event instanceof CustomEvent && event.detail && typeof event.detail === "object" ? event.detail : undefined;
       const requestedSessionId =
         detail && "sessionId" in detail && typeof detail.sessionId === "string" ? detail.sessionId : undefined;
-      stopTurnFromAction({ sessionId: actionSessionId, isWorking: actionWorking }, requestedSessionId, actionSessionId, stopTurn);
+      stopTurnFromAction(
+        { sessionId: actionSessionId, isWorking: actionWorking },
+        requestedSessionId,
+        actionSessionId,
+        stopTurn,
+      );
     };
     window.addEventListener("cmux-acpmux-stopTurn", stopFromAction);
     return () => window.removeEventListener("cmux-acpmux-stopTurn", stopFromAction);
