@@ -1,6 +1,137 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.diagnostics.hangReports.helpConsent": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ترسل إصدارات Nightly تقريرًا يوميًا عن حالات التجمّد والإطارات البطيئة: مكدسات الاستدعاء لشيفرة cmux وmacOS، والمدد، وإصداري التطبيق وmacOS، وشريحة جهاز Mac وحجم ذاكرته، وأعدادًا تقريبية للنوافذ وعلامات التبويب المفتوحة. لا يتضمن أبدًا أسماء ملفات أو عناوين ويب أو نص الطرفية أو أسماء أو أي شيء تكتبه. هذا الخيار منفصل عن بيانات الاستخدام المجهولة: إذا أوقفتها فلن يسألك cmux أبدًا، لكن هذا المفتاح يظل يعمل. لا يرسل أي جهاز Mac إلا بعد أن تشغّل هذا المفتاح عليه؛ ولا يشغّله ملف إعدادات منسوخ من جهاز Mac آخر. يعرض «عرض تقرير التجمّد» ما يُرسل بالضبط."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightly verzije šalju dnevni izvještaj o zastojima i sporim kadrovima: stekove poziva koda cmuxa i macOS-a, trajanja, verzije aplikacije i macOS-a, čip i veličinu memorije vašeg Maca te zaokružen broj otvorenih prozora i kartica. Nikada ne sadrži imena datoteka, web adrese, tekst terminala, imena ni bilo šta što kucate. Ovaj izbor je odvojen od anonimnih podataka o korištenju: ako su oni isključeni, cmux nikada ne pita, ali ovaj prekidač i dalje radi. Svaki Mac šalje tek nakon što ga uključite na tom Macu; datoteka postavki kopirana s drugog Maca ga ne uključuje. Prikaži izvještaj o zastoju pokazuje tačno šta se šalje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightly-builds sender en daglig rapport om hængninger og langsomme billeder: kaldestakke fra cmux- og macOS-kode, varigheder, app- og macOS-version, din Macs chip og hukommelsesstørrelse samt afrundede antal åbne vinduer og faner. Den indeholder aldrig filnavne, webadresser, terminaltekst, navne eller noget, du skriver. Dette valg er adskilt fra anonyme brugsdata: er de slået fra, spørger cmux aldrig, men denne kontakt virker stadig. Hver Mac sender først, når du slår den til på den Mac; en indstillingsfil kopieret fra en anden Mac slår den ikke til. Vis hængningsrapport viser præcis, hvad der sendes."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightly-Builds senden täglich einen Bericht über Hänger und langsame Frames: Aufrufstapel aus cmux- und macOS-Code, Dauern, App- und macOS-Version, Chip und Arbeitsspeichergröße deines Mac sowie gerundete Anzahlen offener Fenster und Tabs. Er enthält nie Dateinamen, Webadressen, Terminaltext, Namen oder etwas, das du tippst. Diese Wahl ist unabhängig von anonymen Nutzungsdaten: Sind sie aus, fragt cmux nie, aber dieser Schalter funktioniert trotzdem. Jeder Mac sendet erst, nachdem du den Schalter auf diesem Mac eingeschaltet hast; eine von einem anderen Mac kopierte Einstellungsdatei schaltet ihn nicht ein. „Hänger-Bericht anzeigen“ zeigt genau, was gesendet wird."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightly builds send a daily report of hangs and slow frames: call stacks of cmux and macOS code, durations, your app and macOS versions, your Mac's chip and memory size, and rounded counts of open windows and tabs. It never includes file names, web addresses, terminal text, names or anything you type. This choice is separate from anonymous usage data: with that off, cmux never asks, but this switch still works. Each Mac sends only after you turn this on there; a settings file copied from another Mac does not turn it on. View Hang Report shows exactly what is sent."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las versiones Nightly envían un informe diario de bloqueos y fotogramas lentos: pilas de llamadas del código de cmux y macOS, duraciones, las versiones de la app y de macOS, el chip y la memoria de tu Mac, y recuentos redondeados de ventanas y pestañas abiertas. Nunca incluye nombres de archivo, direcciones web, texto del terminal, nombres ni nada de lo que escribes. Esta opción es independiente de los datos de uso anónimos: si los desactivaste, cmux nunca pregunta, pero este interruptor sigue funcionando. Cada Mac envía solo después de que lo actives en ese Mac; un archivo de ajustes copiado de otro Mac no lo activa. Ver informe de bloqueos muestra exactamente lo que se envía."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les versions Nightly envoient chaque jour un rapport sur les blocages et les images lentes : piles d’appels du code de cmux et de macOS, durées, versions de l’app et de macOS, puce et taille de mémoire de votre Mac, et nombres arrondis de fenêtres et d’onglets ouverts. Il ne contient jamais de noms de fichiers, d’adresses web, de texte du terminal, de noms ni rien de ce que vous tapez. Ce choix est distinct des données d’utilisation anonymes : si elles sont désactivées, cmux ne demande jamais, mais cet interrupteur fonctionne quand même. Chaque Mac n’envoie qu’après que vous l’avez activé sur ce Mac ; un fichier de réglages copié depuis un autre Mac ne l’active pas. Afficher le rapport de blocages montre exactement ce qui est envoyé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le build Nightly inviano ogni giorno un rapporto su blocchi e fotogrammi lenti: stack di chiamate del codice di cmux e macOS, durate, versioni dell’app e di macOS, chip e memoria del tuo Mac e numeri arrotondati di finestre e schede aperte. Non include mai nomi di file, indirizzi web, testo del terminale, nomi o qualsiasi cosa tu digiti. Questa scelta è separata dai dati di utilizzo anonimi: se li hai disattivati, cmux non chiede mai, ma questo interruttore funziona comunque. Ogni Mac invia solo dopo che lo attivi su quel Mac; un file di impostazioni copiato da un altro Mac non lo attiva. Mostra rapporto sui blocchi mostra esattamente cosa viene inviato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightlyビルドは、ハングと遅いフレームのレポートを1日1回送信します。内容は、cmuxとmacOSのコードのコールスタック、所要時間、アプリとmacOSのバージョン、Macのチップとメモリ容量、開いているウインドウとタブのおおよその数です。ファイル名、Webアドレス、ターミナルのテキスト、名前、入力した内容は一切含みません。この設定は匿名の使用状況データとは別です。そちらをオフにしている場合、cmuxから確認することはありませんが、このスイッチは使えます。各Macは、そのMacでこのスイッチをオンにした後にだけ送信します。別のMacからコピーした設定ファイルではオンになりません。「ハングレポートを表示」で送信内容をそのまま確認できます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំណែ Nightly ផ្ញើ​របាយការណ៍​ប្រចាំថ្ងៃ​អំពី​ការ​គាំង និង​ស៊ុម​យឺត៖ ជង់​ការ​ហៅ​នៃ​កូដ cmux និង macOS រយៈពេល កំណែ​កម្មវិធី និង macOS បន្ទះ​សៀគ្វី និង​ទំហំ​អង្គចងចាំ​នៃ Mac របស់​អ្នក និង​ចំនួន​ប្រហាក់ប្រហែល​នៃ​បង្អួច និង​ផ្ទាំង​ដែល​បើក។ វា​មិន​ដែល​រួម​បញ្ចូល​ឈ្មោះ​ឯកសារ អាសយដ្ឋាន​បណ្ដាញ អត្ថបទ​ក្នុង​ទែមីណាល់ ឈ្មោះ ឬ​អ្វី​ដែល​អ្នក​វាយ​ឡើយ។ ជម្រើស​នេះ​ដាច់​ដោយ​ឡែក​ពី​ទិន្នន័យ​ប្រើប្រាស់​អនាមិក៖ ប្រសិន​បើ​វា​បិទ cmux មិន​ដែល​សួរ​ទេ ប៉ុន្តែ​កុងតាក់​នេះ​នៅ​តែ​ដំណើរការ។ Mac នីមួយៗ​ផ្ញើ​តែ​បន្ទាប់​ពី​អ្នក​បើក​វា​នៅ​លើ Mac នោះ​ប៉ុណ្ណោះ ឯកសារ​ការកំណត់​ដែល​ចម្លង​ពី Mac ផ្សេង​មិន​បើក​វា​ទេ។ «មើល​របាយការណ៍​គាំង» បង្ហាញ​យ៉ាង​ពិតប្រាកដ​នូវ​អ្វី​ដែល​ត្រូវ​ផ្ញើ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightly 빌드는 멈춤과 느린 프레임에 대한 보고서를 하루에 한 번 보냅니다. cmux와 macOS 코드의 호출 스택, 소요 시간, 앱과 macOS 버전, Mac의 칩과 메모리 크기, 열려 있는 윈도우와 탭의 대략적인 수가 포함됩니다. 파일 이름, 웹 주소, 터미널 텍스트, 이름, 입력한 내용은 절대 포함하지 않습니다. 이 선택은 익명 사용 데이터와 별개입니다. 익명 사용 데이터를 끈 경우 cmux는 묻지 않지만 이 스위치는 계속 작동합니다. 각 Mac은 그 Mac에서 이 스위치를 켠 뒤에만 보냅니다. 다른 Mac에서 복사한 설정 파일로는 켜지지 않습니다. 멈춤 보고서 보기에서 보내는 내용을 그대로 확인할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightly-bygg sender en daglig rapport om henginger og trege bilder: kallstabler fra cmux- og macOS-kode, varigheter, app- og macOS-versjon, Mac-ens brikke og minnestørrelse og avrundede antall åpne vinduer og faner. Den inneholder aldri filnavn, nettadresser, terminaltekst, navn eller noe du skriver. Dette valget er atskilt fra anonyme bruksdata: er de slått av, spør cmux aldri, men denne bryteren virker fortsatt. Hver Mac sender først etter at du har slått den på der; en innstillingsfil kopiert fra en annen Mac slår den ikke på. Vis hengerapport viser nøyaktig hva som sendes."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wersje Nightly wysyłają codzienny raport o zawieszeniach i wolnych klatkach: stosy wywołań kodu cmux i macOS, czasy trwania, wersje aplikacji i macOS, układ i ilość pamięci Twojego Maca oraz zaokrągloną liczbę otwartych okien i kart. Nigdy nie zawiera nazw plików, adresów stron, tekstu terminala, nazwisk ani niczego, co wpisujesz. Ten wybór jest niezależny od anonimowych danych o użyciu: jeśli je wyłączysz, cmux nigdy nie pyta, ale ten przełącznik nadal działa. Każdy Mac wysyła dopiero po włączeniu przełącznika na tym Macu; plik ustawień skopiowany z innego Maca go nie włącza. Pokaż raport o zawieszeniu pokazuje dokładnie, co jest wysyłane."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As versões Nightly enviam um relatório diário de travamentos e quadros lentos: pilhas de chamadas do código do cmux e do macOS, durações, versões do app e do macOS, chip e memória do seu Mac e contagens arredondadas de janelas e abas abertas. Nunca inclui nomes de arquivos, endereços web, texto do terminal, nomes ou qualquer coisa que você digite. Esta escolha é separada dos dados de uso anônimos: se você os desativou, o cmux nunca pergunta, mas esta chave continua funcionando. Cada Mac envia somente depois que você a ativa nesse Mac; um arquivo de ajustes copiado de outro Mac não a ativa. Ver relatório de travamentos mostra exatamente o que é enviado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сборки Nightly раз в день отправляют отчёт о зависаниях и медленных кадрах: стеки вызовов кода cmux и macOS, длительности, версии приложения и macOS, чип и объём памяти вашего Mac и округлённое число открытых окон и вкладок. В нём никогда нет имён файлов, веб-адресов, текста терминала, имён и того, что вы вводите. Этот выбор не связан с анонимными данными об использовании: если они выключены, cmux никогда не спрашивает, но этот переключатель работает. Каждый Mac отправляет отчёты только после того, как вы включите переключатель на этом Mac; файл настроек, скопированный с другого Mac, его не включает. «Показать отчёт о зависаниях» показывает, что именно отправляется."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รุ่น Nightly จะส่งรายงานการค้างและเฟรมที่ช้าวันละครั้ง ได้แก่ call stack ของโค้ด cmux และ macOS ระยะเวลา เวอร์ชันของแอปและ macOS ชิปและขนาดหน่วยความจำของ Mac และจำนวนหน้าต่างกับแท็บที่เปิดอยู่แบบปัดเศษ รายงานไม่มีชื่อไฟล์ ที่อยู่เว็บ ข้อความในเทอร์มินัล ชื่อ หรือสิ่งที่คุณพิมพ์เลย ตัวเลือกนี้แยกจากข้อมูลการใช้งานแบบไม่ระบุตัวตน หากคุณปิดข้อมูลนั้นไว้ cmux จะไม่ถาม แต่สวิตช์นี้ยังใช้ได้ Mac แต่ละเครื่องจะส่งหลังจากคุณเปิดสวิตช์นี้บนเครื่องนั้นเท่านั้น ไฟล์การตั้งค่าที่คัดลอกจาก Mac เครื่องอื่นจะไม่เปิดสวิตช์นี้ \"ดูรายงานการค้าง\" จะแสดงสิ่งที่ส่งอย่างตรงตัว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightly sürümleri her gün donmalar ve yavaş kareler hakkında bir rapor gönderir: cmux ve macOS kodunun çağrı yığınları, süreler, uygulama ve macOS sürümleri, Mac’inizin yongası ve bellek boyutu ile açık pencere ve sekmelerin yuvarlanmış sayıları. Asla dosya adı, web adresi, terminal metni, ad veya yazdığınız herhangi bir şey içermez. Bu seçim anonim kullanım verilerinden ayrıdır: onları kapattıysanız cmux hiç sormaz, ama bu anahtar yine çalışır. Her Mac, ancak siz bu anahtarı o Mac’te açtıktan sonra gönderir; başka bir Mac’ten kopyalanan bir ayarlar dosyası onu açmaz. Donma raporunu görüntüle, tam olarak neyin gönderildiğini gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Збірки Nightly щодня надсилають звіт про зависання й повільні кадри: стеки викликів коду cmux і macOS, тривалості, версії застосунку й macOS, чип і обсяг пам’яті вашого Mac та округлену кількість відкритих вікон і вкладок. Він ніколи не містить назв файлів, вебадрес, тексту термінала, імен чи будь-чого, що ви вводите. Цей вибір не залежить від анонімних даних про використання: якщо їх вимкнено, cmux ніколи не питає, але цей перемикач працює. Кожен Mac надсилає звіти лише після того, як ви ввімкнете перемикач на цьому Mac; файл параметрів, скопійований з іншого Mac, його не вмикає. «Показати звіт про зависання» показує, що саме надсилається."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bản Nightly gửi báo cáo hằng ngày về các lần treo và khung hình chậm: ngăn xếp lệnh gọi của mã cmux và macOS, thời lượng, phiên bản ứng dụng và macOS, chip và dung lượng bộ nhớ của máy Mac, cùng số cửa sổ và tab đang mở đã làm tròn. Báo cáo không bao giờ chứa tên tệp, địa chỉ web, văn bản terminal, tên hay bất kỳ nội dung nào bạn gõ. Lựa chọn này tách biệt với dữ liệu sử dụng ẩn danh: nếu bạn đã tắt dữ liệu đó, cmux sẽ không bao giờ hỏi, nhưng công tắc này vẫn hoạt động. Mỗi máy Mac chỉ gửi sau khi bạn bật công tắc trên chính máy đó; tệp cài đặt sao chép từ máy Mac khác không bật được nó. Xem báo cáo treo cho thấy chính xác nội dung được gửi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightly 版本每天发送一份卡顿与慢帧报告：cmux 和 macOS 代码的调用栈、耗时、App 与 macOS 版本、Mac 的芯片和内存大小，以及打开的窗口和标签页的大致数量。报告绝不包含文件名、网址、终端文本、姓名或你输入的任何内容。此选项与匿名使用数据相互独立：若你关闭了匿名使用数据，cmux 不会询问，但此开关仍然有效。每台 Mac 只有在你在该 Mac 上打开此开关后才会发送；从其他 Mac 复制的设置文件不会将其打开。“查看卡顿报告”会显示实际发送的内容。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightly 版本每天傳送一份卡頓與慢影格報告：cmux 和 macOS 程式碼的呼叫堆疊、耗時、App 與 macOS 版本、Mac 的晶片和記憶體大小，以及開啟中視窗和分頁的大約數量。報告絕不包含檔案名稱、網址、終端機文字、姓名或你輸入的任何內容。此選項與匿名使用資料彼此獨立：若你關閉了匿名使用資料，cmux 不會詢問，但此開關仍可使用。每台 Mac 只有在你於該 Mac 上開啟此開關後才會傳送；從其他 Mac 複製的設定檔不會將其開啟。「檢視卡頓報告」會顯示實際傳送的內容。"
+          }
+        }
+      }
+    },
     "settings.deviceHub.url": {
       "extractionState": "manual",
       "localizations": {
@@ -165854,137 +165985,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "僅限 Nightly。不含檔案名稱、文字或位址。"
-          }
-        }
-      }
-    },
-    "settings.diagnostics.hangReports.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ترسل إصدارات Nightly تقريرًا يوميًا عن حالات التجمّد والإطارات البطيئة: مكدسات الاستدعاء لشيفرة cmux وmacOS، والتوقيتات، وإصداري التطبيق وmacOS، وشريحة جهاز Mac وحجم ذاكرته، وأعدادًا تقريبية للنوافذ وعلامات التبويب المفتوحة. لا يتضمن أبدًا أسماء ملفات أو عناوين ويب أو نص الطرفية أو أسماء أو أي شيء تكتبه. يعرض «عرض تقرير التجمّد» ما يُرسل بالضبط."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nightly verzije šalju dnevni izvještaj o zastojima i sporim kadrovima: stekove poziva koda cmuxa i macOS-a, vremena, verzije aplikacije i macOS-a, čip i veličinu memorije vašeg Maca te zaokružen broj otvorenih prozora i kartica. Nikada ne sadrži imena datoteka, web adrese, tekst terminala, imena ni bilo šta što kucate. Prikaži izvještaj o zastoju pokazuje tačno šta se šalje."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nightly-builds sender en daglig rapport om hængninger og langsomme billeder: kaldestakke fra cmux- og macOS-kode, tider, app- og macOS-version, din Macs chip og hukommelsesstørrelse samt afrundede antal åbne vinduer og faner. Den indeholder aldrig filnavne, webadresser, terminaltekst, navne eller noget, du skriver. Vis hængningsrapport viser præcis, hvad der sendes."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nightly-Builds senden täglich einen Bericht über Hänger und langsame Frames: Aufrufstapel aus cmux- und macOS-Code, Zeiten, App- und macOS-Version, Chip und Arbeitsspeichergröße deines Mac sowie gerundete Anzahlen offener Fenster und Tabs. Er enthält nie Dateinamen, Webadressen, Terminaltext, Namen oder etwas, das du tippst. „Hänger-Bericht anzeigen“ zeigt genau, was gesendet wird."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nightly builds send a daily report of hangs and slow frames: call stacks of cmux and macOS code, timings, your app and macOS versions, your Mac's chip and memory size, and rounded counts of open windows and tabs. It never includes file names, web addresses, terminal text, names or anything you type. View Hang Report shows exactly what is sent."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Las versiones Nightly envían un informe diario de bloqueos y fotogramas lentos: pilas de llamadas del código de cmux y macOS, tiempos, las versiones de la app y de macOS, el chip y la memoria de tu Mac, y recuentos redondeados de ventanas y pestañas abiertas. Nunca incluye nombres de archivo, direcciones web, texto del terminal, nombres ni nada de lo que escribes. Ver informe de bloqueos muestra exactamente lo que se envía."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Les versions Nightly envoient chaque jour un rapport sur les blocages et les images lentes : piles d’appels du code de cmux et de macOS, durées, versions de l’app et de macOS, puce et taille de mémoire de votre Mac, et nombres arrondis de fenêtres et d’onglets ouverts. Il ne contient jamais de noms de fichiers, d’adresses web, de texte du terminal, de noms ni rien de ce que vous tapez. Afficher le rapport de blocages montre exactement ce qui est envoyé."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Le build Nightly inviano ogni giorno un rapporto su blocchi e fotogrammi lenti: stack di chiamate del codice di cmux e macOS, tempi, versioni dell’app e di macOS, chip e memoria del tuo Mac e numeri arrotondati di finestre e schede aperte. Non include mai nomi di file, indirizzi web, testo del terminale, nomi o qualsiasi cosa tu digiti. Mostra rapporto sui blocchi mostra esattamente cosa viene inviato."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nightlyビルドは、ハングと遅いフレームのレポートを1日1回送信します。内容は、cmuxとmacOSのコードのコールスタック、所要時間、アプリとmacOSのバージョン、Macのチップとメモリ容量、開いているウインドウとタブのおおよその数です。ファイル名、Webアドレス、ターミナルのテキスト、名前、入力した内容は一切含みません。「ハングレポートを表示」で送信内容をそのまま確認できます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "កំណែ Nightly ផ្ញើ​របាយការណ៍​ប្រចាំថ្ងៃ​អំពី​ការ​គាំង និង​ស៊ុម​យឺត៖ ជង់​ការ​ហៅ​នៃ​កូដ cmux និង macOS ពេលវេលា កំណែ​កម្មវិធី និង macOS បន្ទះ​សៀគ្វី និង​ទំហំ​អង្គចងចាំ​នៃ Mac របស់​អ្នក និង​ចំនួន​ប្រហាក់ប្រហែល​នៃ​បង្អួច និង​ផ្ទាំង​ដែល​បើក។ វា​មិន​ដែល​រួម​បញ្ចូល​ឈ្មោះ​ឯកសារ អាសយដ្ឋាន​បណ្ដាញ អត្ថបទ​ក្នុង​ទែមីណាល់ ឈ្មោះ ឬ​អ្វី​ដែល​អ្នក​វាយ​ឡើយ។ «មើល​របាយការណ៍​គាំង» បង្ហាញ​យ៉ាង​ពិតប្រាកដ​នូវ​អ្វី​ដែល​ត្រូវ​ផ្ញើ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nightly 빌드는 멈춤과 느린 프레임에 대한 보고서를 하루에 한 번 보냅니다. cmux와 macOS 코드의 호출 스택, 소요 시간, 앱과 macOS 버전, Mac의 칩과 메모리 크기, 열려 있는 윈도우와 탭의 대략적인 수가 포함됩니다. 파일 이름, 웹 주소, 터미널 텍스트, 이름, 입력한 내용은 절대 포함하지 않습니다. 멈춤 보고서 보기에서 보내는 내용을 그대로 확인할 수 있습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nightly-bygg sender en daglig rapport om henginger og trege bilder: kallstabler fra cmux- og macOS-kode, tider, app- og macOS-versjon, Mac-ens brikke og minnestørrelse og avrundede antall åpne vinduer og faner. Den inneholder aldri filnavn, nettadresser, terminaltekst, navn eller noe du skriver. Vis hengerapport viser nøyaktig hva som sendes."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wersje Nightly wysyłają codzienny raport o zawieszeniach i wolnych klatkach: stosy wywołań kodu cmux i macOS, czasy, wersje aplikacji i macOS, układ i ilość pamięci Twojego Maca oraz zaokrągloną liczbę otwartych okien i kart. Nigdy nie zawiera nazw plików, adresów stron, tekstu terminala, nazwisk ani niczego, co wpisujesz. Pokaż raport o zawieszeniu pokazuje dokładnie, co jest wysyłane."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "As versões Nightly enviam um relatório diário de travamentos e quadros lentos: pilhas de chamadas do código do cmux e do macOS, tempos, versões do app e do macOS, chip e memória do seu Mac e contagens arredondadas de janelas e abas abertas. Nunca inclui nomes de arquivos, endereços web, texto do terminal, nomes ou qualquer coisa que você digite. Ver relatório de travamentos mostra exatamente o que é enviado."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Сборки Nightly раз в день отправляют отчёт о зависаниях и медленных кадрах: стеки вызовов кода cmux и macOS, длительности, версии приложения и macOS, чип и объём памяти вашего Mac и округлённое число открытых окон и вкладок. В нём никогда нет имён файлов, веб-адресов, текста терминала, имён и того, что вы вводите. «Показать отчёт о зависаниях» показывает, что именно отправляется."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "รุ่น Nightly จะส่งรายงานการค้างและเฟรมที่ช้าวันละครั้ง ได้แก่ call stack ของโค้ด cmux และ macOS เวลาที่ใช้ เวอร์ชันของแอปและ macOS ชิปและขนาดหน่วยความจำของ Mac และจำนวนหน้าต่างกับแท็บที่เปิดอยู่แบบปัดเศษ รายงานไม่มีชื่อไฟล์ ที่อยู่เว็บ ข้อความในเทอร์มินัล ชื่อ หรือสิ่งที่คุณพิมพ์เลย \"ดูรายงานการค้าง\" จะแสดงสิ่งที่ส่งอย่างตรงตัว"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nightly sürümleri her gün donmalar ve yavaş kareler hakkında bir rapor gönderir: cmux ve macOS kodunun çağrı yığınları, süreler, uygulama ve macOS sürümleri, Mac’inizin yongası ve bellek boyutu ile açık pencere ve sekmelerin yuvarlanmış sayıları. Asla dosya adı, web adresi, terminal metni, ad veya yazdığınız herhangi bir şey içermez. Donma raporunu görüntüle, tam olarak neyin gönderildiğini gösterir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Збірки Nightly щодня надсилають звіт про зависання й повільні кадри: стеки викликів коду cmux і macOS, тривалості, версії застосунку й macOS, чип і обсяг пам’яті вашого Mac та округлену кількість відкритих вікон і вкладок. Він ніколи не містить назв файлів, вебадрес, тексту термінала, імен чи будь-чого, що ви вводите. «Показати звіт про зависання» показує, що саме надсилається."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bản Nightly gửi báo cáo hằng ngày về các lần treo và khung hình chậm: ngăn xếp lệnh gọi của mã cmux và macOS, thời gian, phiên bản ứng dụng và macOS, chip và dung lượng bộ nhớ của máy Mac, cùng số cửa sổ và tab đang mở đã làm tròn. Báo cáo không bao giờ chứa tên tệp, địa chỉ web, văn bản terminal, tên hay bất kỳ nội dung nào bạn gõ. Xem báo cáo treo cho thấy chính xác nội dung được gửi."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nightly 版本每天发送一份卡顿与慢帧报告：cmux 和 macOS 代码的调用栈、耗时、App 与 macOS 版本、Mac 的芯片和内存大小，以及打开的窗口和标签页的大致数量。报告绝不包含文件名、网址、终端文本、姓名或你输入的任何内容。“查看卡顿报告”会显示实际发送的内容。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nightly 版本每天傳送一份卡頓與慢影格報告：cmux 和 macOS 程式碼的呼叫堆疊、耗時、App 與 macOS 版本、Mac 的晶片和記憶體大小，以及開啟中視窗和分頁的大約數量。報告絕不包含檔案名稱、網址、終端機文字、姓名或你輸入的任何內容。「檢視卡頓報告」會顯示實際傳送的內容。"
           }
         }
       }
