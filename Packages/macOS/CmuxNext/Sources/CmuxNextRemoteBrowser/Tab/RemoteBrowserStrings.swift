@@ -25,8 +25,8 @@ public nonisolated struct RemoteBrowserStrings {
         switch error {
         case let LocalRemoteBrowserHost.Failure.timedOut(seconds, log):
             Bundle.module.localizedString(forKey: "remoteBrowser.localHost.timedOut",
-                                          value: "The host did not get ready within %1$lld seconds and was stopped. Its log is at %2$@.",
-                                          table: nil, arguments: [.count(seconds), .text(log.path)],
+                                          value: "The host did not get ready within %1$@ and was stopped. Its log is at %2$@.",
+                                          table: nil, arguments: [.duration(.seconds(seconds), units: [.seconds]), .text(log.path)],
                                           preferredLocalizations: preferredLocalizations ?? Bundle.module.preferredLocalizations,
                                           locale: locale)
         case let LocalRemoteBrowserHost.Failure.exitedBeforeListening(log):
