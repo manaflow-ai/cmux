@@ -91,7 +91,7 @@ import CmuxNextWakeups
     public convenience init(view: NSView) {
         self.init(frames: AgentPaneWindowFrames(view: view), fallback: AgentPaneDemandDeadline(),
                   isHidden: { [weak view] in view.map(Self.nobodySees) ?? true })
-        let probe = AgentPaneVisibilityProbe(frame: .zero)
+        let probe = AgentPaneVisibilityProbe()
         probe.onChange = { [weak self] in self?.visibilityChanged() }
         view.addSubview(probe)
         self.probe = probe
