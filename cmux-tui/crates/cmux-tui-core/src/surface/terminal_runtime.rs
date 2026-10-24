@@ -188,6 +188,11 @@ pub struct PtyTerminalRuntime {
     /// Legacy terminal hosts remain attachable, but cannot source-fence
     /// output at daemon shutdown and therefore never enter journal capture.
     pub(super) journal_capture_supported: bool,
+    /// Orders bytes already readable on a local PTY against a geometry
+    /// transition. The reader takes this after readiness and keeps it until
+    /// those bytes have reached the terminal parser; a resize takes it before
+    /// issuing TIOCSWINSZ and changing the grid.
+    pub(super) source_order_lock: Mutex<()>,
     /// Even while the emulator and terminal journal agree, odd while one
     /// output frame has updated one side but not yet reached the other.
     pub(super) journal_capture_epoch: AtomicU64,

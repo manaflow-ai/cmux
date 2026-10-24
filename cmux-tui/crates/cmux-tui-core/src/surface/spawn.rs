@@ -4,6 +4,8 @@
 //! terminal (`terminal_backend`) both start here, from a [`LocalLaunch`].
 
 use std::io::{Read, Write};
+#[cfg(unix)]
+use std::os::fd::RawFd;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::Duration;
@@ -13,6 +15,26 @@ use ghostty_vt::{Callbacks, RenderState, Terminal};
 
 use super::*;
 use crate::terminal_end::TerminalEnd;
+
+#[cfg(unix)]
+fn wait_for_pty_readable(fd: RawFd) -> bool {
+    let mut descriptor =
+        libc::pollfd { fd, events: libc::POLLIN | libc::POLLHUP | libc::POLLERR, revents: 0 };
+    loop {
+        // SAFETY: `descriptor` is initialized and its fd remains owned by
+        // the local PTY runtime for the reader's lifetime.
+        let result = unsafe { libc::poll(&mut descriptor, 1, -1) };
+        if result > 0 {
+            return descriptor.revents != 0;
+        }
+        if result == 0 {
+            continue;
+        }
+        if std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
+            return false;
+        }
+    }
+}
 
 /// What the local runtime of one terminal runs on.
 pub(crate) struct LocalLaunch {
@@ -86,6 +108,11 @@ impl Surface {
         // reads the screen and what is still unparsed at one instant.
         #[cfg(unix)]
         let parsed_sink = holder.as_ref().map(|terminal| terminal.sink.clone());
+        // Direct PTY readers can wait for readiness before taking the source
+        // order gate. Holder and byte-backend readers are not backed by this
+        // PTY descriptor, so they retain their existing blocking path.
+        #[cfg(unix)]
+        let read_fd = holder.is_none().then(|| master.as_raw_fd()).flatten();
         // Query responses generated while parsing pty output are queued
         // here and flushed to the pty after each vt_write (the callback
         // runs under the terminal lock; writing to the pty from inside it
@@ -144,6 +171,7 @@ impl Surface {
                     crate::workspace_registry::new_uuid_v4()
                 )),
                 journal_capture_supported: true,
+                source_order_lock: Mutex::new(()),
                 journal_capture_epoch: AtomicU64::new(0),
                 journal_capture_gate: Mutex::new(()),
                 journal_capture_idle: Condvar::new(),
@@ -260,6 +288,8 @@ impl Surface {
         let reader_thread =
             std::thread::Builder::new().name(format!("surface-{id}-reader")).spawn({
                 let surface = surface.clone();
+                #[cfg(unix)]
+                let read_fd = read_fd;
                 move || {
                     let _reader_completion = ReaderCompletionGuard(
                         surface
@@ -285,6 +315,19 @@ impl Surface {
                     loop {
                         let pty = surface.as_pty().expect("surface reader got non-pty surface");
                         let journal_target = pty.journal_target();
+                        #[cfg(unix)]
+                        if let Some(fd) = read_fd {
+                            if !wait_for_pty_readable(fd) {
+                                break;
+                            }
+                        }
+                        // A readiness result makes the following read a
+                        // short source-order critical section rather than a
+                        // blocking wait. This keeps a resize responsive while
+                        // ensuring bytes that were ready first are parsed on
+                        // the old grid before TIOCSWINSZ can commit a new one.
+                        #[cfg(unix)]
+                        let _source_order = read_fd.map(|_| pty.source_order_lock.lock().unwrap());
                         // Reserve the capture epoch before read(2). Shutdown
                         // can revoke a blocked reservation, but it cannot place
                         // its final barrier in the read-to-parser gap.
@@ -393,6 +436,8 @@ impl Surface {
                             (generation, journal_output)
                         };
                         let (generation, journal_output) = generation;
+                        #[cfg(unix)]
+                        drop(_source_order);
                         if let (Some(journal_target), Some(journal_output)) =
                             (journal_target, journal_output)
                         {
