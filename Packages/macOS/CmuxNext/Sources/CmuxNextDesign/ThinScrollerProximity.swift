@@ -11,7 +11,7 @@ final class ThinScrollerProximity: NSResponder {
     private var area: NSTrackingArea?
     private var liveScroll: (any NSObjectProtocol)?
 
-    init(scroller: ThinScroller, host: NSView) {
+    init(scroller: ThinScroller, host: NSView, notificationCenter: NotificationCenter) {
         self.scroller = scroller
         self.host = host
         super.init()
@@ -20,7 +20,7 @@ final class ThinScrollerProximity: NSResponder {
         host.addTrackingArea(area)
         self.area = area
         // queue: .main runs inline for AppKit's post on main, in the scroll's own turn.
-        liveScroll = NotificationCenter.default.addObserver(
+        liveScroll = notificationCenter.addObserver(
             forName: NSScrollView.didLiveScrollNotification, object: host, queue: .main
         ) { [weak scroller] _ in
             MainActor.assumeIsolated { // main-proof: observer on queue: .main

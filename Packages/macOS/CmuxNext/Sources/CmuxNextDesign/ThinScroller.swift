@@ -63,6 +63,9 @@ public final class ThinScroller: NSScroller {
     let restingKnob = ThinScrollerKnobView()
     private(set) var presence = ThinScrollerPresence()
     private let clock: any Clock<Duration>
+    // The app uses the default center; tests inject an isolated center so a
+    // synthetic scroll cannot notify unrelated process-global observers.
+    let notificationCenter: NotificationCenter
     /// The pending fade-out after the last scroll; the next scroll cancels it.
     private(set) var restTask: Task<Void, Never>?
     private var proximity: ThinScrollerProximity?
@@ -77,8 +80,9 @@ public final class ThinScroller: NSScroller {
     /// - Parameters:
     ///   - frameRect: The scroller's frame.
     ///   - clock: The clock of ``restDelay``; tests pass a manual clock.
-    public init(frame frameRect: NSRect, clock: any Clock<Duration>) {
+    public init(frame frameRect: NSRect, clock: any Clock<Duration>, notificationCenter: NotificationCenter = .default) {
         self.clock = clock
+        self.notificationCenter = notificationCenter
         super.init(frame: frameRect)
         restingKnob.wantsLayer = true
         addSubview(restingKnob)
@@ -179,7 +183,7 @@ public final class ThinScroller: NSScroller {
     override public func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
         guard let superview else { return }
-        proximity = ThinScrollerProximity(scroller: self, host: superview)
+        proximity = ThinScrollerProximity(scroller: self, host: superview, notificationCenter: notificationCenter)
     }
 
     /// Never a track, also while the pointer is over the scroller.
@@ -203,6 +207,7 @@ public final class ThinScroller: NSScroller {
         // A bounded, cancellable delay that is the intended behavior (the knob's rest time after
         // the last scroll step); the next scroll cancels it. Its clock is injected.
         restTask = Task { [weak self] in
+            // wakeup-allow: one-shot injected fade deadline; the next scroll cancels it.
             do { try await clock.sleep(for: Self.restDelay) } catch { return }
             self?.update { $0.rested() }
         }
