@@ -3579,13 +3579,12 @@ jobs:
 
   # The fleet compile check is the first Release gate. It checks the exact
   # source without occupying a Mac runner.
-  # The job deliberately has the same gate name as the Mac fallback: only one
-  # runs for a push, so promotion and merge admission can keep one stable gate
-  # name while the route changes underneath it.
+  # Keep the fast-check wrapper's name distinct from the admission gate below:
+  # an unavailable wrapper is a successful job but is not a Release compile.
   release-compile-fast:
     needs: [path_route, push-head-preflight]
     if: ${{ !cancelled() && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
-    name: cmux-next Release compile (Xcode 26)
+    name: cmux-next Release compile (fleet fast check)
     concurrency:
       group: ${{ format('cmux-next-release-compile-fast-{0}', github.run_id) }}
       cancel-in-progress: false
@@ -3660,6 +3659,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ github.sha }}
         run: scripts/cmux-next/request-nightly-next.sh --sha "$SHA" --repo "$GITHUB_REPOSITORY" --release-compile-green
+
+  # Promotion admission keys off this exact job name. Keep it separate from
+  # the fast-check wrapper so unavailable fast checks cannot satisfy the gate.
+  release-compile-fast-admission:
+    needs: release-compile-fast
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.release-compile-fast.result == 'success' && needs.release-compile-fast.outputs.verdict == 'pass' }}
+    name: cmux-next Release compile (Xcode 26)
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    permissions: {}
+    timeout-minutes: 5
+    steps:
+      - name: Record the Release compile admission
+        run: echo "The fleet fast check compiled this commit in Release mode."
 
   release-compile:
     environment: ${{ github.event_name != 'pull_request' && 'ci-build-cache-reader' || '' }}
