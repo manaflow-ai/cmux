@@ -52,6 +52,10 @@ SHA = re.compile(r"^[0-9a-f]{40}$")
 DIGEST = re.compile(r"^[0-9a-f]{64}$")
 MAX_ARCHIVE_BYTES = 4 * 1024**3
 CANDIDATES = 3
+MAX_JSON_BYTES = 8 * 1024**2
+# The jobs that produce the app (cmux-next-dev-daily.yml SOURCE_APP_PRODUCER_JOBS): the one that
+# recorded a product must have finished successfully, or its record is not taken.
+PRODUCER_JOBS = ("cmux NEXT DEV Release compile", "cmux app scheme compile (Debug)")
 
 
 class Miss(Exception):
@@ -76,7 +80,14 @@ class Api:
             "X-GitHub-Api-Version": "2022-11-28"})
         try:
             with urllib.request.urlopen(request, timeout=min(20, self.left())) as response:
-                return json.loads(response.read().decode())
+                body = bytearray()
+                # A total deadline: a slow-drip response must not outlive the lookup.
+                while chunk := response.read(1 << 16):
+                    body += chunk
+                    if len(body) > MAX_JSON_BYTES:
+                        raise Miss(f"GET {path.split('?')[0]} answered over {MAX_JSON_BYTES} bytes")
+                    self.left()
+                return json.loads(body.decode())
         except (OSError, ValueError, urllib.error.URLError) as error:
             raise Miss(f"GET {path.split('?')[0]} failed: {error}") from error
 
@@ -129,6 +140,13 @@ def check_run(run: dict, repo: str) -> None:
         raise Miss(f"run {run.get('id')} is {run.get('path')} on {run.get('head_branch')}, not {WORKFLOW_PATH} on {BRANCH}")
     if (run.get("repository") or {}).get("full_name") != repo or (run.get("head_repository") or {}).get("full_name") != repo:
         raise Miss(f"run {run.get('id')} is not this repository's own")
+
+
+def check_producer(jobs: list[dict], run_id: int) -> None:
+    producers = [job for job in jobs if job.get("name") in PRODUCER_JOBS]
+    if not any(job.get("status") == "completed" and job.get("conclusion") == "success" for job in producers):
+        states = ", ".join(f"{job.get('name')}: {job.get('conclusion') or job.get('status')}" for job in producers)
+        raise Miss(f"run {run_id}'s app job did not finish successfully ({states or 'no app job'})")
 
 
 def check_manifest(manifest: dict, key: str, run_id: int) -> None:
@@ -189,6 +207,7 @@ def read_record(api: Api, item: dict, scratch: Path) -> dict:
 def try_record(api: Api, item: dict, key: str, repo: str, out_dir: Path, scratch: Path) -> dict[str, str]:
     run_id = int(item["workflow_run"]["id"])
     check_run(api.json(f"actions/runs/{run_id}"), repo)
+    check_producer(api.json(f"actions/runs/{run_id}/jobs?filter=latest&per_page=100").get("jobs", []), run_id)
     manifest = read_record(api, item, scratch)
     check_manifest(manifest, key, run_id)
     query = urllib.parse.urlencode({"name": manifest["product_artifact"], "per_page": 10})

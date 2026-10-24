@@ -53,6 +53,9 @@ class FakeApi(reuse.Api):
         run_id = int(path.split("/")[2])
         if path.endswith("/artifacts") or "/artifacts?" in path:
             return {"artifacts": self.products.get(run_id, [])}
+        if "/jobs" in path:
+            return {"jobs": self.runs[run_id].get("jobs", [{"name": "cmux NEXT DEV Release compile",
+                                                            "status": "completed", "conclusion": "success"}])}
         return self.runs[run_id]
 
     def download(self, url: str, dest: Path) -> None:
@@ -123,6 +126,16 @@ class Lookup(unittest.TestCase):
         self.assertEqual(result["source_run_id"], "8")
         result = self.lookup(fake(setup(7, "2026-10-24T09:00:00Z"), setup(8, "2026-10-24T10:00:00Z", expired=True)))
         self.assertEqual((result["hit"], result["source_run_id"]), ("true", "7"), result)
+
+    def test_a_record_from_an_unfinished_or_failed_app_job_is_never_taken(self):
+        for jobs in ([{"name": "cmux NEXT DEV Release compile", "status": "in_progress", "conclusion": None}],
+                     [{"name": "cmux NEXT DEV Release compile", "status": "completed", "conclusion": "failure"}],
+                     [{"name": "cmux NEXT DEV Release compile", "status": "completed", "conclusion": "cancelled"}],
+                     [{"name": "other", "status": "completed", "conclusion": "success"}]):
+            with self.subTest(jobs=jobs):
+                result = self.lookup(fake(setup(7, jobs=jobs)))
+                self.assertEqual(result["hit"], "false")
+                self.assertIn("did not finish successfully", result["reason"])
 
     def test_a_digest_mismatch_is_a_miss(self):
         result = self.lookup(fake(setup(7, app=b"X" * len(APP))))
