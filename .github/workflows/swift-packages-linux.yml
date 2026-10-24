@@ -74,8 +74,14 @@ jobs:
 
       - name: Cache key
         id: key
+        shell: bash
         run: |
+          set -euo pipefail
+          manifests="$(find Packages -type d \( -name .build -o -name .git -o -name node_modules \) -prune -o \
+            -type f \( -name Package.swift -o -name Package.resolved \) -print0 |
+            LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d ' ' -f1)"
           {
+            echo "manifests=$manifests"
             echo "week=$(date -u +%G-W%V)"
             echo "toolchain=$(swift --version 2>/dev/null | head -1 | tr -cs 'A-Za-z0-9.' '-')"
           } >> "$GITHUB_OUTPUT"
@@ -84,9 +90,9 @@ jobs:
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
         with:
           path: Packages/**/.build
-          key: swiftpm-linux-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ matrix.group }}-${{ hashFiles('Packages/**/Package.swift', 'Packages/**/Package.resolved') }}
+          key: swiftpm-linux-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ matrix.group }}-${{ steps.key.outputs.manifests }}
           restore-keys: |
-            swiftpm-linux-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ matrix.group }}-${{ hashFiles('Packages/**/Package.swift', 'Packages/**/Package.resolved') }}-
+            swiftpm-linux-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ matrix.group }}-${{ steps.key.outputs.manifests }}-
             swiftpm-linux-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ matrix.group }}-
 
       - name: Build and test
@@ -125,4 +131,4 @@ jobs:
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae
         with:
           path: Packages/**/.build
-          key: swiftpm-linux-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ matrix.group }}-${{ hashFiles('Packages/**/Package.swift', 'Packages/**/Package.resolved') }}
+          key: swiftpm-linux-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ matrix.group }}-${{ steps.key.outputs.manifests }}

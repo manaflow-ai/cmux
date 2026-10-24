@@ -1,6 +1,6 @@
-import CmuxNextAgentActivity
-import CmuxNextBridge
-import CmuxNextDaemon
+public import CmuxNextAgentActivity
+public import CmuxNextBridge
+public import CmuxNextDaemon
 
 /// The acpmux lanes (`AgentLaneStore`, from `_acpmux/watch`) of a workspace's agent chat tabs on
 /// this Mac: a chat whose session lives on this Mac's acpmux (`turns.localHost`) and whose lane

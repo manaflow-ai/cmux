@@ -39,15 +39,80 @@ env:
   SOURCE_WORKFLOW_PATHS: .github/workflows/cmux-next.yml .github/workflows/cmux-tui-artifacts.yml
 
 concurrency:
-  group: nightly-next-tick
-  # A burst of completed source runs keeps exactly one running tick and the
-  # newest pending tick. The pending tick reads the branch tip when it starts,
-  # so it coalesces the burst without cancelling work already in progress.
+  # GitHub keeps one pending run per shared group and evicts older pending
+  # runs. Give each trigger its own group; the coalesce job below owns the
+  # one-running/newest-waiting policy explicitly instead.
+  group: nightly-next-tick-${{ github.run_id }}
   cancel-in-progress: false
 
 jobs:
+  coalesce:
+    if: github.repository == 'manaflow-ai/cmux'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 13
+    permissions:
+      actions: read
+    outputs:
+      owner: ${{ steps.coalesce.outputs.owner }}
+    steps:
+      - name: Coalesce tick requests without cancelling work
+        id: coalesce
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const activeStates = new Set(['queued', 'requested', 'waiting', 'pending', 'in_progress']);
+            const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+            const activeRuns = async () => {
+              const { data } = await github.rest.actions.listWorkflowRuns({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: 'nightly-next-tick.yml',
+                per_page: 100,
+              });
+              return data.workflow_runs
+                .filter((run) => activeStates.has(run.status))
+                .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at) || Number(a.id) - Number(b.id));
+            };
+            for (let attempt = 0; attempt < 48; attempt += 1) {
+              const runs = await activeRuns();
+              const current = runs.find((run) => run.id === context.runId);
+              if (!current) {
+                core.notice('Current tick is not visible in the run list yet; retrying.');
+                await sleep(5000);
+                continue;
+              }
+              const order = (run) => [Date.parse(run.created_at), Number(run.id)];
+              const currentOrder = order(current);
+              const before = (run) => {
+                const candidate = order(run);
+                return candidate[0] < currentOrder[0] ||
+                  candidate[0] === currentOrder[0] && candidate[1] < currentOrder[1];
+              };
+              const after = (run) => {
+                const candidate = order(run);
+                return candidate[0] > currentOrder[0] ||
+                  candidate[0] === currentOrder[0] && candidate[1] > currentOrder[1];
+              };
+              const older = runs.filter((run) => run.id !== current.id && before(run));
+              const newer = runs.some((run) => run.id !== current.id && after(run));
+              if (older.length && newer) {
+                core.notice(`A newer tick ${newer ? 'is queued' : 'exists'}; retiring this older waiter.`);
+                core.setOutput('owner', 'false');
+                return;
+              }
+              if (!older.length) {
+                core.notice('This tick owns the delivery slot and will read the latest branch tip.');
+                core.setOutput('owner', 'true');
+                return;
+              }
+              core.notice(`Waiting for the active tick ${older[0].id} to finish (attempt ${attempt + 1}/48).`);
+              await sleep(15000);
+            }
+            core.setFailed('coalescer did not acquire the delivery slot before timeout');
+
   request:
-    if: github.repository == 'manaflow-ai/cmux' && (github.event_name != 'workflow_run' || github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository)
+    needs: coalesce
+    if: needs.coalesce.outputs.owner == 'true' && github.repository == 'manaflow-ai/cmux' && (github.event_name != 'workflow_run' || github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-24.04 # nightly path never waits on Blacksmith
     timeout-minutes: 15
     permissions:
