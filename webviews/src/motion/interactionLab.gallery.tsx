@@ -304,10 +304,13 @@ function GestureDemo() {
     release?: number;
   } | null>(null);
   const springFrame = useRef<number | undefined>(undefined);
+  const runningStop = useRef<(() => void) | null>(null);
   const [x, setX] = useState(0);
   const onDown = (event: React.PointerEvent<HTMLButtonElement>) => {
     const node = tile.current;
     if (!node) return;
+    runningStop.current?.();
+    runningStop.current = null;
     if (springFrame.current !== undefined) cancelAnimationFrame(springFrame.current);
     node.setPointerCapture(event.pointerId);
     const now = performance.now();
@@ -353,6 +356,7 @@ function GestureDemo() {
         springFrame.current = undefined;
         setX(0);
         surface?.setAttribute("data-motion-active", "false");
+        if (runningStop.current === stop) runningStop.current = null;
         removeCleanup();
       }
     };
@@ -362,9 +366,11 @@ function GestureDemo() {
       springFrame.current = undefined;
       setX(0);
       surface?.setAttribute("data-motion-active", "false");
+      if (runningStop.current === stop) runningStop.current = null;
       removeCleanup();
     };
     removeCleanup = cleanup.add(stop);
+    runningStop.current = stop;
     springFrame.current = requestAnimationFrame(tick);
   };
   return (
