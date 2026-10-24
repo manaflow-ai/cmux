@@ -253,6 +253,7 @@ extension WindowManager {
     /// workspaces then move to the most recent other window, as before.
     /// An incognito window closes for good: its workspaces close too.
     func userClosed(_ id: String) {
+        if restoring || !restored { closedDuringRestore.insert(id) } // the restore must not open it again
         let snapshots = services.sidebarSnapshots
         Task { await snapshots.forget(window: id) }
         let keepsGroup = services.daemon.supports(DaemonCapabilities.windowRecords)
@@ -375,10 +376,12 @@ extension WindowManager {
         for id in live where !held.contains(id) { quietClaims.remove(id) }
         let members = before.windows.flatMap(\.workspaceIDs)
         let dead = Set(members.filter(isDead))
-        let fallback = launchWindowID ?? UUID().uuidString.lowercased()
+        let fallback = launchWindowID ?? closedLaunchWindowID ?? UUID().uuidString.lowercased()
         transition(select: preferred) { registry in
-            registry.reconcile(live: live, dead: dead, placements: placements, held: held, behind: behindWindows,
-                               fallbackWindow: fallback)
+            let changes = registry.reconcile(live: live, dead: dead, placements: placements, held: held, behind: behindWindows,
+                                             fallbackWindow: fallback)
+            keepClosedDuringRestore(&registry)
+            return changes
         }
         // A workspace that changed profile leaves no trace in membership.
         if registry.value == before, preferred.isEmpty { repairSelections(previous: [:]) }
