@@ -546,12 +546,23 @@ final class AppServices {
         notifications.start(services: self)
         keyRouter.onTyping = { [weak self] window in self?.notifications.noteTyping(in: window) }
         (NSApp as? CmuxApplication)?.mouseDownObserver = { [weak self] event in
-            self?.notifications.noteMouseDown(in: event.window, at: event.locationInWindow)
+            let app = NSApp as? CmuxApplication
+            self?.notifications.noteMouseDown(in: event.window, at: event.locationInWindow, left: event.type == .leftMouseDown,
+                                              screen: event.type == .leftMouseDown ? app?.mouseDownScreenLocation : nil,
+                                              synthetic: app?.currentEventIsSynthetic ?? false)
             self?.browserHost?.noteInput(event)
             // A click anywhere ends link hints and a waiting chord (it may move the keyboard).
             self?.linkHints.cancel()
             self?.windowHints.cancel()
             self?.keyRouter.cancelChord()
+        }
+        (NSApp as? CmuxApplication)?.keyDownObserver = { [weak self] _ in self?.notifications.endViewHolds() }
+        (NSApp as? CmuxApplication)?.leftButtonObserver = { [weak self] event in
+            if event.type == .leftMouseDragged {
+                self?.notifications.noteMouseDragged(in: event.window, at: event.locationInWindow)
+            } else {
+                self?.notifications.noteMouseUp(in: event.window, at: event.locationInWindow)
+            }
         }
     }
     // MARK: Lookup
