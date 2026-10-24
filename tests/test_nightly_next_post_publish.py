@@ -71,6 +71,11 @@ for downstream in ("sign-nightly-identity-legacy", "verify-nightly-identity-lega
         failures.append(f"{downstream} must remain downstream of legacy-identity-target")
 if "publish-nightly" not in needs(job("publish-nightly-identity-legacy")):
     failures.append("legacy identity publication must wait for successful NEXT publication")
+legacy_publish = job("publish-nightly-identity-legacy")
+if "needs.publish-nightly.outputs.refused != 'true'" not in legacy_publish:
+    failures.append("legacy identity publication must stop when NEXT publication was refused")
+if "needs.publish-nightly.outputs.build == needs.legacy-identity-target.outputs.build" not in legacy_publish:
+    failures.append("legacy identity publication must match the exact NEXT build selected for the compatibility feed")
 
 if failures:
     print("FAIL: NEXT post-publication dependency contract\n  " + "\n  ".join(failures))
