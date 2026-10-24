@@ -451,11 +451,19 @@ pub struct Reporter {
     device_id: String,
     tokens: Arc<Tokens>,
     wants: Arc<Mutex<Wants>>,
+    /// Paired phones that gave a push key get the content sealed (`sealed_notify.rs`).
+    sealer: Option<Arc<crate::sealed_notify::Sealer>>,
 }
 
 impl Reporter {
     pub fn new(base_url: String, device_id: String, tokens: Arc<Tokens>) -> Self {
-        Self { base_url, device_id, tokens, wants: Arc::default() }
+        Self { base_url, device_id, tokens, wants: Arc::default(), sealer: None }
+    }
+
+    /// With the sealer of a supervised hostd.
+    pub fn with_sealer(mut self, sealer: Option<Arc<crate::sealed_notify::Sealer>>) -> Self {
+        self.sealer = sealer;
+        self
     }
 
     /// Whether a `kind` event would be sent now (the terminal watcher asks before reading the screen).
@@ -474,7 +482,13 @@ impl Reporter {
                 Ok(token) => token,
                 Err(error) => return tracing::warn!("no access token for a push ({error:#})"),
             };
-            match ApiClient::new(&this.base_url, &token).notify(&this.device_id, &event).await {
+            // Sealed to each paired phone's push key when it gave one (sealed_notify.rs).
+            let body = serde_json::to_value(&event).unwrap_or_default();
+            let body = match &this.sealer {
+                Some(sealer) => sealer.body(body).await,
+                None => body,
+            };
+            match ApiClient::new(&this.base_url, &token).notify_body(&this.device_id, &body).await {
                 Ok(result) => {
                     this.wants
                         .lock()
@@ -495,8 +509,9 @@ pub async fn run(
     tokens: Arc<Tokens>,
     acpmux: AcpmuxTarget,
     daemon_socket: Option<std::path::PathBuf>,
+    sealer: Option<Arc<crate::sealed_notify::Sealer>>,
 ) {
-    let reporter = Reporter::new(base_url, device_id, tokens);
+    let reporter = Reporter::new(base_url, device_id, tokens).with_sealer(sealer);
     let places = Arc::new(Places::default());
     if let Some(socket) = daemon_socket {
         tokio::spawn(crate::notify_terminal::run(socket, Arc::clone(&places), reporter.clone()));

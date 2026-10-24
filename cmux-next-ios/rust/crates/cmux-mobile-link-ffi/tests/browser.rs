@@ -79,6 +79,7 @@ async fn stream_over(transport: Transport, video_lane: bool) {
             ice: IceSource::Fixed(Vec::new()),
             include_loopback: true,
             exclude_cgnat: false,
+            mailbox: None,
         },
     ));
     let handle = connect_inner(
@@ -216,6 +217,7 @@ async fn browser_video_rides_the_media_session_beside_wireguard() {
             ice: IceSource::Fixed(Vec::new()),
             include_loopback: true,
             exclude_cgnat: false,
+            mailbox: None,
         },
     ));
     let handle = connect_inner(
@@ -322,6 +324,7 @@ async fn the_shown_tab_takes_the_media_lane_back(
             ice: IceSource::Fixed(Vec::new()),
             include_loopback: true,
             exclude_cgnat: false,
+            mailbox: None,
         },
     ));
     let handle = connect_inner(
@@ -434,6 +437,7 @@ async fn real_host_over_the_track() {
             ice: IceSource::Fixed(Vec::new()),
             include_loopback: true,
             exclude_cgnat: false,
+            mailbox: None,
         },
     ));
     let handle = connect_inner(

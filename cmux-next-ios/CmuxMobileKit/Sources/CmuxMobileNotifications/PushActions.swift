@@ -12,6 +12,10 @@ public enum PushCategory: String, CaseIterable, Sendable {
     case terminal = "CMUX_MOBILE_TERMINAL"
     /// The phone's own "Couldn't reach <Mac>" notification.
     case retry = "CMUX_MOBILE_RETRY"
+    /// A sealed push before it opened, and any push that is not to be acted
+    /// on (an unsealed one from a Mac that seals, a stale one): no buttons
+    /// (PR B security review H1).
+    case sealed = "CMUX_MOBILE_SEALED"
 }
 
 /// One notification button (PROTOCOL.md "Phone actions").
@@ -133,7 +137,7 @@ public struct PushActions: Sendable {
         case .question, .questionForm: [action(.answer)]
         case .permission: [action(.allowOnce), action(.deny)]
         case .completed, .failed, .chief: [action(.reply)]
-        case .terminal: []
+        case .terminal, .sealed: []
         case .retry: [action(.retry)]
         }
     }
@@ -152,7 +156,8 @@ public struct PushActions: Sendable {
             if question.allowsOther { out.append((.answer, title(.answer))) }
             return out
         case .permission:
-            guard !payload.options.isEmpty else { return [(.allowOnce, title(.allowOnce)), (.deny, title(.deny))] }
+            // None listed (a v1 push, or a sealed one the Mac trimmed to fit): the app opens on it.
+            guard !payload.options.isEmpty else { return [(.answer, title(.answer))] }
             var out: [(action: PushAction, title: String)] = []
             if payload.options.contains(where: { $0.kind == .allowOnce }) { out.append((.allowOnce, title(.allowOnce))) }
             // Never Always allow: acpmux refuses a lasting grant from a phone
@@ -162,7 +167,8 @@ public struct PushActions: Sendable {
         case .completed, .failed, .chief:
             return [(.reply, title(.reply))]
         case .terminal:
-            return []
+            // Text into the terminal (device unlock), only when its poster takes a reply.
+            return payload.replyable && payload.notificationId != nil ? [(.terminalReply, title(.terminalReply))] : []
         }
     }
 
