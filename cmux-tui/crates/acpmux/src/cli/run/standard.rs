@@ -5,7 +5,9 @@ use super::*;
 pub(super) fn handles(cmd: &Command) -> bool {
     matches!(
         cmd,
-        Command::Wait { .. }
+        Command::Dispatch(..)
+            | Command::Briefs(..)
+            | Command::Wait { .. }
             | Command::Ensure { .. }
             | Command::Continue(..)
             | Command::History { .. }
@@ -35,6 +37,8 @@ pub(super) fn handles(cmd: &Command) -> bool {
 
 pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> Result<()> {
     match cmd {
+        Command::Dispatch(args) => dispatch(connect(true).await?, args, json_out).await,
+        Command::Briefs(cmd) => briefs(connect(true).await?, cmd, json_out).await,
         Command::Wait {
             sessions,
             timeout,
@@ -750,6 +754,98 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         }
         _ => Err(anyhow!("command routed to the wrong dispatch family")),
     }
+}
+
+async fn dispatch(client: Arc<Client>, args: DispatchArgs, json_out: bool) -> Result<()> {
+    let brief = if args.brief.as_os_str() == "-" {
+        arg_or_stdin(&[])?
+    } else {
+        std::fs::read_to_string(&args.brief)?
+    };
+    let mut p = json!({"brief":brief,"host":args.host});
+    let obj = p.as_object_mut().unwrap();
+    for (key, value) in [
+        ("title", args.title),
+        ("to", args.to),
+        ("stopCondition", args.stop_condition),
+        ("model", args.model),
+        ("preset", args.preset),
+        ("policy", args.policy),
+    ] {
+        if let Some(value) = value {
+            obj.insert(key.into(), json!(value));
+        }
+    }
+    if let Some(cwd) = args.cwd {
+        obj.insert("cwd".into(), json!(cwd));
+    }
+    let v = client.request(crate::rpc::method::MUX_DISPATCH, p).await?;
+    if json_out {
+        print_json(&v);
+    } else {
+        if let Some(warning) = v.get("warning").and_then(Value::as_str) {
+            eprintln!("warning: {warning}");
+        }
+        if let Some(host) = v.get("suggestedHost").and_then(Value::as_str) {
+            eprintln!("suggestion: dispatch the next brief to {host}");
+        }
+        let b = v.get("brief").unwrap_or(&v);
+        println!(
+            "sent brief {:?} → {} on {}",
+            b.get("title").and_then(Value::as_str).unwrap_or("brief"),
+            b.get("to").and_then(Value::as_str).unwrap_or("agent"),
+            b.get("host").and_then(Value::as_str).unwrap_or("local")
+        );
+    }
+    Ok(())
+}
+
+async fn briefs(client: Arc<Client>, cmd: BriefsCmd, json_out: bool) -> Result<()> {
+    let v =
+        match cmd {
+            BriefsCmd::Ls { status, limit } => {
+                client
+                    .request(crate::rpc::method::MUX_BRIEFS, json!({"status":status,"limit":limit}))
+                    .await?
+            }
+            BriefsCmd::Steer { brief_id, text } => {
+                client
+                    .request(
+                        crate::rpc::method::MUX_STEER,
+                        json!({"briefId":brief_id,"text":arg_or_stdin(&text)?}),
+                    )
+                    .await?
+            }
+            BriefsCmd::Report { brief_id, summary, status } => client
+                .request(
+                    crate::rpc::method::MUX_REPORT,
+                    json!({"briefId":brief_id,"summary":arg_or_stdin(&summary)?,"status":status}),
+                )
+                .await?,
+        };
+    if json_out {
+        print_json(&v);
+        return Ok(());
+    }
+    if let Some(rows) = v.get("briefs").and_then(Value::as_array) {
+        for b in rows {
+            println!(
+                "{:<24} {:<9} {}",
+                b.get("briefId").and_then(Value::as_str).unwrap_or("?"),
+                b.get("status").and_then(Value::as_str).unwrap_or("?"),
+                b.get("title").and_then(Value::as_str).unwrap_or("")
+            );
+        }
+    } else {
+        println!(
+            "{}",
+            v.get("brief")
+                .and_then(|b| b.get("status"))
+                .and_then(Value::as_str)
+                .unwrap_or("updated")
+        );
+    }
+    Ok(())
 }
 
 /// Whether `acpmux send` steers: `--steer` always, `--no-steer` never, else a message sent
