@@ -67,6 +67,10 @@ Usage (a fleet GUI host, never Lawrence's Mac):
   trace.py record --bundle APP --out DIR [--socket S] [--seconds-cap 600] -- python3 scripts/cmux-next/every-action-sweep.py ...
   trace.py export DIR          rebuild DIR/trace.json.gz and the summary from DIR's raw files
   trace.py summary DIR         print DIR's summary again
+  trace.py check-import DIR --trace-processor BIN
+                               load DIR/trace.json.gz with Perfetto's trace_processor_shell: every signposts,
+                               watchdog-stalls and daemon-spans track is its own named thread track with all its
+                               slices, and the importer reports no error or data loss (DIR/import-check.json)
   trace.py --self-test         check the parsers (hand-written export shapes, not yet a real xctrace export),
                                the merge, the clock alignment, the stage bounds, the stop path, the export,
                                the signals, the one SIGINT to xctrace, the uint32 track ids and the
@@ -1035,8 +1039,11 @@ class TraceApp:
         from bench_launch import BenchApp
         self.spans = os.path.join(out, "daemon-spans.jsonl")
         self.probe = os.path.join(out, "typing.csv")
+        self.flows = os.path.join(out, "flows")
+        os.makedirs(self.flows, exist_ok=True)
+        # CMUX_TRACE_FLOWS reaches the daemon (a CMUX_ key, TerminalEnvironment) and from it the hosts and the holder.
         env = {"CMUX_NEXT_HANG_THRESHOLD_MS": str(opts.hang_ms), "CMUX_NEXT_TYPING_PROBE": self.probe,
-               "CMUX_TUI_DEBUG_SPANS": self.spans, "CMUX_NEXT_NO_ACTIVATE": None}
+               "CMUX_TUI_DEBUG_SPANS": self.spans, "CMUX_TRACE_FLOWS": self.flows, "CMUX_NEXT_NO_ACTIVATE": None}
         self.cdp_port = None
         if not opts.no_cef:
             self.cdp_port = opts.cdp_port or free_port()
@@ -1232,6 +1239,24 @@ class Recording:
             self.meta["stress"]["shape_error"] = str(error)[:600]
             self.warn(f"NOT the STRESS shape: {error}")
         note(f"STRESS built in {time.monotonic() - started:.0f} s: {json.dumps(self.meta['stress'])}")
+        self.focus_quiet_terminal()
+
+    def focus_quiet_terminal(self):
+        """Focuses a pane of the measured workspace whose selected tab is a terminal that is not one of the busy
+        ones, so the keys go to a terminal whose only output is their echo. A key-press flow takes the first
+        output on its terminal after the PTY write as the echo: on a busy terminal that would be the busy loop's
+        line (plans/cmux-next/trace.md, "Key-press flows")."""
+        stress = self.stress
+        busy = set(getattr(stress, "busy", []) or [])
+        panes = stress.panes(stress.workspace(getattr(stress, "measured", None)))
+        quiet = next((pane for pane in reversed(panes)
+                      if any(t.get("kind") == "terminal" and t.get("selected") and t.get("id") not in busy
+                             for t in pane.get("tabs") or [])), None)
+        if quiet is None:
+            self.warn("no quiet terminal in the measured workspace: key-press flows type into a busy terminal")
+            return
+        stress.focus_pane(quiet["id"])
+        self.meta["typed_pane"] = quiet["id"]
 
     def build_light(self):
         """The light session: the window placed at the STRESS size, LIGHT_BACKGROUND workspaces (targets of the
@@ -2041,7 +2066,162 @@ def daemon_span_events(out, daemon_pid, tracks):
                 events.append({"ph": "X", "pid": daemon_pid, "tid": tid, "ts": start + previous, "dur": at - previous,
                                "name": str(name), "cat": "daemon.spans"})
             previous = max(previous, at)
-    return events, {"lines": lines, "lanes": len(lanes.stacks)}, rows
+    names = {(daemon_pid, tracks.tid(daemon_pid, ("daemon spans", lane))): "daemon spans" + (f" {lane + 1}" if lane else "")
+             for lane in range(len(lanes.stacks))}
+    return events, {"lines": lines, "lanes": len(lanes.stacks), "track_names": names}, rows
+
+
+# ---------------------------------------------------------------- key-press flows
+
+# The hops of one terminal key press in causal order (plans/cmux-next/trace.md, "Key-press flows"). A tuple
+# lists the alternatives of one hop: the `__terminal-host` model, then the holder model (where the daemon writes
+# the PTY itself and the holder only reads the echo). `app.*` hops are the app's `key.flow` signpost events
+# (TypingLatencyProbe), carrying the flow id; `daemon.send.*` carry it from the `send` request; the others are
+# flow 0 on the terminal the press went to (CMUX_TRACE_FLOWS records of the daemon, host and holder).
+FLOW_HOPS = [
+    ("app.key.dispatch",), ("app.key.terminal",), ("app.io_write",), ("app.send",),
+    ("daemon.send.write",), ("host.pty.write", "daemon.pty.write"), ("daemon.send.written",),
+    ("host.pty.read", "holder.pty.read"), ("daemon.output.host", "daemon.output.holder"), ("daemon.output.attach",),
+    ("app.output.decoded",), ("app.output.received",), ("app.output.parsed",), ("app.frame.contents",), ("app.frame.commit",),
+]
+# For each flow-0 hop: the hop whose time it must follow (the cause), so the first record after it on the same
+# terminal is this press's. `daemon.send.written` is not a cause of the host's write: the daemon's send returns
+# when the frame is on the host's socket, before or after the host writes the PTY.
+FLOW_ANCHOR = {"host.pty.write": "daemon.send.write", "daemon.pty.write": "daemon.send.write",
+               "host.pty.read": "pty.write", "holder.pty.read": "pty.write",
+               "daemon.output.host": "pty.read", "daemon.output.holder": "pty.read",
+               "daemon.output.attach": "output"}
+FLOW_GROUP = {"host.pty.write": "pty.write", "daemon.pty.write": "pty.write", "host.pty.read": "pty.read",
+              "holder.pty.read": "pty.read", "daemon.output.host": "output", "daemon.output.holder": "output"}
+
+
+def read_flow_records(out):
+    """The daemon's, hosts' and holder's CMUX_TRACE_FLOWS records (OUT/flows/flows-<pid>.jsonl), times in us,
+    and the dropped counts each process reported."""
+    records, dropped = [], {}
+    folder = os.path.join(out, "flows")
+    for name in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
+        with open(os.path.join(folder, name), errors="replace") as f:
+            for line in f:
+                try:
+                    row = json.loads(line)
+                except ValueError:
+                    continue
+                if "dropped" in row:
+                    dropped[name] = row["dropped"]
+                elif row.get("hop"):
+                    records.append({"hop": row["hop"], "flow": int(row.get("flow") or 0), "terminal": row.get("terminal") or "",
+                                    "pid": row.get("pid"), "tid": row.get("tid"), "at_us": float(row["t_ns"]) / 1000.0})
+    return records, dropped
+
+
+def assemble_flows(app_events, records):
+    """One entry per key press the app opened: its hops in causal order, each {hop, at_us, pid, tid}, the hops
+    it misses, and whether it is complete (every hop of FLOW_HOPS, one alternative each)."""
+    app_hops = collections.defaultdict(dict)
+    for event in app_events:
+        fields = signposts_lib.fields(event.get("message") or "")
+        try:
+            flow = int(fields.get("flow", "0"))
+        except ValueError:
+            continue
+        hop = fields.get("hop")
+        if flow and hop and hop not in app_hops[flow]:
+            app_hops[flow][hop] = {"hop": hop, "at_us": event["at_us"], "pid": event.get("pid"), "tid": event.get("tid"),
+                                   "age_us": fields.get("age_us")}
+    by_flow = collections.defaultdict(dict)
+    by_terminal = collections.defaultdict(list)
+    for record in records:
+        if record["flow"]:
+            by_flow[record["flow"]].setdefault(record["hop"], record)
+        else:
+            by_terminal[(record["hop"], record["terminal"])].append(record)
+    for rows in by_terminal.values():
+        rows.sort(key=lambda r: r["at_us"])
+    import bisect
+    times = {key: [r["at_us"] for r in rows] for key, rows in by_terminal.items()}
+    flows = []
+    for flow in sorted(app_hops, key=lambda f: app_hops[f].get("app.key.dispatch", {"at_us": 0})["at_us"]):
+        # A press that never reached a terminal (a chord the key router ran as an action) has no echo to follow.
+        if "app.key.dispatch" not in app_hops[flow] or "app.key.terminal" not in app_hops[flow]:
+            continue
+        found = dict(app_hops[flow])
+        for hop, record in by_flow.get(flow, {}).items():
+            found.setdefault(hop, {"hop": hop, "at_us": record["at_us"], "pid": record["pid"], "tid": record["tid"]})
+        terminal = (by_flow.get(flow, {}).get("daemon.send.write") or {}).get("terminal")
+        groups = {}
+        bound = (found.get("app.output.decoded") or {}).get("at_us", float("inf"))
+        for alternatives in FLOW_HOPS:
+            for hop in alternatives:
+                anchor_name = FLOW_ANCHOR.get(hop)
+                if not anchor_name or not terminal:
+                    continue
+                anchor = groups.get(anchor_name) or found.get(anchor_name)
+                if not anchor:
+                    continue
+                rows = by_terminal.get((hop, terminal)) or []
+                index = bisect.bisect_left(times.get((hop, terminal)) or [], anchor["at_us"])
+                if index < len(rows) and rows[index]["at_us"] <= bound:
+                    record = rows[index]
+                    found[hop] = {"hop": hop, "at_us": record["at_us"], "pid": record["pid"], "tid": record["tid"]}
+                    groups[FLOW_GROUP.get(hop, hop)] = found[hop]
+                    break
+        chain, missing = [], []
+        for alternatives in FLOW_HOPS:
+            present = [found[hop] for hop in alternatives if hop in found]
+            if present:
+                chain.append(present[0])
+            else:
+                missing.append("|".join(alternatives))
+        chain.sort(key=lambda h: h["at_us"])
+        flows.append({"flow": flow, "terminal": terminal, "hops": chain, "missing": missing, "complete": not missing})
+    return flows
+
+
+def flow_events(flows, tracks, lane_names):
+    """One slice per hop on a `key flow` track of the hop's process, from the hop to the next hop of the press,
+    chained by Perfetto flow arrows (JSON flow v2: `bind_id`, `flow_out`, `flow_in`)."""
+    events, lanes = [], collections.defaultdict(Lanes)
+    for entry in flows:
+        hops = entry["hops"]
+        for index, hop in enumerate(hops):
+            end = hops[index + 1]["at_us"] if index + 1 < len(hops) else hop["at_us"] + 1.0
+            start = hop["at_us"]
+            pid = hop["pid"]
+            lane = lanes[pid].place(start, max(end, start + 1.0))
+            tid = tracks.tid(pid, ("key flow", lane))
+            lane_names[(pid, tid)] = "key flow" + (f" {lane + 1}" if lane else "")
+            event = {"ph": "X", "pid": pid, "tid": tid, "ts": start, "dur": max(end - start, 1.0), "name": hop["hop"],
+                     "cat": "key.flow", "bind_id": f"0x{entry['flow']:x}",
+                     "args": {"flow": f"0x{entry['flow']:x}", "thread": hop.get("tid"),
+                              "to_next_ms": round((end - start) / 1000, 3), "complete": entry["complete"]}}
+            if index + 1 < len(hops):
+                event["flow_out"] = True
+            if index:
+                event["flow_in"] = True
+            events.append(event)
+    return events
+
+
+def flow_summary(flows, dropped):
+    """Per hop: the time from the previous hop of the press (FLOW_HOPS order) over the complete presses; key to
+    the frame's commit; the incomplete presses with what they miss."""
+    complete = [f for f in flows if f["complete"]]
+    steps = collections.defaultdict(list)
+    totals = []
+    for entry in complete:
+        at = {h["hop"]: h["at_us"] for h in entry["hops"]}
+        ordered = [next(hop for hop in alternatives if hop in at) for alternatives in FLOW_HOPS]
+        for previous, hop in zip(ordered, ordered[1:]):
+            steps[hop].append((at[hop] - at[previous]) / 1000)
+        totals.append((at["app.frame.commit"] - at["app.key.dispatch"]) / 1000)
+    return {"presses": len(flows), "complete": len(complete), "key_to_commit_ms": pct(totals),
+            "hop_ms": {hop: pct(values) for hop, values in steps.items()},
+            "incomplete": [{"flow": f"0x{f['flow']:x}", "missing": f["missing"]} for f in flows if not f["complete"]][:10],
+            "dropped_records": dropped,
+            "flows": [{"flow": f"0x{f['flow']:x}", "terminal": f["terminal"], "complete": f["complete"],
+                       "hops": [{"hop": h["hop"], "at_us": round(h["at_us"], 1), "pid": h["pid"]} for h in f["hops"]]}
+                      for f in flows[:60]]}
 
 
 def build(out):
@@ -2160,6 +2340,7 @@ def build(out):
                         "end_us": ts + duration / 1000.0, "call": call, "class": reason, "stack": list(stack)[:30]})
     # Daemon spans, Chromium, the driver.
     span_events, span_info, span_rows = daemon_span_events(out, daemon_pid, tracks)
+    lane_names.update(span_info.pop("track_names"))
     events += span_events
     events += chrome
     driver = read_json(os.path.join(out, "driver.json"), []) or []
@@ -2173,6 +2354,12 @@ def build(out):
         lane_names[(DRIVER_PID, tid)] = f"driver {item['kind']}" + (f" {lane + 1}" if lane else "")
         events.append({"ph": "X", "pid": DRIVER_PID, "tid": tid, "ts": start, "dur": max(1.0, end - start),
                        "cat": "driver", "name": item["name"], "args": item.get("args") or {}})
+    # Key-press flows: the app's key.flow hops and the daemon's, hosts' and holder's flow records.
+    flow_records, flow_dropped = read_flow_records(out)
+    key_flows = assemble_flows([e for e in signposts["events"] if e["name"] == "key.flow"], flow_records)
+    events += flow_events(key_flows, tracks, lane_names)
+    for pid in {r["pid"] for r in flow_records if r.get("pid")}:
+        roles.setdefault(pid, (known.get(pid) or {}).get("role") or "bundle-other")
     # Metadata: names and order.
     meta_events = [{"ph": "M", "pid": DRIVER_PID, "name": "process_name", "args": {"name": "scenario driver"}},
                    {"ph": "M", "pid": DRIVER_PID, "name": "process_sort_index", "args": {"sort_index": -1}}]
@@ -2204,6 +2391,7 @@ def build(out):
                                                                             "recorder")}) + "}\n")
     summary = summarize(meta, roles, app_pid, samples, offset_us, signposts, stall_records, blocked, span_rows, chrome,
                         chrome_info, threads_by_pid)
+    summary["key_flows"] = flow_summary(key_flows, flow_dropped)
     summary["sources"] = {
         "trace": trace_path, "trace_bytes": os.path.getsize(trace_path), "events": len(events),
         "samples": len(samples), "sampled_processes": len(names), "xctrace_clock": offset_how,
@@ -2538,6 +2726,20 @@ def summary_text(s):
                      f"n={i2c.get('count', 0)}  commit {commit.get('p50_ms', '-')}/{commit.get('p95_ms', '-')}  "
                      f"perform {perform.get('p50_ms', '-')}/{perform.get('p95_ms', '-')}"
                      + (f"  missed {rows['action.commit.missed']['count']}" if rows.get("action.commit.missed") else ""))
+    flows = s.get("key_flows") or {}
+    if flows.get("presses"):
+        total = flows.get("key_to_commit_ms") or {}
+        lines.append(f"Key-press flows: {flows['complete']} of {flows['presses']} presses complete; key to the echo frame's "
+                     f"commit p50 {total.get('p50')} p95 {total.get('p95')} max {total.get('max')} ms")
+        for alternatives in FLOW_HOPS[1:]:
+            for hop in alternatives:
+                row = (flows.get("hop_ms") or {}).get(hop)
+                if row:
+                    lines.append(f"  {hop:24} +{row['p50']}/{row['p95']}/{row['max']} ms (p50/p95/max, n={row['n']})")
+        for entry in flows.get("incomplete") or []:
+            lines.append(f"  incomplete {entry['flow']}: missing {', '.join(entry['missing'])}")
+        if flows.get("dropped_records"):
+            lines.append(f"  flow records dropped (queue full): {flows['dropped_records']}")
     lines.append("Cross-process waits (main thread off CPU):")
     for cls, w in sorted((s.get("waits") or {}).items(), key=lambda kv: -kv[1]["ms"]):
         lines.append(f"  {cls:22} {w['count']:4} x, {w['ms']} ms total, max {w['max_ms']} ms; e.g. {w['example']}")
@@ -2549,6 +2751,106 @@ def summary_text(s):
     for gap in s.get("unobserved") or []:
         lines.append(f"  no spans: {gap}")
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------- Perfetto import check
+
+# The tracks that must import as their own thread tracks, by name prefix (the synthetic tracks build() names).
+IMPORT_TRACKS = ("signposts ", "watchdog stalls", "daemon spans", "key flow")
+IMPORT_QUERY_FLOWS = """
+select count(*) as flows from flow
+"""
+IMPORT_QUERY_TRACKS = """
+select p.pid as pid, t.tid as tid, t.name as name, count(s.id) as slices
+from thread t left join process p using (upid)
+left join thread_track tt using (utid) left join slice s on s.track_id = tt.id
+group by t.utid
+"""
+IMPORT_QUERY_STATS = """
+select name, idx, severity, source, value from stats where value > 0 and severity in ('error', 'data_loss')
+"""
+IMPORT_TIMEOUT_S = 600  # one trace_processor_shell query over a trace of up to a few hundred MB
+
+
+def expected_slices(events):
+    """{(pid, tid): slices} the JSON importer must make: complete (X), begin (B) and thread-scoped instant
+    (i / I without s, or s=t) events. Also {(pid, tid): thread name}."""
+    slices, names = collections.Counter(), {}
+    for e in events:
+        ph, key = e.get("ph"), (e.get("pid"), e.get("tid"))
+        if ph == "M" and e.get("name") == "thread_name":
+            names[key] = (e.get("args") or {}).get("name")
+        elif ph in ("X", "B") or (ph in ("i", "I") and e.get("s", "t") == "t"):
+            slices[key] += 1
+    return slices, names
+
+
+def run_query(trace_processor, trace, sql):
+    """Rows (dicts) of one SQL query through `trace_processor_shell -q`, which prints the result as CSV."""
+    import csv, io
+    with tempfile.NamedTemporaryFile("w", suffix=".sql", delete=False) as f:
+        f.write(sql)
+        query = f.name
+    try:
+        done = subprocess.run([trace_processor, "-q", query, trace], capture_output=True, text=True,
+                              timeout=IMPORT_TIMEOUT_S)
+    finally:
+        os.unlink(query)
+    if done.returncode != 0:
+        raise RuntimeError(f"trace_processor_shell exited {done.returncode}: {done.stderr[-600:]}")
+    lines = [l for l in done.stdout.splitlines() if l.strip()]
+    start = next((i for i, l in enumerate(lines) if l.startswith('"')), None)  # the header row; logs come before it
+    if start is None:
+        raise RuntimeError(f"trace_processor_shell printed no CSV header: {done.stdout[:600]!r} {done.stderr[-300:]!r}")
+    return list(csv.DictReader(io.StringIO("\n".join(lines[start:]))))
+
+
+def check_import(out, trace_processor):
+    """Loads OUT/trace.json.gz with trace_processor_shell (Perfetto's importer, the one ui.perfetto.dev runs)
+    and checks that every signposts, watchdog-stalls and daemon-spans track imports as its own named thread
+    track with every slice the JSON holds, and that the importer reports no error or data loss. Writes
+    OUT/import-check.json; returns (ok, report)."""
+    trace = os.path.join(out, "trace.json.gz")
+    with gzip.open(trace, "rt") as f:
+        events = json.load(f)["traceEvents"]
+    want, names = expected_slices(events)
+    rows = run_query(trace_processor, trace, IMPORT_QUERY_TRACKS)
+    got = {}
+    for row in rows:
+        try:
+            got[(int(row["pid"]), int(row["tid"]))] = (row["name"], int(row["slices"]))
+        except (TypeError, ValueError, KeyError):
+            continue
+    stats = run_query(trace_processor, trace, IMPORT_QUERY_STATS)
+    # Each key-press chain of n hop slices is n - 1 arrows (flow_out on all but the last, flow_in on all but the first).
+    want_flows = sum(1 for e in events if e.get("flow_out"))
+    got_flows = int((run_query(trace_processor, trace, IMPORT_QUERY_FLOWS) or [{"flows": 0}])[0].get("flows") or 0)
+    problems, tracks = [], []
+    if got_flows != want_flows:
+        problems.append(f"{want_flows} key-flow arrows in the JSON, {got_flows} imported")
+    for key, name in sorted(names.items(), key=lambda kv: str(kv)):
+        if not (name or "").startswith(IMPORT_TRACKS):
+            continue
+        imported = got.get(key)
+        tracks.append({"pid": key[0], "tid": key[1], "name": name, "json_slices": want.get(key, 0),
+                       "imported": imported})
+        if imported is None:
+            problems.append(f"{name} (pid {key[0]} tid {key[1]}) is not a thread in the import")
+        elif imported[0] != name:
+            problems.append(f"{name} imported as {imported[0]!r}")
+        elif imported[1] != want.get(key, 0):
+            problems.append(f"{name}: {want.get(key, 0)} slices in the JSON, {imported[1]} imported")
+    kinds = {prefix.strip(): sum(1 for t in tracks if t["name"].startswith(prefix)) for prefix in IMPORT_TRACKS}
+    utids = {(t["pid"], t["tid"]) for t in tracks}
+    if len(utids) != len(tracks):
+        problems.append("two named tracks share one thread")
+    for row in stats:
+        problems.append(f"importer stat {row.get('name')}[{row.get('idx')}] = {row.get('value')} ({row.get('severity')})")
+    report = {"ok": not problems, "problems": problems, "tracks_by_kind": kinds, "flows": {"json": want_flows, "imported": got_flows},
+              "tracks": tracks, "stats": stats,
+              "threads_imported": len(got), "events": len(events)}
+    write_json(os.path.join(out, "import-check.json"), report)
+    return not problems, report
 
 
 # ---------------------------------------------------------------- self-test
@@ -2638,6 +2940,10 @@ def check_parsers_and_merge():
         assert summary["waits"]["stall:lock"]["count"] == 1 and "unattributed" not in summary["waits"], summary["waits"]
         span = next(e for e in trace["traceEvents"] if e.get("name") == "daemon new-tab")
         assert span["ts"] == 2000.0 and span["dur"] == 3000.0, span
+        # Every synthetic track has a name (Perfetto shows an unnamed one as "Thread <tid>").
+        named = {(e.get("pid"), e.get("tid")): e["args"]["name"] for e in trace["traceEvents"]
+                 if e.get("ph") == "M" and e.get("name") == "thread_name"}
+        assert named.get((span["pid"], span["tid"])) == "daemon spans", named
         assert summary["sources"]["chromium"]["clock"]["offset_us"] == 0.0, summary["sources"]["chromium"]
         assert summary["top_stalls"][0]["chromium_main_thread"][0]["event"].startswith("ThreadControllerImpl::RunTask (OnFrame)"), summary
         task = next(e for e in trace["traceEvents"] if e.get("name") == "ThreadControllerImpl::RunTask")
@@ -3192,12 +3498,112 @@ def check_refuses_a_running_bundle():
             other.wait()
 
 
-SELF_TESTS = [check_parsers_and_merge, check_stage_bounds, check_stage_errors, check_hold_defers_the_bound,
+def check_import_with_a_fake_trace_processor():
+    """check_import counts what the JSON importer must make and compares it with what trace_processor_shell
+    reports: a track with a dropped slice, an importer stat and a missing track each fail it."""
+    with tempfile.TemporaryDirectory() as out:
+        events = [{"ph": "M", "pid": 1, "tid": 7, "name": "thread_name", "args": {"name": "signposts action"}},
+                  {"ph": "M", "pid": 1, "tid": 8, "name": "thread_name", "args": {"name": "watchdog stalls"}},
+                  {"ph": "M", "pid": 2, "tid": 9, "name": "thread_name", "args": {"name": "daemon spans"}},
+                  {"ph": "M", "pid": 1, "tid": 5, "name": "thread_name", "args": {"name": "Main Thread"}},
+                  {"ph": "X", "pid": 1, "tid": 7, "ts": 1, "dur": 2, "name": "a"},
+                  {"ph": "X", "pid": 1, "tid": 7, "ts": 1, "dur": 1, "name": "b"},
+                  {"ph": "i", "s": "t", "pid": 1, "tid": 8, "ts": 1, "name": "c"},
+                  {"ph": "i", "s": "g", "pid": 1, "tid": 8, "ts": 1, "name": "global"},
+                  {"ph": "X", "pid": 2, "tid": 9, "ts": 1, "dur": 2, "name": "d"},
+                  {"ph": "X", "pid": 1, "tid": 5, "ts": 1, "dur": 2, "name": "e"}]
+        with gzip.open(os.path.join(out, "trace.json.gz"), "wt") as f:
+            json.dump({"traceEvents": events}, f)
+        fake = os.path.join(out, "trace_processor_shell")
+
+        def write_fake(track_rows, stat_rows, flow_rows='"flows"\n0\n'):
+            with open(fake, "w") as f:
+                f.write("#!/bin/sh\n"
+                        "if grep -q 'from stats' \"$2\"; then cat <<'EOF'\n" + stat_rows + "EOF\n"
+                        "elif grep -q 'from flow' \"$2\"; then cat <<'EOF'\n" + flow_rows + "EOF\n"
+                        "else cat <<'EOF'\n" + track_rows + "EOF\nfi\n")
+            os.chmod(fake, 0o755)
+
+        header = 'Loading trace: 0.01 MB\n"pid","tid","name","slices"\n'
+        good = header + '1,7,"signposts action",2\n1,8,"watchdog stalls",1\n2,9,"daemon spans",1\n1,5,"Main Thread",1\n'
+        no_stats = '"name","idx","severity","source","value"\n'
+        write_fake(good, no_stats)
+        ok, report = check_import(out, fake)
+        assert ok and report["tracks_by_kind"] == {"signposts": 1, "watchdog stalls": 1, "daemon spans": 1, "key flow": 0}, report
+        write_fake(good.replace('"signposts action",2', '"signposts action",1'), no_stats)
+        ok, report = check_import(out, fake)
+        assert not ok and "2 slices in the JSON, 1 imported" in report["problems"][0], report["problems"]
+        write_fake(good, no_stats + '"json_parser_failure","[NULL]","error","trace",3\n')
+        ok, report = check_import(out, fake)
+        assert not ok and "json_parser_failure" in report["problems"][0], report["problems"]
+        write_fake(good.replace('2,9,"daemon spans",1\n', ""), no_stats)
+        ok, report = check_import(out, fake)
+        assert not ok and "daemon spans (pid 2 tid 9) is not a thread" in report["problems"][0], report["problems"]
+
+
+def check_key_flows():
+    """A press through the host model and one through the holder model assemble into complete chains on one
+    clock, the flow-0 hops of a busy other terminal never join them, a press whose echo never came back is
+    incomplete and names its missing hops, and the chain becomes hop slices joined by n - 1 flow arrows."""
+    def app(flow, hop, at, tid=1):
+        return {"name": "key.flow", "pid": 10, "tid": tid, "at_us": at, "message": f"hop={hop} flow={flow} age_us=5"}
+
+    def rec(hop, at, flow=0, terminal="aa", pid=20):
+        return {"hop": hop, "flow": flow, "terminal": terminal, "pid": pid, "tid": 7, "at_us": at}
+
+    a, b, c = (10 << 32) | 1, (10 << 32) | 2, (10 << 32) | 3
+    app_events = []
+    for flow, base in ((a, 1000.0), (b, 5000.0), (c, 9000.0)):
+        for i, hop in enumerate(("app.key.dispatch", "app.key.terminal", "app.io_write", "app.send")):
+            app_events.append(app(flow, hop, base + i))
+    for flow, base in ((a, 1100.0), (b, 5100.0)):
+        for i, hop in enumerate(("app.output.decoded", "app.output.received", "app.output.parsed", "app.frame.contents",
+                                 "app.frame.commit")):
+            app_events.append(app(flow, hop, base + 10 * i))
+    records = [
+        # Press a: the __terminal-host model (the daemon's written mark before the host's write: no order needed).
+        rec("daemon.send.write", 1010, a), rec("daemon.send.written", 1012, a), rec("host.pty.write", 1015, pid=30),
+        rec("host.pty.read", 1040, pid=30), rec("daemon.output.host", 1050), rec("daemon.output.attach", 1060),
+        # A busy other terminal: its reads must never join.
+        rec("host.pty.read", 1020, terminal="bb", pid=31), rec("daemon.output.host", 1021, terminal="bb"),
+        # Press b: the holder model.
+        rec("daemon.send.write", 5010, b), rec("daemon.pty.write", 5011), rec("daemon.send.written", 5012, b),
+        rec("holder.pty.read", 5030, pid=40), rec("daemon.output.holder", 5040), rec("daemon.output.attach", 5050),
+        # Press c: sent, written, never echoed.
+        rec("daemon.send.write", 9010, c), rec("host.pty.write", 9015, pid=30), rec("daemon.send.written", 9016, c),
+    ]
+    chord = (10 << 32) | 9  # a chord the key router ran: dispatched, never at a terminal
+    app_events.append(app(chord, "app.key.dispatch", 7000.0))
+    flows = assemble_flows(app_events, records)
+    by = {f["flow"]: f for f in flows}
+    assert chord not in by, "a press that never reached a terminal was counted as a flow"
+    assert by[a]["complete"] and by[b]["complete"], [(hex(f["flow"]), f["missing"]) for f in flows]
+    hops_a = [h["hop"] for h in by[a]["hops"]]
+    assert "host.pty.read" in hops_a and by[a]["hops"][hops_a.index("host.pty.read")]["pid"] == 30, by[a]
+    assert all(h["at_us"] != 1020 and h["at_us"] != 1021 for h in by[a]["hops"]), "the busy terminal's output joined"
+    assert "holder.pty.read" in [h["hop"] for h in by[b]["hops"]], by[b]
+    assert not by[c]["complete"] and "host.pty.read|holder.pty.read" in by[c]["missing"], by[c]["missing"]
+    assert [h["at_us"] for h in by[a]["hops"]] == sorted(h["at_us"] for h in by[a]["hops"])
+    names = {}
+    events = flow_events(flows, SyntheticTracks(set()), names)
+    chain = [e for e in events if e["bind_id"] == f"0x{a:x}"]
+    assert len(chain) == len(by[a]["hops"]) == 15, len(chain)
+    assert sum(1 for e in chain if e.get("flow_out")) == 14 and sum(1 for e in chain if e.get("flow_in")) == 14
+    assert not chain[0].get("flow_in") and not chain[-1].get("flow_out")
+    assert set(names.values()) == {"key flow"}, names
+    summary = flow_summary(flows, {})
+    assert summary["presses"] == 3 and summary["complete"] == 2, summary
+    assert summary["key_to_commit_ms"]["n"] == 2 and summary["hop_ms"]["daemon.send.write"]["n"] == 2, summary
+
+
+SELF_TESTS = [check_parsers_and_merge, check_stage_bounds, check_stage_errors,
+              check_hold_defers_the_bound,
               check_stop_survives_a_failing_source, check_record_ends_cleanly, check_xctrace_held_before_start,
               check_wrapped_group_ends,
               check_export_part_files, check_xctrace_clock, check_cef_validity, check_bound_inside_a_swallowing_wait,
               check_signal_after_the_stop, check_xctrace_gets_one_sigint, check_synthetic_tids_fit_uint32,
-              check_cli_named_cmux_is_not_the_app, check_refuses_a_running_bundle, check_signpost_clock]
+              check_cli_named_cmux_is_not_the_app, check_refuses_a_running_bundle, check_signpost_clock,
+              check_import_with_a_fake_trace_processor, check_key_flows]
 
 
 def self_test():
@@ -3245,6 +3651,9 @@ def main():
     exp.add_argument("dir")
     show = sub.add_parser("summary", help="print DIR's summary")
     show.add_argument("dir")
+    imp = sub.add_parser("check-import", help="load DIR/trace.json.gz with trace_processor_shell and check its tracks")
+    imp.add_argument("dir")
+    imp.add_argument("--trace-processor", required=True, help="a trace_processor_shell binary (Perfetto)")
     opts = parser.parse_args()
     if opts.self_test:
         return self_test()
@@ -3260,6 +3669,11 @@ def main():
         export_xctrace(opts.dir)
         print(summary_text(build(opts.dir)))
         return 0
+    if opts.verb == "check-import":
+        ok, report = check_import(opts.dir, opts.trace_processor)
+        print(f"trace: import check {'ok' if ok else 'FAILED'}: tracks {report['tracks_by_kind']}, "
+              f"{report['threads_imported']} threads imported" + "".join(f"\n  {p}" for p in report["problems"]))
+        return 0 if ok else 1
     if opts.verb == "summary":
         summary = read_json(os.path.join(opts.dir, "summary.json"))
         if summary is None:
