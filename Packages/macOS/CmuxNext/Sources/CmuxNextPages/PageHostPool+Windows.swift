@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 
 extension PageHostPool {
     /// Moves the parked spare to the target window without reloading it.
@@ -18,10 +19,21 @@ extension PageHostPool {
     }
 
     /// Follows main windows as they become key and drops the spare after the last one closes.
-    /// A main window already on screen (the key one first) is the first target.
+    /// A main window already on screen (the key one first) is the first target. Also follows the
+    /// pooled pages' engine: the app's hosting reads `browser.defaultEngine` from the observable
+    /// settings snapshot, so a switch to Chromium drops the spare at once
+    /// (``engineMayHaveChanged()``).
     public func start(isMainWindow: @escaping @MainActor (NSWindow) -> Bool,
                       fallback: @escaping @MainActor (NSWindow) -> NSWindow?) {
         guard windowObservers.isEmpty else { return }
+        engineObservation = Task { [weak self] in
+            var previous: Bool?
+            for await serves in ObservationStream({ [weak self] in self?.servesWebKitPage ?? false }) {
+                guard let self else { return }
+                if let previous, previous != serves { self.engineMayHaveChanged() }
+                previous = serves
+            }
+        }
         let app = NSApplication.shared
         if let shown = app.keyWindow.flatMap({ isMainWindow($0) ? $0 : nil })
             ?? app.windows.first(where: { $0.isVisible && isMainWindow($0) }) {

@@ -4,9 +4,18 @@ import CmuxNextWakeups
 extension PageHostPool {
     var shouldBuild: Bool {
         isLikely && spare == nil && !building && target != nil && claimedHosts.count < policy.maximumHosts
+            && servesWebKitPage
     }
 
+    /// Arms the build of a spare when one is due. With every pooled page in Chromium it instead
+    /// stops warming: the parked spare goes (it only held a WebKit web content process no claim can
+    /// take) and the pool is no longer likely, so no later event builds one.
     func scheduleBuild() {
+        guard servesWebKitPage else {
+            isLikely = false
+            dropSpare()
+            return
+        }
         guard shouldBuild else { return }
         watchMemoryPressure()
         activityMark = activity()
@@ -40,7 +49,9 @@ extension PageHostPool {
         let host = measure("pool.makeSpare.create") { PageWebView(recipe: recipe) }
         host.countsTouches = false
         await Self.nextTurn()
-        guard isLikely, spare == nil, let content = target?.contentView else {
+        // The engine may have changed while the view was made (a build in flight when a claim or
+        // the setting dropped the spare).
+        guard isLikely, spare == nil, servesWebKitPage, let content = target?.contentView else {
             host.close()
             return
         }
