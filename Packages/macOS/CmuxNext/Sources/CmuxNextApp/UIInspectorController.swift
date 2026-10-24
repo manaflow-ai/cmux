@@ -40,9 +40,16 @@ final class UIInspectorController {
         observeToggle()
     }
 
-    deinit {
-        if let contextMonitor { NSEvent.removeMonitor(contextMonitor) }
-        if let inspectNotification { NotificationCenter.default.removeObserver(inspectNotification) }
+    // AppKit monitor removal is main-thread-only. The controller can be
+    // released from an action task, so keep deinit nonisolated and perform the
+    // cleanup only when the runtime is already on the main thread.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return }
+        MainActor.assumeIsolated {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            if let contextMonitor { NSEvent.removeMonitor(contextMonitor) }
+            if let inspectNotification { NotificationCenter.default.removeObserver(inspectNotification) }
+        }
     }
 
     var isPicking: Bool { monitor != nil }
