@@ -549,6 +549,8 @@ mod marked_unread_tests {
         for _ in 0..2 {
             let transaction = connection.transaction().unwrap();
             add_tab_marked_unread_column(&transaction).unwrap();
+            // The attention column came after; the row-dropping update names it.
+            add_tab_attention_column(&transaction).unwrap();
             transaction.commit().unwrap();
         }
         let count = |connection: &Connection| -> i64 {
