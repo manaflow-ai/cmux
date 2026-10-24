@@ -25,8 +25,13 @@ import Foundation
 /// a byte or the end.
 ///
 /// The script needs only the system's zsh (`zsh/system`'s `sysread`, whose
-/// statuses tell a timeout (4) from EOF (5)), `ps`, `sample` and `kill`: no
-/// helper binary ships in the bundle.
+/// statuses tell a timeout (4) from EOF (5); `/bin/sh` is bash 3.2 in POSIX
+/// mode on macOS, or whatever `/private/var/select/sh` names, and its `read`
+/// has no timeout status that tells EOF apart), `ps`, `sample` and `kill`: no
+/// helper binary ships in the bundle. `zsh -f` (NO_RCS) reads no user file
+/// (`~/.zshenv`, `~/.zshrc`, `ZDOTDIR`) and no `/etc/zprofile` or
+/// `/etc/zshrc`; only `/etc/zshenv` cannot be skipped, which macOS does not
+/// ship and only an administrator can add. Its environment is `PATH` alone.
 struct CrashWatcher: Sendable {
     /// How long a crash path may run before the watcher ends the app: after
     /// the in-process deadline (``CrashDeadline/seconds``, 10 s), so that one
