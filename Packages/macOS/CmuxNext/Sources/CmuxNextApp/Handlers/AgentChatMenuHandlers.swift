@@ -25,7 +25,9 @@ enum AgentChatMenuHandlers {
         ]
         for (id, command) in commands {
             registry.bind(id, run: { invocation in
-                guard invocation.allowsViewChange else {
+                // `focuses` descriptors grant view-change permission through the task-local
+                // ActionRunScope for CLI/MCP runs; the raw invocation remains automation-scoped.
+                guard ActionRunScope.viewChangeAllowed() else {
                     return context.refuse(MiscHandlerStrings.noAgentChat)
                 }
                 guard let view = chatView(context, invocation) else { return }

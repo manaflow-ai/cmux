@@ -31,4 +31,14 @@ struct AgentChatMenuActionCatalogTests {
         let ids = ActionCatalog.all.map(\.id.rawValue)
         #expect(Set(ids).count == ids.count)
     }
+
+    @Test func pageMenuActionsGrantViewChangePermissionToCliAndMCPScopes() throws {
+        let descriptors = Dictionary(uniqueKeysWithValues: ActionCatalog.all.map { ($0.id.rawValue, $0) })
+        for id in Self.menuIDs where id != "agentPane.markUnread" && !id.contains("Cwd") {
+            let action = try #require(descriptors[id], "missing (id)")
+            #expect(action.focuses)
+            let invocation = ActionInvocation(origin: .cli)
+            #expect(ActionRunScope(invocation, focuses: action.focuses).allowsViewChange)
+        }
+    }
 }
