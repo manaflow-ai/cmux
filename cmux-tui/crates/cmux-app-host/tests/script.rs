@@ -16,7 +16,7 @@ mod script {
     const BIN: &str = env!("CARGO_BIN_EXE_cmux-app-host");
     const SHORT: Duration = Duration::from_secs(20);
 
-    type Publish = Arc<dyn Fn(&str) + Send + Sync>;
+    type Publish = Arc<dyn Fn(&str, Value) + Send + Sync>;
 
     /// Answers `test.echo` with its params, `workspace.list` with two rows, and
     /// refuses everything else the way the daemon does.
@@ -53,8 +53,22 @@ mod script {
 
     impl FakeRouter {
         fn publish(&self, stream: &str) {
+            self.publish_with(stream, json!({}));
+        }
+
+        /// Publishes `fields` on `stream`; the session adds `stream`.
+        fn publish_with(&self, stream: &str, fields: Value) {
             let publish = self.publish.lock().unwrap().clone();
-            publish.expect("a script subscribed")(stream);
+            publish.expect("a script subscribed")(stream, fields);
+        }
+
+        /// Waits until a script subscribed.
+        fn subscribed(&self) {
+            let deadline = Instant::now() + SHORT;
+            while self.publish.lock().unwrap().is_none() {
+                assert!(Instant::now() < deadline, "the script never subscribed");
+                std::thread::sleep(Duration::from_millis(10));
+            }
         }
 
         fn bump(&self) {
@@ -85,6 +99,16 @@ mod script {
 
     fn eval(f: &Fixture, code: &str) -> Result<Value, cmux_app_host::script::ScriptError> {
         f.session.eval(code, json!({}), SHORT)
+    }
+
+    /// A one-shot run: it lasts while the script has `cmux.on` handlers.
+    fn run(
+        f: &Arc<Fixture>,
+        code: &str,
+    ) -> std::thread::JoinHandle<Result<Value, cmux_app_host::script::ScriptError>> {
+        let f = f.clone();
+        let code = code.to_string();
+        std::thread::spawn(move || f.session.run(&code, json!({}), SHORT))
     }
 
     #[test]
@@ -248,5 +272,103 @@ mod script {
         f.session.cancel();
         assert_eq!(runner.join().unwrap().unwrap_err().code, codes::CANCELLED);
         assert!(f.session.is_dead());
+    }
+
+    #[test]
+    fn handlers_see_event_fields_and_hold_a_run_until_stop() {
+        let f = Arc::new(start());
+        let runner = run(
+            &f,
+            "const seen = []; cmux.on('terminal.bell', { terminal: 'term_a' }, (ev) => { seen.push([ev.stream, ev.terminal]); if (seen.length === 2) cmux.stop({ seen }) }); 'registered'",
+        );
+        f.router.subscribed();
+        f.router.publish_with("terminal.bell", json!({ "terminal": "term_b" }));
+        f.router.publish_with("terminal.title_changed", json!({ "terminal": "term_a" }));
+        f.router.publish_with("terminal.bell", json!({ "terminal": "term_a" }));
+        f.router.publish_with("terminal.bell", json!({ "terminal": "term_a" }));
+        assert_eq!(
+            runner.join().unwrap().unwrap(),
+            json!({ "seen": [["terminal.bell", "term_a"], ["terminal.bell", "term_a"]] })
+        );
+    }
+
+    #[test]
+    fn the_last_off_ends_a_run_with_its_value_and_a_run_without_handlers_ends_at_once() {
+        let f = Arc::new(start());
+        assert_eq!(run(&f, "1 + 1").join().unwrap().unwrap(), json!(2));
+        let runner = run(&f, "const off = cmux.on('terminal.exited', () => off()); 'done'");
+        f.router.subscribed();
+        f.router.publish_with("terminal.exited", json!({ "terminal": "term_a", "exit_code": 0 }));
+        assert_eq!(runner.join().unwrap().unwrap(), json!("done"));
+    }
+
+    #[test]
+    fn a_handler_error_is_logged_and_the_run_goes_on() {
+        let f = Arc::new(start());
+        let runner = run(
+            &f,
+            "let n = 0; cmux.on('terminal.bell', () => { n += 1; if (n === 1) throw new Error('first'); cmux.stop(n) })",
+        );
+        f.router.subscribed();
+        f.router.publish("terminal.bell");
+        f.router.publish("terminal.bell");
+        assert_eq!(runner.join().unwrap().unwrap(), json!(2));
+        let logs = f.logs.lock().unwrap().clone();
+        assert!(
+            logs.iter().any(|(level, line)| level == "error" && line.contains("first")),
+            "{logs:?}"
+        );
+    }
+
+    #[test]
+    fn repl_cells_do_not_wait_for_handlers() {
+        let f = start();
+        assert_eq!(
+            eval(&f, "let bells = 0; cmux.on('terminal.bell', () => { bells += 1 }); 'on'")
+                .unwrap(),
+            json!("on")
+        );
+        f.router.subscribed();
+        f.router.publish("terminal.bell");
+        let deadline = Instant::now() + SHORT;
+        while eval(&f, "bells").unwrap() != json!(1) {
+            assert!(Instant::now() < deadline, "the handler never ran");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    #[test]
+    fn wait_takes_a_filter_object_and_stream_iterates() {
+        let f = Arc::new(start());
+        let waiter = run(
+            &f,
+            "await cmux.wait('terminal.exited', { terminal: 'term_a' }, { timeoutMs: 15000 })",
+        );
+        f.router.subscribed();
+        f.router.publish_with("terminal.exited", json!({ "terminal": "term_b", "exit_code": 1 }));
+        f.router.publish_with("terminal.exited", json!({ "terminal": "term_a", "exit_code": 3 }));
+        let exited = waiter.join().unwrap().unwrap();
+        assert_eq!(
+            (exited["stream"].clone(), exited["exit_code"].clone()),
+            (json!("terminal.exited"), json!(3))
+        );
+
+        let titles = run(
+            &f,
+            "const got = []; const titles = cmux.stream('terminal.title_changed'); await cmux.test.echo('listening'); for await (const ev of titles) { got.push(ev.title); if (got.length === 2) break }; got",
+        );
+        let deadline = Instant::now() + SHORT;
+        while !f
+            .router
+            .calls()
+            .iter()
+            .any(|(op, params)| op == "test.echo" && params == "listening")
+        {
+            assert!(Instant::now() < deadline, "the script never listened");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        f.router.publish_with("terminal.title_changed", json!({ "title": "one" }));
+        f.router.publish_with("terminal.title_changed", json!({ "title": "two" }));
+        assert_eq!(titles.join().unwrap().unwrap(), json!(["one", "two"]));
     }
 }

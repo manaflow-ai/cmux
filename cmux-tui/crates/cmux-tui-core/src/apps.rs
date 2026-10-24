@@ -98,6 +98,20 @@ pub const CAPABILITY: &str = "apps-v1";
 /// advertised with [`CAPABILITY`].
 pub const CANCEL_REQUEST_CAPABILITY: &str = "cancel-request-v1";
 
+/// Whether a script reaches `op` through the provider channel
+/// ([`Supervisor::script_provider_call`]).
+pub(crate) fn script_provided(op: &str) -> bool {
+    #[cfg(unix)]
+    {
+        provider::SCRIPT_FAMILIES.contains(&provider::family_of(op))
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = op;
+        false
+    }
+}
+
 /// The supervisor of one daemon, created on the first `apps-*` command.
 #[derive(Default)]
 pub(crate) struct AppsSlot {

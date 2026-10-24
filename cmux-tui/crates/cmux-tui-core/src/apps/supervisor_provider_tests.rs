@@ -309,3 +309,49 @@ fn only_the_cmux_app_and_never_an_agent_may_provide() {
         "provider.unavailable"
     );
 }
+
+#[test]
+fn script_calls_reach_the_action_provider_as_the_script_app() {
+    let f = fixture();
+    // No provider yet: the call fails at once and never waits (APP-R1).
+    let call = |op: &str| {
+        f.supervisor.script_provider_call(op, json!({ "id": "newWindow" }), "script:k".into())
+    };
+    assert_eq!(call("action.run").unwrap_err()["code"], "provider.unavailable");
+    // Only the action family is open to scripts.
+    assert_eq!(call("fs.pick").unwrap_err()["code"], "operation.unsupported");
+    let rx = provider(&f, &["action", "fs"]);
+    assert_eq!(call("fs.pick").unwrap_err()["code"], "operation.unsupported");
+    let supervisor = f.supervisor.clone();
+    let running = std::thread::spawn(move || {
+        supervisor.script_provider_call(
+            "action.run",
+            json!({ "id": "newWindow" }),
+            "script:k3".into(),
+        )
+    });
+    let request = next_request(&rx);
+    assert_eq!(
+        (
+            request["app"].clone(),
+            request["actor"]["kind"].clone(),
+            request["actor"]["id"].clone(),
+            request["actor"]["on_behalf_of"]["kind"].clone(),
+            request["origin"].clone(),
+            request["op"].clone(),
+            request["idempotency_key"].clone(),
+        ),
+        (
+            json!("cmux/script"),
+            json!("app"),
+            json!("cmux/script"),
+            json!("user"),
+            json!("script"),
+            json!("action.run"),
+            json!("script:k3"),
+        )
+    );
+    let id = request["request_id"].as_u64().unwrap();
+    f.supervisor.provider_result(PROVIDER, id, true, json!({ "value": "opened" })).unwrap();
+    assert_eq!(running.join().unwrap().unwrap(), json!({ "value": "opened" }));
+}

@@ -5,7 +5,7 @@
 //!
 //! | `cmd` | fields | reply `data` |
 //! | --- | --- | --- |
-//! | `script-run` | `code`, `args?` (object), `timeout_ms?` | `{value}` |
+//! | `script-run` | `code`, `args?` (object), `timeout_ms?` | `{value}` (after the script's `cmux.on` handlers end) |
 //! | `script-repl-open` | | `{session}` |
 //! | `script-repl-eval` | `session`, `code`, `args?`, `timeout_ms?` | `{value}` |
 //! | `script-repl-close` | `session` | `{closed}` |
@@ -25,6 +25,24 @@ use serde_json::{Value, json};
 use super::{MessageWriter, Response, send_response};
 use crate::mux::Mux;
 use crate::scripts::{Answer, FORBIDDEN, LogBudget, ScriptsSlot, UNAVAILABLE, timeout_from};
+
+impl Mux {
+    /// A script's call to an app op (`action.run`): through the apps
+    /// supervisor's provider channel to the Mac app. Blocking; the provider
+    /// deadline bounds it.
+    pub(crate) fn script_provider_call(
+        self: &Arc<Self>,
+        op: &str,
+        params: Value,
+        idempotency_key: String,
+    ) -> Result<Value, Value> {
+        self.control_clients.apps.get_or_init(self).script_provider_call(
+            op,
+            params,
+            idempotency_key,
+        )
+    }
+}
 
 #[derive(Deserialize)]
 #[serde(tag = "cmd")]
