@@ -58,13 +58,15 @@ impl Holders {
     /// service's launcher.
     pub(super) fn start(&self, token: &[u8; 32]) -> io::Result<()> {
         self.launches.fetch_add(1, Ordering::AcqRel);
-        let mut child = Command::new(std::env::current_exe()?)
+        let mut command = Command::new(std::env::current_exe()?);
+        command
             .args([HOLDER_PROCESS_TEST, "--exact", "--nocapture", "--quiet"])
             .env(HOLDER_SOCKET_ENV, &self.socket)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
-            .spawn()?;
+            .stderr(Stdio::inherit());
+        cmux_holder::client::inherit_only_stdio(&mut command);
+        let mut child = command.spawn()?;
         let hex: String = token.iter().map(|byte| format!("{byte:02x}")).collect();
         let started = child
             .stdin
