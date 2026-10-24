@@ -18,8 +18,8 @@ enum DebugHints {
     static func watchMenus() {
         guard observers.isEmpty else { return }
         observers = [
-            MainActorObservation(NSMenu.didBeginTrackingNotification, read: { TrackedMenu(menu: $0.object as? NSMenu) }) { note in
-                tracked = note.menu
+            MainActorObservation(NSMenu.didBeginTrackingNotification, read: { $0.object as? NSMenu }) { menu in
+                tracked = menu
             },
             MainActorObservation(NSMenu.didEndTrackingNotification, read: { ($0.object as AnyObject?).map(ObjectIdentifier.init) }) { menu in
                 if tracked.map(ObjectIdentifier.init) == menu { tracked = nil }
@@ -52,12 +52,5 @@ enum DebugHints {
             }),
         ]
     }
-}
-
-/// The menu a begin-tracking notification names, carried from the notification to the main-actor
-/// handler of the same delivery.
-// crash-allow: built and read on main within one queue: .main delivery (MainActorObservation), so the menu never crosses actors.
-private nonisolated struct TrackedMenu: @unchecked Sendable {
-    let menu: NSMenu?
 }
 #endif
