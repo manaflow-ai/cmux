@@ -102,6 +102,10 @@ public actor HomeCache {
 
     /// Writes the changed windows, then the index (so it never names a window not yet on disk),
     /// then removes the windows that left. True when all of it reached disk.
+    ///
+    /// The file calls block this actor's pool thread: CmuxHomeCore is shared with iOS and has no
+    /// BackgroundWork `.files` lane (threading-model.md). A write is one index plus the changed
+    /// windows, and one actor serializes them, so at most one pool thread waits on this disk.
     private func commit(_ state: HomeCacheState) -> Bool {
         var written = self.written ?? readWritten()
         defer { self.written = written }

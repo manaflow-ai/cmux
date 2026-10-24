@@ -204,6 +204,9 @@ final class QuitCoordinator {
                 await services.cache.cef.shutdown()
             }
         ))
+        // Drafts typed after the save step (while "Some sessions did not end" waited) reach disk too;
+        // nothing is written when nothing changed.
+        await services.home.flushCacheForQuit()
         sender.reply(toApplicationShouldTerminate: true)
     }
 
