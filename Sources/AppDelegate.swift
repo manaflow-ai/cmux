@@ -9811,6 +9811,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               let group = tabManager.workspaceGroups.first(where: { $0.id == groupId }) else {
             return nil
         }
+        // Cmd-N and the generic New Workspace action must not silently expand
+        // a Lord's delegation. Group controls can still place a workspace in
+        // the folder; the delegation registry separately grants Squire roles.
+        guard group.externalID?.hasPrefix("wave:") != true else { return nil }
         let anchorCwd = group.liveAnchorWorkspaceId
             .flatMap { anchorId in
                 tabManager.tabs.first(where: { $0.id == anchorId })?.currentDirectory
