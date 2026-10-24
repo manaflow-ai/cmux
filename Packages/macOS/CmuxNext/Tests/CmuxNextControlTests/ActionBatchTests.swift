@@ -10,6 +10,8 @@ private final class IndexRecordingExecutor: ControlActionExecutor {
     let refusing: Int?
     /// How long each run holds the main actor (a slow handler).
     let holding: Duration
+    /// Runs on the main actor at the start of each run, with its index (a test's side effect).
+    let beforeRun = Mutex<(@MainActor @Sendable (Int) -> Void)?>(nil)
 
     init(refusing: Int? = nil, holding: Duration = .zero) {
         self.refusing = refusing
@@ -18,6 +20,7 @@ private final class IndexRecordingExecutor: ControlActionExecutor {
 
     @MainActor func performAction(_ request: ControlActionRequest) -> ControlActionOutcome {
         guard case .int(let index)? = request.arguments["index"] else { return .disabled }
+        beforeRun.withLock { $0 }?(index)
         spin(for: holding)
         ran.withLock { $0.append(index) }
         return index == refusing ? .refused("no room") : .ran
@@ -131,6 +134,58 @@ private final class IndexRecordingExecutor: ControlActionExecutor {
         #expect(ContinuousClock.now - started < .seconds(5), "the retry waited for the cut-short run")
         #expect(retried.data?["applied"] == 1, "\(retried)")
         #expect(executor.indices == [1])
+    }
+
+    /// A batch split into transactions (`atomic: false`) whose second transaction finds the queue
+    /// full (`busy`) after the first applied answers with `applied: 1` and `not_run: false`: a
+    /// client trusts `not_run` as safe to send again, and sending it again runs op 1 twice. A retry
+    /// with the key replays the same answer, still not `not_run`.
+    @Test func aBatchCutShortByAFullQueueIsNotNotRun() async throws {
+        let frames = SoonFrameSource()
+        var configuration = ControlRouter.Configuration.loadTolerant
+        configuration.batchOpLimit = 1
+        configuration.queueLimits = MainActorWorkQueue.Limits(maxPendingPerConnection: 1)
+        let executor = IndexRecordingExecutor()
+        let router = ControlRouter(identity: testIdentity(), executor: executor, configuration: configuration, frameSource: frames)
+        router.snapshots.publish { snapshot in
+            snapshot.catalog = sampleCatalog()
+            snapshot.topology.isLoaded = true
+        }
+        let queue = router.workQueue
+        executor.beforeRun.withLock { hook in
+            hook = { index in
+                guard index == 1 else { return }
+                // While op 1 holds the main actor, another request of the same connection queues;
+                // the queue takes one item per connection, so the batch's next transaction is busy.
+                Task.detached { _ = try? await queue.run(method: "filler", deadline: .now + .seconds(30)) {} }
+                let end = ContinuousClock.now + .seconds(10)
+                // The filler's enqueue is the condition, not a time: it runs off the main actor.
+                while queue.stats.pending == 0, ContinuousClock.now < end {}
+                // Past the queue's frame budget, so this drain stops after op 1 and the filler waits
+                // for a frame the test fires only at the end.
+                spin(for: queue.limits.frameBudget)
+            }
+        }
+        let params: [String: JSONValue] = ["ops": ops([1, 2]), "atomic": false, "idempotency_key": "b-busy"]
+        guard case .failure(let error) = await batch(router, params) else {
+            Issue.record("expected the full queue to cut the batch short")
+            return
+        }
+        #expect(error.code == "busy", "\(error)")
+        #expect(error.data?["applied"] == 1)
+        #expect(error.data?["op"] == 1)
+        #expect(error.data?["not_run"] == false, "op 1 applied: \(error)")
+        #expect(error.data?["state"] == "in_progress")
+        #expect(executor.indices == [1])
+
+        guard case .failure(let replayed) = await batch(router, params) else {
+            Issue.record("a retry of a cut-short batch ran it again")
+            return
+        }
+        #expect(replayed.data?["applied"] == 1)
+        #expect(replayed.data?["not_run"] == false, "the replay of a batch that applied op 1: \(replayed)")
+        #expect(executor.indices == [1], "the retry ran ops again")
+        await MainActor.run { frames.fire() }
     }
 
     @Test func aBatchLevelMemberOnOneOpIsRefused() async {
