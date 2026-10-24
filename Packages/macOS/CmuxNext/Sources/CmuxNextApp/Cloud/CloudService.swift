@@ -9,6 +9,7 @@ import CmuxNextPhoneAccess
 import Foundation
 import Observation
 import os
+import CmuxNextWakeups
 
 /// Cloud orchestration: sign-in state, the machine list from `/api/vm`, and
 /// one `CloudMachineSession` per live machine in `MachineRegistry`. The
@@ -389,11 +390,11 @@ final class CloudService {
             })
             let local = machines.local
             session = CloudMachineSession(machine: machine, appLink: CloudLinkSession(key: CloudLinkKey(machine: machine.id), resolver: resolver),
-                                          localIdentity: { [weak local] in local?.identity })
+                                          localIdentity: { [weak local] in local?.identity }, mainWork: local.mainWork)
         case .legacy:
             guard let hub, let binary else { return nil }
             let link = CloudMachineLink(machineID: machine.id, api: api, hub: hub, paths: paths, binary: binary, deviceName: Self.deviceName)
-            session = CloudMachineSession(machine: machine, link: link)
+            session = CloudMachineSession(machine: machine, link: link, mainWork: machines.local.mainWork)
         }
         session.daemon.workTracker = machines.local.workTracker
         // An attach to a paused machine resumes it through Resume Machine's own path.
