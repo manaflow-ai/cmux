@@ -96,8 +96,33 @@ extension DaemonStore {
             sidebarNeedsRecompute = true
         }
         for model in reindex { indexed(model) }
+        reapplyEventWrittenTabs(skipping: touched)
         // A changed workspace may have reordered its tabs (the full path notes it for every snapshot).
         if !reindex.isEmpty { index.noteTabOrderChanged() }
+    }
+
+    /// The tabs a whole-value event (title, size, exit) wrote since the last snapshot, in the
+    /// workspaces the apply did not touch: each takes its own snapshot, the memo's (which equals the
+    /// new tree's for an untouched workspace), and only that tab is re-indexed and re-laid. Records
+    /// that no longer hold the tab where the memo does (a change no event named) re-apply the
+    /// workspace.
+    private func reapplyEventWrittenTabs(skipping touched: Set<String>) {
+        var reapplied = touched
+        for surface in snapshotMemo.dirtyTabs {
+            guard let tab = index.tabsBySurface[surface], let pane = index.pane(holding: tab), let screen = index.screen(holding: pane),
+                  let workspace = index.workspace(holding: screen), !reapplied.contains(workspace.id),
+                  let memoWorkspace = snapshotMemo.applied[workspace.id] else { continue }
+            let paneSnapshot = memoWorkspace.screens.first(where: { $0.id == screen.handle })?.panes.first(where: { $0.id == pane.handle })
+            if let snapshot = paneSnapshot?.tabs.first(where: { $0.surface == surface }) {
+                tab.update(snapshot)
+                indexed(tab, in: pane)
+            } else {
+                reapplied.insert(workspace.id)
+                workspace.update(memoWorkspace)
+                indexed(workspace)
+                index.noteTabOrderChanged()
+            }
+        }
     }
 
     /// Records `tree`, applied in full, as the last applied live snapshot (the next one diffs
@@ -121,9 +146,11 @@ extension DaemonStore {
                                     revision: snapshotMemo.revision &+ 1)
     }
 
-    /// Before `event` applies to the confirmed records: the workspaces it changes are marked, so
-    /// the next snapshot applies them even when the daemon's copy did not change; an event whose
-    /// workspace cannot be named makes the next snapshot apply in full.
+    /// Before `event` applies to the confirmed records: what it changes of the tree snapshot is
+    /// marked, so the next snapshot applies it even when the daemon's copy did not change: the
+    /// workspace of a structural delta, the one tab of a whole-value tab event (title, size, exit).
+    /// An event whose workspace cannot be named makes the next snapshot apply in full. Events that
+    /// write no snapshot field mark nothing.
     func noteSnapshotTouch(_ event: DaemonEvent) {
         guard !snapshotMemo.applied.isEmpty, !snapshotMemo.untracked else { return }
         switch event {
@@ -144,13 +171,12 @@ extension DaemonStore {
                 snapshotMemo.untracked = true
             }
         case .titleChanged(let surface, _), .surfaceResized(let surface, _), .surfaceExited(let surface):
-            markSnapshotTouch(surface: surface)
-        case .agentChanged(let status):
-            markSnapshotTouch(surface: status.surface)
-        case .agentPresenceChanged(let presence):
-            markSnapshotTouch(surface: presence.surface)
-        case .notification(let notification):
-            if let surface = notification.surface { markSnapshotTouch(surface: surface) }
+            // One tab's field: the next snapshot re-applies that tab, not its workspace.
+            if index.tabsBySurface[surface] != nil { snapshotMemo.dirtyTabs.insert(surface) }
+        case .agentChanged, .agentPresenceChanged, .notification:
+            // Agent status and presence live beside the tree (the roster, TabModel.agent and presence)
+            // and a notification in the store's list: no field of the tree snapshot changes.
+            break
         case .overflow:
             // Presence cleared on every tab, and the events it stands for named nothing.
             snapshotMemo.untracked = true
