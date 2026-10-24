@@ -414,12 +414,13 @@ final class HomeHostView: NSView {
         let store = pictureStore()
         settingsView.pictureStore = store
         let fallback = characterPicture
+        let work = control.services.work
         // task-owner: one avatar read (registry, else files off the main actor); ends when it is shown
         Task { [weak self] in
             let avatar = if let store {
                 await store.avatars.headerAvatar(chief: store.chief, fallback: fallback)
             } else {
-                await HomeChiefAvatars.headerAvatar(files: files, fallback: fallback, work: control.services.work)
+                await HomeChiefAvatars.headerAvatar(files: files, fallback: fallback, work: work)
             }
             // A read for the Chief or the character shown before (another came in since) is dropped.
             guard let self, control.brainHome == home,
