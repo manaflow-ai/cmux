@@ -24,8 +24,8 @@ public final class FrameBatcher: FrameBatchScheduler, ControlFrameSource {
     /// The board of the budget this batcher draws on (control requests intern their methods and
     /// count queued input there); nil for a frame batcher.
     public nonisolated let mainTaskBoard: MainTaskBoard?
-    /// The budget this batcher's work draws on (the control work queue charges its requests to it,
-    /// the store applies its batches in slices under it); nil for a frame batcher.
+    /// The budget this batcher's work draws on (the control work queue charges its requests to it);
+    /// nil for a frame batcher.
     public let mainFrameBudget: MainFrameBudget?
 
     /// A batcher of work a person's action caused: all of it every frame, unbudgeted.
@@ -43,8 +43,8 @@ public final class FrameBatcher: FrameBatchScheduler, ControlFrameSource {
     ///
     /// - Parameters:
     ///   - owner: Names the batcher in the wakeup ledger, debug.wakeups and the watchdog's records.
-    ///   - budgeted: `visible` for screen updates no action of the person caused (the daemon's
-    ///     churn), `automation` for control-socket work, `background` for work nobody sees this frame.
+    ///   - budgeted: `visible` for screen updates no action of the person caused, `automation` for
+    ///     control-socket work, `background` for work nobody sees this frame.
     ///   - work: The app's ``MainWorkScheduler`` (built at its composition root).
     public init(owner: String, budgeted: BudgetedWorkClass, on work: MainWorkScheduler) {
         queue = FrameBatchQueue(owner: owner, budgeted: budgeted, on: work)

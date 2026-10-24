@@ -4,8 +4,8 @@
 /// starting a task takes no lock and hashes no string on the main thread.
 ///
 /// ```swift
-/// let owner = work.budget.board.owner("DaemonStore.drain")
-/// budget.run(.visible, owner: owner) { apply(slice) }
+/// let owner = work.budget.board.owner("Control.frames")
+/// budget.run(.automation, owner: owner) { handle(request) }
 /// ```
 public struct MainTaskOwner: Sendable, Hashable {
     /// The name the watchdog's records, the signposts and `debug.main_budget` show.
