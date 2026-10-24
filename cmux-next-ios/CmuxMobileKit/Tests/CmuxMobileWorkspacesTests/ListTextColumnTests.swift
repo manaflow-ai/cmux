@@ -11,7 +11,7 @@ import UIKit
 /// titles and row titles start at the same x; the status dot and the group
 /// chevron hang in the gutter before it.
 @MainActor @Suite struct ListTextColumnTests {
-    static let sizes: [DynamicTypeSize] = [.small, .large, .xLarge, .xxLarge, .xxxLarge, .accessibility1, .accessibility3]
+    nonisolated static let sizes: [DynamicTypeSize] = [.small, .large, .xLarge, .xxLarge, .xxxLarge, .accessibility1, .accessibility3]
 
     @Test(arguments: sizes) func sectionGroupAndRowTitlesShareOneColumn(size: DynamicTypeSize) {
         let row = WorkspaceRow.textLeading(size)
