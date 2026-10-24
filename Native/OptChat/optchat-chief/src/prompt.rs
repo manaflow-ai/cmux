@@ -186,7 +186,9 @@ macro_rules! home_rule {
 - Skills: `~/.cmux/chief/skills/<name>/SKILL.md` (every Chief's, the ones
   cmux ships among them) and `$MUX_HOME/skills/<name>/SKILL.md` (yours; it
   wins by name). Read a skill's SKILL.md before you do what its
-  description names; `head -4 ~/.cmux/chief/skills/*/SKILL.md` lists them.
+  description names; `head -4 ~/.cmux/chief/skills/*/SKILL.md
+  $MUX_HOME/skills/*/SKILL.md` lists them (your tool packs' skills are
+  in yours: `chief pack list`).
 - After work: when a subagent's work or your own is done, think what the
   user would want to see next beside your chat, and show it there unasked:
   the diff of the commits it landed, a preview of a page, gallery or

@@ -61,6 +61,7 @@ class ClassifyTests(unittest.TestCase):
             "Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/TokenStores/FileStackTokenStore.swift",
             "Packages/Shared/CMUXAuthCore/Sources/CMUXAuthCore/Models/Session.swift",
             NEXT + "CmuxNextApp/WebAuth/WebAuthSession.swift",
+            NEXT + "CmuxNextPopups/WebAuth/WebAuthSessionBroker.swift",
             "web/services/auth/hexclave/verify.ts",
             "cmux.nightly.entitlements",
             NEXT + "CmuxNextControl/ControlAuthorizer.swift",

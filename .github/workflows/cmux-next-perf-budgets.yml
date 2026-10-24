@@ -183,6 +183,7 @@ jobs:
       sha: ${{ steps.plan.outputs.sha }}
       part: ${{ steps.plan.outputs.part }}
       linux_part: ${{ steps.plan.outputs.linux_part }}
+      worker: ${{ steps.plan.outputs.worker }}
       args: ${{ steps.plan.outputs.args }}
       artifact: ${{ steps.plan.outputs.artifact }}
       run_seconds: ${{ steps.plan.outputs.run_seconds }}
@@ -312,10 +313,11 @@ jobs:
 
   # The controller route (cmuxterm-hq build-fleet/cmd/controller/perf_cron.go): with no gateway runner and
   # vars.CMUX_NEXT_PERF_CRON_CONTROLLER=1, this job's name is the request. When it finishes, the controller queues the
-  # part as a background measurement step on cmux20-bench, but only while that host is idle and no foreground build
-  # waits, and dispatches this workflow with perf_result when the step ends. It takes no Mac and holds no runner.
+  # part as a background measurement step on an idle measure worker (cmux20-bench first; " on <worker>" pins it to the
+  # host that built the measurement's app), but only while no foreground build waits, and dispatches this workflow
+  # with perf_result when the step ends. It takes no Mac and holds no runner.
   request:
-    name: perf cron request ${{ needs.plan.outputs.sha }} ${{ needs.plan.outputs.part }}
+    name: perf cron request ${{ needs.plan.outputs.sha }} ${{ needs.plan.outputs.part }}${{ needs.plan.outputs.worker != '' && format(' on {0}', needs.plan.outputs.worker) || '' }}
     needs: plan
     if: ${{ needs.plan.outputs.action == 'part' && needs.plan.outputs.part != '' && vars.CI_PERF_CRON_GATEWAY == '' && vars.CMUX_NEXT_PERF_CRON_CONTROLLER == '1' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
@@ -326,9 +328,10 @@ jobs:
         env:
           SHA: ${{ needs.plan.outputs.sha }}
           PART: ${{ needs.plan.outputs.part }}
+          WORKER: ${{ needs.plan.outputs.worker }}
         run: |
           { echo "### perf cron request"; echo
-            echo "Asked the build controller for part \`$PART\` at \`${SHA:0:12}\`. It runs only while cmux20-bench is idle;"
+            echo "Asked the build controller for part \`$PART\` at \`${SHA:0:12}\` on ${WORKER:-any idle measure worker}. It runs only while that host is idle;"
             echo "its result starts a new run of this workflow."; } >> "$GITHUB_STEP_SUMMARY"
 
   # The frame-pacing bench (fling and golden interactions, 120 Hz virtual display, owned mini) left its fixed

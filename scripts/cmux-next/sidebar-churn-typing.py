@@ -23,7 +23,10 @@ thread top frames).
       [--samples 120] [--churn-hz 10] [--trace] [--gate-p95-ms 8]
 
 --gate-p95-ms: exit 1 when the churn phase's key-to-frame p95 is over that many ms, or over the idle
-phase's p95 by more than --gate-delta-ms (default 2). Fleet (an owned mini with a console; the step builds the app):
+phase's p95 by more than --gate-delta-ms (default 2). --gate-stall-ms: exit 1 when a churn phase has a main-thread
+stall (debug.hangs, threshold 8 ms) longer than that (plans/cmux-next/main-thread-budget.md: < 8 ms). Each phase also
+records the main-thread scheduler's budget counters (debug.main_budget) and the tasks that ran past their class budget
+with their stacks (debug.hangs over_budget). Fleet (an owned mini with a console; the step builds the app):
   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/split-spring.sh --ref SHA \
     --artifact artifacts/split-spring/report.json --arg=--suite=sidebar-churn [--arg=--trace] [--arg=--gate-p95-ms=8]
 """
@@ -43,6 +46,7 @@ parser.add_argument("--rounds", type=int, default=1, help="idle/churn pairs, int
 parser.add_argument("--trace", action="store_true", help="Time Profiler over the first churn phase")
 parser.add_argument("--gate-p95-ms", type=float)
 parser.add_argument("--gate-delta-ms", type=float, default=2.0)
+parser.add_argument("--gate-stall-ms", type=float, help="also exit 1 when a churn phase's longest main-thread stall is over this many ms")
 parser.add_argument("--keep", action="store_true", help="leave the app running")
 opts = parser.parse_args()
 OUT = os.path.abspath(opts.out)
@@ -304,6 +308,7 @@ def type_keys(count, pid=None, label="warmup"):
 def phase(name, pid, ids, groups, churn_hz, trace=False):
     rows_before = len(probe_rows())
     rpc("debug.hangs", {"clear": True})
+    rpc("debug.main_budget", {"reset": True})
     rpc("debug.sidebar_perf", {"reset": True})
     rpc("debug.frames", {"action": "start"})
     churn = None
@@ -323,6 +328,7 @@ def phase(name, pid, ids, groups, churn_hz, trace=False):
     frames = rpc("debug.frames", {"action": "stop"}, timeout=20)
     hangs = rpc("debug.hangs", {"limit": 12}, timeout=20)
     perf = rpc("debug.sidebar_perf", timeout=20)
+    budget = rpc("debug.main_budget", timeout=20)
     rows = probe_rows()[rows_before:]
     complete = [r for r in rows if r.get("complete") == "1" and r.get("contents_ms")]
     entry = {
@@ -334,6 +340,9 @@ def phase(name, pid, ids, groups, churn_hz, trace=False):
         "hangs": {k: hangs.get(k) for k in ("count", "busy_count", "max_ms", "total_ms", "long_frames", "frames_over_8_3ms", "max_gap_ms")}
         if isinstance(hangs, dict) else hangs,
         "hang_records": (hangs or {}).get("records") if isinstance(hangs, dict) else None,
+        "over_budget_count": (hangs or {}).get("over_budget_count") if isinstance(hangs, dict) else None,
+        "over_budget": (hangs or {}).get("over_budget") if isinstance(hangs, dict) else None,
+        "main_budget": budget,
         "frames": frames, "sidebar_perf": perf,
     }
     if churn:
@@ -427,6 +436,8 @@ def main():
                 app.wait(timeout=30)
             except subprocess.TimeoutExpired:
                 app.terminate()
+    if opts.gate_stall_ms is not None and summary and summary["churn_hang_max_ms"] > opts.gate_stall_ms:
+        sys.exit(f"gate: churn main-thread stall {summary['churn_hang_max_ms']} ms is over {opts.gate_stall_ms} ms")
     if opts.gate_p95_ms is not None and summary:
         over = summary["churn_p95_ms"] > opts.gate_p95_ms or summary["churn_p95_ms"] - summary["idle_p95_ms"] > opts.gate_delta_ms
         if over:
