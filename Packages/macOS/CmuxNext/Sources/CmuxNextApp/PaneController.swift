@@ -78,7 +78,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         self.layoutPaneID = layoutPaneID
         self.services = services
         self.state = state
-        view = PaneContentView(stripModel: stripModel, iconCaches: services.tabIconCaches)
+        view = PaneContentView(stripModel: stripModel, iconCaches: TabIconCaches())
         stripModel.intentHandler = { [weak self] intent in self?.handle(intent) }
         view.stripView.previewProvider = services.previews
         view.stripView.resourceSource = services.resources
