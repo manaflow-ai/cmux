@@ -4,7 +4,7 @@ package import AppKit
 /// bottom first: the page images and child-window images the window server
 /// leaves out of a window capture (`debug.window_snapshot`,
 /// `cmux window|pane|tab screenshot`).
-package enum WindowImageLayer {
+package nonisolated enum WindowImageLayer: Sendable {
     /// A page image filling a rectangle in window coordinates, except
     /// `holes` (window coordinates), where the page window is cut out.
     case page(CGImage, NSRect, holes: [NSRect] = [])
@@ -15,8 +15,21 @@ package enum WindowImageLayer {
     case mask(NSRect)
 
     /// `base` (an image of `window`) with `layers` painted over it, bottom first; nil without layers.
+    @MainActor
     package static func composite(base: CGImage, window: NSWindow, layers: [WindowImageLayer]) -> CGImage? {
-        let size = window.frame.size
+        composite(base: base, windowSize: window.frame.size, layers: layers)
+    }
+
+    /// ``composite(base:windowSize:layers:)`` off the caller's actor: a full-resolution redraw of
+    /// the window (an agent's `cmux window screenshot` must not stall the main thread).
+    @concurrent
+    package static func compositedOffMain(base: CGImage, windowSize: CGSize, layers: [WindowImageLayer]) async -> CGImage? {
+        composite(base: base, windowSize: windowSize, layers: layers)
+    }
+
+    /// `base` (an image of a window `size` points large) with `layers` painted over it, bottom
+    /// first; nil without layers. Any thread.
+    package static func composite(base: CGImage, windowSize size: CGSize, layers: [WindowImageLayer]) -> CGImage? {
         guard !layers.isEmpty, size.width > 0, size.height > 0 else { return nil }
         let width = base.width
         let height = base.height

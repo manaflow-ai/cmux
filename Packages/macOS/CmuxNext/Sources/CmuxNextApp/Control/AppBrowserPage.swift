@@ -75,14 +75,14 @@ enum AppBrowserPage {
             _ = await awaitPendingNavigation(page, within: actionWait)
             do {
                 let value = try await page.evaluate(script)
-                return ["value": CmuxNextSettings.JSONValue(foundation: value.foundationValue) ?? .null]
+                return ["value": await json(value)]
             } catch {
                 throw ControlError(code: "js_error", message: String(describing: error))
             }
         case .evaluateAsync(let body):
             do {
                 let value = try await page.evaluateAsync(body)
-                return ["value": JSONValue(foundation: value.foundationValue) ?? .null]
+                return ["value": await json(value)]
             } catch {
                 throw ControlError(code: "js_error", message: String(describing: error))
             }
