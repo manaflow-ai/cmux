@@ -74,6 +74,7 @@ final class OnboardingFooter: NSView {
             let showsBack = model.flowProgress != nil
             if back?.isHidden == showsBack { back?.isHidden = !showsBack }
             if back?.isEnabled != model.canGoBack { back?.isEnabled = model.canGoBack }
+            if next?.isEnabled != model.canAdvance { next?.isEnabled = model.canAdvance }
         }
     }
 

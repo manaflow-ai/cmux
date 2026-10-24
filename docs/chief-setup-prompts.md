@@ -7,7 +7,7 @@ Paste one of these into Chief, or any agent chat in cmux. Each one runs a `cmux 
 ## Set up this Mac
 
 ```text
-Set up this Mac for agents: run `cmux setup status`, then run the `fix` it names for the harness, MCP and folder trust checks only. For the Cloud machine, Tailscale and other machines, list what it found and ask me before you change anything. Keep each undo, and tell me only what I must do myself.
+Set up this Mac for agents: run `cmux setup local`, which trusts this folder, checks the harnesses, and wires the cmux MCP server when its setting is already enabled. For the Cloud machine, Tailscale and other machines, list what you find and ask me before you change anything. Keep each undo, and tell me only what I must do myself.
 ```
 
 ## Trust a folder so agents start in it without asking
