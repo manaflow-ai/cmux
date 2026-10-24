@@ -1194,7 +1194,9 @@
       "revokeApiKeyConfirmTitle": "Bu API anahtarı iptal edilsin mi?",
       "apiKeyUsageDetail": "Son 30 gün: {completions} tamamlama · {tokens} belirteç ({input} giriş / {output} çıkış) · API eşdeğeri {value}",
       "apiKeyUsageUnavailable": "Kullanım verisi yok",
-      "revokeApiKeyConfirmBody": "Bu anahtarı kullanan istemciler hemen kimlik doğrulaması yapamaz."
+      "revokeApiKeyConfirmBody": "Bu anahtarı kullanan istemciler hemen kimlik doğrulaması yapamaz.",
+      "kindXaiApiKey": "xAI API anahtarı",
+      "xaiKeyHint": "Bu ekibin makinelerindeki Codex, Grok model isteklerini bu anahtarla xAI'ye gönderir. Diğer modellere yönelik istekler bu anahtarı asla kullanmaz."
     },
     "cloud": {
       "title": "Cloud makineleri ve Mac erişimi",

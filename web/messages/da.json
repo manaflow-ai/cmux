@@ -1194,7 +1194,9 @@
       "revokeApiKeyConfirmTitle": "Tilbagekald denne API-nøgle?",
       "apiKeyUsageDetail": "Sidste 30 dage: {completions} fuldførelser · {tokens} tokens ({input} input / {output} output) · {value} API-ækvivalent",
       "apiKeyUsageUnavailable": "Brug er ikke tilgængelig",
-      "revokeApiKeyConfirmBody": "Klienter, der bruger denne nøgle, mister straks godkendelsen."
+      "revokeApiKeyConfirmBody": "Klienter, der bruger denne nøgle, mister straks godkendelsen.",
+      "kindXaiApiKey": "xAI API-nøgle",
+      "xaiKeyHint": "Codex på dette teams maskiner sender anmodninger til Grok-modeller til xAI med denne nøgle. Anmodninger til andre modeller bruger den aldrig."
     },
     "cloud": {
       "title": "Cloud-maskiner og Mac-adgang",

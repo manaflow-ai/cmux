@@ -1194,7 +1194,9 @@
       "revokeApiKeyConfirmTitle": "Revogar esta chave de API?",
       "apiKeyUsageDetail": "Últimos 30 dias: {completions} conclusões · {tokens} tokens ({input} entrada / {output} saída) · equivalente de API {value}",
       "apiKeyUsageUnavailable": "Uso indisponível",
-      "revokeApiKeyConfirmBody": "Os clientes que usam esta chave perderão a autenticação imediatamente."
+      "revokeApiKeyConfirmBody": "Os clientes que usam esta chave perderão a autenticação imediatamente.",
+      "kindXaiApiKey": "Chave de API do xAI",
+      "xaiKeyHint": "O Codex nas máquinas desta equipe envia as solicitações de modelos Grok para a xAI com esta chave. Solicitações de outros modelos nunca a usam."
     },
     "cloud": {
       "title": "Máquinas do Cloud e acesso do Mac",
