@@ -29,7 +29,7 @@ permissions:
 jobs:
   checks:
     if: github.repository == 'manaflow-ai/cmux'
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 195
     env:
       CARGO_TARGET_DIR: /home/runner/.cache/fast-checks/target
@@ -58,7 +58,7 @@ jobs:
       - name: Mount package and compilation caches
         uses: useblacksmith/stickydisk@3f6be1451e3cad893b778bc93495c80452a5da26 # v1.7.2
         with:
-          key: fast-checks-v1-${{ github.repository_id }}
+          key: cmux-fast-checks-v1
           path: /home/runner/.cache/fast-checks
           commit: on-change
 
