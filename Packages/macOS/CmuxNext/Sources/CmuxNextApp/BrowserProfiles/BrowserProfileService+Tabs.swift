@@ -46,7 +46,7 @@ extension BrowserProfileService {
             let page = entry.tab
             guard page is WebKitTab || page is CEFTab, let tab = cache.browserTabs.tabModel(key), tab.isFrontendOwned,
                   services.machines.daemon(forTab: tab).isLocal, !cache.browserTabs.isIncognitoTab(key),
-                  !OffTheRecordProfiles.shared.isOffTheRecord(page.profileID) else { return nil }  // never into a stored profile
+                  !services.browserStores.offTheRecord.isOffTheRecord(page.profileID) else { return nil }  // never into a stored profile
             let profile = book.engineProfile(for: tab.browserProfileID)
             guard page.profileID != profile, let url = page.state.url ?? tab.url.flatMap(URL.init(string:)),
                   ["http", "https", "about"].contains(url.scheme ?? "") else { return nil }
