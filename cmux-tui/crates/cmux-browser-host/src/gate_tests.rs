@@ -132,7 +132,15 @@ impl Driver for FakeDriver {
         match method {
             "frame.evaluate" => {
                 let source = params["source"].as_str().unwrap_or("");
-                if source.contains("cmux-focused-input") {
+                if source.contains("cmux-press-check") {
+                    Ok(self
+                        .observed
+                        .lock()
+                        .unwrap()
+                        .get("hitTarget")
+                        .cloned()
+                        .unwrap_or(Value::Null))
+                } else if source.contains("cmux-focused-input") {
                     Ok(self.focused_input.lock().unwrap().clone())
                 } else if source.contains("cmux-capture-")
                     && !self.page_fields.lock().unwrap().is_empty()
@@ -1513,7 +1521,14 @@ fn a_press_on_a_changed_target_is_never_sent() {
     let (_, sent) =
         calls.iter().rev().find(|(m, _)| m == "input.mouse").expect("the press was sent");
     assert!(sent.get("expect").is_none(), "{sent}");
-    let (_, check) = calls.iter().rev().find(|(m, _)| m == "frame.observe").expect("the check ran");
-    assert_eq!(check["method"], "hitTarget");
-    assert_eq!(check["args"], json!(["h1", {"x": 10, "y": 20}, "button-link"]));
+    let (_, check) = calls
+        .iter()
+        .rev()
+        .find(|(m, p)| {
+            m == "frame.evaluate"
+                && p["source"].as_str().is_some_and(|s| s.contains("cmux-press-check"))
+        })
+        .expect("the check ran");
+    assert_eq!(check["world"], "agent");
+    assert_eq!(check["args"], json!(["h1", {"x": 10, "y": 20}, "button-link", null]));
 }
