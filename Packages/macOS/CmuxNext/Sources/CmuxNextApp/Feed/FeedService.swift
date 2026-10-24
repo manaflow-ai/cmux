@@ -294,14 +294,16 @@ final class FeedService {
         for waiter in list { waiter.resume() }
     }
 
-    /// One HTTP call to the API Worker as the signed-in user (`/v1/ops` or `/v1/read`).
-    func call(_ path: String, _ body: [String: Any]) async throws -> [String: Any] {
+    /// One HTTP call to the API Worker as the signed-in user (`/v1/ops` or `/v1/read`), in its
+    /// personal team or in `team` (`x-cmux-team`; TeamDO confirms the membership).
+    func call(_ path: String, _ body: [String: Any], team: String? = nil) async throws -> [String: Any] {
         guard auth.isSignedIn else { throw FeedServiceError.signedOut }
         var request = URLRequest(url: apiBaseURL.appendingPathComponent(path))
         request.httpMethod = "POST"
         request.timeoutInterval = 15
         request.setValue("application/json", forHTTPHeaderField: "content-type")
         request.setValue("Bearer \(try await auth.tokens().access)", forHTTPHeaderField: "authorization")
+        if let team { request.setValue(team, forHTTPHeaderField: "x-cmux-team") }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         // The bearer never goes through the shared, caching session.
         let (data, _) = try await CloudAPIClient.noStoreTransport.data(for: request)

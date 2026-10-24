@@ -135,6 +135,10 @@ final class HomeService {
             guard let feed = self?.services.feed else { throw FeedServiceError.signedOut }
             return try await feed.call(path, body)
         },
+        teamCall: { [weak self] path, body, team in
+            guard let feed = self?.services.feed else { throw FeedServiceError.signedOut }
+            return try await feed.call(path, body, team: team)
+        },
         me: { [weak self] in
             guard let auth = self?.services.cloud.auth, let id = auth.user?.id else { return nil }
             return CloudIdentity.workerUserID(stackProjectID: auth.configuration.stackProjectID, stackUserID: id)
