@@ -24,6 +24,9 @@ impl HostedReader {
         if crate::debug_spans::following() {
             follow_marks(pty, &output);
         }
+        cmux_flow_trace::hop("daemon.output.host", 0, || {
+            pty.host_identity.as_ref().map(|id| id.terminal_id.clone()).unwrap_or_default()
+        });
         let mut scroll_changed = None;
         let mut title_update = None;
         let terminal_notifications;

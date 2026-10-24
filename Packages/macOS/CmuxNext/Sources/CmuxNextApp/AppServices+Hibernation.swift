@@ -7,12 +7,9 @@ import CmuxNextSettings
 extension AppServices {
     /// Creates the browser and agent page hibernation, follows `browser.hibernation`, and starts the
     /// memory pressure source that also sizes the terminal warm set (the one budget of hidden GPU surfaces).
-    /// The ``MemoryPressureEvents`` made here has one subscriber, the hibernation, which holds it. The app
-    /// still has four other kernel memory pressure sources (HostPressureMonitor, TabHoverCard,
-    /// NewTabSparePool, PageHostPool); when they subscribe, the events become an `AppServices` stored
-    /// service that all of them share.
+    /// It subscribes to the app's one ``MemoryPressureEvents`` (`memoryPressure`), which the new tab
+    /// and page host spare pools share.
     func startHibernation(settings: SettingsController) {
-        let memoryPressure = MemoryPressureEvents(source: KernelMemoryPressureSource())
         let hibernation = BrowserHibernation(cache: cache, memoryPressure: memoryPressure)
         cache.hibernation = hibernation
         hibernation.isPinned = { [weak self] key in self?.locateTab(key)?.0.pinned ?? false }

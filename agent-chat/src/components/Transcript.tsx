@@ -10,8 +10,9 @@ import { useActivityStartedAt, useTicker } from "../hooks/useTicker";
 import { useVirtualTurns } from "../hooks/useVirtualTurns";
 import { Check, Chevron, CopyIcon, EllipsisIcon, PinwheelSpinner } from "./icons";
 import { HintTooltip } from "./Tooltips";
-import { activityRowLabel, compactTurnGroups, groupTurns, summarizeTurnActivity, type TurnGroup } from "../turns";
+import { activityRowHoverTitle, activityRowLabel, compactTurnGroups, groupTurns, summarizeTurnActivity, type TurnGroup } from "../turns";
 import { agentMessageFoldedByDefault } from "./agentMessageFormat";
+import { toolDetailHoverTitle } from "../toolDetail";
 
 export type ToolBlockVariant = "card" | "inline" | "rail" | "oneliner" | "terminal";
 export const TOOL_BLOCK_VARIANT: ToolBlockVariant = "inline";
@@ -168,10 +169,10 @@ export function ToolBlock({ b, variant = TOOL_BLOCK_VARIANT, defaultOpen = false
     ? <PinwheelSpinner size={12} />
     : <span className={"tool-dot " + (b.status === "fail" ? "fail" : "ok")} />;
   const label = variant === "oneliner"
-    ? <>{mark}<span className="name">{b.name}</span>{b.detail ? <span className="detail">({b.detail})</span> : null}<span className="tool-time tabular-nums"> · 1.2s</span></>
+    ? <>{mark}<span className="name">{b.name}</span>{b.detail ? <span className="detail" title={toolDetailHoverTitle(b.detail)}>({b.detail})</span> : null}<span className="tool-time tabular-nums"> · 1.2s</span></>
     : variant === "terminal"
-      ? <>{mark}<span className="tool-dollar">$</span><span className="name">{b.name}</span>{b.detail ? <span className="detail">{b.detail}</span> : null}</>
-      : <>{mark}<span className="name">{b.name}</span><span className="detail">{b.detail}</span></>;
+      ? <>{mark}<span className="tool-dollar">$</span><span className="name">{b.name}</span>{b.detail ? <span className="detail" title={toolDetailHoverTitle(b.detail)}>{b.detail}</span> : null}</>
+      : <>{mark}<span className="name">{b.name}</span><span className="detail" title={toolDetailHoverTitle(b.detail)}>{b.detail}</span></>;
   return (
     <div className={`tool tool-${variant} tool-status-${b.status}`}>
       <details open>
@@ -744,12 +745,14 @@ function PlanBlock({ entries }: { entries: Extract<Block, { kind: "plan" }>['ent
 
 function ActivityDisclosureRow({
   label,
+  title,
   open,
   canExpand,
   onToggle,
   className,
 }: {
   label: string;
+  title?: string;
   open: boolean;
   canExpand: boolean;
   onToggle: () => void;
@@ -767,7 +770,7 @@ function ActivityDisclosureRow({
 
   if (!canExpand) {
     return (
-      <div className={className} style={activityLeafRowStyle}>
+      <div className={className} style={activityLeafRowStyle} title={title}>
         {content}
       </div>
     );
@@ -779,6 +782,7 @@ function ActivityDisclosureRow({
       className={className}
       style={activityButtonRowStyle}
       aria-expanded={open}
+      title={title}
       onBlur={() => setFocused(false)}
       onFocus={() => setFocused(true)}
       onMouseEnter={() => setHovered(true)}
@@ -875,6 +879,7 @@ function TurnActivity({
                     <div className="turn-activity-item" key={key}>
                       <ActivityDisclosureRow
                         label={activityRowLabel(block)}
+                        title={activityRowHoverTitle(block)}
                         open={open}
                         canExpand={canExpand}
                         className={"turn-activity-row" + (open ? " open" : "")}

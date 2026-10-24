@@ -16,9 +16,13 @@ package struct PageProbe: Hashable, Sendable {
     /// A running Web Audio context. It may be silent (a chat app's notification sounds, a game);
     /// only the page knows whether it is heard, so it counts as audio at every pressure.
     package var webAudio = false
-    /// The page would ask before it unloads (`BrowserPageBusy.beforeUnload`): it says it cannot be
-    /// unloaded now, for example a half filled out form.
+    /// The page would ask before it unloads (a child frame's `BrowserPageBusy.beforeUnload`): it says
+    /// it cannot be unloaded now, for example a half filled out form.
     package var beforeUnload = false
+    /// The person used the top document and it has a `beforeunload` handler
+    /// (`BrowserPageBusy.unloadHandler`): it may ask. Not a keep reason by itself; the hibernation
+    /// runs the handlers only right before the discard, once nothing else keeps the page.
+    package var unloadHandler = false
     /// A connected WebRTC peer connection: a discard would end the call; a freeze would stall it.
     package var webRTC = false
     /// An open USB, HID or serial device, or a connected Bluetooth GATT server (Chrome's
@@ -32,13 +36,14 @@ package struct PageProbe: Hashable, Sendable {
     package var answered = true
 
     package init(playingMedia: Bool = false, editedForm: Bool = false, capturing: Bool = false, webAudio: Bool = false,
-                 beforeUnload: Bool = false, webRTC: Bool = false, connectedDevice: Bool = false, unreadableFrame: Bool = false,
+                 beforeUnload: Bool = false, unloadHandler: Bool = false, webRTC: Bool = false, connectedDevice: Bool = false, unreadableFrame: Bool = false,
                  answered: Bool = true) {
         self.playingMedia = playingMedia
         self.editedForm = editedForm
         self.capturing = capturing
         self.webAudio = webAudio
         self.beforeUnload = beforeUnload
+        self.unloadHandler = unloadHandler
         self.webRTC = webRTC
         self.connectedDevice = connectedDevice
         self.unreadableFrame = unreadableFrame

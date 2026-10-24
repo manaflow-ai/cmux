@@ -542,6 +542,9 @@ impl Translator {
                             why.unwrap_or("Claude Code did not move its work to the background");
                         Message::err(id, RpcError::internal(why))
                     });
+                } else if let Some(rest) = rid.strip_prefix("unsteer-") {
+                    // A steer taken back, or read first (`steer_withdraw.rs`).
+                    out.extend(self.steer_withdrawn(rest, ok, &inner).await);
                 } else if let Some(acp) = rid.strip_prefix("now-") {
                     // A step stopped for a steer sent now (`MUX_STEP_NOW`).
                     let id: Id = serde_json::from_str(acp).unwrap_or(Value::String(acp.to_owned()));

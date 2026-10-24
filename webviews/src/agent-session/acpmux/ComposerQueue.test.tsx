@@ -170,6 +170,35 @@ test("Steer sends the prompt now through the queue's steer path; Delete withdraw
   expect(container.querySelector('[data-prompt-id="p-1"]')).toBeNull();
 });
 
+test("a successful Steer hides its action before the next queue snapshot", async () => {
+  let resolve: ((ok: boolean) => void) | undefined;
+  const container = await render(
+    () => new Promise<boolean>((done) => (resolve = done)),
+    async () => true,
+  );
+  expect(actions(container, "p-2").map((button) => button.dataset.action ?? button.dataset.menu)).toEqual([
+    "steer",
+    "delete",
+    "queued-more",
+  ]);
+  await act(async () => {
+    actions(container, "p-2")[0]!.click();
+  });
+  expect(actions(container, "p-2").map((button) => button.dataset.action ?? button.dataset.menu)).toEqual([
+    "steer",
+    "delete",
+    "queued-more",
+  ]);
+  await act(async () => {
+    resolve!(true);
+    await Promise.resolve();
+  });
+  expect(actions(container, "p-2").map((button) => button.dataset.action ?? button.dataset.menu)).toEqual([
+    "delete",
+    "queued-more",
+  ]);
+});
+
 test("the ⋯ menu holds Edit message and Turn off queueing; Edit message opens the text in its row", async () => {
   const container = await render(
     async () => true,

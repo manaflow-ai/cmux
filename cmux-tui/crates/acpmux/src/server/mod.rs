@@ -1200,6 +1200,7 @@ pub(crate) mod remote_guard;
 mod requests;
 mod routes;
 mod secrets;
+mod session_files;
 mod stream;
 mod subsessions;
 pub(crate) mod trust_gate;

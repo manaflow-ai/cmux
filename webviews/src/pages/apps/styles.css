@@ -621,7 +621,7 @@ code {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px 10px;
+  gap: 8px 12px;
   margin-top: 10px;
 }
 
@@ -806,7 +806,7 @@ code {
 @container apps-discover (max-width: 480px) {
   .apps-cloud-feature {
     flex-wrap: wrap;
-    gap: 10px;
+    gap: 8px;
   }
 
   .apps-cloud-feature-text {

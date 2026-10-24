@@ -599,6 +599,7 @@ impl Read for SnapshottingReader {
         let (n, unnumbered) = self.sink.read(buf);
         if n > unnumbered {
             crate::debug_spans::output_marks(&self.terminal_id, &buf[unnumbered..n]);
+            cmux_flow_trace::hop("daemon.output.holder", 0, || self.terminal_id.clone());
         }
         Ok(n)
     }

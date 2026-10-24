@@ -3,7 +3,7 @@
 
 guardrails.py runs it (one entry, one report: `prepush-gate.py --pre-push` starts guardrails' ratchet on a
 thread next to its scanners, and the guardrails report prints it). The counts are
-scripts/cmux-next/arch_counts.py's (method v4; its docstring defines every row), recorded in
+scripts/cmux-next/arch_counts.py's (method v5; its docstring defines every row), recorded in
 plans/cmux-next/arch-ratchet.json. guardrails.py has no line rule for these rows: a count row has exactly one
 escape, the dated json exception below.
 
@@ -64,6 +64,9 @@ content (arch_counts.FactsCache); the report prints the count. Measured 2026-10-
 before the v4 observer count): an 80-file cross-package move about 2 s warm, 8 s on the first run after
 arch_counts.py changes. v4 adds the observer count at both ends of every Swift push: two worktree greps and the
 observer facts of about 150 files from the cache when warm (one parse of each when cold); not measured yet.
+v5 (2026-10-24, load 65-77) counts the local package closure: a 10-file CmuxNext range takes 0.75 s best and 0.85 s
+median warm, against 0.62 s and 0.80 s for v4 in the same run (the closure comes from the facts cache by commit; a
+range that changes no Package.swift reuses its base's).
 
   scripts/cmux-next/arch-ratchet.py                  # HEAD over its merge base with origin/feat-cmux-next
   scripts/cmux-next/arch-ratchet.py --base A --head B   # exactly what B adds over A
@@ -474,7 +477,8 @@ def stale_rows(changes: Changes, dropped: dict[str, int]) -> list[str]:
 
 
 def measured_in_range(changes: Changes, record: dict) -> bool:
-    """True when RECORD's measured_sha is a commit of CHANGES' range and nothing counted changes after it."""
+    """True when RECORD's measured_sha is a commit of CHANGES' range and nothing counted changes after it: no file
+    that the closure at measured_sha or at the head counts (arch_counts.read_paths: their Swift and manifests)."""
     counts = changes.counts
     sha = record.get("measured_sha")
     if not isinstance(sha, str) or not counts.SHA.fullmatch(sha):
@@ -482,8 +486,12 @@ def measured_in_range(changes: Changes, record: dict) -> bool:
     git = counts.Git(changes.repo)
     if sha not in git.run("rev-list", f"{changes.base}..{changes.head}", check=False).split():
         return False
-    later = git.run("diff", "--name-only", "--no-renames", "-z", sha, changes.head, "--", check=False)
-    return not any(counts.is_counted(p) for p in later.split("\0") if p)
+    later = [p for p in git.run("diff", "--name-only", "--no-renames", "-z", sha, changes.head, "--",
+                                check=False).split("\0") if p]
+    if not later:
+        return True
+    scopes = [counts.read_paths(changes.repo, rev) for rev in (sha, changes.head)]
+    return not any(scope.is_counted(p) for scope in scopes for p in later)
 
 
 def rule_refusal(item, rule_id: str) -> tuple[str, str, str | None]:
@@ -780,9 +788,15 @@ def raised_by(repo: Path, since: str, until: str, rows: set[str]) -> dict[str, l
     is the same in any checkout.
     """
     counts = load_counts()
-    paths = [counts.SOURCES, *counts.COUNT_INPUTS]
-    code, out = git(repo, "log", "--no-merges", "--reverse", "--format=%H%x1f%an%x1f%s", f"{since}..{until}", "--", *paths)
+    # The closures at both ends (their Sources and manifests), every Package.swift (a commit between them can link a
+    # package and the next unlink it) and the layer map.
     found: dict[str, list[tuple[str, int, str]]] = {row: [] for row in rows}
+    try:
+        scopes = [counts.read_paths(repo, rev) for rev in (since, until)]
+    except RuntimeError:
+        return found  # an end is not a commit here (a measured_sha rebased away)
+    paths = sorted({p for scope in scopes for p in scope.sources + scope.count_inputs}) + [":(glob)**/Package.swift"]
+    code, out = git(repo, "log", "--no-merges", "--reverse", "--format=%H%x1f%an%x1f%s", f"{since}..{until}", "--", *paths)
     if code != 0:
         return found
     for line in out.splitlines():

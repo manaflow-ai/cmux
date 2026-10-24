@@ -26,8 +26,9 @@ Existing sites are listed in scripts/cmux-next/raw-spawn-baseline.tsv with
 the number of matching lines per FILE and the owner that moves them. A file
 with more matches than its row, or with matches and no row, fails: a site
 moved out of one file cannot come back in another. A file with fewer
-matches than its row also fails until the row is lowered, so the ratchet
-only goes down.
+matches than its row only prints a note to lower the row (exit 0): the
+pre-push hook judges the push against the INSTALLED copy of this
+baseline, so a refusal there would refuse every push that moves a site.
 
 It runs in the local pre-push gate only (no CI step: agents run their
 checks themselves), which refuses a push whose tree has a raw-spawn finding
@@ -158,7 +159,6 @@ def main(argv: list[str]) -> int:
     for rel, (allowed, _) in sorted(baseline.items()):
         count = len(hits.get(rel, []))
         if count < allowed:
-            status = 1
             print(
                 f"check-no-raw-spawn: {rel} now has {count} raw-spawn line(s), baseline {allowed}. "
                 f"Lower its row in {BASELINE} to {count}" + (" (delete the row)" if count == 0 else "") + ".",

@@ -392,7 +392,7 @@ public final class HomeNativeTranscriptView: NSView {
         let avoided = toastAvoidanceRect
         if avoided != lastToastAvoidance {
             lastToastAvoidance = avoided
-            NotificationCenter.default.post(name: .cmuxToastAvoidanceDidChange, object: self)
+            if let window { CmuxToastAvoidance.avoidanceChanged(in: window) }
         }
     }
 

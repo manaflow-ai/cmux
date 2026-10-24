@@ -12,11 +12,14 @@ public import CoreGraphics
     /// passes on `clock`, whichever comes first (a load that ends with nothing painted, fails, is
     /// stopped, a renderer that ends, or a close also remove it).
     /// - Parameters:
-    ///   - picture: The tab's last frame, as kept while it hibernated.
+    ///   - picture: The tab's last frame: the placeholder's decoded pixels when it was shown
+    ///     (`HibernatedBrowserTab.shownPicture`), else the picture as kept while it hibernated.
+    ///   - decoded: `picture` is already drawn into a bitmap: the cover shows it from its first
+    ///     frame, with no decode. Otherwise it decodes off the main thread once in a window.
     ///   - cap: The longest the picture may stand in for the page: a page that paints late must
     ///     not look frozen.
     ///   - clock: The clock the cap runs on (tests advance a manual one).
     /// - Returns: False when the page cannot show a stand-in now (nothing covers it).
     @discardableResult
-    func showStandIn(_ picture: CGImage, cap: Duration, clock: any Clock<Duration>) -> Bool
+    func showStandIn(_ picture: CGImage, decoded: Bool, cap: Duration, clock: any Clock<Duration>) -> Bool
 }

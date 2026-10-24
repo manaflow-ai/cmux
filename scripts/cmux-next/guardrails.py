@@ -4,16 +4,22 @@
 Run by the pre-push hook through `prepush-gate.py --pre-push` (and by a plain local `prepush-gate.py`),
 never by CI (Lawrence 2026-10-23: no new CI gates). Only Swift lines the push ADDS under
 Packages/macOS/CmuxNext/Sources count, plus unchanged lines that become debt because the push changed the
-line that gives them their context (a new `while` around a sleep, `struct` -> `class` around a static).
+line that gives them their context (`struct` -> `class` around a static, a view renamed to a `...Row`, an
+edited or deleted deinit in a generic class's body, or a type made generic around the classes in its
+extensions, read in every Sources and Tests file that extends it: generic_signature_context) or the comment
+that escaped them (a deleted or reworded `// <rule>-allow:` line).
 Per file and rule it is a count ratchet: an added match is new only when the same file does not remove as
 much debt (judged on the base text with the same context and escape rules, so editing a line that already
-has debt adds none, and a removed one-shot delay does not pay for a new poll), and an added line whose
+has debt adds none, and a removed escaped line does not pay for an unescaped one), and an added line whose
 text another file removes as debt is a move. Only the push's own commits count (push_range.py, the same
 range the gate's scanners and the arch ratchet judge): lines a push only brings in from origin/feat-cmux-next
 (a merge or rebase onto it) never count. A merge is judged over the upstream it merged, less what the branch's
 old remote head already had over the upstream it started from (check_own), so an upstream removal of debt never
 pays for the branch's own. Base debt never blocks a push
-(plans/cmux-next/codebase-health.md has the counts).
+(plans/cmux-next/codebase-health.md has the counts). A rule another check already refuses before the push is
+not repeated here (sleeps: check-concurrency.sh; assumeIsolated: crash_ratchet.py's ban); a rule shared with
+a CI check reads that check's own definition (unchecked-sendable: crash_ratchet.py's class and escape;
+app-size: count-swift-code-lines.py's lexer).
 
 Refusals (rules below, `--list` prints them): each names the rule, why, the right pattern and its escape.
 Skip once: CMUX_GUARDRAILS_SKIP_REASON="<rule>[,<rule>]: <why>" skips only the named line rules; say it in
@@ -29,9 +35,10 @@ observer sites, layer edges. Those concerns have no line rule here, so there is 
 per concern: the dated exception in arch-ratchet.json (CMUX_GUARDRAILS_SKIP_REASON does not skip them, and no
 inline marker hides them).
 Warnings (never refuse):
-  perf-hot  the push changes a function marked `// perf-hot: <budget> <path-id>` (a trailing comment on its
-            declaration line, or in the comment block above it); names the bench from scripts/cmux-next/perf-hot-benches.json to run before
-            and after on the fleet.
+  perf-hot  the push changes a function marked `// perf-hot: <budget> <path-id>` (in the comment block above
+            its declaration, trailing on the declaration line, or trailing on the `{` line of a wrapped
+            signature); names the bench from scripts/cmux-next/perf-hot-benches.json to run before and after
+            on the fleet. A marker the push touches that marks no declaration warns too.
   owner     the push touches an area in plans/cmux-next/OWNERS.md; names the owner and the doc to read.
 
 `app-size` is a net count over the push, not a per-line rule, in source lines as CI's check-app-size.sh --base
@@ -78,6 +85,14 @@ from pathlib import Path
 from typing import Callable, NamedTuple
 
 HERE = Path(__file__).resolve().parent
+# The lexical helpers and the generic-class deinit detector check-concurrency.sh's crash-class rule shares.
+_SCOPE = importlib.util.spec_from_file_location("cmux_next_swift_scope", HERE / "swift_scope.py")
+swift_scope = importlib.util.module_from_spec(_SCOPE)
+sys.modules[_SCOPE.name] = swift_scope  # its NamedTuple resolves its module through sys.modules
+_SCOPE.loader.exec_module(swift_scope)
+code_of, escaped, enclosing_openers = swift_scope.code_of, swift_scope.escaped, swift_scope.enclosing_openers
+COMMENT_LINE, ATTRIBUTE, ATTRIBUTE_LINE = swift_scope.COMMENT_LINE, swift_scope.ATTRIBUTE, swift_scope.ATTRIBUTE_LINE
+
 SOURCES = "Packages/macOS/CmuxNext/Sources/"
 # The rules read Swift only: the string catalogs under Sources are MBs of JSON per localization push.
 SWIFT_SOURCES = f":(glob){SOURCES}**/*.swift"
@@ -93,61 +108,35 @@ UPSTREAM = "origin/feat-cmux-next"
 OWNERS = "plans/cmux-next/OWNERS.md"
 BENCHES = "scripts/cmux-next/perf-hot-benches.json"
 SKIP_ENV = "CMUX_GUARDRAILS_SKIP_REASON"
-COMMENT_LINE = re.compile(r"^\s*(//|\*|/\*)")
-# An attribute, its arguments holding one level of nested parentheses (`@available(*, message: "use X (new)")`).
-ATTRIBUTE = r"@\w+(?:\((?:[^()]|\([^()]*\))*\))?"
-ATTRIBUTE_LINE = re.compile(rf"^\s*{ATTRIBUTE}\s*$")
 PERF_HOT = re.compile(r"//\s*perf-hot:\s*(?P<budget>\S+)(?:\s+(?P<path>[\w-]+))?")
 DECL = re.compile(r"\b(func|init|deinit|subscript|var)\b")
 
 
+def load_sibling(name: str, filename: str):
+    """The module FILENAME beside this file (the checkout's scripts/cmux-next, or the installed checks snapshot)."""
+    spec = importlib.util.spec_from_file_location(name, Path(__file__).with_name(filename))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+git_batch = load_sibling("cmux_next_git_batch", "git_batch.py")
+# The crash ratchet's own Swift classifier, escape and bans: the unchecked-sendable rule reads them, never a copy.
+ratchet = load_sibling("cmux_next_crash_ratchet", "crash_ratchet.py")
+
+
+def git_env() -> dict[str, str]:
+    """The environment for git: a hook's GIT_INDEX_FILE / GIT_WORK_TREE describe the pushing checkout, not a rev."""
+    return {k: v for k, v in os.environ.items() if k not in ("GIT_INDEX_FILE", "GIT_WORK_TREE")}
+
+
 def git(repo: Path, *args: str, check: bool = True) -> str:
-    env = {k: v for k, v in os.environ.items() if k not in ("GIT_INDEX_FILE", "GIT_WORK_TREE")}
-    result = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, env=env)
+    result = git_batch.run(repo, list(args), env=git_env())
     if check and result.returncode != 0:
         raise SystemExit(f"guardrails: git {' '.join(args)} failed: {result.stderr.decode(errors='replace').strip()}")
     return result.stdout.decode("utf-8", "replace")
 
 
-def code_of(line: str) -> str:
-    """LINE without a trailing `//` comment (outside string literals) and with string contents blanked."""
-    if '"' not in line and "/" not in line:
-        return line
-    if COMMENT_LINE.match(line):
-        return ""
-    out, in_string, i = [], False, 0
-    while i < len(line):
-        c = line[i]
-        if in_string:
-            if c == "\\":
-                i += 2
-                continue
-            if c == '"':
-                in_string = False
-                out.append(c)
-            i += 1
-            continue
-        if c == '"':
-            in_string = True
-            out.append(c)
-        elif line.startswith("//", i):
-            break
-        else:
-            out.append(c)
-        i += 1
-    return "".join(out)
-
-
-def escaped(lines: list[str], index: int, marker: re.Pattern) -> bool:
-    """MARKER on the line, on the previous code line's trailing comment, or in the comment block above."""
-    if marker.search(lines[index]):
-        return True
-    j = index - 1
-    while j >= 0 and (COMMENT_LINE.match(lines[j]) or ATTRIBUTE_LINE.match(lines[j])):
-        if marker.search(lines[j]):
-            return True
-        j -= 1
-    return j >= 0 and j == index - 1 and bool(marker.search(lines[j]))
 
 
 @dataclass
@@ -158,13 +147,38 @@ class Added:
     text: str
 
 
+def escape_window(lines: list[str], index: int) -> list[int]:
+    """The 0-based lines whose comment can escape LINES[INDEX] (swift_scope.escaped's window): the line, the
+    comment and attribute block directly above it, or (no such block) the previous code line, whose trailing
+    comment counts."""
+    window = [index]
+    j = index - 1
+    while j >= 0 and (COMMENT_LINE.match(lines[j]) or ATTRIBUTE_LINE.match(lines[j])):
+        window.append(j)
+        j -= 1
+    if j >= 0 and j == index - 1:
+        window.append(j)
+    return window
+
+
 @dataclass
 class Version:
-    """One side of a changed file: its lines and the 1-based lines the push changed on that side."""
+    """One side of a changed file: its lines and the 1-based lines the push changed on that side.
+
+    TOUCHED is CHANGED plus, around each hunk that is empty on one side (a pure deletion or insertion), the
+    unchanged line before and after it, marked on both sides: a context rule reads it, so a deletion inside a
+    class body or a loop still touches its context, and the base side marks the same lines, so old debt there
+    pairs with itself. TYPES answers which type names are generic at that side's revision (the generic-class
+    rule reads an extension's context with it); without one, only the file's own declarations count.
+    MAIN_DEFAULT is whether the file's target is main actor by default (uiSwiftSettings).
+    """
     path: str
     lines: list[str]
     changed: set[int]
+    touched: set[int] = field(default_factory=set)
     memo: dict = field(default_factory=dict)
+    types: "GenericTypes | None" = None
+    main_default: bool = True
 
 
 @dataclass
@@ -179,14 +193,25 @@ class FileChange:
     is_deleted: bool = False
     has_perf_hot: bool = False
     memo: dict = field(default_factory=dict)  # per-push results of this file that rules share (app_file)
+    head_types: "GenericTypes | None" = None
+    base_types: "GenericTypes | None" = None
+    # The unchanged lines around each hunk that is empty on one side, numbered on each side (Version.touched).
+    head_anchors: set[int] = field(default_factory=set)
+    base_anchors: set[int] = field(default_factory=set)
+    head_main: bool = True
+    base_main: bool = True
 
     @property
     def head(self) -> Version:
-        return Version(self.path, self.head_lines, {a.number for a in self.added})
+        changed = {a.number for a in self.added}
+        return Version(self.path, self.head_lines, changed, changed | self.head_anchors, types=self.head_types,
+                       main_default=self.head_main)
 
     @property
     def base(self) -> Version:
-        return Version(self.path, self.base_lines, {r.number for r in self.removed})
+        changed = {r.number for r in self.removed}
+        return Version(self.path, self.base_lines, changed, changed | self.base_anchors, types=self.base_types,
+                       main_default=self.base_main)
 
 
 @dataclass
@@ -209,43 +234,103 @@ Keep = Callable[[Version, int], tuple]
 class Matcher:
     pattern: re.Pattern
     escape: re.Pattern | None
-    keep: Keep | None = None  # context: a sleep inside a loop, a static of a class, a store in a row
+    keep: Keep | None = None  # context: a static of a class, a store in a row, a generic class without a deinit
+    code: Callable[[str], str] = code_of  # the code PATTERN reads (comments dropped, string contents blanked)
+    window: Callable[[list[str], int], list[int]] = escape_window  # the lines whose comment can carry ESCAPE
 
 
-def debt_in(version: Version, changed: list[Added], matcher: Matcher) -> list[Added]:
-    """The debt among VERSION's CHANGED lines, plus (context rules) unchanged matches whose context changed.
+def escape_neighbours(lines: list[str], touched: set[int]) -> set[int]:
+    """0-based lines whose escape_window() can hold a TOUCHED (1-based) line: the line itself, the line below
+    it, and further down while every line from the touched one on is a comment or attribute line (the block
+    above the code line it escapes). crash_ratchet.allow_lines() (the line and the one above) is inside."""
+    out = set()
+    for number in touched:
+        i = number - 1
+        out.update((i, i + 1))
+        k = i
+        while 0 <= k < len(lines) and (COMMENT_LINE.match(lines[k]) or ATTRIBUTE_LINE.match(lines[k])):
+            out.add(k + 1)
+            k += 1
+    return {i for i in out if 0 <= i < len(lines)}
 
-    A line counts when MATCHER's pattern matches its code, KEEP holds for it in VERSION's text and it carries
-    no escape there. For a context rule, an unchanged line also counts when an opener that makes it debt is a
-    changed line: a new `while` around an old sleep, `struct` -> `final class` around an old static, a view
-    renamed to `...Row` around an old store reference (head side); on the base side the same lines are the
-    debt the push takes away, so `while a {` -> `while b {` around a sleep pairs with itself.
-    """
-    out = []
+
+def is_debt(version: Version, index: int, matcher: Matcher) -> tuple[bool, list[int]]:
+    """(VERSION's line INDEX is debt: KEEP holds for it and it carries no escape, the 1-based openers KEEP read)."""
+    kept, openers = matcher.keep(version, index) if matcher.keep is not None else (True, [])
+    if not kept or (matcher.escape is not None and escaped_in(version.lines, index, matcher)):
+        return False, openers
+    return True, openers
+
+
+def rejudged(version: Version, matcher: Matcher) -> set[int]:
+    """0-based unchanged lines of VERSION that match MATCHER and whose debt the push may have changed: the escape
+    window holds a touched line (the push deleted or reworded the `// <rule>-allow:` comment, or put a line
+    between it and the code), or, for a context rule, a line KEEP reads is touched (Version.touched): `struct` ->
+    `final class` around an old static, a view renamed to `...Row` around an old store reference, an edit or a
+    deletion inside a generic class's body."""
     lines = version.lines
 
-    def is_debt(index: int) -> tuple[bool, list[int]]:
-        if index >= len(lines):  # no text for this side (a failed blob read): judge the line alone
-            return True, []
-        kept, openers = matcher.keep(version, index) if matcher.keep is not None else (True, [])
-        if not kept or (matcher.escape is not None and escaped(lines, index, matcher.escape)):
-            return False, openers
-        return True, openers
+    def matches(index: int) -> bool:
+        return (index + 1 not in version.changed and matcher.pattern.search(lines[index]) is not None
+                and matcher.pattern.search(matcher.code(lines[index])) is not None)
 
-    for line in changed:
-        if matcher.pattern.search(code_of(line.text)) and is_debt(line.number - 1)[0]:
-            out.append(line)
-    if matcher.keep is None or not version.changed:
-        return out
-    for index, text in enumerate(lines):
-        if index + 1 in version.changed or not matcher.pattern.search(text):
-            continue
-        if not matcher.pattern.search(code_of(text)):
-            continue
-        debt, openers = is_debt(index)
-        if debt and any(o in version.changed for o in openers):
-            out.append(Added(version.path, index + 1, text))
-    return out
+    found: set[int] = set()
+    if matcher.escape is not None and version.touched:
+        found.update(index for index in escape_neighbours(lines, version.touched)
+                     if matches(index) and any(j + 1 in version.touched for j in matcher.window(lines, index)))
+    if matcher.keep is not None and version.touched:
+        found.update(index for index in range(len(lines)) if index not in found and matches(index)
+                     and any(o in version.touched for o in is_debt(version, index, matcher)[1]))
+    return found
+
+
+def unchanged_pairs(change: FileChange) -> dict[int, int]:
+    """{0-based head line: 0-based base line} for every line the push did not change.
+
+    The diff's unchanged lines are the same lines in the same order on both sides, so the n-th unchanged head
+    line is the n-th unchanged base line. A final newline adds no line (`text.split("\\n")` leaves a last "").
+    """
+    def unchanged(lines: list[str], changed: set[int]) -> list[int]:
+        count = len(lines) - (1 if lines and lines[-1] == "" else 0)
+        return [i for i in range(count) if i + 1 not in changed]
+
+    head = unchanged(change.head_lines, {a.number for a in change.added})
+    base = unchanged(change.base_lines, {r.number for r in change.removed})
+    if len(head) != len(base):
+        raise ValueError(f"{change.path}: the diff leaves {len(head)} lines unchanged at head and {len(base)} at "
+                         "base; the diff and the file texts disagree")
+    return dict(zip(head, base))
+
+
+def file_debt(change: FileChange, matcher: Matcher) -> tuple[list[Added], list[Added]]:
+    """(head debt, base debt) of one changed file: its changed lines that are debt on their side, plus every
+    unchanged line whose debt the push may have changed, judged on both sides.
+
+    An unchanged line rejudged() finds on either side is judged on both: at head it is debt the push leaves, at
+    base debt the push takes away, and resolve() pairs the two copies (same text). So an edit that keeps the
+    escape or the context (a reworded reason, `final class A {` -> `final class A: Sendable {`) or only touches
+    lines next to old unescaped debt (a deleted code line above its comment block, a new class opened around an
+    old static of a class) adds none, and only a line that is debt at head and was not at base is new. Judging
+    each side's candidates on that side alone counted old debt as new when only the head reached the edit.
+    """
+    head, base = change.head, change.base
+    head_debt = [a for a in change.added if matcher.pattern.search(matcher.code(a.text))
+                 and is_debt(head, a.number - 1, matcher)[0]]
+    base_debt = [r for r in change.removed if matcher.pattern.search(matcher.code(r.text))
+                 and is_debt(base, r.number - 1, matcher)[0]]
+    head_lines, base_lines = rejudged(head, matcher), rejudged(base, matcher)
+    if not head_lines and not base_lines:
+        return head_debt, base_debt
+    to_base = unchanged_pairs(change)
+    to_head = {b: h for h, b in to_base.items()}
+    for h, b in sorted({(h, to_base[h]) for h in head_lines} | {(to_head[b], b) for b in base_lines}):
+        if head.lines[h] != base.lines[b]:
+            raise ValueError(f"{change.path}: unchanged head line {h + 1} is not base line {b + 1}")
+        if is_debt(head, h, matcher)[0]:
+            head_debt.append(Added(change.path, h + 1, head.lines[h]))
+        if is_debt(base, b, matcher)[0]:
+            base_debt.append(Added(change.path, b + 1, base.lines[b]))
+    return head_debt, base_debt
 
 
 ACCESS_WORDS = re.compile(r"\b(public|package|internal|private|fileprivate|open)\s+(?!\()|\b(public|package|internal)\s+import\b")
@@ -297,53 +382,20 @@ def resolve(found: list[tuple[list[Added], list[Added]]]) -> list[Added]:
     return hits
 
 
+def escaped_in(lines: list[str], index: int, matcher: Matcher) -> bool:
+    """MATCHER's escape in a comment of its window around LINES[INDEX]."""
+    return any(matcher.escape.search(lines[j]) for j in matcher.window(lines, index))
+
+
 def matcher_rule(matcher: Matcher) -> Callable[[list[FileChange], collections.Counter], list[Added]]:
     def find(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
-        return resolve([(debt_in(c.head, c.added, matcher), debt_in(c.base, c.removed, matcher)) for c in changes])
+        return resolve([file_debt(c, matcher) for c in changes])
     return find
 
 
 def line_rule(pattern: str, escape: str | None) -> Callable[[list[FileChange], collections.Counter], list[Added]]:
     marker = re.compile(r"//\s*" + re.escape(escape) + r"\s*\S") if escape else None
     return matcher_rule(Matcher(re.compile(pattern), marker))
-
-
-def enclosing_openers(lines: list[str], index: int, stop: re.Pattern, prefix: str = "") -> list[tuple[str, int]]:
-    """The block openers around LINES[INDEX], innermost first, up to one matching STOP, as (code, 1-based line).
-
-    PREFIX is the code before the point of interest on LINES[INDEX] itself (a one-line `while x { sleep }`).
-    Each opener is its line's code up to and including the `{`.
-    """
-    openers, depth = [], 0
-    above = ((code_of(lines[j]), j + 1) for j in range(index - 1, -1, -1))
-    for code, number in itertools.chain([(prefix, index + 1)], above):
-        for pos in range(len(code) - 1, -1, -1):
-            c = code[pos]
-            if c == "}":
-                depth += 1
-            elif c == "{":
-                if depth == 0:
-                    openers.append((code[:pos + 1], number))
-                    if stop.search(code[:pos + 1]):
-                        return openers
-                else:
-                    depth -= 1
-    return openers
-
-
-SLEEP = re.compile(r"\bTask\.sleep\(|\.sleep\((for|until):|\bclock\.sleep\b")
-LOOP = re.compile(r"^\s*(\}\s*)?(while\b|repeat\b|for\b)|\b(while|repeat)\s*[{(!]")
-FUNC_STOP = re.compile(r"\b(func|init|deinit)\b[^{]*\{|\b(Task|Task\.detached)\s*(\([^)]*\))?\s*\{")
-# check-concurrency.sh's reviewed `// wakeup-allow:` covers it too; `poll-allow:` is the older name.
-POLL_ALLOW = re.compile(r"//\s*(wakeup|poll)-allow:\s*\S")
-
-
-def in_loop(version: Version, index: int) -> tuple[bool, list[int]]:
-    code = code_of(version.lines[index])
-    match = SLEEP.search(code)
-    prefix = code[:match.start()] if match else ""
-    loops = [n for opener, n in enclosing_openers(version.lines, index, FUNC_STOP, prefix) if LOOP.search(opener)]
-    return bool(loops), loops
 
 
 ROW_STRUCT = re.compile(r"\bstruct\s+(\w*(Row|Cell|Tile|Gap|Item)(View)?)\b[^{]*:\s*[^{]*\bView\b")
@@ -1417,39 +1469,164 @@ def app_size(changes: list[FileChange], moved: collections.Counter) -> list[Adde
     return hits
 
 
-# A generic class whose deinit is implicit. In a main-actor target (the default of every UI and test
-# target, `.defaultIsolation(MainActor.self)`) that deinit is isolated, and swift-frontend 6.3.3 (Xcode 26.6)
-# crashes on it in -O: signal 11 in EarlyPerfInliner, isCallerAndCalleeLayoutConstraintsCompatible, on the
-# class's deallocating deinit (`...CfD`). It broke `swift build --build-tests -c release` twice on 2026-10-23
-# (PageTestWait.Once, CloudPaneTests.Seen) and can hit any edit of such a class.
-GENERIC_CLASS = re.compile(r"(^|[\s)])(final\s+)?class\s+\w+\s*<")
-GENERIC_CLASS_ALLOW = re.compile(r"//\s*generic-class-allow:\s*\S")
+# The generic main-actor class deinit crash (swift_scope.py has the evidence): swift-frontend 6.3.3 crashes in -O
+# on the isolated deinit of a main-actor class generic by itself or by context. swift_scope.judge is the one
+# detector check-concurrency.sh's CI crash-class rule uses too; this rule applies it to what a push adds in Sources
+# and Tests, and only a `nonisolated deinit` is the fix.
+CLASS_DECL = swift_scope.CLASS_DECL
+GENERIC_CLASS_ALLOW = swift_scope.GENERIC_CLASS_ALLOW
+GENERIC_TYPE = swift_scope.GENERIC_TYPE
+PACKAGE_ROOT = "Packages/macOS/CmuxNext/"
+MANIFEST = PACKAGE_ROOT + "Package.swift"
+
+
+class GenericTypes:
+    """Which type names are declared generic (`struct Name<...>`) at one revision.
+
+    KNOWN holds the declarations in the push's own files at that revision. A name it lacks is looked up once in
+    the revision's `Name.swift` files (CLAUDE.md: one major type per file, named after the type); a type declared
+    in a file of another name is not found, and its extensions read as non-generic (fail open).
+    """
+
+    def __init__(self, repo: Path | None, rev: str | None, texts: list[str]):
+        self.repo, self.rev = repo, rev
+        self.known = {name for text in texts for name in GENERIC_TYPE.findall(text)}
+        self.looked: dict[str, bool] = {}
+        self.tree: list[str] | None = None
+
+    def __contains__(self, name: str) -> bool:
+        if name in self.known:
+            return True
+        if name not in self.looked:
+            self.looked[name] = self.declared_generic(name)
+        return self.looked[name]
+
+    def declared_generic(self, name: str) -> bool:
+        if self.repo is None or self.rev is None:
+            return False
+        if self.tree is None:
+            self.tree = git(self.repo, "ls-tree", "-r", "--name-only", self.rev, "--", SOURCES, TESTS,
+                            check=False).split("\n")
+        paths = [p for p in self.tree if p.rsplit("/", 1)[-1] == f"{name}.swift"]
+        declared = re.compile(r"\b(?:class|struct|enum|actor)\s+" + re.escape(name) + r"\s*<")
+        return any(declared.search(text) for text in blobs(self.repo, [(self.rev, p) for p in paths]).values())
+
+
+def main_by_default(path: str, targets: list) -> bool:
+    """Whether PATH's target is main actor by default, from TARGETS (swift_scope.package_targets of the
+    revision's Package.swift: the target whose folder holds PATH). A file in no target's folder (or no
+    manifest) counts as main actor."""
+    if not path.startswith(PACKAGE_ROOT):
+        return True
+    main = swift_scope.default_isolation(path[len(PACKAGE_ROOT):], targets)
+    return True if main is None else main
+
+
+@dataclass
+class Attributed(Added):
+    """A hit in a file the push did not change: CAUSE names the push's change that makes it debt there."""
+    cause: str = ""
+
+
+def generic_signature_context(repo: Path, head: str, changes: dict[str, FileChange],
+                              head_types: GenericTypes, base_types: GenericTypes) -> tuple[list[FileChange], dict[str, str]]:
+    """(unchanged files the generic-class rule must judge, {path: cause}) for the push's generic-signature changes.
+
+    A push that adds or removes a type's generic parameters (`struct Ledger {` -> `struct Ledger<Entry> {`) makes
+    or unmakes every class in an extension of that type generic by context, also in files the push does not
+    change. Each `extension` line of such a type is marked touched on both sides (Version.touched): in the
+    push's own files, and in every Sources and Tests file at HEAD that extends the type, which is added here
+    unchanged (its base text is its head text). The rule then judges those classes against the base, so the
+    push owns the candidates it makes and a class that was already debt pairs with itself. A type whose
+    parameters only change (`Ledger<Entry>` -> `Ledger<Entry, Key>`) stays generic and marks nothing.
+    """
+    flipped: dict[str, str] = {}  # type name -> "path:line" of the declaration whose generic signature changed
+    for path, change in sorted(changes.items()):
+        if not path.endswith(".swift"):
+            continue
+        head_decls = swift_scope.generic_declarations("\n".join(change.head_lines))
+        base_decls = swift_scope.generic_declarations("\n".join(change.base_lines))
+        for name in sorted(set(head_decls) ^ set(base_decls)):
+            if (name in head_types) != (name in base_types):
+                flipped.setdefault(name, f"{path}:{(head_decls.get(name) or base_decls[name])[0]}")
+    if not flipped:
+        return [], {}
+    names = frozenset(flipped)
+
+    def anchors(lines: list[str]) -> dict[int, set[str]]:
+        found = {}
+        for number, line in enumerate(lines, 1):
+            if "extension" in line and (extended := swift_scope.extended_names(line, names)):
+                found[number] = extended
+        return found
+
+    for path, change in changes.items():
+        if path.endswith(".swift"):
+            change.head_anchors.update(anchors(change.head_lines))
+            change.base_anchors.update(anchors(change.base_lines))
+    pattern = (r"extension[[:space:]]+([A-Za-z_][A-Za-z0-9_]*\.)*(" + "|".join(sorted(names))
+               + r")([^A-Za-z0-9_]|$)")
+    listed = git(repo, "grep", "-l", "-E", pattern, head, "--", SWIFT_SOURCES, SWIFT_TESTS, check=False)
+    others = sorted({line.split(":", 1)[1] for line in listed.splitlines() if ":" in line} - set(changes))
+    texts = blobs(repo, [(head, p) for p in others])
+    added, causes = [], {}
+    for path in others:
+        if (head, path) not in texts:
+            continue
+        lines = texts[(head, path)].split("\n")
+        marks = anchors(lines)
+        if not marks:
+            continue
+        added.append(FileChange(path, lines, base_lines=lines, head_anchors=set(marks), base_anchors=set(marks)))
+        extended = sorted(set().union(*marks.values()))
+        causes[path] = "generic by context: it extends " + ", ".join(
+            f"`{name}`, whose generic signature this push changes at {flipped[name]}" for name in extended)
+    return added, causes
 
 
 def implicit_deinit(version: Version, index: int) -> tuple[bool, list[int]]:
-    """A generic class declared here that is not `nonisolated` and whose body declares no `deinit`."""
-    code = code_of(version.lines[index])
-    match = GENERIC_CLASS.search(code)
-    if match is None or re.search(r"\bnonisolated\b", code[:match.end()]):
+    """swift_scope.judge for a class declared here. Its context is the generic declarations around it and every
+    line of its own body, so a push that only edits or deletes its deinit (or any member) judges it."""
+    memo = version.memo
+    if "main" not in memo:
+        memo["main"] = swift_scope.main_lines(version.lines, version.main_default)
+        memo["generic"] = swift_scope.generic_names("\n".join(version.lines))
+    local, types = memo["generic"], version.types
+
+    def is_generic(name: str) -> bool:
+        return name in local or (types is not None and name in types)
+
+    judged = swift_scope.judge(version.lines, index, is_generic, memo["main"], version.main_default)
+    if judged is None:
         return False, []
-    depth, opened = 0, False
-    for j in range(index, len(version.lines)):
-        line = code_of(version.lines[j])
-        if opened and depth == 1 and re.search(r"\bdeinit\b", line):
-            return False, []
-        for c in line if j > index else line[match.start():]:
-            if c == "{":
-                depth += 1
-                opened = True
-            elif c == "}":
-                depth -= 1
-        if opened and depth <= 0:
-            break
-    return True, []
+    first, last = judged.span
+    return True, judged.context + list(range(first, last + 1))
 
 
-sleep_in_loop = matcher_rule(Matcher(SLEEP, POLL_ALLOW, in_loop))
 row_store = matcher_rule(Matcher(ROW_STORE, ROW_ALLOW, in_row))
+
+
+def ratchet_code(line: str) -> str:
+    """LINE as crash_ratchet.py reads it: a comment line is no code, else swift_code()."""
+    return "" if line.lstrip().startswith("//") else ratchet.swift_code(line)
+
+
+# crash_ratchet.py's `unchecked` class, judged per added line. The ratchet itself counts per module against
+# its full-tree baseline, which the pre-push trees (only the changed files) never reach, so before a push only
+# this rule sees a new one. A class the ratchet bans (per file, crash-allowlist.json) it refuses itself.
+UNCHECKED = Matcher(ratchet.SWIFT["unchecked"], ratchet.ALLOW, code=ratchet_code, window=ratchet.allow_lines)
+
+
+def unchecked_sendable(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    banned_everywhere = "unchecked" in ratchet.banned_kinds("swift")
+    banned_modules = {module for kind, module in ratchet.banned_in("swift") if kind == "unchecked"}
+    judged = [c for c in changes if not banned_everywhere and module_of(c.path) not in banned_modules]
+    return matcher_rule(UNCHECKED)(judged, moved)
+
+
+def module_of(path: str) -> str:
+    """The Swift module of a path under Sources/ (its first folder there)."""
+    return path[len(SOURCES):].split("/", 1)[0] if path.startswith(SOURCES) else ""
 
 
 # ---- task-priority (PL-qos)
@@ -1490,15 +1667,11 @@ RULES = (
     Rule("unchecked-sendable", "`@unchecked Sendable` / `nonisolated(unsafe)` without a safety argument",
          "it switches off the data-race checker; without a written argument nobody can review it",
          "an actor, a Sendable value type, or CmuxNextCompat `Mutex` around the state; when it is truly safe, "
-         "say why on the declaration: `// crash-allow: <the safety argument>` (crash_ratchet.py counts it as a waived hit: record it with crash_ratchet.py --record-waivers)",
+         "say why on the declaration line or the line directly above: `// crash-allow: <the safety argument>` "
+         "(crash_ratchet.py's class and escape: CI's ratchet reads the same two lines; it counts the line as a "
+         "waived hit: record it with crash_ratchet.py --record-waivers)",
          "// crash-allow: <the safety argument>",
-         line_rule(r"@unchecked\s+Sendable\b|\bnonisolated\(unsafe\)", "crash-allow:")),
-    Rule("sleep-poll", "A sleep inside a loop (polling)",
-         "a sleep that waits for a condition wakes forever, adds up to one period of latency and hides the real signal",
-         "await the event (AsyncStream, a continuation, observation); one deadline: DemandTimer; a retry after a "
-         "failure: Backoff.wait",
-         "// wakeup-allow: <why no event exists> (check-concurrency.sh's marker; `poll-allow:` also works)",
-         sleep_in_loop),
+         unchecked_sendable),
     Rule("main-async", "`DispatchQueue.main.async`",
          "an untyped hop that reorders work and hides isolation (CLAUDE.md forbids it in new code)",
          "annotate the destination `@MainActor` and `await` it, or hop once with `Task { @MainActor in ... }` "
@@ -1519,14 +1692,17 @@ RULES = (
          "ForEach",
          "// row-snapshot-allow: <why>",
          row_store),
-    Rule("generic-class-deinit", "A generic class with an implicit deinit (main-actor by default)",
-         "swift-frontend 6.3.3 (Xcode 26.6) crashes with signal 11 in -O on the implicit isolated deinit of a generic "
+    Rule("generic-class-deinit",
+         "A main-actor class generic by itself or by context (nested in a generic type, extension or function) "
+         "with no `nonisolated deinit` (an implicit, plain or `isolated` deinit is isolated there)",
+         "swift-frontend 6.3.3 (Xcode 26.6) crashes with signal 11 in -O on the isolated deinit of a generic "
          "main-actor class (EarlyPerfInliner, isCallerAndCalleeLayoutConstraintsCompatible): the Release test build "
-         "and every Release bench stop (2026-10-23: PageTestWait.Once, CloudPaneTests.Seen)",
-         "give it `nonisolated deinit {}` (or a nonisolated deinit that does its cleanup), declare the class "
-         "`nonisolated`, or make the box non-generic",
-         "// generic-class-allow: <why this class is not main-actor isolated, e.g. its target's default isolation>",
-         matcher_rule(Matcher(GENERIC_CLASS, GENERIC_CLASS_ALLOW, implicit_deinit)),
+         "and every Release bench stop (2026-10-23: PageTestWait.Once, CloudPaneTests.Seen, ObservedMap.Slot)",
+         "give it `nonisolated deinit {}` (or a nonisolated deinit that does its cleanup; not a plain or "
+         "`isolated deinit`), declare the class `nonisolated`, or move it out of the generic context; "
+         "check-concurrency.sh's CI crash-class rule refuses the same classes in Sources",
+         "// generic-class-allow: <why this class is not main-actor isolated> (`concurrency-allow:` also works)",
+         matcher_rule(Matcher(CLASS_DECL, GENERIC_CLASS_ALLOW, implicit_deinit)),
          scope=(SOURCES, TESTS)),
     Rule("action-wait", "An action handler that can wait: an untyped bind (`invoke:` / `run:` / `handler:` / a trailing closure) "
          "or a `.waiting` effect",
@@ -1599,7 +1775,8 @@ RULES = (
 # ---------------------------------------------------------------- diff
 
 def parse_diff(diff: str) -> dict[str, FileChange]:
-    """The files of a `-U0` diff run with `--src-prefix=a/ --dst-prefix=b/` (a user's diff.noprefix is ignored)."""
+    """The files of a `-U0 --inter-hunk-context=0` diff run with `--src-prefix=a/ --dst-prefix=b/` (a user's
+    diff.noprefix and diff.interHunkContext are ignored). A context line, should one come, is on both sides."""
     changes: dict[str, FileChange] = {}
     current: FileChange | None = None
     number, old_number, pending_new, old_path = 0, 0, False, ""
@@ -1617,14 +1794,22 @@ def parse_diff(diff: str) -> dict[str, FileChange]:
                 current.is_new = pending_new
                 current.is_deleted = line == "+++ /dev/null"
         elif line.startswith("@@") and current is not None:
-            old = re.search(r"-(\d+)", line)
+            old = re.search(r"-(\d+)(?:,(\d+))?", line)
             old_number = int(old.group(1)) if old else 0
+            old_count = int(old.group(2)) if old and old.group(2) is not None else 1
             match = re.search(r"\+(\d+)(?:,(\d+))?", line)
             number = int(match.group(1)) if match else 0
             count = int(match.group(2)) if match and match.group(2) is not None else 1
             if count == 0:
                 current.touched.add(max(number, 1))  # a pure deletion after line `number`
                 current.touched.add(number + 1)
+            # A side with no lines in this hunk gives context rules nothing to read: mark the unchanged line
+            # before and after the hunk on both sides (an empty range starts at the line before it).
+            if count == 0 or old_count == 0:
+                head_before = number if count == 0 else number - 1
+                base_before = old_number if old_count == 0 else old_number - 1
+                current.head_anchors.update(n for n in (head_before, head_before + 1 + count) if n >= 1)
+                current.base_anchors.update(n for n in (base_before, base_before + 1 + old_count) if n >= 1)
         elif current is not None and line.startswith("+"):
             current.added.append(Added(current.path, number, line[1:]))
             current.touched.add(number)
@@ -1632,71 +1817,114 @@ def parse_diff(diff: str) -> dict[str, FileChange]:
         elif current is not None and line.startswith("-"):
             current.removed.append(Added(current.path, old_number, line[1:]))
             old_number += 1
+        elif current is not None and line.startswith(" "):
+            number += 1
+            old_number += 1
     return changes
 
 
 def blobs(repo: Path, specs: list[tuple[str, str]], ids: dict | None = None) -> dict[tuple[str, str], str]:
     """{(rev, path): text} for SPECS in one `git cat-file --batch` (a path missing at its rev is left out); IDS, when
-    given, gets each found blob's object id (the lexer cache's key)."""
-    if not specs:
-        return {}
-    request = "".join(f"{rev}:{p}\n" for rev, p in specs).encode()
-    result = subprocess.run(["git", "-C", str(repo), "cat-file", "--batch"], input=request, capture_output=True)
-    out, cursor, found = result.stdout, 0, {}
-    for path in specs:
-        end = out.find(b"\n", cursor)
-        if end < 0:  # git stopped early (a bad REV): report what it gave
-            break
-        header = out[cursor:end].split()
-        cursor = end + 1
-        if len(header) < 3 or header[1] != b"blob":
-            continue
-        size = int(header[2])
-        found[path] = out[cursor:cursor + size].decode("utf-8", "replace")
-        if ids is not None:
-            ids[path] = header[0].decode()
-        cursor += size + 1
+    given, gets each found blob's object id (the lexer cache's key).
+
+    Raises git_batch.GitError when the read fails, so the hook's fail-open warning names it instead of the
+    rules judging lines without their file's text.
+    """
+    oids: dict[str, str] = {}
+    texts = git_batch.cat_file(repo, [f"{rev}:{path}" for rev, path in specs], env=git_env(), ids=oids)
+    found = {}
+    for rev, path in specs:
+        blob = texts[f"{rev}:{path}"]
+        if blob is not None:
+            found[(rev, path)] = blob.decode("utf-8", "replace")
+            if ids is not None:
+                ids[(rev, path)] = oids[f"{rev}:{path}"]
     return found
 
 
 def run_both(repo: Path, *commands: list[str]) -> list[str]:
     """Run git COMMANDS at once (each costs a process start on a busy Mac) and return their outputs."""
-    env = {k: v for k, v in os.environ.items() if k not in ("GIT_INDEX_FILE", "GIT_WORK_TREE")}
-    procs = [subprocess.Popen(["git", "-C", str(repo), *c], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env)
+    procs = [subprocess.Popen(["git", "-C", str(repo), *c], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                              stdin=subprocess.DEVNULL, env=git_env())
              for c in commands]
     return [p.communicate()[0].decode("utf-8", "replace") for p in procs]
 
 
 # ---------------------------------------------------------------- warnings
 
-def function_spans(lines: list[str]) -> list[tuple[int, int, str, str, str]]:
-    """(first, last, declaration, budget, path-id) per `// perf-hot:` marked declaration (1-based, inclusive)."""
-    spans = []
+@dataclass
+class PerfHotMarker:
+    """One `// perf-hot: <budget> <path-id>` marker and the declaration it marks."""
+    line: int  # 1-based line of the marker
+    budget: str
+    path_id: str
+    span: tuple[int, int] | None  # (declaration line, closing line), 1-based; None: it marks no declaration
+    declaration: str = ""
+
+
+def wrapped_declaration(lines: list[str], index: int) -> int | None:
+    """The 0-based line where the declaration whose body `{` is on LINES[INDEX] starts, for a wrapped signature.
+
+    Walking up, the signature's lines hold no brace and its parentheses balance out on the `{` line: the first
+    line that matches DECL with every `(` it opens closed by the `{` line is the declaration. None when the `{`
+    line closes no parenthesis opened above (a statement, not a wrapped signature) or the walk meets a brace.
+    """
+    head = code_of(lines[index]).split("{", 1)[0]
+    unmatched = head.count(")") - head.count("(")
+    k = index - 1
+    while unmatched > 0 and k >= 0:
+        code = code_of(lines[k])
+        if "{" in code or "}" in code:
+            return None
+        unmatched -= code.count("(") - code.count(")")
+        if unmatched == 0 and DECL.search(code):
+            return k
+        k -= 1
+    return None
+
+
+def perf_hot_markers(lines: list[str]) -> list[PerfHotMarker]:
+    """Every `// perf-hot:` marker in LINES and the declaration it marks (codebase-health.py reads these too).
+
+    A marker marks a declaration three ways: in the comment block above it (attributes and blank lines may
+    sit between), trailing on its line, or trailing on the line with the body's `{` of a wrapped signature.
+    """
+    markers = []
     for index, line in enumerate(lines):
-        match = PERF_HOT.search(line)
+        match = PERF_HOT.search(line) if "perf-hot" in line else None
         if not match:
             continue
         if COMMENT_LINE.match(line):  # the marker in the comment block above the declaration
             j = index + 1
             while j < len(lines) and (COMMENT_LINE.match(lines[j]) or ATTRIBUTE_LINE.match(lines[j]) or not lines[j].strip()):
                 j += 1
-        else:  # a trailing marker on the declaration line itself (adds no line to a capped file)
-            j = index
-        if j >= len(lines) or not DECL.search(code_of(lines[j])):
-            continue
-        depth, started, k = 0, False, j
-        while k < len(lines):
-            for c in code_of(lines[k]):
-                if c == "{":
-                    depth += 1
-                    started = True
-                elif c == "}":
-                    depth -= 1
-            if started and depth <= 0:
-                break
-            k += 1
-        spans.append((j + 1, k + 1, code_of(lines[j]).strip(), match.group("budget"), match.group("path") or ""))
-    return spans
+            first = j if j < len(lines) and DECL.search(code_of(lines[j])) else None
+        elif DECL.search(code_of(line)):  # a trailing marker on the declaration line (adds no line)
+            first = index
+        else:
+            first = wrapped_declaration(lines, index) if "{" in code_of(line) else None
+        marker = PerfHotMarker(index + 1, match.group("budget"), match.group("path") or "", None)
+        if first is not None:
+            marker.span = (first + 1, block_end(lines, first) + 1)
+            marker.declaration = code_of(lines[first]).strip()
+        markers.append(marker)
+    return markers
+
+
+def block_end(lines: list[str], first: int) -> int:
+    """The 0-based line that closes the first `{` block opened on or after LINES[FIRST] (the last line if none)."""
+    depth, started, k = 0, False, first
+    while k < len(lines):
+        for c in code_of(lines[k]):
+            if c == "{":
+                depth += 1
+                started = True
+            elif c == "}":
+                depth -= 1
+        if started and depth <= 0:
+            return k
+        k += 1
+    return len(lines) - 1
 
 
 def perf_hot_warnings(changes: dict[str, FileChange], benches: dict) -> list[str]:
@@ -1707,14 +1935,22 @@ def perf_hot_warnings(changes: dict[str, FileChange], benches: dict) -> list[str
             continue
         if not change.has_perf_hot:
             continue
-        for first, last, decl, budget, hot in function_spans(change.head_lines):
+        for marker in perf_hot_markers(change.head_lines):
+            if marker.span is None:
+                if marker.line in change.touched:
+                    out.append(f"{path}:{marker.line}: this `// perf-hot:` marks no declaration, so no edit of the hot "
+                               "function warns: put it in the comment block above the declaration, or trailing on the "
+                               "line with the body's `{`")
+                continue
+            first, last = marker.span
             if not any(first <= n <= last for n in change.touched):
                 continue
+            hot = marker.path_id
             entry = paths.get(hot, {})
             bench = entry.get("bench", "no bench mapped: add the path id to " + BENCHES)
             owner = f"; owner {entry['owner']}" if entry.get("owner") else ""
-            out.append(f"{path}:{first}: changes perf-hot `{decl[:80]}` (budget {budget}, {hot or 'no path id'}"
-                       f"{owner}). Run before and after on the fleet, light and STRESS: {bench}")
+            out.append(f"{path}:{first}: changes perf-hot `{marker.declaration[:80]}` (budget {marker.budget}, "
+                       f"{hot or 'no path id'}{owner}). Run before and after on the fleet, light and STRESS: {bench}")
     for path, change in sorted(changes.items()):
         # Per path id: an edit of a marked declaration line (a parameter, an attribute) keeps its marker.
         gone = marker_ids(r.text for r in change.removed) - marker_ids(a.text for a in change.added)
@@ -1764,17 +2000,39 @@ def parse_owners(text: str) -> list[tuple[str, list[str], str, str]]:
 
 
 def glob_match(path: str, pattern: str) -> bool:
-    """PATTERN from OWNERS.md: a trailing `/` is a directory prefix, `**` crosses folders, `*` does not."""
+    """PATTERN from OWNERS.md: a trailing `/` is a directory prefix, `**/` is zero or more folders, `**` crosses
+    folders, `*` does not."""
     if pattern.endswith("/"):
         return path.startswith(pattern)
-    regex = re.escape(pattern).replace(r"\*\*", "\0").replace(r"\*", "[^/]*").replace("\0", ".*")
+    regex = (re.escape(pattern).replace(r"\*\*/", "\1").replace(r"\*\*", "\0").replace(r"\*", "[^/]*")
+             .replace("\1", "(?:.*/)?").replace("\0", ".*"))
     return re.fullmatch(regex, path) is not None
 
 
+def glob_specificity(pattern: str) -> tuple[int, bool]:
+    """How narrowly PATTERN names its files: the length of its literal start (before the first `*`), then an
+    exact path (no wildcard, no trailing `/`) over a glob or a folder with the same start."""
+    star = pattern.find("*")
+    return (len(pattern) if star < 0 else star), (star < 0 and not pattern.endswith("/"))
+
+
 def owner_warnings(files: list[str], owners: list[tuple[str, list[str], str, str]]) -> list[str]:
+    """One warning per owned area of FILES. A file belongs to the most specific row whose globs match it
+    (glob_specificity of its best glob), so a folder row (`cmux-tui/crates/cmux-tui-core/`) never names a second
+    owner for a file a narrower row assigns (`cmux-tui/crates/cmux-tui-core/src/holder_runtime/`); rows tied on the
+    same glob both name theirs. A file no row matches names no owner: a new crate has none until a row lists it."""
+    hits: dict[int, list[str]] = collections.defaultdict(list)
+    for path in files:
+        scored = [(max(glob_specificity(g) for g in globs if glob_match(path, g)), row)
+                  for row, (_, globs, _, _) in enumerate(owners) if any(glob_match(path, g) for g in globs)]
+        if scored:
+            best = max(score for score, _ in scored)
+            for score, row in scored:
+                if score == best:
+                    hits[row].append(path)
     out = []
-    for area, globs, owner, doc in owners:
-        hit = [f for f in files if any(glob_match(f, g) for g in globs)]
+    for row, (area, _, owner, doc) in enumerate(owners):
+        hit = hits.get(row)
         if hit:
             more = f" and {len(hit) - 1} more" if len(hit) > 1 else ""
             out.append(f"touches {area} ({hit[0]}{more}): owner {owner}. Read {doc} first; tell the owner what changed.")
@@ -1812,20 +2070,22 @@ def settle(found: list[tuple[Rule, list[Added]]], warnings: list[tuple[str, str]
 
 def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Added]]], list[tuple[str, str]]]:
     """([(rule, every hit, measurements and warning hits included)], warnings) for what HEAD adds over BASE."""
-    # Fixed prefixes: a user's diff.noprefix / diff.srcPrefix would otherwise drop every file from the parse.
+    # Fixed prefixes: a user's diff.noprefix / diff.srcPrefix would otherwise drop every file from the parse. No
+    # inter-hunk context: a user's diff.interHunkContext would join nearby hunks with unchanged lines between them.
     specs = ["--", SWIFT_SOURCES, SWIFT_TESTS, *SHIPPED_BUILD_SPECS]
     env = {k: v for k, v in os.environ.items() if k not in ("GIT_INDEX_FILE", "GIT_WORK_TREE")}
     # The content diff and the blob read each decompress the same objects: on the slowest real pushes (242 files,
     # load 37) each took 0.7-1 s one after the other. The changed paths come first from a cheap name-only diff, so
     # the blobs are read while the content diff runs.
-    diff_proc = subprocess.Popen(["git", "-C", str(repo), "diff", "-U0", "--no-color", "--no-renames", "--no-ext-diff",
-                                  "--src-prefix=a/", "--dst-prefix=b/", base, head, *specs],
+    diff_proc = subprocess.Popen(["git", "-C", str(repo), "diff", "-U0", "--inter-hunk-context=0", "--no-color",
+                                  "--no-renames", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", base, head,
+                                  *specs],
                                  stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env)
     names = git(repo, "diff", "--name-only", "--no-renames", base, head, check=False)
     early = sorted(p for p in set(names.split("\n")) if p and in_diff_scope(p))
     blob_ids: dict[tuple[str, str], str] = {}
-    texts = blobs(repo, [(head, p) for p in early] + [(base, p) for p in early] + [(head, BENCHES), (head, OWNERS)],
-                  blob_ids)
+    texts = blobs(repo, [(head, p) for p in early] + [(base, p) for p in early] + [(head, BENCHES), (head, OWNERS)]
+                  + [(head, MANIFEST), (base, MANIFEST)], blob_ids)
     diff = diff_proc.communicate()[0].decode("utf-8", "replace")
     changes = parse_diff(diff)
     warnings: list[tuple[str, str]] = []
@@ -1839,21 +2099,42 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     LEX_CACHE["dir"] = lex_cache_dir(repo)
     for path in paths:
         change = changes[path]
+        # A side with changed lines has the file: git lists no added line of a path absent at head.
+        for rev, lines in ((head, change.added), (base, change.removed)):
+            if lines and (rev, path) not in texts:
+                raise git_batch.GitError(f"{path} has changed lines but no text at {rev}")
         text = texts.get((head, path), "")
         change.head_lines = text.split("\n")
         change.base_lines = texts.get((base, path), "").split("\n")
         change.has_perf_hot = "perf-hot:" in text
         change.memo["blobs"] = (blob_ids.get((head, path)), blob_ids.get((base, path)))
+    head_types = GenericTypes(repo, head, [texts.get((head, p), "") for p in paths])
+    base_types = GenericTypes(repo, base, [texts.get((base, p), "") for p in paths])
+    head_targets = swift_scope.package_targets(texts.get((head, MANIFEST), ""))
+    base_targets = swift_scope.package_targets(texts.get((base, MANIFEST), ""))
+    try:
+        # Classes in extensions of a type whose generic signature the push changes, in files it does not change.
+        context_files, causes = generic_signature_context(repo, head, changes, head_types, base_types)
+    except Exception as error:  # fail open for this reading only: the rules still judge the push's own files
+        context_files, causes = [], {}
+        warnings.append(("guardrails", check_failure("generic-signature context", error)))
+    for change in [changes[p] for p in paths] + context_files:
+        change.head_types, change.base_types = head_types, base_types
+        change.head_main = main_by_default(change.path, head_targets)
+        change.base_main = main_by_default(change.path, base_targets)
     files = [changes[p] for p in paths]
     moved = collections.Counter(r.text.strip() for c in files for r in c.removed if r.text.strip())
     found = []
     for rule in RULES:
-        scoped = [f for f in files if f.path.startswith(rule.scope) or f.path.endswith(rule.scope)]
+        # The unchanged context files hold no added or removed line: only their touched context can add debt.
+        scoped = [f for f in files + context_files if f.path.startswith(rule.scope) or f.path.endswith(rule.scope)]
         try:
             hits = rule.find(scoped, moved)
         except Exception as error:  # fail open for this rule only: a bug in one rule must not switch off the rest
             warnings.append(("guardrails", check_failure(f"rule {rule.id}", error)))
             continue
+        hits = [Attributed(h.path, h.number, h.text, causes[h.path]) if h.path in causes and type(h) is Added else h
+                for h in hits]
         if hits:
             found.append((rule, hits))
     try:
@@ -1996,6 +2277,8 @@ def format_report(refusals, warnings) -> tuple[str, bool]:
         lines.append(f"  [{rule.id}] {rule.title}")
         for hit in hits[:20]:
             lines.append(f"    {hit.path}:{hit.number}: {hit.text.strip()[:140]}")
+            if getattr(hit, "cause", ""):
+                lines.append(f"      ({hit.cause})")
         if len(hits) > 20:
             lines.append(f"    ... {len(hits) - 20} more")
         lines.append(f"    why: {rule.why}")
@@ -2086,8 +2369,15 @@ def run_push(repo: Path, ranges: list, ratchet: Ratchet | None = None) -> bool:
     ratchet = ratchet or Ratchet(repo, ranges)
     refused = False
     for own in ranges:
-        refusals, warnings = check_own(repo, own.base, own.head, own.before)
-        text, refuse = format_report(refusals, warnings)
+        # Fail open per range: a range the checker could not judge goes through; one it judged keeps its answer.
+        try:
+            refusals, warnings = check_own(repo, own.base, own.head, own.before)
+            text, refuse = format_report(refusals, warnings)
+        except (Exception, SystemExit) as error:  # SystemExit: git() exits on a failed git call
+            print(f"prepush-gate: WARNING: guardrails.py failed ({type(error).__name__}: {error}) on "
+                  f"{own.base[:11]}..{own.head[:11]}; not applied to that range. Tell the Performance Lead "
+                  "(PL-guardrails) with this line.", file=sys.stderr)
+            continue
         if text:
             print(text)
         refused = refused or refuse

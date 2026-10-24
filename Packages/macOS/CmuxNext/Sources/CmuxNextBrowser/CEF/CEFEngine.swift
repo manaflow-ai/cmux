@@ -149,6 +149,25 @@ public final class CEFEngine: BrowserEngine {
         CEFSpareWindow.shared.prepare(runtime: .shared)
     }
 
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The new Chromium tab bench's recorder (`debug.new_tab bench_browser`).
+    public var benchMarks: CEFBenchMarks { CEFRuntime.shared.benchMarks }
+    #endif
+
+    /// Closes the untaken spare Chromium window, if one is up (`debug.cef drop_spare`: what the
+    /// spare costs). The next take-free idle moment does not make another; a warm start or a
+    /// take does.
+    public func dropSpareWindow() {
+        CEFSpareWindow.shared.drop(runtime: .shared)
+    }
+
+    /// Runs when no spare Chromium window is ready (a pane took it, or a tab's own window came
+    /// up first), so the caller can make one at an idle moment (`prepareSpareWindow`). Nil: none.
+    public var onSpareWindowNeeded: (@MainActor () -> Void)? {
+        get { CEFSpareWindow.shared.onNeeded }
+        set { CEFSpareWindow.shared.onNeeded = newValue }
+    }
+
     /// Returns once the framework load that `preload` started ended (at once
     /// when none runs).
     public func libraryLoadEnded() async {

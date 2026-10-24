@@ -62,13 +62,26 @@ import PackageDescription
 // unused C API option GHOSTTY_TERMINAL_OPT_SHELL_REDRAWS_PROMPT.
 // Since 72578da21 the bash integration forks nothing per command on bash 5.3
 // and nothing at start when .bashrc sets PROMPT_COMMAND (PR 47).
-// Since 7d5fa1573 a host-sized resize presents the renderer thread's frame at
-// the new size, with the text reflowed, in the size's own Core Animation
-// commit (no main-thread draw of the old cells); a mirror's pixel-only resize
-// leaves its terminal alone (mode 2026 survives a drag) and never waits for
-// the terminal lock; a local-history restore holds frames only when it must;
-// a hidden surface's output and a hidden or steady cursor's blink wake
-// nothing; the first update of each refresh interval draws at once (PR 46).
+// Since 7d5fa1573 a mirror's pixel-only resize leaves its terminal alone
+// (mode 2026 survives a drag) and never waits for the terminal lock; a
+// local-history restore holds frames only when it must; a hidden surface's
+// output and a hidden or steady cursor's blink wake nothing (PR 46). Its
+// display-pass present of a resize frame never ran in cmux (the layer gets
+// no display pass for a size change).
+// Since 1f98b11be..b42d1690e (PRs 48-50): ghostty_surface_present_host_frame
+// lets the embedder present a new host size's frame before the commit (cmux
+// does not call it yet: in a light drag it cost main 4-9 ms p95 per frame and
+// more dropped frames, ghostty-integration-DESIGN.md G1); a scroll during a
+// restore holds frames; a hidden surface reads as hidden at once; an early
+// draw happens only after a quiet refresh interval (busy terminals no longer
+// draw twice per interval); a fresh frame publishes only while a present is
+// armed and in its own size generation; a reveal arms it.
+// Since f3de4f4..723c4ab (PRs 52, 53 and the kitty ports): a wheel scroll
+// never waits on the main thread for the terminal lock held by output
+// parsing (it goes to the termio thread, applied in the mode the terminal
+// has then); ghostty_surface_fit_grid gives the grid a size will fit without
+// resizing; the grid metrics say whether the alternate screen is active;
+// kitty graphics follow upstream #14811 and #14812.
 //
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
@@ -93,8 +106,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-7d5fa1573a7202ed7ae508f0aa70d2295712527e-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "4398bf681a37c4185cb8f37b267bfe6d49ce852c1e723f3c1c23276ec67031e4"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-723c4ab93e70c6be896bd9b6d0ad42f2a5fbfedc-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "9cf0bdc5f8ef77adfa28ff2fdcd373c4ee8aac9021b228746b043931ac741052"
         ),
     ]
 )

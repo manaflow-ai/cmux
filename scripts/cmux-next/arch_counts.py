@@ -1,16 +1,26 @@
 #!/usr/bin/env python3
-"""Architecture counts for cmux-next, method v4: the numbers plans/cmux-next/arch-ratchet.json records.
+"""Architecture counts for cmux-next, method v5: the numbers plans/cmux-next/arch-ratchet.json records.
 
 The rules are the goal (repo CLAUDE.md "Refactor architecture", "Modern Swift concurrency";
 plans/cmux-next/perf-lead.md "Architecture targets"); these counts are proxies, and a pattern renamed
 to dodge a count is still counted where the method can see it. Every row is counted per package
-(the target directory under Sources) and in total.
+(the Swift module: the directory under a package's Sources) and in total.
 
-Scope: tracked Swift under Packages/macOS/CmuxNext/Sources, read from git objects, with comments and
-string literals blanked (same length, so offsets and line numbers stay). Package rows come from a
-static parse of Packages/macOS/CmuxNext/Package.swift (never `swift package dump-package`: 4-6 s).
+Scope: the app's package, Packages/macOS/CmuxNext, and the transitive closure of its local
+`.package(path:)` dependencies (Packages/Shared/*, Packages/macOS/CmuxUpdater, vendor/..., each path
+resolved against the directory of the manifest that names it; a `.package(url:)` dependency is not
+read). The closure is read statically from git objects at the counted revision (never `swift package
+dump-package`: 4-6 s), once per revision (read_paths, kept in FactsCache by commit). Counted: tracked
+Swift under every closure package's Sources, read from git objects, with comments and string literals
+blanked (same length, so offsets and line numbers stay); a file's package is its Swift module, the
+directory after `Sources/` (package_of), and a module directory two closure packages share is an error
+(AmbiguousModule), never one merged package. Package rows come from a static parse of every closure
+package's Package.swift: an edge to a local package's `.product(name:package:)` is an edge to the
+targets that product exposes, classified by the one layer map like an edge inside a package; a product
+of a remote package is no edge. Moving code into a linked local package therefore moves its count, it
+does not drop it.
 
-Rows (method v4; a change of any definition bumps METHOD_VERSION, and `arch-ratchet.py --update` then
+Rows (method v5; a change of any definition bumps METHOD_VERSION, and `arch-ratchet.py --update` then
 rewrites the json without comparing totals: reviewers compare the definitions):
   layer_hard              target edges from a core, service or domain target to a ui or app target
                           (layers from plans/cmux-next/architecture-layers.json, as arch-layers.py)
@@ -88,8 +98,12 @@ rewrites the json without comparing totals: reviewers compare the definitions):
                           any depth, and a literal loop multiplies the registrations that use its binding
   app_lines               physical lines (newlines) of CmuxNextApp Swift (report only here)
 
+Every row reads the whole closure: a Shared package's static or observer counts under its module, and its
+targets are placed (layer_unplaced) and their edges classified like CmuxNext's.
+
 codebase-health.py imports these patterns, analyze(), count_texts() and layers(), so its report and the ratchet share
-one definition of every row (arch-layers.py, PL-arch's, keeps its own grep counts).
+one definition of every row (arch-layers.py, PL-arch's, keeps its own grep counts). Both read the same scope: read_paths
+at HEAD for the packages, the working tree for the files (count_texts and layers with the closure).
 
 Site identity (Delta.unpartnered, the ratchet's swap rule): a counted global keeps its identity by its owner
 and name (static_name: `Store.shared`; `<package>:<name>` for a file-scope global, so a file moved or renamed
@@ -102,7 +116,10 @@ hook: ((String) -> Void)?`) and an unproved call have no other key, so their mov
 the move (an injected instance; the call in a seam adapter with its `main-proof:`) or carry a dated exception.
 
 Delta mode (the pre-push hook) reads only the files a range changes, at both ends, and gives the same
-numbers as two full counts subtracted (tests/test_arch_ratchet.py checks it). At an end whose layer map does
+numbers as two full counts subtracted (tests/test_arch_ratchet.py checks it). Each end has its own closure
+(read_paths: the base's from FactsCache, the head's equal to it when the range changes no Package.swift);
+a package in one end's closure only adds every Swift file of its Sources to the files the range changes,
+counted at that end and absent at the other. At an end whose layer map does
 not parse, the edge rows classify with the newest earlier map that parses (`placing_map`: the value the
 edges had before the map broke, never 0), and layer_unplaced counts every target; only when no earlier map
 parses are that end's edges unknown and the edge rows not judged (delta 0, a note names them). Statics that keep their
@@ -132,6 +149,8 @@ Usage:
   scripts/cmux-next/arch_counts.py [--rev REV] [--json]     full count at REV (default HEAD)
   scripts/cmux-next/arch_counts.py --sites ROW [--rev REV]  the sites of ROW
   scripts/cmux-next/arch_counts.py --delta BASE HEAD [--json]
+  scripts/cmux-next/arch_counts.py --read-paths [--rev REV] what a count at REV reads, as one JSON object
+                                                            (perf-cron-arch-report.py prefetches it)
 The one writer of plans/cmux-next/arch-ratchet.json is `arch-ratchet.py --update`: it refuses a rise that
 no dated exception covers, except one that commits already on origin/feat-cmux-next made, which it records
 with a generated applied entry naming them (`raised_by`).
@@ -147,6 +166,7 @@ import dataclasses
 import datetime
 import hashlib
 import json
+import posixpath
 import re
 import sqlite3
 import subprocess
@@ -166,18 +186,26 @@ from typing import NamedTuple
 # statement (extract, inline and `if` keep the count), a parameter- or init-property-configured one per reference;
 # and skips the bindings of a top-level `if`/`guard`/`while` condition list. A broken layer map at an end is judged
 # by the newest earlier map that parses. The totals of a v3 record are not comparable with v4.
-METHOD_VERSION = 4
-SOURCES = "Packages/macOS/CmuxNext/Sources"
-MANIFEST = "Packages/macOS/CmuxNext/Package.swift"
+# v5: the scope is CmuxNext plus the transitive closure of its local `.package(path:)` dependencies (their
+# Sources, their targets, and `.product` edges to a local package as layer edges). Every row can rise from v4
+# with no code change (the Shared packages' globals, observers and targets are new to the count): the totals of
+# a v4 record are not comparable with v5.
+METHOD_VERSION = 5
+# The app's package: the root of the closure (read_paths). Its Sources and Package.swift are the v4 scope; the
+# layer gate (arch_rules/layer_gate.py) still judges only this manifest's targets and edges.
+PACKAGE_DIR = "Packages/macOS/CmuxNext"
+SOURCES = f"{PACKAGE_DIR}/Sources"
+MANIFEST = f"{PACKAGE_DIR}/Package.swift"
 LAYERS_JSON = "plans/cmux-next/architecture-layers.json"
 RATCHET_JSON = "plans/cmux-next/arch-ratchet.json"
 # This file in the repo (the row definitions). A literal, not __file__: the installed hook runs a copy.
 METHOD_FILE = "scripts/cmux-next/arch_counts.py"
-# What a count reads besides the Swift sources (is_source): full_count reads both at the counted
-# commit; delta_count reads both at each end when its range changes one.
+# The count inputs every revision has besides its closure's manifests (ReadPaths.count_inputs adds those): full_count
+# reads them at the counted commit; delta_count reads them at each end when its range changes one.
 COUNT_INPUTS = (MANIFEST, LAYERS_JSON)
-# Every path whose change can change a recorded count: COUNT_INPUTS and the row definitions. With the
-# Swift sources, is_counted is the one test for it (arch-ratchet.py's measured_in_range uses it).
+# Every revision-independent path whose change can change a recorded count: COUNT_INPUTS and the row definitions.
+# ReadPaths.is_counted (the closure's Swift sources and manifests too) is the one test arch-ratchet.py's
+# measured_in_range uses.
 COUNTED_PATHS = COUNT_INPUTS + (METHOD_FILE,)
 APP_PACKAGE = "CmuxNextApp"
 SHA = re.compile(r"[0-9a-f]{40}")
@@ -550,9 +578,20 @@ class FileFacts:
     lines: int
 
 
+_MODULE_DIR = re.compile(r"(?:^|/)Sources/([^/]+)/")
+
+
 def package_of(path: str) -> str:
-    rest = path[len(SOURCES) + 1:] if path.startswith(SOURCES + "/") else path
-    return rest.split("/", 1)[0] if "/" in rest else "(top)"
+    """The Swift module of PATH: the directory after the first `Sources/` of any closure package
+    (`Packages/Shared/CmuxVNC/Sources/CmuxVNC/X.swift` -> `CmuxVNC`; a `Sources/` folder inside a module stays
+    in that module), `(top)` for a file directly in a Sources directory. A path with no `Sources/` (arch-layers'
+    and codebase-health's keys never lack one) is its first directory."""
+    m = _MODULE_DIR.search(path)
+    if m:
+        return m.group(1)
+    if re.search(r"(?:^|/)Sources/[^/]+$", path):
+        return "(top)"
+    return path.split("/", 1)[0] if "/" in path else "(top)"
 
 
 def _line_of(code: str, pos: int, starts: list[int]) -> int:
@@ -2259,10 +2298,11 @@ class ObserverFile:
 
 
 class TextSource:
-    """The files observer_count reads, from texts in memory ({path: Swift text}; paths outside Sources ignored)."""
+    """The files observer_count reads, from texts in memory ({path: Swift text}; paths outside SCOPE's Sources,
+    CmuxNext's when SCOPE is None, ignored)."""
 
-    def __init__(self, texts: dict[str, str]) -> None:
-        self.texts = {p: t for p, t in texts.items() if is_source(p)}
+    def __init__(self, texts: dict[str, str], scope: "ReadPaths | None" = None) -> None:
+        self.texts = {p: t for p, t in texts.items() if is_source(p, scope)}
         self._mentions: dict[str, set[str]] = collections.defaultdict(set)
         self._files: dict[str, ObserverFile] = {}
 
@@ -2321,10 +2361,14 @@ class StandIn:
     """The tracked Swift sources that both ends of a count share outside their overlays: the worktree at ROOT
     (WORKTREE True: its files equal HEAD outside the dirty ones) or the tree at REV. Greps run once per name and are
     shared by the ends; a file's facts come from CACHE by its blob (in the worktree, the git id of its bytes: no
-    `ls-tree`, and the file is read only for that hash and, on a cache miss, its parse)."""
+    `ls-tree`, and the file is read only for that hash and, on a cache miss, its parse). SCOPE (ReadPaths) names
+    the Sources directories it greps: both ends' closures (a file of a package in one closure only is in both
+    overlays, so the union is safe)."""
 
-    def __init__(self, git: "Git", root: Path, rev: str, worktree: bool, cache: "FactsCache | None") -> None:
+    def __init__(self, git: "Git", root: Path, rev: str, worktree: bool, cache: "FactsCache | None",
+                 scope: "ReadPaths") -> None:
         self.git, self.root, self.rev, self.worktree, self.cache = git, root, rev, worktree, cache
+        self.scope = scope
         self.mentions: dict[str, set[str]] = collections.defaultdict(set)
         self.searched: set[str] = set()
         self.raw_paths: set[str] = set()
@@ -2337,7 +2381,7 @@ class StandIn:
 
     def _grep(self, pattern: str) -> list[tuple[str, str]]:
         args = ["grep", "-z", "-o", "-I", "-P", "-e", pattern] + ([] if self.worktree else [self.rev])
-        r = subprocess.run(["git", "-C", str(self.root), *args, "--", f"{SOURCES}/*.swift"], capture_output=True)
+        r = subprocess.run(["git", "-C", str(self.root), *args, "--", *self.scope.pathspecs()], capture_output=True)
         if r.returncode not in (0, 1):
             raise RuntimeError(f"git grep: {r.stderr.decode(errors='replace').strip()}")
         prefix = "" if self.worktree else f"{self.rev}:"
@@ -2403,7 +2447,7 @@ class StandIn:
                     self._blobs[path] = git_blob_id(data)
             return (self._blobs or {}).get(path)
         if self._blobs is None:
-            self._blobs = self.git.swift_blobs(self.rev)
+            self._blobs = self.git.swift_blobs(self.rev, self.scope)
         return self._blobs.get(path)
 
     def _read(self, path: str) -> str | None:
@@ -2505,13 +2549,14 @@ def observer_count(source, hint: set[str] = frozenset()) -> Observers:
             return found
 
 
-def observer_registrations(texts: dict[str, str]) -> Observers:
-    """The observer registrations of TEXTS ({repo-relative path: Swift source}): the observer_sites row.
+def observer_registrations(texts: dict[str, str], scope: "ReadPaths | None" = None) -> Observers:
+    """The observer registrations of TEXTS ({repo-relative path: Swift source} under SCOPE's Sources, CmuxNext's when
+    SCOPE is None): the observer_sites row.
 
     The one observer counter: count_texts (codebase-health.py's section 1), codebase-health.py's section 2 and the
     ratchet's full and delta counts all resolve registrations this way.
     """
-    return observer_count(TextSource(texts))
+    return observer_count(TextSource(texts, scope))
 
 
 def recorded_wrappers(text: str | None) -> set[str]:
@@ -2594,8 +2639,9 @@ class TypeTable:
 
 
 def package_probe(package: str) -> str:
-    """A path in PACKAGE that declares nothing: TypeTable resolves it to the package's declarations."""
-    return f"{SOURCES}/{package}/"
+    """A path in the module PACKAGE that declares nothing: TypeTable resolves it to the module's declarations
+    (package_of reads the module from the path, whichever closure package holds it)."""
+    return f"Sources/{package}/"
 
 
 def repo_type_name(name: str | None) -> bool:
@@ -2773,26 +2819,36 @@ class ManifestTarget:
     # Dependency expressions the static reader cannot resolve (a ternary, a `var` or untyped variable).
     unresolved: set[str] = dataclasses.field(default_factory=set)
     path: str | None = None  # the `path:` argument (relative to the package), when it is a string literal
+    # (product, package) of every `.product(name:package:)` dependency with string literals: an edge only when the
+    # package is local and in the closure (closure_manifest resolves it to the product's targets).
+    products: set[tuple[str, str]] = dataclasses.field(default_factory=set)
+    # The repo path of the Package.swift that declares the target (closure_manifest; MANIFEST for one manifest).
+    manifest: str = MANIFEST
 
 
 @dataclasses.dataclass
 class Manifest:
-    """The targets of a Package.swift, read statically (`parse_manifest`)."""
+    """The targets of a Package.swift, read statically (`parse_manifest`), or of every closure manifest
+    (`closure_manifest`)."""
 
     targets: dict[str, ManifestTarget]
     # Constructs outside any dependency list that the static reader cannot account for:
     # {normalized text: (1-based line, why)}.
     unreadable: dict[str, tuple[int, str]] = dataclasses.field(default_factory=dict)
+    # {product name: the target names it exposes} from `Package(products:)`'s `.library(`/`.executable(` calls.
+    products: dict[str, list[str]] = dataclasses.field(default_factory=dict)
 
     def edges(self) -> set[tuple[str, str]]:
         """(source, dependency) for every dependency name of a target that is not a test target."""
         return {(name, dep) for name, t in self.targets.items() if t.kind != "testTarget" for dep in t.deps}
 
     def source_dir(self, name: str) -> str:
-        """The repo path of NAME's sources: its `path:` or Sources/<name>, without a trailing slash."""
+        """The repo path of NAME's sources: its `path:` or Sources/<name> in the package that declares it,
+        without a trailing slash."""
         target = self.targets.get(name)
         relative = target.path if target is not None and target.path else f"Sources/{name}"
-        return f"{PACKAGE_DIR}/{relative.strip('/')}"
+        package = target.manifest.rsplit("/", 1)[0] if target is not None else PACKAGE_DIR
+        return f"{package}/{relative.strip('/')}"
 
 
 def parse_manifest(raw: str) -> Manifest:
@@ -2802,7 +2858,8 @@ def parse_manifest(raw: str) -> Manifest:
     (a dependency's `.target(name:)` is), including calls bound to top-level variables
     (`let appFFI: Target = .binaryTarget(...)`). A `dependencies:` value is array literals and
     top-level `let` `[Target.Dependency]` variables joined by `+`; string literals, `.target(name:)` and
-    `.byName(name:)` name targets, `.product(...)` entries name other packages and are skipped. A `var`
+    `.byName(name:)` name targets, `.product(name:package:)` entries name another package's product and
+    go to `products` (closure_manifest makes an edge of one whose package is local). A `var`
     dependency variable is not read (a later statement can append to it), so a dependency list that
     names one is unresolved.
 
@@ -2846,10 +2903,16 @@ def parse_manifest(raw: str) -> Manifest:
                 for element in _split_top(part[1:-1], ","):
                     name = _string_value(element)
                     call = re.match(r"^\.(target|byName)\s*\((.*)\)$", element, re.S)
+                    product = re.match(r"^\.product\s*\((.*)\)$", element, re.S)
                     if name is not None:
                         target.deps.add(name)
                     elif call and _string_value(_labeled(call.group(2)).get("name", "")) is not None:
                         target.deps.add(_string_value(_labeled(call.group(2))["name"]))
+                    elif product:
+                        args = _labeled(product.group(1))
+                        pname, pkg = _string_value(args.get("name", "")), _string_value(args.get("package", ""))
+                        if pname is not None and pkg is not None:
+                            target.products.add((pname, pkg))
                     elif not re.match(r"^\.product\s*\(", element):
                         target.unresolved.add(_normalized(element))
             elif _IDENT.match(part) and part in dep_vars and part not in seen:
@@ -2885,11 +2948,23 @@ def parse_manifest(raw: str) -> Manifest:
             unreadable.setdefault(_normalized(code[m.start():close + 1]), (line, why))
         pos = close + 1
 
+    products: dict[str, list[str]] = {}
     package = _PACKAGE_CALL.search(code)
     if package:
         open_index = package.end() - 1
         close = _closing(code, open_index)
-        listed = _labeled(code[open_index + 1:close]).get("targets")
+        package_args = _labeled(code[open_index + 1:close])
+        # Every product call in the `products:` value, also in both arms of a ternary (their union).
+        offered = package_args.get("products", "")
+        for m in _PRODUCT_CALL.finditer(offered):
+            args = _labeled(offered[m.end():_closing(offered, m.end() - 1)])
+            pname = _string_value(args.get("name", ""))
+            listed_targets = args.get("targets", "").strip()
+            if pname is not None and listed_targets.startswith("["):
+                names = [_string_value(e) for e in _split_top(listed_targets[1:-1], ",")]
+                products.setdefault(pname, [])
+                products[pname] += [n for n in names if n is not None and n not in products[pname]]
+        listed = package_args.get("targets")
         for part in _split_top(listed or "", "+"):
             elements = _split_top(part[1:-1], ",") if part.startswith("[") and part.endswith("]") else [part]
             for element in elements:
@@ -2900,7 +2975,75 @@ def parse_manifest(raw: str) -> Manifest:
                 unreadable.setdefault(_normalized(element), (line_of(at if at >= 0 else open_index),
                                                              "a `Package(targets:)` entry that is not a target "
                                                              "constructor or a top-level `let X: Target`"))
-    return Manifest(targets, unreadable)
+    return Manifest(targets, unreadable, products)
+
+
+_PRODUCT_CALL = re.compile(r"\.(?:library|executable)\s*\(")
+_PACKAGE_DEPENDENCY = re.compile(r"(?<![\w.])\.package\s*\(")
+
+
+def local_dependencies(raw: str, package_dir: str) -> dict[str, str]:
+    """{identity: repo path} of the local `.package(path:)` dependencies of the Package.swift RAW in PACKAGE_DIR.
+
+    Every `.package(` call with a string `path:` counts, wherever it is (a `package.dependencies.append(...)` under
+    a condition too: the closure errs toward reading more). The path resolves against PACKAGE_DIR; one that leaves
+    the repository (absolute, or `..` past its root) is not read. The identity is what a `.product(package:)` names:
+    the lowercased last path component, and the lowercased `name:` when the call has one.
+    """
+    code = strip(raw, keep_strings=True)
+    out: dict[str, str] = {}
+    for m in _PACKAGE_DEPENDENCY.finditer(code):
+        args = _labeled(code[m.end():_closing(code, m.end() - 1)])
+        path = _string_value(args.get("path", ""))
+        if not path or path.startswith("/"):
+            continue
+        resolved = posixpath.normpath(posixpath.join(package_dir, path))
+        if resolved == ".." or resolved.startswith("../") or resolved == ".":
+            continue
+        out.setdefault(resolved.rsplit("/", 1)[-1].lower(), resolved)
+        name = _string_value(args.get("name", ""))
+        if name:
+            out.setdefault(name.lower(), resolved)
+    return out
+
+
+class AmbiguousModule(ValueError):
+    """A Swift module (a Sources directory, or a target name) that two closure packages declare: the counts would
+    merge them into one package, so the count stops and names both instead."""
+
+
+def closure_manifest(manifests: dict[str, str | None]) -> Manifest:
+    """The targets of every manifest in MANIFESTS ({Package.swift repo path: text or None}) as one Manifest.
+
+    Each target keeps the path of the manifest that declares it (ManifestTarget.manifest). A `.product(name: P,
+    package: Q)` dependency becomes an edge when Q is a local dependency of the declaring manifest
+    (local_dependencies) whose manifest is in MANIFESTS: to the targets Q's `products:` lists for P, else to Q's
+    target named P; a product of a remote package (or of a package not read) is no edge. A target name that two
+    manifests declare (test targets aside) raises AmbiguousModule. `unreadable` is the root manifest's (MANIFEST):
+    the layer gate judges only that one.
+    """
+    parsed = {path: parse_manifest(text) for path, text in manifests.items() if text is not None}
+    by_dir = {path.rsplit("/", 1)[0]: m for path, m in parsed.items()}
+    merged: dict[str, ManifestTarget] = {}
+    for path in sorted(parsed, key=lambda p: (p != MANIFEST, p)):
+        m = parsed[path]
+        local = local_dependencies(manifests[path] or "", path.rsplit("/", 1)[0]) if any(
+            t.products for t in m.targets.values()) else {}
+        for name, t in m.targets.items():
+            if t.kind == "testTarget":
+                continue
+            if name in merged:
+                raise AmbiguousModule(f"the target {name} is declared by {merged[name].manifest} and by {path}; the "
+                                      f"counts would merge them into one package")
+            target = dataclasses.replace(t, deps=set(t.deps), manifest=path)
+            for product, package in sorted(t.products):
+                exposing = by_dir.get(local.get(package.lower(), ""))
+                if exposing is None:
+                    continue
+                target.deps.update(exposing.products.get(product) or ([product] if product in exposing.targets else []))
+            merged[name] = target
+    root = parsed.get(MANIFEST)
+    return Manifest(merged, root.unreadable if root else {}, {})
 
 
 def valid_date(value) -> bool:
@@ -3006,6 +3149,8 @@ class Layers:
     error: str | None = None  # why the layer map does not parse (then every target is unplaced)
     # When the map does not parse: whether an earlier map that parses classified the edges (`placing_map`).
     edges_from_earlier: bool = False
+    # {target: the Package.swift that declares it}: an edge's site is its source target's manifest.
+    manifest_of: dict[str, str] = dataclasses.field(default_factory=dict)
 
     def edges_unknown(self) -> str | None:
         """Why the edge rows (EDGE_ROWS) have no value here, or None when they do.
@@ -3016,12 +3161,10 @@ class Layers:
         return f"{LAYERS_JSON} does not parse ({self.error})" if self.error and not self.edges_from_earlier else None
 
     def sites(self) -> list[Site]:
-        out = [Site("layer_hard", MANIFEST, 0, f"{a} ({la}) -> {b} ({lb})", (f"edge:{a}->{b}",))
-               for a, la, b, lb in self.hard]
-        out += [Site("layer_soft", MANIFEST, 0, f"{a} ({la}) -> {b} ({lb})", (f"edge:{a}->{b}",))
-                for a, la, b, lb in self.soft]
-        out += [Site("layer_upward", MANIFEST, 0, f"{a} ({la}) -> {b} ({lb})", (f"edge:{a}->{b}",))
-                for a, la, b, lb in self.upward]
+        out = []
+        for row, edges in (("layer_hard", self.hard), ("layer_soft", self.soft), ("layer_upward", self.upward)):
+            out += [Site(row, self.manifest_of.get(a, MANIFEST), 0, f"{a} ({la}) -> {b} ({lb})", (f"edge:{a}->{b}",))
+                    for a, la, b, lb in edges]
         out += [Site("layer_unplaced", LAYERS_JSON, 0, name, (f"target:{name}",)) for name in self.unplaced]
         return out
 
@@ -3035,14 +3178,18 @@ class Layers:
         return rows
 
 
-def layers(manifest_raw: str | None, layers_raw: str | None, earlier_raw: str | None = None) -> Layers:
-    """The layer edges of a manifest under a layers json (`parse_manifest`, `LayerMap`, `edge_class`).
+def layers(manifest_raw: str | dict[str, str | None] | None, layers_raw: str | None,
+           earlier_raw: str | None = None) -> Layers:
+    """The layer edges of the manifests under a layers json (`closure_manifest`, `LayerMap`, `edge_class`).
 
-    EARLIER_RAW is the newest earlier map that parses (`placing_map`), for a LAYERS_RAW that does not: it
-    classifies the edges then. layer_unplaced reads LAYERS_RAW as it is (a broken map places no target)."""
-    if manifest_raw is None or layers_raw is None:
+    MANIFEST_RAW is {Package.swift repo path: text} of every closure manifest (ReadPaths.manifests), or one text,
+    MANIFEST's (codebase-health.py and older callers: CmuxNext alone). EARLIER_RAW is the newest earlier map that
+    parses (`placing_map`), for a LAYERS_RAW that does not: it classifies the edges then. layer_unplaced reads
+    LAYERS_RAW as it is (a broken map places no target)."""
+    manifests = manifest_raw if isinstance(manifest_raw, dict) else {MANIFEST: manifest_raw}
+    if not any(text is not None for text in manifests.values()) or layers_raw is None:
         return Layers([], [], [], [])
-    manifest = parse_manifest(manifest_raw)
+    manifest = closure_manifest(manifests)
     placed = LayerMap.parse(layers_raw)
     classifier = placed
     if placed.error and earlier_raw is not None:
@@ -3054,7 +3201,7 @@ def layers(manifest_raw: str | None, layers_raw: str | None, earlier_raw: str | 
         if kind is not None:
             found[kind].append((source, classifier.placed(source), dep, classifier.placed(dep)))
     return Layers(found["hard"], found["soft"], found["upward"], sorted(placed.unmapped(manifest)), placed.error,
-                  classifier is not placed)
+                  classifier is not placed, {name: t.manifest for name, t in manifest.targets.items()})
 
 
 def placing_map(repo: Path | str, rev: str, text: str | None) -> str | None:
@@ -3141,9 +3288,16 @@ class Git:
             blobs[(head, path)] = None if set(new) == {"0"} else new
         return files, blobs
 
-    def swift_blobs(self, rev: str) -> dict[str, str]:
-        """{path: blob id} of the Swift files under Sources at REV."""
-        out = self.run("ls-tree", "-r", "-z", rev, "--", SOURCES)
+    def swift_blobs(self, rev: str, scope: "ReadPaths") -> dict[str, str]:
+        """{path: blob id} of the Swift files under every Sources directory of SCOPE at REV."""
+        return self.swift_blobs_under(rev, scope.sources)
+
+    def swift_blobs_under(self, rev: str, dirs) -> dict[str, str]:
+        """{path: blob id} of the Swift files under DIRS at REV (one `ls-tree`)."""
+        dirs = list(dirs)
+        if not dirs:
+            return {}
+        out = self.run("ls-tree", "-r", "-z", rev, "--", *dirs)
         blobs: dict[str, str] = {}
         for entry in out.split("\0"):
             meta, _, path = entry.partition("\t")
@@ -3152,8 +3306,8 @@ class Git:
                 blobs[path] = fields[2]
         return blobs
 
-    def swift_files(self, rev: str) -> list[str]:
-        return sorted(self.swift_blobs(rev))
+    def swift_files(self, rev: str, scope: "ReadPaths") -> list[str]:
+        return sorted(self.swift_blobs(rev, scope))
 
     def common_dir(self) -> Path | None:
         """The repository's git directory shared by its worktrees (where the facts cache lives)."""
@@ -3183,13 +3337,246 @@ class Git:
         return Path(lines[1])
 
 
-def is_source(path: str) -> bool:
+def is_source(path: str, scope: "ReadPaths | None" = None) -> bool:
+    """True when PATH is a counted Swift source: under a Sources directory of SCOPE (read_paths), or, SCOPE None,
+    of CmuxNext alone (count_texts' working-tree callers)."""
+    if scope is not None:
+        return scope.is_source(path)
     return path.startswith(SOURCES + "/") and path.endswith(".swift")
 
 
-def is_counted(path: str) -> bool:
-    """True when a change to PATH can change a count: a Swift source or one of COUNTED_PATHS."""
-    return is_source(path) or path in COUNTED_PATHS
+def is_counted(path: str, scope: "ReadPaths | None" = None) -> bool:
+    """True when a change to PATH can change a count: a Swift source or a count input of SCOPE (every closure
+    manifest), or one of COUNTED_PATHS. SCOPE None (a caller with no revision): a superset, any Package.swift and
+    any Swift file under a Sources directory, since any of them can be in some revision's closure."""
+    if scope is not None:
+        return scope.is_counted(path)
+    return (path in COUNTED_PATHS or posixpath.basename(path) == "Package.swift"
+            or (path.endswith(".swift") and (path.startswith("Sources/") or "/Sources/" in path)))
+
+
+# ---------------------------------------------------------------------------------------------------
+# What a count reads: the local package closure
+
+
+@dataclasses.dataclass(frozen=True)
+class ReadPaths:
+    """What a count at REV reads (read_paths): CmuxNext and the transitive closure of its local `.package(path:)`
+    dependencies, each package's Package.swift and Sources, the layer map, the ratchet record and this file.
+
+    PACKAGES are the closure's package directories, PACKAGE_DIR first (it is in the closure without a manifest
+    too). MANIFESTS is {Package.swift path: blob id} of each one that has a manifest at REV. MODULES is {module
+    directory under a Sources: the packages whose Sources has it}; two packages for one name is AmbiguousModule
+    (check). Derived from the manifests alone, so a range that changes no Package.swift keeps its base's closure.
+    """
+
+    rev: str
+    packages: tuple[str, ...]
+    manifests: dict[str, str]
+    modules: dict[str, tuple[str, ...]]
+
+    @property
+    def sources(self) -> tuple[str, ...]:
+        """The Sources directory of every closure package (the counted Swift is under them)."""
+        return tuple(f"{p}/Sources" for p in self.packages)
+
+    @property
+    def count_inputs(self) -> tuple[str, ...]:
+        """Every closure manifest (MANIFEST first) and the layer map: what the layer rows read besides Swift."""
+        return tuple(sorted(self.manifests, key=lambda p: (p != MANIFEST, p))) + (LAYERS_JSON,)
+
+    @property
+    def counted_paths(self) -> tuple[str, ...]:
+        """count_inputs and the row definitions: every non-Swift path whose change can change a count."""
+        return self.count_inputs + (METHOD_FILE,)
+
+    @property
+    def files(self) -> tuple[str, ...]:
+        """Every single file a count reads (the Swift aside): count_inputs, the ratchet record (its observer hint)
+        and this file."""
+        return self.count_inputs + (RATCHET_JSON, METHOD_FILE)
+
+    def package_dir(self, path: str) -> str | None:
+        """The closure package whose Sources holds PATH, or None."""
+        found = [p for p in self.packages if path.startswith(p + "/Sources/")]
+        return max(found, key=len) if found else None
+
+    def is_source(self, path: str) -> bool:
+        return path.endswith(".swift") and self.package_dir(path) is not None
+
+    def is_counted(self, path: str) -> bool:
+        """True when a change to PATH can change a count at this revision: a closure Swift source, a closure
+        manifest (a Package.swift anywhere can join or leave the closure only through one of these), the layer map
+        or this file."""
+        return self.is_source(path) or path in self.counted_paths
+
+    def pathspecs(self) -> list[str]:
+        """git pathspecs of the counted Swift (`git grep`, `git diff`)."""
+        return [f"{s}/*.swift" for s in self.sources]
+
+    def ambiguous(self) -> dict[str, tuple[str, ...]]:
+        return {m: pkgs for m, pkgs in self.modules.items() if len(pkgs) > 1}
+
+    def check(self) -> None:
+        """Raise AmbiguousModule when a module directory is in two closure packages."""
+        found = self.ambiguous()
+        if found:
+            raise AmbiguousModule("; ".join(f"the module {m} is in {' and '.join(f'{p}/Sources' for p in pkgs)}"
+                                            for m, pkgs in sorted(found.items()))
+                                  + f" at {self.rev[:11]}: the counts would merge them into one package")
+
+    def union(self, other: "ReadPaths") -> "ReadPaths":
+        """Both closures' packages and manifests (the stand-in tree of a delta greps both)."""
+        modules = collections.defaultdict(set)
+        for side in (self, other):
+            for m, pkgs in side.modules.items():
+                modules[m].update(pkgs)
+        packages = (PACKAGE_DIR,) + tuple(sorted((set(self.packages) | set(other.packages)) - {PACKAGE_DIR}))
+        return ReadPaths(other.rev, packages, {**self.manifests, **other.manifests},
+                         {m: tuple(sorted(p)) for m, p in sorted(modules.items())})
+
+    def with_added(self, rev: str, paths) -> "ReadPaths":
+        """This closure at REV, a descendant whose range changes no Package.swift, with the modules of the added
+        PATHS. Modules a range empties stay listed, so an ambiguity here may be a module the range moved between
+        packages: _scope_after reads REV's trees then."""
+        modules = {m: set(pkgs) for m, pkgs in self.modules.items()}
+        for path in paths:
+            pkg = self.package_dir(path)
+            rest = path[len(pkg) + len("/Sources/"):] if pkg else ""
+            if "/" in rest:
+                modules.setdefault(rest.split("/", 1)[0], set()).add(pkg)
+        return ReadPaths(rev, self.packages, self.manifests, {m: tuple(sorted(p)) for m, p in sorted(modules.items())})
+
+    def to_json(self) -> str:
+        return json.dumps([list(self.packages), self.manifests, self.modules], separators=(",", ":"))
+
+    @classmethod
+    def from_json(cls, rev: str, text: str) -> "ReadPaths":
+        packages, manifests, modules = json.loads(text)
+        return cls(rev, tuple(packages), dict(manifests), {m: tuple(p) for m, p in modules.items()})
+
+
+class _ObjectReader:
+    """One `git cat-file --batch` asked in rounds: the closure walk learns a manifest's dependencies only after it
+    reads it, and one process for every round costs one spawn, not one per round."""
+
+    def __init__(self, repo: Path) -> None:
+        self.proc = subprocess.Popen(["git", "-C", str(repo), "cat-file", "--batch"], stdin=subprocess.PIPE,
+                                     stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+
+    def ask(self, specs: list[str]) -> list[tuple[str, str, bytes] | None]:
+        """[(object id, type, content) or None (missing)] for SPECS (`rev:path`). A round's request is a few kB,
+        so writing it whole before reading cannot block on a full pipe."""
+        assert self.proc.stdin is not None and self.proc.stdout is not None
+        self.proc.stdin.write("".join(f"{s}\n" for s in specs).encode())
+        self.proc.stdin.flush()
+        out: list[tuple[str, str, bytes] | None] = []
+        for _ in specs:
+            header = self.proc.stdout.readline().decode(errors="replace").split()
+            if len(header) < 3 or not header[-1].isdigit():
+                out.append(None)  # `<spec> missing` (or an empty answer when git died)
+                continue
+            size = int(header[2])
+            data = self.proc.stdout.read(size)
+            self.proc.stdout.read(1)
+            out.append((header[0], header[1], data))
+        return out
+
+    def close(self) -> None:
+        if self.proc.stdin is not None:
+            self.proc.stdin.close()
+        if self.proc.stdout is not None:
+            self.proc.stdout.close()
+        self.proc.wait()
+
+
+def _tree_dirs(data: bytes, oid_bytes: int) -> list[str]:
+    """The subdirectory names of a raw tree object (`<mode> <name>\\0<oid>` entries)."""
+    out, i = [], 0
+    while i < len(data):
+        space = data.index(b" ", i)
+        nul = data.index(b"\0", space)
+        if data[i:space] == b"40000":
+            out.append(data[space + 1:nul].decode(errors="replace"))
+        i = nul + 1 + oid_bytes
+    return out
+
+
+def _walk_closure(git: Git, sha: str) -> ReadPaths:
+    """The closure at the commit SHA from git objects: a breadth-first walk of the `.package(path:)` dependencies
+    (local_dependencies) from PACKAGE_DIR; a path with no Package.swift at SHA is not a package. Each round reads
+    its packages' manifests and Sources trees through one cat-file process."""
+    reader = _ObjectReader(git.repo)
+    packages: list[str] = []
+    manifests: dict[str, str] = {}
+    modules: dict[str, set[str]] = collections.defaultdict(set)
+    try:
+        todo, seen = [PACKAGE_DIR], {PACKAGE_DIR}
+        while todo:
+            got = reader.ask([f"{sha}:{p}/Package.swift" for p in todo] + [f"{sha}:{p}/Sources" for p in todo])
+            following = []
+            for i, package in enumerate(todo):
+                manifest, tree = got[i], got[len(todo) + i]
+                has_manifest = manifest is not None and manifest[1] == "blob"
+                if not has_manifest and package != PACKAGE_DIR:
+                    continue
+                packages.append(package)
+                if tree is not None and tree[1] == "tree":
+                    for name in _tree_dirs(tree[2], len(tree[0]) // 2):
+                        modules[name].add(package)
+                if has_manifest:
+                    manifests[f"{package}/Package.swift"] = manifest[0]
+                    for dep in sorted(set(local_dependencies(manifest[2].decode(errors="replace"), package).values())):
+                        if dep not in seen:
+                            seen.add(dep)
+                            following.append(dep)
+            todo = following
+    finally:
+        reader.close()
+    return ReadPaths(sha, (PACKAGE_DIR,) + tuple(sorted(set(packages) - {PACKAGE_DIR})), manifests,
+                     {m: tuple(sorted(p)) for m, p in sorted(modules.items())})
+
+
+def _scope(git: Git, sha: str, store: "FactsCache | None") -> ReadPaths:
+    """read_paths at the commit SHA: from STORE (a commit's closure never changes), else _walk_closure."""
+    key = f"read-paths:{sha}"
+    text = store.get_text(key) if store is not None else None
+    if text:
+        try:
+            return ReadPaths.from_json(sha, text)
+        except (ValueError, TypeError, AttributeError):
+            pass
+    scope = _walk_closure(git, sha)
+    if store is not None:
+        store.put_text(key, scope.to_json())
+    return scope
+
+
+def _scope_after(git: Git, head: str, before: ReadPaths, files: list[tuple[str, str]],
+                 store: "FactsCache | None") -> ReadPaths:
+    """read_paths at HEAD, a descendant of BEFORE's revision whose range changes FILES ([(status, path)]). A range
+    that changes no Package.swift keeps BEFORE's closure (only manifests make it), with the modules its added files
+    bring; when those look ambiguous (maybe a module moved between packages), and on any manifest change, HEAD's own
+    trees decide."""
+    if not any(posixpath.basename(p) == "Package.swift" for _, p in files):
+        derived = before.with_added(head, [p for status, p in files if status == "A"])
+        if not derived.ambiguous():
+            return derived
+    return _scope(git, head, store)
+
+
+def read_paths(repo: Path | str, rev: str = "HEAD", cache: bool = True) -> ReadPaths:
+    """What a count at REV reads (ReadPaths): the local package closure, read statically from git objects at REV.
+
+    The one source of the scope: full_count, delta_count, arch-ratchet.py (measured_in_range, raised_by) and the
+    perf cron's prefetch (`--read-paths`) all use it. Kept in FactsCache by commit (CACHE False: walked again).
+    """
+    git = Git(Path(repo))
+    store = FactsCache(git, cache)
+    try:
+        return _scope(git, git.rev(rev), store)
+    finally:
+        store.flush()
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -3394,23 +3781,25 @@ def count_layers(counts: Counts, lay: Layers) -> None:
         counts.sites[s.row].append(s)
 
 
-def count_texts(texts: dict[str, str], manifest_raw: str | None, layers_raw: str | None,
-                observers: Observers | None = None) -> tuple[Counts, Layers]:
-    """(counts, layers) of TEXTS ({path: Swift text}; paths outside Sources are ignored) and the manifest.
+def count_texts(texts: dict[str, str], manifest_raw: str | dict[str, str | None] | None, layers_raw: str | None,
+                observers: Observers | None = None, scope: ReadPaths | None = None) -> tuple[Counts, Layers]:
+    """(counts, layers) of TEXTS ({path: Swift text}; paths outside SCOPE's Sources, CmuxNext's when SCOPE is None,
+    are ignored) and the manifests (MANIFEST_RAW: as `layers` takes it).
 
-    The full count reads git objects; codebase-health.py passes working-tree texts, so every report counts with
-    the same method. OBSERVERS is observer_registrations(TEXTS) when the caller already has it (codebase-health.py's
-    section 2 reads its per-statement hits).
+    The full count reads git objects; codebase-health.py passes working-tree texts and read_paths' closure, so every
+    report counts with the same method and scope. OBSERVERS is
+    observer_registrations(TEXTS) when the caller already has it (codebase-health.py's section 2 reads its
+    per-statement hits).
     """
-    facts = [analyze(p, t) for p, t in sorted(texts.items()) if is_source(p)]
+    facts = [analyze(p, t) for p, t in sorted(texts.items()) if is_source(p, scope)]
     counts, lay = count_file_facts(facts, manifest_raw, layers_raw)
-    count_observers(counts, observers if observers is not None else observer_registrations(texts))
+    count_observers(counts, observers if observers is not None else observer_registrations(texts, scope))
     return counts, lay
 
 
-def count_file_facts(facts: list[FileFacts], manifest_raw: str | None, layers_raw: str | None,
+def count_file_facts(facts: list[FileFacts], manifest_raw: str | dict[str, str | None] | None, layers_raw: str | None,
                      earlier_layers: str | None = None) -> tuple[Counts, Layers]:
-    """(counts, layers) of every file's FACTS and the manifest (count_texts and full_count). EARLIER_LAYERS is
+    """(counts, layers) of every file's FACTS and the manifests (count_texts and full_count). EARLIER_LAYERS is
     `placing_map`'s answer for a LAYERS_RAW that does not parse."""
     index: dict[str, list[Decl]] = collections.defaultdict(list)
     for f in facts:
@@ -3426,19 +3815,22 @@ def count_file_facts(facts: list[FileFacts], manifest_raw: str | None, layers_ra
 
 
 def full_count(repo: Path, rev: str = "HEAD", cache: bool = True) -> tuple[str, Counts, Layers]:
-    """(sha, counts, layers) of every file at REV (facts of contents seen before come from FactsCache)."""
+    """(sha, counts, layers) of every file of the local package closure at REV (read_paths; facts of contents seen
+    before come from FactsCache). Raises AmbiguousModule when two closure packages hold one module."""
     git = Git(repo)
     sha = git.rev(rev)
-    blobs = git.swift_blobs(sha)
     store = FactsCache(git, cache)
     try:
+        scope = _scope(git, sha, store)
+        scope.check()
+        blobs = git.swift_blobs(sha, scope)
         items = [(blobs[p], p) for p in sorted(blobs)]
         found = store.facts(items, git.read_blobs)
-        meta = git.read([(sha, p) for p in COUNT_INPUTS + (RATCHET_JSON,)])
+        meta = git.read([(sha, p) for p in scope.count_inputs + (RATCHET_JSON,)])
         facts = [found.get(item) or analyze(item[1], "") for item in items]
-        counts, lay = count_file_facts(facts, meta[(sha, MANIFEST)], meta[(sha, LAYERS_JSON)],
+        counts, lay = count_file_facts(facts, {p: meta[(sha, p)] for p in scope.manifests}, meta[(sha, LAYERS_JSON)],
                                        placing_map(repo, sha, meta[(sha, LAYERS_JSON)]))
-        stand = StandIn(git, repo, sha, False, store)
+        stand = StandIn(git, repo, sha, False, store, scope)
         count_observers(counts, observer_count(EndSource(stand, {}), recorded_wrappers(meta[(sha, RATCHET_JSON)])))
     finally:
         store.flush()
@@ -3482,13 +3874,15 @@ class TypeLookup:
     Files that equal the worktree at both ends are found with `git grep` in the worktree (shared by both
     ends: their content is HEAD's blob); their facts come from CACHE by blob id, else are analyzed once from
     disk. OVERLAY files (changed by the range or dirty in the worktree) are analyzed from each end's git
-    content.
+    content. SCOPE (ReadPaths) names the Sources directories it greps: both ends' closures.
     """
 
-    def __init__(self, git: Git, worktree: Path | None, revs: tuple[str, str], cache: FactsCache | None = None) -> None:
+    def __init__(self, git: Git, worktree: Path | None, revs: tuple[str, str], scope: ReadPaths,
+                 cache: FactsCache | None = None) -> None:
         self.git = git
         self.worktree = worktree
         self.revs = revs
+        self.scope = scope
         self.cache = cache or FactsCache(git, enabled=False)
         self._head_blobs: dict[str, str] | None = None
         self.overlay: dict[str, dict[str, FileFacts | None]] = {r: {} for r in revs}
@@ -3541,7 +3935,7 @@ class TypeLookup:
         args = ["grep", "-o", "-z", "-I", "-P", "-e", DECL_INDEX]
         if self.worktree is None:
             args.append(self.revs[1])
-        args += ["--", f"{SOURCES}/*.swift"]
+        args += ["--", *self.scope.pathspecs()]
         r = subprocess.run(["git", "-C", str(self.repo_root()), *args], capture_output=True)
         if r.returncode not in (0, 1):
             raise RuntimeError(f"git grep: {r.stderr.decode(errors='replace').strip()}")
@@ -3558,7 +3952,7 @@ class TypeLookup:
         return index
 
     def grep_files(self, pattern: str, rev_for_bare: str) -> list[str]:
-        """Tracked Swift files under Sources whose text matches the PCRE PATTERN (worktree, else REV)."""
+        """Tracked Swift files under the closure's Sources whose text matches the PCRE PATTERN (worktree, else REV)."""
         key = (pattern, rev_for_bare)
         if key not in self._grep_cache:
             self._grep_cache[key] = self._grep(pattern, rev_for_bare)
@@ -3571,7 +3965,7 @@ class TypeLookup:
         args = ["grep", "-l", "-I", "-P", "-e", pattern]
         if self.worktree is None:
             args.append(rev_for_bare)
-        args += ["--", f"{SOURCES}/*.swift"]
+        args += ["--", *self.scope.pathspecs()]
         r = subprocess.run(["git", "-C", str(self.repo_root()), *args], capture_output=True)
         if r.returncode not in (0, 1):
             raise RuntimeError(f"git grep: {r.stderr.decode(errors='replace').strip()}")
@@ -3588,7 +3982,7 @@ class TypeLookup:
         todo = [p for p in paths if p not in self.shared_files and not any(p in o for o in self.overlay.values())]
         if todo:
             if self._head_blobs is None:
-                self._head_blobs = self.git.swift_blobs(self.revs[1])  # one ls-tree: the cache keys
+                self._head_blobs = self.git.swift_blobs(self.revs[1], self.scope)  # one ls-tree: the cache keys
             items = [(self._head_blobs[p], p) for p in todo if p in self._head_blobs]
 
             def read(missing: list[tuple[str, str]]) -> dict[tuple[str, str], str | None]:
@@ -3770,11 +4164,13 @@ def delta_count(repo: Path, base: str, head: str, use_worktree: bool = True, cac
     owner and name, types, keyword) at both ends cancel without a type lookup; only the others, and the
     types whose declarations the range changes, are looked up. USE_WORKTREE False reads every lookup from HEAD's git
     objects (an audit of old commits: the worktree would differ from them in most files). CACHE False
-    analyzes every file it reads instead of reading facts seen before from FactsCache.
+    analyzes every file it reads instead of reading facts seen before from FactsCache. Each end counts its own
+    closure (read_paths); AmbiguousModule when an end's closure holds one module twice.
     """
     git = Git(repo)
-    # Started first: it stats every source file, and only a type lookup waits for it.
-    dirty_proc = subprocess.Popen(["git", "-C", str(repo), "diff", "--name-only", "-z", head, "--", SOURCES],
+    # Started first: it stats every tracked Swift file (the closures are not read yet; _delta keeps the ones under
+    # them), and only the observer count and a type lookup wait for it.
+    dirty_proc = subprocess.Popen(["git", "-C", str(repo), "diff", "--name-only", "-z", head, "--", "*.swift"],
                                   stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) if use_worktree else None
     try:
         worktree: Path | None
@@ -3811,17 +4207,33 @@ def delta_count(repo: Path, base: str, head: str, use_worktree: bool = True, cac
 def _delta(git: Git, base: str, head: str, worktree: Path | None, dirty_proc: subprocess.Popen | None,
            store: FactsCache) -> Delta:
     files, blobs = git.changed(base, head)
-    changed = sorted({p for _, p in files if is_source(p)})
+    scopes = {base: _scope(git, base, store)}
+    scopes[head] = _scope_after(git, head, scopes[base], files, store)
+    for scope in scopes.values():
+        scope.check()
+    both = scopes[base].union(scopes[head])
+    changed_paths = {p for _, p in files if both.is_source(p)}
+    # A package in one end's closure only: each Swift file of its Sources counts at that end and is absent at the
+    # other, whether the range changes it or not (a Package.swift that links or drops it is the change).
+    joined: dict[tuple[str, str], str] = {}
+    for r, other in ((base, head), (head, base)):
+        only = [f"{p}/Sources" for p in scopes[r].packages if p not in scopes[other].packages]
+        for path, blob in git.swift_blobs_under(r, only).items():
+            joined[(r, path)] = blob
+            changed_paths.add(path)
+    changed = sorted(changed_paths)
     before, after = Counts.empty(), Counts.empty()
-    layer_files = [p for p in COUNT_INPUTS if any(p == q for _, q in files)]
-    if layer_files:
-        texts = git.read([(r, p) for r in (base, head) for p in COUNT_INPUTS])
+    if any(p in scopes[base].count_inputs or p in scopes[head].count_inputs for _, p in files):
+        # A manifest or the layer map changed: the layer rows at both ends, each over its own closure's manifests.
+        texts = git.read_blobs([(b, p) for r in (base, head) for p, b in scopes[r].manifests.items()])
+        maps = git.read([(r, LAYERS_JSON) for r in (base, head)])
         for r, counts in ((base, before), (head, after)):
-            count_layers(counts, layers(texts[(r, MANIFEST)], texts[(r, LAYERS_JSON)],
-                                        placing_map(git.repo, r, texts[(r, LAYERS_JSON)])))
+            count_layers(counts, layers({p: texts[(b, p)] for p, b in scopes[r].manifests.items()},
+                                        maps[(r, LAYERS_JSON)], placing_map(git.repo, r, maps[(r, LAYERS_JSON)])))
     if not changed:
         return Delta(base, head, files, before, after)
-    ends = {(r, p): blobs.get((r, p)) for r in (base, head) for p in changed}
+    ends = {(r, p): (joined.get((r, p)) or blobs.get((r, p))) if scopes[r].is_source(p) else None
+            for r in (base, head) for p in changed}
     found = store.facts([(b, p) for (_, p), b in ends.items() if b], git.read_blobs)
     facts = {r: {p: (found.get((ends[(r, p)], p)) if ends[(r, p)] else None) for p in changed} for r in (base, head)}
     dirty_memo: list = []
@@ -3835,10 +4247,10 @@ def _delta(git: Git, base: str, head: str, worktree: Path | None, dirty_proc: su
                 if dirty_proc.returncode != 0:
                     out, root = b"", None
             dirty_memo.append((root, [p for p in out.decode(errors="replace").split("\0")
-                                      if is_source(p) and p not in facts[head]] if root is not None else []))
+                                      if both.is_source(p) and p not in facts[head]] if root is not None else []))
         return dirty_memo[0]
 
-    _count_observers(git, base, head, changed, ends, dirty_paths, store, before, after)
+    _count_observers(git, base, head, changed, ends, dirty_paths, store, before, after, both)
 
     # Rows that need no other file.
     for r, counts in ((base, before), (head, after)):
@@ -3864,7 +4276,7 @@ def _delta(git: Git, base: str, head: str, worktree: Path | None, dirty_proc: su
         lookup = None
     else:
         worktree, dirty = dirty_paths()
-        lookup = TypeLookup(git, worktree, (base, head), store)
+        lookup = TypeLookup(git, worktree, (base, head), both, store)
         # The first lookup round and the flip lookup run while the dirty files are read.
         lookup.prefetch_index()
         dirty_texts = git.read([(head, p) for p in dirty])
@@ -3881,16 +4293,17 @@ def _delta(git: Git, base: str, head: str, worktree: Path | None, dirty_proc: su
 
 
 def _count_observers(git: Git, base: str, head: str, changed: list[str], ends: dict, dirty_paths, store: FactsCache,
-                     before: Counts, after: Counts) -> None:
+                     before: Counts, after: Counts, scope: ReadPaths) -> None:
     """observer_sites of BASE and HEAD: an observer_count at each end, so their difference is two full counts'.
 
     Every file outside the range's changed files and the worktree's dirty ones is the same at both ends and in the
     stand-in tree (the worktree when DIRTY_PATHS() gives one, else HEAD's tree), so both ends share its greps and its
     files' facts (FactsCache by blob, parsed once per content); ENDS ({(rev, path): blob or None}) gives the changed
     files at each end and HEAD's blob gives a dirty file at both. A file is read only when its facts are not cached.
+    SCOPE is both ends' closures (ReadPaths.union): the stand-in tree's greps cover it.
     """
     worktree, dirty = dirty_paths()
-    stand = StandIn(git, worktree or git.repo, head, worktree is not None, store)
+    stand = StandIn(git, worktree or git.repo, head, worktree is not None, store, scope)
     # A speed hint only: the worktree's record (no process) when there is one, else HEAD's.
     try:
         hint_text = (worktree / RATCHET_JSON).read_text() if worktree is not None else None
@@ -4041,9 +4454,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--delta", nargs=2, metavar=("BASE", "HEAD"))
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--sites", metavar="ROW", help="print the sites of ROW (full count)")
+    parser.add_argument("--read-paths", action="store_true",
+                        help="print what a count at --rev reads as one JSON object: `files` (single files) and `sources` "
+                             "(directories whose Swift it reads)")
     args = parser.parse_args(argv)
     repo = Path(args.repo).resolve() if args.repo else Path(
         subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=True).stdout.strip())
+    if args.read_paths:
+        scope = read_paths(repo, args.rev)
+        print(json.dumps({"rev": scope.rev, "method_version": METHOD_VERSION, "packages": list(scope.packages),
+                          "files": list(scope.files), "sources": list(scope.sources)}, sort_keys=True))
+        return 0
     if args.delta:
         d = delta_count(repo, *args.delta)
         totals = {row: d.total(row) for row in ROW_IDS}

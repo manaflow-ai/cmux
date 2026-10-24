@@ -28,6 +28,11 @@ public final class HibernatedBrowserTab: BrowserTab {
     /// the host's cache let them go.
     public var snapshotImage: CGImage? { snapshotSource() }
     private let snapshotSource: @MainActor () -> CGImage?
+    /// The decoded pixels the pane shows now; nil while the placeholder is not in a window or its
+    /// picture still decodes. A wake hands them to the new page's stand-in
+    /// (`BrowserWakeStandIn`), which then needs no decode of its own.
+    public var shownPicture: CGImage? { pictureView.decodedPicture }
+    @ObservationIgnored private let pictureView: BrowserPictureView
     /// What woke the page, for the host to apply once it is restored.
     public enum Wake: Sendable, Hashable {
         case load(URL)
@@ -59,7 +64,8 @@ public final class HibernatedBrowserTab: BrowserTab {
         self.favicon = favicon
         self.restoreState = restoreState
         self.snapshotSource = snapshot
-        contentView = BrowserPictureView(picture: snapshot)
+        pictureView = BrowserPictureView(picture: snapshot)
+        contentView = pictureView
     }
 
     public func load(_ url: URL) { onWake?(.load(url)) }

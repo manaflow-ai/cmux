@@ -85,6 +85,8 @@ public final class LayoutRootView: NSView {
     /// Pane rings and dims the overlay syncs placed, cumulative (PaneMotionWorkTests: per frame it
     /// is the panes that moved, not every pane).
     var overlayHostsPlaced = 0
+    /// Overlay syncs run, cumulative (PaneLayoutBeforeWindowTests: a parked root runs none).
+    var overlaySyncs = 0
     /// The panes whose ring, dim or window frame the last overlay sync changed: a pane that moved,
     /// resized, faded or was newly covered. Observers of ``observeOverlaySync(_:)`` read it to touch
     /// only those panes (a Chromium page's geometry post, a divider catcher); empty for a sync that
@@ -138,6 +140,11 @@ public final class LayoutRootView: NSView {
         context.requestFrames = { [weak self] in self?.driver.start() }
         driver.onFrame = { [weak self] dt in self?.advanceFrame(dt) ?? false }
         context.overlayNeedsSync = { [weak self] in self?.setNeedsOverlaySync() }
+        context.userMotionStepped = { [weak self] in self?.setLayoutInMotion(true) }
+        context.userMotionEnded = { [weak self] in
+            guard let self, !self.screenViews.values.contains(where: \.hasMotion), !self.driver.isRunning else { return }
+            self.setLayoutInMotion(false)
+        }
         context.gridHoldDidChange = { [weak self] held in self?.onTerminalGridHold?(held) }
         context.stripClipsDidChange = { [weak self] in
             guard let self else { return }
@@ -567,6 +574,8 @@ public final class LayoutRootView: NSView {
             }
         }
         updateVisibility()
+        // The layout changes it saw while parked: one overlay sync now.
+        if live { flushOverlaySync() }
     }
 
 }

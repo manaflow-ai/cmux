@@ -59,7 +59,7 @@ final class CommandHistory {
 
     private static func state(settings: SettingsController, daemons: [DaemonService]) -> SyncState {
         var machines: [String: String] = [:]
-        for daemon in daemons where daemon.supports(DaemonCapabilities.terminalCommandHistory) {
+        for daemon in daemons where daemon.supports(DaemonCapability.terminalCommandHistory.rawValue) {
             guard case .connected = daemon.store.connectionState else { continue }
             machines[daemon.machineID] = daemon.store.generation?.rawValue ?? ""
         }
@@ -188,7 +188,7 @@ final class CommandHistory {
 
     private func daemons() -> [DaemonService] {
         services.machines.daemons.filter { daemon in
-            guard daemon.supports(DaemonCapabilities.terminalCommandHistory), case .connected = daemon.store.connectionState else { return false }
+            guard daemon.supports(DaemonCapability.terminalCommandHistory.rawValue), case .connected = daemon.store.connectionState else { return false }
             return true
         }
     }

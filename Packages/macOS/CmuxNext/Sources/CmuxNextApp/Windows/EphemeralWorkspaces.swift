@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextBrowserTabs
 import CmuxNextDaemon
 
 // Incognito workspaces on a daemon with state resources are `ephemeral`

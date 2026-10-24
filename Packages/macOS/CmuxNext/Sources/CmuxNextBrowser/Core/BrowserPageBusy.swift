@@ -22,12 +22,15 @@ import Foundation
 ///   was used (Chromium attaches late) has no such moment and compares with the defaults only;
 /// - a rich editor (`contenteditable`) the person typed in whose text differs from what it held
 ///   when they started, while it is in the document (a composer cleared by a send does not count).
-/// `beforeunload` (`unload`): the probe of the top document dispatches a `BeforeUnloadEvent` to it, as
-/// a close would, and the tab asks when a handler cancels it (`preventDefault()`, a `returnValue`, or
-/// an `onbeforeunload` that returns a message). Chromium and WebKit ask only after the person used
-/// the document, so a document nobody used never asks. A child frame cannot be asked from the top
-/// (it may be cross-origin), so it reports whether it has a handler and the person used it; that
-/// counts as asking. A frame's handlers run only at the probe, never on its own reports.
+/// `beforeunload`: the probe runs no page code. It reads the recorder's own record: whether the
+/// person used the top document and it has a handler (`handler`; the wrapped `addEventListener` and
+/// `onbeforeunload` setter keep it). Chromium and WebKit ask only after the person used the document,
+/// so a document nobody used never asks. A child frame cannot be asked from the top (it may be
+/// cross-origin), so it reports whether it has a handler and the person used it; that counts as
+/// asking (`unload`). Whether the top document's handlers would really ask is learned only by
+/// running them (`askScript`): the hibernation does that once per hidden period, without a user
+/// gesture, as the last step right before a discard and only when nothing else keeps the page, so a
+/// page that stays has not had its unload logic run behind the person's back on every probe.
 ///
 /// WebRTC (`rtc`): the recorder wraps the `RTCPeerConnection` constructors and reports a connected one.
 ///
@@ -51,9 +54,12 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
     /// The person's form edits in the tab's frames (see above); nil when the page's recorder did not
     /// answer (the probe then compares every field with its default, as before the recorder).
     public var editedForm: Bool?
-    /// The tab would ask before it unloads ("Leave site?"): the top document's `beforeunload`
-    /// cancels, or a child frame the person used has a `beforeunload` handler (see above).
+    /// A child frame the person used has a `beforeunload` handler: the tab would ask before it
+    /// unloads ("Leave site?"; see above).
     public var beforeUnload: Bool
+    /// The person used the top document and it has a `beforeunload` handler: it may ask. Only
+    /// `BrowserTab.asksBeforeUnload()` says whether, by running the handlers.
+    public var unloadHandler: Bool
     /// A connected `RTCPeerConnection` in the tab's frames.
     public var webRTC: Bool
     /// An open USB, HID or serial device, or a connected Bluetooth GATT server, in the tab's frames.
@@ -62,12 +68,13 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
     /// cross-origin frames), still in the document.
     public var unreadableFrame: Bool
 
-    public init(audio: Bool = false, capturing: Bool = false, editedForm: Bool? = nil, beforeUnload: Bool = false, webRTC: Bool = false,
-                connectedDevice: Bool = false, unreadableFrame: Bool = false) {
+    public init(audio: Bool = false, capturing: Bool = false, editedForm: Bool? = nil, beforeUnload: Bool = false,
+                unloadHandler: Bool = false, webRTC: Bool = false, connectedDevice: Bool = false, unreadableFrame: Bool = false) {
         self.audio = audio
         self.capturing = capturing
         self.editedForm = editedForm
         self.beforeUnload = beforeUnload
+        self.unloadHandler = unloadHandler
         self.webRTC = webRTC
         self.connectedDevice = connectedDevice
         self.unreadableFrame = unreadableFrame
@@ -125,6 +132,7 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
       // script calls run with a user gesture in both engines, so every probe would count as a use.
       const activated = () => used;
       // Whether this document would ask before it unloads: its beforeunload handlers run, as for a close.
+      // Only `askScript` calls it; the probe itself never runs page code.
       const asks = () => {
         if (!activated()) return false;
         let event;
@@ -134,10 +142,10 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
         return event.defaultPrevented || !!event.returnValue;
       };
       const hasUnloadHandler = () => activated() && (unloadListeners.size > 0 || typeof window.onbeforeunload === 'function');
-      // `asking`: a discard probe of the top document, which alone runs the handlers.
-      const busy = (asking) => {
+      // `unload`: a child frame would ask; `handler`: this document may ask (`asks` says whether).
+      const busy = () => {
         const state = { audio: false, capturing: Array.from(streams).some(live), form: false,
-                        unload: asking ? asks() : hasUnloadHandler(), rtc: false, device: false, opaque: false };
+                        unload: false, handler: hasUnloadHandler(), rtc: false, device: false, opaque: false };
         for (const entry of heldDevices) {
           const handle = entry.ref.deref();
           if (!handle) { heldDevices.delete(entry); continue; }
@@ -185,13 +193,19 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
         return state;
       };
       let told = '';
+      // A child frame's own handler counts as asking for the top (it cannot be asked from there).
+      const report = () => {
+        const state = busy();
+        return { audio: state.audio, capturing: state.capturing, form: state.form, unload: state.unload || state.handler,
+                 rtc: state.rtc, device: state.device, opaque: state.opaque };
+      };
       const post = (state) => {
         told = JSON.stringify(state);
         try { parent.postMessage({ cmuxPageBusy: state }, '*'); } catch (_) {}
       };
       const tell = () => {
         if (window === parent) return;
-        const state = busy(false);
+        const state = report();
         if (JSON.stringify(state) !== told) post(state);
       };
       // Wrappers as proxies keep the originals' name, length and native toString.
@@ -352,37 +366,65 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
       // A frame that navigates keeps its window: its new document reports at once, and the
       // old one clears its report when it goes.
       if (window !== parent) {
-        post(busy(false));
+        post(report());
         addEventListener('pagehide', () => post({ audio: false, capturing: false, form: false, unload: false, rtc: false,
                                                   device: false, opaque: false }));
       }
-      Object.defineProperty(window, key, { value: (asking) => busy(asking === true) });
+      Object.defineProperty(window, key, { value: busy });
+      Object.defineProperty(window, Symbol.for('cmux.pageBusy.asks'), { value: asks });
     })();
     """#
 
-    /// The probe's question, in the page's world: `{"audio", "capturing", "form", "unload", "rtc", "device", "opaque"}`
-    /// (Bools) as JSON,
-    /// `{}` when the recorder is missing (a page loaded before it was installed). `asking` runs the
-    /// top document's beforeunload handlers (a discard probe); without it `unload` says only whether
-    /// the person used a document that has a handler.
-    static func probeScript(asking: Bool) -> String {
-        "(() => { const f = window[Symbol.for('cmux.pageBusy')]; return JSON.stringify(f ? f(\(asking)) : {}); })()"
-    }
+    /// The probe's question, in the page's world: `{"audio", "capturing", "form", "unload", "handler", "rtc", "device",
+    /// "opaque"}` (Bools) as JSON, `{}` when the recorder is missing (a page loaded before it was installed). It runs
+    /// no page code.
+    static let probeScript = "(() => { const f = window[Symbol.for('cmux.pageBusy')]; return JSON.stringify(f ? f() : {}); })()"
+
+    /// Runs the top document's beforeunload handlers, as a close would, and answers whether one
+    /// cancels (`preventDefault()`, a `returnValue`, or an `onbeforeunload` that returns a message):
+    /// `true`/`false`, or `null` when the recorder is missing. Page code runs: see `BrowserTab.asksBeforeUnload()`.
+    static let askScript = "(() => { const f = window[Symbol.for('cmux.pageBusy.asks')]; return f ? f() : null; })()"
 }
 
 extension BrowserTab {
-    /// Asks the page's recorder (`BrowserPageBusy`). Throws when the page does not answer.
-    /// - Parameter asksBeforeUnload: Runs the top document's beforeunload handlers to learn whether
-    ///   it would ask (the probe right before a discard); false for a freeze, which loses nothing.
-    public func pageBusy(asksBeforeUnload: Bool) async throws -> BrowserPageBusy {
-        let value = try await evaluate(BrowserPageBusy.probeScript(asking: asksBeforeUnload), world: .page)
+    /// Asks the page's recorder (`BrowserPageBusy`); runs no page code, and no user gesture where the
+    /// engine can run a script without one (`BrowserGesturelessScripting`), so the probe never counts
+    /// as the person's activation. Throws when the page does not answer.
+    public func pageBusy() async throws -> BrowserPageBusy {
+        let script = BrowserPageBusy.probeScript
+        let value: BrowserJSValue
+        do {
+            guard let gestureless = self as? any BrowserGesturelessScripting else { throw BrowserTabError.unsupported("gestureless") }
+            value = try await gestureless.evaluateWithoutUserGesture(script)
+        } catch BrowserTabError.unsupported {
+            // The recorder's read runs no page code, so the gesture of the ordinary path costs nothing here.
+            value = try await evaluate(script, world: .page)
+        }
         guard case .string(let json) = value, let data = json.data(using: .utf8),
               let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw CocoaError(.coderReadCorrupt)
         }
         return BrowserPageBusy(audio: object["audio"] as? Bool ?? false, capturing: object["capturing"] as? Bool ?? false,
                                editedForm: object["form"] as? Bool, beforeUnload: object["unload"] as? Bool ?? false,
+                               unloadHandler: object["handler"] as? Bool ?? false,
                                webRTC: object["rtc"] as? Bool ?? false, connectedDevice: object["device"] as? Bool ?? false,
                                unreadableFrame: object["opaque"] as? Bool ?? false)
+    }
+
+    /// Runs the top document's beforeunload handlers, as a close would, and answers whether the page
+    /// would ask ("Leave site?"). Page code runs (a handler may close a socket or send a beacon), so
+    /// the caller asks only right before it discards the page, and at most once while it stays
+    /// hidden. It runs without a user gesture: a handler cannot open a popup on cmux's behalf or see
+    /// the person's activation.
+    /// - Throws: `BrowserTabError.unsupported` when the engine cannot run a script without a user
+    ///   gesture, or when the page has no recorder; the page's own errors.
+    public func asksBeforeUnload() async throws -> Bool {
+        guard let gestureless = self as? any BrowserGesturelessScripting else {
+            throw BrowserTabError.unsupported("a script without a user gesture")
+        }
+        guard case .bool(let asks) = try await gestureless.evaluateWithoutUserGesture(BrowserPageBusy.askScript) else {
+            throw BrowserTabError.unsupported("no page recorder")
+        }
+        return asks
     }
 }

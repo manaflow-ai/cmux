@@ -38,7 +38,7 @@ struct PaneMotionWorkTests {
             // The lower bound: whatever the sync skipped, every displayed pane's ring sits on its host.
             for host in hosts where host.chrome.superview != nil && !host.isHidden {
                 let ring = harness.root.convert(host.bounds, from: host)
-                if host.chrome.frame != ring || host.stripClipInput?.frame != host.frame { stale += 1 }
+                if host.chrome.frame != ring || (host.stripClipInput.map { $0.size != host.frame.size } ?? false) { stale += 1 }
             }
             worstOverlay = max(worstOverlay, harness.root.overlayHostsPlaced - overlay - moved)
             worstClips = max(worstClips, screen.stripClipsComputed - clips - moved)
@@ -97,5 +97,33 @@ struct PaneMotionWorkTests {
         }
         #expect(worstClips <= 0, "a drag step computed \(worstClips) clips of panes that did not move")
         #expect(worstOverlay <= 0, "a drag step placed \(worstOverlay) rings of panes that did not move")
+    }
+
+    /// A strip pan (Command + scroll or a plain strip pan) moves every pane by the same offset: no pane's clip is
+    /// recomputed (its inputs relative to the pane are the same), and the root reads as in layout motion for the
+    /// whole gesture, so content that is costly to move per frame (divider catcher panels, page windows) waits
+    /// for the landing (PL-scroll: 4-5 % missed frames at 120 Hz on cmux10s in both scroll modes).
+    @Test func aStripPanFrameComputesNoClipAndReadsAsMotion() async throws {
+        // 8 columns of half the window, 3 rows each: the strip overflows by 3 window widths.
+        let columns = (0..<8).map { PaneMotionBench.column($0, rows: 3, width: 0.5) }
+        let harness = PaneMotionBench.Harness([LayoutScreen(id: "s", name: "s", layout: .columns(columns))], focused: PaneID("p0-0"))
+        _ = await harness.frame()
+        let screen = try #require(harness.root.screenViews.values.first)
+        #expect(screen.acceptsHorizontalScroll, "the strip does not overflow")
+        screen.beginUserScroll()
+        var worstClips = 0, notInMotion = 0
+        for step in 1...30 {
+            let clips = screen.stripClipsComputed
+            screen.userScroll(deltaX: -12, timestamp: Double(step) / 120)
+            _ = await harness.frame()
+            worstClips = max(worstClips, screen.stripClipsComputed - clips)
+            if !harness.root.isLayoutInMotion { notInMotion += 1 }
+        }
+        #expect(worstClips == 0, "a pan frame recomputed \(worstClips) clips of panes that only translate")
+        #expect(notInMotion == 0, "\(notInMotion) pan frames did not read as layout motion")
+        screen.endUserScroll(timestamp: 31.0 / 120)
+        var frames = 0
+        while await harness.frame().moving, frames < 240 { frames += 1 }
+        #expect(!harness.root.isLayoutInMotion, "still in motion after the pan landed")
     }
 }

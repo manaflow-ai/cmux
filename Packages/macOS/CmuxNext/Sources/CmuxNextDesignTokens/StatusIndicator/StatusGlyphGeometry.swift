@@ -3,7 +3,8 @@ package import CoreGraphics
 /// Paths the indicator layer and the image export share, so an exported
 /// status image (`StatusIconSet.image`) has the live glyph's geometry. All
 /// in unflipped (bottom-left) space.
-package nonisolated enum StatusGlyphGeometry {
+package nonisolated struct StatusGlyphGeometry {
+    package nonisolated init() {}
     /// A ring that starts at 12 o'clock and runs clockwise, so `strokeEnd`
     /// reads as progress.
     package static func ringPath(in rect: CGRect, thickness: CGFloat) -> CGPath {

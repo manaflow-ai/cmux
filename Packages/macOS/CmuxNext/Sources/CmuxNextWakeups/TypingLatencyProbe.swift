@@ -1,5 +1,6 @@
 import Foundation
 import CmuxNextCompat
+import CmuxNextSignposts
 
 /// Opt-in keystroke-to-frame timeline for one terminal key at a time
 /// (`CMUX_NEXT_TYPING_PROBE=<csv path>`). Off by default: every hop then
@@ -22,13 +23,38 @@ import CmuxNextCompat
 /// key changed in an AppKit text view (the Home composer, the omnibar).
 /// A sample that has no terminal echo to wait for (``closeAtCommit()``)
 /// is written at that commit.
+///
+/// Key-press flows (`CMUX_TRACE_FLOWS=<dir>`, scripts/cmux-next/trace.py):
+/// each sample also gets a flow id, and every hop it records, plus the
+/// extra ``hop(_:)`` points and the commit of the frame that shows the echo,
+/// is a `key.flow` signpost event (``Signposter/flowHop(_:flow:ageMicroseconds:)``).
+/// The daemon's `send` request carries ``openFlow``, so the daemon, the
+/// terminal host and the holder mark the same press on the same clock. The
+/// variable alone turns sampling on (no CSV is written without
+/// `CMUX_NEXT_TYPING_PROBE`).
 public final class TypingLatencyProbe: Sendable {
-    public static let shared = TypingLatencyProbe(path: ProcessInfo.processInfo.environment["CMUX_NEXT_TYPING_PROBE"])
+    public static let shared = TypingLatencyProbe(path: ProcessInfo.processInfo.environment["CMUX_NEXT_TYPING_PROBE"],
+                                                  flows: !(ProcessInfo.processInfo.environment["CMUX_TRACE_FLOWS"] ?? "").isEmpty)
 
-    public static var isEnabled: Bool { shared.output != nil }
+    public static var isEnabled: Bool { shared.output != nil || shared.flows != nil }
 
     public enum Mark: Int, CaseIterable, Sendable {
         case dispatchStart, dispatchEnd, ioWrite, socketSubmit, outputDecoded, outputReceived, outputParsed, contents, commit
+
+        /// The `key.flow` hop this mark records.
+        var hopName: String {
+            switch self {
+            case .dispatchStart: "app.key.dispatch"
+            case .dispatchEnd: "app.key.dispatched"
+            case .ioWrite: "app.io_write"
+            case .socketSubmit: "app.send"
+            case .outputDecoded: "app.output.decoded"
+            case .outputReceived: "app.output.received"
+            case .outputParsed: "app.output.parsed"
+            case .contents: "app.frame.contents"
+            case .commit: "app.key.commit"
+            }
+        }
 
         var columnName: String {
             switch self {
@@ -61,6 +87,8 @@ public final class TypingLatencyProbe: Sendable {
 
     private struct Sample {
         var index: Int
+        /// The key press's flow id: this process's pid in the high 32 bits, the sample index below.
+        var flow: UInt64
         var event: UInt64
         var marks = [UInt64?](repeating: nil, count: Mark.allCases.count)
         var ioWriteOnMain = false
@@ -71,64 +99,102 @@ public final class TypingLatencyProbe: Sendable {
     private struct State {
         var next = 0
         var open: Sample?
+        /// The flow whose echo frame was handed to its layer (``Mark/contents``) and whose Core
+        /// Animation commit (the next run-loop end) is still to be marked `app.frame.commit`.
+        var echoCommit: UInt64?
     }
 
     private let output: FileHandle?
+    /// The `key.flow` signposter while `CMUX_TRACE_FLOWS` is set, else nil.
+    private let flows: Signposter?
     private let state = Mutex(State())
     private let writes = DispatchQueue(label: "com.cmuxterm.next.typing-probe", qos: .utility)
 
-    init(path: String?) {
-        guard let path, !path.isEmpty,
-              FileManager.default.createFile(atPath: path, contents: nil),
-              let handle = FileHandle(forWritingAtPath: path)
-        else {
+    init(path: String?, flows: Bool = false) {
+        self.flows = flows ? Signposter(category: .key) : nil
+        if let path, !path.isEmpty, FileManager.default.createFile(atPath: path, contents: nil),
+           let handle = FileHandle(forWritingAtPath: path) {
+            output = handle
+            let header = (["index", "complete", "io_write_on_main"] + Mark.allCases.map(\.columnName)).joined(separator: ",") + "\n"
+            handle.write(Data(header.utf8))
+        } else {
             output = nil
-            return
         }
-        output = handle
-        let header = (["index", "complete", "io_write_on_main"] + Mark.allCases.map(\.columnName)).joined(separator: ",") + "\n"
-        handle.write(Data(header.utf8))
+        guard output != nil || flows else { return }
         // The commit mark: the end of each main run-loop turn, after Core Animation's commit observer
         // (order 2000000). A run-loop observer has no async equivalent; it exists only while the probe is on.
         let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue | CFRunLoopActivity.exit.rawValue,
-                                                          true, 2_000_100) { [weak self] _, _ in self?.mark(.commit) }
+                                                          true, 2_000_100) { [weak self] _, _ in
+            self?.mark(.commit)
+            self?.echoCommitted()
+        }
         CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+    }
+
+    /// The flow id of the open key press, for the daemon's `send` request; nil while flows are off
+    /// or no press is open.
+    public var openFlow: UInt64? {
+        guard flows != nil else { return nil }
+        return state.withLock { $0.open?.flow }
+    }
+
+    /// Records a `key.flow` hop of the open press that no CSV column has (`app.key.terminal`: the key
+    /// router handed the key to a terminal). Nothing while flows are off or no press is open.
+    public func hop(_ name: String) {
+        guard let flows, let flow = state.withLock({ $0.open?.flow }) else { return }
+        flows.flowHop(name, flow: flow)
+    }
+
+    /// Marks `app.frame.commit` for the flow whose echo frame went to its layer: the run-loop end that
+    /// follows ``Mark/contents`` is the Core Animation commit that carries it to the screen.
+    private func echoCommitted() {
+        guard let flows, let flow = state.withLock({ state -> UInt64? in
+            defer { state.echoCommit = nil }
+            return state.echoCommit
+        }) else { return }
+        flows.flowHop("app.frame.commit", flow: flow)
     }
 
     /// Opens a sample for a key-down whose `NSEvent.timestamp` is `eventTimestamp`.
     public func keyDown(eventTimestamp: Double) {
-        guard output != nil else { return }
+        guard output != nil || flows != nil else { return }
         let now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
         let event = eventTimestamp > 0 ? UInt64(eventTimestamp * 1_000_000_000) : now
-        let unfinished = state.withLock { state -> Sample? in
+        let flowBase = UInt64(UInt32(truncatingIfNeeded: getpid())) << 32
+        let (unfinished, flow) = state.withLock { state -> (Sample?, UInt64) in
             let previous = state.open
-            var sample = Sample(index: state.next, event: event)
+            var sample = Sample(index: state.next, flow: flowBase | UInt64(UInt32(truncatingIfNeeded: state.next)), event: event)
             sample.marks[Mark.dispatchStart.rawValue] = now
             state.next += 1
             state.open = sample
-            return previous
+            return (previous, sample.flow)
         }
         if let unfinished { emit(unfinished, complete: false) }
+        flows?.flowHop(Mark.dispatchStart.hopName, flow: flow, ageMicroseconds: Int64(bitPattern: now &- event) / 1_000)
     }
 
     /// Records `mark` for the open sample the first time it runs. A mark
     /// before the hop it follows (``Mark/after``) is ignored. Output hops
     /// are not tied to a surface: type into one terminal while sampling.
     public func mark(_ mark: Mark) {
-        guard output != nil else { return }
+        guard output != nil || flows != nil else { return }
         let now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
         let onMain = mark == .ioWrite && Thread.isMainThread
-        let finished = state.withLock { state -> Sample? in
-            guard var sample = state.open, sample.marks[mark.rawValue] == nil else { return nil }
-            if let after = mark.after, sample.marks[after.rawValue] == nil { return nil }
+        let (finished, recorded) = state.withLock { state -> (Sample?, Sample?) in
+            guard var sample = state.open, sample.marks[mark.rawValue] == nil else { return (nil, nil) }
+            if let after = mark.after, sample.marks[after.rawValue] == nil { return (nil, nil) }
             sample.marks[mark.rawValue] = now
             if mark == .ioWrite { sample.ioWriteOnMain = onMain }
             if mark == .contents || (mark == .commit && sample.closesAtCommit) {
                 state.open = nil
-                return sample
+                if mark == .contents { state.echoCommit = sample.flow }
+                return (sample, sample)
             }
             state.open = sample
-            return nil
+            return (nil, sample)
+        }
+        if let recorded, let flows {
+            flows.flowHop(mark.hopName, flow: recorded.flow, ageMicroseconds: Int64(bitPattern: now &- recorded.event) / 1_000)
         }
         if let finished { emit(finished, complete: true) }
     }
@@ -136,7 +202,7 @@ public final class TypingLatencyProbe: Sendable {
     /// The open sample is written at its commit mark (now, when that already ran): the key
     /// went to a text view, so no terminal echo follows (`debug.key` with `probe: "commit"`).
     public func closeAtCommit() {
-        guard output != nil else { return }
+        guard output != nil || flows != nil else { return }
         let finished = state.withLock { state -> Sample? in
             guard var sample = state.open else { return nil }
             if sample.marks[Mark.commit.rawValue] != nil {

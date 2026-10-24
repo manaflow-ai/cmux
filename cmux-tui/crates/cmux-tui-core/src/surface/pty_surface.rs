@@ -108,6 +108,9 @@ impl PtySurface {
     }
 
     pub(super) fn broadcast_attach_output(&self, bytes: &[u8]) -> bool {
+        cmux_flow_trace::hop("daemon.output.attach", 0, || {
+            self.host_identity.as_ref().map(|id| id.terminal_id.clone()).unwrap_or_default()
+        });
         self.snapshot_position.add_output(bytes.len());
         let mut taps = self.taps.lock().unwrap();
         if taps.is_empty() {

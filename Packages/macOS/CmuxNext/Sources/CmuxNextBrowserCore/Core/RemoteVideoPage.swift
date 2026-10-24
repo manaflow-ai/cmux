@@ -4,7 +4,8 @@ package import Foundation
 /// (`application/octet-stream`, as raw.githubusercontent.com serves every .mp4): without it the
 /// tab downloads the file, where a server that says `video/mp4` gets the engine's own player.
 /// A response marked as an attachment still downloads.
-package nonisolated enum RemoteVideoPage {
+package nonisolated struct RemoteVideoPage {
+    package nonisolated init() {}
     /// The video names a tab plays this way.
     package static let extensions: Set<String> = ["mp4", "m4v", "mov", "webm", "ogv"]
 

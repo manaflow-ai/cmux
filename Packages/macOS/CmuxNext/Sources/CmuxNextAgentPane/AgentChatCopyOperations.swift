@@ -9,7 +9,8 @@ public enum AgentChatCopyOutcome: Sendable, Equatable {
     case failed
 }
 
-public enum AgentChatCopyOperations {
+public struct AgentChatCopyOperations {
+    public init() {}
     @MainActor public static func name(info: @escaping () async -> [String: Any]?, isCurrent: @escaping @MainActor () -> Bool) async -> AgentChatCopyOutcome {
         let value = await info()?.string("name")
         guard isCurrent() else { return .stale }

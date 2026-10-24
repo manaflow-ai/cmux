@@ -41,6 +41,9 @@ impl Surface {
         match &mut *runtime {
             PtyRuntime::Local { writer, master, .. } => {
                 let master = master.as_deref().map(|master| master as &dyn MasterPty);
+                cmux_flow_trace::hop("daemon.pty.write", 0, || {
+                    pty.host_identity.as_ref().map(|id| id.terminal_id.clone()).unwrap_or_default()
+                });
                 crate::pty_input_room::write_input(master, writer.as_mut(), bytes).map(|_| ())
             }
             #[cfg(any(unix, windows))]

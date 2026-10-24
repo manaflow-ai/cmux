@@ -6,6 +6,7 @@ import Foundation
 /// (plans/cmux-next/tab-lifecycle.md). Pure: the App feeds it facts and a
 /// clock reading; `BrowserHibernation` performs the result.
 package struct HibernationPlanner {
+    package init() {}
     /// One hidden page that could hibernate.
     package struct Candidate: Hashable {
         package var key: String

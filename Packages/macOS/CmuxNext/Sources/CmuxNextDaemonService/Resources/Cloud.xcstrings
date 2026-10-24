@@ -8646,6 +8646,792 @@
           }
         }
       }
+    },
+    "cloud.upgrade.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud machines need a paid plan"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloudマシンには有料プランが必要です"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Maschinen brauchen einen bezahlten Tarif"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les machines Cloud nécessitent un forfait payant"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las máquinas Cloud requieren un plan de pago"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تتطلب أجهزة Cloud خطة مدفوعة"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 机器需要付费套餐"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 機器需要付費方案"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 머신에는 유료 플랜이 필요합니다"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le macchine Cloud richiedono un piano a pagamento"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As máquinas Cloud exigem um plano pago"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для машин Cloud нужен платный тариф"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maszyny Cloud wymagają płatnego planu"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud makineleri ücretli plan gerektirir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для машин Cloud потрібен платний тариф"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy Cloud cần gói trả phí"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่อง Cloud ต้องใช้แผนแบบชำระเงิน"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-maskiner kræver en betalt plan"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-maskiner krever en betalt plan"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud mašine zahtijevaju plaćeni plan"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីន Cloud ត្រូវការគម្រោងបង់ប្រាក់"
+          }
+        }
+      }
+    },
+    "cloud.upgrade.detail.free": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your plan has no Cloud machines. Go is $10 a month and includes machines; Pro is $50 a month."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のプランにはCloudマシンが含まれていません。Goは月額$10でマシンが含まれ、Proは月額$50です。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein Tarif enthält keine Cloud-Maschinen. Go kostet 10 $ im Monat und enthält Maschinen; Pro kostet 50 $ im Monat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre forfait n'inclut aucune machine Cloud. Go coûte 10 $ par mois et inclut des machines ; Pro coûte 50 $ par mois."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu plan no incluye máquinas Cloud. Go cuesta 10 $ al mes e incluye máquinas; Pro cuesta 50 $ al mes."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تتضمن خطتك أجهزة Cloud. تبلغ تكلفة Go ‏10 دولارات شهريًا وتشمل أجهزة؛ وPro ‏50 دولارًا شهريًا."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的套餐不含 Cloud 机器。Go 每月 10 美元，包含机器；Pro 每月 50 美元。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的方案不含 Cloud 機器。Go 每月 10 美元，包含機器；Pro 每月 50 美元。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 플랜에는 Cloud 머신이 없습니다. Go는 월 $10이며 머신이 포함되고, Pro는 월 $50입니다."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il tuo piano non include macchine Cloud. Go costa 10 $ al mese e include macchine; Pro costa 50 $ al mese."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seu plano não inclui máquinas Cloud. O Go custa US$ 10 por mês e inclui máquinas; o Pro custa US$ 50 por mês."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В вашем тарифе нет машин Cloud. Go стоит 10 $ в месяц и включает машины; Pro — 50 $ в месяц."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Twój plan nie obejmuje maszyn Cloud. Go kosztuje 10 USD miesięcznie i obejmuje maszyny; Pro kosztuje 50 USD miesięcznie."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Planınızda Cloud makinesi yok. Go ayda 10 $ ve makineleri içerir; Pro ayda 50 $."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У вашому тарифі немає машин Cloud. Go коштує 10 $ на місяць і включає машини; Pro — 50 $ на місяць."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gói của bạn không có máy Cloud. Go giá 10 $/tháng và có máy; Pro giá 50 $/tháng."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แผนของคุณไม่มีเครื่อง Cloud แผน Go ราคา 10 ดอลลาร์ต่อเดือนและมีเครื่องให้ ส่วน Pro ราคา 50 ดอลลาร์ต่อเดือน"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Din plan har ingen Cloud-maskiner. Go koster 10 $ om måneden og inkluderer maskiner; Pro koster 50 $ om måneden."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Planen din har ingen Cloud-maskiner. Go koster 10 $ i måneden og inkluderer maskiner; Pro koster 50 $ i måneden."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaš plan nema Cloud mašine. Go košta 10 $ mjesečno i uključuje mašine; Pro košta 50 $ mjesečno."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គម្រោងរបស់អ្នកមិនមានម៉ាស៊ីន Cloud ទេ។ Go តម្លៃ $10 ក្នុងមួយខែ ហើយរួមមានម៉ាស៊ីន; Pro តម្លៃ $50 ក្នុងមួយខែ។"
+          }
+        }
+      }
+    },
+    "cloud.upgrade.detail.limit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All the running Cloud machines your plan allows are in use. Upgrade (Pro is $50 a month) or delete one."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プランで許可されている実行中のCloudマシンをすべて使用中です。アップグレード（Proは月額$50）するか、1台削除してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle laufenden Cloud-Maschinen, die dein Tarif erlaubt, sind in Benutzung. Upgrade (Pro kostet 50 $ im Monat) oder eine löschen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toutes les machines Cloud en cours d'exécution autorisées par votre forfait sont utilisées. Passez à un forfait supérieur (Pro : 50 $ par mois) ou supprimez-en une."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se están usando todas las máquinas Cloud en ejecución que permite tu plan. Mejora tu plan (Pro cuesta 50 $ al mes) o elimina una."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جميع أجهزة Cloud قيد التشغيل التي تسمح بها خطتك قيد الاستخدام. قم بالترقية (Pro ‏50 دولارًا شهريًا) أو احذف جهازًا."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "套餐允许的运行中 Cloud 机器已全部用完。请升级（Pro 每月 50 美元）或删除一台。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "方案允許的執行中 Cloud 機器已全部用完。請升級（Pro 每月 50 美元）或刪除一台。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "플랜에서 허용하는 실행 중인 Cloud 머신을 모두 사용 중입니다. 업그레이드(Pro는 월 $50)하거나 하나를 삭제하세요."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tutte le macchine Cloud in esecuzione consentite dal tuo piano sono in uso. Passa a un piano superiore (Pro costa 50 $ al mese) o eliminane una."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todas as máquinas Cloud em execução permitidas pelo seu plano estão em uso. Faça upgrade (o Pro custa US$ 50 por mês) ou exclua uma."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Все запущенные машины Cloud, которые разрешает ваш тариф, уже используются. Перейдите на другой тариф (Pro — 50 $ в месяц) или удалите одну."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wszystkie działające maszyny Cloud dozwolone w Twoim planie są w użyciu. Przejdź na wyższy plan (Pro kosztuje 50 USD miesięcznie) lub usuń jedną."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Planınızın izin verdiği tüm çalışan Cloud makineleri kullanımda. Yükseltin (Pro ayda 50 $) veya birini silin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Усі запущені машини Cloud, які дозволяє ваш тариф, уже використовуються. Перейдіть на інший тариф (Pro — 50 $ на місяць) або видаліть одну."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tất cả máy Cloud đang chạy mà gói của bạn cho phép đều đang được dùng. Hãy nâng cấp (Pro giá 50 $/tháng) hoặc xóa một máy."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่อง Cloud ที่กำลังทำงานตามที่แผนของคุณอนุญาตถูกใช้ครบแล้ว อัปเกรด (Pro ราคา 50 ดอลลาร์ต่อเดือน) หรือลบเครื่องหนึ่งเครื่อง"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle kørende Cloud-maskiner, som din plan tillader, er i brug. Opgrader (Pro koster 50 $ om måneden) eller slet en."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle kjørende Cloud-maskiner planen din tillater, er i bruk. Oppgrader (Pro koster 50 $ i måneden) eller slett en."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sve pokrenute Cloud mašine koje vaš plan dozvoljava su u upotrebi. Nadogradite (Pro košta 50 $ mjesečno) ili obrišite jednu."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីន Cloud ដែលកំពុងដំណើរការទាំងអស់ដែលគម្រោងរបស់អ្នកអនុញ្ញាតកំពុងប្រើប្រាស់ហើយ។ ដំឡើងកំរិត (Pro តម្លៃ $50 ក្នុងមួយខែ) ឬលុបមួយ។"
+          }
+        }
+      }
+    },
+    "cloud.upgrade.button": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップグレード"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgraden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mettre à niveau"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mejorar plan"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ترقية"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "升级"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "升級"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업그레이드"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passa a un piano superiore"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fazer upgrade"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Улучшить тариф"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zmień plan"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yükselt"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Покращити тариф"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nâng cấp"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อัปเกรด"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opgrader"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppgrader"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nadogradi"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដំឡើងកំរិត"
+          }
+        }
+      }
+    },
+    "cloud.upgrade.notNow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not now"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今はしない"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht jetzt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pas maintenant"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ahora no"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ليس الآن"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂不"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暫不"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "나중에"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non ora"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agora não"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не сейчас"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie teraz"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Şimdi değil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не зараз"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Để sau"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไว้ทีหลัง"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke nu"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke nå"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ne sada"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនមែនឥឡូវ"
+          }
+        }
+      }
+    },
+    "cloud.upgrade.required": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Cloud machine was created: your plan needs an upgrade. See cmux.com/pricing."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloudマシンは作成されませんでした。プランのアップグレードが必要です。cmux.com/pricing をご覧ください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Es wurde keine Cloud-Maschine erstellt: Dein Tarif braucht ein Upgrade. Siehe cmux.com/pricing."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune machine Cloud n'a été créée : votre forfait doit être mis à niveau. Voir cmux.com/pricing."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se creó ninguna máquina Cloud: tu plan necesita una mejora. Consulta cmux.com/pricing."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم إنشاء أي جهاز Cloud: تحتاج خطتك إلى ترقية. راجع cmux.com/pricing."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未创建 Cloud 机器：你的套餐需要升级。请查看 cmux.com/pricing。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未建立 Cloud 機器：你的方案需要升級。請參閱 cmux.com/pricing。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 머신이 생성되지 않았습니다. 플랜 업그레이드가 필요합니다. cmux.com/pricing을 참조하세요."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessuna macchina Cloud creata: il tuo piano richiede un upgrade. Vedi cmux.com/pricing."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhuma máquina Cloud foi criada: seu plano precisa de upgrade. Veja cmux.com/pricing."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Машина Cloud не создана: нужно улучшить тариф. См. cmux.com/pricing."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie utworzono maszyny Cloud: Twój plan wymaga zmiany. Zobacz cmux.com/pricing."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud makinesi oluşturulmadı: planınızın yükseltilmesi gerekiyor. Bkz. cmux.com/pricing."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Машину Cloud не створено: потрібно покращити тариф. Див. cmux.com/pricing."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chưa tạo máy Cloud nào: gói của bạn cần được nâng cấp. Xem cmux.com/pricing."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่ได้สร้างเครื่อง Cloud: แผนของคุณต้องอัปเกรด ดู cmux.com/pricing"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der blev ikke oprettet nogen Cloud-maskine: din plan skal opgraderes. Se cmux.com/pricing."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen Cloud-maskin ble opprettet: planen din må oppgraderes. Se cmux.com/pricing."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud mašina nije kreirana: vaš plan treba nadogradnju. Pogledajte cmux.com/pricing."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនបានបង្កើតម៉ាស៊ីន Cloud ទេ៖ គម្រោងរបស់អ្នកត្រូវដំឡើងកំរិត។ មើល cmux.com/pricing។"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

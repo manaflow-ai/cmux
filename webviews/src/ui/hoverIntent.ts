@@ -1,6 +1,6 @@
 // Hover intent for every page (Leo, 2026-10-14: tooltips and hover cards showed at once on every
 // control the pointer passed). The same policy as the native app's `HoverIntent`
-// (Packages/macOS/CmuxNext/Sources/CmuxNextDesign/HoverIntent/HoverIntent.swift; a test reads that
+// (Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/HoverIntent/HoverIntent.swift; a test reads that
 // file and fails when the numbers drift): the first tooltip of a group waits, a neighbor's then
 // shows at once while the group is warm, and the warmth cools a moment after the last one hid.
 // Hover cards wait longer, and the safe triangle (`aimingAt`) keeps a card a pointer heads into.

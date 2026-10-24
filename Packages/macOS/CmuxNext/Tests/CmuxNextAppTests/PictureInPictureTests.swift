@@ -63,9 +63,9 @@ import Testing
     @Test func aFloatingPageIsNeverFrozen() async {
         let tab = Self.tab()
         tab.evaluationResult = .string(#"{"media":false,"form":false,"audio":false,"capturing":false}"#)
-        #expect(await BrowserHibernation.probe(tab, discarding: true).playingMedia == false, "an idle page counts as playing")
+        #expect(await BrowserHibernation.probe(tab).playingMedia == false, "an idle page counts as playing")
         tab.simulate(.mediaChanged(BrowserMediaState(title: "Clip", isPlaying: false, isVideo: true, isPictureInPicture: true)))
-        let probe = await BrowserHibernation.probe(tab, discarding: true)
+        let probe = await BrowserHibernation.probe(tab)
         #expect(probe.playingMedia, "a page whose video floats would freeze")
         #expect(probe.exemption != nil, "a page whose video floats would hibernate")
     }

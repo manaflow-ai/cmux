@@ -23,7 +23,7 @@ import WebKit
         """
 
     private func report(_ view: WKWebView) async throws -> [String: Bool] {
-        let json = try await view.evaluateJavaScript(BrowserPageBusy.probeScript(asking: false)) as? String
+        let json = try await view.evaluateJavaScript(BrowserPageBusy.probeScript) as? String
         let object = try JSONSerialization.jsonObject(with: Data((json ?? "{}").utf8)) as? [String: Any] ?? [:]
         return object.compactMapValues { $0 as? Bool }
     }

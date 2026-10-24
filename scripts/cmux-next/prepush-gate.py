@@ -51,11 +51,14 @@ a `>>>>>>> ` line to (c779988d57d, 2026-10-22, broke CmuxNextAppTests). Nothing 
 
 Also on every local run (the hook and a plain run; never --commits, never under GitHub Actions, so CI
 gains no gate; Lawrence 2026-10-23): "Guardrails" (guardrails.py, plans/cmux-next/codebase-health.md):
-refuses NEW singletons, unproven MainActor.assumeIsolated, unjustified @unchecked Sendable /
-nonisolated(unsafe), sleeps in loops, DispatchQueue.main.async, new Notification.Name broadcasts,
-ObservableObject/@Published and store references in list rows, in lines the push adds, and CmuxNextApp
-composition-root growth beyond its wiring budget or a new App file that is not a move (`app-size`, a net
-count) and a new type that is not a move in an existing App file or a moved one (`app-type`); warns on CmuxNextApp source growth, `// perf-hot:` functions and OWNERS.md areas. Skip one push with
+refuses NEW unjustified @unchecked Sendable / nonisolated(unsafe) (the crash ratchet's class and escape, which
+its per-module count cannot see before a push), DispatchQueue.main.async, ObservableObject/@Published, store
+references in list rows, generic classes with an implicit deinit, waiting action binds, detached tasks without a
+priority and bench hooks in shipped builds, in lines the push adds, and CmuxNextApp composition-root growth beyond
+its wiring budget or a new App file that is not a move (`app-size`, a net count) and a new type that is not a move
+in an existing App file or a moved one (`app-type`); sleeps and assumeIsolated are the scanners' rules above
+(check-concurrency.sh, crash_ratchet.py), never repeated here. Warns on CmuxNextApp source growth, `// perf-hot:`
+functions and OWNERS.md areas. Skip one push with
 CMUX_GUARDRAILS_SKIP_REASON="<rule>[,<rule>]: <why>" (it skips only the named rules); the guardrails get the
 gate's own ranges (above), so lines a push only brings in from origin/feat-cmux-next (a merge or rebase onto
 it) never count; --no-guardrails turns it off for a manual run.
@@ -83,6 +86,7 @@ from __future__ import annotations
 import argparse
 import collections
 import concurrent.futures
+import fcntl
 import hashlib
 import importlib.util
 import json
@@ -194,14 +198,20 @@ def log(message: str) -> None:
     print(message, file=sys.stderr)
 
 
-def git(repo: Path, *args: str, check: bool = True, data: bytes | None = None) -> bytes:
-    # Request bytes go through a file, not a pipe: a big `cat-file --batch` answer fills the
-    # stdout pipe while the request is still being written.
-    with tempfile.TemporaryFile() as stdin:
-        if data is not None:
-            stdin.write(data)
-            stdin.seek(0)
-        result = subprocess.run(["git", "-C", str(repo), *args], stdin=stdin, capture_output=True)
+def load_sibling(name: str, filename: str):
+    """The module FILENAME beside this file (scripts/cmux-next in a checkout; the hook folder for the installed copy)."""
+    spec = importlib.util.spec_from_file_location(name, Path(__file__).with_name(filename))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+# Request bytes go through a file, not a pipe (git_batch.py says why); guardrails.py uses the same helper.
+git_batch = load_sibling("cmux_next_git_batch", "git_batch.py")
+
+
+def git(repo: Path, *args: str, check: bool = True) -> bytes:
+    result = git_batch.run(repo, list(args))
     if check and result.returncode != 0:
         raise SystemExit(f"prepush-gate: git {' '.join(args)} failed: {result.stderr.decode(errors='replace').strip()}")
     return result.stdout
@@ -295,22 +305,19 @@ def ensure_tool(lock: Path, tool: str) -> Path:
 def write_tree(repo: Path, dest: Path, files: dict[str, str]) -> None:
     """Write {path: rev} blobs into dest (one `git cat-file --batch`), then index them for ls-files."""
     paths = sorted(files)
-    request = "".join(f"{files[p]}:{p}\n" for p in paths).encode()
-    out = git(repo, "cat-file", "--batch", data=request)
-    cursor = 0
+    try:
+        blobs = git_batch.cat_file(repo, [f"{files[p]}:{p}" for p in paths])
+    except git_batch.GitError as error:
+        raise SystemExit(f"prepush-gate: {error}")
     for path in paths:
-        header_end = out.index(b"\n", cursor)
-        header = out[cursor:header_end].split()
-        cursor = header_end + 1
-        if len(header) < 3 or header[1] != b"blob":
+        blob = blobs[f"{files[path]}:{path}"]
+        if blob is None:
             continue  # missing at this rev (added or deleted file)
-        size = int(header[2])
         target = dest / path
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(out[cursor:cursor + size])
+        target.write_bytes(blob)
         if path.endswith(".sh"):
             target.chmod(0o755)
-        cursor += size + 1
     (dest / PKG / "Sources").mkdir(parents=True, exist_ok=True)
     (dest / PKG / "Tests").mkdir(parents=True, exist_ok=True)
     # A hook runs with GIT_DIR (and maybe GIT_INDEX_FILE, GIT_WORK_TREE) of the pushing checkout:
@@ -630,9 +637,10 @@ def conflict_markers(repo: Path, base: str, head: str) -> list[str]:
     stopped compiling; no scanner reads a test file. A file counts only when the push adds both an
     opening and a closing marker to it, so a fixture that mentions one marker never matches.
     """
-    # Fixed prefixes: with a user's diff.noprefix the `+++ b/` headers this parse reads would be missing.
-    diff = git(repo, "diff", "-U0", "--no-color", "--no-renames", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/",
-               base, head).decode("utf-8", "replace")
+    # Fixed prefixes: with a user's diff.noprefix the `+++ b/` headers this parse reads would be missing. No
+    # inter-hunk context: a user's diff.interHunkContext would put unchanged lines between the added ones.
+    diff = git(repo, "diff", "-U0", "--inter-hunk-context=0", "--no-color", "--no-renames", "--no-ext-diff",
+               "--src-prefix=a/", "--dst-prefix=b/", base, head).decode("utf-8", "replace")
     found: dict[str, list[tuple[int, str]]] = collections.defaultdict(list)
     name, number = "", 0
     for line in diff.splitlines():
@@ -645,6 +653,8 @@ def conflict_markers(repo: Path, base: str, head: str) -> list[str]:
             text = line[1:]
             if CONFLICT_OPEN.match(text) or CONFLICT_CLOSE.match(text):
                 found[name].append((number, text))
+            number += 1
+        elif line.startswith(" ") and name:  # a context line, should one come, is a head line too
             number += 1
     return [f"{name}:{n}: {text}" for name, marks in sorted(found.items())
             if any(CONFLICT_OPEN.match(t) for _, t in marks) and any(CONFLICT_CLOSE.match(t) for _, t in marks)
@@ -854,6 +864,35 @@ def gate_own(repo: Path, own, only: set[str] | None, timings: bool,
     return kept
 
 
+CHECKS_IN_USE = ".in-use"
+
+
+def claim_trusted_scripts(link: Path):
+    """(the checks copy LINK points at, an open handle that holds it in use until this process exits).
+
+    install-git-hooks.sh removes a copy only when it can take an exclusive flock on the copy's .in-use, and
+    renames it away first while holding that lock; this takes a shared one. A copy removed between resolving
+    the link and taking the lock is seen (open fails, or the file has no link left) and the link resolved
+    again: a link only ever moves to a newer copy. A copy without .in-use is from an install before the lock
+    (handle None), as is a link that points at nothing (the caller refuses it).
+    """
+    target = link.resolve()
+    while True:
+        try:
+            handle = open(target / CHECKS_IN_USE, "rb")
+        except FileNotFoundError:
+            again = link.resolve()
+            if again == target:
+                return target, None
+            target = again
+            continue
+        fcntl.flock(handle, fcntl.LOCK_SH)
+        if os.fstat(handle.fileno()).st_nlink > 0:
+            return target, handle
+        handle.close()
+        target = link.resolve()
+
+
 def load_guardrails(repo: Path, trusted_scripts: Path | None):
     """The guardrails module: the installed reviewed copy for the hook, else this checkout's."""
     script = (trusted_scripts / "guardrails.py") if trusted_scripts else (repo / SCRIPTS / "guardrails.py")
@@ -963,7 +1002,7 @@ def perf_cron_tests(repo: Path, ranges: list) -> bool:
 # gate, guardrails.py and arch-ratchet.py alike. The arch_rules/*.py modules are compared as a folder
 # (_stale_rules), so a rule module added upstream needs no entry here.
 TRUSTED_COPIES = ("prepush-gate.py", "guardrails.py", "count-swift-code-lines.py", "arch-ratchet.py", "arch_counts.py",
-                  "push_range.py")
+                  "push_range.py", "git_batch.py")
 RULES_SUBDIR = "arch_rules"
 
 
@@ -1006,7 +1045,7 @@ def stale_hook_warning(repo: Path, trusted_scripts: Path) -> None:
         # One `git cat-file --batch` for every copy and the arch_rules tree (a `git show` each cost a process).
         names = [f"{SCRIPTS}/{name}" for name in TRUSTED_COPIES] + [f"{SCRIPTS}/{RULES_SUBDIR}"]
         batch = "".join(f"{ref}:{name}\n" for name in names).encode()
-        out = subprocess.run(["git", "-C", str(repo), "cat-file", "--batch"], input=batch, capture_output=True).stdout
+        out = git_batch.run(repo, ["cat-file", "--batch"], batch).stdout
         i = 0
         for index, name in enumerate(names):
             nl = out.find(b"\n", i)
@@ -1072,7 +1111,9 @@ def main(argv: list[str] | None = None) -> int:
     repo = Path(args.repo or git(Path.cwd(), "rev-parse", "--show-toplevel").decode().strip())
     only = set(args.only.split(",")) if args.only else None
     started = time.monotonic()
-    trusted_scripts = Path(args.trusted_scripts_dir).resolve() if args.trusted_scripts_dir else None
+    # The handle keeps the installed checks copy this run reads in use until main returns (claim_trusted_scripts).
+    trusted_scripts, _in_use = (claim_trusted_scripts(Path(args.trusted_scripts_dir)) if args.trusted_scripts_dir
+                                else (None, None))
     if args.pre_push and (trusted_scripts is None or not trusted_scripts.is_dir()):
         raise SystemExit("prepush-gate: --pre-push requires the installed --trusted-scripts-dir snapshot")
 
