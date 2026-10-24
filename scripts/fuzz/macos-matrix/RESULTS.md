@@ -14,6 +14,18 @@ vm.sh (the fleet step needs the runner landed). Smoke times are "VM, not compara
 | 2026-10-24 | perf-1023-2138-v1 | 14.8.7          | PASS   | -            | 0       | 0            | 0      | second run, hardened smoke (engine check, exit status 0 at quit, required steps) |
 | 2026-10-24 | perf-1023-2138-v1 | 15.7.7          | PASS   | -            | 0       | 0            | 0      | second run, hardened smoke |
 
+## Hang C: macOS 15, watchdog trap in a CEF page window's makeKeyAndOrderFront
+
+- Fleet fuzz seed 21 (30 min), macOS 15.7.7, step 536 (`home.muteConversation`), right after a right-click on a
+  tab. The main thread was busy for 10 s; the DEV watchdog trapped.
+- Main thread: `TabStripView.menu(for:)` > `PaneController.contextMenu` > `PaneController.select` >
+  `FocusCoordinator.send` > `FocusEffectApplier.focusPage` > `setPageFocus` > `AgentActivityPageTab.setFocused`
+  > `PageWebView.focusPage` > `CEFPageChromiumPage.setFocused` > `CEFTab.grantFocus` > `cmux_shim_set_focus` >
+  CEF `SetFocus` > `-[NSWindow makeKeyAndOrderFront:]` > `makeKeyWindow` > `_changeKeyAndMainLimitedOK:` >
+  `-[NSView _windowChangedKeyState]` (about 20 levels) > `NSButtonCell bezelConfigurationInView:`.
+- Same family as Hang B: a 10 s stall inside an AppKit key-window change that FocusEffectApplier drives.
+  macOS 15 hung in 3 of 4 runs (seeds 21, 22, 21 again); macOS 14 in 0 of 4 at that point.
+
 ## Exec (OS probes)
 
 | Date (UTC) | Probe           | macOS  | Exit | Output | Note |
@@ -33,6 +45,7 @@ a compile error are NO-VERDICT; the results upload in every case.
 | 2026-10-24 | d73d003fafc81a0e4967dfbb (aws-m4pro-6) | perf-1023-2138-v1 | 14.8.7, 15.7.7 | fuzz seed 21 | 14 PASS; 15 FAIL: watchdog trap at step 563 (see "Hang B") |
 | 2026-10-24 | e2c9cf16ed1f173dd31bd02d (aws-m4pro-6) | perf-1023-2138-v1 | 14.8.7, 15.7.7 | fuzz seed 22 | 14 PASS; 15 FAIL: one 5 s hang at step 351 (a right-click), no sample (fixed in 52ea1f1890e) |
 | 2026-10-24 | 242004ecce1da33452f500c5 (aws-m4pro-6) | perf-1023-2138-v1 | 14.8.7, 15.7.7 | fuzz seed 23 | PASS, PASS |
+| 2026-10-24 | 7eb19ffe6c4f94b5ec8122b1 (aws-m4pro-6) | perf-1023-2138-v1 | 15.7.7 | fuzz seed 21, real 30 min (1972 steps) | FAIL: watchdog trap at step 536 (see "Hang C") |
 
 The seed 21-23 runs asked for `--minutes 30` but stopped at the 600-step default (616 with the tour): 5 to 10
 min per major. Fixed after them: `--minutes` without `--steps` now walks until the time is up.
