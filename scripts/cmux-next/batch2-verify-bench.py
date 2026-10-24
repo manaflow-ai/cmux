@@ -552,6 +552,25 @@ class CrashRun:
         return result
 
 
+def build_base(sha):
+    """Builds the base app on this worker into the app cache: the step's controller does not keep a target worker,
+    so a round may land on a worker that never built the base. The base commit carries the head's scripts, so its own
+    scripts/measure/split-spring.sh --build-only builds it (reload.sh, the same tag) into $CI_SHARED_CACHE_DIR."""
+    root = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, cwd=HERE).stdout.strip()
+    tree = os.path.join(os.path.dirname(root), f"base-{sha[:12]}")
+    note(f"the base app of {sha} is not cached here: building it in {tree}")
+    start = time.monotonic()
+    subprocess.run(["git", "fetch", "--depth", "1", "https://github.com/manaflow-ai/cmux.git", sha], cwd=root, check=True)
+    if not os.path.isdir(tree):
+        subprocess.run(["git", "worktree", "add", "--detach", tree, sha], cwd=root, check=True)
+    log = os.path.join(os.path.dirname(root), f"base-{sha[:12]}-build.log")
+    with open(log, "w") as f:
+        code = subprocess.run(["bash", "scripts/measure/split-spring.sh", "--build-only"], cwd=tree, stdout=f,
+                              stderr=subprocess.STDOUT).returncode
+    note(f"base build exited {code} after {round(time.monotonic() - start)} s; log tail:\n"
+         + open(log, errors="replace").read()[-1500:])
+
+
 def base_app(sha, out):
     cache = os.environ.get("CI_SHARED_CACHE_DIR")
     if not cache:
@@ -559,7 +578,10 @@ def base_app(sha, out):
     folder = os.path.join(cache, "split-spring-apps", sha)
     found = glob.glob(os.path.join(folder, "cmux DEV *.app"))
     if not os.path.exists(os.path.join(folder, "ok")) or not found:
-        raise SystemExit(f"batch2-verify: the base app of {sha} is not in {folder} (run a --build-only step of it on this worker first)")
+        build_base(sha)
+        found = glob.glob(os.path.join(folder, "cmux DEV *.app"))
+        if not os.path.exists(os.path.join(folder, "ok")) or not found:
+            raise SystemExit(f"batch2-verify: the base app of {sha} is not in {folder} after building it here")
     dest = os.path.join(out, "base-app")
     shutil.rmtree(dest, ignore_errors=True)
     os.makedirs(dest)
@@ -595,6 +617,13 @@ def main():
 
     try:
         apps = {"H": os.path.abspath(opts.app)}
+        if "B" in opts.order and not opts.base_app:
+            # The base build below reuses the tag's DerivedData, which holds the head app: keep a copy first.
+            keep = os.path.join(opts.out, "head-app")
+            shutil.rmtree(keep, ignore_errors=True)
+            os.makedirs(keep)
+            subprocess.run(["ditto", apps["H"], os.path.join(keep, os.path.basename(apps["H"]))], check=True)
+            apps["H"] = os.path.join(keep, os.path.basename(apps["H"]))
         if "B" in opts.order:
             apps["B"] = opts.base_app or base_app(opts.base_sha, opts.out)
     except SystemExit as error:
