@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, jest, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -65,10 +65,14 @@ async function render(sendResult: boolean) {
   return container;
 }
 
-const settle = (ms: number) => act(() => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+// The fold's timer is the behavior: fake timers run it out.
+const runFold = () => act(() => void jest.advanceTimersByTime(1_000));
+
+afterEach(() => void jest.useRealTimers());
 
 test("Send now and the X fade out once Send now worked, while the steer still reads waiting", async () => {
   const container = await render(true);
+  jest.useFakeTimers();
   expect(container.querySelector(".cv-user__take-back")).not.toBeNull();
   const button = container.querySelector<HTMLButtonElement>(".cv-user__send-now")!;
   await act(async () => button.click());
@@ -77,15 +81,16 @@ test("Send now and the X fade out once Send now worked, while the steer still re
   expect(leaving).not.toBeNull();
   expect(leaving!.getAttribute("aria-hidden")).toBe("true");
   expect(button.disabled).toBe(true);
-  await settle(400);
+  await runFold();
   expect(container.querySelector(".cv-user__pending")).toBeNull();
 });
 
 test("Send now remains available when delivery fails", async () => {
   const failed = await render(false);
+  jest.useFakeTimers();
   const failureButton = failed.querySelector<HTMLButtonElement>(".cv-user__send-now")!;
   await act(async () => failureButton.click());
-  await settle(400);
+  await runFold();
   expect(failed.querySelector(".cv-user__send-now")).not.toBeNull();
   expect(failed.querySelector(".cv-user__pending--leaving")).toBeNull();
 });
