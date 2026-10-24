@@ -60,7 +60,9 @@ struct AgentChatUploads {
             case .begin(let name, let size, let batchToken, let manifest):
                 if let batchToken {
                     guard let batch = batches[batchToken], batch.session == session, batch.remaining.first?.0 == name, batch.remaining.first?.1 == size else { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
-                    batches[batchToken] = Batch(session: session, remaining: Array(batch.remaining.dropFirst()), expires: Date().addingTimeInterval(10 * 60))
+                    let remaining = Array(batch.remaining.dropFirst())
+                    if remaining.isEmpty { batches.removeValue(forKey: batchToken) }
+                    else { batches[batchToken] = Batch(session: session, remaining: remaining, expires: Date().addingTimeInterval(10 * 60)) }
                 }
                 guard size <= 1 * 1024 * 1024 * 1024 else { return AgentPaneReply.failure(code: "upload_refused", message: AgentChatUploadStrings.failed) }
                 if let manifest {
@@ -79,6 +81,10 @@ struct AgentChatUploads {
                 if let manifest, batchToken == nil, manifest.count > 1 {
                     let id = UUID().uuidString.lowercased()
                     batches[id] = Batch(session: session, remaining: Array(manifest.dropFirst()), expires: Date().addingTimeInterval(10 * 60))
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(10 * 60))
+                        if let batch = batches[id], batch.expires <= Date() { batches.removeValue(forKey: id) }
+                    }
                     reply["batchToken"] = id
                 }
                 return AgentPaneReply.success(reply)
