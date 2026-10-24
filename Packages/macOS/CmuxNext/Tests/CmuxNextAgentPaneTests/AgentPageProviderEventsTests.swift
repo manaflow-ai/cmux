@@ -182,17 +182,19 @@ struct AgentPageProviderEventsTests {
         #expect(Self.names(nextPage.events) == ["old", "newer"])
     }
 
-    @Test func pendingCancelRetainsHostEventWithAnotherSubscriber() async throws {
+    @Test func pendingCancelSkipsPublicationDeliveredToEarlierLiveSubscriber() async throws {
         let provider = AgentPageProvider { _ in nil }
-        provider.publish(Self.command("pending"))
+        let live = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null, context: Self.context) { _ in }
+        provider.replay = { [Self.command("snapshot")] }
         let pending = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null, context: Self.context) { _ in }
-        let other = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null, context: Self.context) { _ in }
+        #expect(provider.publish(Self.command("delivered")))
         pending.cancel()
-        other.cancel()
+        live.cancel()
+        provider.replay = { [] }
         let page = Received()
         let next = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null, context: Self.context) { page.append($0) }
         defer { next.cancel() }
-        await page.waitFor(1)
-        #expect(Self.names(page.events) == ["pending"])
+        for _ in 0..<8 { await Task.yield() }
+        #expect(page.events.isEmpty)
     }
 }

@@ -150,9 +150,6 @@ public final class AgentPageProvider: PageProvider {
         droppedPublicationIDs.removeAll(keepingCapacity: true)
         deliveredPublicationIDs.removeAll(keepingCapacity: true)
         pendingPublicationCounts.removeAll(keepingCapacity: true)
-        // Preserve partial gap queues across socket reconnects: they also contain commands and
-        // chrome updates that transport cannot recreate. A full gap queue was already explicit
-        // backpressure, so the replacement socket's authoritative resync may discard that queue.
         if bufferedQueueOverflowed { bufferedEvents.removeAll(keepingCapacity: true) }
         bufferedQueueOverflowed = false
         for id in overflowedPendingListeners {
@@ -214,6 +211,7 @@ public final class AgentPageProvider: PageProvider {
             return true
         }
         var accepted = true
+        let hasPendingListener = listeners.keys.contains { pendingEvents[$0] != nil }
         for id in listeners.keys.sorted() {
             let previousDeliveryID = activeDeliveryID
             activeDeliveryID = event.deliveryID
@@ -228,7 +226,7 @@ public final class AgentPageProvider: PageProvider {
                 pending.events.append(event)
                 addPending(event)
             } else {
-                if let deliveryID = event.deliveryID, pendingPublicationCounts[deliveryID] != nil {
+                if let deliveryID = event.deliveryID, hasPendingListener {
                     deliveredPublicationIDs.insert(deliveryID)
                 }
                 listeners[id]?(event.data)
