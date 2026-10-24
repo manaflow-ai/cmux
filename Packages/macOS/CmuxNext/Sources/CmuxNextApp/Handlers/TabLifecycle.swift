@@ -3,6 +3,7 @@ import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextSettings
+import CmuxNextTerminal
 import CmuxNextWakeups
 import Foundation
 import enum CmuxNextLayout.ChatColumnPlacement
@@ -28,7 +29,13 @@ enum TabLifecycle {
         // tab shows (#16620, #22225). Ask before routing so the folder reaches every placement,
         // including a strip beside a docked chat or a new workspace. The window's keys wait while
         // the page answers, and the pane may disappear during that asynchronous read (cx-wb5.76).
-        let kind: GhosttyWorkingDirectoryInheritance.Kind = opensWorkspace && !asTab ? .window : .tab
+        let splitPlacement: Bool
+        if asTab {
+            splitPlacement = false
+        } else {
+            splitPlacement = if case .split = PanePlacementRouting.route(ctx, invocation, from: focused, tiles: true) { true } else { false }
+        }
+        let kind = Self.terminalInheritanceKind(opensWorkspace: opensWorkspace, asTab: asTab, splitPlacement: splitPlacement)
         if invocation["cwd"] == nil, invocation.origin == .user, let controller = ctx.services.paneController(for: focused),
            let agent = controller.selectedAgentView,
            NewTerminalStart.uninherited(kind, services: ctx.services, daemon: controller.daemon, besides: controller.selectedTab) == nil {
@@ -48,6 +55,15 @@ enum TabLifecycle {
             return
         }
         open(ctx, invocation, focused: focused, opensWorkspace: opensWorkspace, asTab: asTab, askedAgent: false, slot: slot)
+    }
+
+    /// Selects Ghostty's inheritance key for the placement that will receive a new terminal.
+    /// Split placement must use `split-inherit-working-directory`; treating it as a tab would ask
+    /// an agent for a folder even when split inheritance is disabled.
+    static func terminalInheritanceKind(opensWorkspace: Bool, asTab: Bool, splitPlacement: Bool) -> GhosttyWorkingDirectoryInheritance.Kind {
+        if opensWorkspace && !asTab { return .window }
+        if splitPlacement { return .split }
+        return .tab
     }
 
     /// Places a new terminal once its explicit folder is known. `askedAgent` prevents a second page
