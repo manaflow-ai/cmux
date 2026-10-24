@@ -38,7 +38,6 @@ jobs:
       PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/fast-checks/browsers
       ZIG_GLOBAL_CACHE_DIR: /home/runner/.cache/fast-checks/zig
       CMUX_GHOSTTY_VT_ZIG_CPU: baseline
-      GHOSTTY_ZIG_SOURCE: ghostty-next
     steps:
       - name: Validate request
         env:
@@ -69,7 +68,9 @@ jobs:
         run: |
           python3 - <<'PY'
           import json, os, re
-          pin = json.load(open('webviews/package.json'))['devEngines']['packageManager']
+          # Older source branches use the ci-web.yml pin without devEngines.
+          pin = json.load(open('webviews/package.json')).get('devEngines', {}).get(
+              'packageManager', {'name': 'bun', 'version': '1.3.14'})
           assert pin['name'] == 'bun' and re.fullmatch(r'\d+\.\d+\.\d+', pin['version'])
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               print('version=' + pin['version'], file=output)
@@ -94,16 +95,25 @@ jobs:
 
       - name: Install gallery dependencies and browsers
         if: inputs.setup == 'playwright'
-        working-directory: scripts/gallery-matrix
         run: |
-          bun install --frozen-lockfile
+          if [[ -f scripts/gallery-matrix/package.json ]]; then
+            cd scripts/gallery-matrix
+            bun install --frozen-lockfile
+          else
+            cd webviews
+          fi
           bunx --no-install playwright install --with-deps chromium webkit
           echo 'CMUX_GALLERY_IN_VM=1' >> "$GITHUB_ENV"
 
       - name: Initialize Rust native dependencies
         if: inputs.setup == 'rust'
         run: |
-          bash scripts/ci/init-submodule.sh ghostty-next
+          export GHOSTTY_ZIG_SOURCE=ghostty
+          if [[ "$(git ls-files --stage -- ghostty-next)" == 160000* ]]; then
+            export GHOSTTY_ZIG_SOURCE=ghostty-next
+          fi
+          echo "GHOSTTY_ZIG_SOURCE=$GHOSTTY_ZIG_SOURCE" >> "$GITHUB_ENV"
+          bash scripts/ci/init-submodule.sh "$GHOSTTY_ZIG_SOURCE"
           sudo apt-get update
           sudo apt-get install -y clang libclang-dev pkg-config
           ./scripts/install-zig-ci.sh
