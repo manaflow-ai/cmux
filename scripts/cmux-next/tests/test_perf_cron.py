@@ -1436,5 +1436,201 @@ class RateLimitTests(unittest.TestCase):
                 cron.commit_on_branch("o/r", "f" * 40)("a" * 40)
 
 
+LINUX = "blacksmith-32vcpu-ubuntu-2404"
+BENCH = cron.BENCH_WORKER
+
+
+class HostReviewTests(unittest.TestCase):
+    """Review 1 of 3c2bfd8efbb (rows keyed by host): Mac rows get a baseline while another row is regressed, a
+    Linux-only range bisects whatever split-spring.sh says, a part run on another host is not labeled with the
+    measurement's host, a host's regressions pin the tip to it, a macOS change rebases, a row over target with no
+    reference is reported, Linux rows carry their runner class, and a closed issue is not read every tick."""
+
+    def setUp(self):
+        self.state = cron.empty_state(T0)
+        self.n = 0
+
+    def tip(self, rows, parts=None, hours=None):
+        self.n += 1
+        sha = format(self.n, "x")[-1] * 40
+        when = at(hours if hours is not None else self.n)
+        self.state["current"] = cron.new_measurement(sha, "tip", [], when)
+        self.state["current"]["parts"] = parts or {"motion": {"state": "done"}, "diff-viewer": {"state": "done"}}
+        return cron.finish_measurement(self.state, rows, 8.33, BENCH, f"u{self.n}", when, budgets_mod)
+
+    def mac(self, value, macos="27.0"):
+        return {f"cmd_d.e2e@{BENCH}": {**row(value, floor=0.5), "refresh_ms": 8.33, "macos": macos}}
+
+    def open_diff_regression(self):
+        """last_good holds Linux rows only and diff.stream.p95 is a confirmed open regression (the live state of
+        2026-10-24, with enough values that the confirmation rule keeps it)."""
+        name = f"diff.stream.p95@{LINUX}"
+        for v in (19.5, 20.0, 21.0):
+            self.tip({name: row(v, floor=10.0, budget=250.0)})
+        self.tip({name: row(45.0, floor=10.0, budget=250.0)})
+        self.assertEqual(self.tip({name: row(46.0, floor=10.0, budget=250.0)}), "regressed")
+        return name
+
+    def test_mac_rows_get_a_baseline_while_a_linux_row_is_regressed(self):
+        diff = self.open_diff_regression()
+        slow = {diff: row(46.0, floor=10.0, budget=250.0)}
+        self.assertEqual(self.tip({**slow, **self.mac(5.0)}), "still")
+        self.assertIn(f"cmd_d.e2e@{BENCH}", self.state["last_good"]["rows"], "a row with no reference is a baseline")
+        self.tip({**slow, **self.mac(5.1)})
+        self.tip({**slow, **self.mac(5.0)})
+        self.assertEqual(len(self.state["row_history"][f"cmd_d.e2e@{BENCH}"]), 3)
+        self.tip({**slow, **self.mac(6.0)})
+        self.tip({**slow, **self.mac(6.0)})
+        self.assertIn(f"cmd_d.e2e@{BENCH}", [r["name"] for r in self.state["regressions"]],
+                      "20 % slower twice opens a regression although diff.stream.p95 stayed open")
+
+    def test_mac_rows_get_a_baseline_when_a_part_failed(self):
+        self.tip({f"diff.stream.p95@{LINUX}": row(20.0, floor=10.0)})
+        self.tip(self.mac(5.0), parts={"motion": {"state": "done"}, "stress": {"state": "failed"}})
+        self.assertEqual(self.state["last_good"]["rows"][f"cmd_d.e2e@{BENCH}"]["p95"], 5.0)
+        self.assertEqual(self.state["last_good"]["sha"], "1" * 40, "the incomplete measurement is not the last good run")
+
+    def test_a_linux_only_range_bisects_whatever_the_mac_script_says(self):
+        rows = [f"diff.stream.p95@{LINUX}"]
+        ok = cron.bisect_measurable(rows, lambda c: False, lambda c: ["diff-viewer"])
+        self.assertEqual(cron.bisect_midpoint(["a" * 40, "b" * 40, "c" * 40], ok), "b" * 40)
+        no_diff = cron.bisect_measurable(rows, lambda c: True, lambda c: ["motion"])
+        self.assertIsNone(cron.bisect_midpoint(["a" * 40, "b" * 40], no_diff), "a commit without the bench is not measurable")
+        mac = cron.bisect_measurable([f"cmd_d.e2e@{BENCH}"], lambda c: c != "b" * 40, lambda c: ["motion"])
+        self.assertEqual(cron.bisect_midpoint(["a" * 40, "b" * 40, "c" * 40], mac), "a" * 40)
+        # A Linux-only bisect step in flight is not dropped when the Mac script's version differs.
+        rng = {"good": "a" * 40, "bad": "c" * 40, "skip": [], "steps": 0}
+        state = cron.empty_state(T0)
+        state["regressions"] = [{"name": rows[0], "range": rng}]
+        state["current"] = cron.new_measurement("b" * 40, "bisect", ["diff-viewer"], T0, rng)
+        cron.decide(state, at(1), None, None, lambda sha: ["diff-viewer"], None, measurable=lambda sha: False)
+        self.assertEqual(state["current"]["sha"], "b" * 40)
+
+    def report_tick(self, d, parts, host=None, base=None):
+        state = cron.empty_state(T0)
+        state["persisted"] = True
+        state["last_good"] = state["last"] = {"sha": "a" * 40, "measured_at": cron.iso(T0), "rows": base or {},
+                                              "refresh_ms": 8.33}
+        state["current"] = cron.new_measurement("b" * 40, "tip", list(parts), T0)
+        if host:
+            state["current"]["host"] = host
+        with open(os.path.join(d, "state.json"), "w") as f:
+            json.dump(state, f)
+        results = []
+        for name, (result, report) in parts.items():
+            part_dir = os.path.join(d, name)
+            os.makedirs(part_dir)
+            for file, value in (("result.json", result), ("report.json", report)):
+                with open(os.path.join(part_dir, file), "w") as f:
+                    json.dump(value, f)
+            results.append(f"{name}={part_dir}")
+        with mock.patch.object(cron, "now_utc", lambda: at(1)):
+            cron.cmd_report(argparse.Namespace(repo="o/r", dir=d, result=results, run_url="u", finish=False, issues=False,
+                                               output=os.path.join(d, "report.out")))
+        with open(os.path.join(d, "state.json")) as f:
+            return json.load(f)
+
+    MOTION = {"rows": [{"name": "cmd_d.e2e", "p50": 5.0, "p95": 5.0, "unit": "ms"}], "macos": "27.0.1"}
+
+    def test_a_part_that_ran_on_another_host_is_failed_not_relabeled(self):
+        with tempfile.TemporaryDirectory() as d:
+            state = self.report_tick(d, {"motion": ({"state": "done", "worker": "cmux20-bench"}, self.MOTION)},
+                                     host="aws-m4pro-9")
+        self.assertEqual(state["history"][-1]["status"], "empty", "no motion row compared")
+        self.assertNotIn("cmd_d.e2e@aws-m4pro-9", (state["last_good"] or {}).get("rows") or {})
+        self.assertEqual(state["history"][-1]["failed_parts"], ["motion"])
+        with tempfile.TemporaryDirectory() as d:
+            state = self.report_tick(d, {"motion": ({"state": "done"}, self.MOTION)})
+        self.assertEqual(state["history"][-1]["failed_parts"], ["motion"], "no worker in the result: not the bench host")
+        with tempfile.TemporaryDirectory() as d:
+            state = self.report_tick(d, {"motion": ({"state": "done", "worker": "aws-m4pro-9"}, self.MOTION)},
+                                     host="aws-m4pro-9")
+        self.assertEqual(state["last"]["rows"]["cmd_d.e2e@aws-m4pro-9"]["macos"], "27.0")
+
+    def test_the_gateway_part_takes_the_worker_the_step_ran_on(self):
+        log = "cmux-ci: step 0123456789abcdef (exclusive, key k)\ncmux-ci: step 0123456789abcdef done on aws-m4pro-9\n"
+        self.assertEqual(cron.step_worker(log), "aws-m4pro-9")
+        self.assertIsNone(cron.step_worker("cmux-ci: step 0123456789abcdef cancelled on no worker\n"))
+
+    def test_a_hosts_open_regression_pins_the_tip_to_it(self):
+        rng = {"good": "a" * 40, "bad": "b" * 40, "skip": [], "steps": 0}
+        self.state["regressions"] = [{"name": "cmd_d.e2e@aws-m4pro-9", "range": rng,
+                                      "first_bad": {"sha": "b" * 40, "measured_at": cron.iso(T0)}}]
+        d = cron.decide(self.state, at(1), "c" * 40, None, lambda sha: ["motion"], None)
+        self.assertEqual((d["part"], d["worker"]), ("build", "aws-m4pro-9"))
+        # Abandoned with no Mac part done there: the host is not asked again for HOST_RETRY_HOURS.
+        cron.decide(self.state, at(cron.ABANDON_HOURS + 2), None, None, lambda sha: ["motion"], None)
+        self.assertIsNone(self.state["current"])
+        self.assertTrue(cron.host_unreachable(self.state, "aws-m4pro-9", at(cron.ABANDON_HOURS + 2)))
+        d = cron.decide(self.state, at(cron.ABANDON_HOURS + 3), "d" * 40, None, lambda sha: ["motion"], None)
+        self.assertEqual(d["worker"], "", "the next tip goes to any idle measure host")
+        self.assertFalse(cron.host_unreachable(self.state, "aws-m4pro-9", at(cron.ABANDON_HOURS + 3 + cron.HOST_RETRY_HOURS)))
+
+    def test_an_abandoned_bisect_step_is_skipped_next_time(self):
+        rng = {"good": "a" * 40, "bad": "e" * 40, "skip": [], "steps": 0}
+        self.state["regressions"] = [{"name": f"diff.stream.p95@{LINUX}", "range": rng}]
+        self.state["current"] = cron.new_measurement("c" * 40, "bisect", ["diff-viewer"], T0, rng)
+        cron.decide(self.state, at(cron.ABANDON_HOURS + 1), None, None, lambda sha: ["diff-viewer"], None)
+        self.assertEqual(self.state["regressions"][0]["range"]["skip"], ["c" * 40])
+
+    def test_another_hosts_regression_does_not_make_the_tip_incomplete(self):
+        rng = {"good": "a" * 40, "bad": "b" * 40, "skip": [], "steps": 0}
+        self.tip(self.mac(5.0))
+        self.state["regressions"] = [{"name": "cmd_d.e2e@aws-m4pro-9", "p95": 30.0, "base": 10.0, "range": rng}]
+        self.tip(self.mac(5.0))
+        self.assertEqual(self.state["last"]["sha"], "2" * 40, "the stale clock resets")
+        self.assertNotEqual(self.state["history"][-1]["status"], "incomplete")
+        self.assertEqual([r["name"] for r in self.state["regressions"]], ["cmd_d.e2e@aws-m4pro-9"], "it stays open")
+
+    def test_a_macos_change_rebases_and_closes_the_old_os_regression(self):
+        with mock.patch.object(cron, "confirm_regressions", confirm_all):
+            self.tip(self.mac(10.0, "26.4"))
+            self.assertEqual(self.tip(self.mac(13.0, "26.4")), "regressed", "the same macOS compares")
+            self.assertEqual(self.tip(self.mac(13.0, "27.0")), "recovered")
+        self.assertEqual(self.state["regressions"], [])
+        self.assertEqual(self.state["last_good"]["rows"][f"cmd_d.e2e@{BENCH}"]["p95"], 13.0)
+        self.assertEqual(self.state["row_history"][f"cmd_d.e2e@{BENCH}"], [{"at": cron.iso(at(3)), "p95": 13.0}])
+        self.assertIn("macOS", self.state["history"][-1]["rebased_note"])
+        self.assertIn("macOS changed", cron.issue_body(self.state, "o/r", at(3)))
+        self.assertEqual(self.tip(self.mac(13.1, "27.0.1")), "good", "a patch update is the same macOS")
+
+    def test_a_row_over_target_with_no_reference_is_reported(self):
+        found = cron.find_regressions({"a.e2e@h": row(30.0)}, {}, None, None, budgets_mod)
+        self.assertEqual([(r["name"], r["base"], r["why"]) for r in found],
+                         [("a.e2e@h", None, "over target, no reference on this host")])
+        self.tip({f"diff.stream.p95@{LINUX}": row(20.0, floor=10.0)})
+        self.tip({f"cmd_d.e2e@{BENCH}": {**row(30.0), "refresh_ms": 8.33}})
+        self.assertEqual(self.state["regressions"], [])
+        self.assertEqual([(u["name"], u["why"]) for u in self.state["unconfirmed"]],
+                         [(f"cmd_d.e2e@{BENCH}", "over target, no reference on this host")])
+
+    def test_linux_rows_carry_their_runner_class(self):
+        report = {"stream": {"p95Ms": 20.0}}
+        with tempfile.TemporaryDirectory() as d:
+            state = self.report_tick(d, {"diff-viewer": ({"state": "done", "worker": LINUX}, report)})
+        self.assertIn(f"diff.stream.p95@{LINUX}", state["last"]["rows"])
+        with tempfile.TemporaryDirectory() as d:
+            state = self.report_tick(d, {"diff-viewer": ({"state": "done"}, report)})
+        self.assertEqual(state["history"][-1]["failed_parts"], ["diff-viewer"], "a Linux part with no runner class")
+
+    def test_rows_from_before_host_keys_are_renamed(self):
+        old = {"schema": cron.SCHEMA, "last_good": {"sha": "a" * 40, "rows": {"diff.stream.p95": row(19.5),
+                                                                               "cmd_d.e2e": row(5.0)}},
+               "row_history": {"diff.stream.p95": [{"at": cron.iso(T0), "p95": 19.5}]},
+               "row_ok": {"cmd_d.e2e": "a" * 40, "cmd_t.e2e@aws-m4pro-9": "a" * 40}, "regressions": []}
+        state = cron.migrate_state(old)
+        self.assertEqual(sorted(state["last_good"]["rows"]), [f"cmd_d.e2e@{BENCH}", f"diff.stream.p95@{LINUX}"])
+        self.assertEqual(list(state["row_history"]), [f"diff.stream.p95@{LINUX}"])
+        self.assertEqual(sorted(state["row_ok"]), [f"cmd_d.e2e@{BENCH}", "cmd_t.e2e@aws-m4pro-9"])
+
+    def test_a_closed_issue_is_forgotten(self):
+        self.state["issue"] = 9
+        issue = {"number": 9, "title": cron.ISSUE_TITLE, "user": {"login": cron.ISSUE_AUTHOR}, "body": cron.ISSUE_MARK,
+                 "state": "closed"}
+        with mock.patch.object(cron, "gh_request", lambda path, method="GET", body=None, **k: issue):
+            cron.refresh_issue_body("o/r", self.state, at(1))
+        self.assertIsNone(self.state["issue"], "no GET of a closed issue every tick")
+
+
 if __name__ == "__main__":
     unittest.main()
