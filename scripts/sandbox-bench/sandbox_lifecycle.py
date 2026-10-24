@@ -449,7 +449,7 @@ class GVisorLifecycle:
         self.ready_probe = ready_probe
 
     def _argv(self, *args: str) -> list[str]:
-        return [self.runsc, *self.runsc_flags, *args]
+        return [self.runsc, "--root", self.root, *self.runsc_flags, *args]
 
     def _subprocess_runner(
         self, argv: Sequence[str], timeout_s: float
