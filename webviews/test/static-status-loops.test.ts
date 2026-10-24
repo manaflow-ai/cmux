@@ -172,15 +172,19 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
       `<div class="cv-tool" id="plain">${spinner}<span class="cv-tool__text">Dispatching</span></div>` +
       working("shimmer").replace('<div class="cv-tool">', '<div class="cv-tool" id="banded">') +
       `<div class="cv-tool" id="idle"><span class="cv-tool__icon"></span><span class="cv-tool__text">Read</span></div>`;
-    // Distinct theme text colors, so dim and normal words read apart.
-    const theme = `:root { --agent-text: rgb(240, 240, 230); --agent-soft: rgb(120, 120, 110); }`;
+    // Distinct theme text colors, so dim and normal words read apart. The rows carry an own color
+    // apart from the dim one (a settled row's, a card's): a bare `.cv-tool` already rests in the dim
+    // color, so with it the band's dimming and the row's own color read the same and no CSS passes.
+    const theme =
+      `:root { --agent-text: rgb(240, 240, 230); --agent-soft: rgb(120, 120, 110); }` +
+      `.cv-tool { color: rgb(200, 200, 190); }`;
     const p = await inLook(await page(`${desktop}${pane}${theme}`, body, "no-preference"), "shimmer");
     const color = (id: string) =>
       p.evaluate((row) => getComputedStyle(document.querySelector(`#${row} .cv-tool__text`)!).color, id);
     const [plain, banded, idle] = [await color("plain"), await color("banded"), await color("idle")];
     await p.close();
     expect(banded).toBe("rgb(120, 120, 110)");
-    expect(idle).not.toBe(banded);
+    expect(idle).toBe("rgb(200, 200, 190)");
     expect(plain).toBe(idle);
   });
 
