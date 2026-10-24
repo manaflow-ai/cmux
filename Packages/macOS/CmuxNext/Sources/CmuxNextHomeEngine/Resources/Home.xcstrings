@@ -5932,133 +5932,133 @@
       }
     },
     "home.chief.noReply": {
-      "comment": "Home system notice in the Chief conversation when the person's last message has had no reply for some minutes (%lld: minutes, at least 2). The Chief host retries on its own.",
+      "comment": "Home system notice in the Chief conversation when the person's last message has had no reply for some minutes (%@: the minutes waited, at least 2, already written by Foundation in this language's short units, for example \"5 min\", ar \"5 د\", ja \"5分\"). The Chief host retries on its own. Do not add a unit or a noun next to %@.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No reply from the Chief for %lld min. It retries on its own and tells you if it cannot answer."
+            "value": "No reply from the Chief for %@. It retries on its own and tells you if it cannot answer."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا رد من Chief منذ %lld د. يعيد المحاولة تلقائيًا ويخبرك إذا تعذّر عليه الرد."
+            "value": "لا رد من Chief منذ %@. يعيد المحاولة تلقائيًا ويخبرك إذا تعذّر عليه الرد."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nema odgovora od Chiefa već %lld min. Sam ponovo pokušava i javit će vam ako ne može odgovoriti."
+            "value": "Nema odgovora od Chiefa već %@, a sam ponovo pokušava i javit će vam ako ne može odgovoriti."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Intet svar fra Chief i %lld min. Den prøver selv igen og giver dig besked, hvis den ikke kan svare."
+            "value": "Chief har ikke svaret i %@ og prøver selv igen. Den giver dig besked, hvis den ikke kan svare."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Seit %lld Min. keine Antwort vom Chief. Er versucht es selbst erneut und sagt dir Bescheid, wenn er nicht antworten kann."
+            "value": "Seit %@ keine Antwort vom Chief. Er versucht es selbst erneut und sagt dir Bescheid, wenn er nicht antworten kann."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sin respuesta del Chief desde hace %lld min. Lo reintenta por su cuenta y te avisa si no puede responder."
+            "value": "Sin respuesta del Chief desde hace %@. Lo reintenta por su cuenta y te avisa si no puede responder."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aucune réponse du Chief depuis %lld min. Il réessaie de lui-même et vous prévient s’il ne peut pas répondre."
+            "value": "Aucune réponse du Chief depuis %@. Il réessaie de lui-même et vous prévient s’il ne peut pas répondre."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nessuna risposta dal Chief da %lld min. Riprova da solo e ti avvisa se non riesce a rispondere."
+            "value": "Nessuna risposta dal Chief da %@. Riprova da solo e ti avvisa se non riesce a rispondere."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief から %lld 分間返信がありません。自動で再試行し、返信できない場合はお知らせします。"
+            "value": "Chief から %@間返信がありません。自動で再試行し、返信できない場合はお知らせします。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief មិនបានឆ្លើយតបអស់រយៈពេល %lld នាទីហើយ។ វានឹងព្យាយាមម្ដងទៀតដោយខ្លួនឯង ហើយប្រាប់អ្នកប្រសិនបើវាមិនអាចឆ្លើយបាន។"
+            "value": "Chief មិនបានឆ្លើយតបអស់រយៈពេល %@ហើយ។ វានឹងព្យាយាមម្ដងទៀតដោយខ្លួនឯង ហើយប្រាប់អ្នកប្រសិនបើវាមិនអាចឆ្លើយបាន។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief가 %lld분 동안 답하지 않았습니다. 자동으로 다시 시도하며, 답할 수 없으면 알려 줍니다."
+            "value": "Chief가 %@ 동안 답하지 않았습니다. 자동으로 다시 시도하며, 답할 수 없으면 알려 줍니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ikke noe svar fra Chief på %lld min. Den prøver igjen selv og gir deg beskjed hvis den ikke kan svare."
+            "value": "Ikke noe svar fra Chief på %@. Den prøver igjen selv og gir deg beskjed hvis den ikke kan svare."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Brak odpowiedzi od Chiefa od %lld min. Sam ponawia próbę i da ci znać, jeśli nie będzie mógł odpowiedzieć."
+            "value": "Brak odpowiedzi od Chiefa od %@. Sam ponawia próbę i da ci znać, jeśli nie będzie mógł odpowiedzieć."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sem resposta do Chief há %lld min. Ele tenta de novo sozinho e avisa você se não conseguir responder."
+            "value": "Sem resposta do Chief há %@. Ele tenta de novo sozinho e avisa você se não conseguir responder."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief не отвечает уже %lld мин. Он сам повторяет попытку и сообщит вам, если не сможет ответить."
+            "value": "Chief не отвечает уже %@. Он сам повторяет попытку и сообщит вам, если не сможет ответить."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief ไม่ได้ตอบกลับมา %lld นาทีแล้ว Chief จะลองใหม่เองและแจ้งให้คุณทราบหากตอบไม่ได้"
+            "value": "Chief ไม่ได้ตอบกลับมา %@แล้ว Chief จะลองใหม่เองและแจ้งให้คุณทราบหากตอบไม่ได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief %lld dakikadır yanıt vermedi. Kendisi yeniden deniyor ve yanıt veremezse size haber verecek."
+            "value": "Chief %@ süredir yanıt vermedi. Kendisi yeniden deniyor ve yanıt veremezse size haber verecek."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief не відповідає вже %lld хв. Він сам повторює спробу й повідомить вас, якщо не зможе відповісти."
+            "value": "Chief не відповідає вже %@. Він сам повторює спробу й повідомить вас, якщо не зможе відповісти."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief chưa trả lời trong %lld phút. Chief sẽ tự thử lại và báo cho bạn nếu không thể trả lời."
+            "value": "Chief chưa trả lời trong %@. Chief sẽ tự thử lại và báo cho bạn nếu không thể trả lời."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief 已 %lld 分钟没有回复。它会自动重试，如果无法回答会告诉你。"
+            "value": "Chief 已%@没有回复。它会自动重试，如果无法回答会告诉你。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief 已 %lld 分鐘沒有回覆。它會自動重試，若無法回答會告訴你。"
+            "value": "Chief 已%@沒有回覆。它會自動重試，若無法回答會告訴你。"
           }
         }
       }

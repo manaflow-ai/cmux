@@ -787,137 +787,6 @@
         }
       }
     },
-    "rd.metric.ms": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld مللي ثانية"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld ms"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld ms"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld ms"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld ms"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld ms"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld ms"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld ms"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld ms"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld ms"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld ms"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld ms"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld ms"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld ms"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld мс"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld ms"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld ms"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld мс"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld ms"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld 毫秒"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld 毫秒"
-          }
-        }
-      }
-    },
     "rd.mode.control": {
       "extractionState": "manual",
       "localizations": {
@@ -3277,132 +3146,133 @@
       }
     },
     "rd.state.latency.detail": {
+      "comment": "Remote desktop banner while the session is view only for high latency (%1$@: the round-trip time and %3$@: the limit, both already written by Foundation in this language's short units, for example \"180 ms\", ar \"180 ملي ث\"; %2$@: the network path, for example \"direct\"). Do not add a unit or a noun next to %1$@ or %3$@.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%1$lld مللي ثانية، %2$@. يتوقف التحكم فوق %3$lld مللي ثانية."
+            "value": "%1$@، %2$@. يتوقف التحكم فوق %3$@."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%1$lld ms, %2$@. Kontrola se isključuje iznad %3$lld ms."
+            "value": "%1$@, %2$@. Kontrola se isključuje iznad %3$@."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%1$lld ms, %2$@. Styring slås fra over %3$lld ms."
+            "value": "%1$@, %2$@. Styring slås fra over %3$@."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%1$lld ms, %2$@. Steuerung schaltet sich über %3$lld ms ab."
+            "value": "%1$@, %2$@. Steuerung schaltet sich über %3$@ ab."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld ms, %2$@. Control turns off above %3$lld ms."
+            "value": "%1$@, %2$@. Control turns off above %3$@."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%1$lld ms, %2$@. El control se desactiva por encima de %3$lld ms."
+            "value": "%1$@, %2$@. El control se desactiva por encima de %3$@."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%1$lld ms, %2$@. Le contrôle se désactive au-delà de %3$lld ms."
+            "value": "%1$@, %2$@. Le contrôle se désactive au-delà de %3$@."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%1$lld ms, %2$@. Il controllo si disattiva oltre %3$lld ms."
+            "value": "%1$@, %2$@. Il controllo si disattiva oltre %3$@."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "%1$lld ms、%2$@。%3$lld ms を超えると操作はオフになります。"
+            "state": "needs_review",
+            "value": "%1$@、%2$@。%3$@ を超えると操作はオフになります。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%1$lld ms, %2$@។ ការគ្រប់គ្រងបិទលើសពី %3$lld ms។"
+            "value": "%1$@, %2$@។ ការគ្រប់គ្រងបិទលើសពី %3$@។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%1$lld ms, %2$@. %3$lld ms를 넘으면 제어가 꺼집니다."
+            "value": "%1$@, %2$@. %3$@을(를) 넘으면 제어가 꺼집니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%1$lld ms, %2$@. Styring slås av over %3$lld ms."
+            "value": "%1$@, %2$@. Styring slås av over %3$@."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%1$lld ms, %2$@. Sterowanie wyłącza się powyżej %3$lld ms."
+            "value": "%1$@, %2$@. Sterowanie wyłącza się powyżej %3$@."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%1$lld ms, %2$@. O controle é desativado acima de %3$lld ms."
+            "value": "%1$@, %2$@. O controle é desativado acima de %3$@."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%1$lld мс, %2$@. Управление отключается выше %3$lld мс."
+            "value": "%1$@, %2$@. Управление отключается выше %3$@."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%1$lld ms, %2$@ การควบคุมจะปิดเมื่อเกิน %3$lld ms"
+            "value": "%1$@, %2$@ การควบคุมจะปิดเมื่อเกิน %3$@"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%1$lld ms, %2$@. Kontrol %3$lld ms üzerinde kapanır."
+            "value": "%1$@, %2$@. Kontrol %3$@ üzerinde kapanır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%1$lld мс, %2$@. Керування вимикається понад %3$lld мс."
+            "value": "%1$@, %2$@. Керування вимикається понад %3$@."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%1$lld ms, %2$@. Điều khiển tắt khi vượt %3$lld ms."
+            "value": "%1$@, %2$@. Điều khiển tắt khi vượt %3$@."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%1$lld 毫秒，%2$@。超过 %3$lld 毫秒时控制将关闭。"
+            "value": "%1$@，%2$@。超过 %3$@时控制将关闭。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%1$lld 毫秒，%2$@。超過 %3$lld 毫秒時控制將關閉。"
+            "value": "%1$@，%2$@。超過 %3$@時控制將關閉。"
           }
         }
       }
