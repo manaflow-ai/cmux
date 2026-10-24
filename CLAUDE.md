@@ -159,6 +159,22 @@ Swift/Rust builds and tests stay on the fleet.
   hook warns that its installed copy is not origin/feat-cmux-next's, run `scripts/install-git-hooks.sh` from a
   checkout at origin/feat-cmux-next. The hooks are per clone: every worktree of it, main-based ones too, runs them.
 
+## Crash classes
+
+Each class of nightly crash has one guard. Do not work around it; fix the code.
+- Unrecognized selector (a `super` call the framework class does not answer, a selector Chromium sends to
+  NSApp): `scripts/cmux-next/check-objc-selectors.py` and `ObjCSelectorRuntimeTests` (runtime walk).
+- AppKit off the main thread: suites run under Xcode's Main Thread Checker
+  (`scripts/ci/run_swift_test_bundle.py`, `CMUX_MAIN_THREAD_CHECKER`, `MainThreadCheckerLoadedTests`).
+- Stale AppKit index (-1 rows and columns): CmuxNextCompat's `clickedRowIfValid`, `selectedRowIfValid`,
+  `clickedItemIfValid`, `item(ifValidRow:inColumn:)`; guardrails rule `appkit-index`.
+- Undo into replaced text: set text from code only through `replaceAllTextUndoably(_:)` (CmuxNextDesign)
+  in a view with `allowsUndo = true`; guardrails rule `undo-text-write`.
+- Traps (`!`, `as!`, index, `fatalError`): `scripts/cmux-next/crash_ratchet.py`, whose baseline only goes down.
+- Memory corruption and data races: run the suites of risky code under `CMUX_SWIFT_SANITIZE=address` or
+  `thread` (`cmux-ci run --env CMUX_SWIFT_SANITIZE=...`); malloc zone changes: `malloc-zone-race/run.sh corrupt`.
+- A crash that hangs: `CrashDeadline` (10 s) and the out-of-process `CrashWatcher` (15 s) end the app.
+
 ## Swift namespace convention
 
 Public and package types in package source must expose an instance surface or
