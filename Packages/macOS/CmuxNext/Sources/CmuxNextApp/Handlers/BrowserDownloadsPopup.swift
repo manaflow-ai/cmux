@@ -16,9 +16,10 @@ import CmuxNextWakeups
 /// view does, and closes again after `autoCloseDelay` unless the pointer
 /// went into it. Chromium's own bubble is off (`shim_process.mm`): it
 /// anchors to a toolbar cmux never shows, so it opened over the page.
-/// The app's one popup is its download list's (`BrowserDownloadList.popup`).
 @MainActor
 final class BrowserDownloadsPopup {
+    static let shared = BrowserDownloadsPopup()
+
     /// How long a popup that opened by itself stays without the pointer (Chrome: 5 s).
     static let autoCloseDelay: Duration = .seconds(5)
     /// Rows listed; the list keeps more (`BrowserDownloadList.limit`).
@@ -33,7 +34,7 @@ final class BrowserDownloadsPopup {
     /// The automatic close of a popup that opened by itself.
     private let autoClose = DemandTimer(owner: "Browser.downloadsPopup")
 
-    init() {
+    private init() {
         popup.onDismiss = { [weak self] in self?.closed() }
         model.onEnter = { [weak self] in self?.cancelAutoClose() }
     }
@@ -170,9 +171,7 @@ final class BrowserDownloadsPopup {
 @MainActor
 @Observable
 final class BrowserDownloadsPopupModel {
-    /// Weak: the list owns this popup (`BrowserDownloadList.popup`), so a strong
-    /// back reference would make a cycle that keeps both alive.
-    weak var list: BrowserDownloadList?
+    var list: BrowserDownloadList?
     var colors = BrowserDownloadsPopupColors()
     /// The pointer went into the popup: it no longer closes by itself.
     var entered = false
