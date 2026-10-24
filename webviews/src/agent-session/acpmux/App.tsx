@@ -318,7 +318,7 @@ import { hasTranscriptCopyText, transcriptRangeText } from "./conversation/trans
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 import { chatImages, type ChatImage } from "./conversation/chatImages";
 import { ImageViewer } from "./conversation/ImageViewer";
-import { ImageViewerContext } from "./conversation/imageViewerContext";
+import { ImageViewerContext, type ImageSourceRect } from "./conversation/imageViewerContext";
 import { sessionLink } from "./links";
 import { ChatHeaderInlineStatus, ChatHeaderStatus } from "./header/ChatHeaderStatus";
 import { ChatHeaderTools, HEADER_ACTIONS, menuGroups, type ChatMenuItem } from "./header/ChatHeaderTools";
@@ -5102,12 +5102,19 @@ function AcpmuxPane() {
   const turnRowsRef = useRef(snapshot.rows);
   turnRowsRef.current = snapshot.rows;
   // The image viewer holds the chat's images from when it opened; another chat closes it.
-  const [imageView, setImageView] = useState<{ images: ChatImage[]; index: number } | undefined>();
-  const openImage = useCallback((src: string, alt: string, path?: string) => {
+  const [imageView, setImageView] = useState<
+    { images: ChatImage[]; index: number; sourceRect?: ImageSourceRect } | undefined
+  >();
+  const openImage = useCallback((src: string, alt: string, path?: string, sourceRect?: ImageSourceRect) => {
     const images = chatImages(turnRowsRef.current);
     const index = images.findIndex((image) => image.src === src);
-    if (index < 0) setImageView({ images: [{ src, alt, path }], index: 0 });
-    else setImageView({ images: images.map((image, i) => (i === index && path ? { ...image, path } : image)), index });
+    if (index < 0) setImageView({ images: [{ src, alt, path }], index: 0, sourceRect });
+    else
+      setImageView({
+        images: images.map((image, i) => (i === index && path ? { ...image, path } : image)),
+        index,
+        sourceRect,
+      });
   }, []);
   useEffect(() => setImageView(undefined), [snapshot.sessionId]);
   // A queued prompt's image, read from acpmux by its id (ComposerQueue's thumbnails).
@@ -8404,7 +8411,8 @@ function AcpmuxPane() {
             <ImageViewer
               images={imageView.images}
               index={imageView.index}
-              onIndex={(index) => setImageView((current) => current && { ...current, index })}
+              sourceRect={imageView.sourceRect}
+              onIndex={(index) => setImageView((current) => current && { ...current, index, sourceRect: undefined })}
               onClose={() => setImageView(undefined)}
             />
           )}
@@ -8898,7 +8906,8 @@ function AcpmuxPane() {
           <ImageViewer
             images={imageView.images}
             index={imageView.index}
-            onIndex={(index) => setImageView((current) => current && { ...current, index })}
+            sourceRect={imageView.sourceRect}
+            onIndex={(index) => setImageView((current) => current && { ...current, index, sourceRect: undefined })}
             onClose={() => setImageView(undefined)}
           />
         )}

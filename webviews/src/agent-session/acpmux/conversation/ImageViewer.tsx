@@ -5,6 +5,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type CSSProperties,
   type KeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
@@ -14,6 +15,7 @@ import { useT } from "../i18n";
 import { postNative } from "../native";
 import type { ChatImage } from "./chatImages";
 import { copyImage } from "./clipboard";
+import type { ImageSourceRect } from "./imageViewerContext";
 import { Check, ChevronLeft, ChevronRight, Close, Copy, Folder, Globe } from "./icons";
 
 export const MIN_SCALE = 1;
@@ -23,6 +25,11 @@ const STEP = 2;
 
 type View = { scale: number; x: number; y: number };
 const FIT: View = { scale: 1, x: 0, y: 0 };
+
+export function anchoredHandoffScale(source: ImageSourceRect, target: ImageSourceRect): number {
+  if (source.width <= 0 || source.height <= 0 || target.width <= 0 || target.height <= 0) return 1;
+  return Math.max(0.01, Math.min(source.width / target.width, source.height / target.height));
+}
 
 /**
  * Base UI can restore focus to a Dialog.Trigger, but the viewer is opened by a markdown or
@@ -74,11 +81,13 @@ export function ImageViewer({
   index,
   onIndex,
   onClose,
+  sourceRect,
 }: {
   images: readonly ChatImage[];
   index: number;
   onIndex(index: number): void;
   onClose(): void;
+  sourceRect?: ImageSourceRect;
 }) {
   const t = useT();
   const image = images[index];
@@ -100,6 +109,10 @@ export function ImageViewer({
     setStageElement(element);
   }, []);
   const close = useRef<HTMLButtonElement>(null);
+  const viewerImage = useRef<HTMLImageElement>(null);
+  const handoffFrame = useRef<number | undefined>(undefined);
+  const [handoffReady, setHandoffReady] = useState(!sourceRect);
+  const [handoffStyle, setHandoffStyle] = useState<{ x: number; y: number; scale: number }>();
   const drag = useRef<{ id: number; x: number; y: number } | undefined>(undefined);
   const count = images.length;
   const restoreFocus = useRef<HTMLElement | null>(activeElementToRestore());
@@ -122,7 +135,30 @@ export function ImageViewer({
     setView(FIT);
     setCopied(undefined);
     setFailed(undefined);
-  }, [image?.src]);
+    setHandoffStyle(undefined);
+    setHandoffReady(!sourceRect);
+  }, [image?.src, sourceRect]);
+
+  const prepareHandoff = useCallback(() => {
+    if (!sourceRect) return;
+    const target = viewerImage.current?.getBoundingClientRect();
+    if (!target || target.width <= 0 || target.height <= 0) {
+      setHandoffReady(true);
+      return;
+    }
+    const scale = anchoredHandoffScale(sourceRect, target);
+    const sourceCenter = { x: sourceRect.left + sourceRect.width / 2, y: sourceRect.top + sourceRect.height / 2 };
+    const targetCenter = { x: target.left + target.width / 2, y: target.top + target.height / 2 };
+    setHandoffStyle({ x: sourceCenter.x - targetCenter.x, y: sourceCenter.y - targetCenter.y, scale });
+    handoffFrame.current = requestAnimationFrame(() => setHandoffReady(true));
+  }, [sourceRect]);
+
+  useEffect(() => {
+    if (sourceRect) prepareHandoff();
+    return () => {
+      if (handoffFrame.current !== undefined) cancelAnimationFrame(handoffFrame.current);
+    };
+  }, [prepareHandoff, sourceRect]);
 
   const step = useCallback(
     (by: number) => {
@@ -310,11 +346,27 @@ export function ImageViewer({
           }}
         >
           <img
-            className="acpmux-image-viewer-image"
+            className={`acpmux-image-viewer-image${sourceRect ? " is-anchored-peek" : ""}${handoffReady ? " is-anchored-peek-ready" : ""}`}
             src={image.src}
             alt={image.alt}
             draggable={false}
-            style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }}
+            ref={viewerImage}
+            onLoad={prepareHandoff}
+            onError={() => setHandoffReady(true)}
+            style={
+              {
+                "--viewer-x": `${view.x}px`,
+                "--viewer-y": `${view.y}px`,
+                "--viewer-scale": view.scale,
+                ...(handoffStyle
+                  ? {
+                      "--peek-x": `${handoffStyle.x}px`,
+                      "--peek-y": `${handoffStyle.y}px`,
+                      "--peek-scale": handoffStyle.scale,
+                    }
+                  : {}),
+              } as CSSProperties
+            }
           />
         </div>
         {count > 1 && (

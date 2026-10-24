@@ -60,6 +60,15 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.find({ role: "dialog", name: "Weekly builds" }));
       },
     },
+    "anchored-open": {
+      note: "Play: click the first image; the viewer image arrives from the clicked thumbnail without moving the transcript.",
+      snapshot: replyImages(),
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Weekly builds" });
+        await ctx.waitFor(() => ctx.find({ role: "dialog", name: "Weekly builds" }));
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-image-viewer-image.is-anchored-peek-ready"));
+      },
+    },
     next: {
       note: "Play: open the first image, then Next image; the viewer shows the second of three.",
       snapshot: replyImages(),

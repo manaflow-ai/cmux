@@ -132,7 +132,10 @@ export function OpenableImage({
       /* A button is not draggable by default: the image drags out as a file (conversation/dragOut.ts). */
       draggable
       title={alt || t("image.view")}
-      onClick={() => openImage(src, alt, path)}
+      onClick={(event) => {
+        const rect = event.currentTarget.getBoundingClientRect();
+        openImage(src, alt, path, { left: rect.left, top: rect.top, width: rect.width, height: rect.height });
+      }}
     >
       {image}
     </button>

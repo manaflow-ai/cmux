@@ -4,7 +4,7 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { ImageViewer } from "./ImageViewer";
+import { anchoredHandoffScale, ImageViewer } from "./ImageViewer";
 
 // Base UI's focus code schedules frames that may run after a test: the frame functions stay installed.
 installFrames();
@@ -90,4 +90,13 @@ test("the image viewer's Close, Previous and Next name their keys", () => {
     expect(element.getAttribute("aria-keyshortcuts")).toBe(aria);
     expect(element.getAttribute("title")).toBe(`${element.getAttribute("aria-label")} ${glyph}`);
   }
+});
+
+test("anchored handoff fits the source inside the viewer image", () => {
+  expect(
+    anchoredHandoffScale({ left: 10, top: 20, width: 100, height: 60 }, { left: 0, top: 0, width: 800, height: 600 }),
+  ).toBeCloseTo(0.1);
+  expect(
+    anchoredHandoffScale({ left: 0, top: 0, width: 0, height: 0 }, { left: 0, top: 0, width: 10, height: 10 }),
+  ).toBe(1);
 });

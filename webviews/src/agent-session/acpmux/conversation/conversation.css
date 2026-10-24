@@ -3053,6 +3053,26 @@ a.cv-sha:focus-visible {
   transform-origin: center;
   user-select: none;
   -webkit-user-select: none;
+  transform: translate(var(--viewer-x, 0px), var(--viewer-y, 0px)) scale(var(--viewer-scale, 1));
+}
+.acpmux-image-viewer-image.is-anchored-peek {
+  opacity: 0;
+  transform: translate(var(--peek-x, 0px), var(--peek-y, 0px)) scale(var(--peek-scale, 1));
+}
+.acpmux-image-viewer-image.is-anchored-peek.is-anchored-peek-ready {
+  opacity: 1;
+  transform: translate(var(--viewer-x, 0px), var(--viewer-y, 0px)) scale(var(--viewer-scale, 1));
+  transition:
+    opacity var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out),
+    transform var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out);
+}
+@media (prefers-reduced-motion: reduce) {
+  .acpmux-image-viewer-image.is-anchored-peek,
+  .acpmux-image-viewer-image.is-anchored-peek.is-anchored-peek-ready {
+    opacity: 1;
+    transform: translate(var(--viewer-x, 0px), var(--viewer-y, 0px)) scale(var(--viewer-scale, 1));
+    transition: none;
+  }
 }
 .acpmux-image-viewer-stage:not(.is-zoomed) .acpmux-image-viewer-image {
   cursor: zoom-in;
