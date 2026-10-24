@@ -1,3 +1,5 @@
+#if DEBUG
+// The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
 public import Foundation
 
 /// How cmux starts its Chromium host app: the executable and its arguments
@@ -50,3 +52,4 @@ public nonisolated struct ChromiumHostConfiguration: Sendable, Equatable {
             + switches.map { "--cef-switch=\($0)" }
     }
 }
+#endif

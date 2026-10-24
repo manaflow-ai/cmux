@@ -1,3 +1,5 @@
+#if DEBUG
+// The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
 /// Whether a Chromium host that ended starts again with its page.
 ///
 /// The rule is the app's own safe-restart rule
@@ -18,3 +20,4 @@ nonisolated struct ChromiumHostRestartPolicy: Sendable {
         isFirstStart || ranFor >= quickEnd
     }
 }
+#endif

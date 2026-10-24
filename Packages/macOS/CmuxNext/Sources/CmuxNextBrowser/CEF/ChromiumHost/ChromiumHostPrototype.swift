@@ -1,3 +1,5 @@
+#if DEBUG
+// The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
 public import AppKit
 
 /// The Chromium host app prototype as `debug.chromium_host` drives it
@@ -104,3 +106,4 @@ public final class ChromiumHostPrototype {
         return stats.mapValues(Double.init)
     }
 }
+#endif
