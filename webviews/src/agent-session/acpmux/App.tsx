@@ -3956,6 +3956,7 @@ function AcpmuxPane() {
     error?: string;
   }>();
   const folderConfirmGeneration = useRef(0);
+  const folderConfirmInFlight = useRef(false);
   const [folderConfirming, setFolderConfirming] = useState(false);
   const [importError, setImportError] = useState<string | undefined>();
   // Edit CLAUDE.md the app refused (a link out of the folder, not a file): the notice above the
@@ -5848,6 +5849,7 @@ function AcpmuxPane() {
   const requestFolder = useCallback((cwd: string, use: (folder: string) => void, cancel?: () => void) => {
     const pick = ++folderPick.current;
     folderConfirmGeneration.current += 1;
+    folderConfirmInFlight.current = false;
     setFolderConfirming(false);
     const sessionId = shownSession.current;
     setFolderAsk(undefined);
@@ -5887,6 +5889,7 @@ function AcpmuxPane() {
     // A newer folder pick wins over this worktree, as between two picks.
     const pick = ++folderPick.current;
     folderConfirmGeneration.current += 1;
+    folderConfirmInFlight.current = false;
     setFolderConfirming(false);
     const sessionId = shownSession.current;
     setFolderAsk(undefined);
@@ -7728,18 +7731,24 @@ function AcpmuxPane() {
   // that surface too: the regular composer is deliberately hidden behind the New Tab, so leaving
   // the ask there would strand the prompt with no Use or Cancel action.
   const confirmPendingFolder = useCallback(() => {
-    if (!pendingFolder || folderConfirming) return;
+    if (!pendingFolder || folderConfirming || folderConfirmInFlight.current) return;
     const pending = pendingFolder;
     const generation = ++folderConfirmGeneration.current;
     const use = (cwd: string) => {
       if (generation === folderConfirmGeneration.current) pending.use(cwd);
     };
+    folderConfirmInFlight.current = true;
     setFolderConfirming(true);
     setFolderAsk(undefined);
     void confirmFolder(callNative, pending.ask, use).then(
-      () => generation === folderConfirmGeneration.current && setFolderConfirming(false),
+      () => {
+        if (generation !== folderConfirmGeneration.current) return;
+        folderConfirmInFlight.current = false;
+        setFolderConfirming(false);
+      },
       (error: unknown) => {
         if (generation !== folderConfirmGeneration.current) return;
+        folderConfirmInFlight.current = false;
         setFolderConfirming(false);
         setFolderAsk((current) => current ?? { ...pending, error: errorMessage(error) || String(error) });
       },
@@ -7747,6 +7756,7 @@ function AcpmuxPane() {
   }, [folderConfirming, pendingFolder]);
   const cancelPendingFolder = useCallback(() => {
     folderConfirmGeneration.current += 1;
+    folderConfirmInFlight.current = false;
     setFolderConfirming(false);
     pendingFolder?.cancel?.();
     setFolderAsk(undefined);
