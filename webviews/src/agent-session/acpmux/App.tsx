@@ -351,6 +351,8 @@ import { Notice, NoticeSlot } from "./NoticeSlot";
 import { type ForumRule, forumRules, RulesNotice } from "./RulesNotice";
 import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./signIn";
 import { type ChatAccounts, ChatAccountsContext, ownRouteOf, readChatAccounts } from "./chatAccounts";
+import { type AccessNeed, missingAccess, MissingAccessNotice } from "./MissingAccessNotice";
+import { CMUX_ROUTER_DEFAULT_MODEL, CMUX_ROUTER_HARNESS, accessFailure, cmuxRouterRoute } from "./missingAccessChat";
 import { HostError } from "./HostError";
 import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
@@ -4318,6 +4320,44 @@ function AcpmuxPane() {
     [connected, healthLocal],
   );
   const loginCommand = chatLoginCommand(catalog, snapshot.summary?.harness, harnessHealth);
+  // The missing-access card (MissingAccessNotice.tsx, paid-plan.md section 4): the chat's last turn
+  // failed for its key, sign-in or cmux credits, or its harness is signed out. Only for this Mac's
+  // acpmux, which holds the chat's routes and the Keychain.
+  const lastFailure = useMemo(() => accessFailure(snapshot.rows), [snapshot.rows]);
+  const failedNeed = lastFailure ? missingAccess(lastFailure.error, lastFailure.code) : undefined;
+  const accessHarness = snapshot.summary?.harness;
+  const accessNeed: AccessNeed | undefined = !healthLocal
+    ? undefined
+    : (failedNeed ??
+      (harnessHealth?.auth === "signedOut" && harnessHealth.id === accessHarness ? "signedOut" : undefined));
+  // The cmux model router's route, when acpmux lists it as serving this chat's harness.
+  const [routerRoute, setRouterRoute] = useState<string>();
+  useEffect(() => {
+    const sessionId = snapshot.sessionId;
+    if (!accessNeed || !chatAccounts || !sessionId) {
+      setRouterRoute(undefined);
+      return;
+    }
+    let live = true;
+    chatAccounts.list(sessionId).then(
+      (list) => live && setRouterRoute(cmuxRouterRoute(list)),
+      () => live && setRouterRoute(undefined),
+    );
+    return () => {
+      live = false;
+    };
+  }, [accessNeed, chatAccounts, snapshot.sessionId]);
+  const routerHarnessListed = catalog.some((entry) => entry.id === CMUX_ROUTER_HARNESS);
+  const accessRetry = useMemo(() => {
+    if (!lastFailure?.prompt || !connected) return undefined;
+    const { prompt, rowId } = lastFailure;
+    return () =>
+      void (async () =>
+        callNative("chat.send", {
+          text: prompt,
+          attachments: (rowId ? await directClient.current?.promptAttachments(rowId) : undefined) ?? [],
+        }))().catch(() => undefined);
+  }, [lastFailure, connected]);
   // A new chat centers its composer under the hero.
   const handoff = snapshot.handoff?.record;
   const reviewing = reviewingHandoff(snapshot);
@@ -7980,8 +8020,47 @@ function AcpmuxPane() {
           </Notice>
         )}
         {!harnessCard && (
+          <MissingAccessNotice
+            need={accessNeed}
+            harness={accessHarness}
+            family={catalog.find((entry) => entry.id === accessHarness)?.family ?? accessHarness}
+            name={catalog.find((entry) => entry.id === accessHarness)?.name ?? accessHarness ?? ""}
+            native={callNative}
+            canUseCredits={snapshot.sessionId ? routerRoute !== undefined : routerHarnessListed}
+            {...(loginCommand
+              ? {
+                  onLogIn: () => {
+                    healthStale.current = true;
+                    void callNative("tab.open", {
+                      kind: "terminal",
+                      text: loginCommand,
+                      ...(snapshot.summary?.cwd ? { cwd: snapshot.summary.cwd } : {}),
+                      run: true,
+                    }).catch(() => undefined);
+                  },
+                }
+              : {})}
+            onUseRoute={async (routeId) => {
+              // A chat with no session yet starts on the key's route: the host bound its family.
+              if (snapshot.sessionId && chatAccounts) await chatAccounts.set(snapshot.sessionId, routeId);
+            }}
+            onUseCredits={async () => {
+              const sessionId = snapshot.sessionId;
+              if (sessionId && chatAccounts && routerRoute) {
+                // The router serves its own open models only: the chat moves onto it and its model.
+                await chatAccounts.set(sessionId, routerRoute);
+                await callNative("chat.model", { modelId: CMUX_ROUTER_DEFAULT_MODEL });
+                return;
+              }
+              // A chat with no session yet starts on acpmux's cmux harness (Claude Code on the router).
+              await callNative("chat.new", { harness: CMUX_ROUTER_HARNESS });
+            }}
+            {...(accessRetry ? { onRetry: accessRetry } : {})}
+          />
+        )}
+        {!harnessCard && (
           <HarnessHealthNotice
-            health={harnessHealth}
+            health={accessNeed === "signedOut" && harnessHealth ? { ...harnessHealth, auth: "unknown" } : harnessHealth}
             harness={healthHarness}
             name={catalog.find((entry) => entry.id === healthHarness)?.name ?? healthHarness ?? ""}
             {...(snapshot.summary?.cwd ? { cwd: snapshot.summary.cwd } : {})}

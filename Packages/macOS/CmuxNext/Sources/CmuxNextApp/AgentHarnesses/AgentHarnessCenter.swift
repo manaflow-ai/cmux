@@ -129,6 +129,16 @@ final class AgentHarnessCenter {
         return answer["item"]?.stringValue ?? "cmux-harness/\(id)/\(key)"
     }
 
+    /// Writes (or replaces) route `id` (`_acpmux/route/add`): `params` are the route file's fields
+    /// as the RPC takes them; a secret is only ever a reference (`keychain:ITEM`).
+    @discardableResult
+    func addRoute(id: String, _ params: [String: any Sendable]) async throws -> JSONValue {
+        var params = params
+        params["id"] = id
+        params["replace"] = true
+        return try await call(.routeAdd, params)
+    }
+
     /// `_acpmux/models`: every harness's probed models, with their efforts.
     func models() async throws -> JSONValue {
         try await call(.models)

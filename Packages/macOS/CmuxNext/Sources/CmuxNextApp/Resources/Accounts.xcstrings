@@ -1,6 +1,1326 @@
 {
   "sourceLanguage": "en",
   "strings": {
+  "access.key.title": {
+    "comment": "Add API key sheet title (agent pane missing-access card); %@ is the provider (Anthropic API, OpenAI API)",
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "أضف مفتاح %@ الخاص بك"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Dodajte svoj %@ ključ"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Tilføj din %@-nøgle"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Eigenen %@-Schlüssel hinzufügen"
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Add your %@ key"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Añade tu clave de %@"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Ajoutez votre clé %@"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Aggiungi la tua chiave %@"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "%@ キーを追加"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "បន្ថែម key %@ របស់អ្នក"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "%@ 키 추가"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Legg til %@-nøkkelen din"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Dodaj swój klucz %@"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Adicione sua chave da %@"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Добавьте свой ключ %@"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "เพิ่มคีย์ %@ ของคุณ"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "%@ anahtarınızı ekleyin"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Додайте свій ключ %@"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Thêm khóa %@ của bạn"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "添加你的 %@ 密钥"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "新增你的 %@ 金鑰"
+        }
+      }
+    }
+  },
+  "access.key.message": {
+    "comment": "Add API key sheet message; %@ is the provider",
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "يبقى المفتاح في سلسلة مفاتيح هذا الـ Mac. يرسله cmux إلى %@ فقط، لمحادثات هذا الإطار."
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Ključ ostaje u Keychainu ovog Maca. cmux ga šalje samo na %@, za chatove ovog harnessa."
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Nøglen bliver i denne Macs nøglering. cmux sender den kun til %@, til denne harness' chats."
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Der Schlüssel bleibt im Schlüsselbund dieses Macs. cmux sendet ihn nur an %@, für die Chats dieses Harness."
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "The key stays in this Mac's Keychain. cmux sends it only to %@, for this harness's chats."
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "La clave se queda en el llavero de este Mac. cmux solo la envía a %@, para los chats de este harness."
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "La clé reste dans le trousseau de ce Mac. cmux l’envoie uniquement à %@, pour les chats de ce harness."
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "La chiave resta nel portachiavi di questo Mac. cmux la invia solo a %@, per le chat di questo harness."
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "キーはこの Mac のキーチェーンに保存されます。cmux はこのハーネスのチャットのためにのみ %@ へ送信します。"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "key នៅក្នុង Keychain របស់ Mac នេះ។ cmux ផ្ញើវាទៅ %@ តែប៉ុណ្ណោះ សម្រាប់ការជជែករបស់ harness នេះ។"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "키는 이 Mac의 키체인에 보관됩니다. cmux는 이 하네스의 채팅을 위해 %@에만 보냅니다."
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Nøkkelen blir i nøkkelringen på denne Macen. cmux sender den bare til %@, for denne harnessens chatter."
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Klucz zostaje w pęku kluczy tego Maca. cmux wysyła go tylko do %@, dla czatów tego harnessu."
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "A chave fica nas Chaves deste Mac. O cmux a envia apenas para %@, nos chats deste harness."
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Ключ хранится в связке ключей этого Mac. cmux отправляет его только в %@, для чатов этого harness."
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "คีย์จะอยู่ในพวงกุญแจของ Mac เครื่องนี้ cmux ส่งคีย์ไปที่ %@ เท่านั้น สำหรับแชตของ harness นี้"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Anahtar bu Mac’in Anahtar Zinciri’nde kalır. cmux onu yalnızca bu harness’ın sohbetleri için %@ hizmetine gönderir."
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Ключ зберігається у в’язці ключів цього Mac. cmux надсилає його лише до %@, для чатів цього harness."
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Khóa được giữ trong Chuỗi khóa của máy Mac này. cmux chỉ gửi nó tới %@, cho các cuộc trò chuyện của harness này."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "密钥保存在这台 Mac 的钥匙串中。cmux 只会为此 harness 的聊天将它发送给 %@。"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "金鑰保存在這台 Mac 的鑰匙圈中。cmux 只會為此 harness 的聊天將它傳送給 %@。"
+        }
+      }
+    }
+  },
+  "access.key.save": {
+    "comment": "Add API key sheet: the button that saves the key",
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "حفظ المفتاح"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Sačuvaj ključ"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Gem nøgle"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Schlüssel sichern"
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Save Key"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Guardar clave"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Enregistrer la clé"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Salva chiave"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "キーを保存"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "រក្សាទុក key"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "키 저장"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Lagre nøkkel"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Zapisz klucz"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Salvar chave"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Сохранить ключ"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "บันทึกคีย์"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Anahtarı Kaydet"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Зберегти ключ"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Lưu khóa"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "保存密钥"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "儲存金鑰"
+        }
+      }
+    }
+  },
+  "access.key.cancel": {
+    "comment": "Add API key sheet: cancel",
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "إلغاء"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Otkaži"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Annuller"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Abbrechen"
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cancel"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Cancelar"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Annuler"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Annulla"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "キャンセル"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "បោះបង់"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "취소"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Avbryt"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Anuluj"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Cancelar"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Отмена"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "ยกเลิก"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Vazgeç"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Скасувати"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Hủy"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "取消"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "取消"
+        }
+      }
+    }
+  },
+  "access.key.placeholder": {
+    "comment": "Add API key sheet: the secure field's placeholder",
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "الصق مفتاح API"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Zalijepite API ključ"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Indsæt API-nøglen"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "API-Schlüssel einfügen"
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Paste the API key"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Pega la clave de API"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Collez la clé d’API"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Incolla la chiave API"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "API キーを貼り付け"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "បិទភ្ជាប់ API key"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "API 키 붙여넣기"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Lim inn API-nøkkelen"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Wklej klucz API"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Cole a chave de API"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Вставьте ключ API"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "วางคีย์ API"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "API anahtarını yapıştırın"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Вставте ключ API"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Dán khóa API"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "粘贴 API 密钥"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "貼上 API 金鑰"
+        }
+      }
+    }
+  },
+  "access.key.unsupported": {
+    "comment": "Agent pane missing-access card: the chat's harness takes no API key from cmux",
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "لا يقبل هذا الإطار مفتاح API من cmux. سجّل الدخول إليه أو استخدم أرصدة cmux."
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Ovaj harness ne prima API ključ iz cmuxa. Prijavite se u njega ili koristite cmux kredite."
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Denne harness tager ingen API-nøgle fra cmux. Log ind i den, eller brug cmux-kreditter."
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Dieser Harness nimmt keinen API-Schlüssel von cmux an. Melde dich darin an oder nutze cmux-Guthaben."
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "This harness takes no API key from cmux. Sign in to it, or use cmux credits."
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Este harness no acepta claves de API de cmux. Inicia sesión en él o usa créditos de cmux."
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Ce harness n’accepte pas de clé d’API de cmux. Connectez-vous-y ou utilisez les crédits cmux."
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Questo harness non accetta chiavi API da cmux. Accedi oppure usa i crediti cmux."
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "このハーネスは cmux から API キーを受け取れません。サインインするか、cmux クレジットを使ってください。"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "harness នេះមិនទទួល API key ពី cmux ទេ។ ចូលវា ឬប្រើ cmux credits។"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "이 하네스는 cmux에서 API 키를 받지 않습니다. 로그인하거나 cmux 크레딧을 사용하세요."
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Denne harnessen tar ingen API-nøkkel fra cmux. Logg inn i den, eller bruk cmux-kreditter."
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Ten harness nie przyjmuje klucza API z cmux. Zaloguj się w nim lub użyj kredytów cmux."
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Este harness não aceita chave de API do cmux. Entre nele ou use créditos cmux."
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Этот harness не принимает ключ API от cmux. Войдите в него или используйте кредиты cmux."
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "harness นี้ไม่รับคีย์ API จาก cmux ให้ลงชื่อเข้าใช้หรือใช้เครดิต cmux"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Bu harness cmux’tan API anahtarı almaz. Oturum açın veya cmux kredisi kullanın."
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Цей harness не приймає ключ API від cmux. Увійдіть у нього або скористайтеся кредитами cmux."
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Harness này không nhận khóa API từ cmux. Hãy đăng nhập vào nó hoặc dùng tín dụng cmux."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "此 harness 不接受来自 cmux 的 API 密钥。请登录它，或使用 cmux 额度。"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "此 harness 不接受來自 cmux 的 API 金鑰。請登入它，或使用 cmux 額度。"
+        }
+      }
+    }
+  },
+  "access.key.keychainFailed": {
+    "comment": "Agent pane missing-access card: saving the API key to the Keychain failed",
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "تعذّر حفظ المفتاح في سلسلة المفاتيح."
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Ključ nije mogao biti sačuvan u Keychain."
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Nøglen kunne ikke gemmes i nøgleringen."
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Der Schlüssel konnte nicht im Schlüsselbund gesichert werden."
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "The key could not be saved to the Keychain."
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "No se pudo guardar la clave en el llavero."
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Impossible d’enregistrer la clé dans le trousseau."
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Impossibile salvare la chiave nel portachiavi."
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "キーをキーチェーンに保存できませんでした。"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "មិនអាចរក្សាទុក key ក្នុង Keychain បានទេ។"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "키를 키체인에 저장할 수 없습니다."
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Nøkkelen kunne ikke lagres i nøkkelringen."
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Nie udało się zapisać klucza w pęku kluczy."
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Não foi possível salvar a chave nas Chaves."
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Не удалось сохранить ключ в связке ключей."
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "บันทึกคีย์ลงในพวงกุญแจไม่ได้"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Anahtar Anahtar Zinciri’ne kaydedilemedi."
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Не вдалося зберегти ключ у в’язці ключів."
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Không thể lưu khóa vào Chuỗi khóa."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "无法将密钥保存到钥匙串。"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "無法將金鑰儲存到鑰匙圈。"
+        }
+      }
+    }
+  },
+  "access.noAgentService": {
+    "comment": "Agent pane missing-access card: this Mac's acpmux did not answer",
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "خدمة الوكيل لا تعمل. حاول مرة أخرى بعد قليل."
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Servis agenta nije pokrenut. Pokušajte ponovo za trenutak."
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Agenttjenesten kører ikke. Prøv igen om lidt."
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Der Agentendienst läuft nicht. Versuche es gleich noch einmal."
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "The agent service is not running. Try again in a moment."
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "El servicio de agentes no está en marcha. Inténtalo de nuevo en un momento."
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Le service d’agents ne tourne pas. Réessayez dans un instant."
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Il servizio agenti non è in esecuzione. Riprova tra poco."
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "エージェントサービスが動作していません。しばらくしてからもう一度お試しください。"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "សេវាភ្នាក់ងារមិនកំពុងដំណើរការទេ។ សូមព្យាយាមម្ដងទៀតបន្តិចទៀត។"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "에이전트 서비스가 실행 중이 아닙니다. 잠시 후 다시 시도하세요."
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Agenttjenesten kjører ikke. Prøv igjen om litt."
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Usługa agentów nie działa. Spróbuj ponownie za chwilę."
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "O serviço de agentes não está em execução. Tente de novo em instantes."
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Служба агентов не запущена. Повторите попытку чуть позже."
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "บริการเอเจนต์ไม่ได้ทำงานอยู่ ลองอีกครั้งในอีกสักครู่"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Ajan hizmeti çalışmıyor. Biraz sonra yeniden deneyin."
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Служба агентів не запущена. Спробуйте ще раз за мить."
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Dịch vụ tác tử chưa chạy. Hãy thử lại sau giây lát."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "代理服务未运行。请稍后重试。"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "代理服務未執行。請稍後再試。"
+        }
+      }
+    }
+  },
+  "access.credits.notSignedIn": {
+    "comment": "Agent pane missing-access card: cmux credits need a cmux sign-in",
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "سجّل الدخول إلى cmux لاستخدام أرصدة cmux."
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Prijavite se u cmux da koristite cmux kredite."
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Log ind på cmux for at bruge cmux-kreditter."
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Melde dich bei cmux an, um cmux-Guthaben zu nutzen."
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Sign in to cmux to use cmux credits."
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Inicia sesión en cmux para usar créditos de cmux."
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Connectez-vous à cmux pour utiliser les crédits cmux."
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Accedi a cmux per usare i crediti cmux."
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux クレジットを使うには cmux にサインインしてください。"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "ចូល cmux ដើម្បីប្រើ cmux credits។"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux 크레딧을 사용하려면 cmux에 로그인하세요."
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Logg inn på cmux for å bruke cmux-kreditter."
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Zaloguj się do cmux, aby używać kredytów cmux."
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Entre no cmux para usar créditos cmux."
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Войдите в cmux, чтобы использовать кредиты cmux."
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "ลงชื่อเข้าใช้ cmux เพื่อใช้เครดิต cmux"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux kredisi kullanmak için cmux’ta oturum açın."
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Увійдіть у cmux, щоб використовувати кредити cmux."
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Hãy đăng nhập cmux để dùng tín dụng cmux."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "登录 cmux 后才能使用 cmux 额度。"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "登入 cmux 後才能使用 cmux 額度。"
+        }
+      }
+    }
+  },
+  "access.credits.billingFailed": {
+    "comment": "Agent pane missing-access card: the credits payment page could not be made or opened",
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "تعذّر على cmux فتح صفحة الدفع. حاول مرة أخرى بعد دقيقة."
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux nije mogao otvoriti stranicu za plaćanje. Pokušajte ponovo za minutu."
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux kunne ikke åbne betalingssiden. Prøv igen om et minut."
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux konnte die Bezahlseite nicht öffnen. Versuche es in einer Minute erneut."
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "cmux couldn't open the payment page. Try again in a minute."
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux no pudo abrir la página de pago. Inténtalo de nuevo en un minuto."
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux n’a pas pu ouvrir la page de paiement. Réessayez dans une minute."
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux non è riuscito ad aprire la pagina di pagamento. Riprova tra un minuto."
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux は支払いページを開けませんでした。1 分ほどしてからもう一度お試しください。"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux មិនអាចបើកទំព័របង់ប្រាក់បានទេ។ សូមព្យាយាមម្ដងទៀតក្នុងមួយនាទី។"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux가 결제 페이지를 열지 못했습니다. 1분 후 다시 시도하세요."
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux kunne ikke åpne betalingssiden. Prøv igjen om et minutt."
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux nie mógł otworzyć strony płatności. Spróbuj ponownie za minutę."
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "O cmux não conseguiu abrir a página de pagamento. Tente de novo em um minuto."
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux не удалось открыть страницу оплаты. Повторите попытку через минуту."
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux เปิดหน้าชำระเงินไม่ได้ ลองอีกครั้งในอีกหนึ่งนาที"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux ödeme sayfasını açamadı. Bir dakika sonra yeniden deneyin."
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux не вдалося відкрити сторінку оплати. Спробуйте ще раз за хвилину."
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux không thể mở trang thanh toán. Hãy thử lại sau một phút."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux 无法打开付款页面。请一分钟后重试。"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux 無法開啟付款頁面。請一分鐘後再試。"
+        }
+      }
+    }
+  },
     "accounts.refusal.noWindow": {
       "extractionState": "manual",
       "localizations": {

@@ -95,8 +95,9 @@ extension AppControl {
     }
 
     /// Opens `url` where ``BillingCheckoutOpener`` says and answers `opened_in`,
-    /// `link_session` and the cmux browser `profile` it checked.
-    nonisolated private static func openBillingPage(_ url: URL, _ request: BillingOpenRequest,
+    /// `link_session` and the cmux browser `profile` it checked. Also the credits top-up's path
+    /// (``AgentPaneAccessService``), so every payment page opens by the same rule.
+    nonisolated static func openBillingPage(_ url: URL, _ request: BillingOpenRequest,
                                                     _ services: AppServices) async throws -> [String: JSONValue] {
         let session = await MainActor.run { BrowserProfileLinkSession(services: services) }
         let profile = await session.profileForNewTab()

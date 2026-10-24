@@ -426,6 +426,8 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case _ where AgentPaneAccessRequest.methods.contains(method):
+            self = AgentPaneAccessRequest(method: method, params: params).map(AgentPaneRequest.access) ?? .unsupported(method)
         case _ where AgentPaneEnvironmentRequest.methods.contains(method):
             self = AgentPaneEnvironmentRequest(method: method, params: params).map(AgentPaneRequest.environment) ?? .unsupported(method)
         case _ where AgentPaneReplyRequest.methods.contains(method):

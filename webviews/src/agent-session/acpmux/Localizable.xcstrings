@@ -1,6 +1,1458 @@
 {
   "sourceLanguage": "en",
   "strings": {
+  "access.key": {
+    "comment": "Agent pane: missing-access card (paid-plan.md); a turn was refused for its API key or sign-in. {agent} is the harness name",
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "لا يملك {agent} مفتاح API أو تسجيل دخول يعمل."
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "{agent} nema API ključ ili prijavu koja radi."
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "{agent} har ingen API-nøgle eller login, der virker."
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "{agent} hat keinen funktionierenden API-Schlüssel und keine Anmeldung."
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "{agent} has no API key or sign-in that works."
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "{agent} no tiene una clave de API ni un inicio de sesión que funcione."
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "{agent} n’a ni clé d’API ni connexion qui fonctionne."
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "{agent} non ha una chiave API o un accesso funzionante."
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "{agent} に使える API キーまたはサインインがありません。"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "{agent} មិនមាន API key ឬការចូលដែលដំណើរការទេ។"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "{agent}에 작동하는 API 키나 로그인이 없습니다."
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "{agent} har ingen API-nøkkel eller pålogging som virker."
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "{agent} nie ma działającego klucza API ani logowania."
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "{agent} não tem uma chave de API ou login que funcione."
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "У {agent} нет рабочего ключа API или входа."
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "{agent} ไม่มีคีย์ API หรือการลงชื่อเข้าใช้ที่ใช้ได้"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "{agent} için çalışan bir API anahtarı veya oturum yok."
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "{agent} не має робочого ключа API або входу."
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "{agent} không có khóa API hoặc đăng nhập dùng được."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "{agent} 没有可用的 API 密钥或登录。"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "{agent} 沒有可用的 API 金鑰或登入。"
+        }
+      }
+    }
+  },
+  "access.credits": {
+    "comment": "Agent pane: missing-access card; the cmux model router answered that cmux credits ran out or the account has none",
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "تحتاج هذه المحادثة إلى أرصدة cmux. أضف بعضها للمتابعة."
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Ovaj chat treba cmux kredite. Dodajte ih da nastavite."
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Denne chat skal bruge cmux-kreditter. Tilføj nogle for at fortsætte."
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Dieser Chat braucht cmux-Guthaben. Lade etwas auf, um weiterzumachen."
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "This chat needs cmux credits. Add some to keep going."
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Este chat necesita créditos de cmux. Añade algunos para continuar."
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Ce chat a besoin de crédits cmux. Ajoutez-en pour continuer."
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Questa chat ha bisogno di crediti cmux. Aggiungine per continuare."
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "このチャットには cmux クレジットが必要です。続けるにはクレジットを追加してください。"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "ការជជែកនេះត្រូវការ cmux credits។ បន្ថែមខ្លះដើម្បីបន្ត។"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "이 채팅에는 cmux 크레딧이 필요합니다. 계속하려면 크레딧을 추가하세요."
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Denne chatten trenger cmux-kreditter. Legg til noen for å fortsette."
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Ten czat potrzebuje kredytów cmux. Dodaj je, aby kontynuować."
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Este chat precisa de créditos cmux. Adicione alguns para continuar."
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Этому чату нужны кредиты cmux. Пополните их, чтобы продолжить."
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "แชตนี้ต้องใช้เครดิต cmux เติมเครดิตเพื่อใช้งานต่อ"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Bu sohbet cmux kredisi gerektiriyor. Devam etmek için kredi ekleyin."
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Цьому чату потрібні кредити cmux. Поповніть їх, щоб продовжити."
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Cuộc trò chuyện này cần tín dụng cmux. Hãy nạp thêm để tiếp tục."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "此聊天需要 cmux 额度。充值后即可继续。"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "此聊天需要 cmux 額度。儲值後即可繼續。"
+        }
+      }
+    }
+  },
+  "access.creditsElsewhere": {
+    "comment": "Agent pane: missing-access card; the cmux model router cannot serve this harness. {agent} is the harness name",
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "تعمل أرصدة cmux في محادثات Claude Code وOpenCode وPi. يحتاج {agent} إلى مفتاح API أو تسجيل دخول خاص به."
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux krediti rade u Claude Code, OpenCode i Pi chatovima. {agent} treba vlastiti API ključ ili prijavu."
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux-kreditter virker i Claude Code-, OpenCode- og Pi-chats. {agent} skal bruge sin egen API-nøgle eller sit eget login."
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux-Guthaben funktioniert in Chats mit Claude Code, OpenCode und Pi. {agent} braucht einen eigenen API-Schlüssel oder eine Anmeldung."
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "cmux credits run in Claude Code, OpenCode and Pi chats. {agent} needs its own API key or sign-in."
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Los créditos de cmux funcionan en chats de Claude Code, OpenCode y Pi. {agent} necesita su propia clave de API o inicio de sesión."
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Les crédits cmux fonctionnent dans les chats Claude Code, OpenCode et Pi. {agent} a besoin de sa propre clé d’API ou connexion."
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "I crediti cmux funzionano nelle chat di Claude Code, OpenCode e Pi. {agent} ha bisogno della propria chiave API o del proprio accesso."
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux クレジットは Claude Code、OpenCode、Pi のチャットで使えます。{agent} には専用の API キーかサインインが必要です。"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux credits ដំណើរការក្នុងការជជែក Claude Code, OpenCode និង Pi។ {agent} ត្រូវការ API key ឬការចូលផ្ទាល់ខ្លួន។"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux 크레딧은 Claude Code, OpenCode, Pi 채팅에서 사용할 수 있습니다. {agent}에는 자체 API 키나 로그인이 필요합니다."
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux-kreditter virker i Claude Code-, OpenCode- og Pi-chatter. {agent} trenger sin egen API-nøkkel eller pålogging."
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Kredyty cmux działają w czatach Claude Code, OpenCode i Pi. {agent} potrzebuje własnego klucza API lub logowania."
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Os créditos cmux funcionam em chats do Claude Code, OpenCode e Pi. {agent} precisa da própria chave de API ou login."
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Кредиты cmux работают в чатах Claude Code, OpenCode и Pi. {agent} нужен собственный ключ API или вход."
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "เครดิต cmux ใช้ได้ในแชต Claude Code, OpenCode และ Pi ส่วน {agent} ต้องใช้คีย์ API หรือการลงชื่อเข้าใช้ของตัวเอง"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux kredileri Claude Code, OpenCode ve Pi sohbetlerinde çalışır. {agent} kendi API anahtarına veya oturumuna ihtiyaç duyar."
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Кредити cmux працюють у чатах Claude Code, OpenCode і Pi. {agent} потрібен власний ключ API або вхід."
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Tín dụng cmux dùng được trong cuộc trò chuyện Claude Code, OpenCode và Pi. {agent} cần khóa API hoặc đăng nhập riêng."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux 额度可用于 Claude Code、OpenCode 和 Pi 聊天。{agent} 需要自己的 API 密钥或登录。"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux 額度可用於 Claude Code、OpenCode 和 Pi 聊天。{agent} 需要自己的 API 金鑰或登入。"
+        }
+      }
+    }
+  },
+  "access.addKey": {
+    "comment": "Agent pane: missing-access card button; opens the native sheet that stores an API key in the Keychain",
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "إضافة مفتاح API"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Dodaj API ključ"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Tilføj API-nøgle"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "API-Schlüssel hinzufügen"
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Add API key"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Añadir clave de API"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Ajouter une clé d’API"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Aggiungi chiave API"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "API キーを追加"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "បន្ថែម API key"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "API 키 추가"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Legg til API-nøkkel"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Dodaj klucz API"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Adicionar chave de API"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Добавить ключ API"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "เพิ่มคีย์ API"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "API anahtarı ekle"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Додати ключ API"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Thêm khóa API"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "添加 API 密钥"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "新增 API 金鑰"
+        }
+      }
+    }
+  },
+  "access.addingKey": {
+    "comment": "Agent pane: missing-access card button while the API key sheet is open or the key is being saved",
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "جارٍ إضافة المفتاح…"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Dodavanje ključa…"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Tilføjer nøgle…"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Schlüssel wird hinzugefügt …"
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Adding key…"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Añadiendo clave…"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Ajout de la clé…"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Aggiunta chiave…"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "キーを追加中…"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "កំពុងបន្ថែម key…"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "키 추가 중…"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Legger til nøkkel …"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Dodawanie klucza…"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Adicionando chave…"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Добавление ключа…"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "กำลังเพิ่มคีย์…"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Anahtar ekleniyor…"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Додавання ключа…"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Đang thêm khóa…"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "正在添加密钥…"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "正在新增金鑰…"
+        }
+      }
+    }
+  },
+  "access.useCredits": {
+    "comment": "Agent pane: missing-access card button; moves the chat onto the cmux model router, paid from cmux credits",
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "استخدام أرصدة cmux"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Koristi cmux kredite"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Brug cmux-kreditter"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux-Guthaben nutzen"
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Use cmux credits"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Usar créditos de cmux"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Utiliser les crédits cmux"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Usa i crediti cmux"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux クレジットを使う"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "ប្រើ cmux credits"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux 크레딧 사용"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Bruk cmux-kreditter"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Użyj kredytów cmux"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Usar créditos cmux"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Использовать кредиты cmux"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "ใช้เครดิต cmux"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux kredisi kullan"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Використати кредити cmux"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Dùng tín dụng cmux"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "使用 cmux 额度"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "使用 cmux 額度"
+        }
+      }
+    }
+  },
+  "access.movingToCredits": {
+    "comment": "Agent pane: missing-access card button while the chat moves onto the cmux model router",
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "جارٍ الانتقال إلى أرصدة cmux…"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Prelazak na cmux kredite…"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Skifter til cmux-kreditter…"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Wechsel zu cmux-Guthaben …"
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Moving to cmux credits…"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Pasando a créditos de cmux…"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Passage aux crédits cmux…"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Passaggio ai crediti cmux…"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux クレジットに切り替え中…"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "កំពុងប្ដូរទៅ cmux credits…"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux 크레딧으로 전환 중…"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Bytter til cmux-kreditter …"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Przechodzenie na kredyty cmux…"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Mudando para créditos cmux…"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Переход на кредиты cmux…"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "กำลังเปลี่ยนไปใช้เครดิต cmux…"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux kredisine geçiliyor…"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Перехід на кредити cmux…"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Đang chuyển sang tín dụng cmux…"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "正在切换到 cmux 额度…"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "正在切換到 cmux 額度…"
+        }
+      }
+    }
+  },
+  "access.paying": {
+    "comment": "Agent pane: missing-access card while the person pays for cmux credits on the checkout page",
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "أكمل الدفع في صفحة الدفع. ستستمر المحادثة عند وصول الأرصدة."
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Završite plaćanje na stranici za plaćanje. Chat se nastavlja kada krediti stignu."
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Gør betalingen færdig på betalingssiden. Chatten fortsætter, når kreditterne er ankommet."
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Schließe die Zahlung auf der Bezahlseite ab. Der Chat geht weiter, sobald das Guthaben da ist."
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Finish paying on the checkout page. The chat goes on once the credits arrive."
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Termina el pago en la página de pago. El chat continúa cuando lleguen los créditos."
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Terminez le paiement sur la page de paiement. Le chat reprend dès que les crédits arrivent."
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Completa il pagamento nella pagina di pagamento. La chat riprende quando arrivano i crediti."
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "支払いページでお支払いを完了してください。クレジットが届くとチャットが続きます。"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "បញ្ចប់ការបង់ប្រាក់នៅទំព័រ checkout។ ការជជែកនឹងបន្តពេល credits មកដល់។"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "결제 페이지에서 결제를 마치세요. 크레딧이 도착하면 채팅이 이어집니다."
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Fullfør betalingen på betalingssiden. Chatten fortsetter når kredittene har kommet."
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Dokończ płatność na stronie płatności. Czat będzie kontynuowany, gdy kredyty dotrą."
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Conclua o pagamento na página de checkout. O chat continua assim que os créditos chegarem."
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Завершите оплату на странице оплаты. Чат продолжится, когда поступят кредиты."
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "ชำระเงินให้เสร็จในหน้าชำระเงิน แชตจะทำงานต่อเมื่อเครดิตเข้าแล้ว"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Ödemeyi ödeme sayfasında tamamlayın. Krediler gelince sohbet devam eder."
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Завершіть оплату на сторінці оплати. Чат продовжиться, щойно надійдуть кредити."
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Hãy hoàn tất thanh toán trên trang thanh toán. Cuộc trò chuyện sẽ tiếp tục khi tín dụng đến."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "请在结账页面完成付款。额度到账后聊天会继续。"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "請在結帳頁面完成付款。額度入帳後聊天會繼續。"
+        }
+      }
+    }
+  },
+  "access.added": {
+    "comment": "Agent pane: missing-access card after a top-up; {seconds} is the time from the click to usable credits",
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "أُضيفت الأرصدة خلال {seconds} ث. جارٍ الإرسال مرة أخرى…"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Krediti dodani za {seconds} s. Ponovno slanje…"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Kreditter tilføjet på {seconds} s. Sender igen…"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Guthaben in {seconds} s hinzugefügt. Wird erneut gesendet …"
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Credits added in {seconds} s. Sending again…"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Créditos añadidos en {seconds} s. Enviando de nuevo…"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Crédits ajoutés en {seconds} s. Nouvel envoi…"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Crediti aggiunti in {seconds} s. Nuovo invio…"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "{seconds} 秒でクレジットを追加しました。再送信中…"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "បានបន្ថែម credits ក្នុង {seconds} វិ។ កំពុងផ្ញើម្ដងទៀត…"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "{seconds}초 만에 크레딧이 추가되었습니다. 다시 보내는 중…"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Kreditter lagt til på {seconds} s. Sender på nytt …"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Kredyty dodane w {seconds} s. Ponowne wysyłanie…"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Créditos adicionados em {seconds} s. Enviando de novo…"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Кредиты добавлены за {seconds} с. Отправка снова…"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "เพิ่มเครดิตแล้วใน {seconds} วินาที กำลังส่งอีกครั้ง…"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Krediler {seconds} sn içinde eklendi. Yeniden gönderiliyor…"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Кредити додано за {seconds} с. Повторне надсилання…"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Đã nạp tín dụng trong {seconds} giây. Đang gửi lại…"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "已在 {seconds} 秒内充值。正在重新发送…"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "已在 {seconds} 秒內儲值。正在重新傳送…"
+        }
+      }
+    }
+  },
+  "access.failed": {
+    "comment": "Agent pane: missing-access card when a way out failed; {error} is why",
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "لم ينجح ذلك: {error}"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "To nije uspjelo: {error}"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Det virkede ikke: {error}"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Das hat nicht geklappt: {error}"
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "That didn't work: {error}"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "No funcionó: {error}"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Cela n’a pas fonctionné : {error}"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Non ha funzionato: {error}"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "うまくいきませんでした: {error}"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "វាមិនដំណើរការទេ៖ {error}"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "실패했습니다: {error}"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Det virket ikke: {error}"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Nie udało się: {error}"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Não funcionou: {error}"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Не получилось: {error}"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "ไม่สำเร็จ: {error}"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Bu işe yaramadı: {error}"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Не вдалося: {error}"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Không thành công: {error}"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "操作失败：{error}"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "操作失敗：{error}"
+        }
+      }
+    }
+  },
+  "access.failedGeneric": {
+    "comment": "Agent pane: missing-access card when a way out failed and the host gave no reason",
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "تعذّر على cmux إكمال ذلك. حاول مرة أخرى."
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux ovo nije mogao završiti. Pokušajte ponovo."
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux kunne ikke gøre det færdigt. Prøv igen."
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux konnte das nicht abschließen. Versuche es erneut."
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "cmux couldn't finish this. Try again."
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux no pudo terminar esto. Inténtalo de nuevo."
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux n’a pas pu terminer. Réessayez."
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux non è riuscito a completare. Riprova."
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux はこれを完了できませんでした。もう一度お試しください。"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux មិនអាចបញ្ចប់វាបានទេ។ សូមព្យាយាមម្ដងទៀត។"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux가 이 작업을 끝내지 못했습니다. 다시 시도하세요."
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux kunne ikke fullføre dette. Prøv igjen."
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux nie mógł tego dokończyć. Spróbuj ponownie."
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "O cmux não conseguiu concluir isso. Tente de novo."
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux не удалось это завершить. Попробуйте снова."
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux ทำรายการนี้ไม่สำเร็จ ลองอีกครั้ง"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux bunu tamamlayamadı. Yeniden deneyin."
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux не вдалося це завершити. Спробуйте ще раз."
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux không thể hoàn tất việc này. Hãy thử lại."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux 无法完成此操作。请重试。"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "cmux 無法完成此操作。請再試一次。"
+        }
+      }
+    }
+  },
     "composer.speedLabel": {
       "comment": "Agent pane: the composer's speed toggle (lightning bolt left of the mic); {tier} is Standard, Fast or Ultrafast",
       "extractionState": "manual",

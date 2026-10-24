@@ -42,7 +42,9 @@ public nonisolated struct AgentPageOps {
             "transport.open", "transport.send", "transport.close", "transport.gesture", "transport.gesture.release",
             "chat.missing", "uiPointer.report",
         ].map { ($0, $0) })
-        for method in AgentPaneReplyRequest.methods.union(AgentPaneEnvironmentRequest.methods) { methods[method] = method }
+        for method in AgentPaneReplyRequest.methods.union(AgentPaneEnvironmentRequest.methods).union(AgentPaneAccessRequest.methods) {
+            methods[method] = method
+        }
         methods["handshake"] = "ready"
         methods["session.persist"] = "chat.persistSession"
         return methods
