@@ -89,8 +89,10 @@ def open_settings_shot(sim, name):
     path = sim.shot(name)
     texts = visible_texts(sim)
     # Chief's info is pushed (Back); older builds showed a sheet (Done).
-    done = sim.find(ident="chief.settings.done") or [e for e in sim.find(label="Back", kind="Button") if e.frame[1] < 130]
-    sim.tap_el(done[0])
+    done = sim.wait(timeout=10, label="Back", kind="Button") or sim.wait(timeout=2, ident="chief.settings.done")
+    if done is None:
+        raise LookupError("no Back (or Done) on Chief's info")
+    sim.tap_el(done)
     time.sleep(1.0)
     return path, texts
 

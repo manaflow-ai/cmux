@@ -28,6 +28,7 @@ import argparse
 import datetime
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -97,9 +98,13 @@ def measure(sim, name):
 
 
 def open_chief(j):
+    """Home > the Mac's Chief (the rig Mac's own Chief over the link)."""
     j.back_to_list()
     j.tab("Home")
-    j.sim.tap_q(ident="home.chief")
+    tile = j.sim.wait(ident="home.chief.mac", timeout=90)
+    if not tile:
+        raise RuntimeError("Home never showed the Mac's Chief (home.chief.mac)")
+    j.sim.tap_el(tile)
     t = time.time()
     while time.time() - t < 30:
         els = j.sim.tree()
@@ -107,6 +112,19 @@ def open_chief(j):
             return True
         time.sleep(0.5)
     return False
+
+
+DISCONNECTED = re.compile(r"isn.t connected|Not connected|Connect to your Mac|didn.t answer|Reconnecting|offline", re.I)
+
+
+def wait_disconnected(sim, timeout=120):
+    t = time.time()
+    while time.time() - t < timeout:
+        hits = [e.label for e in sim.tree() if e.label and DISCONNECTED.search(e.label)]
+        if hits:
+            return hits[0], time.time() - t
+        time.sleep(1.0)
+    return None, time.time() - t
 
 
 def open_info(sim):
@@ -174,59 +192,64 @@ def main():  # noqa: C901 - one live scenario
         else:
             steps = j.run(only={"fresh_install", "sign_in", "choose_space", "mac_discovered"})
         log(f"setup: {[(s['id'], s['status']) for s in steps]}")
+        if any(st["status"] != "pass" for st in steps):
+            raise RuntimeError(f"setup failed: {steps}")
         appearance(udid, "light")
         loaded = open_chief(j)
         log(f"Chief loaded: {loaded}")
         name = "Chief"
+        if not open_info(sim):
+            raise RuntimeError("Chief's info never opened")
+        # Connected: the engine read settles (model rows), then each appearance.
+        sim.wait(timeout=30, ident="chief.settings.harness")
 
-        for state in ("connected", "disconnected"):
-            if state == "disconnected":
-                close_info(sim)
-                j.back_to_list()
-                mac.quit()
-                log("rig Mac quit")
-                time.sleep(8)
-                open_chief(j)
+        def capture(state):
             for mode in ("light", "dark"):
                 appearance(udid, mode)
-                if not sim.find(ident="chief.settings"):
-                    if not open_info(sim):
-                        log(f"{state}/{mode}: info never opened")
-                        continue
                 m = measure(sim, name)
                 m["shot"] = sim.shot(f"{a.label}-{state}-{mode}")
                 result["states"][f"{state}-{mode}"] = m
                 log(f"{state}/{mode}: {json.dumps({k: v for k, v in m.items() if k != 'texts'})}")
             appearance(udid, "light")
 
-            if state == "connected" and sim.find(ident="chief.settings.message"):
-                # The controls still act (the new page only).
-                hide = sim.find(ident="chief.settings.hideAlerts")
-                if hide:
-                    before = hide[0].value
-                    sim.tap_el(hide[0]); time.sleep(1.2)
-                    after = (sim.find(ident="chief.settings.hideAlerts") or [hide[0]])[0].value
-                    sim.tap_el(sim.find(ident="chief.settings.hideAlerts")[0]); time.sleep(1.2)
-                    restored = sim.find(ident="chief.settings.hideAlerts")[0].value
-                    result["checks"]["hide_alerts_toggles"] = {"before": before, "after": after, "restored": restored,
-                                                               "pass": before != after and before == restored}
-                result["checks"]["model_controls"] = [e.ident for e in sim.tree() if (e.ident or "").startswith("chief.settings.") and
-                                                      e.ident.split(".")[-1] in ("harness", "model", "effort", "lastModel")]
-                edit = sim.find(ident="chief.settings.edit")
-                if edit:
-                    sim.tap_el(edit[0]); time.sleep(1.5)
-                    result["checks"]["edit_opens_name"] = bool(sim.find(ident="chief.settings.name"))
-                    sim.shot(f"{a.label}-edit")
-                    close_info(sim)
-                # Edge swipe back, then reopen.
-                sim.drag(2, 450, 330, 450, 0.5, 30, 0.1); time.sleep(1.5)
-                result["checks"]["edge_swipe_pops"] = bool(sim.find(ident="conversation.transcript")) and not sim.find(ident="chief.settings")
-                open_info(sim)
-                sim.tap_q(ident="chief.settings.message"); time.sleep(2.0)
-                result["checks"]["message_returns_with_keyboard"] = bool(sim.find(ident="conversation.transcript")) and bool(sim.keyboard())
-                sim.shot(f"{a.label}-message")
-                j.hide_keyboard()
-                open_info(sim)
+        capture("connected")
+        if sim.find(ident="chief.settings.message"):
+            # The controls still act (the new page only).
+            hide = sim.find(ident="chief.settings.hideAlerts")
+            if hide:
+                before = hide[0].value
+                sim.tap_el(hide[0]); time.sleep(1.5)
+                after = sim.find(ident="chief.settings.hideAlerts")[0].value
+                sim.tap_el(sim.find(ident="chief.settings.hideAlerts")[0]); time.sleep(1.5)
+                restored = sim.find(ident="chief.settings.hideAlerts")[0].value
+                result["checks"]["hide_alerts_toggles"] = {"before": before, "after": after, "restored": restored,
+                                                           "pass": before != after and before == restored}
+            result["checks"]["model_controls"] = [e.ident for e in sim.tree() if (e.ident or "").split(".")[-1]
+                                                  in ("harness", "model", "effort", "lastModel")]
+            edit = sim.find(ident="chief.settings.edit")
+            if edit:
+                sim.tap_el(edit[0]); time.sleep(1.5)
+                result["checks"]["edit_opens_name"] = bool(sim.find(ident="chief.settings.name"))
+                sim.shot(f"{a.label}-edit")
+                close_info(sim)
+            # The edge swipe pops back to the conversation.
+            sim.drag(2, 450, 330, 450, 0.5, 30, 0.1); time.sleep(1.5)
+            result["checks"]["edge_swipe_pops"] = bool(sim.find(ident="conversation.transcript")) and not sim.find(ident="chief.settings")
+            open_info(sim)
+            sim.tap_q(ident="chief.settings.message"); time.sleep(2.0)
+            result["checks"]["message_returns_with_keyboard"] = bool(sim.find(ident="conversation.transcript")) and bool(sim.keyboard())
+            sim.shot(f"{a.label}-message")
+            j.hide_keyboard()
+            open_info(sim)
+            log(f"checks: {json.dumps(result['checks'])}")
+
+        # Disconnected: the rig Mac quits with the page open.
+        mac.quit()
+        text, took = wait_disconnected(sim)
+        log(f"rig Mac quit; page says {text!r} after {took:.1f} s")
+        result["disconnected_after_s"] = round(took, 1)
+        time.sleep(2)
+        capture("disconnected")
     finally:
         appearance(udid, "light")
         try:

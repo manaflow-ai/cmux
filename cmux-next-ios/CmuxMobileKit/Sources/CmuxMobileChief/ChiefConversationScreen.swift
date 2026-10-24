@@ -73,6 +73,8 @@ public struct ChiefConversationScreen: View {
 /// button (it focuses the composer once the pop settles).
 @MainActor final class ChiefScreenLink {
     weak var container: ChiefConversationContainer?
+    /// The route's composer focus was handed to a container already.
+    var focusedComposer = false
 }
 
 /// Chief's service line in the transcript's start header, replacing
@@ -100,7 +102,10 @@ struct ChiefConversationController: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> ChiefConversationContainer {
         let conversation = ConversationViewController(store: session.store, options: .chief)
         let container = ChiefConversationContainer(conversation: conversation, session: session)
-        container.focusesComposerOnAppear = focusesComposer
+        // Home's compose focuses the composer once: a container rebuilt on a
+        // new store (Try Again) opens without the keyboard.
+        container.focusesComposerOnAppear = focusesComposer && !link.focusedComposer
+        link.focusedComposer = true
         container.openInfo = openInfo
         link.container = container
         configure(conversation)
@@ -594,9 +599,18 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     /// SwiftUI turns the edge pop off again whenever it updates the hidden
     /// bar (appear and layout), as the workspace screen found
     /// (verify/navigation.md), so it is re-enabled on every layout.
+    /// Covered by a pushed page (Chief's info): its view stays in the window
+    /// through the push, and the back swipes belong to the page on top.
+    private var isCovered = false
+
+    public override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        isCovered = false
+    }
+
     public override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        if view.window != nil { enableEdgePop() }
+        if view.window != nil, !isCovered { enableEdgePop() }
         labelTrailing()
         layoutQuestionBar()
         anchorLiveBubble()
@@ -689,6 +703,7 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
 
     public override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        isCovered = true
         // Unsent text goes with the session to a rebuilt screen (it reads it on appear).
         session.carryComposerText(composerTextView?.text ?? "")
         // Hand the recognizers back to their own delegates for the next screen.

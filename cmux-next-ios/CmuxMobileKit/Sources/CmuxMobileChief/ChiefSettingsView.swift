@@ -125,7 +125,7 @@ public struct ChiefSettingsView: View {
             VStack(spacing: 0) {
                 ChiefAvatar(text: session.avatar, size: ChiefInfoGeometry.avatarSize)
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(Text("Chief's avatar"))
+                    .accessibilityLabel(Text("Avatar, \(session.avatar)"))
                     .accessibilityAddTraits(.isImage)
                     .accessibilityIdentifier("chief.settings.avatarImage")
                     .padding(.bottom, ChiefInfoGeometry.titleTopFromAvatar - ChiefInfoGeometry.avatarSize)
@@ -150,7 +150,10 @@ public struct ChiefSettingsView: View {
             .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { top in
                 // Measured on the row's own frame (outside the pull), so the
                 // pull does not move what it is measured from.
-                let rest = top + scrolled
+                // Only at rest: while scrolling, this and the scroll offset
+                // may arrive in either order within a frame.
+                guard abs(scrolled) < 0.5 else { return }
+                let rest = top
                 guard rest > 0, abs(rest - restRowTop) > 0.5 else { return }
                 restRowTop = rest
                 Self.lastRestRowTop = rest
@@ -172,7 +175,7 @@ public struct ChiefSettingsView: View {
             }
             if !session.runsInCloud {
                 ChiefQuickAction(symbol: "stop.fill", title: String(localized: "Stop"),
-                                 enabled: hasControl && (session.isTyping || stopping) && !stopping,
+                                 enabled: hasControl && session.isTyping && !stopping,
                                  busy: stopping) { Task { await stop() } }
                     .accessibilityIdentifier("chief.settings.stop")
             }
@@ -548,6 +551,7 @@ struct ChiefQuickAction: View {
         .buttonStyle(.plain)
         .disabled(!enabled)
         .accessibilityLabel(title)
+        .accessibilityValue(busy ? Text("In progress") : Text(""))
     }
 }
 
