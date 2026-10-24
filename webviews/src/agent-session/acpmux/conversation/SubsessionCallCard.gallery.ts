@@ -43,25 +43,8 @@ const startedResult = (id: string, shortName: string, harness: string) => ({
   harness,
   mode: "bypassPermissions",
   name: `claude-sr2/${shortName}`,
-  session: {
-    children: 0,
-    depth: 1,
-    doing: `Working on: You are ${shortName}, a lane started by the coordinator…`,
-    harness,
-    indicator: "working",
-    lastTurn: null,
-    name: `claude-sr2/${shortName}`,
-    pendingPermissions: 0,
-    questions: [],
-    queued: 0,
-    sessionId: id,
-    shortName,
-    state: "working",
-    status: "running",
-    title: shortName,
-    waitingOn: null,
-    waitsForSlot: false,
-  },
+  // The started session's row, its other fields left out.
+  session: { children: 0, depth: 1, doing: `Working on: You are ${shortName}…`, harness, sessionId: id, state: "working" },
   sessionId: id,
   shortName,
   turnId: `${id}-turn`,
@@ -72,13 +55,8 @@ const startedResult = (id: string, shortName: string, harness: string) => ({
 const REVIEW_REPLY = [
   "**Verdict: SHIP** at `bffefae`. No blocking issues; one comment posted on the PR.",
   "",
-  "This was a read-only review: I built and ran nothing locally.",
-  "",
-  "**Create:**",
   "- Only one of `tabs`, `workspace` or `workspaces` is accepted.",
   "- A replay is checked first, ids are deduped, and the name is trimmed.",
-  "",
-  "**Restore:** members reopen as their own workspaces for both targets.",
 ].join("\n");
 
 const started = (shortName: string, id: string) =>
@@ -207,33 +185,6 @@ export default agentPaneEntry({
             1.8,
           ),
           assistant("The review says SHIP; net-retries is still working.", 1.5),
-        ],
-        { isWorking: true },
-      ),
-    },
-    "recorded-list": {
-      note: "A list_sessions through the cmux server: each sub-session's card with its live state.",
-      snapshot: withChildren(
-        [
-          user("What are the lanes doing?", 2),
-          activity(
-            [
-              viaCmux(
-                "list_sessions",
-                {},
-                {
-                  self: { depth: 0, sessionId: SESSION_ID },
-                  sessions: [
-                    { sessionId: "sub-retries", shortName: "net-retries", harness: "claude", state: "working" },
-                    { sessionId: "sub-docs", shortName: "docs", harness: "claude", state: "input" },
-                    { sessionId: "sub-review", shortName: "review", harness: "codex", state: "idle" },
-                  ],
-                },
-              ),
-            ],
-            1.8,
-          ),
-          assistant("Three lanes: one working, docs waiting on you, review done.", 1.5),
         ],
         { isWorking: true },
       ),

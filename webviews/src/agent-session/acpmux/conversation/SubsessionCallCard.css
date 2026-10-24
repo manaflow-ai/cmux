@@ -13,9 +13,6 @@
 }
 .cv-subsession__markdown {
   margin-top: 2px;
-  color: var(--cv-text-muted);
-  font-size: var(--text-detail);
-  line-height: var(--text-detail--line-height);
   overflow-wrap: anywhere;
   user-select: text;
   -webkit-user-select: text;
@@ -56,14 +53,8 @@
 .cv-subsession__toggle:hover,
 .cv-subsession__toggle:focus-visible {
   color: var(--cv-text);
-}
-.cv-subsession__toggle:focus-visible {
   text-decoration: underline;
   text-underline-offset: 2px;
-}
-/* A wait's or a list's Raw sits under its last card. */
-.cv-subsession__cards > .cv-subsession__raw {
-  margin-bottom: 4px;
 }
 .cv-subsession__raw > .cv-mcp-call {
   margin-top: 2px;

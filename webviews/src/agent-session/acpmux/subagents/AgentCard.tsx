@@ -1,9 +1,6 @@
-// A sub-session as the transcript's cards draw it (conversation/SubsessionCallCard.tsx): a glass
-// card with its harness's mark, its name, the model it runs, its state (the working spinner while
-// its turn runs, never a dot; "Waiting on you"; Done; Failed), what its turn does now under that,
-// and "Open chat", which opens its chat beside this one without taking focus. What the card adds
-// (a prompt, a reply, the call's raw JSON) comes as `children`. Its state is read live by the
-// caller from the session list (subsessions.ts `useSubsessionInfo`); the card itself reads nothing.
+// A sub-session as the transcript's cards draw it (conversation/SubsessionCallCard.tsx): its
+// harness's mark, name, model, state (the working spinner, never a dot), what its turn does now, and
+// "Open chat". The caller reads its state live (subsessions.ts) and adds a prompt or a reply below.
 import type { ReactNode } from "react";
 import { AgentMark, knownMark } from "../../shared/AgentMark";
 import { Spinner } from "../conversation/icons";

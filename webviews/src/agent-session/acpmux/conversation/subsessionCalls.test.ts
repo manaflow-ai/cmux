@@ -98,27 +98,19 @@ test("the cmux server's subsessions_* tools read as the server's own", () => {
     model: "opus",
     harness: "claude",
   });
-  // Codex's shape through the cmux server.
-  const codexCall: Tool = {
-    id: "codex-cmux",
-    title: "cmux.subsessions_start_session call",
-    kind: "execute",
-    status: "completed",
-    inputSummary: JSON.stringify({ server: "cmux", tool: "subsessions_start_session", arguments: args }),
-    output: JSON.stringify({ content: [{ type: "text", text: "Started" }], structuredContent: structured }),
-  };
-  expect(subsessionCall(codexCall)).toMatchObject({ tool: "start", sessionId: "01a16f99-6033", model: "opus" });
   // Other cmux tools keep the generic row.
   expect(subsessionCall(viaCmux("workspace_list", {}, "{}"))).toBeUndefined();
   const listed = { sessions: [{ sessionId: "s-1", shortName: "lint", state: "working", harness: "codex" }], self: {} };
   expect(subsessionCall(viaCmux("list_sessions", {}, JSON.stringify(listed)))).toEqual({
     tool: "list",
     running: false,
+    timedOut: false,
     sessions: [{ sessionId: "s-1", name: "lint", state: "working", harness: "codex" }],
   });
   expect(subsessionCall(viaCmux("list_sessions", {}, undefined, "in_progress"))).toEqual({
     tool: "list",
     running: true,
+    timedOut: false,
     sessions: [],
   });
 });

@@ -14,10 +14,6 @@
   color: var(--cv-text);
   min-width: 0;
 }
-/* Cards in one call (a wait's, a list's) stack with less space between them. */
-.cv-agent-card + .cv-agent-card {
-  margin-top: -2px;
-}
 .cv-agent-card__head {
   display: flex;
   align-items: center;
@@ -47,7 +43,6 @@
 }
 .cv-agent-card__state {
   display: inline-flex;
-  align-items: center;
   gap: 4px;
 }
 .cv-agent-card__state[data-state="input"] {
@@ -67,8 +62,6 @@
 .cv-agent-card__open:hover,
 .cv-agent-card__open:focus-visible {
   color: var(--cv-text);
-}
-.cv-agent-card__open:focus-visible {
   text-decoration: underline;
   text-underline-offset: 2px;
 }

@@ -42,8 +42,8 @@ export type SubsessionCall =
       model?: string;
     }
   | { tool: "send"; running: boolean; sessionId: string; text: string; delivery?: SubsessionDelivery }
-  | { tool: "wait"; running: boolean; timedOut: boolean; sessions: SubsessionReply[] }
-  | { tool: "list"; running: boolean; sessions: SubsessionReply[] };
+  /// A wait's or a list's sub-sessions (a list never times out).
+  | { tool: "wait" | "list"; running: boolean; timedOut: boolean; sessions: SubsessionReply[] };
 
 /// A row's doing line while its session waits on a question, with the question's first prompt.
 const QUESTION_DOING = /^Waiting for the user to answer, in the app: (.+)$/s;
@@ -92,48 +92,33 @@ export function subsessionCall(tool: Tool, call: McpCall | undefined = mcpCall(t
       if (!running && !delivery) return undefined;
       return { tool: "send", running, sessionId, text: message, ...(delivery && { delivery }) };
     }
+    case "list_sessions":
     case "wait_for_sessions": {
-      if (running) return { tool: "wait", running, timedOut: false, sessions: [] };
-      if (result?.text.trim() === "None of your sub-sessions is running.")
-        return { tool: "wait", running, timedOut: false, sessions: [] };
-      const sessions = replies(result?.value?.sessions);
-      if (!sessions) return undefined;
-      return { tool: "wait", running, timedOut: result!.value!.timedOut === true, sessions };
-    }
-    case "list_sessions": {
-      if (running) return { tool: "list", running, sessions: [] };
-      const sessions = replies(result?.value?.sessions);
-      return sessions && { tool: "list", running, sessions };
+      const kind = name === "wait_for_sessions" ? "wait" : "list";
+      const none = { tool: kind, running, timedOut: false, sessions: [] } as SubsessionCall;
+      if (running) return none;
+      if (result?.text.trim() === "None of your sub-sessions is running.") return none;
+      const rows = result?.value?.sessions;
+      if (!Array.isArray(rows)) return undefined;
+      const sessions = rows.filter(isRecord).flatMap((row): SubsessionReply[] => {
+        const id = text(row.sessionId);
+        if (!id) return [];
+        const name = text(row.shortName) ?? text(row.name);
+        const reply = text(typeof row.lastReply === "string" ? row.lastReply.trim() : undefined);
+        const state = rowState(row);
+        // A question's first prompt is in the row's doing line (subsession_send.rs `doing`).
+        const asked = typeof row.doing === "string" ? QUESTION_DOING.exec(row.doing)?.[1] : undefined;
+        const waiting =
+          state === "input" ? sessionWaiting({ waitingOn: row.waitingOn, waitingPrompt: asked }) : undefined;
+        const harness = text(row.harness);
+        const more = { ...(waiting && { waiting }), ...(harness && { harness }) };
+        return [{ sessionId: id, ...(name && { name }), state, ...(reply && { reply }), ...more }];
+      });
+      return { tool: kind, running, timedOut: result!.value!.timedOut === true, sessions };
     }
     default:
       return undefined;
   }
-}
-
-/// The family rows a wait or a list read (`subsession_row`), as the cards show them.
-function replies(rows: unknown): SubsessionReply[] | undefined {
-  if (!Array.isArray(rows)) return undefined;
-  return rows.filter(isRecord).flatMap((row): SubsessionReply[] => {
-    const id = text(row.sessionId);
-    if (!id) return [];
-    const name = text(row.shortName) ?? text(row.name);
-    const reply = text(typeof row.lastReply === "string" ? row.lastReply.trim() : undefined);
-    const state = rowState(row);
-    // A question's first prompt is in the row's doing line (subsession_send.rs `doing`).
-    const asked = typeof row.doing === "string" ? QUESTION_DOING.exec(row.doing)?.[1] : undefined;
-    const waiting = state === "input" ? sessionWaiting({ waitingOn: row.waitingOn, waitingPrompt: asked }) : undefined;
-    const harness = text(row.harness);
-    return [
-      {
-        sessionId: id,
-        ...(name && { name }),
-        state,
-        ...(reply && { reply }),
-        ...(waiting && { waiting }),
-        ...(harness && { harness }),
-      },
-    ];
-  });
 }
 
 /// A family row's state (`subsession_row`): its lane, `working`, `input`, `failed`, `lost` or `idle`.

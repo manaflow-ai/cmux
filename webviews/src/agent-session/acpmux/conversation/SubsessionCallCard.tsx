@@ -1,13 +1,8 @@
 // A call to the cmux-subsessions tools (subsessionCalls.ts) as the sub-sessions it touched, never
-// its JSON: a `start_session` as the sub-session's card (subagents/AgentCard.tsx: its harness's
-// mark, name, model, live state and what its turn does now, "Open chat") over what it was asked,
-// as Markdown cut to three lines with "Show prompt"; a wait or a list as each sub-session's card,
-// a finished one's last reply under it as Markdown, cut the same way; a message sent to one as
-// "→ tests: <first line> · read at its next step", which opens to the whole message. The state is
-// live from the session list (subagents/subsessions.ts), read per card, so a session changing
-// redraws its own card and nothing else. The call's request and response, as the generic MCP row
-// shows them (McpCallRows.tsx), stay behind "Raw". A call still running is one line with the
-// working spinner.
+// its JSON: a start as the sub-session's card (subagents/AgentCard.tsx) over its prompt as Markdown
+// cut to three lines; a wait or a list as each one's card, a finished one's reply under it; a
+// message as "→ tests: <first line>", which opens to all of it. Each card reads its state live from
+// the session list (subagents/subsessions.ts). The call's JSON stays behind "Raw".
 import type { ReactNode } from "react";
 import { useContext, useId, useMemo, useState } from "react";
 import { type Translate, useT } from "../i18n";
@@ -104,23 +99,15 @@ function StartedCard({ call, tool }: { call: Extract<SubsessionCall, { tool: "st
       // Until the call returns, the sub-session is starting: the working spinner.
       fallback={call.running ? { state: "working" } : undefined}
     >
-      {call.prompt && <Cut text={call.prompt} more="subsession.showPrompt" less="subsession.hidePrompt" />}
+      {call.prompt && <Cut text={call.prompt} prompt />}
       <Raw tool={tool} />
     </SessionCard>
   );
 }
 
-/// Markdown cut to its first three lines, with a toggle to show the rest when there is more. The
-/// cut is the source's (its lines and length), so nothing measures the page.
-function Cut({
-  text,
-  more = "message.more",
-  less = "message.less",
-}: {
-  text: string;
-  more?: "subsession.showPrompt" | "message.more";
-  less?: "subsession.hidePrompt" | "message.less";
-}) {
+/// Markdown cut to its first three lines, with a toggle to show the rest when there is more (a
+/// prompt's "Show prompt"). The cut is the source's (its lines and length): nothing measures the page.
+function Cut({ text, prompt }: { text: string; prompt?: boolean }) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const id = useId();
@@ -141,7 +128,7 @@ function Cut({
           aria-controls={id}
           onClick={() => setOpen((value) => !value)}
         >
-          {t(open ? less : more)}
+          {t(open ? "message.less" : prompt ? "subsession.showPrompt" : "message.more")}
         </button>
       )}
     </div>
