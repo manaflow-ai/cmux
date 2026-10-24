@@ -6982,7 +6982,7 @@
    },
    "additional_properties": false,
    "constraints": [
-    "accepted: the viewer's next attach event is a READY snapshot. collapsed: a snapshot is already pending and answers this request. snapshot_throttled: the viewer got a snapshot less than 500 ms ago; retry after retry_after_ms. Every status echoes request_id."
+    "accepted: the viewer's next attach event is a READY snapshot. collapsed: a snapshot is already pending and answers this request. snapshot_throttled: the viewer got a snapshot less than 500 ms ago; the request is held and its snapshot is sent when the interval ends, in retry_after_ms (no retry needed). Every status echoes request_id."
    ]
   },
   "RowMarkerPoint": {

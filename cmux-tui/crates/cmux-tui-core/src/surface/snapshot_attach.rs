@@ -140,7 +140,9 @@ pub(crate) enum SnapshotAdmission {
     Accepted,
     /// A snapshot is already pending; this request is answered by it.
     Collapsed,
-    /// Refused: the viewer got a snapshot less than 500 ms ago.
+    /// Held: the viewer got a snapshot less than 500 ms ago. The snapshot is
+    /// sent when the interval ends, `retry_after_ms` from now (or earlier, by
+    /// any snapshot sent before then); the client never needs to ask again.
     Throttled { retry_after_ms: u64 },
     /// The viewer is gone.
     NotAttached,
@@ -178,6 +180,13 @@ impl SnapshotRequestGate {
         if let Some(last) = state.last_snapshot_at {
             let next = last + SNAPSHOT_REQUEST_MIN_INTERVAL;
             if now < next {
+                // Hold the request until the interval ends: a client that
+                // never reads this reply (it dropped output until the READY)
+                // still gets its snapshot.
+                if !self.handle.request_at(next) {
+                    return SnapshotAdmission::NotAttached;
+                }
+                state.pending = true;
                 let wait = next - now;
                 return SnapshotAdmission::Throttled {
                     retry_after_ms: wait.as_millis().max(1) as u64,

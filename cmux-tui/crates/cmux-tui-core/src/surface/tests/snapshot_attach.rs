@@ -134,7 +134,66 @@ fn snapshot_requests_are_throttled_per_viewer() {
         gate.request(start + Duration::from_millis(200)),
         SnapshotAdmission::Throttled { retry_after_ms: 300 }
     );
-    assert_eq!(gate.request(start + SNAPSHOT_REQUEST_MIN_INTERVAL), SnapshotAdmission::Accepted);
+    // The throttled request is held, not dropped: a later one joins it.
+    assert_eq!(gate.request(start + SNAPSHOT_REQUEST_MIN_INTERVAL), SnapshotAdmission::Collapsed);
+}
+
+/// A resync within 500 ms of the last READY still ends with a READY. The app
+/// drops a view's output from a gap until its READY and never reads the
+/// `snapshot_throttled` reply, so a throttled request that is not held froze
+/// the view until the next resize (review of 0ade7bf4318, M1). No output
+/// follows the request here: only the held request's due time wakes the
+/// viewer.
+#[test]
+fn a_throttled_snapshot_request_is_served_when_its_interval_ends() {
+    let lifecycle = AttachLifecycle::default();
+    let (_tap, receiver) = AttachTap::snapshot_pair(lifecycle, 16, 1 << 20);
+    let gate = SnapshotRequestGate::new(receiver.snapshot_request_handle());
+    assert!(is_snapshot(&next_event(&receiver)), "the attach READY comes first");
+    receiver.finish_snapshot_locked();
+    let ready_at = Instant::now();
+    gate.sent(ready_at);
+    let admission = gate.request(Instant::now());
+    assert!(
+        matches!(admission, SnapshotAdmission::Throttled { .. }),
+        "a request right after the READY is throttled: {admission:?}"
+    );
+    let event = next_event(&receiver);
+    let served_at = Instant::now();
+    assert!(is_snapshot(&event), "the held request was not served");
+    assert!(
+        served_at >= ready_at + SNAPSHOT_REQUEST_MIN_INTERVAL,
+        "the held snapshot came before the interval ended ({:?})",
+        served_at - ready_at
+    );
+    receiver.finish_snapshot_locked();
+    gate.sent(served_at);
+    // Served once: nothing more is pending.
+    assert!(matches!(receiver.try_recv(), Err(TryRecvError::Empty)));
+}
+
+/// A snapshot sent for another reason (a backlog or grid-change resync)
+/// before the held request is due answers it: no second READY follows.
+#[test]
+fn a_snapshot_sent_before_a_held_request_is_due_answers_it() {
+    let lifecycle = AttachLifecycle::default();
+    let (_tap, receiver) = AttachTap::snapshot_pair(lifecycle, 16, 1 << 20);
+    let gate = SnapshotRequestGate::new(receiver.snapshot_request_handle());
+    receiver.finish_snapshot_locked();
+    gate.sent(Instant::now());
+    assert!(matches!(gate.request(Instant::now()), SnapshotAdmission::Throttled { .. }));
+    // Another resync's snapshot goes out first.
+    receiver.finish_snapshot_locked();
+    gate.sent(Instant::now());
+    let interrupt = StreamInterrupt::new();
+    let event = receiver.recv_viewer_event(
+        &interrupt,
+        Some(Instant::now() + SNAPSHOT_REQUEST_MIN_INTERVAL + Duration::from_millis(200)),
+    );
+    assert!(
+        matches!(event, Err(RecvTimeoutError::Timeout)),
+        "an answered request was served again"
+    );
 }
 
 #[test]
