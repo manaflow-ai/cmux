@@ -26,7 +26,12 @@ sidebar's own counters (`debug.sidebar_perf`) and, with --trace, a Time Profiler
 thread top frames).
 
   sidebar-churn-typing.py --app APP --tag TAG --out DIR [--json DIR/report.json] [--workspaces 150]
-      [--samples 120] [--churn-hz 10] [--trace] [--gate-p95-ms 8]
+      [--samples 120] [--churn-hz 10] [--trace] [--gate-p95-ms 8] [--session light|stress]
+
+--session stress builds the STRESS session (perf-stress-session.py: 60 workspaces, the measured one 4 x 3 panes with
+nested splits, 6 tabs each, Chromium pages, 10 busy terminals) instead of the --workspaces empty ones; the typed
+terminal is the measured workspace's last pane, and the churn rearranges STRESS's 59 other workspaces. STRESS needs
+a 1920 x 1080 main display (split-spring.sh --vdisplay=120). The report quotes the built shape (`stress_session`).
 
 --gate-p95-ms: exit 1 when the churn phase's key-to-frame p95 is over that many ms, or over the idle
 phase's p95 by more than --gate-delta-ms (default 2). --task-diagnostics: launch with
@@ -61,6 +66,10 @@ parser.add_argument("--gate-stall-ms", type=float, help="also exit 1 when a chur
 parser.add_argument("--keep", action="store_true", help="leave the app running")
 parser.add_argument("--input", choices=["debug", "real"], default="debug",
                     help="real: HID-tap key events through the event queue (needs the input grant); debug: debug.key over the socket")
+parser.add_argument("--session", choices=["light", "stress"], default="light",
+                    help="light: --workspaces empty workspaces and a typing workspace; stress: the STRESS session "
+                         "(perf-stress-session.py), the typed terminal in its measured workspace, the churn over its "
+                         "59 other workspaces")
 parser.add_argument("--task-diagnostics", action="store_true",
                     help="record over-budget scheduled tasks with stacks (perturbs the numbers; the report says so)")
 opts = parser.parse_args()
@@ -76,7 +85,7 @@ APP_CLI = os.path.join(opts.app, "Contents/Resources/bin/cmux")
 WINDOW = (40, 40, 1200, 900)
 STATUSES = ["todo", "working", "needs-attention", "review", "done"]
 results = {"tag": opts.tag, "host": os.uname().nodename, "opts": vars(opts), "log": [], "phases": [],
-           "input": opts.input, "perturbed": bool(opts.task_diagnostics)}
+           "input": opts.input, "session": opts.session, "perturbed": bool(opts.task_diagnostics)}
 
 
 def note(text):
@@ -151,6 +160,15 @@ def probe_rows():
             return list(csv.DictReader(handle))
     except OSError:
         return []
+
+
+def load_stress():
+    """scripts/cmux-next/perf-stress-session.py, the shared STRESS builder."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("perf_stress_session", os.path.join(HERE, "perf-stress-session.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 # ---------------------------------------------------------------- churn
@@ -438,24 +456,44 @@ def main():
             raise
         app, SOCKET, CONFIG = bench.process, bench.socket, os.path.join(bench.scratch, "cmux.json")
         t0 = time.monotonic()
+        builder = None
+        if opts.session == "stress":
+            builder = load_stress().Stress(rpc, log=note)
+            results["stress_session"] = builder.build()
+            print("STRESS-SESSION " + json.dumps(results["stress_session"]), flush=True)
         for g in range(opts.groups):
             name = f"churn group {g:02d}"
             cli("workspace", "group", "create", "--name", name)
             groups.append(name)
-        for i in range(opts.workspaces):
-            ref = cli("workspace", "create", "--empty", "--name", f"churn {i:04d}").stdout.strip()
-            if ref:
-                made.append(ref)
-        by_name = {w.get("name") or w.get("title"): w.get("id") for w in workspaces()}
-        ids = [by_name[n] for n in (f"churn {i:04d}" for i in range(opts.workspaces)) if by_name.get(n)]
+        if builder:
+            ids = list(builder.background)  # STRESS's 59 other workspaces are the ones that rearrange
+        else:
+            for i in range(opts.workspaces):
+                ref = cli("workspace", "create", "--empty", "--name", f"churn {i:04d}").stdout.strip()
+                if ref:
+                    made.append(ref)
+            by_name = {w.get("name") or w.get("title"): w.get("id") for w in workspaces()}
+            ids = [by_name[n] for n in (f"churn {i:04d}" for i in range(opts.workspaces)) if by_name.get(n)]
         for index, ws in enumerate(ids):
             if index % 4 != 3:
                 cli("workspace", "group", groups[index % len(groups)], "add", "--workspace", ws)
-        note(f"made {len(ids)} workspaces in {len(groups)} groups in {time.monotonic() - t0:.1f} s")
-        typed = cli("workspace", "create", "--name", "typing", "--focus", "--shell", "exec cat").stdout.strip()
-        by_name = {w.get("name") or w.get("title"): w.get("id") for w in workspaces()}
-        typed_id = by_name.get("typing") or typed
-        cli("workspace", typed_id, "focus")
+        note(f"{opts.session}: {len(ids)} churned workspaces in {len(groups)} groups in {time.monotonic() - t0:.1f} s")
+        if builder:
+            # The typed terminal: the selected terminal of the measured workspace's last pane (the busy output runs
+            # in its first 10 panes), turned into `cat` so the tty echoes each key; the grid stays on screen.
+            typed_id = builder.measured
+            pane = builder.panes(builder.workspace(typed_id))[-1]
+            terminal = next((t for t in pane.get("tabs") or [] if t.get("kind") == "terminal" and t.get("selected")), None)
+            if terminal is None:
+                sys.exit(f"STRESS: the measured workspace's last pane {pane.get('id')} shows no terminal")
+            builder.send(terminal["id"], "exec cat\r")
+            builder.show(typed_id)
+            builder.focus_pane(pane["id"])
+        else:
+            typed = cli("workspace", "create", "--name", "typing", "--focus", "--shell", "exec cat").stdout.strip()
+            by_name = {w.get("name") or w.get("title"): w.get("id") for w in workspaces()}
+            typed_id = by_name.get("typing") or typed
+            cli("workspace", typed_id, "focus")
         rpc("debug.mouse", {"x": 900, "y": 450, "action": "hover"})  # the pointer rests over the terminal, not the list
         if opts.input == "real":
             bring_front(app.pid)
