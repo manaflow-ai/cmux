@@ -63,17 +63,25 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
 
     var providerTabs: [ProviderTab] {
         guard let services else { return [] }
-        let cache: TabContentCache = services.cache
-        _ = cache.pageInstalls.revision
-        return localBrowserTabs.map { entry in
-            let tab = entry.model
-            let page = cache.existingBrowser(tab.id)?.tab
-            return ProviderTab(
-                targetID: tab.id, engine: Self.engine(of: tab, page: page), workspace: entry.workspace.id,
-                profile: (page?.profileID ?? cache.browserProfile?(tab.id) ?? .default).rawValue.uuidString,
-                url: page?.state.url?.absoluteString ?? tab.url ?? "about:blank",
-                title: page?.state.title ?? tab.title, visible: cache.isRendering(tab.id), inputScale: (page as? CEFTab)?.emulationInputScale ?? 1, touch: (page as? CEFTab)?.emulationTouch ?? false)
-        }
+        _ = services.cache.pageInstalls.revision
+        return localBrowserTabs.map { Self.providerTab($0.model, in: $0.workspace, cache: services.cache) }
+    }
+
+    /// One local browser tab, from the store's index (a switch refreshes the few tabs it showed or hid).
+    func providerTab(_ targetID: String) -> ProviderTab? {
+        guard let services else { return nil }
+        let store = services.daemon.store
+        guard let tab = store.tab(id: targetID), tab.kind == .browser, services.cache.browserTabs.isIncognitoTab(tab.id) == false,
+              let pane = store.pane(holding: tab), let workspace = store.workspace(containing: pane.handle) else { return nil }
+        return Self.providerTab(tab, in: workspace, cache: services.cache)
+    }
+
+    private static func providerTab(_ tab: TabModel, in workspace: WorkspaceModel, cache: TabContentCache) -> ProviderTab {
+        let page = cache.existingBrowser(tab.id)?.tab
+        return ProviderTab(targetID: tab.id, engine: Self.engine(of: tab, page: page), workspace: workspace.id,
+            profile: (page?.profileID ?? cache.browserProfile?(tab.id) ?? .default).rawValue.uuidString,
+            url: page?.state.url?.absoluteString ?? tab.url ?? "about:blank",
+            title: page?.state.title ?? tab.title, visible: cache.isRendering(tab.id), inputScale: (page as? CEFTab)?.emulationInputScale ?? 1, touch: (page as? CEFTab)?.emulationTouch ?? false)
     }
 
     /// The engine that renders the tab now: a Chromium record shown in
