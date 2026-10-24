@@ -128,14 +128,13 @@ import Testing
         defer { try? FileManager.default.removeItem(at: directory) }
         // A test gate on the reader's own queue, not a lock on state: the decode waits until the pane was built.
         let gate = DispatchSemaphore(value: 0)
+        let (shown, didShow) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
         let frames = TerminalLaunchFrames(frames: SavedFrameDirectory(url: directory, name: "test_frames") { file, scale in
             gate.wait()
             guard let source = CGImageSourceCreateWithURL(file as CFURL, nil),
                   let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
             return SavedFrame(image: image, scale: scale)
-        })
-        let (shown, didShow) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
-        frames.onLateFrame = { if $0 { didShow.yield() } }
+        }, onLateFrame: { if $0 { didShow.yield() } })
         #expect(!frames.show("tab-1", on: pane.session, in: pane.content, reveal: reveal), "not decoded yet: nothing now, and no wait")
         #expect(pane.content.alphaValue == 0)
         gate.signal()
@@ -185,14 +184,13 @@ import Testing
         defer { try? FileManager.default.removeItem(at: directory) }
         // A test gate on the reader's own queue, not a lock on state: the decode waits until the terminal moved.
         let gate = DispatchSemaphore(value: 0)
+        let (delivered, didDeliver) = AsyncStream<Bool>.makeStream(bufferingPolicy: .bufferingNewest(1))
         let frames = TerminalLaunchFrames(frames: SavedFrameDirectory(url: directory, name: "test_frames") { file, scale in
             gate.wait()
             guard let source = CGImageSourceCreateWithURL(file as CFURL, nil),
                   let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
             return SavedFrame(image: image, scale: scale)
-        })
-        let (delivered, didDeliver) = AsyncStream<Bool>.makeStream(bufferingPolicy: .bufferingNewest(1))
-        frames.onLateFrame = { didDeliver.yield($0) }
+        }, onLateFrame: { didDeliver.yield($0) })
         #expect(!frames.show("tab-1", on: pane.session, in: pane.content, reveal: reveal), "not decoded yet")
         // The terminal is hosted in another pane's content now, at that pane's size.
         let moved = NSRect(x: 0, y: 0, width: 300, height: 200)

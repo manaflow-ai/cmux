@@ -20,20 +20,29 @@ public final class TerminalLaunchFrames {
     public nonisolated static let maximumBytes = 16 * 1024 * 1024
 
     private let frames: SavedFrameDirectory
-    /// Hears each frame delivered after its pane was built (the decode came later than the pane),
-    /// with whether it was shown (false: the terminal left that pane, drew its own content first, or
-    /// the frame does not fit), for the launch marks; the app sets it.
-    public var onLateFrame: ((_ shown: Bool) -> Void)?
+    /// Hears each frame delivered after its pane was built; given once at init, so it has one setter
+    /// (the launch's `LaunchFiles`, which forwards it to its launch mark).
+    private let onLateFrame: ((_ shown: Bool) -> Void)?
 
     /// The frames of `frames` (tests pass a directory whose decodes they hold).
-    init(frames: SavedFrameDirectory) {
+    /// - Parameter onLateFrame: See ``init(directory:onLateFrame:)``.
+    init(frames: SavedFrameDirectory, onLateFrame: ((_ shown: Bool) -> Void)? = nil) {
         self.frames = frames
+        self.onLateFrame = onLateFrame
     }
 
-    /// The frames in `directory` (``directory(beside:)``), listed and decoded from now on; nil keeps
-    /// none (a services graph built outside the app's launch).
-    public convenience init(directory: URL?) {
-        self.init(frames: SavedFrameDirectory(url: directory, maximumBytes: Self.maximumBytes, name: "terminal_frames"))
+    /// The frames in `directory` (``directory(beside:)``), listed and decoded from now on.
+    /// - Parameters:
+    ///   - directory: The frames' directory; nil keeps none (a services graph built outside the
+    ///     app's launch).
+    ///   - onLateFrame: Hears each frame delivered after its pane was built (the decode came later
+    ///     than the pane), with whether it was shown (false: the terminal left that pane, drew its
+    ///     own content first, or the frame does not fit). The launch's `LaunchFiles`
+    ///     (CmuxNextLaunchFiles) passes one that records `terminal.launch_frame_shown`; it is set
+    ///     here only, so no second owner can replace it.
+    public convenience init(directory: URL?, onLateFrame: ((_ shown: Bool) -> Void)? = nil) {
+        self.init(frames: SavedFrameDirectory(url: directory, maximumBytes: Self.maximumBytes, name: "terminal_frames"),
+                  onLateFrame: onLateFrame)
     }
 
     /// The frames' directory in `state`, the app's state directory (beside its sidebar snapshot).
