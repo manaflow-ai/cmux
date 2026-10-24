@@ -121,6 +121,13 @@ public final class ActionRegistry {
     /// Runs of ``ActionEffect/waiting(_:_:)`` effects since launch, by action and reason: the
     /// actions that still show nothing until a reply (`debug.action_budget`, the latency report).
     @ObservationIgnored public internal(set) var waitingRuns: [ActionID: [ActionWait: Int]] = [:]
+    /// Runs of effect-bound handlers that waited where their effect does not say so, since launch, by
+    /// action and shape (``ActionHiddenWait``): the waits the `action-wait` line rule cannot see
+    /// (`debug.action_budget` `hidden_wait_runs`).
+    @ObservationIgnored public internal(set) var hiddenWaitRuns: [ActionID: [ActionHiddenWait: Int]] = [:]
+    /// Tasks reported with ``track(_:)`` since launch, captured or not: a handler run that moves it
+    /// started remote work itself (``ActionHiddenWait/handlerSend``).
+    @ObservationIgnored var trackedWorkCount = 0
 
     /// Confirms destructive actions run from the keyboard, menu, or palette
     /// (`ActionRegistry+Confirmation`). Nil refuses them.

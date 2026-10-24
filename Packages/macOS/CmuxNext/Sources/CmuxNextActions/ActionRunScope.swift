@@ -73,11 +73,21 @@ extension ActionRegistry {
         // view-change permission and machine routing.
         ActionRunScope.$current.withValueInTask(run) {
             if let invocationScope {
-                invocationScope(handed) { settle(action.run(handed), of: id, handed) }
+                invocationScope(handed) { runAndSettle(action, id, handed) }
             } else {
-                settle(action.run(handed), of: id, handed)
+                runAndSettle(action, id, handed)
             }
         }
         runObserver?(id, handed)
+    }
+
+    /// Runs the handler, then settles its effect. An effect-bound handler that started tracked work
+    /// itself while it ran (a `daemon.send`, which reports its task through the daemon's work
+    /// tracker) hid a wait behind its effect: counted (``ActionHiddenWait/handlerSend``).
+    private func runAndSettle(_ action: Action, _ id: ActionID, _ invocation: ActionInvocation) {
+        let tracked = trackedWorkCount
+        let effect = action.run(invocation)
+        if action.effect != nil && trackedWorkCount != tracked { noteHiddenWait(.handlerSend, of: id) }
+        settle(effect, of: id, invocation)
     }
 }

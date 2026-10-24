@@ -2,7 +2,8 @@
 /// ``ActionRegistry/bindEffect(_:isEnabled:effect:)`` returns, on the input's own turn.
 ///
 /// The handler applies the visible change before it returns and hands any remote work to the
-/// registry as a value; it never awaits. The registry sends, reconciles and rolls back
+/// registry as a value; it never awaits and never starts remote work itself (a `daemon.send` in the
+/// handler is a wait its effect hides: the registry counts it, ``ActionRegistry/hiddenWaitRuns``). The registry sends, reconciles and rolls back
 /// (``ActionConfirmation``). An action that shows nothing until a reply must say so in its type
 /// (``waiting(_:_:)``), and the registry counts those runs (plans/cmux-next/zero-latency.md, "Native
 /// actions: the budget contract").
@@ -10,7 +11,9 @@
 /// ```swift
 /// registry.bindEffect("renamePane", effect: { invocation in
 ///     guard let pane = context.daemonPane(invocation), let name = invocation["name"]?.stringValue else { return .done }
-///     return context.daemon.intent("rename-pane", .renamePane(pane: pane.handle, name: name)) { try await $0.renamePane(pane.handle, to: name) }
+///     return context.services.daemon(for: pane).intentEffect("rename-pane", .renamePane(pane: pane.handle, name: name)) {
+///         try await $0.renamePane(pane.handle, to: name)
+///     }
 /// })
 /// ```
 public struct ActionEffect {
@@ -41,7 +44,7 @@ public struct ActionEffect {
     ///   - reason: Why no local change can show first.
     ///   - work: The remote work; nil on success, else the failure.
     public static func waiting(_ reason: ActionWait, _ work: @escaping @MainActor () async -> ActionWorkFailure?) -> ActionEffect {
-        ActionEffect(kind: .waiting(reason, work))
+        ActionEffect(kind: .waiting(reason, work)) // action-wait-allow: the effect's own constructor; each caller is the debt
     }
 
     /// The action cannot act on this invocation; `reason` goes to the caller (``ActionRegistry/refuse(_:quiet:)``).

@@ -70,6 +70,13 @@ extension ActionRegistry {
 
     /// Reports a task a handler started. Ignored unless a caller is capturing.
     public func track(_ task: ActionWork) {
+        trackedWorkCount &+= 1
+        capture(task)
+    }
+
+    /// Hands `task` to a capturing caller without counting it as work a handler started: the remote
+    /// half the registry itself starts for an effect (``settle(_:of:_:)``), including a nested run's.
+    func capture(_ task: ActionWork) {
         if capturedWork != nil { capturedWork?.append(task) }
     }
 
@@ -78,6 +85,7 @@ extension ActionRegistry {
     /// and answers its fields (`action.run` `result`). Ignored unless a
     /// caller is capturing.
     public func track(result task: ActionResultWork) {
+        trackedWorkCount &+= 1
         guard capturedWork != nil else { return }
         capturedWork?.append(Task {
             if case .failure(let failure) = await task.value { return failure }
