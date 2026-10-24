@@ -4,8 +4,11 @@ import CmuxNextCompat
 /// reads it from its own thread while the main thread is stuck, so a stall record names the
 /// culprit task, its class and its budget next to the stack (plans/cmux-next/main-thread-budget.md).
 ///
-/// The main thread writes it at every scheduled task's and action span's start and end with
-/// relaxed and releasing atomic stores (no lock; owner names are interned once per owner). What it
+/// The main actor writes it at every scheduled task's and action span's start and end with
+/// relaxed and releasing atomic stores (no lock; owner names are interned once per owner): the
+/// writers (``beginSpan(_:owner:budgetNanos:startNanos:)``, ``endSpan(_:nowNanos:)`` and the
+/// scheduler's own) are `@MainActor`, so the open list behind them is isolated, not main-only by
+/// convention. What it
 /// publishes is the newest entry still open: tasks end in LIFO order, but an action span ends at
 /// the commit after it, so spans end in begin order (FIFO) and may outlive the task they began in.
 /// Ending one entry removes exactly that entry, and the board publishes whichever entry is newest
@@ -49,10 +52,11 @@ public final class MainTaskBoard: Sendable {
     /// 0: no hook, 1: being set, 2: set (readable).
     private let hookState = Atomic<Int>(0)
     private let spanSequence = Atomic<UInt32>(0)
+    /// The sequence bit that marks an action span (scheduled tasks count from 0 below it).
+    private static let spanBit: UInt32 = 0x8000_0000
     /// The open entries (scheduled tasks and action spans), oldest first; the last is published.
-    // crash-allow: main thread only: every writer (begin, end, beginSpan, endSpan) runs on the main
-    // thread by contract, and no other thread reads it (the watchdog reads only the atomics above).
-    private nonisolated(unsafe) var open: [Entry] = []
+    /// Main-actor isolated: every writer is `@MainActor`, and the watchdog reads only the atomics above.
+    @MainActor private var open: [Entry] = []
 
     /// One open task or span as published.
     private struct Entry {
@@ -79,7 +83,7 @@ public final class MainTaskBoard: Sendable {
     /// Publishes a task start (main thread) as the newest open entry.
     ///
     /// - Returns: The task's packed identity, which ``end(_:task:durationNanos:overBudget:)`` takes.
-    @discardableResult
+    @discardableResult @MainActor
     func begin(_ workClass: MainWorkClass, owner: UInt32, sequence: UInt32, startNanos start: UInt64, budgetNanos budget: UInt64) -> UInt64 {
         let packed = UInt64(UInt8(workClass.rawValue)) << 56 | UInt64(owner & 0x00FF_FFFF) << 32 | UInt64(sequence)
         open.append(Entry(packed: packed, startNanos: start, budgetNanos: budget))
@@ -90,6 +94,7 @@ public final class MainTaskBoard: Sendable {
 
     /// Ends the open task `packed` (main thread) and publishes the newest entry still open; reports
     /// the task when it ran past its budget.
+    @MainActor
     func end(_ packed: UInt64, task: @autoclosure () -> Task, durationNanos: UInt64, overBudget: Bool) {
         close(packed)
         guard overBudget, let sink = overBudgetSink.withLock({ $0 }) else { return }
@@ -106,12 +111,17 @@ public final class MainTaskBoard: Sendable {
         if hookState.load(ordering: .acquiring) == 2 { taskStartHook.withLock { $0 }?() }
     }
 
-    /// Removes the open entry `packed` (searched newest first: tasks end LIFO, so a task is found at
-    /// once). When it was the published one, the newest entry still open is published instead (or
-    /// nothing), and the watchdog is woken so it times that entry against its own budget; when a
-    /// newer entry is open, what is published does not change. An entry already ended is ignored.
+    /// Removes the open entry `packed`. A task is searched newest first (tasks end LIFO, so it is
+    /// found at once); a span oldest first (spans end at the commit in begin order, so N actions in
+    /// one turn, a CLI batch or `layout_bulk`, end in O(N) searches overall, not O(N^2)). When it was
+    /// the published one, the newest entry still open is published instead (or nothing), and the
+    /// watchdog is woken so it times that entry against its own budget; when a newer entry is open,
+    /// what is published does not change. An entry already ended is ignored.
+    @MainActor
     private func close(_ packed: UInt64) {
-        guard let index = open.lastIndex(where: { $0.packed == packed }) else { return }
+        let isSpan = UInt32(truncatingIfNeeded: packed) & Self.spanBit != 0
+        let found = isSpan ? open.firstIndex(where: { $0.packed == packed }) : open.lastIndex(where: { $0.packed == packed })
+        guard let index = found else { return }
         open.remove(at: index)
         guard index == open.count else { return }
         guard let top = open.last else {
@@ -208,8 +218,9 @@ public final class MainTaskBoard: Sendable {
     ///   - budgetNanos: Its budget (an action: 10 ms to its committed frame).
     ///   - startNanos: When it began (`CLOCK_UPTIME_RAW` nanoseconds; the input event's time for a key).
     /// - Returns: The token ``endSpan(_:nowNanos:)`` takes.
+    @MainActor
     public func beginSpan(_ workClass: MainWorkClass, owner: UInt32, budgetNanos: UInt64, startNanos start: UInt64) -> SpanToken {
-        let sequence = spanSequence.add(1, ordering: .relaxed).newValue | 0x8000_0000
+        let sequence = spanSequence.add(1, ordering: .relaxed).newValue | Self.spanBit
         let packed = begin(workClass, owner: owner, sequence: sequence, startNanos: start, budgetNanos: budgetNanos)
         return SpanToken(packed: packed, startNanos: start, budgetNanos: budgetNanos)
     }
@@ -220,6 +231,7 @@ public final class MainTaskBoard: Sendable {
     /// `over_budget` record, with the stack it sampled). Atomics only unless it ran over.
     ///
     /// - Parameter nowNanos: Its end (`CLOCK_UPTIME_RAW` nanoseconds; an action's commit end).
+    @MainActor
     public func endSpan(_ token: SpanToken, nowNanos: UInt64) {
         close(token.packed)
         let elapsed = nowNanos &- token.startNanos
