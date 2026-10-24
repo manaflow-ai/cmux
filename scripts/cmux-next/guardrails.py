@@ -388,11 +388,15 @@ def in_row(version: Version, index: int) -> tuple[bool, list[int]]:
 # Revisit: turn the growth warning into a refusal once cmux-next-arch-targets has moved the large domains out of
 # CmuxNextApp (until then about two of every three App pushes grow a feature file, below). The perf cron arch report
 # is the backstop meanwhile: it opens the regression issue when the App line count rises. Measured on
-# origin/feat-cmux-next at 2952080b0a5 (CI's lexer, first-parent commits, each commit against its first parent):
+# origin/feat-cmux-next up to 2952080b0a5 with CI's lexer:
 # - ROOT_BUDGET: the wiring of a few domains per push (a stored instance, its construction, passing it on), never
-#   their logic; the `total` warning asks the same push to pay for it with an App shrink. Of the last 600 App commits
-#   (2026-10-20..23), 62 changed root files: net root growth p50 +2, p95 +11, max +41; 61 of 62 are within +30. The
-#   one over (4aa19112632, +41) is folder and harness logic in AppServices+WorkContext.swift, not wiring.
+#   their logic; the `total` warning asks the same push to pay for it with an App shrink. Measured per push, the
+#   unit the rule limits: the 1243 `git push`es to feat-cmux-next from 2026-10-20 00:00Z to 2952080b0a5 (GitHub's
+#   repository activity API, activity_type push, each push's before..after through this rule's own root count;
+#   PR merges land on GitHub, where no pre-push hook runs). 54 changed root files, 52 of them with more than one
+#   first-parent commit: net root growth p50 +2, p95 +16, max +41; 53 of 54 are within +30. The one over
+#   (705557dc225..95b7af279ab, +41, three commits) is folder and harness logic in AppServices+WorkContext.swift
+#   (4aa19112632), not wiring.
 # - HOST_FILE_MAX: one domain's Host protocol forwards, one member per line; a larger Host protocol is a sign that
 #   the domain still reaches into the App. No AppServices+<Domain>Host.swift exists yet; the four `*Host` protocols
 #   in Sources have 4 to 9 members (BrowserRestoredSessionHost 9), so 30 lines (the opener, its imports and attribute
@@ -410,8 +414,8 @@ def in_row(version: Version, index: int) -> tuple[bool, list[int]]:
 #   as renames); 0.7 would pass 25 of 30 at 80-89% and 28 plain new files.
 # - MOVE_GENERIC_PER_LINE: a moved specific line usually closes one or two blocks (`}` of an `if` and of its
 #   function); generic lines beyond that are not explained by the run's specific lines.
-# - The `other` and `total` buckets as warnings: in the same 600 App commits, 404 grew feature App files (net +14726
-#   source lines against -2417 shrinks); the App grew +12500 source lines in those four days. A refusal would stop
+# - The `other` and `total` buckets as warnings: of the last 600 first-parent App commits (2026-10-20..23, each
+#   against its first parent), 404 grew feature App files (net +14726 source lines against -2417 shrinks); the App grew +12500 source lines in those four days. A refusal would stop
 #   about two of every three App pushes of that period until they move lines out, so it waits for the domain moves.
 # A source line is the unit (CI's unit): joining statements onto one line lowers the count without removing code,
 # a count dodge this rule cannot see; review rejects it.
