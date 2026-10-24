@@ -1,4 +1,3 @@
-import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextWakeups
@@ -17,25 +16,20 @@ extension SessionTransferService {
     /// This build's chats another build can take, by tab id: chats of this Mac's acpmux (not the
     /// Chief home's, not another machine's) that have a session.
     func localChats() -> [String: (session: String, harness: String?)] {
-        guard let tabs = services?.agentTabs, let localHost = tabs.localHost else { return [:] }
-        var chats: [String: (session: String, harness: String?)] = [:]
-        for (key, record) in tabs.listTabs() where record.host == localHost {
-            if let session = tabs.session(of: key) { chats[key] = (session, record.harness) }
-        }
-        return chats
+        host.localChats()
     }
 
     /// This build's acpmux (its socket and home), nil without one.
-    func acpmuxEnvironment() -> AcpmuxEnvironment? {
-        services.flatMap(QuitAgents.environment)
+    func acpmuxEnvironment() -> SessionTransferAcpmux? {
+        host.acpmux
     }
 
     /// Moves chat `item` from `peer` and opens it here; the source tab closes once the chat is
     /// here, even when its tab could not open (the source copy is closed by then).
     func moveChat(_ item: SessionTransferItem, from peer: SessionTransferPeer, interrupt: Bool, cwd: String? = nil) async throws {
-        guard let services else { throw Failure.unavailable }
+        guard let canHost = host.canHostChats else { throw Failure.unavailable }
         // Nothing moves unless its tab can open here.
-        guard services.agentTabs.canHost(on: services.daemon) else { throw Failure.agentNotOpened }
+        guard canHost else { throw Failure.agentNotOpened }
         let session = try await takeChat(item, interrupt: interrupt, cwd: cwd)
         do {
             _ = try await openChat(session, title: item.title)
@@ -51,9 +45,9 @@ extension SessionTransferService {
     /// move leaves it in the source.
     private func takeChat(_ item: SessionTransferItem, interrupt: Bool, cwd: String?) async throws -> String {
         guard let session = item.agentSessionID, let socket = item.acpmuxSocket else { throw Failure.missingAgentID }
-        guard let services, let own = acpmuxEnvironment() else { throw Failure.unavailable }
+        guard let own = acpmuxEnvironment() else { throw Failure.unavailable }
         if Self.sameFile(socket, own.socketPath) { return session }
-        try await (services.agentTabs.localSessionHost ?? services.agentTabs.host).prewarm()
+        try await host.prewarmLocalChatHost()
         // An earlier pull moved it here already (its tab did not open, or the source did not close).
         if await Self.hasOpenChat(session, in: own) { return session }
         // `/tmp` is shared and the source's daemon hands this one the chat's files; a socket no
@@ -78,22 +72,18 @@ extension SessionTransferService {
     /// Shows `session` of this build's acpmux in a new workspace of the active window (the tab
     /// already showing it instead, when there is one) and returns the workspace id.
     func openChat(_ session: String, title: String) async throws -> String {
-        guard let services else { throw Failure.unavailable }
-        let store = services.daemon.store
-        if let key = services.agentTabs.tab(showing: session), let tab = store.tab(id: key),
+        guard let store = host.daemonStore else { throw Failure.unavailable }
+        if let key = host.agentTab(showing: session), let tab = store.tab(id: key),
            let pane = store.pane(containing: tab.surface), let workspace = store.workspace(containing: pane.handle)?.key {
             return workspace.rawValue
         }
-        let target = services.windows.targetWindow(preferring: services.windows.active?.state.id)
-        var spawn = WorkspaceSpawn(name: title.isEmpty ? nil : title)
-        spawn.firstSession = session
-        let id = try await services.windows.createWorkspace(spawn, into: target)
+        let id = try await host.createChatWorkspace(name: title.isEmpty ? nil : title, session: session)
         guard try await hasConversationTab(id) else { throw Failure.agentNotOpened }
         return id
     }
 
     /// Whether `environment`'s acpmux has chat `session`, not closed.
-    private nonisolated static func hasOpenChat(_ session: String, in environment: AcpmuxEnvironment) async -> Bool {
+    private nonisolated static func hasOpenChat(_ session: String, in environment: SessionTransferAcpmux) async -> Bool {
         var variables = ProcessInfo.processInfo.environment
         variables.merge(environment.childEnvironment) { $1 }
         guard let result = try? await ProcessRunner.run(executable: environment.executable, arguments: ["--json", "info", session],

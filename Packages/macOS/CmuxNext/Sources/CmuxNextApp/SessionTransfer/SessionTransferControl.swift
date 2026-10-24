@@ -6,9 +6,9 @@ import CmuxNextSettings
 /// has recreated the terminal or adopted the agent session.
 @MainActor
 enum SessionTransferControl {
-    static func methods(services: AppServices) -> [ControlMethod] {
+    static func methods(transfer: SessionTransferService) -> [ControlMethod] {
         [
-            .async("session.transfer.list") { [transfer = services.sessionTransfer] call in
+            .async("session.transfer.list") { call in
                 // This Mac's chats, and the acpmux the taker moves them from.
                 let (chats, acpmux) = await MainActor.run {
                     (transfer.localChats(), transfer.acpmuxEnvironment().map { (socket: $0.socketPath, home: $0.home.path) })
@@ -52,7 +52,7 @@ enum SessionTransferControl {
                     "sessions": .array(sessions),
                 ]
             },
-            .async("session.transfer.peers") { [transfer = services.sessionTransfer] _ in
+            .async("session.transfer.peers") { _ in
                 do {
                     let peers = try await transfer.discover()
                     return ["peers": .array(peers.map { peer in
@@ -63,7 +63,7 @@ enum SessionTransferControl {
                     throw controlError(error)
                 }
             }.withDeadline(.fixed(.seconds(60))),
-            .async("session.transfer.pull") { [transfer = services.sessionTransfer] call in
+            .async("session.transfer.pull") { call in
                 guard let source = call.params["source"]?.stringValue else {
                     throw ControlError.invalidParams("source is required: a peer socket path or tag from session.transfer.peers")
                 }
@@ -82,7 +82,7 @@ enum SessionTransferControl {
                     throw controlError(error)
                 }
             }.withDeadline(.fixed(.seconds(300))),
-            .async("session.transfer.open") { [transfer = services.sessionTransfer] call in
+            .async("session.transfer.open") { call in
                 let agent = call.params["agent"]?.objectValue
                 let workspace = call.params["workspace"]?.objectValue
                 guard agent != nil || workspace != nil else { throw ControlError.invalidParams("agent or workspace is required") }
@@ -92,7 +92,7 @@ enum SessionTransferControl {
                     throw controlError(error)
                 }
             }.withDeadline(.fixed(.seconds(120))),
-            .async("session.transfer.complete") { [transfer = services.sessionTransfer] call in
+            .async("session.transfer.complete") { call in
                 let surfaces = call.params["surfaces"]?.arrayValue?.compactMap(\.stringValue) ?? []
                 guard !surfaces.isEmpty else { throw ControlError.invalidParams("surfaces is required") }
                 try await transfer.complete(surfaces: surfaces)

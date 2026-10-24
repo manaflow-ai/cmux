@@ -1,5 +1,4 @@
 import CmuxNextCompat
-import CmuxNextAgentPane
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextSettings
@@ -94,9 +93,18 @@ nonisolated struct SessionTransferPeer: Sendable {
 /// for scripts and agents; there is no migration UI.
 @MainActor
 final class SessionTransferService {
-    private(set) weak var services: AppServices?
+    /// The app this service moves sessions into (``SessionTransferHost`` answers nil once it is gone).
+    let host: any SessionTransferHost
+    /// The control-socket paths where another cmux build may listen (``ControlSocketPath/peerSocketPaths(home:fileManager:)``
+    /// in the app); a test passes its own.
+    private let peerSocketPaths: @Sendable () -> [String]
 
-    init(services: AppServices) { self.services = services }
+    /// - Parameter host: the app that opens moved sessions and answers about its daemon and chats.
+    /// - Parameter peerSocketPaths: where to look for sibling builds.
+    init(host: any SessionTransferHost, peerSocketPaths: @escaping @Sendable () -> [String]) {
+        self.host = host
+        self.peerSocketPaths = peerSocketPaths
+    }
 
     /// How long a moved agent waits for its conversation tab (the old poll's 20 × 250 ms).
     static let conversationTabLimit: Duration = .seconds(5)
@@ -133,7 +141,7 @@ final class SessionTransferService {
     }
 
     func complete(surfaces: [String]) async throws {
-        guard let services, let connection = services.daemon.connection else { throw Failure.unavailable }
+        guard let connection = host.daemonConnection else { throw Failure.unavailable }
         let ids = surfaces.compactMap { UInt64($0).map(SurfaceID.init(rawValue:)) }
         guard ids.count == surfaces.count else { throw Failure.invalidSurfaces }
         try await connection.closeTabs(ids, endTerminals: true)
@@ -145,9 +153,9 @@ final class SessionTransferService {
     /// admits only its own terminals).
     /// With `only` (a socket path or tag), a refusal by that peer throws.
     nonisolated func discover(only source: String? = nil) async throws -> [SessionTransferPeer] {
-        let current = await MainActor.run { services?.environment.launch }
+        let ownSocket = await MainActor.run { host.ownSocketPath }
         let ownPID = Int(ProcessInfo.processInfo.processIdentifier)
-        let paths = ControlSocketPath.shared.peerSocketPaths().filter { $0 != current?.socketPath }
+        let paths = peerSocketPaths().filter { $0 != ownSocket }
         var peers: [SessionTransferPeer] = []
         var refused = false
         for path in paths where Self.isOwnedSocket(path) {
@@ -225,7 +233,7 @@ final class SessionTransferService {
         let layout = TransferLayout(json: workspace["layout"], terminals: items.count) ?? .pane(Array(items.indices))
         let id = try await create(items[layout.terminals[0]], workspaceName: name)
         guard items.count > 1 else { return ["workspace": .string(id)] }
-        guard let services, let connection = services.daemon.connection,
+        guard let connection = host.daemonConnection,
               let pane = try await firstPane(of: id, connection: connection) else { throw Failure.unavailable }
         try await open(layout, items: items, in: pane, workspace: id, connection: connection)
         return ["workspace": .string(id)]
@@ -233,15 +241,11 @@ final class SessionTransferService {
 
     /// Creates `item` in a new workspace of the active window and returns the workspace id.
     private func create(_ item: SessionTransferItem, workspaceName: String? = nil) async throws -> String {
-        guard let services else { throw Failure.unavailable }
-        let target = services.windows.targetWindow(preferring: services.windows.active?.state.id)
         let name = workspaceName ?? (item.title.isEmpty ? nil : item.title)
         switch item.kind {
         case .agent:
             guard let session = item.agentSessionID, let harness = item.agentHarness else { throw Failure.missingAgentID }
-            var spawn = WorkspaceSpawn(cwd: item.cwd, name: name)
-            spawn.firstChat = AgentPaneSeed(cwd: item.cwd, adopt: AgentPaneAdopt(harness: harness, agentSessionId: session))
-            let id = try await services.windows.createWorkspace(spawn, into: target)
+            let id = try await host.createAgentWorkspace(cwd: item.cwd, name: name, harness: harness, sessionID: session)
             // createWorkspace falls back to a plain terminal when no agent can be
             // hosted yet; only an opened conversation tab counts, so a source chat
             // is never closed for a shell.
@@ -252,8 +256,8 @@ final class SessionTransferService {
             throw Failure.missingAgentID
         case .terminal:
             let command = item.command ?? item.sshTarget.map { "exec ssh -- \(Self.shellQuote($0))" }
-            let id = try await services.windows.createWorkspace(WorkspaceSpawn(cwd: item.cwd, name: name, command: command), into: target)
-            if !item.title.isEmpty, let connection = services.daemon.connection,
+            let id = try await host.createTerminalWorkspace(cwd: item.cwd, name: name, command: command)
+            if !item.title.isEmpty, let connection = host.daemonConnection,
                let workspace = try? await connection.listWorkspaces(),
                let screen = workspace.workspaces.first(where: { $0.key?.rawValue == id })?.screens.first,
                let surface = screen.layout.paneIDs.compactMap({ paneID in screen.panes.first(where: { $0.id == paneID }) }).flatMap(\.tabs).first?.surface {
@@ -267,7 +271,7 @@ final class SessionTransferService {
     /// mirrors the create asynchronously, so this waits for it, up to
     /// `conversationTabLimit`.
     func hasConversationTab(_ workspace: String) async throws -> Bool {
-        guard let store = services?.daemon.store else { throw Failure.unavailable }
+        guard let store = host.daemonStore else { throw Failure.unavailable }
         let listed = Task { @MainActor () -> Bool in
             let opened = ObservationStream({
                 store.workspaces.first(where: { $0.key?.rawValue == workspace })?.screens
