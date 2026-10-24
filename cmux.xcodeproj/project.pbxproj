@@ -436,6 +436,8 @@
 				"$(SRCROOT)/cmux-tui/Cargo.lock",
 				"$(CMUX_NEXT_OPTCHAT_CHIEF_BIN)",
 				"$(CMUX_NEXT_OPTCHAT_CHIEF_BIN).ref",
+				"$(ARCHS)",
+				"$(CONFIGURATION)",
 			);
 			name = "Bundle optchat-chief";
 			outputFileListPaths = (
@@ -472,6 +474,8 @@
 				"$(SRCROOT)/cmux-tui/crates/cmux-rd-ffi",
 				"$(CMUX_NEXT_MOBILE_HOST_BIN)",
 				"$(CMUX_NEXT_MOBILE_HOST_BIN).ref",
+				"$(ARCHS)",
+				"$(CONFIGURATION)",
 			);
 			name = "Bundle cmux-mobile-host";
 			outputFileListPaths = (
