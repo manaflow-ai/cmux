@@ -381,10 +381,14 @@ enum TabLifecycle {
                 trace.mark(.creationCancelled, input: input)
                 return ctx.services.keyRouter.creationInputCoordinator.drop(tab: id, in: content.contentView.window)
             }
-            // A quick Cmd-W after one that emptied its pane closes nothing in the pane the focus
-            // landed in (TabCloseGuard.swallowsCmdW, Leo 2026-10-21).
-            let now = ProcessInfo.processInfo.systemUptime
-            if invocation.origin == .user, TabCloseGuard.swallowsCmdW(ctx.services, at: now) { return trace.mark(.closeSwallowed, input: input) }
+            // A press aimed at a pane the last close emptied (made before the frame showing the
+            // focus elsewhere was presented, or a repeat of the held key that emptied it) closes
+            // nothing, and says so (PaneCloseAim, Leo 2026-10-21, Lawrence 2026-10-23); the refusal
+            // HUD marks it `refusal` for the burst bench.
+            let press = TabCloseGuard.press(ctx, invocation)
+            if invocation.origin == .user, let focus = ctx.focusedContent?.focus, focus.aimsAtEmptiedPane(press) {
+                return ctx.refuse(RefusalStrings.closeAimedAtClosedPane)
+            }
             guard let (pane, selected) = ctx.tab(invocation) else { return }
             // A Cmd-W while the last one's close still asks the daemon closes the next tab (TabCloseGuard).
             guard let id = invocation.origin == .user ? TabCloseGuard.cmdWTarget(selected, in: pane.stripModel) : selected else { return }
@@ -395,7 +399,7 @@ enum TabLifecycle {
                 // Several selected tabs close together (Chrome); a selected pinned tab stays, as above.
                 if let selected = pane.stripModel.keyboardCloseSelection(id, closesPinned: closesPinned) {
                     let empties = TabCloseGuard.empties(pane, closing: selected)
-                    if empties { ctx.services.emptiedPaneCloseRun.emptied(at: now) }
+                    if empties { pane.workspace?.focus.noteEmptied(pane.paneKey, by: press) }
                     trace.closed(tabs: selected.map(\.rawValue), emptiesPane: empties, input: input)
                     return CloseUndoToasts.close(in: pane, selected)
                 }
@@ -409,7 +413,7 @@ enum TabLifecycle {
             }
             let empties = TabCloseGuard.empties(pane, closing: [id])
             if invocation.origin == .user {
-                if empties { ctx.services.emptiedPaneCloseRun.emptied(at: now) }
+                if empties { pane.workspace?.focus.noteEmptied(pane.paneKey, by: press) }
                 trace.closed(tabs: [id.rawValue], emptiesPane: empties, input: input)
             }
             // A link's tab outside the pane it was clicked in gives the focus back there, only as

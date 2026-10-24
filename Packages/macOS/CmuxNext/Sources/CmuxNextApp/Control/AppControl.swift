@@ -442,7 +442,6 @@ final class AppControl {
                 .value(services.map { services in
                     services.burstTrace.control(call.params, facts: [
                         "key_repeat_delay_s": .number(NSEvent.keyRepeatDelay), "key_repeat_interval_s": .number(NSEvent.keyRepeatInterval),
-                        "quick_press_window_s": .number(services.quickPressWindow()),
                         "sequence_playing": .bool(player.isPlaying),
                         "pending_intents": JSONValue(services.daemon.store.pendingIntents.count),
                         "resize_idle": .bool(ResizeCoordinator.shared.isIdle),

@@ -380,7 +380,7 @@ def scenario(opts):
     base = sent.get("base_s")
     record.update({"before": before, "after": after, "unit": unit_of(name), "press_letters": presses,
                    "press_times_s": [base + o / 1000 for o in offsets] if isinstance(base, (int, float)) else [],
-                   "key_repeat": {k: armed.get(k) for k in ("key_repeat_delay_s", "key_repeat_interval_s", "quick_press_window_s")},
+                   "key_repeat": {k: armed.get(k) for k in ("key_repeat_delay_s", "key_repeat_interval_s")},
                    "held_repeat_ms": repeat, "trace": trace, "frames": {k: frames.get(k) for k in FRAME_FIELDS},
                    "sequence_ms": duration * 1000, "settled_ms": round(settled_after * 1000), "key_window": key_window,
                    "tabs_after": tabs_after})

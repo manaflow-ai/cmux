@@ -31,8 +31,9 @@ public nonisolated final class BurstTrace: Sendable {
     public enum Kind: String, Sendable {
         /// A refusal the person saw (the refusal HUD).
         case refusal
-        /// A person's Cmd-W the close guard swallowed: it came quickly after one that emptied its pane,
-        /// so it closes nothing and shows nothing (`TabCloseGuard.swallowsCmdW`).
+        /// A person's Cmd-W that closed nothing and showed nothing. No build emits it since a Cmd-W is
+        /// aimed at the pane on screen when it was pressed (`PaneCloseAim`: a press aimed at an emptied
+        /// pane shows the refusal HUD, ``refusal``); kept so the bench reads older builds' traces.
         case closeSwallowed = "close_swallowed"
         /// A Cmd-W that cancelled the creation it would have closed (Cmd-D, then Cmd-W at once): neither
         /// press changes the layout (`DaemonService.cancelCreation(tab:)`).
