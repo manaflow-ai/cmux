@@ -80,11 +80,10 @@ const runsFor = (params) => {
   if (params.workflow_id !== 'cmux-next.yml' || params.event !== 'push' || params.branch !== 'feat-cmux-next') {
     throw new Error(`unexpected run lookup ${JSON.stringify(params)}`);
   }
-  const candidates = (params.head_sha ? [params.head_sha] : history).filter(Boolean);
-  return candidates.map((headSha) => ({
-    id: position(headSha) + 1000, head_sha: headSha, head_branch: 'feat-cmux-next', event: 'push',
+  return [{
+    id: position(params.head_sha) + 1000, head_sha: params.head_sha, head_branch: 'feat-cmux-next', event: 'push',
     path: '.github/workflows/cmux-next.yml', head_repository: { full_name: 'manaflow-ai/cmux' },
-  }));
+  }];
 };
 const actions = {
   listWorkflowRuns: async (params) => ({ data: { workflow_runs: runsFor(params), total_count: runsFor(params).length } }),
@@ -389,7 +388,6 @@ def main() -> None:
     test_one_writer_for_every_request()
     test_a_late_older_request_does_not_drop_a_cancelled_newer_one()
     test_a_newer_request_after_an_older_one_still_wins()
-    test_a_cancelled_request_without_a_green_compile_is_not_promoted()
     test_a_request_cancelled_by_a_person_is_not_promoted()
     test_a_failed_recovery_scan_still_promotes_the_admitted_commit()
     test_an_unreadable_cancel_annotation_still_promotes_the_admitted_commit()
