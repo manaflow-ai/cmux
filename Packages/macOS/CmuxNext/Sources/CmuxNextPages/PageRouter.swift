@@ -12,7 +12,8 @@ public import Foundation
 ///   stamps `page`; only a native confirmation sheet makes a call the user's);
 /// - events of one subscription are numbered from 1; an unsubscribe or ``close()`` cancels;
 /// - while the hibernation keeps the page frozen, no event goes into it: each stream's
-///   ``PageStreamFreezing`` keeps its newest state for the thaw or thaws the page for the event.
+///   ``PageStreamFreezing`` folds its events into one per key for the thaw; only the person's input
+///   thaws the page.
 @MainActor
 public final class PageRouter {
     public private(set) var descriptor: PageDescriptor
@@ -269,12 +270,12 @@ public final class PageRouter {
     // MARK: Freezing
 
     /// The page froze (the hibernation, PageWebView+ChromiumCost.swift): its events wait by their
-    /// stream's ``PageStreamFreezing``; `wake` thaws the page for one that cannot wait.
+    /// stream's ``PageStreamFreezing``; `wake` thaws the page for the person's input to it.
     func freeze(wake: @escaping @MainActor () -> Void) {
         frozen.freeze(wake: wake)
     }
 
-    /// The page thawed: the newest held event of each stream and key goes now, oldest first.
+    /// The page thawed: the held event of each stream and key goes now, in the order of their newest parts.
     func thaw() {
         for event in frozen.thaw() where subscriptions[event.sub] != nil || builtIn[event.sub] != nil {
             sendEvent(sub: event.sub, event.data, publicationID: event.publicationID)
@@ -284,14 +285,15 @@ public final class PageRouter {
     /// The host waits on the page's reply to a call of its own: the page must stay awake.
     var awaitsPageReplies: Bool { !pendingCalls.isEmpty }
 
-    /// The rule of subscription `sub`: its provider's, the built-in streams' own, or, for one
-    /// still subscribing, every event counts.
+    /// The rule of subscription `sub`: its provider's, or the built-in streams' own. A stream still
+    /// subscribing has none yet and gets ``PageStreamFreezing/input``: its page is handling the
+    /// subscribe, so it is awake (a page with a message in flight never freezes) and nothing is held.
     private func freezing(of sub: UInt64) -> PageStreamFreezing {
         if let subscription = subscriptions[sub] { return subscription.freezing }
         // The link state and the popup's state: the newest is the page's state. A command is the
         // person's (Find, Back): it reaches the page now.
         let stream = builtIn[sub]
-        return stream == PageNativeOp.pageConnection || stream == PageNativeOp.pagePopup ? .newest : .every
+        return stream == PageNativeOp.pageConnection || stream == PageNativeOp.pagePopup ? .newest : .input
     }
 
     // MARK: Built-in streams

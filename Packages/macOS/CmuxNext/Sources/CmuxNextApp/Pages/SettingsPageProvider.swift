@@ -262,8 +262,7 @@ final class SettingsPageProvider: PageProvider {
                 if !keys.isEmpty { onEvent(["revision": .number(Double(count)), "keys": .array(keys.map(JSONValue.string))]) }
             }
         }
-        // Each event names only the keys that changed: each one counts.
-        return PageSubscription(freezing: .every) { task.cancel() }
+        return PageSubscription(freezing: Self.changedFreezing) { task.cancel() }
     }
 
     /// One event per change of `read`'s value (the stores it reads are observable); the event
@@ -279,6 +278,18 @@ final class SettingsPageProvider: PageProvider {
         }
         // Each event carries the new value whole: the newest is the page's state.
         return PageSubscription(freezing: .newest) { task.cancel() }
+    }
+
+    /// `cmux.settings.changed` while its page is frozen: each event names the keys one load changed
+    /// and its revision, and the page clears those keys' refusals and reads the scope again at that
+    /// revision. One held event names every key changed while frozen (first seen first) with the
+    /// newest revision, which leaves the page where applying the events one by one would.
+    nonisolated static let changedFreezing = PageStreamFreezing.folded { held, later in
+        guard case .object(var members) = later else { return later }
+        var keys = held?["keys"]?.arrayValue ?? []
+        for key in later["keys"]?.arrayValue ?? [] where !keys.contains(key) { keys.append(key) }
+        members["keys"] = .array(keys)
+        return .object(members)
     }
 
     // MARK: Reads
