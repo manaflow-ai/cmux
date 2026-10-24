@@ -1,0 +1,118 @@
+name: cmux-next perf100
+
+# perf100 budget gate (plans/cmux-next/perf100/README.md). Not a required check.
+# - headless: the bundle's cmux-tui and acpmux scenarios (S0, S1, S3, S4 and S2) on an AWS fleet
+#   Mac, alone on its worker (class exclusive). Runs on pushes and PRs into feat-cmux-next that
+#   touch cmux-tui or the runner, and nightly.
+# - app: the GUI scenarios S0-S4 on the bench worker (cmux20-bench: a logged-in console), nightly
+#   or on dispatch. GitHub runs `schedule` only from the default branch (main): until this file is
+#   on main the nightly does not fire, and both jobs check out feat-cmux-next explicitly when it does.
+#   cmux-lawrence-2 is not reachable from GitHub Actions; its runs go through nx-remote by hand.
+# Each step fails when a metric breaks its budget in scripts/perf100/budgets.json for that host class.
+# It goes through the build-fleet gateway runner, which hands the step to the controller (`cmux-ci run`).
+
+on:
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - "cmux-tui/crates/**"
+      - "cmux-tui/Cargo.lock"
+      - "scripts/perf100/**"
+      - "scripts/measure/perf100.sh"
+      - ".github/workflows/cmux-next-perf100.yml"
+  pull_request:
+    branches: [feat-cmux-next]
+    paths:
+      - "cmux-tui/crates/**"
+      - "cmux-tui/Cargo.lock"
+      - "scripts/perf100/**"
+      - "scripts/measure/perf100.sh"
+      - ".github/workflows/cmux-next-perf100.yml"
+  schedule:
+    - cron: "41 10 * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "headless, app or all"
+        default: "headless"
+      quick:
+        description: "1: small sizes (harness smoke run)"
+        default: "0"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cmux-next-perf100-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  headless:
+    if: >-
+      github.repository_owner == 'manaflow-ai' && vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY != '' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
+      (github.event_name != 'workflow_dispatch' || inputs.mode != 'app')
+    runs-on: ${{ vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY }}
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event_name == 'schedule' && 'feat-cmux-next' || '' }}
+          fetch-depth: 1
+          submodules: false
+      - name: perf100 headless on a fleet Mac
+        env:
+          EVENT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          EVENT: ${{ github.event_name }}
+          QUICK: ${{ inputs.quick || '0' }}
+        run: |
+          set -uo pipefail
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          if ! [[ -x "$client" ]]; then
+            echo "::error title=Build fleet client missing::$client is not installed on runner $RUNNER_NAME; perf100 did not run."
+            exit 127
+          fi
+          SHA="$EVENT_SHA"
+          [ "$EVENT" = schedule ] && SHA="$(git rev-parse HEAD)"
+          quick=()
+          [ "$QUICK" = 1 ] && quick=(--arg=quick=1)
+          status=0
+          "$client" run --class exclusive --measurement --label measure \
+            --script scripts/measure/perf100.sh --ref "$SHA" --timeout 7200 --key "perf100-headless-$SHA-${{ github.run_attempt }}" \
+            --artifact artifacts/perf100/results.json --arg=mode=headless --arg=gate=1 --arg=host_class=aws-m4pro \
+            ${quick[@]+"${quick[@]}"} | tee "$RUNNER_TEMP/perf100.log" || status=$?
+          sed -n '/^# perf100 run/,$p' "$RUNNER_TEMP/perf100.log" >> "$GITHUB_STEP_SUMMARY" || true
+          exit "$status"
+
+  app:
+    if: >-
+      github.repository_owner == 'manaflow-ai' && vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY != '' &&
+      (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode != 'headless'))
+    runs-on: ${{ vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY }}
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event_name == 'schedule' && 'feat-cmux-next' || '' }}
+          fetch-depth: 1
+          submodules: false
+      - name: perf100 GUI scenarios on the bench worker
+        env:
+          QUICK: ${{ inputs.quick || '0' }}
+        run: |
+          set -uo pipefail
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          if ! [[ -x "$client" ]]; then
+            echo "::error title=Build fleet client missing::$client is not installed on runner $RUNNER_NAME; perf100 did not run."
+            exit 127
+          fi
+          sha="$(git rev-parse HEAD)"
+          quick=()
+          [ "$QUICK" = 1 ] && quick=(--arg=quick=1)
+          status=0
+          "$client" run --class exclusive --measurement --label bench \
+            --target-worker cmux20-bench --script scripts/measure/perf100.sh --ref "$sha" --timeout 12600 \
+            --key "perf100-app-$sha-${{ github.run_attempt }}" --artifact artifacts/perf100/results.json \
+            --arg=mode=app --arg=gate=1 --arg=host_class=cmux20-bench ${quick[@]+"${quick[@]}"} | tee "$RUNNER_TEMP/perf100.log" || status=$?
+          sed -n '/^# perf100 run/,$p' "$RUNNER_TEMP/perf100.log" >> "$GITHUB_STEP_SUMMARY" || true
+          exit "$status"

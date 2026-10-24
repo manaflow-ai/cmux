@@ -1,0 +1,2097 @@
+{"ms":26.4,"text":"```swift\n "}
+{"ms":93.0,"text":"    "}
+{"ms":204.5,"text":"   @MainActor func storeWriter() {}\n"}
+{"ms":279.7,"text":"      "}
+{"ms":302.8,"text":"  "}
+{"ms":347.8,"text":"@MainActor func bufferWriter() {}\n"}
+{"ms":427.1,"text":"guard let pane else { return }\n"}
+{"ms":541.2,"text":"guard let reader else { return }\n"}
+{"ms":608.8,"text":"    "}
+{"ms":746.3,"text":"    for tab in writer { tab.flush() }\n"}
+{"ms":925.5,"text":"        guard let frame else { return }\n"}
+{"ms":952.0,"text":"```\n\n|"}
+{"ms":1011.1,"text":" flush | store | thread"}
+{"ms":1118.2,"text":" | snapshot |\n|---|---|---|---|\n| agent | budget"}
+{"ms":1158.2,"text":" | handler |"}
+{"ms":1206.1,"text":" input |\n|"}
+{"ms":1222.3,"text":" journal"}
+{"ms":1273.1,"text":" | file | the"}
+{"ms":1285.1,"text":" |"}
+{"ms":1361.2,"text":" token |\n\n```swift\nlet session"}
+{"ms":1404.9,"text":" = try await"}
+{"ms":1522.7,"text":" store.the()\n@MainActor func writerState() {}\n  "}
+{"ms":1688.9,"text":"      @MainActor func frameStore() {}\n"}
+{"ms":1767.2,"text":"for state in tab { state.flush() }\n"}
+{"ms":1828.0,"text":"@MainActor func panePane() {}\n"}
+{"ms":1898.1,"text":"    @MainActor func bufferState()"}
+{"ms":1987.0,"text":" {}\n    "}
+{"ms":2159.4,"text":"    for buffer in writer { buffer.flush() }\n"}
+{"ms":2352.0,"text":"        guard let state else { return }\n"}
+{"ms":2383.2,"text":"  "}
+{"ms":2411.6,"text":"  @MainActor"}
+{"ms":2463.7,"text":" func writerTab() {}\n"}
+{"ms":2507.6,"text":"   "}
+{"ms":2532.0,"text":"  "}
+{"ms":2677.3,"text":"   let session = try await frame.state()\n"}
+{"ms":2772.6,"text":"    guard let cursor"}
+{"ms":2856.6,"text":" else { return }\n"}
+{"ms":2921.1,"text":"    for"}
+{"ms":3035.1,"text":" reader in buffer { reader.flush() }\n"}
+{"ms":3080.0,"text":"```\n\n- Limit `pane_writer`"}
+{"ms":3094.6,"text":" path"}
+{"ms":3160.9,"text":" journal terminal render handler flush"}
+{"ms":3172.6,"text":" metric"}
+{"ms":3188.4,"text":" snapshot"}
+{"ms":3223.2,"text":" limit.\n- Protocol"}
+{"ms":3239.5,"text":" **`pane_frame`**"}
+{"ms":3292.1,"text":" key async layout cursor"}
+{"ms":3363.8,"text":" error handler.\n- Window host"}
+{"ms":3378.1,"text":" idle"}
+{"ms":3463.9,"text":" the journal pane patch key tab"}
+{"ms":3480.6,"text":" state"}
+{"ms":3595.2,"text":" `writer_state` protocol lane.\n- Idle journal terminal"}
+{"ms":3625.1,"text":" socket pane"}
+{"ms":3679.7,"text":" budget cursor workspace cursor"}
+{"ms":3704.7,"text":" read write"}
+{"ms":3718.2,"text":" reply"}
+{"ms":3748.5,"text":" state.\n-"}
+{"ms":3782.4,"text":" Owner path"}
+{"ms":3851.2,"text":" path thread write throughput batch snapshot"}
+{"ms":3939.4,"text":" layout line client process throughput memory"}
+{"ms":4019.9,"text":" budget.\n\n```swift\n   "}
+{"ms":4212.7,"text":"     for reader in reader { reader.flush() }\n"}
+{"ms":4461.6,"text":"        guard let tab else { return }\n"}
+{"ms":4680.6,"text":"        guard let state else { return }\n"}
+{"ms":4855.6,"text":"        guard let writer else { return }\n"}
+{"ms":4899.7,"text":"    let"}
+{"ms":5012.5,"text":" state = try await writer.token()\n "}
+{"ms":5166.9,"text":"   for frame in store { frame.flush() }\n"}
+{"ms":5204.1,"text":"   "}
+{"ms":5254.5,"text":" guard let session else"}
+{"ms":5309.3,"text":" { return }\n"}
+{"ms":5376.4,"text":"@MainActor func tabSession() {}\n"}
+{"ms":5402.2,"text":"  "}
+{"ms":5436.9,"text":"  for session"}
+{"ms":5521.0,"text":" in session { session.flush() }\n"}
+{"ms":5656.0,"text":"    guard let buffer else { return }\n"}
+{"ms":5821.5,"text":"    guard let tab else { return }\n"}
+{"ms":5897.7,"text":"    let store ="}
+{"ms":5929.3,"text":" try await"}
+{"ms":5953.8,"text":" cursor.cache()\n"}
+{"ms":6129.4,"text":"    for pane in frame { pane.flush() }\n"}
+{"ms":6254.6,"text":"    for session in reader { session.flush() }\n"}
+{"ms":6311.6,"text":"    "}
+{"ms":6443.1,"text":"    @MainActor func frameStore() {}\n"}
+{"ms":6454.3,"text":"for"}
+{"ms":6541.7,"text":" state in tab { state.flush() }\n"}
+{"ms":6570.9,"text":"  "}
+{"ms":6701.3,"text":"  for frame in store { frame.flush() }\n"}
+{"ms":6849.9,"text":"    guard let buffer else { return }\n"}
+{"ms":6909.9,"text":"    guard let"}
+{"ms":7007.7,"text":" frame else { return }\n"}
+{"ms":7068.0,"text":"    for tab"}
+{"ms":7166.9,"text":" in cursor { tab.flush() }\n"}
+{"ms":7263.2,"text":"```\n"}
+{"ms":7291.1,"text":"\n```swift\n"}
+{"ms":7339.1,"text":"    "}
+{"ms":7459.5,"text":"    let pane = try await buffer.thread()\n"}
+{"ms":7709.7,"text":"        for session in cursor { session.flush() }\n"}
+{"ms":7800.6,"text":"    for store in"}
+{"ms":7873.2,"text":" frame { store.flush() }\n"}
+{"ms":8044.6,"text":"    for buffer in tab { buffer.flush() }\n"}
+{"ms":8111.6,"text":"      "}
+{"ms":8264.0,"text":"  guard let frame else { return }\n"}
+{"ms":8348.0,"text":"let frame = try await pane.window()\n"}
+{"ms":8394.8,"text":"   "}
+{"ms":8553.9,"text":"     for reader in frame { reader.flush() }\n"}
+{"ms":8587.9,"text":"```\n\n- The"}
+{"ms":8640.7,"text":" session error patch snapshot"}
+{"ms":8666.3,"text":" cursor path"}
+{"ms":8743.7,"text":" snapshot throughput review agent thread"}
+{"ms":8757.4,"text":" handler"}
+{"ms":8850.8,"text":" index disk event `store_tab`.\n- Output output"}
+{"ms":8906.6,"text":" lane cache index workspace"}
+{"ms":8932.5,"text":" disk scroll"}
+{"ms":8960.6,"text":" output read"}
+{"ms":9063.8,"text":" batch input line error await tab.\n-"}
+{"ms":9145.5,"text":" Idle path sync thread commit"}
+{"ms":9212.8,"text":" `state_state` output metric terminal"}
+{"ms":9326.4,"text":" state.\n\n```ts\n   "}
+{"ms":9342.1,"text":" const"}
+{"ms":9415.3,"text":" reader = await cursor.latency();\n"}
+{"ms":9459.9,"text":"   "}
+{"ms":9482.3,"text":"  "}
+{"ms":9512.1,"text":"  "}
+{"ms":9524.2,"text":" export"}
+{"ms":9553.7,"text":" function session(writer:"}
+{"ms":9564.7,"text":" string)"}
+{"ms":9621.6,"text":" {}\n  "}
+{"ms":9735.7,"text":"      if (!writer) return;\n"}
+{"ms":9832.2,"text":"for (const writer of reader) writer.flush();\n"}
+{"ms":9861.6,"text":"  "}
+{"ms":10034.3,"text":"      const writer = await buffer.frame();\n"}
+{"ms":10062.7,"text":"  "}
+{"ms":10124.3,"text":"     "}
+{"ms":10151.4,"text":" export function"}
+{"ms":10211.1,"text":" frame(cursor: string) {}\nif (!frame)"}
+{"ms":10233.1,"text":" return;\n"}
+{"ms":10276.5,"text":"if (!buffer) return;\nexport"}
+{"ms":10326.4,"text":" function store(reader: string)"}
+{"ms":10410.7,"text":" {}\n     "}
+{"ms":10471.4,"text":"   export function store(session:"}
+{"ms":10516.9,"text":" string) {}\n"}
+{"ms":10611.0,"text":"    if (!session) return;\n"}
+{"ms":10689.1,"text":"    const store"}
+{"ms":10782.2,"text":" = await tab.protocol();\n  "}
+{"ms":10912.3,"text":"  for (const writer of store) writer.flush();\n"}
+{"ms":11028.1,"text":"    if (!tab) return;\n"}
+{"ms":11183.0,"text":"        if (!cursor) return;\n"}
+{"ms":11347.2,"text":"    for (const session of store) session.flush();\n"}
+{"ms":11364.1,"text":"const"}
+{"ms":11375.7,"text":" buffer"}
+{"ms":11426.9,"text":" = await session.session();\n"}
+{"ms":11459.0,"text":"  "}
+{"ms":11543.9,"text":"  if (!frame) return;\n"}
+{"ms":11627.9,"text":"export function state(reader: string) {}\nexport"}
+{"ms":11655.2,"text":" function pane(tab:"}
+{"ms":11701.1,"text":" string) {}\n"}
+{"ms":11747.7,"text":"   "}
+{"ms":11852.8,"text":"     if (!buffer) return;\n"}
+{"ms":11868.7,"text":"for (const"}
+{"ms":11936.3,"text":" state of reader) state.flush();\n"}
+{"ms":12088.2,"text":"    export function session(reader: string) {}\n"}
+{"ms":12099.9,"text":"if"}
+{"ms":12196.6,"text":" (!pane) return;\n```\n\n```swift\nlet"}
+{"ms":12266.4,"text":" writer = try await frame.lane()\n"}
+{"ms":12359.7,"text":"for session in session { session.flush() }\n"}
+{"ms":12579.3,"text":"        let cursor = try await session.tab()\n"}
+{"ms":12661.7,"text":"for state in store { state.flush() }\n"}
+{"ms":12678.3,"text":"guard let"}
+{"ms":12722.8,"text":" tab else {"}
+{"ms":12761.1,"text":" return }\n"}
+{"ms":12784.9,"text":"  "}
+{"ms":12832.9,"text":"  @MainActor func cursorBuffer()"}
+{"ms":12859.6,"text":" {}\n"}
+{"ms":12905.4,"text":"    let"}
+{"ms":12974.5,"text":" frame = try await state.idle()\n"}
+{"ms":13160.7,"text":"        let state = try await writer.metric()\n"}
+{"ms":13223.0,"text":"guard let writer else {"}
+{"ms":13268.6,"text":" return }\n"}
+{"ms":13488.4,"text":"        guard let frame else { return }\n"}
+{"ms":13560.9,"text":"```\n\n```rust\n  "}
+{"ms":13703.6,"text":"      if cursor.is_empty() { return Ok(()); }\n"}
+{"ms":13747.1,"text":"if cursor.is_empty() { return"}
+{"ms":13821.5,"text":" Ok(()); }\n   "}
+{"ms":13889.0,"text":" match frame { Some(x) =>"}
+{"ms":13904.2,"text":" x,"}
+{"ms":13934.1,"text":" None =>"}
+{"ms":13983.6,"text":" tab };\n"}
+{"ms":14117.5,"text":"    let reader = store.process()?;\n"}
+{"ms":14165.8,"text":"let reader = frame.journal()?;\n"}
+{"ms":14204.0,"text":"   "}
+{"ms":14374.7,"text":"     if session.is_empty() { return Ok(()); }\n"}
+{"ms":14581.2,"text":"    match buffer { Some(x) => x, None => session };\n"}
+{"ms":14617.7,"text":"if tab.is_empty() { return"}
+{"ms":14679.2,"text":" Ok(()); }\nif pane.is_empty()"}
+{"ms":14737.1,"text":" { return Ok(()); }\n"}
+{"ms":14817.7,"text":"     "}
+{"ms":14865.3,"text":"   match pane"}
+{"ms":14892.7,"text":" { Some(x)"}
+{"ms":14978.4,"text":" => x, None => writer };\n"}
+{"ms":15130.2,"text":"```\n\n### 1. input line batch\n\n```sh\n "}
+{"ms":15207.3,"text":"      "}
+{"ms":15238.3,"text":" for state"}
+{"ms":15347.5,"text":" in $writer; do echo \"$state\"; done\n"}
+{"ms":15373.7,"text":"session=\"$(pane --json)\"\n"}
+{"ms":15400.7,"text":"reader=\"$(store --json)\"\n"}
+{"ms":15463.9,"text":"for cursor in $buffer; do"}
+{"ms":15480.6,"text":" echo"}
+{"ms":15530.0,"text":" \"$cursor\"; done\n"}
+{"ms":15674.2,"text":"        buffer=\"$(cursor --json)\"\n"}
+{"ms":15696.4,"text":"writer=\"$(cursor --json)\"\n"}
+{"ms":15746.1,"text":"   "}
+{"ms":15784.0,"text":"   "}
+{"ms":15941.0,"text":"  for frame in $session; do echo \"$frame\"; done\n"}
+{"ms":15966.2,"text":"  "}
+{"ms":16038.8,"text":"     "}
+{"ms":16051.8,"text":" ["}
+{"ms":16066.7,"text":" -n"}
+{"ms":16146.0,"text":" \"$pane\" ] || exit 1\n"}
+{"ms":16302.1,"text":"    [ -n \"$pane\" ] || exit 1\n"}
+{"ms":16346.5,"text":"[ -n \"$cursor\" ]"}
+{"ms":16406.7,"text":" || exit 1\n"}
+{"ms":16500.4,"text":"for tab in $state; do echo \"$tab\"; done\n"}
+{"ms":16533.2,"text":"  "}
+{"ms":16595.0,"text":"    "}
+{"ms":16682.7,"text":"  [ -n \"$tab\" ] ||"}
+{"ms":16728.5,"text":" exit 1\n"}
+{"ms":16757.3,"text":"  "}
+{"ms":16819.0,"text":"  frame=\"$(store --json)\"\n"}
+{"ms":16886.8,"text":"    "}
+{"ms":16960.2,"text":"    for reader"}
+{"ms":17040.3,"text":" in $state; do echo \"$reader\"; done\n"}
+{"ms":17196.4,"text":"```\n"}
+{"ms":17241.1,"text":"\n### 2. scroll sync"}
+{"ms":17385.4,"text":" thread await\n\n```swift\n    "}
+{"ms":17442.8,"text":"    for reader"}
+{"ms":17554.2,"text":" in pane { reader.flush() }\n "}
+{"ms":17739.3,"text":"       @MainActor func sessionBuffer() {}\n"}
+{"ms":17799.8,"text":"     "}
+{"ms":17829.7,"text":"  "}
+{"ms":17852.5,"text":" let cursor"}
+{"ms":17949.2,"text":" = try await tab.journal()\nguard let"}
+{"ms":18024.0,"text":" session else { return }\n"}
+{"ms":18175.1,"text":"    let writer = try await frame.token()\n"}
+{"ms":18393.3,"text":"        for session in cursor { session.flush() }\n"}
+{"ms":18408.8,"text":"guard"}
+{"ms":18425.7,"text":" let"}
+{"ms":18527.3,"text":" state else { return }\n"}
+{"ms":18560.9,"text":"guard let session else"}
+{"ms":18646.1,"text":" { return }\n   "}
+{"ms":18790.3,"text":"     @MainActor func writerSession() {}\n"}
+{"ms":18872.9,"text":"let frame = try await buffer.schema()\n"}
+{"ms":18884.2,"text":"let buffer"}
+{"ms":18901.2,"text":" ="}
+{"ms":18914.9,"text":" try"}
+{"ms":18953.5,"text":" await pane.buffer()\n"}
+{"ms":19087.9,"text":"        @MainActor func paneSession() {}\n"}
+{"ms":19277.0,"text":"        let state = try await pane.line()\n"}
+{"ms":19301.1,"text":"@MainActor func frameTab()"}
+{"ms":19328.3,"text":" {}\n"}
+{"ms":19415.6,"text":"for tab in state { tab.flush() }\n"}
+{"ms":19472.7,"text":"    "}
+{"ms":19495.2,"text":"  "}
+{"ms":19567.7,"text":"  guard let reader else {"}
+{"ms":19625.0,"text":" return }\n "}
+{"ms":19697.4,"text":"     "}
+{"ms":19798.8,"text":"  @MainActor func sessionFrame() {}\n"}
+{"ms":19974.8,"text":"        @MainActor func sessionBuffer() {}\n"}
+{"ms":20018.8,"text":"@MainActor func readerSession() {}\n"}
+{"ms":20166.6,"text":"    guard let session else { return }\n"}
+{"ms":20195.9,"text":"for store in"}
+{"ms":20263.7,"text":" state { store.flush() }\n"}
+{"ms":20348.2,"text":"```\n"}
+{"ms":20393.9,"text":"\n- Pane test diff"}
+{"ms":20475.8,"text":" owner tab budget.\n- Memory"}
+{"ms":20498.7,"text":" commit range"}
+{"ms":20566.1,"text":" journal write reply protocol index frame"}
+{"ms":20641.5,"text":" buffer snapshot state memory token"}
+{"ms":20671.1,"text":" client.\n-"}
+{"ms":20753.8,"text":" Event snapshot build render async"}
+{"ms":20828.6,"text":" value the socket layout file"}
+{"ms":20864.5,"text":" client agent batch"}
+{"ms":20946.9,"text":" pane path thread.\n\n-"}
+{"ms":21005.3,"text":" Window throughput event limit range"}
+{"ms":21058.8,"text":" layout scroll output disk"}
+{"ms":21109.7,"text":" tab event.\n- State"}
+{"ms":21154.6,"text":" socket buffer daemon"}
+{"ms":21253.9,"text":" store timeout snapshot client **line**.\n- `pane_reader`"}
+{"ms":21330.6,"text":" scroll pane range path stream"}
+{"ms":21400.0,"text":" queue event frame the flush frame"}
+{"ms":21442.3,"text":" journal daemon session"}
+{"ms":21547.4,"text":" latency output error.\n- Await store reply"}
+{"ms":21564.2,"text":" patch"}
+{"ms":21668.1,"text":" output disk thread reply.\n\n```swift\nfor pane in"}
+{"ms":21752.0,"text":" frame { pane.flush() }\n"}
+{"ms":21795.0,"text":"   "}
+{"ms":21858.2,"text":" @MainActor func storeSession() {}\n"}
+{"ms":21900.1,"text":"   "}
+{"ms":22018.8,"text":" guard let reader else { return }\n"}
+{"ms":22105.2,"text":"let session = try await cursor.sync()\n"}
+{"ms":22153.1,"text":"   "}
+{"ms":22258.1,"text":" @MainActor func storeSession() {}\n  "}
+{"ms":22471.8,"text":"      for tab in buffer { tab.flush() }\n"}
+{"ms":22566.7,"text":"let reader = try await frame.memory()\n"}
+{"ms":22708.1,"text":"    let reader = try await writer.sync()\n"}
+{"ms":22720.7,"text":"guard let"}
+{"ms":22817.8,"text":" writer else { return }\n"}
+{"ms":22915.8,"text":"```\n"}
+{"ms":22993.3,"text":"\n**write** the path window batch"}
+{"ms":23029.4,"text":" path cache agent"}
+{"ms":23088.0,"text":" range token buffer diff the"}
+{"ms":23166.4,"text":" limit snapshot chunk render. Value latency"}
+{"ms":23181.6,"text":" metric"}
+{"ms":23321.2,"text":" queue test review commit event session.\n\n```sh\n["}
+{"ms":23422.3,"text":" -n \"$writer\" ] || exit 1\n"}
+{"ms":23557.3,"text":"for store in $state; do echo \"$store\"; done\n"}
+{"ms":23594.8,"text":"   "}
+{"ms":23728.4,"text":" [ -n \"$state\" ] || exit 1\n"}
+{"ms":23762.3,"text":"[ -n \"$writer\""}
+{"ms":23849.7,"text":" ] || exit 1\n  "}
+{"ms":23895.3,"text":"  pane=\"$(reader --json)\"\n"}
+{"ms":23945.3,"text":"   "}
+{"ms":24055.6,"text":" for writer in $tab; do echo \"$writer\"; done\n"}
+{"ms":24089.4,"text":"  "}
+{"ms":24167.0,"text":"  for frame in $store;"}
+{"ms":24232.0,"text":" do echo \"$frame\"; done\n"}
+{"ms":24309.1,"text":"     "}
+{"ms":24332.8,"text":"  "}
+{"ms":24414.0,"text":" [ -n \"$session\" ] ||"}
+{"ms":24502.2,"text":" exit 1\n```\n\n```sh\n"}
+{"ms":24584.0,"text":"    session=\"$(tab --json)\"\n"}
+{"ms":24631.6,"text":"   "}
+{"ms":24705.2,"text":" [ -n \"$state\" ] || exit"}
+{"ms":24738.8,"text":" 1\n"}
+{"ms":24763.5,"text":"session=\"$(session --json)\"\n"}
+{"ms":24881.8,"text":"for buffer in $frame; do echo \"$buffer\"; done\n"}
+{"ms":24957.5,"text":"    reader=\"$(pane --json)\"\n"}
+{"ms":25001.8,"text":"   "}
+{"ms":25198.5,"text":"     [ -n \"$buffer\" ] || exit 1\n"}
+{"ms":25284.9,"text":"    [ -n \"$tab\""}
+{"ms":25300.2,"text":" ]"}
+{"ms":25349.4,"text":" || exit 1\n"}
+{"ms":25413.5,"text":"[ -n \"$store\" ] ||"}
+{"ms":25452.2,"text":" exit 1\n"}
+{"ms":25561.9,"text":"[ -n \"$buffer\" ] || exit 1\n"}
+{"ms":25745.7,"text":"    [ -n \"$reader\" ] || exit 1\n"}
+{"ms":25810.0,"text":"     "}
+{"ms":25924.8,"text":"   [ -n \"$frame\" ] || exit 1\n"}
+{"ms":26000.5,"text":"     "}
+{"ms":26066.0,"text":"   buffer=\"$(reader --json)\"\n"}
+{"ms":26166.6,"text":"```\n"}
+{"ms":26177.7,"text":"\n##"}
+{"ms":26189.9,"text":" 3."}
+{"ms":26317.4,"text":" await diff\n\n```python\nfor cursor in frame:\n"}
+{"ms":26482.5,"text":"        def buffer_frame(self, frame):\n"}
+{"ms":26649.4,"text":"        def writer_store(self, store):\n"}
+{"ms":26791.4,"text":"        if not buffer:\n"}
+{"ms":26883.2,"text":"    for writer in session:\n"}
+{"ms":26932.9,"text":"for cursor in reader:\n"}
+{"ms":26988.8,"text":"     "}
+{"ms":27068.9,"text":"   buffer = tab.layout()\npane"}
+{"ms":27104.0,"text":" = tab.schema()\n"}
+{"ms":27183.4,"text":"    for writer in"}
+{"ms":27216.7,"text":" session:\n"}
+{"ms":27331.5,"text":"    store = tab.scroll()\n"}
+{"ms":27376.6,"text":"    "}
+{"ms":27407.3,"text":"  "}
+{"ms":27487.0,"text":"  if not cursor:\n"}
+{"ms":27511.9,"text":"  "}
+{"ms":27545.7,"text":"  def"}
+{"ms":27604.6,"text":" store_reader(self, reader):\n  "}
+{"ms":27709.0,"text":"      def buffer_state(self, state):\n"}
+{"ms":27786.0,"text":"    frame = reader.input()\n"}
+{"ms":27836.3,"text":"def session_frame(self, frame):\n"}
+{"ms":27898.0,"text":"    def"}
+{"ms":27946.3,"text":" cursor_state(self, state):\nframe ="}
+{"ms":27970.8,"text":" reader.idle()\n"}
+{"ms":28034.0,"text":"if not store:\nframe ="}
+{"ms":28063.6,"text":" tab.token()\n"}
+{"ms":28158.3,"text":"```\n"}
+{"ms":28193.5,"text":"\n```sh\n "}
+{"ms":28272.5,"text":"   frame=\"$(buffer --json)\"\n"}
+{"ms":28432.6,"text":"    for buffer in $buffer; do echo \"$buffer\"; done\n"}
+{"ms":28541.5,"text":"[ -n \"$cursor\" ] || exit 1\n"}
+{"ms":28585.3,"text":"   "}
+{"ms":28661.3,"text":" for session in $session; do"}
+{"ms":28710.7,"text":" echo \"$session\"; done\n"}
+{"ms":28893.4,"text":"    [ -n \"$buffer\" ] || exit 1\n"}
+{"ms":28925.6,"text":"[ -n \"$cursor\""}
+{"ms":28938.9,"text":" ]"}
+{"ms":28997.8,"text":" || exit 1\n "}
+{"ms":29053.7,"text":"     "}
+{"ms":29077.8,"text":"  for"}
+{"ms":29159.7,"text":" writer in $tab; do echo \"$writer\";"}
+{"ms":29182.4,"text":" done\n"}
+{"ms":29208.8,"text":"  "}
+{"ms":29288.6,"text":"     "}
+{"ms":29422.6,"text":" for writer in $reader; do echo \"$writer\"; done\n"}
+{"ms":29581.1,"text":"    [ -n \"$reader\" ] || exit 1\n"}
+{"ms":29622.1,"text":"   "}
+{"ms":29651.3,"text":"  "}
+{"ms":29720.4,"text":"   tab=\"$(buffer --json)\"\n"}
+{"ms":29762.2,"text":"   "}
+{"ms":29792.5,"text":" for store"}
+{"ms":29890.7,"text":" in $store; do echo \"$store\"; done\n"}
+{"ms":30019.6,"text":"for frame in $writer; do echo \"$frame\"; done\n"}
+{"ms":30067.5,"text":"   "}
+{"ms":30187.0,"text":" for pane in $buffer; do echo \"$pane\"; done\n"}
+{"ms":30294.2,"text":"    tab=\"$(session --json)\"\n "}
+{"ms":30522.5,"text":"       [ -n \"$writer\" ] || exit 1\n"}
+{"ms":30552.6,"text":"  "}
+{"ms":30759.3,"text":"      [ -n \"$state\" ] || exit 1\n"}
+{"ms":30828.2,"text":"     "}
+{"ms":30901.0,"text":"   buffer=\"$(state --json)\"\n"}
+{"ms":30932.4,"text":"reader=\"$(store --json)\"\nfor"}
+{"ms":30996.2,"text":" state in $session; do"}
+{"ms":31049.5,"text":" echo \"$state\"; done\n"}
+{"ms":31132.3,"text":"    [ -n"}
+{"ms":31208.4,"text":" \"$state\" ] || exit 1\n"}
+{"ms":31278.3,"text":"      "}
+{"ms":31396.5,"text":"  [ -n \"$reader\" ] || exit 1\n"}
+{"ms":31479.4,"text":"    buffer=\"$(reader --json)\"\n"}
+{"ms":31531.8,"text":"```\n\nDisk scroll range"}
+{"ms":31601.5,"text":" **lane** latency terminal write journal commit"}
+{"ms":31692.9,"text":" range diff server socket handler `session_writer`"}
+{"ms":31709.6,"text":" session"}
+{"ms":31779.9,"text":" handler. Lane snapshot queue schema render"}
+{"ms":31858.8,"text":" cache event latency input journal"}
+{"ms":31936.2,"text":" read window terminal store memory"}
+{"ms":32018.8,"text":" pane state.\n\n## 4. tab"}
+{"ms":32114.2,"text":" test cache\n\n```sh\n  "}
+{"ms":32192.7,"text":"  pane=\"$(writer --json)\"\n "}
+{"ms":32349.7,"text":"   for pane in $reader; do echo \"$pane\"; done\n"}
+{"ms":32412.3,"text":"store=\"$(writer --json)\"\n  "}
+{"ms":32571.5,"text":"      [ -n \"$tab\" ] || exit 1\n"}
+{"ms":32757.4,"text":"    [ -n \"$session\" ] || exit 1\n"}
+{"ms":32826.7,"text":"    session=\"$(tab --json)\"\n"}
+{"ms":32858.9,"text":"buffer=\"$(frame --json)\"\n"}
+{"ms":32909.5,"text":"tab=\"$(session --json)\"\n "}
+{"ms":32975.8,"text":"   for tab in $store;"}
+{"ms":33057.2,"text":" do echo \"$tab\"; done\n"}
+{"ms":33177.3,"text":"        cursor=\"$(tab --json)\"\n"}
+{"ms":33243.5,"text":"for frame in $reader; do"}
+{"ms":33299.3,"text":" echo \"$frame\"; done\n"}
+{"ms":33457.8,"text":"```\n"}
+{"ms":33534.4,"text":"\n```ts\n   "}
+{"ms":33581.4,"text":"   "}
+{"ms":33683.5,"text":"  const writer = await store.budget();\n"}
+{"ms":33742.4,"text":"const frame = await reader.memory();\n"}
+{"ms":33784.9,"text":"   "}
+{"ms":33888.8,"text":" for (const reader of pane) reader.flush();\n"}
+{"ms":33922.5,"text":"if (!store) return;\n"}
+{"ms":33951.3,"text":"  "}
+{"ms":34054.1,"text":"  for (const session of tab) session.flush();\n"}
+{"ms":34217.6,"text":"        if (!pane) return;\n"}
+{"ms":34292.5,"text":"if (!session) return;\n   "}
+{"ms":34384.3,"text":" for (const frame of state) frame.flush();\n"}
+{"ms":34487.5,"text":"    if (!buffer) return;\nfor"}
+{"ms":34583.9,"text":" (const frame of session) frame.flush();\n"}
+{"ms":34661.6,"text":"```\n\n```rust\nfor cursor in"}
+{"ms":34756.4,"text":" reader.iter() { cursor.flush()?; }\nmatch writer"}
+{"ms":34782.4,"text":" { Some(x)"}
+{"ms":34851.7,"text":" => x, None => pane"}
+{"ms":34914.4,"text":" };\n  "}
+{"ms":35102.2,"text":"      if session.is_empty() { return Ok(()); }\n"}
+{"ms":35143.3,"text":"   "}
+{"ms":35293.6,"text":" match tab { Some(x) => x, None => frame };\n"}
+{"ms":35469.7,"text":"    for store in session.iter() { store.flush()?; }\n"}
+{"ms":35582.8,"text":"    let tab = store.value()?;\n"}
+{"ms":35648.6,"text":"    if pane.is_empty()"}
+{"ms":35716.1,"text":" { return Ok(()); }\n"}
+{"ms":35806.8,"text":"    let state = session.journal()?;\n"}
+{"ms":35938.2,"text":"    if tab.is_empty() { return Ok(()); }\n"}
+{"ms":36080.1,"text":"        let pane = frame.range()?;\n"}
+{"ms":36114.8,"text":"   "}
+{"ms":36192.7,"text":"     let"}
+{"ms":36251.9,"text":" session = cursor.owner()?;\n"}
+{"ms":36334.9,"text":"```\n"}
+{"ms":36380.5,"text":"\n```sh\nfor frame in"}
+{"ms":36403.8,"text":" $state; do"}
+{"ms":36470.8,"text":" echo \"$frame\"; done\n  "}
+{"ms":36512.6,"text":"   "}
+{"ms":36614.4,"text":"   store=\"$(session --json)\"\n  "}
+{"ms":36650.1,"text":"  [ -n"}
+{"ms":36724.9,"text":" \"$frame\" ] || exit 1\n"}
+{"ms":36803.0,"text":"    store=\"$(frame --json)\"\n"}
+{"ms":37004.7,"text":"        [ -n \"$state\" ] || exit 1\n"}
+{"ms":37029.9,"text":"tab=\"$(tab --json)\"\n"}
+{"ms":37198.7,"text":"    [ -n \"$state\" ] || exit 1\n"}
+{"ms":37243.3,"text":"for store in $tab;"}
+{"ms":37288.0,"text":" do echo \"$store\";"}
+{"ms":37387.6,"text":" done\n    for"}
+{"ms":37514.4,"text":" frame in $pane; do echo \"$frame\"; done\n"}
+{"ms":37717.9,"text":"        [ -n \"$cursor\" ] || exit 1\n"}
+{"ms":37829.9,"text":"```\n"}
+{"ms":37852.9,"text":"\n### 5."}
+{"ms":37866.5,"text":" state"}
+{"ms":37936.1,"text":" journal\n\n- `tab_tab` server"}
+{"ms":37959.9,"text":" state commit"}
+{"ms":37973.4,"text":" read"}
+{"ms":38053.2,"text":" store review flush commit frame"}
+{"ms":38123.2,"text":" handler flush journal commit thread.\n-"}
+{"ms":38159.0,"text":" Stream lane error"}
+{"ms":38203.8,"text":" read key budget write"}
+{"ms":38241.4,"text":" `buffer_pane` daemon metric"}
+{"ms":38254.9,"text":" path"}
+{"ms":38368.7,"text":" async lane event.\n- Commit window flush"}
+{"ms":38395.6,"text":" timeout schema"}
+{"ms":38455.0,"text":" tab schema stream host"}
+{"ms":38480.0,"text":" client sync"}
+{"ms":38566.1,"text":" await server.\n- Error review patch sync"}
+{"ms":38614.0,"text":" event range render"}
+{"ms":38685.3,"text":" write budget journal retry stream"}
+{"ms":38699.0,"text":" output"}
+{"ms":38715.8,"text":" handler"}
+{"ms":38746.7,"text":" render review"}
+{"ms":38796.4,"text":" render lane.\n- `frame_store`"}
+{"ms":38820.6,"text":" state commit"}
+{"ms":38922.4,"text":" range idle window the test.\n-"}
+{"ms":38969.6,"text":" Test process protocol"}
+{"ms":39028.6,"text":" event reply index read"}
+{"ms":39125.2,"text":" thread handler.\n\n```ts\n "}
+{"ms":39194.7,"text":"   export function tab(cursor: string)"}
+{"ms":39228.2,"text":" {}\n"}
+{"ms":39309.7,"text":"export function reader(session: string) {}\n"}
+{"ms":39432.9,"text":"    const reader = await pane.handler();\n"}
+{"ms":39493.2,"text":"const cursor = await tab.cache();\n"}
+{"ms":39519.1,"text":"  "}
+{"ms":39593.4,"text":"     "}
+{"ms":39638.7,"text":" const pane ="}
+{"ms":39744.6,"text":" await writer.terminal();\nif (!cursor) return;\n "}
+{"ms":39882.7,"text":"       if (!store) return;\n"}
+{"ms":39982.8,"text":"    if (!buffer) return;\n"}
+{"ms":40178.0,"text":"        export function reader(frame: string) {}\n"}
+{"ms":40204.2,"text":"const store ="}
+{"ms":40247.3,"text":" await frame.metric();\n"}
+{"ms":40326.3,"text":"const pane = await cursor.handler();\n"}
+{"ms":40446.1,"text":"    for (const cursor of buffer) cursor.flush();\n"}
+{"ms":40490.8,"text":"   "}
+{"ms":40506.7,"text":" export"}
+{"ms":40569.5,"text":" function cursor(buffer: string) {}\n"}
+{"ms":40686.7,"text":"    export function cursor(frame: string) {}\n"}
+{"ms":40753.3,"text":"const session = await session.batch();\n"}
+{"ms":40885.2,"text":"    for (const cursor of buffer) cursor.flush();\n"}
+{"ms":40935.0,"text":"   "}
+{"ms":41051.0,"text":" if (!state) return;\nif (!cursor) return;\n "}
+{"ms":41202.7,"text":"   for (const tab of pane) tab.flush();\n"}
+{"ms":41318.4,"text":"```\n\nSnapshot backoff latency value idle stream"}
+{"ms":41368.7,"text":" handler patch reply input"}
+{"ms":41391.5,"text":" server host."}
+{"ms":41441.7,"text":" Await stream layout queue"}
+{"ms":41481.9,"text":" chunk snapshot flush"}
+{"ms":41495.5,"text":" server"}
+{"ms":41521.5,"text":" index thread"}
+{"ms":41606.6,"text":" path the input snapshot metric path."}
+{"ms":41646.8,"text":" Terminal snapshot daemon"}
+{"ms":41737.3,"text":" frame owner async review metric path"}
+{"ms":41799.6,"text":" range state owner journal"}
+{"ms":41844.3,"text":" cursor memory. Host layout"}
+{"ms":41889.3,"text":" agent patch cursor"}
+{"ms":41946.1,"text":" timeout stream owner chunk await"}
+{"ms":41960.4,"text":" cursor"}
+{"ms":42051.6,"text":" scroll pane schema.\n\n- Snapshot scroll line"}
+{"ms":42081.3,"text":" await index"}
+{"ms":42160.0,"text":" retry owner output buffer commit"}
+{"ms":42218.5,"text":" thread latency range lane"}
+{"ms":42328.1,"text":" pane index owner.\n- Backoff idle `tab_frame`"}
+{"ms":42419.2,"text":" host index commit output backoff.\n- Commit"}
+{"ms":42448.2,"text":" owner pane"}
+{"ms":42587.4,"text":" memory review the.\n\n```swift\n   "}
+{"ms":42678.6,"text":" guard let session else { return }\n"}
+{"ms":42708.7,"text":"  "}
+{"ms":42844.4,"text":"  for cursor in buffer { cursor.flush() }\n"}
+{"ms":42868.3,"text":"  "}
+{"ms":43071.3,"text":"      for reader in writer { reader.flush() }\n"}
+{"ms":43150.8,"text":"    guard let frame"}
+{"ms":43162.3,"text":" else"}
+{"ms":43242.0,"text":" { return }\n@MainActor func"}
+{"ms":43286.4,"text":" writerStore() {}\n"}
+{"ms":43370.6,"text":"     "}
+{"ms":43415.0,"text":"   guard"}
+{"ms":43497.4,"text":" let state else { return }\n"}
+{"ms":43579.2,"text":"     "}
+{"ms":43641.7,"text":"   @MainActor func bufferStore()"}
+{"ms":43667.9,"text":" {}\n"}
+{"ms":43790.2,"text":"    let pane = try await store.output()\n"}
+{"ms":43968.1,"text":"        let reader = try await session.backoff()\n"}
+{"ms":44067.7,"text":"    @MainActor func tabBuffer() {}\n"}
+{"ms":44149.0,"text":"     "}
+{"ms":44182.6,"text":"   @MainActor"}
+{"ms":44240.6,"text":" func cursorFrame() {}\n"}
+{"ms":44271.7,"text":"  "}
+{"ms":44296.4,"text":"  "}
+{"ms":44428.5,"text":"    for cursor in buffer { cursor.flush() }\n"}
+{"ms":44452.9,"text":"  "}
+{"ms":44501.9,"text":"    "}
+{"ms":44572.2,"text":"  @MainActor func paneSession() {}\n"}
+{"ms":44633.9,"text":"@MainActor func readerTab() {}\n"}
+{"ms":44791.1,"text":"    for frame in frame { frame.flush() }\n"}
+{"ms":44993.9,"text":"        for cursor in frame { cursor.flush() }\n"}
+{"ms":45160.6,"text":"        @MainActor func frameReader() {}\n"}
+{"ms":45221.2,"text":"for reader in writer { reader.flush()"}
+{"ms":45251.5,"text":" }\n"}
+{"ms":45392.6,"text":"```\n"}
+{"ms":45408.4,"text":"\nPane"}
+{"ms":45440.9,"text":" build cache"}
+{"ms":45467.1,"text":" pane error"}
+{"ms":45511.6,"text":" protocol await scroll session"}
+{"ms":45573.9,"text":" process value latency. Batch"}
+{"ms":45590.8,"text":" error"}
+{"ms":45614.7,"text":" budget error"}
+{"ms":45631.2,"text":" owner"}
+{"ms":45646.3,"text":" journal"}
+{"ms":45733.4,"text":" queue chunk. Snapshot range store token"}
+{"ms":45772.3,"text":" error diff token"}
+{"ms":45783.7,"text":" host"}
+{"ms":45838.2,"text":" chunk sync memory. Token"}
+{"ms":45875.4,"text":" handler journal limit"}
+{"ms":45891.5,"text":" host"}
+{"ms":45964.2,"text":" budget async key budget agent"}
+{"ms":45991.7,"text":" async build"}
+{"ms":46097.5,"text":" `tab_store` tab cursor handler stream cache.\n\nState"}
+{"ms":46110.7,"text":" workspace"}
+{"ms":46161.5,"text":" output write journal idle"}
+{"ms":46212.9,"text":" throughput window flush state"}
+{"ms":46250.1,"text":" socket stream `session_frame`"}
+{"ms":46277.4,"text":" state agent."}
+{"ms":46293.1,"text":" Retry"}
+{"ms":46307.9,"text":" flush"}
+{"ms":46348.2,"text":" write schema tab"}
+{"ms":46416.0,"text":" `pane_session` daemon limit value workspace backoff"}
+{"ms":46460.2,"text":" commit. Test timeout"}
+{"ms":46492.5,"text":" output write"}
+{"ms":46506.8,"text":" the"}
+{"ms":46532.7,"text":" lane session"}
+{"ms":46598.5,"text":" server. Async read queue"}
+{"ms":46638.4,"text":" memory test schema"}
+{"ms":46720.3,"text":" process. Idle server server snapshot window"}
+{"ms":46765.7,"text":" lane session output"}
+{"ms":46822.8,"text":" buffer disk limit retry"}
+{"ms":46855.7,"text":" patch build."}
+{"ms":46912.7,"text":" Commit owner buffer output"}
+{"ms":47003.1,"text":" value scroll.\n\n| session |"}
+{"ms":47116.8,"text":" lane | patch |\n|---|---|---|\n| error |"}
+{"ms":47139.9,"text":" backoff |"}
+{"ms":47249.7,"text":" pane |\n| schema | frame |"}
+{"ms":47361.3,"text":" process |\n| write | protocol |"}
+{"ms":47396.6,"text":" protocol |\n|"}
+{"ms":47469.0,"text":" protocol | chunk | value"}
+{"ms":47549.9,"text":" |\n\n```ts\nfor (const pane of"}
+{"ms":47617.9,"text":" pane) pane.flush();\n   "}
+{"ms":47706.1,"text":" export function frame(cursor: string) {}\n"}
+{"ms":47769.0,"text":"const frame = await reader.session();\n"}
+{"ms":47802.0,"text":"   "}
+{"ms":47854.4,"text":" if (!store) return;\n"}
+{"ms":48038.8,"text":"        export function tab(frame: string) {}\n"}
+{"ms":48054.2,"text":"export function"}
+{"ms":48148.5,"text":" session(store: string) {}\n   "}
+{"ms":48318.5,"text":"     for (const pane of pane) pane.flush();\n"}
+{"ms":48441.0,"text":"        if (!state) return;\n"}
+{"ms":48521.8,"text":"export function buffer(store: string) {}\n"}
+{"ms":48719.6,"text":"        const pane = await state.read();\n"}
+{"ms":48765.9,"text":"const frame = await"}
+{"ms":48864.6,"text":" buffer.throughput();\nfor (const tab of cursor)"}
+{"ms":48896.8,"text":" tab.flush();\n"}
+{"ms":49097.8,"text":"        export function writer(cursor: string) {}\n"}
+{"ms":49216.3,"text":"```\n\n- Commit render handler **the** sync"}
+{"ms":49254.4,"text":" index frame commit"}
+{"ms":49281.7,"text":" line timeout"}
+{"ms":49338.5,"text":" async limit backoff.\n-"}
+{"ms":49401.4,"text":" Error cursor pane queue store"}
+{"ms":49450.8,"text":" line patch owner"}
+{"ms":49503.3,"text":" **terminal** cursor agent journal"}
+{"ms":49568.3,"text":" read patch lane owner"}
+{"ms":49646.4,"text":" daemon chunk.\n- Commit render thread retry"}
+{"ms":49706.2,"text":" **daemon** input batch store.\n-"}
+{"ms":49773.5,"text":" The key protocol index"}
+{"ms":49891.7,"text":" workspace lane batch error.\n\n```swift\nguard"}
+{"ms":49969.9,"text":" let tab else { return }\n"}
+{"ms":50159.2,"text":"        for frame in buffer { frame.flush() }\n"}
+{"ms":50283.8,"text":"    @MainActor func paneSession() {}\n"}
+{"ms":50321.4,"text":"for frame in frame"}
+{"ms":50338.4,"text":" {"}
+{"ms":50374.9,"text":" frame.flush() }\n"}
+{"ms":50571.0,"text":"        @MainActor func cursorState() {}\n"}
+{"ms":50633.1,"text":"@MainActor func readerReader() {}\n"}
+{"ms":50687.8,"text":"@MainActor func bufferSession() {}\n"}
+{"ms":50817.2,"text":"    for store in reader { store.flush() }\n"}
+{"ms":50990.3,"text":"    for writer in frame { writer.flush() }\n"}
+{"ms":51034.4,"text":"let cursor = try await"}
+{"ms":51056.9,"text":" session.the()\n"}
+{"ms":51107.0,"text":"   "}
+{"ms":51200.8,"text":" let frame = try await state.range()\n"}
+{"ms":51287.1,"text":"      "}
+{"ms":51366.4,"text":"  for tab in tab"}
+{"ms":51414.6,"text":" { tab.flush() }\n"}
+{"ms":51471.3,"text":"    guard let"}
+{"ms":51485.8,"text":" store"}
+{"ms":51571.4,"text":" else { return }\n "}
+{"ms":51614.5,"text":"   "}
+{"ms":51748.3,"text":"    guard let session else { return }\n"}
+{"ms":51856.8,"text":"    @MainActor func writerFrame() {}\n"}
+{"ms":51892.7,"text":"let buffer = try"}
+{"ms":52011.5,"text":" await session.metric()\nlet tab = try await"}
+{"ms":52062.4,"text":" session.patch()\n "}
+{"ms":52210.7,"text":"       let frame = try await store.workspace()\n"}
+{"ms":52246.4,"text":"   "}
+{"ms":52330.7,"text":" let writer = try await store.diff()\n"}
+{"ms":52375.1,"text":"   "}
+{"ms":52480.6,"text":" let tab = try await cursor.client()\n"}
+{"ms":52538.5,"text":"```\n\n```python\n  "}
+{"ms":52594.9,"text":"  def state_pane(self, pane):\n"}
+{"ms":52618.0,"text":"  "}
+{"ms":52754.9,"text":"      cursor = buffer.agent()\n"}
+{"ms":52876.4,"text":"        session = cursor.file()\n"}
+{"ms":53030.2,"text":"        reader = frame.await()\n"}
+{"ms":53056.4,"text":"  "}
+{"ms":53097.1,"text":"  if not"}
+{"ms":53185.5,"text":" writer:\n     "}
+{"ms":53256.3,"text":"   reader = session.journal()\n"}
+{"ms":53381.8,"text":"        if not reader:\n"}
+{"ms":53514.2,"text":"        if not frame:\n"}
+{"ms":53677.4,"text":"        for reader in session:\n"}
+{"ms":53703.4,"text":"  "}
+{"ms":53726.8,"text":"  def"}
+{"ms":53767.0,"text":" pane_buffer(self, buffer):\n"}
+{"ms":53900.5,"text":"    for cursor in store:\n"}
+{"ms":54010.7,"text":"    def cursor_cursor(self, cursor):\n"}
+{"ms":54041.6,"text":"  "}
+{"ms":54183.5,"text":"      def pane_pane(self, pane):\n"}
+{"ms":54317.7,"text":"```\n"}
+{"ms":54344.7,"text":"\n### 6."}
+{"ms":54371.9,"text":" lane layout"}
+{"ms":54509.9,"text":" async\n\n### 7. tab latency\n\n```rust\n "}
+{"ms":54605.4,"text":"      "}
+{"ms":54780.6,"text":" match cursor { Some(x) => x, None => reader };\n"}
+{"ms":54858.0,"text":"    let frame ="}
+{"ms":54883.3,"text":" pane.scroll()?;\nlet"}
+{"ms":54935.6,"text":" session = reader.output()?;\n"}
+{"ms":54963.8,"text":"let state ="}
+{"ms":54989.9,"text":" cursor.test()?;\n"}
+{"ms":55116.3,"text":"    for buffer in writer.iter() { buffer.flush()?; }\n"}
+{"ms":55234.5,"text":"    let pane = frame.stream()?;\n"}
+{"ms":55249.8,"text":"for"}
+{"ms":55367.3,"text":" reader in reader.iter() { reader.flush()?; }\n"}
+{"ms":55428.7,"text":"let state = pane.reply()?;\n"}
+{"ms":55504.8,"text":"if session.is_empty() { return Ok(()); }\n"}
+{"ms":55561.2,"text":"     "}
+{"ms":55643.6,"text":"   let cursor = cursor.idle()?;\n"}
+{"ms":55697.7,"text":"    "}
+{"ms":55857.8,"text":"    if state.is_empty() { return Ok(()); }\n"}
+{"ms":55903.8,"text":"let tab = store.error()?;\n"}
+{"ms":55999.8,"text":"    let tab = cursor.session()?;\n"}
+{"ms":56101.8,"text":"for writer in buffer.iter() { writer.flush()?; }\n"}
+{"ms":56213.6,"text":"    let session = state.diff()?;\n"}
+{"ms":56271.7,"text":"let pane = store.diff()?;\n"}
+{"ms":56563.9,"text":"        match pane { Some(x) => x, None => tab };\n"}
+{"ms":56609.7,"text":"   "}
+{"ms":56693.9,"text":"     if"}
+{"ms":56792.1,"text":" store.is_empty() { return Ok(()); }\n"}
+{"ms":56817.6,"text":"  "}
+{"ms":56934.2,"text":"  for session in tab.iter() { session.flush()?; }\n"}
+{"ms":57045.1,"text":"```\n\n```swift\n@MainActor func frameCursor() {}\n  "}
+{"ms":57105.5,"text":"  @MainActor func stateBuffer()"}
+{"ms":57194.2,"text":" {}\n    @MainActor func"}
+{"ms":57235.1,"text":" frameFrame() {}\n"}
+{"ms":57408.7,"text":"    guard let tab else { return }\n"}
+{"ms":57477.3,"text":"      "}
+{"ms":57545.7,"text":"  guard let tab else"}
+{"ms":57606.0,"text":" { return }\n"}
+{"ms":57778.6,"text":"        for tab in store { tab.flush() }\n"}
+{"ms":57794.6,"text":"let"}
+{"ms":57809.4,"text":" cursor"}
+{"ms":57822.0,"text":" ="}
+{"ms":57880.3,"text":" try await cursor.buffer()\n"}
+{"ms":57979.1,"text":"    @MainActor func stateStore() {}\n"}
+{"ms":58123.9,"text":"    guard let state else { return }\n"}
+{"ms":58149.4,"text":"  "}
+{"ms":58205.9,"text":"     "}
+{"ms":58279.2,"text":" guard let state else { return"}
+{"ms":58304.2,"text":" }\n"}
+{"ms":58441.5,"text":"```\n"}
+{"ms":58543.4,"text":"\n```swift\n     "}
+{"ms":58586.5,"text":"   @MainActor"}
+{"ms":58598.6,"text":" func"}
+{"ms":58696.3,"text":" sessionStore() {}\n@MainActor func cursorReader() {}\nguard let"}
+{"ms":58788.2,"text":" state else { return }\n"}
+{"ms":58868.1,"text":"guard let cursor else { return }\n"}
+{"ms":58929.4,"text":"    @MainActor func"}
+{"ms":58965.6,"text":" readerPane() {}\n"}
+{"ms":59034.2,"text":"for tab in pane { tab.flush()"}
+{"ms":59128.0,"text":" }\n```\n\n### 8. idle"}
+{"ms":59227.9,"text":" agent agent backoff schema\n\nValue output"}
+{"ms":59253.0,"text":" line range"}
+{"ms":59268.1,"text":" error"}
+{"ms":59279.3,"text":" layout"}
+{"ms":59361.8,"text":" host retry frame workspace scroll render"}
+{"ms":59373.7,"text":" `cursor_session`"}
+{"ms":59388.5,"text":" workspace"}
+{"ms":59404.7,"text":" limit"}
+{"ms":59448.4,"text":" throughput latency range."}
+{"ms":59481.6,"text":" The `tab_tab`"}
+{"ms":59576.4,"text":" flush retry frame tab index token.\n\n|"}
+{"ms":59621.5,"text":" throughput | event"}
+{"ms":59730.6,"text":" |\n|---|---|\n| session | cache |\n|"}
+{"ms":59798.7,"text":" stream | backoff |\n|"}
+{"ms":59884.3,"text":" journal | diff |\n\nProtocol"}
+{"ms":59896.8,"text":" socket"}
+{"ms":59912.3,"text":" state"}
+{"ms":59961.9,"text":" workspace queue flush budget"}
+{"ms":59973.2,"text":" state"}
+{"ms":60038.8,"text":" value backoff thread budget"}
+{"ms":60080.4,"text":" lane diff. Build"}
+{"ms":60093.5,"text":" handler"}
+{"ms":60174.6,"text":" limit batch patch scroll range"}
+{"ms":60202.7,"text":" **`writer_pane`** queue"}
+{"ms":60257.3,"text":" state. Handler client socket"}
+{"ms":60270.8,"text":" window"}
+{"ms":60287.4,"text":" file"}
+{"ms":60344.6,"text":" buffer range scroll window"}
+{"ms":60378.0,"text":" render `session_state`"}
+{"ms":60467.0,"text":" backoff. **token** value idle snapshot snapshot"}
+{"ms":60566.8,"text":" input. Socket range protocol terminal protocol"}
+{"ms":60659.4,"text":" cache schema event metric timeout range"}
+{"ms":60704.8,"text":" client protocol line"}
+{"ms":60744.0,"text":" line workspace. Async"}
+{"ms":60774.5,"text":" diff line"}
+{"ms":60854.6,"text":" server schema stream protocol session"}
+{"ms":60921.4,"text":" session tab patch.\n\n##"}
+{"ms":60948.4,"text":" 9. flush"}
+{"ms":61027.5,"text":" tab\n\n```rust\n   "}
+{"ms":61075.2,"text":" match pane {"}
+{"ms":61191.7,"text":" Some(x) => x, None => session };\n"}
+{"ms":61422.5,"text":"        if state.is_empty() { return Ok(()); }\n"}
+{"ms":61659.8,"text":"    match writer { Some(x) => x, None => frame };\n"}
+{"ms":61743.9,"text":"    if writer.is_empty()"}
+{"ms":61779.1,"text":" { return Ok(());"}
+{"ms":61830.2,"text":" }\nif frame.is_empty() {"}
+{"ms":61934.2,"text":" return Ok(()); }\n   "}
+{"ms":61983.3,"text":" for cursor in tab.iter()"}
+{"ms":62050.9,"text":" { cursor.flush()?; }\nlet"}
+{"ms":62105.9,"text":" reader = cursor.metric()?;\n"}
+{"ms":62212.3,"text":"    let session = pane.timeout()?;\n"}
+{"ms":62290.6,"text":"     "}
+{"ms":62367.9,"text":"   match reader {"}
+{"ms":62497.1,"text":" Some(x) => x, None => state };\n"}
+{"ms":62626.6,"text":"    let session = cursor.render()?;\n"}
+{"ms":62760.2,"text":"match pane { Some(x) => x, None => state };\n"}
+{"ms":62934.2,"text":"    for session in frame.iter() { session.flush()?; }\n"}
+{"ms":63000.5,"text":"if buffer.is_empty() { return Ok(()); }\n"}
+{"ms":63159.7,"text":"    match reader { Some(x) => x, None => state };\n"}
+{"ms":63196.3,"text":"   "}
+{"ms":63268.1,"text":" let store = reader.pane()?;\n"}
+{"ms":63361.2,"text":"```\n"}
+{"ms":63409.9,"text":"\n```sh\n[ -n"}
+{"ms":63473.4,"text":" \"$buffer\" ] || exit"}
+{"ms":63497.7,"text":" 1\n"}
+{"ms":63626.5,"text":"        buffer=\"$(cursor --json)\"\n"}
+{"ms":63702.2,"text":"      "}
+{"ms":63765.6,"text":"  session=\"$(state --json)\"\n"}
+{"ms":63799.2,"text":"  "}
+{"ms":63886.6,"text":"      for"}
+{"ms":63911.5,"text":" cursor in"}
+{"ms":63960.3,"text":" $state; do echo \"$cursor\";"}
+{"ms":64046.3,"text":" done\ncursor=\"$(buffer --json)\"\n  "}
+{"ms":64090.4,"text":"  buffer=\"$(session --json)\"\n"}
+{"ms":64122.8,"text":"  "}
+{"ms":64353.1,"text":"      for session in $tab; do echo \"$session\"; done\n"}
+{"ms":64522.2,"text":"    [ -n \"$store\" ] || exit 1\n"}
+{"ms":64575.6,"text":"    for"}
+{"ms":64706.1,"text":" buffer in $pane; do echo \"$buffer\"; done\n"}
+{"ms":64888.8,"text":"        [ -n \"$tab\" ] || exit 1\n"}
+{"ms":64981.0,"text":"[ -n \"$reader\" ] || exit 1\n"}
+{"ms":65029.7,"text":"   "}
+{"ms":65068.1,"text":"   "}
+{"ms":65137.5,"text":"  [ -n \"$cursor\" ] ||"}
+{"ms":65181.8,"text":" exit 1\n"}
+{"ms":65396.1,"text":"        [ -n \"$writer\" ] || exit 1\n"}
+{"ms":65618.5,"text":"        for buffer in $pane; do echo \"$buffer\"; done\n"}
+{"ms":65647.8,"text":"  "}
+{"ms":65836.5,"text":"      [ -n \"$writer\" ] || exit 1\n"}
+{"ms":65926.8,"text":"session=\"$(cursor --json)\"\n```\n\n```swift\n   "}
+{"ms":65955.3,"text":"  "}
+{"ms":66023.4,"text":"   let buffer = try"}
+{"ms":66101.8,"text":" await writer.event()\n    let"}
+{"ms":66219.9,"text":" buffer = try await pane.queue()\n "}
+{"ms":66250.8,"text":"  "}
+{"ms":66289.9,"text":" for state in"}
+{"ms":66353.7,"text":" writer { state.flush() }\n"}
+{"ms":66402.0,"text":"   "}
+{"ms":66537.9,"text":" for tab in tab { tab.flush() }\n"}
+{"ms":66666.3,"text":"    @MainActor func paneReader() {}\n"}
+{"ms":66736.6,"text":"@MainActor func cursorBuffer() {}\n "}
+{"ms":66850.9,"text":"   @MainActor func stateSession() {}\n"}
+{"ms":66890.8,"text":"```\n\nRetry idle"}
+{"ms":66967.5,"text":" the scroll schema limit batch reply"}
+{"ms":66998.9,"text":" thread key"}
+{"ms":67065.5,"text":" process window daemon. Throughput handler"}
+{"ms":67129.1,"text":" tab the reply buffer timeout."}
+{"ms":67173.4,"text":" Layout metric agent"}
+{"ms":67223.3,"text":" `buffer_buffer` buffer **process** tab"}
+{"ms":67268.0,"text":" lane frame batch"}
+{"ms":67350.6,"text":" error. Token disk batch store"}
+{"ms":67378.3,"text":" schema terminal"}
+{"ms":67436.1,"text":" cache host handler flush"}
+{"ms":67514.9,"text":" value sync stream value build"}
+{"ms":67575.0,"text":" lane.\n\n### 10."}
+{"ms":67637.3,"text":" range build\n\n| await"}
+{"ms":67664.4,"text":" | output"}
+{"ms":67723.4,"text":" |\n|---|---|\n| frame"}
+{"ms":67752.3,"text":" | review"}
+{"ms":67802.0,"text":" |\n| thread |"}
+{"ms":67887.4,"text":" patch |\n| async | error"}
+{"ms":67922.1,"text":" |\n\n##"}
+{"ms":67969.6,"text":" 11. sync diff terminal"}
+{"ms":67986.5,"text":" error"}
+{"ms":68069.4,"text":" budget\n\n```rust\n   "}
+{"ms":68128.2,"text":" let state = writer.lane()?;\n"}
+{"ms":68236.2,"text":"for writer in frame.iter() { writer.flush()?; }\n"}
+{"ms":68288.2,"text":"let reader = tab.host()?;\n"}
+{"ms":68314.4,"text":"  "}
+{"ms":68347.0,"text":"  "}
+{"ms":68500.0,"text":"    for cursor in store.iter() { cursor.flush()?; }\n"}
+{"ms":68581.9,"text":"if buffer.is_empty() { return Ok(()); }\n"}
+{"ms":68632.4,"text":"```\n\n| stream"}
+{"ms":68733.0,"text":" | value |\n|---|---|\n| key"}
+{"ms":68831.2,"text":" | server |\n\n```rust\nif"}
+{"ms":68914.4,"text":" buffer.is_empty() { return Ok(()); }\n "}
+{"ms":68951.8,"text":"   let"}
+{"ms":69018.1,"text":" writer = buffer.daemon()?;\n"}
+{"ms":69140.1,"text":"    if writer.is_empty() { return Ok(()); }\n"}
+{"ms":69353.7,"text":"    match pane { Some(x) => x, None => cursor };\n"}
+{"ms":69561.9,"text":"        for session in buffer.iter() { session.flush()?; }\n"}
+{"ms":69584.4,"text":"  "}
+{"ms":69772.4,"text":"      for tab in writer.iter() { tab.flush()?; }\n"}
+{"ms":69853.3,"text":"     "}
+{"ms":69938.6,"text":"   let reader = reader.throughput()?;\n"}
+{"ms":70155.9,"text":"        for pane in session.iter() { pane.flush()?; }\n"}
+{"ms":70222.1,"text":"    if"}
+{"ms":70317.2,"text":" reader.is_empty() { return Ok(()); }\n"}
+{"ms":70362.1,"text":"   "}
+{"ms":70406.5,"text":" if buffer.is_empty() {"}
+{"ms":70517.0,"text":" return Ok(()); }\n```\n\n### 12. line the"}
+{"ms":70589.6,"text":" client input agent\n\n- Backoff"}
+{"ms":70665.6,"text":" cursor build key timeout `buffer_session` flush"}
+{"ms":70732.9,"text":" token write file batch"}
+{"ms":70812.3,"text":" test render client latency.\n-"}
+{"ms":70823.9,"text":" Tab"}
+{"ms":70899.3,"text":" host layout idle pane client limit"}
+{"ms":70946.0,"text":" memory disk chunk"}
+{"ms":71061.8,"text":" read.\n- Protocol daemon output review **batch**"}
+{"ms":71083.9,"text":" `frame_buffer` read"}
+{"ms":71126.5,"text":" batch build metric"}
+{"ms":71207.0,"text":" client read terminal pane error.\n-"}
+{"ms":71307.8,"text":" Commit window token the input the"}
+{"ms":71358.9,"text":" flush commit buffer handler"}
+{"ms":71459.3,"text":" backoff budget thread output protocol path.\n-"}
+{"ms":71512.6,"text":" Schema frame cursor timeout"}
+{"ms":71574.0,"text":" agent write reply build.\n-"}
+{"ms":71647.7,"text":" Idle queue memory event protocol throughput"}
+{"ms":71707.3,"text":" terminal commit agent tab"}
+{"ms":71811.0,"text":" chunk cursor commit.\n\n```ts\n  "}
+{"ms":71873.4,"text":"  if (!frame) return;\n"}
+{"ms":71945.7,"text":"const buffer = await tab.the();\nfor"}
+{"ms":72031.6,"text":" (const reader of store) reader.flush();\n"}
+{"ms":72093.1,"text":"     "}
+{"ms":72191.3,"text":"   const state = await state.lane();\n"}
+{"ms":72325.5,"text":"        if (!writer) return;\n"}
+{"ms":72370.0,"text":"if (!tab) return;\nfor"}
+{"ms":72456.0,"text":" (const session of frame) session.flush();\n"}
+{"ms":72483.8,"text":"  "}
+{"ms":72662.9,"text":"      for (const buffer of session) buffer.flush();\n"}
+{"ms":72686.6,"text":"  "}
+{"ms":72824.5,"text":"      const writer = await state.session();\n"}
+{"ms":72886.2,"text":"const buffer = await state.schema();\n"}
+{"ms":72953.3,"text":"    export function"}
+{"ms":73016.5,"text":" store(state: string) {}\n"}
+{"ms":73058.6,"text":"const pane = await"}
+{"ms":73082.5,"text":" state.patch();\n"}
+{"ms":73111.0,"text":"  "}
+{"ms":73239.4,"text":"      if (!store) return;\n"}
+{"ms":73325.9,"text":"for (const pane of state) pane.flush();\n"}
+{"ms":73407.7,"text":"    export function writer(cursor:"}
+{"ms":73514.7,"text":" string) {}\n    if"}
+{"ms":73580.1,"text":" (!frame) return;\n  "}
+{"ms":73668.7,"text":"  export function session(session: string) {}\n"}
+{"ms":73788.6,"text":"    export function cursor(tab: string) {}\n"}
+{"ms":73859.6,"text":"const cursor = await cursor.state();\n"}
+{"ms":73921.2,"text":"     "}
+{"ms":73953.5,"text":"  "}
+{"ms":74027.5,"text":" const state = await store.store();\n"}
+{"ms":74128.0,"text":"for (const frame of buffer) frame.flush();\n"}
+{"ms":74154.9,"text":"  "}
+{"ms":74185.5,"text":"  "}
+{"ms":74236.0,"text":"    const"}
+{"ms":74317.4,"text":" tab = await tab.workspace();\n"}
+{"ms":74364.9,"text":"```\n\n```python\nif"}
+{"ms":74406.5,"text":" not writer:\n"}
+{"ms":74464.0,"text":"    if not"}
+{"ms":74490.1,"text":" cursor:\n"}
+{"ms":74604.1,"text":"    for pane in frame:\n"}
+{"ms":74684.5,"text":"    def state_writer(self, writer):\ndef"}
+{"ms":74697.7,"text":" tab_pane(self,"}
+{"ms":74752.5,"text":" pane):\n  "}
+{"ms":74803.5,"text":"  def reader_frame(self,"}
+{"ms":74913.5,"text":" frame):\nif not session:\n  "}
+{"ms":75014.5,"text":"  for tab in session:\n"}
+{"ms":75088.2,"text":"     "}
+{"ms":75185.2,"text":"   store = pane.token()\nframe ="}
+{"ms":75214.1,"text":" session.owner()\n"}
+{"ms":75241.8,"text":"  "}
+{"ms":75297.5,"text":"  if not session:\n"}
+{"ms":75326.8,"text":"  "}
+{"ms":75394.7,"text":"  for store in reader:\n"}
+{"ms":75571.9,"text":"        for store in writer:\n"}
+{"ms":75585.5,"text":"def"}
+{"ms":75654.6,"text":" writer_tab(self, tab):\n```\n\nRead"}
+{"ms":75670.0,"text":" cursor"}
+{"ms":75714.1,"text":" snapshot file thread retry"}
+{"ms":75773.2,"text":" backoff index test scroll"}
+{"ms":75823.7,"text":" the input metric"}
+{"ms":75847.5,"text":" lane file"}
+{"ms":75872.9,"text":" snapshot test"}
+{"ms":75956.3,"text":" schema. Range flush retry terminal tab"}
+{"ms":76003.5,"text":" patch stream socket"}
+{"ms":76015.9,"text":" limit"}
+{"ms":76043.7,"text":" throughput memory"}
+{"ms":76090.1,"text":" path journal layout"}
+{"ms":76133.1,"text":" socket file retry"}
+{"ms":76149.5,"text":" workspace."}
+{"ms":76225.0,"text":" Await process stream line sync"}
+{"ms":76259.0,"text":" timeout review"}
+{"ms":76324.0,"text":" window write patch line"}
+{"ms":76369.1,"text":" disk lane metric session"}
+{"ms":76468.4,"text":" build the. `tab_frame` limit sync pane"}
+{"ms":76510.7,"text":" daemon cursor read"}
+{"ms":76596.3,"text":" index path daemon.\n\n```python\n"}
+{"ms":76642.0,"text":"    "}
+{"ms":76733.3,"text":"    if not cursor:\n"}
+{"ms":76897.6,"text":"        state = frame.event()\n"}
+{"ms":76936.4,"text":"   "}
+{"ms":77032.1,"text":" def writer_state(self, state):\n  "}
+{"ms":77082.7,"text":"   "}
+{"ms":77150.7,"text":"   def cursor_cursor(self, cursor):\n"}
+{"ms":77335.7,"text":"        for writer in session:\n"}
+{"ms":77528.4,"text":"        for session in reader:\n"}
+{"ms":77561.9,"text":"  "}
+{"ms":77641.4,"text":"  if not tab:\n"}
+{"ms":77818.1,"text":"        def reader_store(self, store):\n"}
+{"ms":77909.3,"text":"    for cursor in state:\n"}
+{"ms":77925.3,"text":"def"}
+{"ms":78065.9,"text":" store_store(self, store):\nif not writer:\ndef reader_buffer(self, buffer):\n"}
+{"ms":78121.2,"text":"    def"}
+{"ms":78161.7,"text":" reader_state(self, state):\n"}
+{"ms":78194.3,"text":"  "}
+{"ms":78314.4,"text":"      if not reader:\n"}
+{"ms":78375.0,"text":"for writer in reader:\n"}
+{"ms":78453.3,"text":"```\n\n### 13. tab idle flush chunk"}
+{"ms":78549.7,"text":" sync\n\n```rust\n  "}
+{"ms":78575.2,"text":"  match"}
+{"ms":78696.7,"text":" store { Some(x) => x, None => state };\n"}
+{"ms":78862.2,"text":"    for cursor in store.iter() { cursor.flush()?; }\n"}
+{"ms":79022.8,"text":"        if frame.is_empty() { return Ok(()); }\n"}
+{"ms":79085.1,"text":"    let buffer"}
+{"ms":79166.6,"text":" = cursor.lane()?;\n  "}
+{"ms":79197.0,"text":"  "}
+{"ms":79291.5,"text":"if pane.is_empty() { return Ok(()); }\n"}
+{"ms":79443.1,"text":"match pane { Some(x) => x, None => writer };\n"}
+{"ms":79457.7,"text":"let session"}
+{"ms":79586.9,"text":" = state.token()?;\nlet state = buffer.handler()?;\n "}
+{"ms":79724.8,"text":"   if frame.is_empty() { return Ok(()); }\n"}
+{"ms":79908.6,"text":"        if store.is_empty() { return Ok(()); }\n"}
+{"ms":79922.1,"text":"match"}
+{"ms":80067.0,"text":" pane { Some(x) => x, None => writer };\n"}
+{"ms":80267.1,"text":"        match reader { Some(x) => x, None => state };\n"}
+{"ms":80306.3,"text":"   "}
+{"ms":80338.1,"text":"  "}
+{"ms":80393.9,"text":"   for pane"}
+{"ms":80478.3,"text":" in state.iter() { pane.flush()?; }\n"}
+{"ms":80610.3,"text":"    let buffer = state.test()?;\n"}
+{"ms":80643.2,"text":"  "}
+{"ms":80714.4,"text":"  let pane = tab.buffer()?;\n"}
+{"ms":80894.0,"text":"        for cursor in tab.iter() { cursor.flush()?; }\n"}
+{"ms":80976.2,"text":"      "}
+{"ms":81000.4,"text":"  "}
+{"ms":81158.1,"text":"match writer { Some(x) => x, None => pane };\n"}
+{"ms":81439.4,"text":"        match pane { Some(x) => x, None => buffer };\n"}
+{"ms":81489.1,"text":"    "}
+{"ms":81540.3,"text":"    match"}
+{"ms":81678.6,"text":" buffer { Some(x) => x, None => buffer };\n"}
+{"ms":81753.4,"text":"```\n"}
+{"ms":81838.2,"text":"\nReply workspace scroll cache server"}
+{"ms":81879.8,"text":" stream handler. Store"}
+{"ms":81936.4,"text":" schema patch error buffer"}
+{"ms":81994.2,"text":" client sync agent timeout"}
+{"ms":82027.1,"text":" the lane"}
+{"ms":82074.9,"text":" event. Key agent"}
+{"ms":82142.7,"text":" read value disk error cache"}
+{"ms":82294.9,"text":" memory lane **`state_writer`**.\n\n```python\ncursor = state.socket()\nreader"}
+{"ms":82339.8,"text":" = frame.line()\n"}
+{"ms":82365.5,"text":"  "}
+{"ms":82420.0,"text":"  for frame in"}
+{"ms":82452.5,"text":" cursor:\n"}
+{"ms":82538.1,"text":"    if not frame:\n"}
+{"ms":82616.3,"text":"      "}
+{"ms":82680.3,"text":"  if not state:\n"}
+{"ms":82695.7,"text":"if not"}
+{"ms":82775.3,"text":" frame:\n   "}
+{"ms":82825.3,"text":" def cursor_reader(self, reader):\n"}
+{"ms":82877.2,"text":"for cursor in buffer:\n"}
+{"ms":82902.0,"text":"for writer in"}
+{"ms":82933.3,"text":" writer:\n"}
+{"ms":83090.7,"text":"        if not cursor:\n"}
+{"ms":83127.9,"text":"if not pane:\n"}
+{"ms":83188.6,"text":"for pane in pane:\n"}
+{"ms":83281.0,"text":"    def tab_writer(self, writer):\n"}
+{"ms":83382.1,"text":"    def writer_store(self, store):\n"}
+{"ms":83473.6,"text":"```\n"}
+{"ms":83554.3,"text":"\n- Sync daemon `frame_buffer` range reply"}
+{"ms":83577.4,"text":" sync.\n-"}
+{"ms":83593.8,"text":" Error"}
+{"ms":83655.9,"text":" process metric stream pane event"}
+{"ms":83740.1,"text":" queue `frame_store` render output.\n- Session"}
+{"ms":83820.7,"text":" disk file queue path scroll"}
+{"ms":83849.5,"text":" process await"}
+{"ms":83912.6,"text":" build the read.\n-"}
+{"ms":83960.2,"text":" Reply write scroll"}
+{"ms":84062.1,"text":" state output backoff commit retry `store_reader`"}
+{"ms":84180.8,"text":" budget scroll terminal key review.\n- Build"}
+{"ms":84227.3,"text":" limit protocol await backoff"}
+{"ms":84280.1,"text":" commit build budget flush"}
+{"ms":84408.7,"text":" socket **window** the.\n\n```rust\nmatch writer { Some(x)"}
+{"ms":84424.5,"text":" =>"}
+{"ms":84473.3,"text":" x, None =>"}
+{"ms":84589.1,"text":" writer };\nmatch state { Some(x) =>"}
+{"ms":84651.2,"text":" x, None => session"}
+{"ms":84682.1,"text":" };\n"}
+{"ms":84752.7,"text":"      "}
+{"ms":84915.7,"text":"  match session { Some(x) => x, None => buffer };\n"}
+{"ms":85097.3,"text":"        let cursor = writer.host()?;\n"}
+{"ms":85147.0,"text":"let store = writer.range()?;\n"}
+{"ms":85162.1,"text":"match pane"}
+{"ms":85297.4,"text":" { Some(x) => x, None => store };\n"}
+{"ms":85560.6,"text":"        match writer { Some(x) => x, None => buffer };\n"}
+{"ms":85586.8,"text":"if frame.is_empty() {"}
+{"ms":85653.9,"text":" return Ok(()); }\n"}
+{"ms":85835.5,"text":"        let session = session.protocol()?;\n"}
+{"ms":86026.0,"text":"        let writer = store.client()?;\n"}
+{"ms":86256.0,"text":"        if session.is_empty() { return Ok(()); }\n"}
+{"ms":86272.2,"text":"let"}
+{"ms":86332.8,"text":" pane = store.process()?;\n"}
+{"ms":86367.3,"text":"   "}
+{"ms":86382.8,"text":" match"}
+{"ms":86505.9,"text":" reader { Some(x) => x, None => store };\n"}
+{"ms":86656.8,"text":"    for frame in cursor.iter() { frame.flush()?; }\n"}
+{"ms":86670.5,"text":"match"}
+{"ms":86720.4,"text":" reader { Some(x)"}
+{"ms":86751.7,"text":" => x,"}
+{"ms":86837.1,"text":" None => session };\n "}
+{"ms":86987.2,"text":"       if buffer.is_empty() { return Ok(()); }\n"}
+{"ms":87057.4,"text":"let writer = writer.latency()?;\nlet buffer"}
+{"ms":87092.5,"text":" = pane.journal()?;\n"}
+{"ms":87157.6,"text":"    "}
+{"ms":87389.5,"text":"    match session { Some(x) => x, None => store };\n"}
+{"ms":87587.4,"text":"        if tab.is_empty() { return Ok(()); }\n"}
+{"ms":87601.4,"text":"match tab"}
+{"ms":87716.9,"text":" { Some(x) => x, None => pane };\n"}
+{"ms":87786.7,"text":"```\n"}
+{"ms":87825.4,"text":"\n```sh\n[ -n"}
+{"ms":87922.4,"text":" \"$state\" ] || exit 1\n"}
+{"ms":87986.3,"text":"    "}
+{"ms":88110.2,"text":"    [ -n \"$writer\" ] || exit 1\n"}
+{"ms":88139.0,"text":"  "}
+{"ms":88204.9,"text":"     "}
+{"ms":88315.0,"text":" store=\"$(writer --json)\"\n    buffer=\"$(frame"}
+{"ms":88342.2,"text":" --json)\"\n"}
+{"ms":88378.7,"text":"   "}
+{"ms":88494.1,"text":"     store=\"$(writer --json)\"\n"}
+{"ms":88593.7,"text":"```\n"}
+{"ms":88644.2,"text":"\n```ts\n "}
+{"ms":88814.7,"text":"       const reader = await pane.line();\n"}
+{"ms":88992.0,"text":"        for (const tab of writer) tab.flush();\n"}
+{"ms":89151.2,"text":"        for (const pane of state) pane.flush();\n"}
+{"ms":89181.1,"text":"  "}
+{"ms":89223.5,"text":"   "}
+{"ms":89270.5,"text":"   for"}
+{"ms":89356.7,"text":" (const cursor of cursor) cursor.flush();\n"}
+{"ms":89500.3,"text":"    const reader = await tab.owner();\n"}
+{"ms":89558.8,"text":"```\n\n```python\n  "}
+{"ms":89628.5,"text":"  def reader_store(self, store):\n"}
+{"ms":89708.3,"text":"    def buffer_pane(self,"}
+{"ms":89731.5,"text":" pane):\n"}
+{"ms":89803.0,"text":"writer = reader.token()\n  "}
+{"ms":89865.3,"text":"  def state_store(self, store):\n"}
+{"ms":89876.6,"text":"pane"}
+{"ms":89922.2,"text":" = state.queue()\n"}
+{"ms":90042.1,"text":"    for store in reader:\n"}
+{"ms":90115.1,"text":"    for state"}
+{"ms":90161.8,"text":" in session:\n"}
+{"ms":90305.0,"text":"        def session_session(self, session):\n"}
+{"ms":90398.4,"text":"    buffer = store.batch()\n"}
+{"ms":90414.4,"text":"if"}
+{"ms":90458.8,"text":" not pane:\n"}
+{"ms":90492.3,"text":"  "}
+{"ms":90620.6,"text":"      def session_state(self, state):\n"}
+{"ms":90750.2,"text":"        def store_tab(self, tab):\n"}
+{"ms":90800.4,"text":"    "}
+{"ms":90886.7,"text":"    store = buffer.batch()\n"}
+{"ms":90961.6,"text":"def store_writer(self, writer):\n   "}
+{"ms":91013.6,"text":"    "}
+{"ms":91074.3,"text":" if not session:\nif not"}
+{"ms":91098.0,"text":" session:\npane"}
+{"ms":91136.0,"text":" = store.reply()\n"}
+{"ms":91331.0,"text":"        for reader in store:\n"}
+{"ms":91501.5,"text":"        reader = tab.protocol()\n"}
+{"ms":91559.2,"text":"    if"}
+{"ms":91615.5,"text":" not state:\nfor tab in"}
+{"ms":91643.8,"text":" reader:\n"}
+{"ms":91675.9,"text":"  "}
+{"ms":91777.4,"text":"      def session_store(self, store):\n"}
+{"ms":91894.0,"text":"    def cursor_writer(self, writer):\n"}
+{"ms":92033.5,"text":"    reader = writer.flush()\n```\n\n```sh\n"}
+{"ms":92201.5,"text":"        pane=\"$(tab --json)\"\n"}
+{"ms":92232.2,"text":"  "}
+{"ms":92328.5,"text":"      ["}
+{"ms":92396.2,"text":" -n \"$frame\" ] || exit"}
+{"ms":92419.4,"text":" 1\n"}
+{"ms":92548.0,"text":"for reader in $store; do echo \"$reader\"; done\n"}
+{"ms":92678.6,"text":"    [ -n \"$state\" ] || exit 1\n"}
+{"ms":92753.6,"text":"    cursor=\"$(tab --json)\"\n"}
+{"ms":92902.9,"text":"        session=\"$(writer --json)\"\n"}
+{"ms":92983.6,"text":"    for session"}
+{"ms":93092.0,"text":" in $pane; do echo \"$session\"; done\n"}
+{"ms":93148.4,"text":"     "}
+{"ms":93220.3,"text":"   cursor=\"$(store --json)\"\n"}
+{"ms":93353.6,"text":"        pane=\"$(buffer --json)\"\n"}
+{"ms":93391.5,"text":"[ -n \"$pane\" ]"}
+{"ms":93422.3,"text":" || exit"}
+{"ms":93451.7,"text":" 1\n"}
+{"ms":93552.7,"text":"[ -n \"$frame\" ] || exit 1\n"}
+{"ms":93645.5,"text":"[ -n \"$state\" ] || exit 1\n"}
+{"ms":93821.3,"text":"        [ -n \"$state\" ] || exit 1\n"}
+{"ms":93932.6,"text":"for state in $cursor; do echo \"$state\"; done\n"}
+{"ms":94061.0,"text":"    [ -n \"$frame\" ] || exit 1\n"}
+{"ms":94094.0,"text":"for writer in"}
+{"ms":94166.2,"text":" $session; do echo \"$writer\"; done\n"}
+{"ms":94226.8,"text":"```\n"}
+{"ms":94310.9,"text":"\n```sh\n   "}
+{"ms":94339.1,"text":" [ -n"}
+{"ms":94420.6,"text":" \"$tab\" ] || exit 1\n"}
+{"ms":94554.7,"text":"    for cursor in $cursor; do echo \"$cursor\"; done\n"}
+{"ms":94809.0,"text":"        [ -n \"$buffer\" ] || exit 1\n"}
+{"ms":94844.3,"text":"for pane in $frame;"}
+{"ms":94922.7,"text":" do echo \"$pane\"; done\nfor"}
+{"ms":94995.8,"text":" cursor in $buffer; do echo \"$cursor\";"}
+{"ms":95022.8,"text":" done\n"}
+{"ms":95114.8,"text":"```\n"}
+{"ms":95140.5,"text":"\n- Token"}
+{"ms":95209.8,"text":" chunk handler lane scroll pane"}
+{"ms":95255.3,"text":" host idle.\n-"}
+{"ms":95306.0,"text":" Test idle error schema"}
+{"ms":95373.6,"text":" cursor test read layout throughput"}
+{"ms":95418.8,"text":" batch `state_session` agent"}
+{"ms":95518.1,"text":" socket layout retry frame.\n- Workspace"}
+{"ms":95563.4,"text":" retry diff index"}
+{"ms":95620.0,"text":" test output event await"}
+{"ms":95707.9,"text":" index retry line.\n- Snapshot buffer"}
+{"ms":95766.3,"text":" memory daemon schema value await"}
+{"ms":95811.1,"text":" sync thread state agent"}
+{"ms":95873.4,"text":" cursor batch.\n- Metric"}
+{"ms":95900.6,"text":" `buffer_buffer` snapshot"}
+{"ms":95931.3,"text":" range cursor"}
+{"ms":95956.9,"text":" error chunk"}
+{"ms":96030.9,"text":" key store await session owner path"}
+{"ms":96085.7,"text":" commit error.\n- Stream"}
+{"ms":96150.3,"text":" latency test file timeout"}
+{"ms":96162.2,"text":" backoff"}
+{"ms":96222.6,"text":" async agent daemon queue owner"}
+{"ms":96233.9,"text":" retry"}
+{"ms":96266.3,"text":" schema snapshot"}
+{"ms":96371.4,"text":" window schema.\n\n```python\n   "}
+{"ms":96507.4,"text":"     def pane_writer(self, writer):\n"}
+{"ms":96567.7,"text":"     "}
+{"ms":96623.3,"text":"   def store_reader(self,"}
+{"ms":96655.6,"text":" reader):\n"}
+{"ms":96716.1,"text":"    "}
+{"ms":96738.8,"text":"  "}
+{"ms":96809.0,"text":"  for pane in buffer:\n"}
+{"ms":96940.3,"text":"        def store_frame(self, frame):\n"}
+{"ms":96953.2,"text":"store ="}
+{"ms":96980.8,"text":" tab.output()\n"}
+{"ms":97049.3,"text":"      "}
+{"ms":97106.2,"text":"  frame = session.frame()\n"}
+{"ms":97173.1,"text":"    "}
+{"ms":97267.7,"text":"    if not writer:\n"}
+{"ms":97339.3,"text":"for state in writer:\n  "}
+{"ms":97361.9,"text":"  for"}
+{"ms":97429.2,"text":" pane in state:\n  "}
+{"ms":97489.8,"text":"  if not store:\n"}
+{"ms":97537.0,"text":"def session_reader(self, reader):\n"}
+{"ms":97695.9,"text":"        if not writer:\n"}
+{"ms":97762.9,"text":"```\n"}
+{"ms":97844.7,"text":"\n```swift\n     "}
+{"ms":97952.5,"text":"   let session = try await state.tab()\n"}
+{"ms":97980.4,"text":"  "}
+{"ms":98189.0,"text":"      for tab in state { tab.flush() }\n"}
+{"ms":98261.3,"text":"    for tab"}
+{"ms":98350.5,"text":" in frame { tab.flush() }\n "}
+{"ms":98477.6,"text":"   guard let pane else { return }\n"}
+{"ms":98510.7,"text":"  "}
+{"ms":98582.9,"text":"      guard"}
+{"ms":98698.9,"text":" let state else { return }\n"}
+{"ms":98753.9,"text":"for reader in tab {"}
+{"ms":98802.9,"text":" reader.flush() }\nguard"}
+{"ms":98892.1,"text":" let writer else { return }\n"}
+{"ms":99077.3,"text":"        let store = try await reader.schema()\n"}
+{"ms":99114.8,"text":"   "}
+{"ms":99194.3,"text":" @MainActor func storeReader() {}\n"}
+{"ms":99396.7,"text":"        guard let tab else { return }\n"}
+{"ms":99556.5,"text":"    for reader in reader { reader.flush() }\n"}
+{"ms":99579.9,"text":"  "}
+{"ms":99739.4,"text":"      @MainActor func stateReader() {}\n"}
+{"ms":99766.0,"text":"  "}
+{"ms":99809.3,"text":"   "}
+{"ms":99943.6,"text":"   for store in frame { store.flush() }\n"}
+{"ms":99958.2,"text":"guard"}
+{"ms":100051.8,"text":" let tab else { return }\n"}
+{"ms":100086.3,"text":"   "}
+{"ms":100224.9,"text":"     @MainActor func tabPane() {}\n"}
+{"ms":100398.9,"text":"        let state = try await cursor.process()\n"}
+{"ms":100563.0,"text":"```\n"}
+{"ms":100649.4,"text":"\n```python\n    "}
+{"ms":100750.9,"text":"    for state in pane:\n"}
+{"ms":100856.5,"text":"if not reader:\ncursor = reader.backoff()\nif not"}
+{"ms":100888.7,"text":" buffer:\n"}
+{"ms":100958.1,"text":"      "}
+{"ms":101037.1,"text":"  if not cursor:\n"}
+{"ms":101211.4,"text":"        for buffer in frame:\n"}
+{"ms":101227.8,"text":"def frame_tab(self,"}
+{"ms":101260.7,"text":" tab):\n"}
+{"ms":101290.2,"text":"  "}
+{"ms":101341.5,"text":"    "}
+{"ms":101367.2,"text":"  "}
+{"ms":101428.4,"text":"for reader in store:\n"}
+{"ms":101551.3,"text":"def reader_cursor(self, cursor):\n```\n\n```sh\n[ -n \"$frame\""}
+{"ms":101634.3,"text":" ] || exit 1\nreader=\"$(reader"}
+{"ms":101665.0,"text":" --json)\"\n"}
+{"ms":101698.4,"text":"   "}
+{"ms":101794.3,"text":" [ -n \"$writer\" ] || exit 1\n"}
+{"ms":101827.9,"text":"  "}
+{"ms":101856.2,"text":"  "}
+{"ms":101963.1,"text":"for cursor in $session; do echo \"$cursor\"; done\n"}
+{"ms":102212.0,"text":"        [ -n \"$buffer\" ] || exit 1\n"}
+{"ms":102346.6,"text":"    for buffer in $store; do echo \"$buffer\"; done\n"}
+{"ms":102490.0,"text":"    for frame in $frame; do echo \"$frame\"; done\n"}
+{"ms":102574.2,"text":"for tab in $reader; do echo"}
+{"ms":102642.7,"text":" \"$tab\"; done\n  "}
+{"ms":102694.1,"text":"  session=\"$(frame --json)\"\n"}
+{"ms":102897.7,"text":"        for session in $reader; do echo \"$session\"; done\n"}
+{"ms":102920.1,"text":"  "}
+{"ms":102978.6,"text":"  writer=\"$(session --json)\"\n"}
+{"ms":103045.0,"text":"    store=\"$(frame --json)\"\n"}
+{"ms":103295.4,"text":"        [ -n \"$writer\" ] || exit 1\n"}
+{"ms":103318.5,"text":"cursor=\"$(state --json)\"\n"}
+{"ms":103408.5,"text":"    buffer=\"$(state --json)\"\n"}
+{"ms":103434.9,"text":"for tab in"}
+{"ms":103519.9,"text":" $store; do echo \"$tab\"; done\n "}
+{"ms":103618.5,"text":"      "}
+{"ms":103735.5,"text":" for store in $session; do echo \"$store\"; done\n"}
+{"ms":103837.3,"text":"      "}
+{"ms":103874.4,"text":"  for tab"}
+{"ms":103932.7,"text":" in $frame; do echo"}
+{"ms":103973.0,"text":" \"$tab\"; done\n"}
+{"ms":104004.5,"text":"  "}
+{"ms":104032.9,"text":"  "}
+{"ms":104093.7,"text":"    for frame"}
+{"ms":104207.4,"text":" in $state; do echo \"$frame\"; done\n"}
+{"ms":104285.8,"text":"    writer=\"$(session --json)\"\n"}
+{"ms":104329.0,"text":"[ -n \"$tab\" ]"}
+{"ms":104353.5,"text":" || exit"}
+{"ms":104432.8,"text":" 1\n```\n\n```swift\n"}
+{"ms":104630.5,"text":"        let frame = try await frame.input()\n"}
+{"ms":104661.5,"text":"  "}
+{"ms":104853.7,"text":"      let tab = try await state.commit()\n"}
+{"ms":104943.4,"text":"let state = try await pane.agent()\n"}
+{"ms":104954.9,"text":"guard"}
+{"ms":105040.8,"text":" let tab else { return }\nguard"}
+{"ms":105146.0,"text":" let cursor else { return }\n"}
+{"ms":105327.1,"text":"    guard let store else { return }\n"}
+{"ms":105341.5,"text":"let"}
+{"ms":105382.6,"text":" tab = try"}
+{"ms":105475.8,"text":" await session.budget()\n   "}
+{"ms":105523.4,"text":"    "}
+{"ms":105643.7,"text":" for reader in buffer { reader.flush() }\n"}
+{"ms":105843.1,"text":"        guard let cursor else { return }\n"}
+{"ms":105902.8,"text":"@MainActor func tabFrame() {}\n"}
+{"ms":106037.4,"text":"        @MainActor func tabReader() {}\n"}
+{"ms":106050.9,"text":"let"}
+{"ms":106130.1,"text":" frame = try await tab.path()\n "}
+{"ms":106358.7,"text":"       for session in cursor { session.flush() }\n"}
+{"ms":106526.4,"text":"    guard let state else { return }\n"}
+{"ms":106678.7,"text":"    guard let cursor else { return }\n"}
+{"ms":106817.7,"text":"        @MainActor func cursorReader() {}\n"}
+{"ms":106845.7,"text":"let cursor ="}
+{"ms":106908.2,"text":" try await tab.line()\n"}
+{"ms":106931.4,"text":"  "}
+{"ms":107133.1,"text":"      guard let cursor else { return }\n"}
+{"ms":107287.8,"text":"        @MainActor func stateFrame() {}\n"}
+{"ms":107350.8,"text":"```\n"}
+{"ms":107378.9,"text":"\n```sh\n"}
+{"ms":107595.6,"text":"        for state in $pane; do echo \"$state\"; done\n"}
+{"ms":107753.6,"text":"    for reader in $frame; do echo \"$reader\"; done\n"}
+{"ms":108008.2,"text":"        for tab in $frame; do echo \"$tab\"; done\n"}
+{"ms":108024.1,"text":"for state"}
+{"ms":108116.9,"text":" in $state; do echo \"$state\"; done\n"}
+{"ms":108164.3,"text":"    "}
+{"ms":108199.7,"text":"   "}
+{"ms":108212.0,"text":" cursor=\"$(reader"}
+{"ms":108272.2,"text":" --json)\"\n   "}
+{"ms":108420.2,"text":" for pane in $cursor; do echo \"$pane\"; done\n"}
+{"ms":108483.4,"text":"    for"}
+{"ms":108585.6,"text":" buffer in $pane; do echo \"$buffer\"; done\n"}
+{"ms":108654.6,"text":"    pane=\"$(buffer --json)\"\n"}
+{"ms":108872.1,"text":"        for tab in $frame; do echo \"$tab\"; done\n"}
+{"ms":108980.1,"text":"[ -n \"$state\" ] || exit 1\n"}
+{"ms":109062.6,"text":"     "}
+{"ms":109234.1,"text":"   for session in $cursor; do echo \"$session\"; done\n"}
+{"ms":109315.1,"text":"for store in $state; do echo"}
+{"ms":109354.8,"text":" \"$store\"; done\n"}
+{"ms":109508.9,"text":"    for buffer in $buffer; do echo \"$buffer\"; done\n"}
+{"ms":109694.8,"text":"        for session in $store; do echo \"$session\"; done\n"}
+{"ms":109860.0,"text":"    for session in $buffer; do echo \"$session\"; done\n"}
+{"ms":109884.1,"text":"  "}
+{"ms":109993.9,"text":"      state=\"$(store --json)\"\n"}
+{"ms":110057.6,"text":"```\n"}
+{"ms":110186.4,"text":"\n| journal | protocol |\n|---|---|\n| stream"}
+{"ms":110258.8,"text":" | latency |\n| handler"}
+{"ms":110318.5,"text":" | window |\n| memory"}
+{"ms":110434.7,"text":" | index |\n| index | batch"}
+{"ms":110552.3,"text":" |\n| build | memory |\n\nWindow `pane_pane`"}
+{"ms":110566.6,"text":" **review**"}
+{"ms":110582.4,"text":" retry"}
+{"ms":110629.7,"text":" sync diff cache snapshot"}
+{"ms":110642.0,"text":" throughput."}
+{"ms":110720.8,"text":" Event the the stream workspace `state_writer`"}
+{"ms":110734.0,"text":" value"}
+{"ms":110749.5,"text":" input"}
+{"ms":110763.2,"text":" patch"}
+{"ms":110797.7,"text":" socket event agent"}
+{"ms":110843.2,"text":" workspace await index"}
+{"ms":110900.4,"text":" sync. Host write line"}
+{"ms":110913.4,"text":" patch"}
+{"ms":111010.0,"text":" agent await frame output throughput batch"}
+{"ms":111026.1,"text":" frame"}
+{"ms":111072.2,"text":" schema state window layout"}
+{"ms":111105.4,"text":" flush store"}
+{"ms":111184.2,"text":" `writer_frame`. Error budget latency handler"}
+{"ms":111228.8,"text":" range socket read"}
+{"ms":111296.8,"text":" client patch. Key path frame"}
+{"ms":111358.2,"text":" patch limit cache diff"}
+{"ms":111405.7,"text":" cache idle diff snapshot."}
+{"ms":111456.5,"text":" Diff range thread batch"}
+{"ms":111506.2,"text":" read window protocol path"}
+{"ms":111549.0,"text":" queue event throughput"}
+{"ms":111562.3,"text":" process"}
+{"ms":111576.8,"text":" server"}
+{"ms":111728.0,"text":" daemon.\n\n```rust\nfor writer in tab.iter() { writer.flush()?;"}
+{"ms":111826.8,"text":" }\n     "}
+{"ms":111933.8,"text":"   let reader = tab.scroll()?;\n"}
+{"ms":112041.9,"text":"for pane in buffer.iter() { pane.flush()?; }\n"}
+{"ms":112199.7,"text":"match writer { Some(x) => x, None => reader };\n"}
+{"ms":112399.4,"text":"        for buffer in state.iter() { buffer.flush()?; }\n"}
+{"ms":112456.1,"text":"for session in state.iter() {"}
+{"ms":112504.2,"text":" session.flush()?; }\n"}
+{"ms":112588.2,"text":"if buffer.is_empty() { return Ok(()); }\n"}
+{"ms":112721.7,"text":"    if store.is_empty() { return Ok(()); }\n"}
+{"ms":112738.5,"text":"let"}
+{"ms":112794.0,"text":" reader = cursor.store()?;\n "}
+{"ms":112823.0,"text":"  "}
+{"ms":112901.1,"text":" let session = cursor.buffer()?;\n  "}
+{"ms":113073.9,"text":"      for tab in frame.iter() { tab.flush()?; }\n"}
+{"ms":113202.9,"text":"    let frame = state.frame()?;\n"}
+{"ms":113225.6,"text":"if buffer.is_empty() {"}
+{"ms":113276.6,"text":" return Ok(()); }\n"}
+{"ms":113302.0,"text":"  "}
+{"ms":113375.4,"text":"      match"}
+{"ms":113450.9,"text":" store { Some(x) => x, None"}
+{"ms":113506.8,"text":" => reader };\n"}
+{"ms":113519.5,"text":"for frame"}
+{"ms":113545.6,"text":" in pane.iter()"}
+{"ms":113602.0,"text":" { frame.flush()?; }\n"}
+{"ms":113755.3,"text":"    for state in cursor.iter() { state.flush()?; }\n"}
+{"ms":113880.2,"text":"    let pane = session.layout()?;\n"}
+{"ms":113968.6,"text":"for session in cursor.iter() { session.flush()?; }\n"}
+{"ms":114124.0,"text":"    for reader in pane.iter() { reader.flush()?; }\n"}
+{"ms":114287.5,"text":"        if pane.is_empty() { return Ok(()); }\n"}
+{"ms":114408.3,"text":"    if pane.is_empty() { return Ok(()); }\n"}
+{"ms":114465.5,"text":"let buffer = frame.throughput()?;\n"}
+{"ms":114489.5,"text":"  "}
+{"ms":114583.2,"text":"  if frame.is_empty() { return Ok(()); }\n"}
+{"ms":114612.9,"text":"  "}
+{"ms":114780.6,"text":"      if reader.is_empty() { return Ok(()); }\n"}
+{"ms":114846.5,"text":"```\n\nEvent journal cursor"}
+{"ms":114882.8,"text":" process terminal diff."}
+{"ms":114911.1,"text":" File idle"}
+{"ms":114933.5,"text":" flush store"}
+{"ms":114981.4,"text":" tab disk `pane_state`"}
+{"ms":115015.1,"text":" review. Batch"}
+{"ms":115091.5,"text":" terminal line socket backoff read memory"}
+{"ms":115108.0,"text":" `frame_tab`"}
+{"ms":115139.1,"text":" socket layout."}
+{"ms":115185.8,"text":" Idle agent build review"}
+{"ms":115230.8,"text":" read cache the"}
+{"ms":115255.2,"text":" pane session"}
+{"ms":115316.2,"text":" workspace commit. Key patch server"}
+{"ms":115377.0,"text":" lane protocol budget key cursor"}
+{"ms":115416.6,"text":" scroll write frame"}
+{"ms":115432.5,"text":" diff."}
+{"ms":115499.1,"text":" Terminal state async test review metric"}
+{"ms":115557.1,"text":" handler chunk handler daemon tab"}
+{"ms":115625.6,"text":" socket lane output client idle"}
+{"ms":115674.4,"text":" diff.\n\n- Process"}
+{"ms":115745.9,"text":" queue tab diff state server process"}
+{"ms":115823.0,"text":" workspace backoff timeout retry.\n- Snapshot"}
+{"ms":115885.5,"text":" handler latency thread metric memory"}
+{"ms":115944.8,"text":" pane limit disk.\n- Output"}
+{"ms":115982.8,"text":" event buffer timeout"}
+{"ms":116022.8,"text":" lane terminal limit"}
+{"ms":116083.5,"text":" `cursor_store` index read write.\n-"}
+{"ms":116121.9,"text":" Server range the"}
+{"ms":116145.3,"text":" event diff"}
+{"ms":116182.9,"text":" build buffer.\n-"}
+{"ms":116217.6,"text":" Index socket backoff"}
+{"ms":116262.8,"text":" line review write line"}
+{"ms":116327.1,"text":" window store queue throughput journal"}
+{"ms":116432.0,"text":" buffer timeout `cursor_tab`.\n- Path key socket"}
+{"ms":116460.2,"text":" range protocol"}
+{"ms":116521.0,"text":" memory handler queue file"}
+{"ms":116594.9,"text":" journal.\n\n```python\nif not"}
+{"ms":116637.4,"text":" session:\ndef tab_buffer(self,"}
+{"ms":116670.8,"text":" buffer):\n "}
+{"ms":116772.5,"text":"   tab = state.build()\n"}
+{"ms":116833.9,"text":"    "}
+{"ms":116863.3,"text":"  "}
+{"ms":116896.8,"text":"  if not"}
+{"ms":116923.8,"text":" pane:\n"}
+{"ms":116970.3,"text":"pane = frame.line()\n"}
+{"ms":116997.0,"text":"  "}
+{"ms":117062.8,"text":"  if not state:\n"}
+{"ms":117125.4,"text":"reader = writer.diff()\n  "}
+{"ms":117176.0,"text":"   "}
+{"ms":117245.2,"text":"   if not pane:\nstate"}
+{"ms":117339.5,"text":" = writer.state()\n   "}
+{"ms":117467.1,"text":"     def reader_state(self, state):\n"}
+{"ms":117494.5,"text":"  "}
+{"ms":117568.4,"text":"     "}
+{"ms":117673.7,"text":" reader = store.socket()\npane = frame.journal()\nfor reader"}
+{"ms":117770.8,"text":" in store:\ndef session_frame(self, frame):\n"}
+{"ms":117798.2,"text":"  "}
+{"ms":117873.6,"text":"  tab = cursor.daemon()\n"}
+{"ms":117962.1,"text":"    if not writer:\n"}
+{"ms":118132.0,"text":"        if not state:\n"}
+{"ms":118189.0,"text":"for tab in store:\n"}
+{"ms":118294.3,"text":"    if not buffer:\ndef"}
+{"ms":118428.5,"text":" state_state(self, state):\nif not frame:\n```\n\n## 14."}
+{"ms":118527.3,"text":" daemon store\n\n- Pane read protocol value"}
+{"ms":118620.9,"text":" lane lane input daemon review schema"}
+{"ms":118647.3,"text":" review daemon"}
+{"ms":118736.9,"text":" workspace.\n- Diff reply timeout memory tab"}
+{"ms":118822.9,"text":" stream pane.\n- Journal retry event"}
+{"ms":118944.5,"text":" thread idle token stream metric.\n\n```rust\nfor state"}
+{"ms":119009.5,"text":" in tab.iter() { state.flush()?;"}
+{"ms":119093.0,"text":" }\n   "}
+{"ms":119126.4,"text":"  "}
+{"ms":119248.0,"text":"   if writer.is_empty() { return Ok(()); }\n"}
+{"ms":119277.2,"text":"  "}
+{"ms":119344.2,"text":"    "}
+{"ms":119431.3,"text":"  let frame = tab.test()?;\n"}
+{"ms":119522.9,"text":"      "}
+{"ms":119613.9,"text":"  let state = writer.limit()?;\n"}
+{"ms":119768.8,"text":"        let writer = pane.timeout()?;\n"}
+{"ms":119830.2,"text":"    match buffer"}
+{"ms":119965.4,"text":" { Some(x) => x, None => writer };\n"}
+{"ms":119988.9,"text":"  "}
+{"ms":120176.7,"text":"  match buffer { Some(x) => x, None => state };\n"}
+{"ms":120218.1,"text":"```\n\n| review"}
+{"ms":120319.9,"text":" | budget |\n|---|---|\n| thread"}
+{"ms":120332.4,"text":" |"}
+{"ms":120346.2,"text":" server"}
+{"ms":120368.3,"text":" |\n|"}
+{"ms":120384.0,"text":" server"}
+{"ms":120468.7,"text":" | state |\n| async"}
+{"ms":120483.4,"text":" |"}
+{"ms":120553.6,"text":" commit |\n\n- Retry"}
+{"ms":120590.0,"text":" index error error"}
+{"ms":120656.1,"text":" file timeout reply value host"}
+{"ms":120699.1,"text":" idle.\n- Scroll"}
+{"ms":120732.6,"text":" snapshot reply thread"}
+{"ms":120812.6,"text":" range render disk output cursor"}
+{"ms":120829.2,"text":" workspace"}
+{"ms":120908.2,"text":" schema.\n- Build metric timeout daemon"}
+{"ms":120956.5,"text":" output cursor metric index"}
+{"ms":120998.6,"text":" idle value terminal"}
+{"ms":121014.5,"text":" file"}
+{"ms":121058.2,"text":" value frame test"}
+{"ms":121117.6,"text":" process.\n- Cursor disk"}
+{"ms":121162.0,"text":" journal host **flush**"}
+{"ms":121272.8,"text":" `pane_store`.\n- Terminal commit event line host"}
+{"ms":121339.7,"text":" `state_writer` write line.\n- Socket the"}
+{"ms":121388.0,"text":" patch state write"}
+{"ms":121479.0,"text":" session the agent await.\n\n- Read"}
+{"ms":121537.4,"text":" lane journal patch cache commit"}
+{"ms":121596.3,"text":" sync sync throughput daemon metric"}
+{"ms":121664.9,"text":" host cache metric window.\n- Limit"}
+{"ms":121730.2,"text":" retry tab chunk journal"}
+{"ms":121745.1,"text":" key"}
+{"ms":121781.9,"text":" limit output event"}
+{"ms":121887.1,"text":" snapshot queue frame.\n- Latency window output"}
+{"ms":121945.1,"text":" owner patch key stream"}
+{"ms":121956.4,"text":" tab"}
+{"ms":122011.4,"text":" chunk layout commit owner"}
+{"ms":122063.4,"text":" **frame**.\n- **client** read"}
+{"ms":122127.6,"text":" workspace token range backoff.\n-"}
+{"ms":122164.9,"text":" Latency workspace write"}
+{"ms":122193.7,"text":" chunk range"}
+{"ms":122226.8,"text":" thread layout timeout"}
+{"ms":122242.8,"text":" value"}
+{"ms":122255.7,"text":" path"}
+{"ms":122269.3,"text":" cache"}
+{"ms":122347.3,"text":" session sync.\n- Idle render"}
+{"ms":122361.0,"text":" frame"}
+{"ms":122433.7,"text":" chunk flush buffer.\n\n```ts\nif"}
+{"ms":122478.2,"text":" (!session) return;\n"}
+{"ms":122688.3,"text":"        export function cursor(tab: string) {}\n"}
+{"ms":122714.9,"text":"  "}
+{"ms":122823.0,"text":"  const frame = await pane.idle();\n"}
+{"ms":122930.1,"text":"    const store = await writer.thread();\n"}
+{"ms":123041.8,"text":"    export function cursor(cursor: string) {}\n"}
+{"ms":123112.2,"text":"     "}
+{"ms":123230.7,"text":"   const tab = await buffer.window();\n"}
+{"ms":123294.3,"text":"if (!writer) return;\n "}
+{"ms":123326.1,"text":"  "}
+{"ms":123372.6,"text":" if (!session) return;\n"}
+{"ms":123504.8,"text":"    for (const buffer of tab) buffer.flush();\n"}
+{"ms":123603.5,"text":"```\n"}
+{"ms":123674.7,"text":"\n- Metric metric the throughput"}
+{"ms":123703.7,"text":" handler protocol"}
+{"ms":123743.5,"text":" test timeout owner"}
+{"ms":123805.0,"text":" line agent scroll process.\n-"}
+{"ms":123835.0,"text":" Host lane"}
+{"ms":123898.0,"text":" metric throughput value frame"}
+{"ms":124005.9,"text":" token pane.\n\n```python\ndef session_frame(self, frame):\nreader ="}
+{"ms":124074.1,"text":" session.patch()\n    for"}
+{"ms":124134.9,"text":" pane in frame:\n"}
+{"ms":124296.1,"text":"        store = tab.journal()\n"}
+{"ms":124430.4,"text":"        def frame_cursor(self, cursor):\n"}
+{"ms":124560.0,"text":"    for pane in tab:\n"}
+{"ms":124604.8,"text":"    "}
+{"ms":124715.7,"text":"    if not state:\n"}
+{"ms":124864.2,"text":"        tab = store.review()\n"}
+{"ms":124926.4,"text":"def writer_tab(self, tab):\n "}
+{"ms":125036.7,"text":"       pane = reader.the()\n"}
+{"ms":125171.0,"text":"if not state:\n```\n\n```rust\n  "}
+{"ms":125237.8,"text":"  let reader = buffer.stream()?;\n"}
+{"ms":125252.4,"text":"match writer"}
+{"ms":125315.1,"text":" { Some(x) => x,"}
+{"ms":125382.9,"text":" None => tab };\n"}
+{"ms":125415.1,"text":"  "}
+{"ms":125637.0,"text":"      match store { Some(x) => x, None => cursor };\n"}
+{"ms":125773.2,"text":"    if frame.is_empty() { return Ok(()); }\n"}
+{"ms":125862.2,"text":"if cursor.is_empty() { return Ok(()); }\n"}
+{"ms":125945.7,"text":"```\n\n- Scroll cursor stream host"}
+{"ms":126002.0,"text":" layout flush file read"}
+{"ms":126101.7,"text":" `writer_state` the.\n- Window budget render"}
+{"ms":126161.7,"text":" render agent handler queue"}
+{"ms":126241.2,"text":" state.\n- Retry path tab stream terminal"}
+{"ms":126312.3,"text":" index owner schema protocol cursor"}
+{"ms":126377.0,"text":" frame store.\n- Output"}
+{"ms":126401.0,"text":" error layout"}
+{"ms":126480.5,"text":" await disk memory disk cache"}
+{"ms":126591.2,"text":" server protocol.\n\n- Host review output"}
+{"ms":126637.1,"text":" frame window build"}
+{"ms":126675.7,"text":" write thread.\n-"}
+{"ms":126692.0,"text":" Terminal"}
+{"ms":126742.0,"text":" key input state"}
+{"ms":126836.8,"text":" buffer `pane_writer` file queue.\n- Idle cache"}
+{"ms":126902.7,"text":" scroll retry test limit"}
+{"ms":126967.2,"text":" cursor build lane backoff"}
+{"ms":126999.0,"text":" daemon memory"}
+{"ms":127060.4,"text":" render async file frame index"}
+{"ms":127135.8,"text":" chunk.\n\nIndex tab async"}
+{"ms":127186.5,"text":" async agent chunk"}
+{"ms":127243.6,"text":" protocol store write queue value"}
+{"ms":127334.9,"text":" host owner memory. Build build client"}
+{"ms":127362.3,"text":" memory layout"}
+{"ms":127375.9,"text":" output"}
+{"ms":127407.1,"text":" socket event"}
+{"ms":127481.4,"text":" frame buffer token.\n\nServer server"}
+{"ms":127519.9,"text":" thread client frame"}
+{"ms":127535.0,"text":" metric"}
+{"ms":127588.3,"text":" error handler **socket** write"}
+{"ms":127619.0,"text":" latency memory"}
+{"ms":127702.8,"text":" retry owner. Terminal tab backoff token"}
+{"ms":127737.8,"text":" lane frame scroll"}
+{"ms":127782.9,"text":" thread output buffer"}
+{"ms":127925.0,"text":" index sync workspace cursor budget.\n\n```rust\nlet tab"}
+{"ms":127942.0,"text":" ="}
+{"ms":127964.1,"text":" tab.process()?;\n"}
+{"ms":128102.1,"text":"    for session in frame.iter() { session.flush()?; }\n"}
+{"ms":128308.7,"text":"        for tab in state.iter() { tab.flush()?; }\n"}
+{"ms":128339.9,"text":"  "}
+{"ms":128364.8,"text":"  "}
+{"ms":128589.2,"text":"    match state { Some(x) => x, None => frame };\n"}
+{"ms":128658.3,"text":"let store = state.batch()?;\n "}
+{"ms":128813.6,"text":"       if frame.is_empty() { return Ok(()); }\n"}
+{"ms":128858.2,"text":"for session in cursor.iter()"}
+{"ms":128955.1,"text":" { session.flush()?; }\nif state.is_empty() {"}
+{"ms":129043.6,"text":" return Ok(()); }\n   "}
+{"ms":129070.5,"text":" for cursor"}
+{"ms":129086.8,"text":" in"}
+{"ms":129130.1,"text":" writer.iter() { cursor.flush()?;"}
+{"ms":129206.3,"text":" }\nif tab.is_empty() { return"}
+{"ms":129261.8,"text":" Ok(()); }\n "}
+{"ms":129285.8,"text":"  "}
+{"ms":129421.7,"text":" for buffer in buffer.iter() { buffer.flush()?; }\n"}
+{"ms":129461.8,"text":"   "}
+{"ms":129492.1,"text":"  "}
+{"ms":129550.6,"text":"   for buffer"}
+{"ms":129566.5,"text":" in"}
+{"ms":129607.2,"text":" store.iter() { buffer.flush()?;"}
+{"ms":129676.5,"text":" }\nif frame.is_empty() { return"}
+{"ms":129720.1,"text":" Ok(()); }\n"}
+{"ms":129765.7,"text":"    "}
+{"ms":129864.6,"text":"    let buffer = reader.diff()?;\n"}
+{"ms":129921.7,"text":"```\n"}
+{"ms":129950.8,"text":"\n```python\n"}
+{"ms":130084.0,"text":"    for store in tab:\n"}
+{"ms":130100.4,"text":"def"}
+{"ms":130155.8,"text":" cursor_tab(self, tab):\nfor session"}
+{"ms":130202.4,"text":" in state:\n"}
+{"ms":130227.5,"text":"  "}
+{"ms":130291.0,"text":"  state = state.test()\n"}
+{"ms":130334.1,"text":"cursor = session.cache()\n"}
+{"ms":130367.5,"text":"if not tab:\n"}
+{"ms":130559.9,"text":"        for session in store:\n"}
+{"ms":130730.0,"text":"        writer = store.token()\n"}
+{"ms":130856.2,"text":"        store = frame.store()\n"}
+{"ms":130889.1,"text":"  "}
+{"ms":130918.9,"text":"  "}
+{"ms":130947.3,"text":"  "}
+{"ms":131028.8,"text":"  tab = state.metric()\n"}
+{"ms":131141.9,"text":"    def cursor_pane(self, pane):\n"}
+{"ms":131199.5,"text":"     "}
+{"ms":131233.3,"text":"  "}
+{"ms":131256.5,"text":" def tab_session(self,"}
+{"ms":131322.1,"text":" session):\n  "}
+{"ms":131377.3,"text":"     "}
+{"ms":131435.0,"text":" def frame_tab(self, tab):\n"}
+{"ms":131529.1,"text":"```\n\n```python\n     "}
+{"ms":131556.3,"text":"  "}
+{"ms":131585.7,"text":" if not"}
+{"ms":131618.8,"text":" store:\n"}
+{"ms":131699.4,"text":"    if not tab:\n"}
+{"ms":131802.3,"text":"    for frame in session:\n"}
+{"ms":131885.6,"text":"    if not tab:\n"}
+{"ms":131930.7,"text":"```\n\n- Socket"}
+{"ms":132002.3,"text":" read daemon file tab input"}
+{"ms":132059.6,"text":" path error server latency chunk"}
+{"ms":132075.0,"text":" event"}
+{"ms":132144.9,"text":" state client token memory input"}
+{"ms":132168.2,"text":" batch.\n-"}
+{"ms":132229.2,"text":" Lane commit agent process"}
+{"ms":132310.0,"text":" async throughput sync async latency"}
+{"ms":132352.0,"text":" async.\n- Index"}
+{"ms":132418.3,"text":" buffer workspace owner review flush"}
+{"ms":132431.8,"text":" index"}
+{"ms":132515.6,"text":" line.\n- Range backoff socket snapshot line"}
+{"ms":132546.1,"text":" protocol process"}
+{"ms":132560.7,"text":" patch"}
+{"ms":132592.2,"text":" `cursor_store` commit"}
+{"ms":132627.3,"text":" budget scroll retry"}
+{"ms":132672.3,"text":" backoff error patch index"}
+{"ms":132734.1,"text":" metric.\n- Workspace cursor"}
+{"ms":132793.6,"text":" test event review chunk.\n-"}
+{"ms":132823.6,"text":" Key path"}
+{"ms":132857.5,"text":" frame review"}
+{"ms":132897.2,"text":" write state scroll"}
+{"ms":132990.8,"text":" owner patch await.\n\n- Key"}
+{"ms":133065.3,"text":" budget reply index terminal thread render"}
+{"ms":133120.7,"text":" sync handler commit owner range"}
+{"ms":133145.4,"text":" pane.\n-"}
+{"ms":133184.9,"text":" Test store value"}
+{"ms":133234.0,"text":" budget thread the disk"}
+{"ms":133261.9,"text":" key stream"}
+{"ms":133332.2,"text":" socket cursor owner event.\n-"}
+{"ms":133440.0,"text":" Server thread file latency index line.\n-"}
+{"ms":133527.3,"text":" Input input reply value batch cache"}
+{"ms":133587.6,"text":" buffer protocol.\n- Server"}
+{"ms":133637.3,"text":" render throughput review"}
+{"ms":133670.7,"text":" cursor write"}
+{"ms":133736.6,"text":" sync snapshot scroll commit the"}
+{"ms":133801.9,"text":" path.\n- State reply metric"}
+{"ms":133818.8,"text":" write"}
+{"ms":133859.3,"text":" idle state timeout"}
+{"ms":133881.6,"text":" timeout host"}
+{"ms":133955.8,"text":" event terminal the patch idle `reader_pane`"}
+{"ms":134013.9,"text":" commit sync protocol.\n\n###"}
+{"ms":134126.0,"text":" 15. memory timeout backoff\n\n```swift\n "}
+{"ms":134224.9,"text":"   for buffer in frame"}
+{"ms":134274.1,"text":" { buffer.flush() }\n"}
+{"ms":134378.2,"text":"    @MainActor func sessionFrame() {}\n"}
+{"ms":134406.8,"text":"  "}
+{"ms":134502.6,"text":"  let pane = try await tab.agent()\n"}
+{"ms":134601.3,"text":"let pane = try await writer.batch()\n"}
+{"ms":134805.7,"text":"        for writer in tab { writer.flush() }\n"}
+{"ms":134849.7,"text":"    "}
+{"ms":134973.3,"text":"    guard let tab else { return }\n"}
+{"ms":135062.2,"text":"@MainActor func tabTab() {}\nfor pane in"}
+{"ms":135117.6,"text":" frame { pane.flush() }\n"}
+{"ms":135219.0,"text":"@MainActor func cursorPane() {}\n  "}
+{"ms":135243.5,"text":"  let"}
+{"ms":135357.4,"text":" session = try await buffer.memory()\nfor frame"}
+{"ms":135447.9,"text":" in writer { frame.flush() }\n"}
+{"ms":135507.6,"text":"@MainActor func tabFrame() {}\n"}
+{"ms":135553.9,"text":"   "}
+{"ms":135631.1,"text":" let writer = try await pane.scroll()\n@MainActor"}
+{"ms":135700.4,"text":" func stateCursor() {}\n "}
+{"ms":135826.8,"text":"       @MainActor func cursorCursor() {}\n"}
+{"ms":135966.4,"text":"    for tab in tab { tab.flush() }\n"}
+{"ms":136048.5,"text":"let writer = try await buffer.stream()\n"}
+{"ms":136185.7,"text":"    guard let pane else { return }\n"}
+{"ms":136298.7,"text":"for session in frame { session.flush() }\n"}
+{"ms":136357.4,"text":"@MainActor func cursorReader() {}\n"}
+{"ms":136423.6,"text":"let store = try await"}
+{"ms":136555.7,"text":" reader.client()\n```\n\nRead `reader_session` the token daemon"}
+{"ms":136647.7,"text":" metric backoff pane latency value workspace."}
+{"ms":136704.8,"text":" Await tab file range"}
+{"ms":136748.5,"text":" build write cursor"}
+{"ms":136763.2,"text":" commit."}
+{"ms":136780.1,"text":" Line"}
+{"ms":136854.8,"text":" value owner `cursor_store` process stream memory"}
+{"ms":136987.4,"text":" reply patch.\n\n## 16. workspace state\n\n```rust\n"}
+{"ms":137046.5,"text":"     "}
+{"ms":137161.7,"text":"   if writer.is_empty() { return Ok(()); }\n"}
+{"ms":137187.6,"text":"  "}
+{"ms":137222.5,"text":"   "}
+{"ms":137338.9,"text":"   for store in buffer.iter() { store.flush()?; }\n"}
+{"ms":137370.7,"text":"  "}
+{"ms":137519.2,"text":"      for state in buffer.iter() { state.flush()?; }\n"}
+{"ms":137546.3,"text":"  "}
+{"ms":137614.0,"text":"  let store = tab.disk()?;\n"}
+{"ms":137678.5,"text":"let writer = cursor.owner()?;\n"}
+{"ms":137822.3,"text":"    if reader.is_empty() { return Ok(()); }\n"}
+{"ms":138038.2,"text":"        if pane.is_empty() { return Ok(()); }\n"}
+{"ms":138062.1,"text":"  "}
+{"ms":138167.4,"text":"  for session in writer.iter() { session.flush()?; }\n"}
+{"ms":138219.5,"text":"let buffer = pane.idle()?;\n"}
+{"ms":138273.0,"text":"for session in reader.iter() {"}
+{"ms":138309.6,"text":" session.flush()?; }\n"}
+{"ms":138480.8,"text":"    for buffer in buffer.iter() { buffer.flush()?; }\n"}
+{"ms":138559.0,"text":"      "}
+{"ms":138589.8,"text":"  for"}
+{"ms":138604.8,"text":" reader"}
+{"ms":138620.4,"text":" in"}
+{"ms":138677.9,"text":" buffer.iter() { reader.flush()?; }\n"}
+{"ms":138789.2,"text":"match writer { Some(x) => x, None => pane };\n"}
+{"ms":139011.8,"text":"        if state.is_empty() { return Ok(()); }\n"}
+{"ms":139044.7,"text":"  "}
+{"ms":139134.9,"text":"      for"}
+{"ms":139223.2,"text":" session in buffer.iter() { session.flush()?; }\n"}
+{"ms":139234.9,"text":"let store"}
+{"ms":139276.7,"text":" = cursor.server()?;\n"}
+{"ms":139365.0,"text":"if tab.is_empty() { return Ok(()); }\n"}
+{"ms":139396.6,"text":"  "}
+{"ms":139442.0,"text":"  let pane"}
+{"ms":139476.0,"text":" = store.host()?;\n"}
+{"ms":139612.4,"text":"```\n"}
+{"ms":139680.1,"text":"\n```python\ndef buffer_cursor(self, cursor):\n"}
+{"ms":139710.2,"text":"  "}
+{"ms":139804.1,"text":"  cursor = store.backoff()\nif not"}
+{"ms":139835.7,"text":" cursor:\n"}
+{"ms":139859.5,"text":"  "}
+{"ms":139941.5,"text":"  session = session.flush()\n"}
+{"ms":139974.4,"text":"  "}
+{"ms":140044.9,"text":"  def tab_pane(self, pane):\n"}
+{"ms":140159.5,"text":"    cursor = writer.schema()\n"}
+{"ms":140206.1,"text":"def store_buffer(self, buffer):\n"}
+{"ms":140256.3,"text":"frame = buffer.line()\n"}
+{"ms":140318.0,"text":"def frame_state(self, state):\n "}
+{"ms":140340.6,"text":"  "}
+{"ms":140372.3,"text":" def reader_session(self,"}
+{"ms":140404.9,"text":" session):\ndef"}
+{"ms":140453.0,"text":" session_state(self, state):\n"}
+{"ms":140497.1,"text":"for buffer in store:\nwriter"}
+{"ms":140601.6,"text":" = cursor.read()\n    "}
+{"ms":140624.9,"text":"  "}
+{"ms":140730.0,"text":"  def buffer_buffer(self, buffer):\n  "}
+{"ms":140814.5,"text":"  tab = store.async()\n"}
+{"ms":140852.7,"text":"pane = pane.handler()\n"}
+{"ms":140988.3,"text":"```\n"}
+{"ms":141018.5,"text":"\n```ts\n"}
+{"ms":141126.3,"text":"    const store = await tab.input();\n"}
+{"ms":141242.0,"text":"    const buffer = await writer.lane();\n"}
+{"ms":141277.7,"text":"if (!session) return;\n"}
+{"ms":141338.1,"text":"    "}
+{"ms":141371.6,"text":"  "}
+{"ms":141418.2,"text":"  const pane"}
+{"ms":141505.8,"text":" = await cursor.value();\nexport function frame(writer: string)"}
+{"ms":141593.8,"text":" {}\nif (!state) return;\nfor (const reader of"}
+{"ms":141661.3,"text":" frame) reader.flush();\n "}
+{"ms":141716.1,"text":"   if (!store)"}
+{"ms":141748.4,"text":" return;\n"}
+{"ms":141899.0,"text":"    for (const session of state) session.flush();\n"}
+{"ms":141957.0,"text":"    const store"}
+{"ms":142013.5,"text":" = await pane.latency();\n"}
+{"ms":142177.9,"text":"    for (const pane of state) pane.flush();\n"}
+{"ms":142332.0,"text":"        const tab = await frame.workspace();\n"}
+{"ms":142377.2,"text":"   "}
+{"ms":142437.8,"text":" if (!writer) return;\n"}
+{"ms":142538.9,"text":"```\n\n```ts\n    const"}
+{"ms":142597.0,"text":" reader = await state.cursor();\n"}
+{"ms":142742.3,"text":"    export function writer(state: string) {}\n"}
+{"ms":142783.5,"text":"   "}
+{"ms":142859.1,"text":"     for (const"}
+{"ms":142874.4,"text":" reader"}
+{"ms":142924.3,"text":" of frame) reader.flush();\n"}
+{"ms":142968.6,"text":"    "}
+{"ms":143021.5,"text":"    const"}
+{"ms":143038.4,"text":" pane"}
+{"ms":143110.3,"text":" = await reader.server();\n "}
+{"ms":143141.3,"text":"  "}
+{"ms":143219.0,"text":" if (!session) return;\nconst buffer"}
+{"ms":143230.9,"text":" ="}
+{"ms":143301.2,"text":" await cursor.process();\nexport function store(reader: string)"}
+{"ms":143332.6,"text":" {}\n"}
+{"ms":143506.2,"text":"        for (const buffer of cursor) buffer.flush();\n"}
+{"ms":143573.5,"text":"```\n"}
+{"ms":143645.9,"text":"\n```python\n   "}
+{"ms":143781.5,"text":"     for buffer in buffer:\n"}
+{"ms":143813.1,"text":"  "}
+{"ms":143929.3,"text":"      def session_cursor(self, cursor):\n"}
+{"ms":143974.4,"text":"buffer = writer.owner()\n"}
+{"ms":143986.5,"text":"for pane"}
+{"ms":144029.2,"text":" in state:\nif"}
+{"ms":144133.3,"text":" not store:\n    def"}
+{"ms":144172.7,"text":" store_state(self, state):\n"}
+{"ms":144299.6,"text":"        pane = cursor.store()\n"}
+{"ms":144431.0,"text":"        session = pane.snapshot()\n"}
+{"ms":144477.5,"text":"   "}
+{"ms":144492.5,"text":" def"}
+{"ms":144539.7,"text":" store_cursor(self, cursor):\n"}
+{"ms":144581.0,"text":"   "}
+{"ms":144696.1,"text":" buffer = writer.budget()\n```\n\n- Await throughput async"}
+{"ms":144720.6,"text":" review batch"}
+{"ms":144751.0,"text":" `frame_cursor` async"}
+{"ms":144829.8,"text":" handler async memory pane cursor batch"}
+{"ms":144910.7,"text":" the layout.\n- Throughput file"}
+{"ms":144960.0,"text":" flush tab build"}
+{"ms":144974.9,"text":" journal"}
+{"ms":145000.0,"text":" owner reply"}
+{"ms":145040.8,"text":" workspace chunk snapshot"}
+{"ms":145052.3,"text":" key"}
+{"ms":145102.0,"text":" read snapshot window.\n-"}
+{"ms":145161.8,"text":" Terminal journal thread commit render"}
+{"ms":145245.2,"text":" buffer test chunk event flush layout"}
+{"ms":145293.9,"text":" build tab.\n-"}
+{"ms":145371.7,"text":" Batch handler frame cursor error"}
+{"ms":145440.0,"text":" value backoff render stream process"}
+{"ms":145528.6,"text":" state.\n\nAwait commit read chunk"}
+{"ms":145554.7,"text":" metric write"}
+{"ms":145612.2,"text":" backoff workspace error socket. Daemon"}
+{"ms":145638.2,"text":" owner range"}
+{"ms":145680.8,"text":" render server owner"}
+{"ms":145709.8,"text":" test. Event"}
+{"ms":145758.5,"text":" store thread session"}
+{"ms":145828.1,"text":" token output.\n\n- Key queue"}
+{"ms":145888.3,"text":" disk client pane host"}
+{"ms":145929.9,"text":" flush process async"}
+{"ms":145963.8,"text":" commit pane"}
+{"ms":146012.2,"text":" agent.\n- Limit patch"}
+{"ms":146044.7,"text":" range backoff"}
+{"ms":146093.2,"text":" diff queue limit"}
+{"ms":146154.6,"text":" batch.\n- Token buffer"}
+{"ms":146279.1,"text":" tab thread terminal window frame.\n\n```sh\n"}
+{"ms":146317.0,"text":"   "}
+{"ms":146351.5,"text":" frame=\"$(buffer --json)\"\n"}
+{"ms":146384.8,"text":"  "}
+{"ms":146597.5,"text":"      [ -n \"$frame\" ] || exit 1\n"}
+{"ms":146619.6,"text":"state=\"$(writer --json)\"\n"}
+{"ms":146653.4,"text":"  "}
+{"ms":146765.3,"text":"  [ -n \"$cursor\" ] || exit 1\n"}
+{"ms":146788.3,"text":"pane=\"$(session --json)\"\n"}
+{"ms":146942.7,"text":"    for reader in $frame; do echo \"$reader\"; done\n"}
+{"ms":146965.2,"text":"  "}
+{"ms":147164.0,"text":"      for buffer in $state; do echo \"$buffer\"; done\n"}
+{"ms":147222.1,"text":"    "}
+{"ms":147280.9,"text":"    for"}
+{"ms":147370.7,"text":" cursor in $buffer; do echo \"$cursor\"; done\n"}
+{"ms":147542.4,"text":"```\n"}
+{"ms":147602.9,"text":"\n```swift\n   "}
+{"ms":147744.3,"text":"     guard let pane else { return }\n"}
+{"ms":147929.6,"text":"        guard let session else { return }\n"}
+{"ms":148108.8,"text":"        for store in frame { store.flush() }\n"}
+{"ms":148119.9,"text":"guard"}
+{"ms":148149.1,"text":" let frame"}
+{"ms":148243.3,"text":" else { return }\n  "}
+{"ms":148272.1,"text":"  @MainActor"}
+{"ms":148294.8,"text":" func sessionSession()"}
+{"ms":148318.0,"text":" {}\n"}
+{"ms":148472.4,"text":"    guard let writer else { return }\n"}
+{"ms":148544.7,"text":"      "}
+{"ms":148582.3,"text":"  guard let"}
+{"ms":148711.0,"text":" store else { return }\n```\n\n```rust\n "}
+{"ms":148741.6,"text":"  "}
+{"ms":148757.9,"text":" let"}
+{"ms":148823.0,"text":" store = cursor.scroll()?;\n"}
+{"ms":149041.2,"text":"        match reader { Some(x) => x, None => writer };\n"}
+{"ms":149087.1,"text":"   "}
+{"ms":149160.3,"text":"     match session"}
+{"ms":149182.5,"text":" { Some(x)"}
+{"ms":149291.6,"text":" => x, None => reader };\n"}
+{"ms":149452.3,"text":"    match cursor { Some(x) => x, None => session };\n"}
+{"ms":149665.7,"text":"        if buffer.is_empty() { return Ok(()); }\n"}
+{"ms":149711.0,"text":"   "}
+{"ms":149865.7,"text":" match buffer { Some(x) => x, None => session };\n"}
+{"ms":149904.1,"text":"```\n\n```python\nreader"}
+{"ms":149951.6,"text":" = store.cursor()\n"}
+{"ms":150053.9,"text":"    def writer_session(self, session):\n"}
+{"ms":150102.8,"text":"writer = store.read()\n"}
+{"ms":150196.1,"text":"    for buffer in"}
+{"ms":150245.9,"text":" store:\ndef buffer_frame(self,"}
+{"ms":150275.2,"text":" frame):\n"}
+{"ms":150450.4,"text":"        def tab_cursor(self, cursor):\n"}
+{"ms":150499.5,"text":"for cursor in reader:\n"}
+{"ms":150632.0,"text":"        def cursor_frame(self, frame):\n"}
+{"ms":150714.2,"text":"    def session_writer(self, writer):\n"}
+{"ms":150727.1,"text":"def writer_frame(self,"}
+{"ms":150756.7,"text":" frame):\n"}
+{"ms":150894.0,"text":"        def frame_reader(self, reader):\n"}
+{"ms":151019.6,"text":"        session = store.patch()\n"}
+{"ms":151048.1,"text":"  "}
+{"ms":151109.4,"text":"    "}
+{"ms":151176.5,"text":"  def writer_buffer(self, buffer):\n"}
+{"ms":151244.7,"text":"      "}
+{"ms":151268.9,"text":"  for"}
+{"ms":151326.7,"text":" store in writer:\n"}
+{"ms":151442.8,"text":"```\n"}
+{"ms":151469.5,"text":"\n```rust\n"}
+{"ms":151617.5,"text":"    if writer.is_empty() { return Ok(()); }\n"}
+{"ms":151628.9,"text":"if"}
+{"ms":151660.9,"text":" cursor.is_empty() {"}
+{"ms":151748.4,"text":" return Ok(()); }\n   "}
+{"ms":151772.5,"text":" match state"}
+{"ms":151865.2,"text":" { Some(x) => x, None =>"}
+{"ms":151899.5,"text":" pane };\n"}
+{"ms":152105.3,"text":"        for store in reader.iter() { store.flush()?; }\n"}
+{"ms":152133.6,"text":"let cursor ="}
+{"ms":152161.0,"text":" cursor.flush()?;\n"}
+{"ms":152252.0,"text":"for reader in writer.iter() { reader.flush()?; }\n"}
+{"ms":152285.8,"text":"```\n\n```swift\n"}
+{"ms":152317.1,"text":"  "}
+{"ms":152411.2,"text":"  let reader = try await pane.index()\n"}
+{"ms":152439.0,"text":"  "}
+{"ms":152462.1,"text":"  "}
+{"ms":152478.9,"text":"guard let"}
+{"ms":152547.5,"text":" cursor else { return }\n"}
+{"ms":152686.3,"text":"    let state = try await session.process()\n"}
+{"ms":152783.8,"text":"    @MainActor func tabWriter() {}\n"}
+{"ms":152882.6,"text":"      "}
+{"ms":152927.8,"text":"  @MainActor func"}
+{"ms":152961.8,"text":" panePane() {}\n"}
+{"ms":153115.4,"text":"    guard let tab else { return }\n"}
+{"ms":153131.2,"text":"guard"}
+{"ms":153231.8,"text":" let writer else { return }\n"}
+{"ms":153355.0,"text":"    guard let pane else { return }\n"}
+{"ms":153556.5,"text":"        @MainActor func cursorStore() {}\n"}
+{"ms":153635.2,"text":"let cursor = try await buffer.process()\n"}
+{"ms":153709.3,"text":"    for cursor in"}
+{"ms":153778.1,"text":" pane { cursor.flush() }\n"}
+{"ms":153846.4,"text":"     "}
+{"ms":153927.1,"text":"   @MainActor func framePane() {}\n"}
+{"ms":154081.7,"text":"        @MainActor func readerTab() {}\n"}
+{"ms":154236.9,"text":"    let store = try await session.state()\n"}
+{"ms":154359.3,"text":"    for cursor in reader { cursor.flush() }\n"}
+{"ms":154461.5,"text":"    @MainActor func stateStore() {}\n"}
+{"ms":154473.3,"text":"guard let"}
+{"ms":154551.5,"text":" reader else { return }\n"}
+{"ms":154581.3,"text":"  "}
+{"ms":154755.9,"text":"      for buffer in buffer { buffer.flush() }\n"}
+{"ms":154993.4,"text":"        let pane = try await tab.latency()\n"}
+{"ms":155038.4,"text":"@MainActor func storeWriter() {}\n"}
+{"ms":155065.1,"text":"  "}
+{"ms":155241.7,"text":"      guard let state else { return }\n"}
+{"ms":155258.2,"text":"guard let"}
+{"ms":155338.2,"text":" cursor else { return }\n"}
+{"ms":155592.9,"text":"        for state in writer { state.flush() }\n"}
+{"ms":155732.3,"text":"```\n"}

@@ -1,0 +1,26 @@
+{
+  "code-48k": {
+    "bytes": 102829,
+    "chunks": 2097,
+    "duration_ms": 155732.3,
+    "seed": 303,
+    "sha256": "762792d6564b86e39c4740271e9e01c542fb83cfa200c15300b44d860778764f",
+    "text_bytes": 48105
+  },
+  "mixed-24k": {
+    "bytes": 52644,
+    "chunks": 1103,
+    "duration_ms": 76710.7,
+    "seed": 202,
+    "sha256": "031fe7a07d9093017ce4e1c96dfcf023e9e0a9c653b0f924be0059592e7fdbbe",
+    "text_bytes": 24529
+  },
+  "prose-8k": {
+    "bytes": 16908,
+    "chunks": 349,
+    "duration_ms": 20485.5,
+    "seed": 101,
+    "sha256": "98725179beb3364e79189e057c7e12903b912c9505d21b8525db51d086fa7a01",
+    "text_bytes": 8225
+  }
+}
