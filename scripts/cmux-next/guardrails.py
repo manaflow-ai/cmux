@@ -255,11 +255,13 @@ class TypeIndex:
     """Whether a name is declared as a reference type (class, actor) or a value type in the Swift sources.
 
     One `git grep` of HEAD's Sources (about 1 s on the whole tree: git inflates every blob, whatever the
-    pattern), read only when a rule asks (a named static outside a class or actor, or a push that changes a
-    type's kind), so a push that adds no such line pays nothing. Another rev's declarations are HEAD's with
-    that rev's diff to HEAD undone (its added declaration lines out, its removed ones back, RangeKinds), so
-    every range of one push (check_push checks two for a merged branch) shares the one grep. The same grep
-    collects each file's named statics and extended types.
+    pattern), read only when the answer can change a verdict: a named static outside a class or actor that the
+    push adds, edits or reopens (its opener changed), or a push that adds or removes a type declaration
+    (RangeKinds.changed; a move that keeps its kind does not). A push that only edits other lines, next to an
+    old named static too, pays nothing (Matcher.openers finds the lines to judge again without kinds). Another
+    rev's declarations are HEAD's with that rev's diff to HEAD undone (its added declaration lines out, its
+    removed ones back, RangeKinds), so every range of one push (check_push checks two for a merged branch)
+    shares the one grep. The same grep collects each file's named statics and extended types.
     """
 
     def __init__(self, repo: Path, head: str):
@@ -271,14 +273,23 @@ class TypeIndex:
 
     def at_head(self) -> dict[str, collections.Counter]:
         if self.declared is None:
-            result = git_batch.run(self.repo, ["grep", "-z", "-I", "-E", "-e", TYPE_DECL_GREP, "-e", NAMED_STATIC_GREP,
+            # A fixed output format: a user's grep.lineNumber / grep.column add fields to each hit, color.grep
+            # escape codes, grep.fullName (or its absence) changes the path.
+            result = git_batch.run(self.repo, ["grep", "-z", "-I", "-E", "--no-line-number", "--no-column", "--no-color",
+                                               "--full-name", "-e", TYPE_DECL_GREP, "-e", NAMED_STATIC_GREP,
                                                "-e", EXTENSION_GREP, self.head, "--", SWIFT_SOURCES], env=git_env())
             if result.returncode not in (0, 1):  # 1: no match
                 raise git_batch.GitError(f"git grep of type declarations at {self.head} failed: "
                                          f"{result.stderr.decode('utf-8', 'replace').strip()}")
             lines = []
-            for hit in result.stdout.decode("utf-8", "replace").split("\n"):
+            output = result.stdout.decode("utf-8", "replace")
+            for hit in output[:-1].split("\n") if output else []:  # each hit ends with a newline
                 where, _, text = hit.partition("\0")  # `<rev>:<path>` NUL `<line>`
+                # Any other shape (a field more, no NUL) is an error the hook warns about: read as `<line>`, every
+                # hit would match nothing and each rule that reads kinds would pass silently.
+                if not where.startswith(f"{self.head}:") or not _ or "\0" in text:
+                    raise git_batch.GitError(f"git grep of type declarations at {self.head} printed a hit this scan "
+                                             f"cannot read: {hit[:200]!r}")
                 path = where[len(self.head) + 1:]
                 lines.append(text)
                 if (extended := EXTENSION_DECL.match(text)) is not None:
@@ -321,12 +332,14 @@ class RangeKinds:
 
     def changed(self) -> frozenset:
         """The names whose kind differs between base and head. Only a name whose removed declarations have
-        another kind than its added ones can change (a move or an edit that keeps `struct` cannot), so a push
-        without such a line reads nothing."""
+        another kind than its added ones can change (a move or an edit that keeps `struct` cannot): a removed
+        `struct` with an added `final class`, and also a declaration only added (a type that was undeclared in
+        Sources, so of no kind, until the push declared it there) or only removed. A push without such a line
+        reads nothing; head() and base() then decide with the whole tree's declarations."""
         if self.changed_names is None:
             empty = collections.Counter()
-            candidates = [name for name, kinds in self.removed.items()
-                          if classify(set(kinds)) != classify(set(self.added.get(name, empty)))]
+            candidates = [name for name in self.removed.keys() | self.added.keys()
+                          if classify(set(self.removed.get(name, empty))) != classify(set(self.added.get(name, empty)))]
             self.changed_names = frozenset(name for name in candidates if self.head(name) != self.base(name))
         return self.changed_names
 
@@ -370,6 +383,9 @@ class Matcher:
     # the type names whose kind KEEP reads for a line (a stored type, an extended type): the line is judged again
     # when the range changes one's kind (RangeKinds.changed)
     types: Callable[[Version, int], set[str]] | None = None
+    # the 1-based opener lines KEEP reads for a line, found without judging it (no type kinds, so no type grep);
+    # None: KEEP is cheap, and its own opener list is used
+    openers: Callable[[Version, int], list[int]] | None = None
 
 
 def escape_neighbours(lines: list[str], touched: set[int]) -> set[int]:
@@ -412,8 +428,9 @@ def rejudged(version: Version, matcher: Matcher) -> set[int]:
         found.update(index for index in escape_neighbours(lines, version.touched)
                      if matches(index) and any(j + 1 in version.touched for j in matcher.window(lines, index)))
     if matcher.keep is not None and version.changed:
+        openers = matcher.openers or (lambda v, i: is_debt(v, i, matcher)[1])
         found.update(index for index in range(len(lines)) if index not in found and matches(index)
-                     and any(o in version.changed for o in is_debt(version, index, matcher)[1]))
+                     and any(o in version.changed for o in openers(version, index)))
     if matcher.types is not None and (renamed := version.changed_kinds()):
         found.update(index for index in range(len(lines)) if index not in found and matches(index)
                      and matcher.types(version, index) & renamed)
@@ -621,6 +638,16 @@ def holds_state(version: Version, index: int) -> tuple[bool, list[int]]:
     if keyword in ("class", "actor") or (keyword == "extension" and version.kinds(name) == "reference"):
         return True, [number]
     return stores_reference(version, code, name), [number]
+
+
+def singleton_openers(version: Version, index: int) -> list[int]:
+    """The opener lines holds_state returns for line INDEX, found without reading a type's kind: a push that
+    edits a line next to an old named static of a struct reads no type declarations for it."""
+    code = code_of(version.lines[index])
+    if SINGLETON.search(code) or STATEFUL.search(code):
+        return []
+    found = static_container(version, index)
+    return [] if found is None else [found[2]]
 
 
 def singleton_types(version: Version, index: int) -> set[str]:
@@ -1066,7 +1093,8 @@ def implicit_deinit(version: Version, index: int) -> tuple[bool, list[int]]:
     return True, []
 
 
-SINGLETON_MATCHER = Matcher(SINGLETON_ANY, SINGLETON_ALLOW, holds_state, types=singleton_types)
+SINGLETON_MATCHER = Matcher(SINGLETON_ANY, SINGLETON_ALLOW, holds_state, types=singleton_types,
+                            openers=singleton_openers)
 
 
 def singleton(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
@@ -1186,7 +1214,8 @@ RULES = (
 # ---------------------------------------------------------------- diff
 
 def parse_diff(diff: str) -> dict[str, FileChange]:
-    """The files of a `-U0` diff run with `--src-prefix=a/ --dst-prefix=b/` (a user's diff.noprefix is ignored)."""
+    """The files of a `-U0 --inter-hunk-context=0` diff run with `--src-prefix=a/ --dst-prefix=b/` (a user's
+    diff.noprefix and diff.interHunkContext are ignored). A context line, should one come, is on both sides."""
     changes: dict[str, FileChange] = {}
     current: FileChange | None = None
     number, old_number, pending_new, old_path = 0, 0, False, ""
@@ -1220,6 +1249,9 @@ def parse_diff(diff: str) -> dict[str, FileChange]:
             number += 1
         elif current is not None and line.startswith("-"):
             current.removed.append(Added(current.path, old_number, line[1:]))
+            old_number += 1
+        elif current is not None and line.startswith(" "):
+            number += 1
             old_number += 1
     return changes
 
@@ -1451,8 +1483,10 @@ def check(repo: Path, base: str, head: str, types: TypeIndex | None = None
 
     TYPES is HEAD's type index; check_push passes one for all its ranges (they share HEAD).
     """
-    # Fixed prefixes: a user's diff.noprefix / diff.srcPrefix would otherwise drop every file from the parse.
-    diff, names = run_both(repo, ["diff", "-U0", "--no-color", "--no-renames", "--no-ext-diff", "--src-prefix=a/",
+    # Fixed prefixes: a user's diff.noprefix / diff.srcPrefix would otherwise drop every file from the parse. No
+    # inter-hunk context: a user's diff.interHunkContext would join nearby hunks with unchanged lines between them.
+    diff, names = run_both(repo, ["diff", "-U0", "--inter-hunk-context=0", "--no-color", "--no-renames",
+                                  "--no-ext-diff", "--src-prefix=a/",
                                   "--dst-prefix=b/", base, head, "--", SWIFT_SOURCES, SWIFT_TESTS,
                                   *SHIPPED_BUILD_SPECS],
                            ["diff", "--name-only", "--no-renames", base, head])
