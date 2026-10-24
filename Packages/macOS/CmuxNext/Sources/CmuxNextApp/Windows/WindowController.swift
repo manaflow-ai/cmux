@@ -375,7 +375,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 /// (`FocusResponderClassifier`), and keeps app overlays above Chromium page
 /// windows (`WindowOverlayLayer`).
 final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionProviding, TitlebarAccessoryHosting, WindowChromeHosting,
-    CursorRectHoldHosting, TrafficLightsResting, ContentAreaMotionHosting {
+    CursorRectHoldHosting, TrafficLightsResting, ContentAreaMotionHosting, WindowZoomFinishing {
     /// The traffic lights' last windowed place: their left edge, their top's
     /// distance from the window's top, and their size (the window may come
     /// back from full screen at another height).
@@ -405,6 +405,12 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     weak var keyRouter: KeyRouter?
     weak var focus: FocusCoordinator?
     private(set) lazy var overlayLayer = WindowOverlayLayer(window: self)
+
+    /// Zoom without AppKit's blocking animation (``WindowZoom``): every entrypoint comes here.
+    private var zoomState = WindowZoom()
+    override func zoom(_ sender: Any?) { if !zoomState.zoom(self) { super.zoom(sender) } }
+    override var isZoomed: Bool { zoomState.isZoomingIn ?? super.isZoomed }
+    func windowZoomFinished(_ generation: Int) { zoomState.end(generation) }
 
     /// In an agent screenshot launch every frame stays on the test screen
     /// (`WindowPlacement.containedOnTestScreen`), whichever path sets it.
