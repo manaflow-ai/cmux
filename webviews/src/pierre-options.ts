@@ -313,8 +313,8 @@ export function fileTreeUnsafeCSS(): string {
     }
     [data-file-tree-sticky-overlay-content] {
       background-color: var(--cmux-diff-files-bg, var(--cmux-diff-solid-bg)) !important;
-      -webkit-backdrop-filter: var(--cmux-diff-glass-filter, none);
-      backdrop-filter: var(--cmux-diff-glass-filter, none);
+      -webkit-backdrop-filter: var(--cmux-diff-files-filter, none);
+      backdrop-filter: var(--cmux-diff-files-filter, none);
       box-shadow: 0 1px 0 var(--trees-border-color);
     }
     ${PIERRE_TREES_SCROLLER_CSS}

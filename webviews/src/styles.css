@@ -101,13 +101,18 @@
 html {
   background: var(--cmux-diff-viewer-bg);
 }
-/* Glass over an image background or a see-through window (data-cmux-see-through, desktop.ts):
-   the file bars and the files panel take the app's plain glass (ui/glass/glass.css: the theme
-   surface at --ds-glass-plain-tint, the shared blur), so the backdrop shows through them as it
-   does through every other surface. The tree's own layers go clear so the tint does not stack.
-   Reduce Transparency (the system's or the host's) keeps them solid. */
+/* Glass over an image background or a see-through window (data-cmux-see-through, desktop.ts), so
+   the backdrop shows through as it does through every other surface:
+   - the files panel is the app's menu material: the host's popup fill frosted (--tooltip-tint, the
+     popup surface at the least alpha that keeps text legible, and --tooltip-blur;
+     pages/shared/desktop.css), the same color and frost as a native context menu;
+   - the file bars are the plain glass (ui/glass/glass.css: the theme surface at
+     --ds-glass-plain-tint, the shared blur).
+   The tree's own layers go clear so the tint does not stack. Reduce Transparency (the system's or
+   the host's) keeps them solid. */
 :root[data-cmux-see-through]:not([data-reduce-transparency]) {
-  --cmux-diff-files-bg: color-mix(in srgb, var(--cmux-diff-fg) 3%, var(--glass-tint));
+  --cmux-diff-files-bg: var(--tooltip-tint);
+  --cmux-diff-files-filter: var(--tooltip-blur);
   --cmux-diff-files-layer-bg: transparent;
   --cmux-diff-header-bg: var(--glass-tint);
   --cmux-diff-glass-filter: var(--glass-backdrop);
@@ -117,6 +122,7 @@ html {
     --cmux-diff-files-bg: color-mix(in srgb, var(--cmux-diff-fg) 3%, var(--cmux-diff-solid-bg));
     --cmux-diff-files-layer-bg: var(--cmux-diff-files-bg);
     --cmux-diff-header-bg: var(--cmux-diff-solid-bg);
+    --cmux-diff-files-filter: none;
     --cmux-diff-glass-filter: none;
   }
 }
@@ -809,8 +815,8 @@ body[data-status-only="true"] #content {
   bottom: 0;
   z-index: 2;
   width: var(--cmux-diff-files-width);
-  -webkit-backdrop-filter: var(--cmux-diff-glass-filter, none);
-  backdrop-filter: var(--cmux-diff-glass-filter, none);
+  -webkit-backdrop-filter: var(--cmux-diff-files-filter, none);
+  backdrop-filter: var(--cmux-diff-files-filter, none);
   min-height: 0;
   min-width: 0;
   display: flex;
