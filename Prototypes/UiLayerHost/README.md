@@ -17,9 +17,8 @@ Run from the repository root with:
     Prototypes/UiLayerHost/launch.sh --attach "$HOME/.local/state/cmux/cmux-debug.sock" --watch
 
 The checked-in Resources/cmux-ui-layer.example.json is a safe fixture. The
-optional --watch flag uses event-based fswatch to restart the host after source
-saves and emits elapsed timing when CMUX_UI_LAYER_TRACE=1; when fswatch is
-unavailable it refuses clearly instead of polling. The attach adapter only
+optional --watch flag uses the checked-in Swift DispatchSource vnode watcher to
+restart the host after source saves and emits event timing without an external watcher. The attach adapter only
 uses `system.identify`, `snapshot.get` and `events.stream`: the current native
 snapshot exposes workspace/tab topology, so chat transcript and sidebar
 document export remain future projection work. The prototype deliberately
