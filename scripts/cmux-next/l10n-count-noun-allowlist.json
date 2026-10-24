@@ -59,17 +59,9 @@
     "source": "+%d more",
     "reason": "\"more\" does not agree with the count in English, and every translation writes a form of \"more\" that holds for every count."
   },
-  "handlers.findWork.unread": {
-    "source": "%lld unread",
-    "reason": "The word after the count is an adjective (unread, selected, failed, running, waiting) that does not inflect for the count in English; the translations write a label or an invariant form."
-  },
   "home.chief.organizing": {
     "source": "Organizing Chief history: %1$lld of %2$lld",
     "reason": "The word after the count is a preposition or a conjunction (N of M, N and), not a noun that agrees with the count."
-  },
-  "home.list.unread": {
-    "source": "%lld unread",
-    "reason": "The word after the count is an adjective (unread, selected, failed, running, waiting) that does not inflect for the count in English; the translations write a label or an invariant form."
   },
   "item.threadCount": {
     "source": "%lld items",
