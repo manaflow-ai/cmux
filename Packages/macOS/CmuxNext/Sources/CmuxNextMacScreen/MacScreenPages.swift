@@ -88,7 +88,7 @@ public final class MacScreenPages {
     private var records: [String: MacScreenRecord] = [:]
     /// Open tabs (made views), by key.
     private(set) var tabs: [String: MacScreenTab] = [:]
-    private var termination: (any NSObjectProtocol)?
+    private var termination: MainActorObservation?
 
     public init(store: MacScreenStore) {
         self.store = store
@@ -97,11 +97,9 @@ public final class MacScreenPages {
         systemShortcuts = MacScreenSystemShortcuts(host: host)
         systemShortcuts.panes = { [weak self] in self?.tabs.values.compactMap(\.pane) ?? [] }
         // Quitting ends every session now, so the other Mac stops showing a viewer at once.
-        termination = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { // main-proof: observer on queue: .main
-                for tab in self?.tabs.values.map({ $0 }) ?? [] { tab.pane?.close() }
-                self?.hubHost.stopSession(immediately: true)
-            }
+        termination = MainActorObservation(NSApplication.willTerminateNotification) { [weak self] in
+            for tab in self?.tabs.values.map({ $0 }) ?? [] { tab.pane?.close() }
+            self?.hubHost.stopSession(immediately: true)
         }
         hubHost.hub = { [weak self] in self?.hub }
         approval.hub = { [weak self] in self?.hub }

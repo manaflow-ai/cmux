@@ -1,5 +1,6 @@
 public import AppKit
 import ApplicationServices
+import CmuxNextCompat
 import CoreGraphics
 public import Observation
 import SystemConfiguration
@@ -13,19 +14,23 @@ import SystemConfiguration
 public final class MacScreenShareHost {
     public private(set) var screenRecordingGranted = false
     public private(set) var accessibilityGranted = false
-    @ObservationIgnored private var activation: (any NSObjectProtocol)?
+    @ObservationIgnored private var activation: MainActorObservation?
+    @ObservationIgnored private let center: NotificationCenter
     /// Permission checks; tests replace them.
     @ObservationIgnored public var checkScreenRecording: () -> Bool = { CGPreflightScreenCaptureAccess() }
     @ObservationIgnored public var checkAccessibility: () -> Bool = { AXIsProcessTrusted() }
 
-    public init() {}
+    /// - Parameter center: The center ``activate()`` observes app activation on (tests pass their own).
+    public init(center: NotificationCenter = .default) {
+        self.center = center
+    }
 
     /// At launch: reads the permissions and rechecks them whenever the app becomes active.
     public func activate() {
         refreshPermissions()
         guard activation == nil else { return }
-        activation = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.refreshPermissions() } // main-proof: observer on queue: .main
+        activation = MainActorObservation(NSApplication.didBecomeActiveNotification, center: center) { [weak self] in
+            self?.refreshPermissions()
         }
     }
 

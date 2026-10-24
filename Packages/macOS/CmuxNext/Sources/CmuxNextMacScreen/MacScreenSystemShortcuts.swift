@@ -1,5 +1,6 @@
 public import AppKit
 import ApplicationServices
+import CmuxNextCompat
 import CmuxNextRemoteView
 public import Observation
 
@@ -42,10 +43,15 @@ public final class MacScreenSystemShortcuts {
     @ObservationIgnored private let tap = RemoteSystemShortcutTap()
     @ObservationIgnored private let policy = RemoteSystemShortcuts()
     @ObservationIgnored private let host: MacScreenShareHost
-    @ObservationIgnored private var observers: [any NSObjectProtocol] = []
+    @ObservationIgnored private var observers: [MainActorObservation] = []
+    @ObservationIgnored private let center: NotificationCenter
 
-    init(host: MacScreenShareHost) {
+    /// - Parameters:
+    ///   - host: The share host whose Accessibility request this asks through.
+    ///   - center: The center ``start()`` observes app activation and window key state on (tests pass their own).
+    init(host: MacScreenShareHost, center: NotificationCenter = .default) {
         self.host = host
+        self.center = center
         tap.stillHolds = { [weak self] in self?.target() != nil }
         tap.onRemoved = { [weak self] in self?.tapInstalled = false }
     }
@@ -55,19 +61,13 @@ public final class MacScreenSystemShortcuts {
     func start() {
         refreshAccessibility()
         guard observers.isEmpty else { return }
-        let center = NotificationCenter.default
         observers = [NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification].map { name in
-            center.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
-                let active = notification.name == NSApplication.didBecomeActiveNotification
-                MainActor.assumeIsolated { // main-proof: observer on queue: .main
-                    if active { self?.refreshAccessibility() }
-                    self?.update()
-                }
+            MainActorObservation(name, center: center) { [weak self] in
+                if name == NSApplication.didBecomeActiveNotification { self?.refreshAccessibility() }
+                self?.update()
             }
         } + [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification].map { name in
-            center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.update() } // main-proof: observer on queue: .main
-            }
+            MainActorObservation(name, center: center) { [weak self] in self?.update() }
         }
     }
 
