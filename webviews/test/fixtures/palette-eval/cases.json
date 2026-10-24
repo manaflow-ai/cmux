@@ -1051,6 +1051,21 @@
       "note": "Recent follows the pins"
     },
     {
+      "query": "set model",
+      "expect": ["action:agentPane.setModel"],
+      "group": "exact"
+    },
+    {
+      "query": "agent effort",
+      "expect": ["action:agentPane.setEffort"],
+      "group": "exact"
+    },
+    {
+      "query": "agent mode",
+      "expect": ["action:agentPane.setMode"],
+      "group": "exact"
+    },
+    {
       "query": "",
       "expect": ["action:newTab.default"],
       "at": 1,

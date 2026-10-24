@@ -1,0 +1,104 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "action.agentPane.setModel": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Set Agent Chat Model…" } },
+      "de": { "stringUnit": { "state": "translated", "value": "Agent-Chat-Modell festlegen…" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Définir le modèle du chat agent…" } },
+      "ar": { "stringUnit": { "state": "translated", "value": "تعيين نموذج دردشة الوكيل…" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Establecer modelo del chat del agente…" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "設定代理聊天模型…" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "设置代理聊天模型…" } },
+      "ko": { "stringUnit": { "state": "translated", "value": "에이전트 채팅 모델 설정…" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "エージェントチャットモデルを設定…" } }
+    } },
+    "action.agentPane.setEffort": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Set Agent Chat Effort…" } },
+      "de": { "stringUnit": { "state": "translated", "value": "Aufwand des Agent-Chats festlegen…" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Définir l’effort du chat agent…" } },
+      "ar": { "stringUnit": { "state": "translated", "value": "تعيين جهد دردشة الوكيل…" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Establecer esfuerzo del chat del agente…" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "設定代理聊天推理強度…" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "设置代理聊天推理强度…" } },
+      "ko": { "stringUnit": { "state": "translated", "value": "에이전트 채팅 사고 수준 설정…" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "エージェントチャットの推論強度を設定…" } }
+    } },
+    "action.agentPane.setMode": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Set Agent Chat Mode…" } },
+      "de": { "stringUnit": { "state": "translated", "value": "Agent-Chat-Modus festlegen…" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Définir le mode du chat agent…" } },
+      "ar": { "stringUnit": { "state": "translated", "value": "تعيين وضع دردشة الوكيل…" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Establecer modo del chat del agente…" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "設定代理聊天模式…" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "设置代理聊天模式…" } },
+      "ko": { "stringUnit": { "state": "translated", "value": "에이전트 채팅 모드 설정…" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "エージェントチャットモードを設定…" } }
+    } },
+    "argument.agentPane.model": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Model" } },
+      "de": { "stringUnit": { "state": "translated", "value": "Modell" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Modèle" } },
+      "ar": { "stringUnit": { "state": "translated", "value": "النموذج" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Modelo" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "模型" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "模型" } },
+      "ko": { "stringUnit": { "state": "translated", "value": "모델" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "モデル" } }
+    } },
+    "argument.agentPane.model.other": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Enter Model ID…" } },
+      "de": { "stringUnit": { "state": "translated", "value": "Modell-ID eingeben…" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Saisir l’identifiant du modèle…" } },
+      "ar": { "stringUnit": { "state": "translated", "value": "أدخل معرّف النموذج…" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Introducir ID del modelo…" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "輸入模型 ID…" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "输入模型 ID…" } },
+      "ko": { "stringUnit": { "state": "translated", "value": "모델 ID 입력…" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "モデル ID を入力…" } }
+    } },
+    "argument.agentPane.effort": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Effort" } },
+      "de": { "stringUnit": { "state": "translated", "value": "Aufwand" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Niveau d’effort" } },
+      "ar": { "stringUnit": { "state": "translated", "value": "الجهد" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Esfuerzo" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "推理強度" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "推理强度" } },
+      "ko": { "stringUnit": { "state": "translated", "value": "사고 수준" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "推論強度" } }
+    } },
+    "argument.agentPane.effort.other": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Enter Effort…" } },
+      "de": { "stringUnit": { "state": "translated", "value": "Aufwand eingeben…" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Saisir l’effort…" } },
+      "ar": { "stringUnit": { "state": "translated", "value": "أدخل مستوى الجهد…" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Introducir esfuerzo…" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "輸入推理強度…" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "输入推理强度…" } },
+      "ko": { "stringUnit": { "state": "translated", "value": "사고 수준 입력…" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "推論強度を入力…" } }
+    } },
+    "argument.agentPane.mode": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Mode" } },
+      "de": { "stringUnit": { "state": "translated", "value": "Modus" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Type de mode" } },
+      "ar": { "stringUnit": { "state": "translated", "value": "الوضع" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Modo" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "模式" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "模式" } },
+      "ko": { "stringUnit": { "state": "translated", "value": "모드" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "モード" } }
+    } },
+    "argument.agentPane.mode.other": { "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Enter Mode…" } },
+      "de": { "stringUnit": { "state": "translated", "value": "Modus eingeben…" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Saisir le mode…" } },
+      "ar": { "stringUnit": { "state": "translated", "value": "أدخل الوضع…" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Introducir modo…" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "輸入模式…" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "输入模式…" } },
+      "ko": { "stringUnit": { "state": "translated", "value": "모드 입력…" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "モードを入力…" } }
+    } }
+  }
+}
