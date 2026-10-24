@@ -1,0 +1,154 @@
+{
+  "agentPermissions.more": {
+    "source": "%d more waiting",
+    "reason": "\"more\" does not agree with the count in English, and every translation writes a form of \"more\" that holds for every count."
+  },
+  "agentQuestion.optionPosition": {
+    "source": "Option %1$d of %2$d",
+    "reason": "The word after the count is a preposition or a conjunction (N of M, N and), not a noun that agrees with the count."
+  },
+  "agentQuestion.pager": {
+    "source": "%1$d of %2$d",
+    "reason": "The word after the count is a preposition or a conjunction (N of M, N and), not a noun that agrees with the count."
+  },
+  "argument.value.fitWidth": {
+    "source": "%lld px",
+    "reason": "\"px\" is an invariant unit symbol in every language."
+  },
+  "browser.find.position": {
+    "source": "%1$lld of %2$lld",
+    "reason": "The word after the count is a preposition or a conjunction (N of M, N and), not a noun that agrees with the count."
+  },
+  "browserDevices.fit.status": {
+    "source": "Desktop %lld × %lld at %lld%%",
+    "reason": "The word after the count is a preposition or a conjunction (N of M, N and), not a noun that agrees with the count."
+  },
+  "browserDevices.fit.widthValue": {
+    "source": "%lld px",
+    "reason": "\"px\" is an invariant unit symbol in every language."
+  },
+  "cloud.create.confirm.size": {
+    "source": "Size: %1$d vCPU, %2$d GB memory, %3$d GB disk",
+    "reason": "vCPU and GB are invariant unit symbols in every language."
+  },
+  "confirm.closeTabs.title": {
+    "source": "Close %lld tabs?",
+    "reason": "The count is 2 or more at its only call site (one item takes its own sentence), and every translation's noun agrees with every count from 2: the Slavic and Bosnian values put the count in brackets or after a label, Arabic uses the partitive \"من\"."
+  },
+  "confirm.closeWorkspaces.title": {
+    "source": "Close %lld workspaces?",
+    "reason": "The count is 2 or more at its only call site (one item takes its own sentence), and every translation's noun agrees with every count from 2: the Slavic and Bosnian values put the count in brackets or after a label, Arabic uses the partitive \"من\"."
+  },
+  "diff.page.revert.andMore": {
+    "source": "and %lld more",
+    "reason": "\"more\" does not agree with the count in English, and every translation writes a form of \"more\" that holds for every count."
+  },
+  "files.status.selected": {
+    "source": "%1$lld of %2$lld selected",
+    "reason": "The word after the count is a preposition or a conjunction (N of M, N and), not a noun that agrees with the count."
+  },
+  "findInDirectory.limited": {
+    "source": "First %lld matches",
+    "reason": "The count is a constant limit (GlobalSearchCorpus.limit 200, RipgrepSearch.limit 500); every translation's noun agrees with it (Arabic and Polish take the form for 100 and more). Revisit the translations when the limit changes."
+  },
+  "globalSearch.limited": {
+    "source": "First %lld matches",
+    "reason": "The count is a constant limit (GlobalSearchCorpus.limit 200, RipgrepSearch.limit 500); every translation's noun agrees with it (Arabic and Polish take the form for 100 and more). Revisit the translations when the limit changes."
+  },
+  "groupCard.more": {
+    "source": "+%d more",
+    "reason": "\"more\" does not agree with the count in English, and every translation writes a form of \"more\" that holds for every count."
+  },
+  "handlers.findWork.unread": {
+    "source": "%lld unread",
+    "reason": "The word after the count is an adjective (unread, selected, failed, running, waiting) that does not inflect for the count in English; the translations write a label or an invariant form."
+  },
+  "home.chief.organizing": {
+    "source": "Organizing Chief history: %1$lld of %2$lld",
+    "reason": "The word after the count is a preposition or a conjunction (N of M, N and), not a noun that agrees with the count."
+  },
+  "home.list.unread": {
+    "source": "%lld unread",
+    "reason": "The word after the count is an adjective (unread, selected, failed, running, waiting) that does not inflect for the count in English; the translations write a label or an invariant form."
+  },
+  "item.threadCount": {
+    "source": "%lld items",
+    "reason": "The count is 2 or more at its only call site (one item takes its own sentence), and every translation's noun agrees with every count from 2: the Slavic and Bosnian values put the count in brackets or after a label, Arabic uses the partitive \"من\"."
+  },
+  "palette.accessory.unread": {
+    "source": "%lld unread",
+    "reason": "The word after the count is an adjective (unread, selected, failed, running, waiting) that does not inflect for the count in English; the translations write a label or an invariant form."
+  },
+  "picker.openSelected": {
+    "source": "Open %lld Selected",
+    "reason": "The word after the count is an adjective (unread, selected, failed, running, waiting) that does not inflect for the count in English; the translations write a label or an invariant form."
+  },
+  "reach.selected": {
+    "source": "%lld selected",
+    "reason": "The word after the count is an adjective (unread, selected, failed, running, waiting) that does not inflect for the count in English; the translations write a label or an invariant form."
+  },
+  "server.toast.featuresMore": {
+    "source": "Restart %1$@ to use new features: %2$@ and %3$lld more",
+    "reason": "\"more\" does not agree with the count in English, and every translation writes a form of \"more\" that holds for every count."
+  },
+  "sidebar.a11y.groupCount": {
+    "source": "%lld workspaces",
+    "reason": "Defect owned by the sidebar (a590): the noun after the count does not agree (\"1 lines\", \"1 workspaces\", \"1 machines\"). Routed to a590 on 2026-10-23; remove this entry with its fix."
+  },
+  "sidebar.a11y.pullRequestCard.row": {
+    "source": "%1$@, %2$@, %3$@, %4$lld lines added, %5$lld lines removed",
+    "reason": "Defect owned by the sidebar (a590): the noun after the count does not agree (\"1 lines\", \"1 workspaces\", \"1 machines\"). Routed to a590 on 2026-10-23; remove this entry with its fix."
+  },
+  "sidebar.a11y.rollUp.blocked": {
+    "source": "%lld waiting on you",
+    "reason": "The word after the count is an adjective (unread, selected, failed, running, waiting) that does not inflect for the count in English; the translations write a label or an invariant form."
+  },
+  "sidebar.a11y.rollUp.failed": {
+    "source": "%lld failed",
+    "reason": "The word after the count is an adjective (unread, selected, failed, running, waiting) that does not inflect for the count in English; the translations write a label or an invariant form."
+  },
+  "sidebar.a11y.rollUp.running": {
+    "source": "%lld running",
+    "reason": "The word after the count is an adjective (unread, selected, failed, running, waiting) that does not inflect for the count in English; the translations write a label or an invariant form."
+  },
+  "sidebar.a11y.rollUp.unread": {
+    "source": "%lld finished, unread",
+    "reason": "The word after the count is an adjective (unread, selected, failed, running, waiting) that does not inflect for the count in English; the translations write a label or an invariant form."
+  },
+  "sidebar.a11y.unread": {
+    "source": "%lld unread",
+    "reason": "The word after the count is an adjective (unread, selected, failed, running, waiting) that does not inflect for the count in English; the translations write a label or an invariant form."
+  },
+  "sidebar.machine.cap.none": {
+    "source": "%lld running, no machine cap",
+    "reason": "The word after the count is an adjective (unread, selected, failed, running, waiting) that does not inflect for the count in English; the translations write a label or an invariant form."
+  },
+  "sidebar.machine.cap.of": {
+    "source": "%lld of %lld machines running",
+    "reason": "Defect owned by the sidebar (a590): the noun after the count does not agree (\"1 lines\", \"1 workspaces\", \"1 machines\"). Routed to a590 on 2026-10-23; remove this entry with its fix."
+  },
+  "sidebar.showMore.title": {
+    "source": "Show %lld more",
+    "reason": "\"more\" does not agree with the count in English, and every translation writes a form of \"more\" that holds for every count."
+  },
+  "sidebar.status.more": {
+    "source": "%lld more",
+    "reason": "\"more\" does not agree with the count in English, and every translation writes a form of \"more\" that holds for every count."
+  },
+  "tabs.group.more": {
+    "source": "+%lld more",
+    "reason": "\"more\" does not agree with the count in English, and every translation writes a form of \"more\" that holds for every count."
+  },
+  "terminal.find.position": {
+    "source": "%1$lld of %2$lld",
+    "reason": "The word after the count is a preposition or a conjunction (N of M, N and), not a noun that agrees with the count."
+  },
+  "updater.rollback.storeTooNew": {
+    "source": "cmux %1$@ cannot read your %2$@ data: it is in format %3$ld and that version reads up to %4$ld. Rolling back would lose it.",
+    "reason": "The word after the count is a preposition or a conjunction (N of M, N and), not a noun that agrees with the count."
+  },
+  "workspaces.closedToast": {
+    "source": "Closed %lld workspaces",
+    "reason": "The count is 2 or more at its only call site (one item takes its own sentence), and every translation's noun agrees with every count from 2: the Slavic and Bosnian values put the count in brackets or after a label, Arabic uses the partitive \"من\"."
+  }
+}
