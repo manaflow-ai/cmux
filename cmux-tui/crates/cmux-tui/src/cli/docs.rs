@@ -195,6 +195,41 @@ pub(super) const GUIDES: &[Guide] = &[
         installs cmux on another machine and joins it (`cmux host join`) without ssh; `cmux \
         setup tailnet` serves this machine over Tailscale.",
     },
+    Guide {
+        topic: "Start, prompt and drive another agent chat in the app",
+        keywords: &[
+            "agent",
+            "agents",
+            "start",
+            "spawn",
+            "delegate",
+            "subagent",
+            "message",
+            "nudge",
+            "continue",
+            "interrupt",
+            "stop",
+            "model",
+            "effort",
+            "screenshot",
+            "capture",
+        ],
+        text: "Start an ordinary agent chat the user sees in the app, as New Agent Chat and a \
+        first message do, without moving their focus: `cmux agents chat new [--workspace WS | \
+        --pane PANE] [--harness claude|codex|...] [--model M] [--effort \
+        low|medium|high|xhigh|max] [--mode M] [--policy ask|approve-reads|deny-all] [--cwd DIR] \
+        [--name N] -- PROMPT` (MCP agents_chat_new); with neither --workspace nor --pane it gets \
+        a new workspace. It runs in the app's own acpmux (not as your subagent) and PROMPT is its \
+        first prompt, as if the user typed it. Its receipt names the chat (an acpmux session \
+        id), tab, pane and workspace. Drive a chat of this cmux session (never your own): `cmux \
+        agents chat send CHAT -- TEXT` (agents_chat_send, an agent message), `chat read CHAT \
+        --after N` (agents_chat_read), `chat state CHAT` (agents_chat_state: status, running, \
+        pending permissions), `chat interrupt CHAT` (agents_chat_interrupt, stops its turn) and \
+        `chat continue CHAT [TEXT]` (a nudge). Wait for its answer with agents_wait or read on \
+        from next_after. See a pane or tab: `cmux pane PANE screenshot --out PATH` or `cmux tab \
+        TAB screenshot` (browser pages come out blacked out; a browser page's own pixels are \
+        `cmux browser page screenshot`).",
+    },
 ];
 
 /// The guides for `query` (see [`Guide`]).
@@ -416,6 +451,16 @@ mod tests {
 
     /// An agent that searches in its own words for showing its work finds
     /// the guide, and the guide names only tools that exist.
+    /// An agent that wants another agent to do work finds the chat verbs.
+    #[test]
+    fn starting_another_agent_finds_its_guide() {
+        for query in ["spawn an agent", "interrupt", "screenshot a pane"] {
+            let found = guides(query);
+            assert_eq!(found.len(), 1, "{query}");
+            assert!(found[0].text.contains("agents chat new"), "{query}");
+        }
+    }
+
     #[test]
     fn showing_work_to_the_user_finds_its_guide() {
         for query in ["show the user", "status", "open a chat"] {
