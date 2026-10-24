@@ -437,9 +437,11 @@ pub fn interrupted_read(segment: &OwnedFd) -> io::Result<Option<u64>> {
     if magic != MAGIC {
         return Err(invalid("not a terminal ring segment"));
     }
-    // `reading` past `end` cannot be written by a holder: a damaged header
-    // still names a loss at `end`, never a silent splice.
-    Ok((reading != 0 && reading - 1 >= end).then_some(end))
+    // `reading` holds the read's start + 1 (0 = none), so `reading > end`
+    // is a read that started at or past `end`. A start past `end` cannot be
+    // written by a holder: a damaged header still names a loss at `end`,
+    // never a silent splice.
+    Ok((reading > end).then_some(end))
 }
 
 fn map_shared(fd: RawFd, len: usize) -> io::Result<*mut u8> {

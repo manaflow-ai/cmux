@@ -753,7 +753,7 @@ mod tests {
         });
 
         let service = Arc::new(HolderService {
-            socket: socket.clone(),
+            socket,
             token: [0x44; 32],
             link: Mutex::default(),
             connecting: Mutex::new(()),
