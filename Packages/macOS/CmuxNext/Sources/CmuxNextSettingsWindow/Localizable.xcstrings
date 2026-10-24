@@ -14424,90 +14424,91 @@
       }
     },
     "debugSettings.count": {
+      "comment": "Debug Settings: the number of tunables shown (%lld). The count follows a label, so no noun has to agree with it; keep that shape.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld tunables"
+            "value": "Tunables: %lld"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%lld 項目"
+            "value": "項目: %lld"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%lld قيمة"
+            "value": "القيم القابلة للضبط: %lld"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%lld vrijednosti"
+            "value": "Podesive vrijednosti: %lld"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%lld værdier"
+            "value": "Justerbare værdier: %lld"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%lld Stellwerte"
+            "value": "Stellwerte: %lld"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%lld valores"
+            "value": "Valores ajustables: %lld"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%lld réglages"
+            "value": "Réglages : %lld"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%lld valori"
+            "value": "Valori regolabili: %lld"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%lld តម្លៃ"
+            "value": "តម្លៃដែលអាចកែតម្រូវបាន៖ %lld"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%lld개 항목"
+            "value": "조정 항목: %lld"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%lld verdier"
+            "value": "Justerbare verdier: %lld"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%lld wartości"
+            "value": "Wartości: %lld"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%lld valores"
+            "value": "Valores ajustáveis: %lld"
           }
         },
         "ru": {
@@ -14519,13 +14520,13 @@
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%lld ค่า"
+            "value": "ค่าที่ปรับได้: %lld"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%lld değer"
+            "value": "Ayarlanabilir değerler: %lld"
           }
         },
         "uk": {
@@ -14537,19 +14538,19 @@
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%lld giá trị"
+            "value": "Giá trị có thể chỉnh: %lld"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%lld 个可调项"
+            "value": "可调项：%lld"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%lld 個可調項目"
+            "value": "可調項目：%lld"
           }
         }
       }
