@@ -143,6 +143,52 @@
   --glass-opaque: color-mix(in srgb, var(--agent-text) 12%, var(--glass-surface));
 }
 
+/* New rows can preserve the ACP prompt's text and attachments at the caret. Legacy rows keep the
+   separate image band below; this lane only opts into the inline surface when `inlineParts` exists. */
+.cv-user__inline-content {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.cv-user__inline-text {
+  white-space: pre-wrap;
+}
+.cv-user__inline-image {
+  display: inline-block;
+  margin: 2px 4px;
+  vertical-align: middle;
+}
+.cv-user__inline-image button {
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  cursor: zoom-in;
+}
+.cv-user__inline-file {
+  --cv-inline-file-gap: 6px;
+  --cv-inline-file-height: 30px;
+  --cv-inline-file-padding: 0 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--cv-inline-file-gap);
+  max-width: min(260px, 70vw);
+  height: var(--cv-inline-file-height);
+  margin: 2px 4px;
+  padding: var(--cv-inline-file-padding);
+  vertical-align: middle;
+}
+.cv-user__inline-file-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-user__inline-file-note {
+  flex: none;
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+}
+
 /* The images a prompt sent, above its bubble. */
 .cv-user__images {
   display: flex;
