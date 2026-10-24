@@ -357,6 +357,8 @@
 			inputPaths = (
 				"$(SRCROOT)/scripts/cmux-next/bundle-cmux-tui.sh",
 				"$(SRCROOT)/scripts/cmux-next/pin-cmux-tui.sh",
+				"$(SRCROOT)/scripts/ci/cmux_tui_tree_key.py",
+				"$(SRCROOT)/scripts/cmux-next/cmux-tui-tree-inputs.txt",
 				"$(SRCROOT)/scripts/cmux-next/cmux-tui.pin",
 				"$(SRCROOT)/scripts/cmux-next/write-daemon-capabilities.sh",
 				"$(SRCROOT)/scripts/cmux-next/check-daemon-capabilities.sh",
