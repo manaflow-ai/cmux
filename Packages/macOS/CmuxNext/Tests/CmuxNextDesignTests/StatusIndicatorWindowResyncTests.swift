@@ -13,8 +13,8 @@ import Testing
     /// The app a test drives: its notice centers, the windows on screen, and the checks left for
     /// the next turn.
     @MainActor final class App {
-        let center = NotificationCenter()
-        let workspace = NotificationCenter()
+        let center = CountingNotificationCenter()
+        let workspace = CountingNotificationCenter()
         var visible: Set<ObjectIdentifier> = []
         var pending: [@MainActor () -> Void] = []
         var windows: [NSWindow] = []
@@ -168,6 +168,29 @@ import Testing
         #expect(indicators.isObserving)
         for view in front.shown { view.removeFromSuperview() }
         #expect(!indicators.isObserving, "a window whose indicators left still hears every notice")
+    }
+
+    /// An app-wide moment (activation, unhide, wake, a session switch back) and a window's occlusion
+    /// change are heard once per app, by one adapter that calls only the window they concern: each
+    /// window with an indicator used to register its own observer of every moment (O(windows)
+    /// wakeups per moment, P3), and its own occlusion observer.
+    @Test func theAppHearsEachMomentOnceWhateverItsWindows() {
+        let app = App()
+        defer { app.close() }
+        let windows = (0..<3).map { _ in app.window(shown: 1, parked: 1) }
+        let moments: [(CountingNotificationCenter, Notification.Name)] = [
+            (app.center, NSApplication.didUnhideNotification), (app.center, NSWindow.didChangeOcclusionStateNotification),
+            (app.workspace, NSWorkspace.didWakeNotification), (app.workspace, NSWorkspace.screensDidWakeNotification),
+            (app.workspace, NSWorkspace.sessionDidBecomeActiveNotification),
+        ]
+        for (center, name) in moments {
+            #expect(center.observers(of: name) == 1, "\(name.rawValue) is observed once per window holding an indicator")
+        }
+        // The last indicator of the app left: nothing listens.
+        for window in windows { window.window.contentView = nil }
+        for (center, name) in moments {
+            #expect(center.observers(of: name) == 0, "\(name.rawValue) is still observed with no indicator left")
+        }
     }
 
     /// A window that owed a resync (a wake while it was off screen) and then lost every indicator
