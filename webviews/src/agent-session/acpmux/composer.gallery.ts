@@ -142,7 +142,9 @@ const waitingSteerSr2 = () => {
     ],
     { isWorking: true },
   );
-  return { ...running, summary: {
+  return {
+    ...running,
+    summary: {
       ...running.summary!,
       harness: "claude-sr2",
       family: "claude-sr2",
