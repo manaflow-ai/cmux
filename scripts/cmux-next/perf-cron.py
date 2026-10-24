@@ -71,6 +71,12 @@ DEEPEN_ROUNDS = 8
 # it, and a slow creep does not ratchet it up one run at a time), and the median of its good values from at least
 # CREEP_DAYS ago (a creep of a few % per run is caught within that window). Each row keeps HISTORY_DAYS of values.
 REF_RUNS = 5
+# A row raises a regression only when its baseline has at least CONFIRM_SAMPLES good values (on its own host: Mac rows
+# are row@host, the diff rows all run on the same GitHub Linux runner class), and the new value is outside the
+# baseline's spread (above the max of its last REF_RUNS good values by more than the 10 % rule and the row's floor) in
+# 2 consecutive tip measurements. Anything less is "unconfirmed" in the issue, not a regression (lead 2026-10-24: one
+# good value on a shared runner opened diff.stream.p95 for noise).
+CONFIRM_SAMPLES = 3
 CREEP_DAYS = 7
 HISTORY_DAYS = 14
 HISTORY_MAX = 120
@@ -196,6 +202,20 @@ def migrate_state(state):
             r["first_bad"] = bad
     state.setdefault("row_ok", {})
     state.setdefault("last_tried", None)
+    # Regressions opened before the confirmation rule (2026-10-24): one with fewer than CONFIRM_SAMPLES baseline values
+    # becomes unconfirmed (diff.stream.p95 opened against one good value).
+    kept = []
+    for r in state.get("regressions") or []:
+        if isinstance(r, dict) and not r.get("confirmed") and isinstance(r.get("name"), str) \
+                and len(baseline_samples(state, r["name"])) < CONFIRM_SAMPLES:
+            n = len(baseline_samples(state, r["name"]))
+            state.setdefault("unconfirmed", []).append(
+                {"name": r["name"], "p95": r.get("p95"), "unit": r.get("unit"), "base": r.get("base"), "samples": n,
+                 "sha": (r.get("first_bad") or {}).get("sha"), "run_url": (r.get("first_bad") or {}).get("run_url"),
+                 "why": f"opened before the confirmation rule; the baseline has {n} of {CONFIRM_SAMPLES} values"})
+        else:
+            kept.append(r)
+    state["regressions"] = kept
     return state
 
 
@@ -1022,13 +1042,41 @@ MEASURE_SCRIPT = "scripts/measure/split-spring.sh"
 BUILD_FAILED_MARK = "the tagged reload printed no app path"
 
 
+MEASURE_VERSION_RE = re.compile(r"^SPLIT_SPRING_MEASURE_VERSION=(\d+)\s*$", re.MULTILINE)
+# split-spring.sh blobs from before SPLIT_SPRING_MEASURE_VERSION, with the version they measure as: 07ed24bb is the one
+# of 36289e3cd3b (Release-optimized bench build), 9a147625 the one of 3c2bfd8efbb, which changed only a report key
+# (macos). Older blobs built or displayed differently, so they have no version (not measured).
+KNOWN_MEASURE_VERSIONS = {"07ed24bb2427ca2681f2762221a579d6185feeda": 2, "9a14762578b353ec46d64c67049a3bade4c3d0ea": 2}
+_versions_by_blob = {}
+
+
 def script_blob(sha):
     return subprocess.run(["git", "-C", ROOT, "rev-parse", f"{sha}:{MEASURE_SCRIPT}"], capture_output=True, text=True).stdout.strip()
 
 
-def fleet_runs(sha, tip_blob):
-    """The fleet runs an allowlisted script only when its blob at the commit is the reviewed one (the tip's)."""
-    return bool(tip_blob) and script_blob(sha) == tip_blob
+def measure_version_of(blob, text):
+    """The measurement version of a split-spring.sh blob (pure): its SPLIT_SPRING_MEASURE_VERSION, else the known
+    version of an older blob, else None (not measurable)."""
+    m = MEASURE_VERSION_RE.search(text or "")
+    return int(m.group(1)) if m else KNOWN_MEASURE_VERSIONS.get(blob)
+
+
+def measure_version(sha):
+    """split-spring.sh's measurement version at a commit (one read per blob; most commits share one)."""
+    blob = script_blob(sha)
+    if not blob:
+        return None
+    if blob not in _versions_by_blob:
+        text = subprocess.run(["git", "-C", ROOT, "cat-file", "blob", blob], capture_output=True, text=True).stdout
+        _versions_by_blob[blob] = measure_version_of(blob, text)
+    return _versions_by_blob[blob]
+
+
+def fleet_runs(sha, tip_version):
+    """The cron measures a commit only when its split-spring.sh measures as the tip's does (the same measurement
+    version), so the args it passes are understood there and the rows compare. The fleet itself runs a commit of
+    feat-cmux-next whatever its blob (cmd/worker/step_reviewed.go: that commit is its own merge base)."""
+    return tip_version is not None and measure_version(sha) == tip_version
 
 
 def is_ancestor(a, b):
@@ -1110,7 +1158,16 @@ def issue_body(state, repo, now):
                          f"{fmt(r.get('target'))} | {hz(r.get('refresh_ms'))} | {why} | "
                          f"{str(rng.get('good') or '?')[:7]}..{str(rng.get('bad') or '?')[:7]} |")
     else:
-        lines.append("No row regressed in the last measurement.")
+        lines.append("No confirmed regression.")
+    unconfirmed = [u for u in state.get("unconfirmed") or [] if isinstance(u, dict)]
+    if unconfirmed:
+        lines += ["", f"**Unconfirmed ({len(unconfirmed)} row(s), not a regression):** a row is a regression only with "
+                      f"{CONFIRM_SAMPLES} baseline values on its host and outside their spread in 2 consecutive tip measurements.",
+                  "", "| row | now p95 | reference p95 | baseline max | values | commit | why |", "|---|---|---|---|---|---|---|"]
+        for u in unconfirmed[:20]:
+            sha_link = f"[`{str(u.get('sha'))[:11]}`]({u.get('run_url')})" if u.get("sha") else "?"
+            lines.append(f"| {u['name']} | {fmt(u.get('p95'))} {u.get('unit') or ''} | {fmt(u.get('base'))} | {fmt(u.get('max'))} | "
+                         f"{u.get('samples')} | {sha_link} | {u.get('why')} |")
     if last:
         refresh = last.get("refresh_ms")
         macos = f" (macOS {last['macos']})" if last.get("macos") else ""
@@ -1273,6 +1330,61 @@ def rebase_faster_rows(state, part_rows, skipped, refresh_ms, t):
     return rebased
 
 
+def baseline_samples(state, name, t=None):
+    """A row's baseline values (pure): the ones behind its reference (row_reference): its last REF_RUNS good p95s, or
+    its last REF_RUNS good p95s at least CREEP_DAYS old when their median is lower (a creep under the 10 % rule per run
+    is caught against those, so within CREEP_DAYS). Its last good value when it has no history."""
+    hist = [e for e in (state.get("row_history") or {}).get(name) or []
+            if isinstance(e, dict) and isinstance(e.get("p95"), (int, float))]
+    values = [e["p95"] for e in hist][-REF_RUNS:]
+    if values and t is not None:
+        cutoff = t - datetime.timedelta(days=CREEP_DAYS)
+        old = [e["p95"] for e in hist if (_history_time(e) or t) <= cutoff][-REF_RUNS:]
+        if old and _median(old) < _median(values):
+            values = old
+    if not values:
+        last = (((state.get("last_good") or {}).get("rows") or {}).get(name) or {}).get("p95")
+        values = [last] if isinstance(last, (int, float)) else []
+    return values
+
+
+def outside_spread(reg, samples, regression):
+    """A candidate regression's value is above the baseline's max by more than the margin (pure): the 10 % rule and the
+    row's floor for a row worse than last good, the floor alone for one newly over its target."""
+    hi = max(samples)
+    rel = 0.0 if reg.get("why") == "newly over target" else regression
+    return reg["p95"] - hi > reg.get("floor", 1.0) and reg["p95"] > hi * (1 + rel)
+
+
+def confirm_regressions(state, regs, cur, run_url, t, regression):
+    """Split this tip measurement's candidate regressions of rows not regressed already (pure): returns (confirmed,
+    unconfirmed). A candidate is confirmed only with CONFIRM_SAMPLES baseline values and outside their spread in this
+    and the previous tip measurement (state['pending']); its range then starts at that first measurement. The others
+    are unconfirmed with why; a row outside the spread for the first time goes into state['pending']."""
+    pending = state.setdefault("pending", {})
+    confirmed, unconfirmed = [], []
+    for r in regs:
+        samples = baseline_samples(state, r["name"], t)
+        entry = {"name": r["name"], "p95": r["p95"], "unit": r.get("unit"), "base": r.get("base"),
+                 "max": max(samples) if samples else None, "samples": len(samples), "sha": cur["sha"], "at": iso(t),
+                 "run_url": run_url}
+        if len(samples) < CONFIRM_SAMPLES:
+            entry["why"] = f"the baseline has {len(samples)} of {CONFIRM_SAMPLES} values"
+        elif not outside_spread(r, samples, regression):
+            entry["why"] = "within the baseline's spread"
+            pending.pop(r["name"], None)
+        elif r["name"] in pending:
+            first = pending.pop(r["name"])
+            confirmed.append({**r, "confirmed": True, "first_bad": {"sha": first["sha"], "run_url": first.get("run_url"),
+                                                                    "measured_at": first.get("at")}})
+            continue
+        else:
+            entry["why"] = "outside the baseline's spread once; the next tip measurement confirms it or clears it"
+            pending[r["name"]] = {"sha": cur["sha"], "p95": r["p95"], "at": iso(t), "run_url": run_url}
+        unconfirmed.append(entry)
+    return confirmed, unconfirmed
+
+
 def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_mod, macos=None):
     """Fold a finished measurement into the state. Returns the issue event: 'regressed', 'still', 'recovered',
     'narrowed' or 'skipped' (a bisect step), 'first', 'good', 'partial' (no measured row regressed, but a planned
@@ -1334,16 +1446,26 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
         entry["status"] = "first"
         return "first"
     old = {r["name"]: r for r in state.get("regressions") or []}
+    # A row regressed already stays regressed while it is still worse; a new candidate must be confirmed first.
+    confirmed, unconfirmed = confirm_regressions(state, [r for r in regs if r["name"] not in old], cur, run_url, t,
+                                                 getattr(budgets_mod, "REGRESSION", 0.10))
+    # Rows judged in this run that are no candidate any more: a pending one was noise.
+    for name in [n for n in state.get("pending") or {} if n in judged and n not in {r["name"] for r in regs}]:
+        state["pending"].pop(name)
+    held = {e["name"] for e in unconfirmed if e["name"] in (state.get("pending") or {})}
+    state["unconfirmed"] = unconfirmed
     regressions = []
-    for r in regs:
+    for r in [r for r in regs if r["name"] in old] + confirmed:
         prev = old.get(r["name"])
         if prev and prev.get("range"):
             r["range"], r["first_bad"] = prev["range"], prev.get("first_bad")
         else:
-            r["range"] = {"good": row_ok.get(r["name"]) or good["sha"], "bad": cur["sha"], "skip": [], "steps": 0}
-            r["first_bad"] = {"sha": cur["sha"], "run_url": run_url, "measured_at": iso(t)}
+            first = (r.get("first_bad") or {}).get("sha") or cur["sha"]
+            r["range"] = {"good": row_ok.get(r["name"]) or good["sha"], "bad": first, "skip": [], "steps": 0}
+            r.setdefault("first_bad", {"sha": cur["sha"], "run_url": run_url, "measured_at": iso(t)})
+        r["confirmed"] = True
         regressions.append(r)
-    now_bad = {r["name"] for r in regressions}
+    now_bad = {r["name"] for r in regressions} | held
     row_ok.update({name: cur["sha"] for name in judged if name not in now_bad})
     missing = sorted(n for n in old if n not in judged)
     for name in missing:
@@ -1376,7 +1498,8 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
     # faster (a 60 Hz fallback run never rebases a 120 Hz baseline, and the first 120 Hz run rebases a 60 Hz one).
     rebased = set(record.get("refresh_rebased") or [])
     merged = dict(state["last_good"].get("rows") or {})
-    accepted = {n: r for n, r in part_rows.items() if n not in skipped and n not in rebased}
+    # A row outside its baseline's spread once (pending) is not a good value: it waits for the next measurement.
+    accepted = {n: r for n, r in part_rows.items() if n not in skipped and n not in rebased and n not in held}
     merged.update(accepted)
     remember_good(state, accepted, refresh_ms, t, good)
     state["last_good"] = {**record, "rows": merged}
@@ -1420,7 +1543,7 @@ def cmd_plan(o):
     t = now_utc()
     state = load_state(o.dir, t)
     tip = git("rev-parse", "--verify", "--end-of-options", f"{o.tip}^{{commit}}")
-    tip_blob = script_blob(tip)
+    tip_version = measure_version(tip)
     before = json.dumps(state, sort_keys=True)
     loaded_id = measurement_id(state.get("current"))
     dropped = sanitize_state(state, commit_on_branch(o.repo, tip))
@@ -1433,7 +1556,7 @@ def cmd_plan(o):
     if o.no_mac:
         no_mac = ("no route for the Mac parts (neither vars.CI_PERF_CRON_GATEWAY nor "
                   "vars.CMUX_NEXT_PERF_CRON_CONTROLLER=1 is set): no Mac part runs")
-    dead = drop_dead_measurement(state, t, lambda sha: fleet_runs(sha, tip_blob))
+    dead = drop_dead_measurement(state, t, lambda sha: fleet_runs(sha, tip_version))
     if dead:
         print(f"perf-cron: the measurement in flight ended ({dead}); looking for a new commit")
     last_sha = (state.get("last_tried") or state.get("last") or {}).get("sha")
@@ -1442,8 +1565,8 @@ def cmd_plan(o):
         for sha in git("rev-list", "--first-parent", f"-n{CANDIDATE_DEPTH}", tip).split():
             if sha == last_sha or (last_sha and is_ancestor(sha, last_sha)):
                 break
-            if not fleet_runs(sha, tip_blob):
-                print(f"perf-cron: {sha[:12]} predates the reviewed {MEASURE_SCRIPT}; the fleet would refuse it")
+            if not fleet_runs(sha, tip_version):
+                print(f"perf-cron: {sha[:12]} has another {MEASURE_SCRIPT} measurement version than the tip's ({tip_version})")
                 break
             if tree_published(sha):
                 candidate = sha
@@ -1456,14 +1579,14 @@ def cmd_plan(o):
             between = range_commits(rng["good"], rng["bad"])
             if between is None:
                 continue
-            sha = bisect_midpoint(between, lambda c: fleet_runs(c, tip_blob) and tree_published(c), rng.get("skip") or [])
+            sha = bisect_midpoint(between, lambda c: fleet_runs(c, tip_version) and tree_published(c), rng.get("skip") or [])
             if sha:
                 bisect = {"sha": sha, "range": rng, "rows": group["rows"]}
                 break
     busy = None
     if not no_mac and (candidate or bisect or state.get("current")):
         busy = github_busy(o.repo, o.yield_mode)
-    d = decide(state, t, candidate, bisect, supported_parts_at, busy, lambda sha: fleet_runs(sha, tip_blob), no_mac)
+    d = decide(state, t, candidate, bisect, supported_parts_at, busy, lambda sha: fleet_runs(sha, tip_version), no_mac)
     state["mac_off"] = no_mac  # the issue says why no Mac row is measured
     if measurement_id(state.get("current")) != loaded_id:
         clear_parts(o.dir)  # a dropped or replaced measurement's part files must never be read as the new one's
@@ -1718,11 +1841,17 @@ def refresh_issue_body(repo, state, now):
     issue = find_issue(repo, state.get("issue"))
     if not issue or issue.get("state") != "open":
         return ""
-    body = issue_body(state, repo, now)
-    if (issue.get("body") or "") == body:
-        return ""
-    gh_request(f"/repos/{repo}/issues/{issue['number']}", "PATCH", {"body": body})
-    return f"rewrote the body of issue #{issue['number']}"
+    number, body = issue["number"], issue_body(state, repo, now)
+    if (issue.get("body") or "") != body:
+        gh_request(f"/repos/{repo}/issues/{number}", "PATCH", {"body": body})
+    if not issue_plan(state, None, now, True, True, False)["open"]:
+        # No confirmed regression and not stale (an unconfirmed row opened it under the old rule): close it.
+        n = len(state.get("unconfirmed") or [])
+        gh_request(f"/repos/{repo}/issues/{number}/comments", "POST", {"body":
+                   f"No confirmed regression; {n} unconfirmed row(s) stay listed in the body."})
+        gh_request(f"/repos/{repo}/issues/{number}", "PATCH", {"state": "closed", "state_reason": "completed"})
+        return f"closed issue #{number} (no confirmed regression)"
+    return f"rewrote the body of issue #{number}" if (issue.get("body") or "") != body else ""
 
 
 def record_part(cur, part, result, run_url, t=None):

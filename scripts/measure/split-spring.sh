@@ -30,6 +30,10 @@
 # On exit, TERM, INT or HUP (a cancelled step) the script stops the bench, ends the tag's app and daemons
 # (scripts/cmux-next/tag_teardown.py, exact PIDs of the app bundle) and the virtual display.
 set -euo pipefail
+# The measurement's version (scripts/cmux-next/perf-cron.py MEASURE_VERSION_RE): the perf cron measures and compares only
+# commits whose version is the tip's. Bump it in an edit that changes what is measured or how (the build, the display,
+# the suites, the args); a comment, log or report-key edit keeps it, so it keeps the history measurable.
+SPLIT_SPRING_MEASURE_VERSION=2
 cd "$(git rev-parse --show-toplevel)"
 build_only=0 app_cache=0 vdisplay_hz="" vdisplay_hold=1200 args=() reload_config=()
 for arg in "$@"; do
