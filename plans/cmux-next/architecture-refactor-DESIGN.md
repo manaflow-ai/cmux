@@ -168,10 +168,21 @@ Host protocols, below 40k after Handlers/Pages/Control, and wiring only after th
    This replaced cc7a964ef61's static catalog, whose hand-kept lists were checked by a source regex
    that missed a typed constant (`let name: String = "..."`) and statics in extensions;
    check-daemon-capabilities-fresh.py now reads the cases and the `tier` arms and refuses a
-   `default` arm or a stray String constant, and check-app-capability-references.py refuses a
-   String constant declared in the catalog type in any file. Its one piece of state, the locked
-   `echoesPlacementShift` static, is gone (review 2): it is a `DaemonConnectionConfiguration`
-   field the composition root sets.
+   `default` arm. The lists are closed; the gates are not. `supports`, `require`,
+   `missingCapabilities` and `RefusalStrings.needsDaemonCapability` still take any String, so a
+   capability that is not a case still compiles at a gate and is in no list: the export,
+   check-daemon-capabilities.sh and DaemonCompatibility never see it. catalog_strays
+   (check-daemon-capabilities-fresh.py) and rule 4 (check-app-capability-references.py) refuse the
+   String statics of the catalog they can read lexically. They are a stopgap with known gaps, not
+   the fix: a static in a type nested in an `extension DaemonCapability`, a `typealias` of String,
+   a brace inside a string literal in the catalog body (it ends the body early), and a gate that
+   names a two-part type (`DaemonCapability.More.orphan`) all pass. The fix is slice B6 (typed
+   gates, section 9); when it lands, rule 4 and catalog_strays are deleted. Until the sidebar
+   owner (a590) agrees to the rename, the sidebar's six reads use
+   `CmuxNextDaemon/Connection/DaemonCapabilities.swift`, a deprecated interim struct that forwards
+   four case raw values and declares no capability; a590's follow-up deletes it. Its one piece of
+   state, the locked `echoesPlacementShift` static, is gone (review 2): it is a
+   `DaemonConnectionConfiguration` field the composition root sets.
 2. **Process-wide state** (DesignSettings 170, CEFRuntime 70, ThemeStore 40, GhosttyRuntime 39,
    CmuxToastCenter 38, LinkRouter 36, CmuxDialogCenter 36, NewTerminalTrace, WakeupLedger,
    ExpectedActivity, TunableStore, KeepAwakeService, caches with mutable state): constructed once
@@ -286,6 +297,7 @@ Ordered by perf impact, then risk, then collisions (unowned areas first).
 | C1 | Browser split (section 8) | enables engine work | high | PL-cef-*, PL-motion-cef, PL-engine | after they land |
 | C2 | Workbench domain (WindowController, PaneController, WorkspaceContentController, TabContentCache) | - | high | PL-switch, PL-cef-tab, PL-motion-* | after they land |
 | C3 | Sidebar model/view split | - | medium | a590 owns: proposal to them | by a590 |
+| B6 | Typed capability gates: `supports(_: DaemonCapability)` and `DaemonCapability` overloads of `require`, `missingCapabilities`, `RefusalStrings.needsDaemonCapability` and `ActionFailure.needsDaemonCapability`; String only at the wire decode and for PEERS (other servers' capabilities); then delete rule 4 of check-app-capability-references.py and catalog_strays (review of arch-b3, 2026-10-23: the regex checkers have gaps, section 5) | - (closes the capability hole) | medium: about 270 gate sites (266 pass `DaemonCapability.<name>.rawValue` today), many in owned areas (sidebar, new-tab path, Home, Notifications) | a590 (sidebar reads; deletes DaemonCapabilities.swift first), PL-cef-tab (PaneBrowserTabOpener), each gate site's owner by message | open: routed to session cmux-b6 (PL-arch) |
 
 ## 10. Results
 
