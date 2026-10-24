@@ -846,6 +846,7 @@ impl SnapshotAttachParams {
         writer: &MessageWriter,
         initial_size: Option<(u16, u16)>,
         framing: StreamFraming,
+        accept: &dyn Fn(),
     ) -> anyhow::Result<Value> {
         let surface_id = surface.id;
         let lifecycle = AttachLifecycle::default();
@@ -870,6 +871,7 @@ impl SnapshotAttachParams {
             self.snapshot_local_history,
             self.images_cap(),
             ring,
+            accept,
         )
     }
 }
@@ -888,9 +890,11 @@ fn attach(
     local_history: bool,
     images_cap: Option<u64>,
     ring: bool,
+    accept: &dyn Fn(),
 ) -> anyhow::Result<Value> {
     let MarkedClientAttach { lease, size_rollback, client_changed, .. } =
         mark_client_attached(mux, client, surface_id, outbound_stream.clone(), initial_size)?;
+    accept();
     let stream = match surface.attach_snapshot_stream_reading(
         lifecycle.clone(),
         backlog,
