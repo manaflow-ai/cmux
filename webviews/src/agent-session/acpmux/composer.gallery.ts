@@ -1103,7 +1103,7 @@ export default agentPaneEntry({
       note: "Two steers the agent has not read, one after the other: each one's plain Send now leads the action row under its bubble, before the receipt and message buttons.",
       snapshot: waitingSteers(),
       play: async (ctx) => {
-        await ctx.hover({ selector: ".cv-user__bubble" });
+        await ctx.hover({ text: "Use the cache dir, not tmp" });
         const lines = [...ctx.document.querySelectorAll(".cv-user__pending")];
         if (lines.length !== 2) throw new Error(`expected two Send now marks, found ${lines.length}`);
         for (const line of lines) {
