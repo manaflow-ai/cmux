@@ -106,12 +106,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppActions.bind(services)
         HandlerCoverage.verify(services.registry)
         services.palette.bindRegistryActions()
-        let ghosttyKeybinds = GhosttyKeybindSync(router: services.keyRouter)
-        self.ghosttyKeybinds = ghosttyKeybinds
-        ghosttyKeybinds.start()
-        let ghosttyConfigLiveReload = GhosttyConfigLiveReload()
-        self.ghosttyConfigLiveReload = ghosttyConfigLiveReload
-        ghosttyConfigLiveReload.start()
+        ghosttyKeybinds = GhosttyKeybindSync(router: services.keyRouter)
+        ghosttyKeybinds?.start()
+        ghosttyConfigLiveReload = GhosttyConfigLiveReload()
+        ghosttyConfigLiveReload?.start()
         // App-scoped Ghostty actions (quit, toggle_visibility, ...) arrive with no surface.
         TerminalHooks(services: services).install()
         DebugTimings.markLaunch("dfl.bind")
@@ -390,16 +388,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// the local daemon. `kill` never gets here.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         services?.quit.shouldTerminate(sender) ?? .terminateNow
-    }
-
-    /// Chromium's `CommandDispatcher` asks NSApp.delegate (in Chrome, its `AppController`) to
-    /// validate a `commandDispatch:` item that no Chromium window handles, with no
-    /// `respondsToSelector:` check first. Chrome enables only the commands its AppController can
-    /// run with no browser window; cmux has no AppController, so those commands are disabled
-    /// (enabled, AppKit would send the command where nothing runs it). Any other action is one
-    /// this delegate implements, which AppKit enables when it has no validator.
-    @objc(validateUserInterfaceItem:) func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
-        item.action != Selector(("commandDispatch:")) && item.action != Selector(("commandDispatchUsingKeyModifiers:"))
     }
 
     /// Web, `ssh:` and `x-man-page:` links (cmux as their handler) open as
