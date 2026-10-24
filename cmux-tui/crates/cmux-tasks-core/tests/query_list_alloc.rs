@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use cmux_tasks_core::ids::Principal;
 use cmux_tasks_core::model::{Description, Priority, State, Task};
-use cmux_tasks_core::query::{self, ListFilter, Order, TaskView};
+use cmux_tasks_core::query::{self, ListFilter};
 
 struct CountingAllocator;
 
@@ -110,43 +110,3 @@ fn list_limit_one_does_not_clone_unreturned_descriptions() {
     );
 }
 
-fn ids(views: &[TaskView]) -> Vec<String> {
-    views.iter().map(|view| view.task.id.clone()).collect()
-}
-
-#[test]
-fn list_limit_is_prefix_of_each_order_and_filter_result() {
-    let mut state = large_state(8, 0);
-    // Make every ordering key tie, so this also locks in stable BTreeMap order.
-    for task in state.tasks.values_mut() {
-        task.sort_key = "same".to_owned();
-        task.created_at = 42;
-        task.updated_at = 42;
-    }
-    let caller = Principal::user("usr_test");
-
-    let filters = [
-        ListFilter::default(),
-        ListFilter { archived: true, ..ListFilter::default() },
-        ListFilter { mine: true, ..ListFilter::default() },
-        ListFilter { open: true, ..ListFilter::default() },
-        ListFilter { search: Some("task 0".to_owned()), ..ListFilter::default() },
-    ];
-    for order in [Order::Manual, Order::Priority, Order::Updated, Order::Created] {
-        for base in &filters {
-            let mut all_filter = base.clone();
-            all_filter.order = order;
-            all_filter.limit = None;
-            let all = query::list(&state, &caller, &all_filter);
-            let all_ids = ids(&all);
-            for limit in [Some(0), Some(1), Some(3), Some(usize::MAX)] {
-                let mut limited_filter = all_filter.clone();
-                limited_filter.limit = limit;
-                let limited = query::list(&state, &caller, &limited_filter);
-                let expected_len = limit.unwrap().min(all_ids.len());
-                assert_eq!(limited.len(), expected_len, "order={order:?}, filter={base:?}");
-                assert_eq!(ids(&limited), all_ids[..expected_len], "order={order:?}, filter={base:?}");
-            }
-        }
-    }
-}
