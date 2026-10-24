@@ -6,7 +6,7 @@ import SwiftUI
 /// addressed message through the host callback and never mutates the report.
 struct ReportsBasketView: View {
     let model: FeedModel
-    let onReply: (@MainActor (String, String) -> Bool)?
+    let onReply: (@MainActor (String, String) async -> Bool)?
     @Environment(\.feedColors) private var colors
     @State private var selected: String?
     @State private var draft = ""
@@ -59,8 +59,13 @@ struct ReportsBasketView: View {
             if let report = reports.first(where: { $0.id == selected }) {
                 ReportsBasketDetail(item: report, draft: $draft, onSend: {
                     let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !text.isEmpty else { return }
-                    if onReply?(report.sender, text) == true { draft = "" }
+                    guard !text.isEmpty, let onReply else { return }
+                    // The host sends off the main thread; the draft clears once it was sent,
+                    // unless the person typed on meanwhile.
+                    // task-owner: one reply send; it ends when the host answers
+                    Task { @MainActor in
+                        if await onReply(report.sender, text), draft.trimmingCharacters(in: .whitespacesAndNewlines) == text { draft = "" }
+                    }
                 })
             } else {
                 VStack(spacing: 8) {
