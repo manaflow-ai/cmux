@@ -1,4 +1,4 @@
-import { useContext, useState } from "react";
+import { useContext, useEffect, useRef, useState, type CSSProperties } from "react";
 import type { ComposerAttachment } from "../attachments";
 import { useT } from "../i18n";
 import type { AcpmuxRow, QueueEdit } from "../model";
@@ -13,9 +13,10 @@ import { TurnActionsContext } from "./turnActions";
 /// 2026-10-20). An agent that cannot stop one step reads it when the step ends, as before. `send`
 /// is `_acpmux/queue_edit` `send_now` with the steer's own promptId; it answers false once the
 /// steer was read. The X is the page's `unsteer` (`takeBackSteer`), where the chat offers it.
-/// `beside` draws it at the bubble's left edge, on the bubble's first line and out of the layout
-/// (UserBubble.tsx), as Claude draws a queued prompt's controls: no line of its own under the
-/// bubble (Leo, 2026-10-21).
+/// Both lead the prompt's action row, before its receipt, age and message buttons (Leo, 2026-10-24).
+/// Once Send now worked they leave at once, though acpmux still says the steer waits until the agent
+/// reads it (Leo, 2026-10-24: "after i clicked send now and it worked it should just disappear"):
+/// they fade and fold their width, the row's height never changes, and after `LEAVE_MS` they are gone.
 export function PendingSteer({
   row,
   send,
@@ -26,21 +27,39 @@ export function PendingSteer({
   const t = useT();
   const { unsteer } = useContext(TurnActionsContext);
   const [sending, setSending] = useState(false);
-  if (row.steer !== "waiting") return null;
+  // The width it folds from, set once Send now worked; `gone` when the fold ended.
+  const [leaving, setLeaving] = useState<number | "gone">();
+  const self = useRef<HTMLDivElement>(null);
+  // The fold's one timer: it stops when the fold ends, and is cleared if the row goes first.
+  useEffect(() => {
+    if (typeof leaving !== "number") return;
+    const timer = setTimeout(() => setLeaving("gone"), LEAVE_MS);
+    return () => clearTimeout(timer);
+  }, [leaving]);
+  if (row.steer !== "waiting" || leaving === "gone") return null;
   const promptId = row.steerPromptId;
+  const busy = sending || leaving !== undefined;
   return (
-    <div className="cv-user__pending">
+    <div
+      ref={self}
+      className={leaving === undefined ? "cv-user__pending" : "cv-user__pending cv-user__pending--leaving"}
+      style={leaving === undefined ? undefined : ({ "--cv-pending-width": `${leaving}px` } as CSSProperties)}
+      aria-hidden={leaving === undefined ? undefined : true}
+    >
       {promptId && (
         <button
           type="button"
           className="cv-user__send-now"
           // tooltip-allow: says Send now stops only the current step, not the turn; shown nowhere else
           title={t("steer.sendNowHelp")}
-          disabled={sending}
+          disabled={busy}
           onClick={() => {
             setSending(true);
             void send(promptId, { op: "send_now" })
               .catch(() => false)
+              .then((sent) => {
+                if (sent) setLeaving(self.current?.offsetWidth ?? 0);
+              })
               .finally(() => setSending(false));
           }}
         >
@@ -53,7 +72,7 @@ export function PendingSteer({
           className="cv-user__take-back"
           aria-label={t("composer.queueEditMessage")}
           title={t("composer.queueEditMessage")}
-          disabled={sending}
+          disabled={busy}
           onClick={() => {
             setSending(true);
             void unsteer(row)
@@ -68,12 +87,15 @@ export function PendingSteer({
   );
 }
 
-/// Whether the chat's X takes a waiting steer back (`_acpmux/steer_withdraw`): only Claude Code does.
-export function takesSteersBack(
-  summary: { family?: string; steering?: boolean } | undefined,
-  connected: boolean,
-): boolean {
-  return connected && summary?.family === "claude";
+/// How long Send now and the X take to leave once Send now worked (conversation.css
+/// `.cv-user__pending--leaving`).
+const LEAVE_MS = 180;
+
+/// Whether the chat's X takes a waiting steer back (`_acpmux/steer_withdraw`). Only acpmux's Claude
+/// Code adapter steers, and it takes one back; its family can be a profile's own name (Leo's
+/// claude-sr2), so the X follows `steering`, not the family.
+export function takesSteersBack(summary: { steering?: boolean } | undefined, connected: boolean): boolean {
+  return connected && summary?.steering === true;
 }
 
 /// Takes back steer `row` while the agent has not read it: acpmux drops it (`withdraw`), and its

@@ -5152,7 +5152,7 @@ function AcpmuxPane() {
           },
         }),
       // The X beside a steer the agent has not read: it comes back into the composer to edit. Only
-      // Claude Code takes one back (acpmux `_acpmux/steer_withdraw`).
+      // Claude Code steers and takes one back (acpmux `_acpmux/steer_withdraw`), under any family.
       ...(takesSteersBack(snapshot.summary, connected) && {
         unsteer: (row: AcpmuxRow) =>
           takeBackSteer(row, {
