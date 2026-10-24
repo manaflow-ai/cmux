@@ -539,10 +539,6 @@
   font: inherit;
 }
 
-.keys-recorder-keys:hover {
-  background: var(--ui-hover);
-}
-
 .keys-recorder-keys.recorded {
   color: var(--ui-fg);
 }
