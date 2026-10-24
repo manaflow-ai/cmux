@@ -202,6 +202,8 @@ class WiringTests(unittest.TestCase):
         preflight = self.job.index("scripts/ci/fleet-instance-preflight.sh", fleet)
         self.assertLess(preflight, dispatch)
         guard = self.job[preflight:dispatch]
+        self.assertIn("raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA", guard)
+        self.assertIn('chmod +x "$preflight"', guard)
         self.assertIn("No CI job was dispatched", (ROOT / "scripts/ci/fleet-instance-preflight.sh").read_text())
         self.assertNotIn('"$client" workers', guard)
 
