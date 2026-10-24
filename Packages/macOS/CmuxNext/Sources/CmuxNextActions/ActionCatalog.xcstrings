@@ -77161,133 +77161,133 @@
         }
       }
     },
-    "action.home.stopChief": {
+    "action.agentPane.stopTurn": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stop the Chief"
+            "value": "Stop Agent Turn"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief を停止"
+            "value": "エージェントターンを停止"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "إيقاف الـ Chief"
+            "state": "translated",
+            "value": "إيقاف دور الوكيل"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Zaustavi Chiefa"
+            "state": "translated",
+            "value": "Zaustavi agentski potez"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Stop Chief"
+            "state": "translated",
+            "value": "Stop agenttur"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief stoppen"
+            "state": "translated",
+            "value": "Agentenrunde stoppen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Detener el Chief"
+            "state": "translated",
+            "value": "Detener el turno del agente"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Arrêter le Chief"
+            "state": "translated",
+            "value": "Arrêter le tour de l’agent"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Interrompi il Chief"
+            "state": "translated",
+            "value": "Interrompi il turno dell’agente"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "បញ្ឈប់ Chief"
+            "state": "translated",
+            "value": "បញ្ឈប់វេនភ្នាក់ងារ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief 중지"
+            "state": "translated",
+            "value": "에이전트 턴 중지"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Stopp Chief"
+            "state": "translated",
+            "value": "Stopp agentrunde"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Zatrzymaj Chiefa"
+            "state": "translated",
+            "value": "Zatrzymaj turę agenta"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Parar o Chief"
+            "state": "translated",
+            "value": "Parar turno do agente"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Остановить Chief"
+            "state": "translated",
+            "value": "Остановить ход агента"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "หยุด Chief"
+            "state": "translated",
+            "value": "หยุดรอบของเอเจนต์"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief’i durdur"
+            "state": "translated",
+            "value": "Ajan turunu durdur"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Зупинити Chief"
+            "state": "translated",
+            "value": "Зупинити хід агента"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Dừng Chief"
+            "state": "translated",
+            "value": "Dừng lượt của tác nhân"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "停止 Chief"
+            "state": "translated",
+            "value": "停止智能体回合"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "停止 Chief"
+            "state": "translated",
+            "value": "停止代理回合"
           }
         }
       }

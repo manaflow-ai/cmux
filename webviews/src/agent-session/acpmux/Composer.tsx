@@ -979,6 +979,15 @@ export function Composer({
       onStop();
     }
   };
+  // The native command palette and keyboard route Stop Agent Turn through this same composer
+  // callback. Ignore a stale action after the turn ended while the page was switching sessions.
+  useEffect(() => {
+    const stopFromAction = () => {
+      if (snapshot.isWorking) stopTurn();
+    };
+    window.addEventListener("cmux-acpmux-stopTurn", stopFromAction);
+    return () => window.removeEventListener("cmux-acpmux-stopTurn", stopFromAction);
+  }, [onStop, snapshot.isWorking]);
   // Enter sends unless it picks a command: with the menu closed, with nothing to pick (an unknown
   // command or a pasted path), or on a command already typed in full that takes no arguments.
   const returnSends = () => {

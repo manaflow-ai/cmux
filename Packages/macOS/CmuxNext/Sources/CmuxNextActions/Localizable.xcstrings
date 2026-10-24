@@ -11404,7 +11404,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show ACP Inspector"
+            "value": "Toggle Session Info"
           }
         },
         "ja": {

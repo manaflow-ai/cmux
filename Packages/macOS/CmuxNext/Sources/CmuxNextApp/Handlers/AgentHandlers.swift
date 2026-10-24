@@ -81,6 +81,11 @@ enum AgentHandlers {
             }
             view.toggleInspector()
         }
+        registry.bind(.stopTurn, run: { invocation in
+            guard invocation.allowsViewChange else { return context.refuse(MiscHandlerStrings.noAgentChat) }
+            guard let view = focusedAgentView(context, invocation) else { return }
+            view.stopTurn()
+        })
         registry.bind("agentPane.togglePointerInspector", unavailable: {
             AgentPaneTunables.pointerInspector.value ? nil :
                 "UI pointer inspector is off. Turn it on in Debug Settings."

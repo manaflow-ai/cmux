@@ -8231,13 +8231,33 @@
         "hidesWhenTyping": false,
         "isEnabled": true,
         "isVisibleWhenQueryEmpty": true,
-        "keywords": ["agent", "acp", "acpmux", "inspector", "log", "debug"],
+        "keywords": ["agent", "chat", "session", "session info", "acp", "acpmux", "inspector", "log", "debug"],
         "rankBias": 0,
         "sectionIndex": 9,
-        "title": "Show ACP Inspector",
+        "title": "Toggle Session Info",
         "typingSectionIndex": 16
       },
       "id": "action:agentPane.toggleInspector"
+    },
+    {
+      "entry": {
+        "actionID": "agentPane.stopTurn",
+        "demoted": false,
+        "entersScope": false,
+        "frecencyKey": "action:agentPane.stopTurn",
+        "hasShortcut": false,
+        "hidesWhenTyping": false,
+        "isEnabled": true,
+        "isVisibleWhenQueryEmpty": true,
+        "keywords": ["agent", "chat", "stop", "cancel", "interrupt", "turn", "working", "generation"],
+        "rankBias": 0,
+        "sectionIndex": 9,
+        "suggestedRank": 3,
+        "suggestedSectionIndex": 18,
+        "title": "Stop Agent Turn",
+        "typingSectionIndex": 16
+      },
+      "id": "action:agentPane.stopTurn"
     },
     {
       "entry": {
