@@ -191,21 +191,21 @@ import Testing
 }
 
 /// The fork tracker's reads of one host view (see the suite's comment).
-@MainActor private final class PageTracker {
+@MainActor private final class PageTracker: NSObject {
     var reads: [CEFHostGeometry] = []
-    private var observers: [any NSObjectProtocol] = []
+    private let view: CEFHostView
 
     init(_ view: CEFHostView) {
+        self.view = view
+        super.init()
         view.postsFrameChangedNotifications = true
-        let center = NotificationCenter.default
         for name in [CEFHostView.geometryDidChange, NSView.frameDidChangeNotification] {
-            observers.append(center.addObserver(forName: name, object: view, queue: nil) { [weak self, weak view] _ in
-                MainActor.assumeIsolated {
-                    guard let self, let view else { return }
-                    self.reads.append(CEFHostGeometry(of: view))
-                }
-            })
+            NotificationCenter.default.addObserver(self, selector: #selector(read), name: name, object: view)
         }
+    }
+
+    @objc private func read() {
+        reads.append(CEFHostGeometry(of: view))
     }
 }
 
