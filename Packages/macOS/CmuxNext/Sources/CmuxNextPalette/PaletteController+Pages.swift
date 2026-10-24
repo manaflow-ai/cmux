@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextAgentPane
 
 extension PaletteController {
     // MARK: Pages
@@ -167,6 +168,9 @@ extension PaletteController {
     /// inline rename entries backed by the sources.
     func makeRegistryProvider() -> RegistryPaletteProvider {
         let provider = RegistryPaletteProvider(registry: registry)
+        if !AgentPaneTunables.pointerInspector.value {
+            provider.hiddenIDs.insert("agentPane.togglePointerInspector")
+        }
         if shortcutRecorder.editor != nil { provider.editShortcut = { [weak self] in self?.shortcutRecorder.begin($0) } }
         provider.targets = sources.targets
         provider.capturedTargets = capturedTargets
