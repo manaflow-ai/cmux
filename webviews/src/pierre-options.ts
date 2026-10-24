@@ -159,9 +159,11 @@ export function codeViewUnsafeCSS(): string {
     [data-interactive-lines] [data-line] {
       cursor: text;
     }
-    /* The file header is never transparent (Lawrence): it paints the
-       backdrop composited onto the theme color at full alpha, so scrolled
-       code never shows through it, even over a see-through window. Its
+    /* The file header never shows scrolled code crisp through it (Lawrence):
+       over an opaque window it paints the backdrop composited onto the theme
+       color at full alpha; over an image or a see-through window it is the
+       app's plain glass (--cmux-diff-header-bg and the shared blur, styles.css),
+       so code under it frosts and the backdrop shows. Its
        content is the slotted FileHeader (renderCustomHeader), so the row's
        height is fixed to the virtualizer's diffHeaderHeight metric. */
     [data-diffs-header] {
@@ -169,7 +171,9 @@ export function codeViewUnsafeCSS(): string {
       min-height: 0;
       display: flex;
       align-items: stretch;
-      background-color: var(--cmux-diff-solid-bg);
+      background-color: var(--cmux-diff-header-bg, var(--cmux-diff-solid-bg));
+      -webkit-backdrop-filter: var(--cmux-diff-glass-filter, none);
+      backdrop-filter: var(--cmux-diff-glass-filter, none);
       border-bottom: 1px solid var(--cmux-diff-border);
     }
     [data-line-type='change-addition']:where([data-column-number], [data-gutter-buffer]) {
@@ -241,7 +245,7 @@ export function fileTreeUnsafeCSS(): string {
       display: block;
       height: 100%;
       min-height: 0;
-      background-color: var(--cmux-diff-files-bg, var(--cmux-diff-solid-bg));
+      background-color: var(--cmux-diff-files-layer-bg, var(--cmux-diff-files-bg, var(--cmux-diff-solid-bg)));
       /* Icon hues from the terminal theme (styles.css \`--cmux-file-icon-*\`), as in file headers. */
       --trees-icon-gray: var(--cmux-file-icon-gray);
       --trees-icon-red: var(--cmux-file-icon-red);
@@ -263,7 +267,7 @@ export function fileTreeUnsafeCSS(): string {
       height: 100%;
       min-height: 0;
       overflow: auto;
-      background-color: var(--cmux-diff-files-bg, var(--cmux-diff-solid-bg));
+      background-color: var(--cmux-diff-files-layer-bg, var(--cmux-diff-files-bg, var(--cmux-diff-solid-bg)));
       padding-inline-start: 0;
       padding-inline-end: 0;
       scrollbar-gutter: stable;
@@ -309,6 +313,8 @@ export function fileTreeUnsafeCSS(): string {
     }
     [data-file-tree-sticky-overlay-content] {
       background-color: var(--cmux-diff-files-bg, var(--cmux-diff-solid-bg)) !important;
+      -webkit-backdrop-filter: var(--cmux-diff-glass-filter, none);
+      backdrop-filter: var(--cmux-diff-glass-filter, none);
       box-shadow: 0 1px 0 var(--trees-border-color);
     }
     ${PIERRE_TREES_SCROLLER_CSS}
