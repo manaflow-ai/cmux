@@ -49,6 +49,18 @@ if (!longCommand || activityRowHoverTitle(longCommand) !== "swift test --filter 
 if (activityRowHoverTitle(activity[0]) !== undefined) {
   throw new Error("structured tool detail should not become a command hover title");
 }
+const heuristicConflict: Block = { kind: "tool", toolId: "shell-cat", name: "Bash", detail: "cat package.json", description: "Inspect package metadata", status: "ok" };
+if (activityRowLabel(heuristicConflict) !== "Inspect package metadata") {
+  throw new Error(`description should win over shell heuristics: ${activityRowLabel(heuristicConflict)}`);
+}
+const descriptionOnly: Block = { kind: "tool", toolId: "described", name: "Bash", description: "Run the focused suite", status: "running" };
+if (activityRowLabel(descriptionOnly) !== "Run the focused suite") {
+  throw new Error(`description-only shell calls should keep their description: ${activityRowLabel(descriptionOnly)}`);
+}
+const noDescription: Block = { kind: "tool", toolId: "bare-shell", name: "Bash", status: "running" };
+if (activityRowLabel(noDescription) !== "Ran command") {
+  throw new Error(`shell calls without detail or description should use fallback: ${activityRowLabel(noDescription)}`);
+}
 
 const labels = activity.map((block) => activityRowLabel(block));
 if (labels.join("|") !== "Read AGENTS.md|Searched RepositoryPicker|Listed Sources|Edited 2 files") {
