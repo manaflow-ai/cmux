@@ -8,11 +8,16 @@ frames, so an occluded or unlit console (the PR scheme lane's runner) times none
 that draws but times nothing still fails.
 """
 import importlib.util
+import contextlib
+import io
 import itertools
+import json
 import os
 import sys
+import tempfile
 import types
 import unittest
+from unittest.mock import patch
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 spec = importlib.util.spec_from_file_location("perf_gate", os.path.join(ROOT, "scripts/cmux-next/perf-gate.py"))
@@ -60,6 +65,7 @@ class FakeApp:
 class UnlitWindowTests(unittest.TestCase):
     def setUp(self):
         del perf_gate.failures[:], perf_gate.warnings[:]
+        perf_gate.report.clear()
         perf_gate.report.update({"checks": [], "phases": {}})
 
     def gate(self, lit, frames="auto"):
@@ -85,6 +91,54 @@ class UnlitWindowTests(unittest.TestCase):
         self.run_timed(self.gate(lit=True))
         self.assertIn("[tabs] debug.tab_switch timed 0 of 40 switches", perf_gate.failures)
         self.assertIn("[new_workspaces] debug.new_workspace timed 0 of 50 new workspace rows", perf_gate.failures)
+
+    def write_report(self):
+        with tempfile.TemporaryDirectory() as directory:
+            report_path = os.path.join(directory, "report.json")
+            summary_path = os.path.join(directory, "summary.md")
+            stdout = io.StringIO()
+            with patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": summary_path}), contextlib.redirect_stdout(stdout):
+                perf_gate.write_report(report_path)
+            with open(report_path) as handle:
+                result = json.load(handle)
+            with open(summary_path) as handle:
+                summary = handle.read()
+        self.assertEqual(stdout.getvalue(), summary + "\n")
+        return result, summary
+
+    def test_auto_summary_names_skipped_scenarios_once_beside_pass(self):
+        gate = self.gate(lit=False)
+        self.run_timed(gate)
+        gate.frames_ok("tabs")
+        result, summary = self.write_report()
+        self.assertTrue(result["ok"])
+        self.assertIn("PASS (frames skipped: new_workspaces, tabs):", summary)
+        self.assertEqual(result.get("frames_skipped"), ["new_workspaces", "tabs"])
+
+    def test_required_summary_names_unmeasured_scenarios_beside_failure(self):
+        self.run_timed(self.gate(lit=False, frames="required"))
+        result, summary = self.write_report()
+        self.assertFalse(result["ok"])
+        self.assertIn("FAIL (frames skipped: new_workspaces, tabs):", summary)
+        self.assertEqual(result.get("frames_skipped"), ["new_workspaces", "tabs"])
+
+    def test_frame_summary_lists_only_scenarios_that_skipped(self):
+        gate = self.gate(lit=False)
+        for scenario in ("theme", "drag", "pane_focus", "drag"):
+            gate.frames_ok(scenario)
+        _, summary = self.write_report()
+        self.assertIn("PASS (frames skipped: drag, pane_focus, theme):", summary)
+
+    def test_lit_summary_does_not_claim_frames_were_skipped(self):
+        self.assertTrue(self.gate(lit=True).frames_ok("tabs"))
+        _, summary = self.write_report()
+        self.assertIn("PASS:", summary)
+        self.assertNotIn("frames skipped", summary)
+
+    def test_source_only_summary_does_not_claim_frame_coverage(self):
+        _, summary = self.write_report()
+        self.assertIn("PASS:", summary)
+        self.assertNotIn("frames", summary)
 
 
 if __name__ == "__main__":
