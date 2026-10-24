@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
-import { conversationMarkdown } from "./copyRow";
+import { conversationMarkdown, copyRow } from "./copyRow";
 
 describe("conversationMarkdown", () => {
   test("uses role headings and folds tool calls to short lines", () => {
@@ -51,5 +51,29 @@ describe("conversationMarkdown", () => {
       { id: "image", version: 1, at: 3, kind: "user", text: "", images: [{ id: "i", mimeType: "image/png" }] },
     ];
     expect(conversationMarkdown(rows)).toBe("**User:**\n(attachment)");
+  });
+
+  test("header Markdown selection can use the complete-history bridge", async () => {
+    let copied = "";
+    const menu = copyRow(
+      {
+        link: undefined,
+        sessionId: "chat-1",
+        rows: [
+          { id: "u", version: 1, at: 1, kind: "user", text: "loaded" },
+          { id: "a", version: 1, at: 2, kind: "assistant", text: "answer" },
+        ],
+      },
+      (text) => {
+        copied = text;
+      },
+      undefined,
+      async () => "**User:**\nolder and loaded",
+    );
+    const markdown = menu?.children?.find((child) => child.key === "copyMarkdown");
+    markdown?.onSelect?.();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(copied).toBe("**User:**\nolder and loaded");
   });
 });

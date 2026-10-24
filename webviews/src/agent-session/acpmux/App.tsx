@@ -7328,6 +7328,7 @@ function AcpmuxPane() {
       { link, rows: snapshot.rows, sessionId: snapshot.sessionId },
       (text) => ignoreFailure(copyText(text)),
       t,
+      () => window.cmuxAcpmuxBridge?.conversationMarkdown?.() ?? Promise.resolve(null),
     );
     // Fork › From here (the last turn), then, for a harness that forks at any turn, the earlier
     // prompts, newest first (ChatGPT's "from a message"); otherwise one Fork row.

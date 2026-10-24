@@ -9,6 +9,7 @@ export function copyRow(
   chat: { link: string | undefined; rows: readonly AcpmuxRow[]; sessionId?: string },
   copy: (text: string) => void,
   t: Translate = translate,
+  copyFullConversation?: () => Promise<string | null>,
 ): Exclude<ChatMenuItem, "separator"> | undefined {
   const { link, rows, sessionId } = chat;
   // The menu's rows are read on every render: only check here, build the text on selection.
@@ -24,7 +25,19 @@ export function copyRow(
   if (answered && lastResponse(rows))
     children.push({ key: "copyResponse", label: t("chatMenu.copyResponse"), onSelect: () => copy(lastResponse(rows)) });
   if (answered)
-    children.push({ key: "copyMarkdown", label: t("chatMenu.copyMarkdown"), onSelect: () => copy(chatMarkdown(rows)) });
+    children.push({
+      key: "copyMarkdown",
+      label: t("chatMenu.copyMarkdown"),
+      onSelect: () => {
+        if (!copyFullConversation) {
+          copy(chatMarkdown(rows));
+          return;
+        }
+        void copyFullConversation().then((markdown) => {
+          if (markdown) copy(markdown);
+        });
+      },
+    });
   if (sessionId)
     children.push({ key: "copySessionId", label: t("chatMenu.copySessionId"), onSelect: () => copy(sessionId) });
   if (!children.length) return undefined;
