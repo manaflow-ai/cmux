@@ -10,7 +10,7 @@
     "max": 15.600000143051147
   },
   "receipt": "Policy settled once on frame 26; no late completion.",
-  "settledFrame": 24,
+  "settledFrame": 26,
   "maxFrame": 26,
   "finalSettled": true,
   "lateCompletion": false
