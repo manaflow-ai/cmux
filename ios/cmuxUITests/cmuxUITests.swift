@@ -18,6 +18,7 @@ final class cmuxUITests: XCTestCase {
             "-mobile.cloud.onboarding.completed.v2", "NO",
         ])
         defer { app.terminate() }
+        app.activate()
         let pairingCancel = app.buttons["MobilePairingCancelButton"]
         if pairingCancel.waitForExistence(timeout: 3) {
             pairingCancel.tap()
