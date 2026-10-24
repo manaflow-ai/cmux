@@ -1,7 +1,7 @@
 // A chat pane opened a split for every subagent its chat started unless the user had turned that
 // off in the summary card, and agent panes keep their storage only until the app quits, so the
 // splits came back after each restart. New subagents now open panes only once the user turns the
-// switch on; a click on a subagent still opens its pane (subagents/subagentPanes.ts).
+// switch on, and a click shows the subagent in the chat until then (subagents/subagentPanes.ts).
 import { afterEach, expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";

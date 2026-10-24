@@ -20,8 +20,8 @@ export const SubagentHarnessContext = createContext<string | undefined>(undefine
 /// Opens a subagent's own view in the pane, or the session's own with undefined (App.tsx).
 export const SubagentNavContext = createContext<((id: string | undefined) => void) | undefined>(undefined);
 
-/// Shows a subagent in a pane of its own right of the chat, or in this pane when none opens
-/// (App.tsx, subagentPanes.ts). A group's subagent line uses it; the child view's pill goes back
+/// Shows a subagent in a pane of its own right of the chat while the summary card's switch is on,
+/// else in this pane (App.tsx, subagentPanes.ts). A group's subagent line uses it; the child view's pill goes back
 /// in place.
 export const SubagentPaneContext = createContext<((id: string) => void) | undefined>(undefined);
 
