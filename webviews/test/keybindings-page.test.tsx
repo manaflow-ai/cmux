@@ -421,6 +421,14 @@ test("keys another action has: the recorder says who has them and offers Overwri
   expect(recorder()?.querySelector(".keys-recorder-light.danger")).toBeTruthy();
   expect(recorder()?.textContent).toContain(strings.t("keybindings.page.recorder.overwriteOrRecord"));
 
+  // The same keys again get the same answer: the question stays, and no save light plays.
+  const warnedLight = recorder()?.querySelector(".keys-recorder-light.danger");
+  await keys("cmd+shift+p");
+  expect(choices()).toBeTruthy();
+  expect(recorder()?.querySelector(".keys-recorder-light.danger")).toBe(warnedLight);
+  expect(recorder()?.querySelector(".keys-recorder-light:not(.danger):not(.off)")).toBeNull();
+  expect(sets()).toHaveLength(0);
+
   // A new shortcut instead drops the question and saves.
   await keys("cmd+shift+u");
   expect(choices()).toBeFalsy();
@@ -519,6 +527,18 @@ test("keys another action has: the recorder says who has them and offers Overwri
   await settle();
   expect(sets().at(-1)?.params).toMatchObject({ command: "history.open", key: "cmd+k cmd+1 cmd+2 cmd+3" });
   expect(recorder()).toBeNull();
+
+  // Search by keys: every key up ends its recording; the keys stay the filter.
+  await click(doc.querySelector(".keys-record"));
+  expect(provider.recording).toBe(true);
+  await keys("cmd+shift+p");
+  expect(provider.recording).toBe(false);
+  expect(doc.querySelector(".keys-record.on")).toBeNull();
+  expect(doc.querySelector<HTMLInputElement>(".keys-search")?.value).toBe("cmd+shift+p");
+  expect(row("Open Command Palette")).toBeTruthy();
+  expect(row("Go to File")).toBeFalsy();
+  await act(async () => store.setText(""));
+  await settle();
 
   // Refused keys were never saved: Close closes the recorder, and the row keeps its keys.
   const close = () => recorder()?.querySelector(".keys-recorder-actions .keys-recorder-button");
