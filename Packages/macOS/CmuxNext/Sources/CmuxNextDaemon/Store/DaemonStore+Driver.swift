@@ -7,11 +7,12 @@ import CmuxNextCompat
 ///
 /// Coalescing (plans/cmux-next/main-thread-budget.md): an event that states
 /// the whole current value of one surface's field (title, size, scroll,
-/// agent status, agent presence) replaces an earlier one for the same
+/// agent presence: ``CoalesceKey``) replaces an earlier one for the same
 /// surface still in the buffer, so a batch applies each object's newest
 /// value once, however often it changed since the last frame. Workspace,
 /// screen, pane and tab deltas are never coalesced: they carry consecutive
-/// revisions and structural moves.
+/// revisions and structural moves. Agent statuses are never coalesced
+/// either: the store records each transition.
 ///
 /// Bounded (architecture.md 5a): past `limit` events the buffer collapses
 /// into one `.overflow` marker, which the store answers with one snapshot
@@ -204,7 +205,8 @@ extension DaemonStore {
             }
         }
         let failure = await pump.value
-        drain()
+        // Everything left, unbudgeted: a frame asked for after this would find no driver.
+        drain(all: true)
         // The connection is gone: no echo or barrier will come for its commands.
         drainAppliedWaiters = true
         flushAppliedWaiters()
@@ -226,11 +228,12 @@ extension DaemonStore {
     /// Applies what is buffered, in slices, while the frame's visible budget lets it
     /// (``MainFrameBudget``, plans/cmux-next/main-thread-budget.md): the rest goes back to the
     /// front of the inbox and applies on the next frame. The first slice of a frame always applies.
-    func drain() {
+    /// With `all` (the connection's last drain, after which no frame drains) the whole batch applies.
+    func drain(all: Bool = false) {
         guard let driver, !isResyncing else { return }
         let batch = driver.inbox.take()
         guard !batch.isEmpty else { return }
-        let budget = driver.scheduler.mainFrameBudget
+        let budget = all ? nil : driver.scheduler.mainFrameBudget
         var rest = ArraySlice(batch)
         while !rest.isEmpty {
             let slice = Array(rest.prefix(Self.drainSlice))
@@ -312,8 +315,7 @@ extension DaemonStore {
                 let (tree, barrier) = try await driver.connection.snapshot()
                 // The comparison with the last applied snapshot reads the whole tree: off the main
                 // thread. Main applies only what differs (or everything, when the memo cannot vouch).
-                let memo = snapshotMemo
-                let diff = memo.applied.isEmpty ? nil : await SnapshotDiff.computed(tree, against: memo.applied, revision: memo.revision)
+                let diff = await snapshotDiff(of: tree)
                 apply(snapshot: tree, diff: diff)
                 snapshotBarrier = max(snapshotBarrier, barrier)
                 snapshotCoveredPersonal(through: barrier)
