@@ -1,0 +1,28 @@
+{
+  "rate": 60,
+  "entry": "agent-pane.peek-motion",
+  "variant": "anchored-peek-340",
+  "url": "http://127.0.0.1:18796/gallery/frame.html?entry=agent-pane.peek-motion&variant=anchored-peek-340",
+  "frames": 67,
+  "frameIntervalMs": {
+    "p50": 16.299999952316284,
+    "p95": 18.799999952316284,
+    "max": 26.200000047683716
+  },
+  "open": {
+    "startMs": 61.700000047683716,
+    "settleMs": 440.7000000476837,
+    "durationMs": 379,
+    "frames": 34
+  },
+  "close": {
+    "startMs": 631.4000000953674,
+    "settleMs": 913.8000001907349,
+    "durationMs": 282.40000009536743,
+    "frames": 33
+  },
+  "sourceRectMaxDeltaPx": 0,
+  "receipt": "generation 4 · close rect 160,65 640x240 · no late completion",
+  "lateCompletion": false,
+  "finalState": "closed"
+}
