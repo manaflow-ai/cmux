@@ -509,6 +509,16 @@ final class BrowserHibernation {
         }
     }
 
+    /// The freeze plan alone, on fresh candidates: a page `prepare` thawed for its scripts and that
+    /// stays live freezes again through the one freeze path (its probe asks for media first),
+    /// instead of running thawed until the next unrelated event. Not a full `replan`: under
+    /// pressure that would prepare the page it just kept again at once.
+    private func refreeze(_ cache: TabContentCache) {
+        let (candidates, plan, _) = planNow(cache)
+        exemptions.merge(plan.exemptions) { $1 }
+        replanFreeze(candidates)
+    }
+
     /// Asks the page for playing media, Web Audio and capture, then freezes it
     /// if it is still the same hidden page. A page that plays, or that did not
     /// answer fewer than `unansweredLimit` times in a row, stays awake and is
@@ -525,6 +535,11 @@ final class BrowserHibernation {
                   cache.lifecycle.phase(key) == .mountedHidden, self.hiddenAt[key] != nil else { return }
             // An agent called it, or it became a neighbor (or was hovered) while the probe ran.
             guard self.mayFreeze(key) else { return }
+            // A hibernation probe started meanwhile: it thawed the page to run its scripts, and a
+            // freeze now would hold them until its deadline, so the page counted as unanswered and
+            // stayed live (STRESS 2026-10-24: 10 "unanswered" keeps past the budget). Its end
+            // plans the freeze again (`prepare`).
+            guard !self.probing.contains(key) else { return }
             let doubted = self.doubts(key, probe)
             if probe.capturing || probe.playingMedia || probe.webAudio || doubted {
                 self.freezeKeptAt[key] = .now
@@ -618,14 +633,15 @@ final class BrowserHibernation {
         guard let cache, let entry = cache.browsers[key], let source = entry.tab as? any BrowserHibernationSource,
               let generation = cache.lifecycle.record(key)?.generation, probing.insert(key).inserted else { return }
         let tab = entry.tab
-        // The probe and the history capture run script: a frozen page runs none.
+        // The probe and the history capture run script: a frozen page runs none. A page that stays
+        // freezes again through the freeze plan (`refreeze`); none freezes while this runs (`freeze`).
         thaw(key)
         let run = probe
         Task { @MainActor [weak self] in
             let probe = user ? PageProbe() : await run(tab)
             let pressure = self?.pressure ?? .normal
             // A page that keeps not answering hibernates only under memory pressure: its form edits are
-            // unknown. The freeze probe counts the misses (it runs beside this one and refreezes the page).
+            // unknown. The freeze probe counts the misses (the one that freezes the page again after this).
             let doubted = probe.answered ? self?.doubts(key, probe) ?? false : self?.doubted(key) ?? true
             let exemption = probe.exemption(pressure: pressure) ?? (source.showsFormSubmission ? .formSubmission : nil)
                 ?? (!probe.answered && (doubted || pressure == .normal) ? .unanswered : nil)
@@ -642,6 +658,7 @@ final class BrowserHibernation {
             if let exemption {
                 self.exemptions[key] = exemption
                 self.probeKept[key] = (ContinuousClock.now, (self.probeKept[key]?.times ?? 0) + 1)
+                self.refreeze(cache)
                 return
             }
             // It became a neighbor, was hovered, an agent called it, or it is no longer past the
@@ -649,10 +666,14 @@ final class BrowserHibernation {
             // plan's reason (the person's Hibernate Tab still applies).
             if !user, !self.isStillDue(key) {
                 cache.trace(key, "hibernate probe dropped (no longer due)")
+                self.refreeze(cache)
                 return
             }
             guard let state = source.hibernationState() else {
                 self.exemptions[key] = .unsupported
+                // Kept like a probe's keep, so the plan does not prepare it again on every event.
+                self.probeKept[key] = (ContinuousClock.now, (self.probeKept[key]?.times ?? 0) + 1)
+                self.refreeze(cache)
                 return
             }
             self.prepared[key] = (state, snapshot)
@@ -660,10 +681,17 @@ final class BrowserHibernation {
         }
     }
 
-    /// Takes a hidden page's picture (a seam for tests).
+    /// Takes a hidden page's picture (a seam for tests): the engine's cheap full-size capture,
+    /// `thumbnail()`, not the lossless `snapshot()`. A Chromium `snapshot()` is a PNG that
+    /// Chromium encodes on its UI thread, the app's main thread (80-140 ms a page, CEFThumbnail),
+    /// and that comes back as megabytes of base64 JSON parsed on the main thread too; the
+    /// budget hibernates pages a few per pass, so each pass stalled the main thread for that long
+    /// (STRESS 2026-10-24: 53-379 ms stalls, probes of other pages left unanswered). The picture
+    /// is re-encoded as a JPEG for the store anyway (`HibernationSnapshots.compress`), so a fast
+    /// JPEG loses nothing it keeps. WebKit's `thumbnail()` is its `snapshot()`.
     var capture: (any BrowserTab) async -> CGImage? = { tab in
         try? await ControlDeadline.shared.run(method: "hibernation.snapshot", deadline: .now + .seconds(2)) { @MainActor in
-            try await tab.snapshot()
+            try await tab.thumbnail()
         }
     }
 
