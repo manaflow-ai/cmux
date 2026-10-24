@@ -220,8 +220,8 @@ class WaivedHitsCount(unittest.TestCase):
         subprocess.run(["git", "-C", self.head, "-c", "user.name=t", "-c", "user.email=t@t",
                         "-c", "commit.gpgsign=false", *args], check=True, capture_output=True)
 
-    def update_baseline(self):
-        subprocess.run([sys.executable, self.ratchet, "--repo", self.head, "--update-baseline"],
+    def update_baseline(self, *flags):
+        subprocess.run([sys.executable, self.ratchet, "--repo", self.head, "--update-baseline", *flags],
                        check=True, capture_output=True)
 
     def baseline(self):
@@ -236,7 +236,13 @@ class WaivedHitsCount(unittest.TestCase):
         self.assertIn("swift FilesUI: unchecked.waived: head 1, base ok", text)
 
     def test_the_refreshed_baseline_records_the_waiver_not_a_reduction(self):
-        self.update_baseline()
+        # --update-baseline never raises a row; the waiver is recorded on purpose, with --record-waivers.
+        refused = subprocess.run([sys.executable, self.ratchet, "--repo", self.head, "--update-baseline"],
+                                 capture_output=True, text=True)
+        self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+        self.assertIn("swift FilesUI: unchecked.waived 0 -> 1", refused.stdout + refused.stderr)
+        self.assertNotIn("FilesUI", self.baseline().get("waived", {}).get("swift", {}).get("unchecked", {}))
+        self.update_baseline("--record-waivers")
         baseline = self.baseline()
         self.assertNotIn("App", baseline["swift"].get("unchecked", {}))
         self.assertEqual(baseline["waived"]["swift"]["unchecked"], {"FilesUI": 1})
@@ -276,6 +282,11 @@ class FixtureRepo:
                                "-c", "commit.gpgsign=false", *args], check=True, capture_output=True,
                               text=True).stdout.strip()
 
+    def move(self, rel, to):
+        """git mv REL TO (the destination folder may be new)."""
+        os.makedirs(os.path.dirname(os.path.join(self.repo, to)), exist_ok=True)
+        self.git("mv", rel, to)
+
     def run_ratchet(self, *flags):
         self.git("add", "-A")
         out = subprocess.run([sys.executable, self.ratchet, "--repo", self.repo, *flags], capture_output=True, text=True)
@@ -294,13 +305,100 @@ class FixtureRepo:
         with open(self.baseline_path) as f:
             return json.load(f)
 
+    def set_row(self, kind, module, hits, waived=False):
+        """Writes one swift row of the baseline by hand (what any writer, or an editor, can do)."""
+        data = self.baseline()
+        section = data.setdefault("waived", {}) if waived else data
+        modules = section.setdefault("swift", {}).setdefault(kind, {})
+        if hits:
+            modules[module] = hits
+        else:
+            modules.pop(module, None)
+        with open(self.baseline_path, "w") as f:
+            json.dump(data, f, indent=1, sort_keys=True)
+
 
 SELECTOR = "let {name} = NSSelectorFromString(\"{name}\")\n"
 
 
+class BaselineOnlyGoesDown(FixtureRepo, unittest.TestCase):
+    """crash_ratchet.py --update-baseline lowers rows and never raises one.
+
+    It used to write the raw counts, so an agent who ran it to record a waiver (as the red message
+    said) also raised every counted row that was red at that moment, other agents' regressions
+    included. A counted row now rises only with a proven move (--base REF: the same hit lines left
+    another module), a waived row only with --record-waivers; every other row stays at the baseline."""
+
+    M = "Packages/macOS/CmuxNext/Sources/M/A.swift"
+    K = "Packages/macOS/CmuxNext/Sources/K/A.swift"
+
+    def setUp(self):
+        self.make_repo()
+        self.write(self.M, SELECTOR.format(name="run"))
+        self.write(self.K, SELECTOR.format(name="go") + SELECTOR.format(name="stop"))
+        self.base = self.commit("base", update_baseline=True)
+        self.assertEqual(self.baseline()["swift"]["dynamic_dispatch"], {"M": 1, "K": 2})
+
+    def test_it_lowers_a_fixed_row_and_refuses_to_raise_a_red_one(self):
+        self.write(self.M, SELECTOR.format(name="run") + SELECTOR.format(name="halt"))
+        self.write(self.K, SELECTOR.format(name="go"))
+        rc, out = self.run_ratchet("--update-baseline")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("swift M: dynamic_dispatch 1 -> 2", out)
+        self.assertEqual(self.baseline()["swift"]["dynamic_dispatch"], {"M": 1, "K": 1})
+        rc, out = self.run_ratchet()
+        self.assertEqual(rc, 1, out)
+        self.assertIn("crash-ratchet: swift M: dynamic_dispatch 1 -> 2", out)
+
+    def test_a_waiver_is_recorded_only_with_record_waivers(self):
+        self.write(self.M, SELECTOR.format(name="run") + "let h = NSSelectorFromString(\"halt\") // crash-allow: reviewed\n")
+        rc, out = self.run_ratchet("--update-baseline")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("swift M: dynamic_dispatch.waived 0 -> 1", out)
+        self.assertNotIn("waived", json.dumps(self.baseline().get("waived", {}).get("swift", {})))
+        rc, out = self.run_ratchet("--record-waivers")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.baseline()["waived"]["swift"]["dynamic_dispatch"], {"M": 1})
+        self.assertEqual(self.baseline()["swift"]["dynamic_dispatch"], {"M": 1, "K": 2})
+
+    def test_record_waivers_does_not_raise_a_counted_row(self):
+        self.write(self.M, SELECTOR.format(name="run") + SELECTOR.format(name="halt")
+                   + "let h = NSSelectorFromString(\"x\") // crash-allow: reviewed\n")
+        rc, out = self.run_ratchet("--record-waivers")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("swift M: dynamic_dispatch 1 -> 2", out)
+        self.assertEqual(self.baseline()["swift"]["dynamic_dispatch"]["M"], 1)
+        self.assertEqual(self.baseline()["waived"]["swift"]["dynamic_dispatch"], {"M": 1})
+
+    def test_a_move_carries_its_row_when_proven_against_the_base(self):
+        self.move(self.M, "Packages/macOS/CmuxNext/Sources/N/A.swift")
+        rc, out = self.run_ratchet("--update-baseline")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("swift N: dynamic_dispatch 0 -> 1", out)
+        rc, out = self.run_ratchet("--update-baseline", "--base", self.base)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("moved", out)
+        self.assertEqual(self.baseline()["swift"]["dynamic_dispatch"], {"N": 1, "K": 2})
+
+    def test_a_move_does_not_carry_a_hit_the_base_was_already_red_on(self):
+        # The base's M is red: 2 hits over a baseline of 1. Moving both to N carries only 1.
+        self.write(self.M, SELECTOR.format(name="run") + SELECTOR.format(name="halt"))
+        red = self.commit("adds a hit past the baseline")
+        self.move(self.M, "Packages/macOS/CmuxNext/Sources/N/A.swift")
+        rc, out = self.run_ratchet("--update-baseline", "--base", red)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("swift N: dynamic_dispatch 1 -> 2", out)
+        self.assertEqual(self.baseline()["swift"]["dynamic_dispatch"], {"N": 1, "K": 2})
+
+
 class CrashRatchetCIStepTests(FixtureRepo, unittest.TestCase):
     """scripts/ci/crash-ratchet-against-base.sh, the workflow step, on throwaway repositories with
-    the real ratchet and compare scripts."""
+    the real ratchet and compare scripts.
+
+    The head's own script and baseline judge both trees, so a change that raised its baseline was
+    green against it ("ok on the head"). The step also compares the head's baseline with the base's:
+    a counted row may only go down (or move, with the same hit lines leaving another module), and a
+    waived row that rises is a recorded waiver, annotated."""
 
     STEP = os.path.join(HERE, "..", "scripts", "ci", "crash-ratchet-against-base.sh")
     SOURCE = "Packages/macOS/CmuxNext/Sources/M/A.swift"
@@ -342,6 +440,68 @@ class CrashRatchetCIStepTests(FixtureRepo, unittest.TestCase):
         rc, out = self.step("push", green)
         self.assertEqual(rc, 1, out)
         self.assertIn("turns the crash ratchet red", out)
+
+    def test_a_push_that_adds_a_hit_and_raises_the_baseline_is_red(self):
+        green = self.green_base()
+        self.write("Packages/macOS/CmuxNext/Sources/M/B.swift", SELECTOR.format(name="stop"))
+        self.set_row("dynamic_dispatch", "M", 2)
+        self.commit("adds a hit and raises the baseline")
+        rc, out = self.step("push", green)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("swift M: dynamic_dispatch base 1, head 2", out)
+        self.assertIn("may only go down", out)
+
+    def test_a_pull_request_that_raises_the_baseline_is_red(self):
+        self.green_base()
+        self.write("Packages/macOS/CmuxNext/Sources/M/B.swift", SELECTOR.format(name="stop"))
+        self.set_row("dynamic_dispatch", "M", 2)
+        self.commit("the pull request's merge")
+        rc, out = self.step("pull_request")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("may only go down", out)
+
+    def test_a_recorded_waiver_is_green_and_annotated(self):
+        green = self.green_base()
+        self.write("Packages/macOS/CmuxNext/Sources/M/B.swift",
+                   "let t = NSSelectorFromString(\"stop\") // crash-allow: reviewed\n")
+        self.set_row("dynamic_dispatch", "M", 1, waived=True)
+        self.commit("a reviewed waiver")
+        rc, out = self.step("push", green)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("::warning::", out)
+        self.assertIn("swift M: dynamic_dispatch.waived base 0, head 1", out)
+
+    def test_a_push_that_moves_a_hit_to_another_module_carries_its_row(self):
+        green = self.green_base()
+        self.move(self.SOURCE, "Packages/macOS/CmuxNext/Sources/N/A.swift")
+        self.set_row("dynamic_dispatch", "M", 0)
+        self.set_row("dynamic_dispatch", "N", 1)
+        self.commit("moves the file to module N")
+        rc, out = self.step("push", green)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("moved", out)
+
+    def test_a_move_that_keeps_the_old_row_is_red(self):
+        # The move carries the row: the old module's row must go down by what moved out.
+        green = self.green_base()
+        self.move(self.SOURCE, "Packages/macOS/CmuxNext/Sources/N/A.swift")
+        self.set_row("dynamic_dispatch", "N", 1)
+        self.commit("moves the file and keeps M's row")
+        rc, out = self.step("push", green)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("swift M: dynamic_dispatch base 1, head 1 (0 after the move)", out)
+
+    def test_a_move_does_not_carry_a_hit_the_base_was_already_red_on(self):
+        self.green_base()
+        self.write(self.SOURCE, SELECTOR.format(name="run") + SELECTOR.format(name="halt"))
+        red = self.commit("adds a hit past the baseline")
+        self.move(self.SOURCE, "Packages/macOS/CmuxNext/Sources/N/A.swift")
+        self.set_row("dynamic_dispatch", "M", 0)
+        self.set_row("dynamic_dispatch", "N", 2)
+        self.commit("moves both hits and records both")
+        rc, out = self.step("push", red)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("swift N: dynamic_dispatch base 0, head 2 (1 after the move)", out)
 
 
 if __name__ == "__main__":
