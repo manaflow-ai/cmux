@@ -24,7 +24,7 @@ import Testing
         #expect(entry.tab.state.url?.absoluteString == BrowserNewTabPage.chromiumURL)
     }
 
-    /// A new tab's stand-in (BrowserTabStandIn, PL-cef-tab) on any address, a link's page
+    /// A new tab's stand-in (PaneBrowserTabOpener.openStandIn, PL-cef-tab) on any address, a link's page
     /// included, has its page and chrome right after the frame of the key that made it: a tab
     /// opened here has no saved history to read first. Not in the key's turn: building the page
     /// and its chrome took 64-380 ms (Chromium) and about 190 ms (WebKit) on the fleet (mac26,

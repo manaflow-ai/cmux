@@ -401,7 +401,7 @@ final class TabContentCache {
         contentDidMount(key)
     }
 
-    /// Stand-in tab `key`'s page and chrome become daemon tab `tab`'s (`BrowserTabStandIn`), in the
+    /// Stand-in tab `key`'s page and chrome become daemon tab `tab`'s (`PaneBrowserTabOpener.openStandIn`), in the
     /// turn the store swaps the two: nothing is rebuilt or reloaded, and the pane that shows the
     /// stand-in keeps the same view when it moves to `tab`. False when the stand-in has no page
     /// (yet) or `tab` has one: `tab` then makes its own.
