@@ -753,11 +753,14 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
   }
   it.each([
     // The runner on the snapshot today: the time limit SIGKILLs Claude Code, the result is "failed" with no reply.
-    ["the current runner", { status: "failed", reply: "", error: "claude exited on signal 9: ", total_ms: 600_000 }],
+    ["the current runner", { status: "failed", reply: "", error: "claude exited on signal 9: ", total_ms: 20 * 60_000 }],
     // The runner that keeps the streamed text itself.
-    ["a runner that keeps the text", { status: "partial", reason: "timeout", reply: progress, error: "the time limit stopped Claude Code", total_ms: 600_000 }]
-  ])("posts what a 10-minute turn streamed when the time limit stops it (%s), not the failed notice", async (_, result) => {
-    const cloud = fakeCloud(() => async (s) => [await toolThenText(s), await notes(s, { run: s.run, result: { ...result, model: s.input.model, last_gen: 1 } })])
+    ["a runner that keeps the text", { status: "partial", reason: "timeout", reply: progress, error: "the time limit stopped Claude Code", total_ms: 20 * 60_000 }]
+  ])("posts what a long tool-heavy turn streamed when the time limit stops it (%s), not the failed notice", async (_, result) => {
+    const cloud = fakeCloud(() => async (s) => {
+      await toolThenText(s)
+      await notes(s, { run: s.run, result: { ...result, model: s.input.model, last_gen: 1 } })
+    })
     const { token, chief } = await enabledChief(`chief-cc-long-${result.status}`, "cc")
     expect((await send(token, chief.main_conversation, "l1", "fix the steering race and deploy")).ok).toBe(true)
     const [reply] = await replies(token, chief.main_conversation, chief.id, 1)

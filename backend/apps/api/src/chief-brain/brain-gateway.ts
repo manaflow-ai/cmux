@@ -106,6 +106,9 @@ export const turnFailedNotice = async (env: Env, sql: SqlStorage, config: BrainC
   }
   // A paid model this owner may not use here (claude-auth.ts ownerTurn): say so, not "could not reach".
   if (/owner_not_allowed|model_not_offered/.test(reason)) return void (await postNotice(env, principal, conversation, MODEL_UNAVAILABLE_NOTICE, `turn-failed:${config.agent}:${run}`).catch(() => undefined))
+  // A Cloud Chief turn (chief-brain-cc/turn.ts): what happened, not "could not reach".
+  const cc = /^cc_(timeout|model_before|model|stopped|machine):/.exec(reason)?.[1] as keyof typeof CC_NOTICES | undefined
+  if (cc) return void (await postNotice(env, principal, conversation, CC_NOTICES[cc], `turn-failed:${config.agent}:${run}`).catch(() => undefined))
   await postNotice(env, principal, conversation, TURN_FAILED_NOTICE, `turn-failed:${config.agent}:${run}`).catch(() => undefined)
 }
 
