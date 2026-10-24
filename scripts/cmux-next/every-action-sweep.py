@@ -214,7 +214,10 @@ def hang_summary(hangs):
     if longest:
         out["stack"] = {"ms": round(longest.get("duration_ms") or 0, 2), "cpu_ms": round(longest.get("cpu_ms") or 0, 2),
                         "top": (longest.get("frames") or [])[:6],
-                        "app": [f for f in longest.get("frames") or [] if "cmux" in f.lower()][:14]}
+                        "app": [f for f in longest.get("frames") or [] if "cmux" in f.lower()][:14],
+                        # The whole main-thread stack (bounded): a wait in the window server or a lock shows its
+                        # AppKit and app callers only here (the app filter keeps cmux frames, `top` the leaf).
+                        "frames": (longest.get("frames") or [])[:64]}
     return out
 
 
