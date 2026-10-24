@@ -1277,7 +1277,9 @@ class HookTests(Fixture):
         self.assertTrue(link.is_symlink())
         self.assertNotEqual(link.resolve(), before, "each install writes a new copy")
         self.assertTrue((link / "guardrails.py").is_file())
-        self.assertTrue((before / "guardrails.py").is_file(), "the replaced copy stays for a push already running")
+        # Retention is by use, not by age or position: a push holds its copy (the test below); with none running
+        # the replaced copy goes, so copies never pile up.
+        self.assertFalse(before.exists(), "no push holds the replaced copy")
 
     def install(self):
         result = subprocess.run(["bash", "scripts/install-git-hooks.sh"], cwd=self.repo, env=self.env, text=True,

@@ -71,6 +71,7 @@ from __future__ import annotations
 import argparse
 import collections
 import concurrent.futures
+import fcntl
 import hashlib
 import importlib.util
 import json
@@ -650,6 +651,35 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
     return found
 
 
+CHECKS_IN_USE = ".in-use"
+
+
+def claim_trusted_scripts(link: Path):
+    """(the checks copy LINK points at, an open handle that holds it in use until this process exits).
+
+    install-git-hooks.sh removes a copy only when it can take an exclusive flock on the copy's .in-use, and
+    renames it away first while holding that lock; this takes a shared one. A copy removed between resolving
+    the link and taking the lock is seen (open fails, or the file has no link left) and the link resolved
+    again: a link only ever moves to a newer copy. A copy without .in-use is from an install before the lock
+    (handle None), as is a link that points at nothing (the caller refuses it).
+    """
+    target = link.resolve()
+    while True:
+        try:
+            handle = open(target / CHECKS_IN_USE, "rb")
+        except FileNotFoundError:
+            again = link.resolve()
+            if again == target:
+                return target, None
+            target = again
+            continue
+        fcntl.flock(handle, fcntl.LOCK_SH)
+        if os.fstat(handle.fileno()).st_nlink > 0:
+            return target, handle
+        handle.close()
+        target = link.resolve()
+
+
 def load_guardrails(repo: Path, trusted_scripts: Path | None):
     """The guardrails module: the installed reviewed copy for the hook, else this checkout's."""
     script = (trusted_scripts / "guardrails.py") if trusted_scripts else (repo / SCRIPTS / "guardrails.py")
@@ -820,7 +850,9 @@ def main(argv: list[str] | None = None) -> int:
     repo = Path(args.repo or git(Path.cwd(), "rev-parse", "--show-toplevel").decode().strip())
     only = set(args.only.split(",")) if args.only else None
     started = time.monotonic()
-    trusted_scripts = Path(args.trusted_scripts_dir).resolve() if args.trusted_scripts_dir else None
+    # The handle keeps the installed checks copy this run reads in use until main returns (claim_trusted_scripts).
+    trusted_scripts, _in_use = (claim_trusted_scripts(Path(args.trusted_scripts_dir)) if args.trusted_scripts_dir
+                                else (None, None))
     if args.pre_push and (trusted_scripts is None or not trusted_scripts.is_dir()):
         raise SystemExit("prepush-gate: --pre-push requires the installed --trusted-scripts-dir snapshot")
 
