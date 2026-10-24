@@ -93,6 +93,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         layoutView.onTerminalGridHold = { [weak layoutView] held in
             if let layoutView { ResizeCoordinator.shared.setHeld(held, by: layoutView) }
         }
+        // A scroll the layout took is timed as the layout's (`key.scroll_frame target=layout`).
+        layoutView.onScrollTaken = { [inputDispatch = services.inputDispatch] in inputDispatch.noteLayoutTookScroll() }
         // A link dragged in from another app or a page: the drop zones a dragged tab has (LinkDropPlan).
         layoutView.linkDropHandler = { [weak self] url, target, perform in
             guard let self, let item = LinkDragItem(url, browserEnabled: LinkRouter.shared.routing().browserEnabled),
