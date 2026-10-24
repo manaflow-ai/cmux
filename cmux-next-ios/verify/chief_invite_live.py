@@ -31,17 +31,20 @@ from sim import Sim  # noqa: E402
 from chief_info_live import appearance, close_info, on_info, open_chief  # noqa: E402
 
 
+# The share sheet runs in another process: its buttons are not in the app's
+# accessibility tree, so it is read from the screen (OCR) and tapped by place
+# (iPhone 17 Pro, 402 x 874 pt: Copy at 68,384; outside the card at 200,700).
+COPY = (68, 384)
+OUTSIDE = (200, 700)
+
+
 def sheet_up(sim):
-    return any((e.label or "") in ("Copy", "Close") or (e.ident or "").startswith("com.apple.UIKit.activity")
-               for e in sim.tree())
+    # The preview's link line (OCR can read Copy's C as a Cyrillic letter).
+    return any("cmux.com" in o[4] and o[1] < 500 for o in sim.ocr())
 
 
 def close_sheet(sim):
-    close = sim.find(label="Close", kind="Button")
-    if close:
-        sim.tap_el(close[0])
-    else:
-        sim.swipe(201, 420, 201, 860, 0.3)
+    sim.tap(*OUTSIDE)
     time.sleep(1.5)
 
 
@@ -99,42 +102,26 @@ def main():  # noqa: C901 - one live scenario
             c[f"trailing_label_{mode}"] = trailing[0].label if trailing else None
             result["shots"][f"chief-{mode}"] = sim.shot(f"01-chief-{mode}")
             sim.tap_q(ident="conversation.header.trailing")
-            sim.wait(timeout=10, label="Copy")
-            time.sleep(1.5)
+            time.sleep(2.5)
             c[f"sheet_up_{mode}"] = sheet_up(sim)
-            texts = [t for t in sim.texts() if t]
-            c[f"sheet_texts_{mode}"] = texts[:40]
+            c[f"sheet_ocr_{mode}"] = [o[4] for o in sim.ocr()]
             result["shots"][f"sheet-{mode}"] = sim.shot(f"02-share-sheet-{mode}")
             if mode == "light":
-                # What the share sends: Copy puts every item on the pasteboard.
+                # What the share sends: Copy puts the items on the pasteboard and closes the sheet.
                 subprocess.run(["xcrun", "simctl", "pbcopy", udid], input="", text=True)
-                copy = sim.find(label="Copy")
-                if copy:
-                    sim.tap_el(copy[0]); time.sleep(1.5)
-                    c["copied_text"] = pasteboard(udid)
-                    log(f"copied: {c['copied_text']!r}")
-                if sheet_up(sim):
-                    close_sheet(sim)
-                # Messages' compose, with the preview.
-                sim.tap_q(ident="conversation.header.trailing")
-                sim.wait(timeout=10, label="Copy"); time.sleep(1.5)
-                msgs = sim.find(label="Messages", kind="Button") or sim.find(label="Messages")
-                c["sheet_offers_messages"] = bool(msgs)
-                if msgs:
-                    sim.tap_el(msgs[0]); time.sleep(4)
-                    c["messages_compose_texts"] = [t for t in sim.texts() if t][:40]
-                    result["shots"]["messages"] = sim.shot("03-messages-compose")
-                    cancel = sim.find(label="Cancel", kind="Button")
-                    if cancel:
-                        sim.tap_el(cancel[0]); time.sleep(1.5)
-                        delete = sim.find(label="Delete Draft") or sim.find(label="Delete Message")
-                        if delete:
-                            sim.tap_el(delete[0]); time.sleep(1.5)
+                sim.tap(*COPY); time.sleep(2)
+                c["copied_text"] = pasteboard(udid)
+                c["copy_closes_sheet"] = not sheet_up(sim)
+                log(f"copied: {c['copied_text']!r}")
+                sim.tap_q(ident="conversation.header.trailing"); time.sleep(2.5)
+                # The simulator has no Messages account, so the sheet offers no Messages.
+                c["sheet_offers_messages"] = "Messages" in " ".join(o[4] for o in sim.ocr() if o[1] < 500)
             if sheet_up(sim):
                 close_sheet(sim)
             c[f"sheet_closed_{mode}"] = not sheet_up(sim)
         appearance(udid, "light")
         # Chief's info is still one tap away: the header's name, then the avatar.
+        c["back_in_conversation_before_info"] = bool(sim.find(ident="conversation.transcript"))
         sim.tap_q(ident="conversation.header.name")
         c["name_opens_info"] = bool(sim.wait(timeout=10, ident="chief.settings")) and (time.sleep(1.8) or on_info(sim))
         result["shots"]["info-from-name"] = sim.shot("04-info-from-name")
