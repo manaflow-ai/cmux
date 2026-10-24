@@ -13,7 +13,7 @@ public final class CmuxToastButton: NSButton {
     static let closeSide: CGFloat = 20
     let style: Style
     private let plainTitle: String
-    private lazy var hover = ChromeHover(self, cornerRadius: Metrics.itemCornerRadius, behindContent: true)
+    private(set) lazy var hover = ChromeHover(self, cornerRadius: Metrics.itemCornerRadius, behindContent: true)
 
     init(style: Style, title: String, target: AnyObject?, action: Selector?) {
         self.style = style
