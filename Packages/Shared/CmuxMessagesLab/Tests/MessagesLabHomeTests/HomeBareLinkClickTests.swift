@@ -81,8 +81,9 @@ import UniformTypeIdentifiers
         view.cacheDisplay(in: view.bounds, to: rep)
         let shot = try #require(rep.cgImage)
         let scale = CGFloat(shot.width) / view.bounds.width
+        let space = try #require(CGColorSpace(name: CGColorSpace.sRGB))
         let ctx = try #require(CGContext(data: nil, width: shot.width, height: shot.height, bitsPerComponent: 8, bytesPerRow: 0,
-                                         space: try #require(CGColorSpace(name: CGColorSpace.sRGB)),
+                                         space: space,
                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         ctx.draw(shot, in: CGRect(x: 0, y: 0, width: shot.width, height: shot.height))
         ctx.setStrokeColor(CGColor(red: 1, green: 0.2, blue: 0.2, alpha: 1))
