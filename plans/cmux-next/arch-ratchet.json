@@ -2,8 +2,8 @@
   "_doc": "Architecture counts the pre-push ratchet holds (scripts/cmux-next/guardrails.py runs scripts/cmux-next/arch-ratchet.py; the method is scripts/cmux-next/arch_counts.py, whose docstring defines every row). A push may not raise a ratcheted row's total, in the code or in this file's totals, nor swap a counted global, broadcast or layer edge for another; when one drops, rerun `scripts/cmux-next/arch-ratchet.py --update` (the only writer). The one escape is a dated exception: add {\"date\": \"YYYY-MM-DD\", \"row\": \"<row>\", \"allow\": <n>, \"why\": \"...\"} to exceptions; the push that adds it may raise that row by n, and the next --update folds it into the totals and marks it with applied_sha (an applied entry is never edited or removed). --update refuses a rise that no pending exception covers, except a rise that commits already on origin/feat-cmux-next made past the hook (a GitHub merge, --no-verify): it records that one with a generated applied entry whose raised_by names those commits. A generated entry allows no rise in any push's code, and the push that brings it is re-checked: its commits must be on origin/feat-cmux-next, after the old measured_sha and in the new one, named by no other entry, and its allow at most their rise. Never CI.",
   "method": "arch_counts",
   "method_version": 3,
-  "measured_sha": "25f625c2105f9a6dc9b448bbc938969684e01a15",
-  "measured_date": "2026-10-23",
+  "measured_sha": "1345f5584a2fb2316f1e64c0b026243ad18026e2",
+  "measured_date": "2026-10-24",
   "rows": {
     "layer_hard": {
       "title": "hard layer edges (core/service/domain -> ui/app)",
@@ -56,12 +56,12 @@
     "layer_upward": 3,
     "layer_unplaced": 0,
     "stateful_singletons": 177,
-    "global_mutable_statics": 281,
+    "global_mutable_statics": 279,
     "assume_isolated_outside_adapters": 189,
-    "assume_isolated_total": 238,
+    "assume_isolated_total": 239,
     "app_broadcast_names": 12,
     "observer_sites": 188,
-    "app_lines": 142413
+    "app_lines": 142658
   },
   "packages": {
     "CmuxNextActions": {
@@ -104,11 +104,11 @@
     },
     "CmuxNextApp": {
       "stateful_singletons": 33,
-      "global_mutable_statics": 76,
+      "global_mutable_statics": 75,
       "assume_isolated_outside_adapters": 49,
       "assume_isolated_total": 60,
       "observer_sites": 59,
-      "app_lines": 142413
+      "app_lines": 142658
     },
     "CmuxNextApps": {
       "stateful_singletons": 1,
@@ -370,7 +370,7 @@
     },
     "CmuxNextTerminal": {
       "stateful_singletons": 1,
-      "global_mutable_statics": 23,
+      "global_mutable_statics": 22,
       "assume_isolated_outside_adapters": 20,
       "assume_isolated_total": 20,
       "app_broadcast_names": 1,
@@ -382,7 +382,7 @@
     "CmuxNextWakeups": {
       "stateful_singletons": 6,
       "global_mutable_statics": 1,
-      "assume_isolated_total": 2,
+      "assume_isolated_total": 3,
       "observer_sites": 1
     },
     "CmuxNextWebUpdates": {
