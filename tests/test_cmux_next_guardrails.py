@@ -1080,6 +1080,39 @@ class WarningTests(Fixture):
         self.assertEqual(refusals, [])
         self.assertEqual(len(calls), 3, calls)
 
+    def test_a_merged_push_reads_the_type_declarations_once(self):
+        # Judging a named static in a struct needs the kinds of the types it stores, read with a `git grep` over
+        # Sources (about 1 s on the real tree). A branch that merged feat-cmux-next in is checked over two ranges
+        # with one head: one grep at that head serves both, each base's kinds follow from its diff.
+        self.rebase_on({f"{KIT}/Style.swift": "struct Style {\n    var size = 1\n}\n",
+                        f"{KIT}/Theme.swift": "struct Theme {\n    static let standard = Style()\n}\n"}, "declarations")
+        self.git("checkout", "--quiet", "-b", "topic")
+        self.write(f"{KIT}/Topic.swift", "struct Topic {}\n")
+        self.commit("topic work")
+        pushed = self.git("rev-parse", "HEAD").stdout.strip()
+        self.git("checkout", "--quiet", "feat-cmux-next")
+        self.write(f"{KIT}/Landed.swift", "struct Landed {}\n")
+        self.commit("landed on feat-cmux-next")
+        self.git("checkout", "--quiet", "topic")
+        self.git("merge", "--quiet", "--no-edit", "feat-cmux-next")
+        self.write(f"{KIT}/Theme.swift", "struct Theme {\n    static let standard = Style(size: 2)\n}\n")
+        self.commit("edits a named static of a struct")
+        greps = []
+
+        def run(args, *rest, **kwargs):
+            if "grep" in args:
+                greps.append(args)
+            return subprocess.run(args, *rest, **kwargs)
+
+        stand_in = types.SimpleNamespace(run=run, Popen=subprocess.Popen, PIPE=subprocess.PIPE, DEVNULL=subprocess.DEVNULL)
+        guardrails.subprocess = guardrails.git_batch.subprocess = stand_in
+        try:
+            refusals, _ = self.check(guardrails.check_push, pushed, "HEAD", "feat-cmux-next")
+        finally:
+            guardrails.subprocess = guardrails.git_batch.subprocess = subprocess
+        self.assertEqual(refusals, [])
+        self.assertEqual(len(greps), 1, greps)
+
 
 class SharedRuleTests(Fixture):
     """A rule another check owns is judged by that check's own definition, never by a second copy here."""
