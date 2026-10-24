@@ -342,9 +342,21 @@ fn poll(device_code: &str, interval: &mut u64) -> Result<Option<String>, String>
     }
 }
 
-/// `login`: starts the device flow, leaves a detached poller that outlives
-/// the turn (it reads the device code on stdin) and returns the card.
-fn login(home: &Path) -> Result<Value, String> {
+/// A device sign-in keeps a fresh code this long before it gives up
+/// (GitHub's codes last about 15 minutes; the user, 2026-10-24: "until
+/// approved or ~3 h").
+pub const DEVICE_WINDOW_MS: u64 = 3 * 60 * 60 * 1000;
+
+/// One device code from GitHub.
+struct DeviceCode {
+    device: String,
+    user_code: String,
+    uri: String,
+    expires_at: u64,
+    interval: u64,
+}
+
+fn request_code() -> Result<DeviceCode, String> {
     let r: Value = agent()
         .post(&format!("{WEB}/login/device/code"))
         .set("accept", "application/json")
@@ -355,11 +367,60 @@ fn login(home: &Path) -> Result<Value, String> {
     let (Some(device), Some(code)) = (r["device_code"].as_str(), r["user_code"].as_str()) else {
         return Err("GitHub's answer has no device code".into());
     };
-    let uri = r["verification_uri"]
-        .as_str()
-        .unwrap_or("https://github.com/login/device");
-    let expires_at = now_ms() + r["expires_in"].as_u64().unwrap_or(900) * 1000;
-    let interval = r["interval"].as_u64().unwrap_or(5);
+    Ok(DeviceCode {
+        device: device.to_owned(),
+        user_code: code.to_owned(),
+        uri: r["verification_uri"]
+            .as_str()
+            .unwrap_or("https://github.com/login/device")
+            .to_owned(),
+        expires_at: now_ms() + r["expires_in"].as_u64().unwrap_or(900) * 1000,
+        interval: r["interval"].as_u64().unwrap_or(5),
+    })
+}
+
+/// What the poller does next with its current code.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Next {
+    Poll,
+    /// The code ended: ask GitHub for a new one.
+    Renew,
+    /// The window ended with no approval.
+    GiveUp,
+}
+
+pub fn next_step(now: u64, code_expires: u64, window_end: u64) -> Next {
+    if now < code_expires {
+        Next::Poll
+    } else if now < window_end {
+        Next::Renew
+    } else {
+        Next::GiveUp
+    }
+}
+
+fn write_pending(
+    home: &Path,
+    c: &DeviceCode,
+    started_at: u64,
+    renewals: u64,
+    pid: u32,
+) -> Result<(), String> {
+    let mut s = read_status(home);
+    s["pending"] = json!({"user_code": c.user_code, "verification_uri": c.uri, "expires_at": c.expires_at,
+        "started_at": started_at, "until": started_at + DEVICE_WINDOW_MS, "renewals": renewals, "pid": pid});
+    if let Some(o) = s.as_object_mut() {
+        o.remove("last_error");
+    }
+    write_status(home, &s)
+}
+
+/// `login`: starts the device flow, leaves a detached poller that outlives
+/// the turn (it reads the device code on stdin, and asks for a new code
+/// each time one ends, for DEVICE_WINDOW_MS) and returns the card.
+fn login(home: &Path) -> Result<Value, String> {
+    let c = request_code()?;
+    let started_at = now_ms();
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let log = std::fs::OpenOptions::new()
         .create(true)
@@ -372,9 +433,11 @@ fn login(home: &Path) -> Result<Value, String> {
         .arg(home)
         .args([
             "--interval",
-            &interval.to_string(),
-            "--until",
-            &expires_at.to_string(),
+            &c.interval.to_string(),
+            "--expires",
+            &c.expires_at.to_string(),
+            "--started",
+            &started_at.to_string(),
         ])
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
@@ -387,61 +450,72 @@ fn login(home: &Path) -> Result<Value, String> {
         .stdin
         .take()
         .ok_or("poller: no stdin")?
-        .write_all(device.as_bytes())
+        .write_all(c.device.as_bytes())
         .map_err(|e| e.to_string())?;
-    let mut s = read_status(home);
-    s["pending"] = json!({"user_code": code, "verification_uri": uri, "expires_at": expires_at, "pid": child.id()});
-    s.as_object_mut().map(|o| o.remove("last_error"));
-    write_status(home, &s)?;
+    write_pending(home, &c, started_at, 0, child.id())?;
     let mut out = status(home);
-    out["card"] = json!(card(code, uri));
+    out["card"] = json!(card(&c.user_code, &c.uri));
+    // When to wake (the Chief's `sleep` tool) to post the next code.
+    out["wake_in"] = json!((c.expires_at.saturating_sub(now_ms()) / 1000 + 5).max(30));
     Ok(out)
 }
 
-/// The detached poller (`github poll`): the device code on stdin.
-fn poll_loop(home: &Path, mut interval: u64, until: u64) -> Result<Value, String> {
+/// The detached poller (`github poll`): the first device code on stdin.
+fn poll_loop(
+    home: &Path,
+    mut interval: u64,
+    mut expires: u64,
+    started: u64,
+) -> Result<Value, String> {
     let mut device = String::new();
     std::io::stdin()
         .read_to_string(&mut device)
         .map_err(|e| e.to_string())?;
-    let device = device.trim().to_owned();
-    let end = |home: &Path, error: Option<String>| {
+    let mut device = device.trim().to_owned();
+    let mut renewals = 0;
+    let end = |home: &Path, error: &str| {
         let mut s = read_status(home);
         if let Some(o) = s.as_object_mut() {
             o.remove("pending");
-            if let Some(e) = &error {
-                o.insert("last_error".into(), json!(e));
-            }
+            o.insert("last_error".into(), json!(error));
         }
         let _ = write_status(home, &s);
     };
-    while now_ms() < until {
-        std::thread::sleep(Duration::from_secs(interval.max(1)));
-        match poll(&device, &mut interval) {
-            Ok(Some(token)) => {
-                return match keep(home, "device", &token) {
-                    Ok(s) => Ok(s),
-                    Err(e) => {
-                        end(home, Some(e.clone()));
-                        Err(e)
-                    }
-                };
+    loop {
+        match next_step(now_ms(), expires, started + DEVICE_WINDOW_MS) {
+            Next::GiveUp => {
+                end(
+                    home,
+                    "no one approved the GitHub sign-in in 3 hours; run `chief github login` again",
+                );
+                return Err("expired".into());
             }
-            Ok(None) => {}
-            Err(e) => {
-                end(home, Some(e.clone()));
-                return Err(e);
+            Next::Renew => match request_code() {
+                Ok(c) => {
+                    renewals += 1;
+                    device = c.device.clone();
+                    expires = c.expires_at;
+                    interval = c.interval;
+                    write_pending(home, &c, started, renewals, std::process::id())?;
+                }
+                Err(_) => std::thread::sleep(Duration::from_secs(30)),
+            },
+            Next::Poll => {
+                std::thread::sleep(Duration::from_secs(interval.max(1)));
+                match poll(&device, &mut interval) {
+                    Ok(Some(token)) => {
+                        return keep(home, "device", &token).inspect_err(|e| end(home, e));
+                    }
+                    Ok(None) => {}
+                    Err(e) if e.contains("expired_token") => expires = 0,
+                    Err(e) => {
+                        end(home, &e);
+                        return Err(e);
+                    }
+                }
             }
         }
     }
-    end(
-        home,
-        Some(
-            "the sign-in code expired before it was approved; run `chief github login` again"
-                .into(),
-        ),
-    );
-    Err("expired".into())
 }
 
 fn logout(home: &Path) -> Result<Value, String> {
@@ -519,7 +593,8 @@ pub fn describe(s: &Value) -> String {
     }
     if let Some(c) = s["card"].as_str() {
         line = format!(
-            "{c}\n\n(post the two lines above as your reply; the poller keeps going after your turn)\n{line}"
+            "{c}\n\n(post the two lines above as your reply; the poller keeps going after your turn and makes a new code when this one ends, for 3 hours. Then call sleep({}, \"GitHub code ended: chief github status, post the new code\") to come back with the next one; skill github-signin)\n{line}",
+            s["wake_in"].as_u64().unwrap_or(905)
         );
     }
     if let Some(n) = s["note"].as_str() {
@@ -570,15 +645,14 @@ pub fn run(flags: &crate::cli::Flags, home: &Path, as_json: bool) -> Result<Stri
                 .ok_or_else(|| "no token of this Chief's own".to_owned());
         }
         "poll" => {
-            let interval = flags
-                .value("interval")
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(5);
-            let until = flags
-                .value("until")
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(now_ms() + 900_000);
-            poll_loop(home, interval, until)?
+            let num = |k: &str| flags.value(k).and_then(|v| v.parse::<u64>().ok());
+            let started = num("started").unwrap_or_else(now_ms);
+            poll_loop(
+                home,
+                num("interval").unwrap_or(5),
+                num("expires").unwrap_or(started + 900_000),
+                started,
+            )?
         }
         _ => return Err(USAGE.into()),
     };
@@ -653,6 +727,24 @@ mod tests {
             ["gist", "read:org", "repo", "workflow"]
         );
         assert!(scopes_of("").is_empty());
+    }
+
+    #[test]
+    fn keeps_a_fresh_code_until_the_window_ends() {
+        let start = 1_000_000;
+        let window = start + DEVICE_WINDOW_MS;
+        assert_eq!(
+            next_step(start + 60_000, start + 900_000, window),
+            Next::Poll
+        );
+        assert_eq!(
+            next_step(start + 900_000, start + 900_000, window),
+            Next::Renew
+        );
+        assert_eq!(next_step(window - 1, start + 900_000, window), Next::Renew);
+        assert_eq!(next_step(window, window + 900_000, window), Next::Poll);
+        assert_eq!(next_step(window, start + 900_000, window), Next::GiveUp);
+        assert_eq!(DEVICE_WINDOW_MS, 10_800_000);
     }
 
     #[test]
