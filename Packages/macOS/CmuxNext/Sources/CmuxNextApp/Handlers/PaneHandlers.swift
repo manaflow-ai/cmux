@@ -138,7 +138,9 @@ enum PaneHandlers {
         if provisional == nil { content?.layoutView.syncWithModel() }
         let intended = provisional.map { provisional in
             defer { BenchSpans.measure("split.layout") { content?.applyCurrent() } }
-            return BenchSpans.measure("split.intend") { command.intendNow(on: daemon, provisional: provisional) }
+            let send = BenchSpans.measure("split.intend") { command.intendNow(on: daemon, provisional: provisional) }
+            // In press order after the window's create before it: a split of its stand-in names the daemon's pane.
+            return content?.orderedCreate(send) ?? send
         }
         ctx.registry.track(Task {
             var landed = false
