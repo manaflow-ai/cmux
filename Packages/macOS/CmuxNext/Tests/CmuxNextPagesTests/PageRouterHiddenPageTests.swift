@@ -127,6 +127,36 @@ struct PageRouterHiddenPageTests {
         #expect(provider.dropped.compactMap { $0["n"]?.doubleValue } == [1, 2])
     }
 
+    /// A provider's events sent inside `subscribe` wait for the reply and then go in order; the
+    /// events after the reply go straight to the page. The guard after `subscribe` had its two
+    /// cases swapped (#24617): held events were dropped, and with none held every later event
+    /// waited for a flush task.
+    @Test func eventsSentDuringSubscribeFollowTheReplyAndLaterOnesGoAtOnce() async throws {
+        let provider = StreamProvider()
+        provider.duringSubscribe = [["n": 1], ["n": 2]]
+        let router = PageRouter(descriptor: descriptor, routes: [PageRoute(prefix: "cmux.hidden-test.", provider: provider)])
+        let recorder = Recorder()
+        let (sent, sink) = AsyncStream<[JSONValue]>.makeStream()
+        router.send = { recorder.sends.append($0); sink.yield($0) }
+        let reply = await router.handle(["t": "sub", "id": 1, "stream": "cmux.hidden-test.changed"])
+        #expect(reply["t"]?.stringValue == "ok")
+        #expect(recorder.sends.isEmpty, "an event sent during subscribe reached the page before the reply")
+        var flushed: [Double] = []
+        for await batch in sent {
+            flushed += batch.compactMap { $0["data"]?["n"]?.doubleValue }
+            if flushed.count >= 2 { break }
+        }
+        #expect(flushed == [1, 2])
+        provider.emit?(["n": 3])
+        #expect(recorder.sends.last?.compactMap { $0["data"]?["n"]?.doubleValue } == [3])
+    }
+
+    @Test func eventsAfterAReplyWithNothingHeldGoAtOnce() async throws {
+        let (_, provider, recorder) = try await subscribed()
+        provider.emit?(["n": 1])
+        #expect(recorder.sends.map(\.count) == [1], "an event after the reply waited for a flush")
+    }
+
     /// A busy stream behind another tab costs one `send` per ``PageRouter/heldLimit`` events, not
     /// unbounded memory.
     @Test func aBusyHiddenStreamGoesInBatchesOfTheLimit() async throws {
@@ -192,6 +222,8 @@ private final class Recorder {
 @MainActor
 private final class StreamProvider: PageProvider {
     var emit: (@MainActor (JSONValue) -> Void)?
+    /// Events `subscribe` sends before it returns (its current state).
+    var duringSubscribe: [JSONValue] = []
     /// Event data the router reported as never delivered, in report order.
     var dropped: [JSONValue] = []
 
@@ -200,6 +232,7 @@ private final class StreamProvider: PageProvider {
     func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
                    onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
         emit = onEvent
+        for data in duringSubscribe { onEvent(data) }
         return PageSubscription { [weak self] in self?.emit = nil }
     }
 
