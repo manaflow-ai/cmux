@@ -135,7 +135,8 @@ jobs:
             part_dir="$out/$part"
             mkdir -p "$part_dir"
             part_started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            scripts/measure/split-spring.sh "${args[@]}" --out "$part_dir" >"$part_dir/run.log" 2>&1
+            scripts/measure/split-spring.sh "${args[@]}" >"$part_dir/run.log" 2>&1
+            cp artifacts/split-spring/report.json "$part_dir/report.json"
             part_finished="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
             PART="$part" PART_STARTED="$part_started" PART_FINISHED="$part_finished" python3 - "$out/receipt.json" "$part_dir" <<'PY2'
           import json, os, pathlib, sys
