@@ -492,7 +492,7 @@ struct SidebarWorkspaceSnapshotFactory {
     }
 
     /// Unique config-profile labels of the workspace's live agents, in panel order.
-    func agentProfileLabels(orderedPanelIds: [UUID]) -> [String] {
+    private func agentProfileLabels(orderedPanelIds: [UUID]) -> [String] {
         guard let index = SharedLiveAgentIndex.shared.index else { return [] }
         let home = NSHomeDirectory()
         var labels: [String] = []

@@ -51,21 +51,6 @@ struct WorkspaceRespawnAccountEnvironmentTests {
     }
 
     @Test
-    func respawnForwardsInitialInput() throws {
-        let workspace = Workspace()
-        let panelId = try #require(workspace.focusedPanelId)
-        let input = "echo cmux-respawn-startup-input\n"
-
-        let newPanel = try #require(workspace.respawnTerminalSurface(
-            panelId: panelId,
-            command: nil,
-            initialInput: input
-        ))
-
-        #expect(newPanel.surface.initialInput == input)
-    }
-
-    @Test
     func secondRespawnKeepsAccountOverride() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
@@ -206,9 +191,9 @@ struct WorkspaceRespawnAccountEnvironmentTests {
         #expect(replaced.surface.startupEnvironmentValue(key) == "/c")
     }
 
-    /// A native reservation hosts a remote terminal, so a local env change or
-    /// startup input could not reach it. The respawn refuses and leaves the
-    /// old surface in place instead of dropping them.
+    /// A native reservation hosts a remote terminal, so a local env change
+    /// could not reach it. The respawn refuses and leaves the old surface in
+    /// place instead of dropping it.
     @Test
     func nativeReservationRespawnRefusesLocalLaunchChanges() throws {
         let workspace = Workspace()
@@ -227,15 +212,12 @@ struct WorkspaceRespawnAccountEnvironmentTests {
         #expect(workspace.respawnTerminalSurface(
             panelId: panelId, command: nil, nativeReservation: reservation, removingEnvironmentKeys: [key]
         ) == nil)
-        #expect(workspace.respawnTerminalSurface(
-            panelId: panelId, command: nil, nativeReservation: reservation, initialInput: "echo switched\n"
-        ) == nil)
         #expect(workspace.terminalPanel(for: panelId) === oldPanel)
         #expect(workspace.cloudPendingCreations[panelId] == nil)
     }
 
     /// An SSH-owned surface respawns through its provider, which cannot carry a
-    /// local env change or startup input; the respawn refuses before the
+    /// local env change; the respawn refuses before the
     /// provider closes the remote terminal.
     @Test
     func sshOwnedSurfaceRespawnRefusesLocalLaunchChanges() throws {
@@ -280,9 +262,6 @@ struct WorkspaceRespawnAccountEnvironmentTests {
         ) == nil)
         #expect(workspace.respawnTerminalSurface(
             panelId: panelId, command: nil, removingEnvironmentKeys: [key]
-        ) == nil)
-        #expect(workspace.respawnTerminalSurface(
-            panelId: panelId, command: nil, initialInput: "echo switched\n"
         ) == nil)
         #expect(workspace.terminalPanel(for: panelId) === oldPanel)
         #expect(provider.closedTerminals.isEmpty)

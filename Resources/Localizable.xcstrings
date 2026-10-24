@@ -671698,65 +671698,6 @@
         }
       }
     },
-    "cli.claudeAccount.error.agentRunningHint": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pass --force to stop the response and switch."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "استخدم --force لإيقاف الرد والتبديل."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mit --force wird die Antwort gestoppt und gewechselt."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Usa --force para detener la respuesta y cambiar."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Utilisez --force pour arrêter la réponse et changer de compte."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "--force を指定すると応答を停止して切り替えます。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "--force를 지정하면 응답을 중지하고 전환합니다."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "加上 --force 可停止响应并切换。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "加上 --force 可停止回應並切換。"
-          }
-        }
-      }
-    },
     "cli.claudeAccount.error.noTarget": {
       "extractionState": "manual",
       "localizations": {
@@ -672530,55 +672471,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This Claude session has no messages yet, so there's nothing to continue on another account. Send at least one message, then switch."
+            "value": "cmux couldn't find any messages in this conversation to continue on another account. If you haven't sent one yet, send a message, then switch."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا تحتوي جلسة Claude هذه على أي رسائل بعد، لذا لا يوجد ما يمكن متابعته على حساب آخر. أرسل رسالة واحدة على الأقل، ثم بدّل الحساب."
+            "value": "لم يعثر cmux على أي رسائل في هذه المحادثة لمتابعتها على حساب آخر. إذا لم ترسل رسالة بعد، فأرسل رسالة ثم بدّل الحساب."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diese Claude-Sitzung enthält noch keine Nachrichten, daher gibt es in einem anderen Konto nichts fortzusetzen. Sende mindestens eine Nachricht und wechsle dann."
+            "value": "cmux konnte in dieser Unterhaltung keine Nachrichten finden, die in einem anderen Konto fortgesetzt werden könnten. Falls Sie noch keine gesendet haben, senden Sie eine Nachricht und wechseln Sie dann."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Esta sesión de Claude todavía no tiene mensajes, así que no hay nada que continuar en otra cuenta. Envía al menos un mensaje y luego cambia de cuenta."
+            "value": "cmux no encontró ningún mensaje en esta conversación para continuar en otra cuenta. Si todavía no has enviado ninguno, envía un mensaje y luego cambia de cuenta."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cette session Claude ne contient encore aucun message ; il n'y a donc rien à poursuivre sur un autre compte. Envoyez au moins un message, puis changez de compte."
+            "value": "cmux n'a trouvé aucun message dans cette conversation à poursuivre sur un autre compte. Si vous n'en avez pas encore envoyé, envoyez un message, puis changez de compte."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この Claude セッションにはまだメッセージがないため、別のアカウントで続行できる内容がありません。メッセージを 1 つ以上送信してから切り替えてください。"
+            "value": "cmux はこの会話で別のアカウントに引き継げるメッセージを見つけられませんでした。まだメッセージを送信していない場合は、メッセージを送信してから切り替えてください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 Claude 세션에는 아직 메시지가 없어 다른 계정에서 이어갈 내용이 없습니다. 메시지를 하나 이상 보낸 뒤 전환하세요."
+            "value": "cmux가 이 대화에서 다른 계정으로 이어갈 메시지를 찾지 못했습니다. 아직 메시지를 보내지 않았다면 메시지를 보낸 뒤 전환하세요."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "此 Claude 会话还没有任何消息，因此没有可在其他账号继续的内容。请至少发送一条消息后再切换。"
+            "value": "cmux 在此对话中找不到任何可在其他账号继续的消息。如果你还没有发送消息，请先发送一条消息再切换。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "此 Claude 工作階段尚無任何訊息，因此沒有可在其他帳號繼續的內容。請至少傳送一則訊息後再切換。"
+            "value": "cmux 在此對話中找不到任何可在其他帳號繼續的訊息。如果你還沒傳送訊息，請先傳送一則訊息再切換。"
           }
         }
       }

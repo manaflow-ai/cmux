@@ -586,5 +586,8 @@ Behavior notes:
 - Entries with an invalid name or a `configDir` that is neither absolute nor `~/`-relative are ignored. Equivalent spellings of one directory (`~/.claude-work`, `/Users/me/.claude-work/`) are the same account; the first declaration of a directory wins.
 - A project-level `cmux.json` (or `.cmux/cmux.json`) overrides a user-level declaration with the same `name`.
 - Switch a Claude terminal from its context menu (Switch Claude Account), the command palette, or `cmux claude-account switch <name>`. `cmux claude-account list` prints the accounts cmux sees.
+- Log in to each account once before switching to it: run `CLAUDE_CONFIG_DIR=<configDir> claude` in any terminal and use `/login`. cmux never reads, copies or stores Claude credentials.
+- Folder trust and MCP settings live in each account's own `.claude.json`, so the first switch of a project to an account may show Claude's folder-trust prompt, and the account may have different MCP servers.
+- A switch restarts the whole terminal: the shell starts again on the new account and cmux types the resume command into it. The terminal keeps that account afterwards, including after cmux relaunches.
 
 Default: `[]`

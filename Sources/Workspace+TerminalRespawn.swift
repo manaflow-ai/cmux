@@ -19,8 +19,8 @@ extension Workspace {
     /// Those overrides last only as long as this process. The account keys a Claude account switch set
     /// also live in the panel's `claudeAccountEnvironment`, which the replacement panel inherits and
     /// the session snapshot persists, so a restore after an app relaunch replays them too.
-    /// `initialInput` is typed once the shell is ready. An SSH-owned surface or a `nativeReservation`
-    /// respawn cannot carry any of these, so it returns `nil` when one is given instead of dropping it.
+    /// An SSH-owned surface or a `nativeReservation` respawn cannot carry an env change, so it
+    /// returns `nil` when one is given instead of dropping it.
     @discardableResult
     func respawnTerminalSurface(
         panelId: UUID,
@@ -34,12 +34,10 @@ extension Workspace {
         allowTextBoxFocusDefault: Bool = true,
         nativeReservation: CloudTerminalPaneReservation? = nil,
         environmentOverrides: [String: String] = [:],
-        initialInput: String? = nil,
         removingEnvironmentKeys: Set<String> = []
     ) -> TerminalPanel? {
-        // A provider-hosted shell cannot take local env or startup input: refuse, never drop them.
+        // A provider-hosted shell cannot take local env: refuse, never drop it.
         let changesLocalLaunch = !environmentOverrides.isEmpty || !removingEnvironmentKeys.isEmpty
-            || initialInput?.isEmpty == false
         if changesLocalLaunch, nativeReservation != nil || machineOwningSurface(panelId)?.isSSH == true {
             return nil
         }
@@ -148,7 +146,6 @@ extension Workspace {
                 portOrdinal: portOrdinal,
                 initialCommand: trimmedCommand,
                 tmuxStartCommand: replacementTmuxStartCommand,
-                initialInput: initialInput,
                 initialEnvironmentOverrides: initialEnvironmentOverrides,
                 additionalEnvironment: additionalEnvironment,
                 stableSurfaceId: oldPanel.stableSurfaceId,

@@ -10,11 +10,21 @@ struct SidebarClaudeAccountRowTests {
         #expect(SidebarWorkspaceSnapshotFactory.claudeAccountRow(labels: []) == nil)
     }
 
+    /// The row's wording is the catalog's, so it is compared with the catalog's format and the
+    /// account names are checked directly; the suite holds in every locale.
+    private func expectedRow(_ joinedLabels: String) -> String {
+        String(
+            format: String(localized: "sidebar.claudeAccount.row", defaultValue: "Claude account: %@"),
+            joinedLabels
+        )
+    }
+
     @Test
     func rowListsLabels() {
         let row = SidebarWorkspaceSnapshotFactory.claudeAccountRow(labels: ["work"])
         #expect(row?.key == "claude_account")
-        #expect(row?.value == "Claude account: work")
+        #expect(row?.value == expectedRow("work"))
+        #expect(row?.value.contains("work") == true)
         #expect(row?.icon == "person.crop.circle")
         #expect(row?.priority == -10)
     }
@@ -22,7 +32,8 @@ struct SidebarClaudeAccountRowTests {
     @Test
     func rowJoinsMultipleLabels() {
         let row = SidebarWorkspaceSnapshotFactory.claudeAccountRow(labels: ["work", "alt"])
-        #expect(row?.value == "Claude account: work, alt")
+        #expect(row?.value == expectedRow("work, alt"))
+        #expect(row?.value.contains("work, alt") == true)
     }
 
     private static let home = "/Users/tester"

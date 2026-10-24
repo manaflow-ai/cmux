@@ -64,7 +64,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual((request["params"] as? [String: Any])?["force"] as? Bool, true)
     }
 
-    func testClaudeAccountSwitchWhileClaudeRespondsSuggestsForce() throws {
+    /// The app's refusal already says how to force the switch; the CLI relays it once and adds
+    /// no second hint.
+    func testClaudeAccountSwitchWhileClaudeRespondsRelaysTheAppsForceHintOnce() throws {
+        let appMessage = "Claude is responding in this terminal. Retry with force to stop the response and switch."
         let result = try runClaudeAccountCLI(
             name: "claude-account-running",
             arguments: ["claude-account", "switch", "work"],
@@ -73,14 +76,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 method == "claude_account.switch"
                     ? self.v2Response(id: id, ok: false, error: [
                         "code": "agent_running",
-                        "message": "Claude is responding in this terminal.",
+                        "message": appMessage,
                     ])
                     : nil
             }
         )
         XCTAssertNotEqual(result.process.status, 0)
         XCTAssertTrue(result.process.stderr.contains("agent_running"), result.process.stderr)
-        XCTAssertTrue(result.process.stderr.contains("--force"), result.process.stderr)
+        XCTAssertTrue(result.process.stderr.contains(appMessage), result.process.stderr)
+        XCTAssertEqual(result.process.stderr.components(separatedBy: "force").count - 1, 1, result.process.stderr)
     }
 
     func testClaudeAccountSwitchOutsideCmuxNeedsATarget() throws {

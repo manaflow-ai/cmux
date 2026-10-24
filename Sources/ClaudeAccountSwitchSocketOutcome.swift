@@ -87,20 +87,26 @@ enum ClaudeAccountSwitchSocketOutcome: Equatable, Sendable {
         let subtitle: String
         let body: String
 
-        /// Posts on the pane, or on its workspace when the pane is gone. Delivery goes through
-        /// the notification store only, so it never activates the app or moves focus.
+        /// Posts once: on the pane while it is still there, otherwise on its workspace. Delivery
+        /// goes through the notification store only, so it never activates the app or moves focus.
         ///
-        /// - Parameter deliver: Records one notification and returns its id, or `nil` when
-        ///   nothing was recorded (an unknown target or a muted workspace).
+        /// Whether the pane is there is asked up front, never read from `deliver`'s result: with
+        /// notification hooks configured, recording is deferred and returns no id even for a live
+        /// pane, and a workspace-level retry would show the notification twice.
+        ///
+        /// - Parameters:
+        ///   - paneIsLive: Whether a notification on `panelId` can still reach its pane.
+        ///   - deliver: Records one notification and returns its id, or `nil` when nothing was
+        ///     recorded yet (a deferred delivery, an unknown target or a muted workspace).
         @MainActor
         @discardableResult
         func post(
             workspaceId: UUID,
             panelId: UUID,
+            paneIsLive: Bool,
             deliver: (_ workspaceId: UUID, _ surfaceId: UUID?, _ title: String, _ subtitle: String, _ body: String) -> UUID?
         ) -> UUID? {
-            deliver(workspaceId, panelId, title, subtitle, body)
-                ?? deliver(workspaceId, nil, title, subtitle, body)
+            deliver(workspaceId, paneIsLive ? panelId : nil, title, subtitle, body)
         }
     }
 

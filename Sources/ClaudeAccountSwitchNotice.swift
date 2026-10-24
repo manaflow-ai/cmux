@@ -19,7 +19,8 @@ enum ClaudeAccountSwitchNotice: Equatable, Sendable {
     case noClaudeSession
     /// The conversation's working directory is unknown.
     case missingWorkingDirectory
-    /// Nobody has sent the session a message yet, so there is no conversation to continue.
+    /// cmux found no message in the conversation to continue: usually none has been sent yet,
+    /// but a transcript missing from the account directory cmux looked in reads the same.
     case noConversationYet
     /// The conversation went on separately under both accounts; `newerAccount` has the copy
     /// written last. cmux does not merge them, so the pane was left alone.
@@ -195,7 +196,7 @@ enum ClaudeAccountSwitchNotice: Equatable, Sendable {
         case .noConversationYet:
             return String(
                 localized: "dialog.claudeAccountSwitch.noConversationYet.message",
-                defaultValue: "This Claude session has no messages yet, so there's nothing to continue on another account. Send at least one message, then switch."
+                defaultValue: "cmux couldn't find any messages in this conversation to continue on another account. If you haven't sent one yet, send a message, then switch."
             )
         case .transcriptDiverged(let newerAccount):
             return String(

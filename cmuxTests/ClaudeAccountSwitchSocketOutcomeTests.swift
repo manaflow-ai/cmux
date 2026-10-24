@@ -146,12 +146,24 @@ struct ClaudeAccountSwitchSocketOutcomeTests {
 
         let notification = try #require(ClaudeAccountSwitchSocketOutcome.finished(result).resumeNotification)
 
-        #expect(notification.title == "Claude account switched")
+        // Compared with the same catalog lookups, so the suite holds in every locale.
+        #expect(notification.title == String(
+            localized: "notification.claudeAccountSwitch.title",
+            defaultValue: "Claude account switched"
+        ))
         #expect(notification.subtitle == notice.title)
         #expect(notification.body.contains(manualResume.command))
         #expect(notification.body == notice.notificationMessage)
         // A notification has no Type Resume Command button, so it never points at one.
-        #expect(!notification.body.contains("Type Resume Command"))
+        let typeResumeButton = String(
+            localized: "dialog.claudeAccountSwitch.typeResumeCommand",
+            defaultValue: "Type Resume Command"
+        )
+        #expect(!notification.body.contains(typeResumeButton))
+        if !paneWasReplaced {
+            // The alert for the same result does name it, so the check above is not vacuous.
+            #expect(notice.message.contains(typeResumeButton))
+        }
         if paneWasReplaced {
             #expect(notification.body == notice.message)
         }
@@ -177,16 +189,18 @@ struct ClaudeAccountSwitchSocketOutcomeTests {
         let notification = ClaudeAccountSwitchSocketOutcome.ResumeNotification(title: "t", subtitle: "s", body: "b")
         var deliveries: [UUID?] = []
 
-        let paneGone = notification.post(workspaceId: workspaceId, panelId: surfaceId) { tabId, surface, title, subtitle, body in
+        let paneGone = notification.post(workspaceId: workspaceId, panelId: surfaceId, paneIsLive: false) {
+            tabId, surface, title, subtitle, body in
             #expect(tabId == workspaceId && title == "t" && subtitle == "s" && body == "b")
             deliveries.append(surface)
-            return surface == nil ? UUID() : nil
+            return UUID()
         }
         #expect(paneGone != nil)
-        #expect(deliveries == [surfaceId, nil])
+        #expect(deliveries == [nil])
 
         deliveries = []
-        let paneThere = notification.post(workspaceId: workspaceId, panelId: surfaceId) { _, surface, _, _, _ in
+        let paneThere = notification.post(workspaceId: workspaceId, panelId: surfaceId, paneIsLive: true) {
+            _, surface, _, _, _ in
             deliveries.append(surface)
             return UUID()
         }
@@ -204,7 +218,7 @@ struct ClaudeAccountSwitchSocketOutcomeTests {
         let notification = ClaudeAccountSwitchSocketOutcome.ResumeNotification(title: "t", subtitle: "s", body: "b")
         var deliveries: [UUID?] = []
 
-        notification.post(workspaceId: workspaceId, panelId: surfaceId) { _, surface, _, _, _ in
+        notification.post(workspaceId: workspaceId, panelId: surfaceId, paneIsLive: true) { _, surface, _, _, _ in
             deliveries.append(surface)
             return nil
         }

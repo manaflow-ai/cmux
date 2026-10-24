@@ -99,22 +99,9 @@ extension CMUXCLI {
         }
         params["surface_id"] = surfaceId
 
-        let response: [String: Any]
-        do {
-            // The switch waits for the old Claude to exit and the new shell's prompt.
-            response = try client.sendV2(method: "claude_account.switch", params: params, responseTimeout: 90)
-        } catch let error as CLIError where error.v2Code == "agent_running" {
-            throw CLIError(
-                message: error.message + "\n" + String(
-                    localized: "cli.claudeAccount.error.agentRunningHint",
-                    defaultValue: "Pass --force to stop the response and switch."
-                ),
-                exitCode: error.exitCode,
-                v2Code: error.v2Code,
-                isStructuredProtocolResponse: error.isStructuredProtocolResponse,
-                v2Method: error.v2Method
-            )
-        }
+        // The switch waits for the old Claude to exit and the new shell's prompt. A refusal such
+        // as agent_running already explains itself, including how to force the switch.
+        let response = try client.sendV2(method: "claude_account.switch", params: params, responseTimeout: 90)
         if jsonOutput {
             print(jsonString(response))
             return

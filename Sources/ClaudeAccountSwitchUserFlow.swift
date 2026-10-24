@@ -136,7 +136,8 @@ struct ClaudeAccountSwitchUserFlow {
             localized: "dialog.claudeAccountSwitch.typeResumeCommand",
             defaultValue: "Type Resume Command"
         ))
-        alert.addButton(withTitle: String(localized: "common.close", defaultValue: "Close"))
+        // Escape closes the alert, as it does every alert with a Cancel button.
+        alert.addButton(withTitle: String(localized: "common.close", defaultValue: "Close")).keyEquivalent = "\u{1b}"
         if alert.runModal() == .alertFirstButtonReturn, !typeResumeCommand() {
             NSSound.beep()
         }

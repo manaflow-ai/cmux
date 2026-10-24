@@ -171,7 +171,15 @@ extension TerminalController {
             toAccountNamed: accountName,
             trigger: .manual
         ))
-        outcome.resumeNotification?.post(workspaceId: workspaceId, panelId: panelId) { tabId, surfaceId, title, subtitle, body in
+        let paneIsLive = AppDelegate.shared?.agentNotificationDeliveryTarget(
+            claimedTabId: workspaceId,
+            surfaceId: panelId
+        ) != nil
+        outcome.resumeNotification?.post(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            paneIsLive: paneIsLive
+        ) { tabId, surfaceId, title, subtitle, body in
             deliverNotificationSynchronously(
                 tabId: tabId,
                 surfaceId: surfaceId,

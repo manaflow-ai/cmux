@@ -36,6 +36,8 @@ struct WorkspaceClaudeAccountSwitchTests {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
         let panel = try #require(workspace.terminalPanel(for: panelId))
+        let clock = ContinuousClock()
+        let start = clock.now
 
         let wait = Task { @MainActor in
             await workspace.waitForClaudeAccountSwitchShellPrompt(
@@ -49,6 +51,8 @@ struct WorkspaceClaudeAccountSwitchTests {
         workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
 
         #expect(await wait.value == .prompt)
+        // The report, not the 30 s deadline, ended the wait.
+        #expect(clock.now - start < .seconds(10))
     }
 
     @Test
