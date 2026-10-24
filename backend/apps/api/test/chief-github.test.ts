@@ -74,7 +74,7 @@ const githubObject = (agent: string) => testEnv.CHIEF_BRAIN_DO.get(testEnv.CHIEF
 /** github.com and api.github.com: the device flow, /user, and an App's installation tokens. */
 const fakeGitHub = () => {
   const inner = vi.mocked(globalThis.fetch).getMockImplementation()!
-  const gh = { polls: 0, approveAfter: 1, devicePosts: [] as Array<string>, minted: 0, jwts: [] as Array<string>, users: new Map<string, { login: string; scopes: string; expires?: string }>() }
+  const gh = { polls: 0, approved: false, devicePosts: [] as Array<string>, minted: 0, jwts: [] as Array<string>, users: new Map<string, { login: string; scopes: string; expires?: string }>() }
   gh.users.set("gho_device_token_not_real", { login: "octo", scopes: "gist, read:org, repo, workflow" })
   gh.users.set("github_pat_good_not_real", { login: "octo-pat", scopes: "", expires: "2026-12-01 00:00:00 UTC" })
   vi.mocked(globalThis.fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -89,7 +89,7 @@ const fakeGitHub = () => {
       expect(body.get("device_code")).toBe("device-code-secret-not-real")
       expect(body.get("grant_type")).toBe("urn:ietf:params:oauth:grant-type:device_code")
       gh.polls++
-      if (gh.polls <= gh.approveAfter) return Response.json({ error: "authorization_pending" })
+      if (!gh.approved) return Response.json({ error: "authorization_pending" })
       return Response.json({ access_token: "gho_device_token_not_real", token_type: "bearer", scope: "gist,read:org,repo,workflow" })
     }
     if (url.origin === "https://api.github.com" && url.pathname === "/user") {
@@ -149,6 +149,8 @@ describe("GitHub sign-in per Chief", { timeout: 120_000 }, () => {
     expect(seen.wait.body).toMatchObject({ signed_in: false, pending: { user_code: "ABCD-1234" } })
 
     // The turn is over; the Chief's own object keeps polling (its job) until the person approves.
+    expect(gh.polls).toBeGreaterThan(0)
+    gh.approved = true
     let status: any = null
     for (let i = 0; i < 40; i++) {
       await fireAlarm(githubObject(a.chief.id))

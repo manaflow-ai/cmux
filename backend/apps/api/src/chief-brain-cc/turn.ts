@@ -12,6 +12,7 @@ import { legacyOf, sandboxesOf } from "./sandbox.ts"
 import { CHIEF_VM_MJS } from "./chief-vm-source.ts"
 import { stageAttachments } from "./attachments.ts"
 import { mergeTurnFiles, toolsOf } from "./tools.ts"
+import { githubLine, githubOf } from "./github.ts"
 import { BOOT_MS, CcError, RUN_MS, createVm, execRoot, mintTailnetKey, removeVm, vmName, vmNetwork } from "./vm.ts"
 
 /**
@@ -56,8 +57,9 @@ answer from the view and the new messages. Your last message is posted as your r
 reply itself. Say in it what you learned that will matter later: the view is your only memory.
 
 Machine: ~/work/cmux (feat-cmux-next) and ~/work/cmuxterm-hq (main) are cached clones; \`git fetch\` first.
-GitHub: gh and git are signed in (check with \`gh auth status\`) when the person set the token; push
-cmux work to feat-cmux-next (rebase, plain push, never force).
+GitHub: gh and git are signed in (check with \`gh auth status\`) with this Chief's own login when it has one
+(\`chief-github\`; the line at the end says), else the deployment's; push cmux work to feat-cmux-next (rebase,
+plain push, never force).
 Tailnet: this machine is your own tailnet node (\`tailscale status\`). It reaches the hub at
 http://100.127.110.65:8790 (\`hub\`, the Mac Chief <-> Cloud Chief channel), the build controller
 (\`cmux-ci\`, macOS builds on the Mac minis) and the person's Mac gate.
@@ -259,11 +261,13 @@ const ccAttempt = async (b: ChiefBrainDO, id: string, blocks: ReadonlyArray<stri
       const token = await notesToken(env, agent, conversation, id)
       writeConfig(b.sql, { [`cc_token:${id}`]: await sha(token) })
       const origin = (env.CLOUD_API_ORIGIN ?? "").replace(/\/+$/, "")
+      // The Chief's own GitHub login (github.ts), else the deployment's shared token until it signs in.
+      const github = await githubOf(env, agent).ccGithubTurn(agent)
       const input = {
         notes_url: `${origin}/v1/chief-cc/${agent}/${conversation}/notes`,
         token,
         model: isClaude(model) ? model : OPUS,
-        system: clipBytes(`${systemPrompt(cfg)}\n\n${ccAddendum(RUN_MS / 60_000)}`, SYSTEM_BYTES),
+        system: clipBytes(`${systemPrompt(cfg)}\n\n${ccAddendum(RUN_MS / 60_000)}\n${githubLine(github.status)}`, SYSTEM_BYTES),
         prompt: "",
         max_ms: RUN_MS,
         net,
@@ -271,7 +275,7 @@ const ccAttempt = async (b: ChiefBrainDO, id: string, blocks: ReadonlyArray<stri
         // The agent user's tools: written as its files by chief-turn-runner (root) before Claude Code starts. The Chief's own
         // tools (chief-tools, tools.ts) come after the set ones and never on a token path.
         files: mergeTurnFiles(turnFiles(env.CHIEF_CC_TURN_FILES), await toolsOf(env, agent).ccToolFiles()),
-        github_token: env.CHIEF_CC_GITHUB_TOKEN ?? null
+        github_token: github.token ?? env.CHIEF_CC_GITHUB_TOKEN ?? null
       }
       input.prompt = tail(blocks.join("\n\n") + missingNote, STDIN_BYTES - enc.encode(JSON.stringify(input)).length)
       const begun = await execRoot(env, vm, `/opt/chief-cc/start.sh ${id}`, enc.encode(JSON.stringify(input)), 30_000)
@@ -388,6 +392,8 @@ export async function ccNotes(b: ChiefBrainDO, token: string, body: { run?: unkn
   // The Chief's `chief-tools` (tools.ts): its own tools, kept per Chief for its next turns.
   const action = (body.vm as { action?: unknown } | null | undefined)?.action
   if (typeof action === "string" && action.startsWith("tools_")) return toolsOf(b.doEnv, b.config().agent!).ccTools(body.vm)
+  // The Chief's `chief-github` (github.ts): its own GitHub login, kept per Chief.
+  if (typeof action === "string" && action.startsWith("github_")) return githubOf(b.doEnv, b.config().agent!).ccGithub(b.config().agent!, body.vm, true)
   // The Chief's `chief-vm` (chief-turn-runner): its own sandbox VMs (sandbox.ts), kept per Chief in its `<agent>/sandboxes`
   // object (never per conversation), so its cap, identity and list are one; sandboxes this brain kept before move there.
   if (body.vm !== undefined) {
