@@ -37,11 +37,15 @@ extension HomeService {
         await homeStore.flushCache()
     }
 
-    /// Quit: the links that still point at this app go (another build that
-    /// took them over keeps them). The cache was written by the quit's
-    /// awaited step (``flushCache()``).
+    /// Quit and forced exit (`QuitSignal`'s second signal, which calls this and
+    /// then `exit`): the links that still point at this app go (another build
+    /// that took them over keeps them), and the Home cache writes, on this
+    /// thread, whatever is not on disk yet (`HomeStore.flushCacheBeforeExit`):
+    /// after the quit's awaited step (``flushCache()``) that is nothing, but a
+    /// forced exit can come before that step or during a write.
     func applicationWillTerminate() {
         settleWatch?.cancel()
+        homeStore.flushCacheBeforeExit()
         if homeListPrimed { sidebarLaunch.flush() }
         ChiefAppLinks.unpublish(home: chief.home, controlSocket: services.environment.launch.socketPath,
                                 daemonSocket: publishedDaemonSocket)

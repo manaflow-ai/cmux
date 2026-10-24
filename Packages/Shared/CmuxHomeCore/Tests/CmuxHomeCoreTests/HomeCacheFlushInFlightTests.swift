@@ -26,6 +26,8 @@ import Testing
             return true
         }
 
+        nonisolated func writeBlocking(_ state: HomeCacheState, sequence: UInt64, writer: UUID) -> Bool { true }
+
         func release() {
             let waiting = gates
             gates = []

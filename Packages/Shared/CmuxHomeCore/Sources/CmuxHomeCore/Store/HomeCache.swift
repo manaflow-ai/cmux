@@ -18,30 +18,28 @@ public import Foundation
 /// try await cache.save(snapshot)
 /// let restored = cache.load()
 /// ```
+///
+/// Its executor is its own serial queue, so a path that ends the process next (a forced exit)
+/// can run the same commit synchronously, after the write already running
+/// (``writeBlocking(_:sequence:writer:)``); everything else awaits the actor.
 public actor HomeCache {
     /// Messages kept per opened conversation.
     public static let windowLimit = 200
 
     /// The index file; the windows are in ``windowsDirectory`` beside it.
     public nonisolated let url: URL
+    /// This actor's executor: ``writeBlocking(_:sequence:writer:)`` runs on it with `sync`.
+    private nonisolated let queue: DispatchSerialQueue
+    /// The files and what they hold; touched only on `queue`.
+    private nonisolated let files: HomeCacheFiles
 
-    /// What the files on disk hold, as last written or read; nil until the first write reads it.
-    private var written: Written?
-    /// The newest state written by each writer (a ``HomeClientViewCache`` numbers its states):
-    /// an older one that reaches the actor later is dropped, since the newer one holds everything
-    /// it does. Per writer: two stores on one cache number their states apart.
-    private var lastSequence: [UUID: UInt64] = [:]
-
-    private struct Written {
-        /// The index as a value: an equal state is found without encoding anything (the index's
-        /// bytes are a function of its value too, ``HomeCacheSnapshot/encode(to:)``).
-        var index: HomeCacheSnapshot?
-        /// Each window file's messages (the kept tail), compared with a new state's tail.
-        var windows: [ConversationID: [Message]] = [:]
-    }
+    /// Runs this actor's jobs on `queue` (one serial queue, as any actor's executor is serial).
+    public nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
 
     public init(url: URL) {
         self.url = url
+        queue = DispatchSerialQueue(label: "com.cmuxterm.home-cache")
+        files = HomeCacheFiles(url: url)
     }
 
     /// `Caches/cmux-home/<owner>/home.json`; `owner` is made a single path component.
@@ -53,18 +51,15 @@ public actor HomeCache {
     }
 
     /// `home-windows/` beside `home.json`: one file per cached window.
-    public nonisolated var windowsDirectory: URL {
-        url.deletingLastPathComponent()
-            .appendingPathComponent(url.deletingPathExtension().lastPathComponent + "-windows", isDirectory: true)
-    }
+    public nonisolated var windowsDirectory: URL { files.windowsDirectory }
 
     /// The cached snapshot, read synchronously (the Home list's first frame needs it before the
     /// owner answers). Nil when there is none or it does not decode; a window whose file is
     /// gone or does not decode is left out.
     public nonisolated func load() -> HomeCacheSnapshot? {
-        guard var snapshot = readIndex() else { return nil }
+        guard var snapshot = files.readIndex() else { return nil }
         for id in snapshot.windowIDs ?? [] where snapshot.windows[id] == nil {
-            if let messages = readWindow(id) { snapshot.windows[id] = messages }
+            if let messages = files.readWindow(id) { snapshot.windows[id] = messages }
         }
         snapshot.windowIDs = nil
         return snapshot
@@ -75,103 +70,23 @@ public actor HomeCache {
     ///
     /// - Throws: `CocoaError(.fileWriteUnknown)` when a file did not reach disk.
     public func save(_ snapshot: HomeCacheSnapshot) throws {
-        if !commit(HomeCacheState(snapshot)) { throw CocoaError(.fileWriteUnknown) }
+        if !files.commit(HomeCacheState(snapshot)) { throw CocoaError(.fileWriteUnknown) }
     }
 
     /// Writes `state` unless `writer` already wrote a newer one; true when everything it holds is
     /// on disk (or a newer state replaced it).
     func write(_ state: HomeCacheState, sequence: UInt64, writer: UUID) -> Bool {
-        guard sequence > lastSequence[writer, default: 0] else { return true }
-        lastSequence[writer] = sequence
-        return commit(state)
+        files.write(state, sequence: sequence, writer: writer)
     }
 
-    // MARK: - Files
-
-    /// Writes the changed windows, then the index (so it never names a window not yet on disk),
-    /// then removes the windows that left. True when all of it reached disk.
-    private func commit(_ state: HomeCacheState) -> Bool {
-        var written = self.written ?? readWritten()
-        defer { self.written = written }
-        do {
-            try FileManager.default.createDirectory(at: windowsDirectory, withIntermediateDirectories: true,
-                                                    attributes: [.posixPermissions: 0o700])
-        } catch {
-            return false
-        }
-        var complete = true
-        for (id, messages) in state.windows {
-            let kept = Array(messages.suffix(Self.windowLimit))
-            if written.windows[id] == kept { continue }
-            if (try? Self.writeFile(Self.encoder().encode(kept), to: windowURL(id))) != nil {
-                written.windows[id] = kept
-            } else {
-                written.windows[id] = nil
-                complete = false
-            }
-        }
-        let index = state.index
-        if index != written.index {
-            if let data = try? Self.encoder().encode(index), (try? Self.writeFile(data, to: url)) != nil {
-                written.index = index
-            } else {
-                complete = false
-            }
-        }
-        for id in written.windows.keys where state.windows[id] == nil {
-            try? FileManager.default.removeItem(at: windowURL(id))
-            written.windows[id] = nil
-        }
-        return complete
-    }
-
-    /// What is on disk before this launch's first write: the index and its windows. A
-    /// window file the index does not name (left by an older build) is removed.
-    private func readWritten() -> Written {
-        var written = Written()
-        let index = readIndex()
-        written.index = index
-        let named = Set(index?.windowIDs ?? [])
-        for id in named {
-            if let messages = readWindow(id) { written.windows[id] = messages }
-        }
-        let files = (try? FileManager.default.contentsOfDirectory(at: windowsDirectory, includingPropertiesForKeys: nil)) ?? []
-        let namedFiles = Set(named.map { windowURL($0).lastPathComponent })
-        for file in files where !namedFiles.contains(file.lastPathComponent) {
-            try? FileManager.default.removeItem(at: file)
-        }
-        return written
-    }
-
-    private nonisolated func readIndex() -> HomeCacheSnapshot? {
-        guard let data = try? Data(contentsOf: url),
-              let snapshot = try? JSONDecoder().decode(HomeCacheSnapshot.self, from: data),
-              snapshot.version == HomeCacheSnapshot.currentVersion else { return nil }
-        return snapshot
-    }
-
-    /// Sorted keys: with ``HomeCacheSnapshot/encode(to:)``, which writes the conversation-keyed
-    /// dictionaries in key order, equal values give equal bytes.
-    private static func encoder() -> JSONEncoder {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        return encoder
-    }
-
-    private nonisolated func readWindow(_ id: ConversationID) -> [Message]? {
-        guard let data = try? Data(contentsOf: windowURL(id)) else { return nil }
-        return try? JSONDecoder().decode([Message].self, from: data)
-    }
-
-    /// The window's file: the id percent-encoded, so each id has its own name.
-    private nonisolated func windowURL(_ id: ConversationID) -> URL {
-        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
-        let name = id.rawValue.addingPercentEncoding(withAllowedCharacters: allowed) ?? id.rawValue
-        return windowsDirectory.appendingPathComponent(name + ".json")
-    }
-
-    private static func writeFile(_ data: Data, to url: URL) throws {
-        try data.write(to: url, options: [.atomic])
-        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+    /// ``write(_:sequence:writer:)`` on the calling thread, after the job already on this actor,
+    /// for a path that ends the process next (a forced exit): returns once the files are on disk.
+    /// It blocks the caller for one proportional commit; never call it where the process goes on.
+    nonisolated func writeBlocking(_ state: HomeCacheState, sequence: UInt64, writer: UUID) -> Bool {
+        let files = files
+        // concurrency-allow: the forced exit's last write enters this actor's own executor queue
+        // synchronously (an actor cannot be entered from a non-async signal path), so it runs after
+        // the write already there and before `exit`; nothing on that queue waits for the caller.
+        return queue.sync { files.write(state, sequence: sequence, writer: writer) }
     }
 }

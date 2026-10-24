@@ -141,12 +141,15 @@ window of each conversation the user opened, the intent log, drafts and scroll a
 seeds its mirror from it before the source connects (the Home list and the open conversation show
 at once, marked not yet live), and writes it after owner snapshots and events, never from its own
 intents. Deleting it loses only drafts and unsent sends; the history comes back from the owner.
-A quit or forced exit writes the pending batch at once (`HomeStore.flushCache`).
+A quit writes the pending batch and waits for the write already running (`HomeStore.flushCache`, awaited
+before AppKit's reply); a forced exit (a second quit signal while a quit runs) writes what is not on disk
+yet on the main thread, after that running write, before `exit` (`HomeStore.flushCacheBeforeExit`, the
+cache actor's own commit run on its executor queue).
 macOS may purge Caches; that is the same as deleting it.
 
 Built on this branch (HomeCache, HomeStore, HomeProjection): the list and opened conversations,
 text sends (unconfirmed and Not Delivered) and drafts. Writes are coalesced for 250 ms and done at
-once on `HomeStore.flushCache()`, which the app calls at quit and forced exit; a crash can still
+once at quit (`HomeStore.flushCache()`) and forced exit (`HomeStore.flushCacheBeforeExit()`); a crash can still
 lose the last 250 ms of changes. Not built yet: sends with attachments (their local files are not
 kept), and restoring the scroll anchor in the view (HomeStore keeps it; the vendored MessagesLab
 scroll engine has no entry point to restore an offset, so a conversation still opens at the newest
