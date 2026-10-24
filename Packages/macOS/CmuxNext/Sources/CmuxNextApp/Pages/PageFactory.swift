@@ -28,7 +28,7 @@ struct PageFactory {
         let routes = pageRoutes(for: .history)
         guard let page = services.pageHostPool.claim(.history, routes: routes,
                                                       window: services.windows.active?.window, focus: false)
-            ?? PageWebView(descriptor: .history, routes: routes) else { return nil }
+            ?? PageWebView(descriptor: .history, routes: routes, errors: services.errorJournal.journal) else { return nil }
         PageConnectionWatch(page: page, store: services.machines.local.store).start()
         return page
     }
@@ -51,7 +51,8 @@ struct PageFactory {
         }
         let native = AppPageNativeProvider(services: services, page: .apps)
         let routes = [PageRoute(prefix: "cmux.apps.", provider: confirming), PageRoute(prefix: "cmux.app.", provider: native)]
-        guard let page = PageWebView(descriptor: .apps, routes: routes, route: route, dynamicResources: AppsGlyphResource()) else { return nil }
+        guard let page = PageWebView(descriptor: .apps, routes: routes, route: route, dynamicResources: AppsGlyphResource(),
+                                           errors: services.errorJournal.journal) else { return nil }
         confirming.anchor = { [weak page] in page }
         native.anchor = { [weak page] in page }
         PageConnectionWatch(page: page, store: services.machines.local.store).start()
@@ -77,7 +78,7 @@ struct PageFactory {
         }
         let native = AppPageNativeProvider(services: services, page: .coderouter)
         let routes = [PageRoute(prefix: "cmux.coderouter.", provider: confirming), PageRoute(prefix: "cmux.app.", provider: native)]
-        guard let page = PageWebView(descriptor: .coderouter, routes: routes) else { return nil }
+        guard let page = PageWebView(descriptor: .coderouter, routes: routes, errors: services.errorJournal.journal) else { return nil }
         confirming.anchor = { [weak page] in page }
         native.anchor = { [weak page] in page }
         return page
@@ -98,7 +99,7 @@ struct PageFactory {
         let page = services.pageHostPool.claim(.cloud, routes: routes,
                                                documentAttributes: attributes,
                                                window: services.windows.active?.window, focus: false)
-            ?? PageWebView(descriptor: .cloud, routes: routes, documentAttributes: attributes)
+            ?? PageWebView(descriptor: .cloud, routes: routes, documentAttributes: attributes, errors: services.errorJournal.journal)
         native.anchor = { [weak page] in page }
         if let page { PageConnectionWatch(page: page, store: services.machines.local.store).start() }
         return page
@@ -225,7 +226,7 @@ struct PageFactory {
                                                dynamicResources: dynamicResources,
                                                window: services.windows.active?.window, focus: false)
             ?? PageWebView(descriptor: .settings, routes: routes, route: route, options: Self.settingsEngineOptions,
-                           surface: .settings, dynamicResources: dynamicResources)
+                           surface: .settings, dynamicResources: dynamicResources, errors: services.errorJournal.journal)
         native.anchor = { [weak page] in page }
         // An image or movie dropped on Settings becomes the background (cx-t2x.8).
         page?.fileDrop = PageFileDrop(accepts: { url in BackdropUserImages.isImage(url) }) { [weak provider] url in
