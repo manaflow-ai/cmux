@@ -51,7 +51,8 @@ extension PaneHandlers {
             // The pane leaves its window now and its neighbours spring into its space
             // (close-animation DESIGN.md); a refused close brings it back.
             let controller = ctx.services.paneController(for: pane)
-            let shown = ctx.services.activeDaemon.connection == nil ? nil : controller?.showPaneClose()
+            // The pane's own daemon decides: a remote pane's close waits for no local connection.
+            let shown = ctx.services.daemon(for: pane).connection == nil ? nil : controller?.showPaneClose()
             ctx.send("close-pane") { connection in
                 do {
                     try await connection.closePane(handle)
