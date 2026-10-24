@@ -143,6 +143,8 @@ fn serve() -> u16 {
                     "/leak" => clipboard::leak_page(),
                     "/clicks" => files::clicks_page(),
                     "/editing" => editing::editing_page(),
+                    "/opener" => popups::opener_page(),
+                    "/popup" => popups::popup_page(),
                     "/fields" => "<!doctype html><title>Fields</title>\
                          <label for=pw>Password</label><input id=pw type=password value=hunter2-default>\
                          <input id=otp autocomplete=one-time-code><input id=cc autocomplete=\"cc-number\">\
@@ -1279,6 +1281,10 @@ mod clipboard;
 // macOS editing and formatting shortcuts on every platform (classic parity).
 #[path = "chromium/editing.rs"]
 mod editing;
+
+// window.open popups with and without an opener (classic parity).
+#[path = "chromium/popups.rs"]
+mod popups;
 
 // HTML5 drag and drop (input.drag, parity 05).
 #[path = "chromium/drag.rs"]
