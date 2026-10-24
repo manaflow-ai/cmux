@@ -71,7 +71,7 @@ jobs:
               });
               return data.workflow_runs
                 .filter((run) => activeStates.has(run.status))
-                .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
+                .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at) || Number(a.id) - Number(b.id));
             };
             for (let attempt = 0; attempt < 48; attempt += 1) {
               const runs = await activeRuns();
@@ -81,10 +81,20 @@ jobs:
                 await sleep(5000);
                 continue;
               }
-              const older = runs.filter((run) => run.id !== current.id &&
-                Date.parse(run.created_at) < Date.parse(current.created_at));
-              const newer = runs.some((run) => run.id !== current.id &&
-                Date.parse(run.created_at) > Date.parse(current.created_at));
+              const order = (run) => [Date.parse(run.created_at), Number(run.id)];
+              const currentOrder = order(current);
+              const before = (run) => {
+                const candidate = order(run);
+                return candidate[0] < currentOrder[0] ||
+                  candidate[0] === currentOrder[0] && candidate[1] < currentOrder[1];
+              };
+              const after = (run) => {
+                const candidate = order(run);
+                return candidate[0] > currentOrder[0] ||
+                  candidate[0] === currentOrder[0] && candidate[1] > currentOrder[1];
+              };
+              const older = runs.filter((run) => run.id !== current.id && before(run));
+              const newer = runs.some((run) => run.id !== current.id && after(run));
               if (older.length && newer) {
                 core.notice(`A newer tick ${newer ? 'is queued' : 'exists'}; retiring this older waiter.`);
                 core.setOutput('owner', 'false');
