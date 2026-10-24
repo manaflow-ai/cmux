@@ -290,6 +290,47 @@ CMUX_SHIM_EXPORT unsigned int cmux_shim_browser_set_layer_hosting(int browser_id
 // never holds it (the fork's default). Returns 0 when the fork lacks the call
 // or the browser has no page window.
 CMUX_SHIM_EXPORT int cmux_shim_browser_set_resize_sync(int browser_id, int timeout_ms);
+// Fork API 30: the helper-app browser process (plans/cmux-next/cef-helper-app-DESIGN.md).
+// Each returns 0 (or does nothing) when the fork lacks the call; the fork's
+// include/cef_cmux.h documents the semantics. UI thread only unless noted.
+//
+// Detached hosting: a layer-hosted page window that never orders in, visible
+// to Chromium while the parent view shows; input only by forwarding.
+CMUX_SHIM_EXPORT int cmux_shim_browser_set_detached_hosting(int browser_id, int enabled);
+// The key state of a detached page (page focus without a key window).
+CMUX_SHIM_EXPORT int cmux_shim_browser_set_embedder_active(int browser_id, int active);
+// Runs fn(context) on Chromium's UI thread from its user-input queue (highest
+// priority). Any thread.
+CMUX_SHIM_EXPORT int cmux_shim_post_user_input_task(void (*fn)(void* context), void* context);
+// A wheel event with scroll and momentum phases (NSEventPhase-like values:
+// 0 none, 1 may begin, 2 began, 3 changed, 4 ended, 5 cancelled); (x, y) in
+// the page view's points, top left origin; (dx, dy) pixels as NSEvent
+// scrollingDeltaX/Y; modifiers are cef_event_flags_t.
+CMUX_SHIM_EXPORT int cmux_shim_browser_send_wheel(int browser_id, double x, double y, double dx, double dy,
+                                                  int precise, int phase, int momentum_phase, int modifiers);
+// Watches the page's text input state for an NSTextInputClient. `state`
+// points at the fork's cmux_text_input_state_t (include/cef_cmux.h), valid
+// only during the call. fn NULL stops the watch.
+CMUX_SHIM_EXPORT int cmux_shim_browser_text_input_watch(int browser_id,
+                                                        void (*fn)(void* context, int browser_id, const void* state),
+                                                        void* context);
+// The page view's remote accessibility token (returns its length; copies it
+// when capacity is enough); sets the embedder's parent and window tokens.
+CMUX_SHIM_EXPORT int cmux_shim_browser_accessibility_token(int browser_id, int embedder_pid,
+                                                           const uint8_t* parent_token, int parent_token_length,
+                                                           const uint8_t* window_token, int window_token_length,
+                                                           uint8_t* out, int capacity);
+// Page drags go to fn (the fork's cmux_drag_source_t) instead of an AppKit
+// drag session; NULL restores Chromium's.
+CMUX_SHIM_EXPORT void cmux_shim_set_drag_source_handler(void (*fn)(void* context, int browser_id, const void* drag),
+                                                        void* context);
+// Ends the page's drag with the destination's NSDragOperation.
+CMUX_SHIM_EXPORT int cmux_shim_browser_drag_source_ended(int browser_id, double x, double y, double screen_x,
+                                                         double screen_y, int operation);
+// The page's own drag came back over the page: a drop target drag with the
+// page's data; continue with the DragTarget* calls.
+CMUX_SHIM_EXPORT int cmux_shim_browser_drag_target_enter_source(int browser_id, int x, int y,
+                                                                int allowed_operations, int modifiers);
 // The page chrome://newtab shows when no extension overrides the New Tab
 // page (fork API 12); NULL or "" keeps Chromium's. Any time, also before
 // cmux_shim_initialize. The ADDRESS event reports "chrome://newtab/" for a
