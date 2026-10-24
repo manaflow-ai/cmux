@@ -4,8 +4,9 @@
 // reads no file itself (CSP `img-src data:`). With it, or alone, comes the project's language or
 // framework (`glyph`, from Package.swift, Cargo.toml, package.json and the like), which the badge
 // draws when there is no image. A remote project is never asked about: its folder is on another
-// machine. Each folder's answer is kept for the page; neither keeps the letters. A failed ask (an
-// older host, the page not yet connected) is not kept, so the next badge asks again.
+// machine. Each folder's answer is kept for the page; neither keeps the letters. A failed or empty
+// ask (an older host, the page not yet connected, or a capability still warming) is not kept, so
+// the next badge asks again.
 import { useEffect, useState } from "react";
 import { postNative } from "./native";
 
@@ -41,7 +42,7 @@ function load(cwd: string): Promise<ProjectIcon> {
           ...(typeof src === "string" && src.startsWith("data:image/") ? { src } : {}),
           ...(PROJECT_GLYPHS.includes(glyph as ProjectGlyphName) ? { glyph: glyph as ProjectGlyphName } : {}),
         };
-        icons.set(cwd, icon);
+        if (Object.keys(icon).length > 0) icons.set(cwd, icon);
         return icon;
       },
       (): ProjectIcon => ({}),

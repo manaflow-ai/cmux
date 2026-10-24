@@ -91,3 +91,42 @@ same results (`v1-*`, `v2-*`, `v3-*` on the rig).
 
 Reserved for the terminal-question lane (Claude Code AskUserQuestion running
 in a terminal tab).
+
+## PR B: encrypted fallback, sealed pushes, terminal replies (live, 2026-10-23)
+
+Rig on `mini-cmux11s-mac-mini`: a hidden rig Mac from fleet build `3c9f88b876a1` (PR B
+head, tag `mobile-e2e-pushfb`), the PR B Worker under `wrangler dev` on the mini
+(API 0.14.0, memory store), and the `termq-phone` simulator with the PR B Demo build.
+Both reach the Worker through `notify-tap.mjs`, which keeps every notify body and every
+sealed mailbox blob (ciphertext only). The Mac and phone are paired, and the phone gave
+the Mac its push key. Run scripts: `push-matrix/fallback_run.py` and
+`push-matrix/replay_run.py`. `xcrun simctl push` runs no Notification Service Extension,
+so a DEBUG simulator stand-in (`SimulatedServiceExtension`) runs the extension's own
+code (`ServicePush`) on the delivered body.
+
+| # | Case | Result | Evidence |
+| --- | --- | --- | --- |
+| B1 | A Claude Code turn ends on the rig Mac | Pass. The host sent the push sealed for the phone, with no content in the clear; the Worker sent the v3 body "cmux" / "New notification from Rig Mac", category `CMUX_MOBILE_SEALED` | `notify-capture.jsonl` |
+| B2 | A terminal program asks for a reply (`cmux notify --reply`); the Mac's link frozen (its host `SIGSTOP`ped); the app killed; the person replies from the lock screen | Pass. The sealed push opened on the phone ("Terminal · fallback-shell", "Deploy tag: Which tag should I deploy?"). Reply → `v2.4.1` → Send woke the app. The link was unreachable, so it posted the reply sealed to the mailbox. When the host resumed it took the item ("mailbox reply applied") and typed it into that program, which printed `GOT V2.4.1` | `evidence/fallback/fallback-banner.jpg`, `fallback-longlook.jpg`, `fallback-after-send.jpg`, `fallback-results.json` |
+| B3 | Replay: the service posts the captured sealed reply again (a fresh hub that forgot it) | Pass. Nothing was typed again: the terminal shows one `V2.4.1`. The Mac answered with the first outcome from its spent store, signed | `replay-results.json` |
+| B4 | Tamper: one byte of the sealed blob flipped | Pass. Rejected `unsealed`, signed by the Mac | `replay-results.json` |
+| B5 | Rebind: the genuine blob posted under another reply id | Pass. Rejected `unsealed` (the seal binds the id) | `replay-results.json` |
+| B6 | Expiry: the captured reply replayed 13 minutes later | Pass. Rejected `expired`, signed | `replay-results.json` |
+| B7 | Settings → Notifications: Everything | Pass. Synced to the Worker; the Mac's next notify answer wants `terminal`. At "Needed and finished" the Mac sent no terminal push: correct | `pb-settings-everything.jpg` |
+
+Signature checks (a reply signed by a key that isn't the paired phone's, or a forged
+sealed push) need a second phone key or the Mac's box key on the rig, so they ran as
+tests, not live: `mailbox::tests` (bad signature, unpaired, removed) on rbx, and
+`PushTrustGateTests` (a forged box, a foreign banner over a genuine box) on mini-cmux7s.
+
+Failures found and fixed in this round:
+
+1. **The long look of a sealed push was empty.** It read "Open cmux to see this
+   notification", and a terminal notification had no Reply. The content extension lacked
+   the shared push keychain group, so it could not open the box. Fixed in `project.yml`,
+   the entitlements and `testflight-build.sh`; `scripts/check-notification-extension.sh`
+   now checks it (red, then green).
+2. **Rig only:** the macOS signal numbers (18 is SIGTSTP there) froze the host when the
+   script meant to resume it; the script now uses named signals. A system-launched app
+   lost the rig's service override; DEBUG now remembers it. A repeated mailbox reply now
+   logs as a repeat instead of "applied".

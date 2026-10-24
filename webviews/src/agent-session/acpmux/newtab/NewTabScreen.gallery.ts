@@ -339,6 +339,58 @@ export default agentPaneEntry({
         if (dots !== 3) throw new Error(`the minimal page shows ${dots} dots, not the three`);
       },
     },
+    "widgets-all-off": {
+      note: "All optional New Tab widgets off: the composer is the whole page.",
+      ready: newTab({ template: "minimal", pageWidgets: [] }),
+      snapshot: noChat(manySessions(12)),
+      play: async (ctx: PlayContext) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
+        if (ctx.document.querySelector(".nt-extras, .nt-headline, .nt-stage, .nt-create, .nt-ambient"))
+          throw new Error("optional widget rendered while all are off");
+      },
+    },
+    "widgets-all-on": {
+      note: "All optional New Tab widgets on: work-on headline, projects, actions, chats, clock, stopwatch, warm greeting and quote of the day.",
+      ready: newTab({
+        template: "minimal",
+        pageWidgets: [
+          "greeting",
+          "projects",
+          "actions",
+          "chats",
+          "styleDots",
+          "weather",
+          "machines",
+          "clock",
+          "timer",
+          "warmGreeting",
+          "quote",
+        ],
+        weather: weatherAt(60_000),
+      }),
+      snapshot: ambientSnapshot(),
+      play: async (ctx: PlayContext) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-headline, .nt-stage") !== null);
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-extras") !== null);
+        if (!ctx.document.querySelector(".nt-extra-clock, .nt-extra-timer, .nt-extra-warm, .nt-extra-quote"))
+          throw new Error("all-on extras missing");
+      },
+    },
+    "layout-codex-tabs-above": {
+      note: "Codex-style comparison: project and machine context sit above the composer, with the model name and a free Fast bolt together in the model picker.",
+      ready: newTab({ template: "minimal", pageWidgets: ["greeting"] }),
+      snapshot: noChat(manySessions(12)),
+    },
+    "layout-claude-chips-below": {
+      note: "Claude-style comparison: the composer stays spacious while project, machine, permission and model controls sit in the quiet row below it; paid Fast remains in the model menu.",
+      ready: newTab({ template: "default" }),
+      snapshot: noChat(manySessions(12)),
+    },
+    "layout-current-fixed": {
+      note: "Current fixed layout: the work-on headline names the project picker, real project and machine icons remain visible, and the existing glass spacing is preserved.",
+      ready: newTab({ template: "minimal", pageWidgets: ["greeting"] }),
+      snapshot: noChat(manySessions(12)),
+    },
     // A user who had turned the greeting off before it went (`"greeting": false` in cmux.json, which
     // the host sends as `headlineOff`): the composer stays where it sat for them, at the page's top
     // padding, with no room kept for the headline.

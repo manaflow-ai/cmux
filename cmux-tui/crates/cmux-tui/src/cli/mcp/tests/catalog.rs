@@ -51,6 +51,11 @@ fn every_tool_is_reachable_from_the_cmux_cli_and_no_excluded_operation_is() {
         );
     }
     for (wire, _) in v2_tools::EXCLUDED {
+        // `agent.report` is reserved by the dispatch MCP adapter even though the
+        // CLI keeps its resource-operation case for direct command coverage.
+        if *wire == "agent.report" {
+            continue;
+        }
         if let Some((args, _)) = cases.iter().find(|(_, operation)| operation == wire) {
             assert_eq!(
                 sends(args.as_slice()),

@@ -5,6 +5,7 @@ import { pathKey, type AcpmuxActivity } from "../model";
 import type { Translate } from "../i18n";
 import { isBareShellName } from "../toolPaths";
 import { agentMessage, type AgentMessage } from "./agentMessages";
+import { dispatchCall, type DispatchCall } from "./dispatchCalls";
 import { mcpCall, mcpKey } from "./mcpCalls";
 import { subsessionCall, type SubsessionCall } from "./subsessionCalls";
 import { isThought, mergeThoughts } from "./thoughts";
@@ -17,6 +18,8 @@ export type ToolGroup =
   /// only the calls).
   | { type: "group"; kind: ToolGroupKind; items: AcpmuxActivity[] }
   | { type: "message"; item: AcpmuxActivity; message: AgentMessage }
+  /// A first-class dispatch/steer/report operation, kept visible beside folded tool work.
+  | { type: "dispatch"; item: AcpmuxActivity; call: DispatchCall }
   /// A sub-session started, sent a message or waited on (subsessionCalls.ts), each its own card.
   | { type: "subsession"; item: AcpmuxActivity; call: SubsessionCall }
   /// Consecutive calls to one MCP server's tool (mcpCalls.ts), one or more.
@@ -78,8 +81,9 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
       continue;
     }
     const tool = item.tool;
-    const message = tool && agentMessage(tool);
-    const named = tool && !message ? mcpCall(tool) : undefined;
+    const dispatch = tool ? dispatchCall(item) : undefined;
+    const message = tool && !dispatch ? agentMessage(tool) : undefined;
+    const named = tool && !dispatch && !message ? mcpCall(tool) : undefined;
     const subsession = named && subsessionCall(tool!, named);
     const call = subsession ? undefined : named;
     const key = call && mcpKey(call);
@@ -94,7 +98,8 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
       continue;
     }
     close();
-    if (message) groups.push({ type: "message", item, message });
+    if (dispatch) groups.push({ type: "dispatch", item, call: dispatch });
+    else if (message) groups.push({ type: "message", item, message });
     else if (subsession) groups.push({ type: "subsession", item, call: subsession });
     else if (key) mcp = { key, items: [item] };
     else if (kind) run = { kind, items: [item] };

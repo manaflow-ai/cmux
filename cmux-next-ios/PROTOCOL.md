@@ -103,7 +103,7 @@ message ends with the reason in parentheses, one of `malformed`,
 echoes the token),
 `bad_request` (400), `not_member` / `not_owner` / `wrong_team` (403), `not_found` (404),
 `rate_limited` (429, with `retry-after` seconds; 0.7.0 per-user limits: 300 requests a minute overall, 30 `GET /v1/ice`, 10 invites, 60 notifications per Mac),
-`membership_unavailable` / `invite_failed` / `hub_unavailable` (502; `hub_unavailable` since 0.10.0 when the caller's hub refuses a signaling socket for an internal reason).
+`conflict` (409, 0.14.0: a mailbox item id reused with another blob), `membership_unavailable` / `invite_failed` / `hub_unavailable` (502; `hub_unavailable` since 0.10.0 when the caller's hub refuses a signaling socket for an internal reason).
 
 | Method + path | Body / result |
 | --- | --- |
@@ -1052,3 +1052,149 @@ label ...`, questions joined by `\u{0}`). It is pushed once per tab in 30 s,
 though Claude Code fires two hooks for it in either order (PermissionRequest
 carries no `tool_use_id`). The phone answers a notification only while that
 very question is pending on its tab; any other push is answered from the Feed card.
+
+## Sealed pushes and the reply mailbox (API 0.14.0, `feat-cmux-next-ios-push-fallback`)
+
+Held for the #13742 decision (`verify/notifications-trust.md`). Every
+addition is optional: a phone or Mac without it keeps PR A's behavior.
+
+### Crypto (shared by hostd, the app and its service extension)
+
+- **Seal** (ECIES, P-256): an ephemeral P-256 key `E`; `z = ECDH(E, R)` for the
+  recipient key `R`; `k = HKDF-SHA256(ikm: z, salt: E_pub || R_pub, info:
+  context, 32 bytes)`; AES-256-GCM with a random 12-byte nonce and the
+  associated data `context`. Wire: base64url of
+  `0x01 || E_pub (65 bytes, X9.63) || nonce (12) || ciphertext || tag (16)`.
+- **Contexts**: a push `cmux-mobile-push-seal-v1 \0 mac \0 phone \0 eventId`; a
+  reply `cmux-mobile-reply-seal-v1 \0 mac \0 phone \0 replyId`.
+- **Mac box key**: hostd derives the P-256 scalar from its identity key:
+  `HKDF-SHA256(ikm: identity scalar, salt: "", info:
+  "cmux-mobile-mac-box-v1", 32 bytes)`, reduced into `[1, n-1]` (taken again
+  with a counter byte appended to `info` while it is out of range).
+- Signatures are ECDSA P-256 / SHA-256, raw `r || s`, lowercase hex, as
+  elsewhere.
+
+### Keys at pairing (`auth`)
+
+- The phone adds `pushKey` (X9.63 hex, its push key) and `pushKeySignature`
+  (identity key) over `cmux-mobile-push-key-v1 \0 mac \0 phone \0 pushKey` to
+  `auth` args. hostd keeps it for the paired phone (0600 state file) once
+  `auth` passes. A phone without it gets unsealed pushes.
+- The challenge adds `macBoxKey` and `macBoxSignature` (Mac identity key)
+  over `cmux-mobile-mac-box-v1 \0 mac \0 macBoxKey`. The phone verifies it with
+  the pinned Mac identity key and keeps the box key with its signature; it
+  checks the signature against the pin again before it seals each reply.
+- A push key that does not verify is ignored (logged), never a pairing
+  failure: that phone simply gets unsealed pushes.
+- Once a Mac proved a box key after the phone gave it a push key, that Mac
+  *seals*: the phone acts on no unsealed push that names it (generic banner,
+  no buttons, a tap only opens the app).
+
+### Sealed notify (Mac → Worker → APNs)
+
+`POST /v1/devices/:macId/notify` adds `sealed: {"<phone device id>": {"box": "<sealed>", "sig": "<hex>"}}`,
+where `box` seals the v2 `cmuxMobile` object (plus `decisionNonce` and
+`personInstance` for an ask, so the phone can sign an answer offline) and
+`sig` is the Mac identity signature (64 bytes, 128 hex digits) over `cmux-mobile-push-v1 \0 mac \0 phone \0
+eventId \0 box`. The box also carries `postedAt` (Unix seconds). At most 20
+phones; `box` is base64url of at most 3072 characters (hostd trims the content
+to fit, and skips a phone whose box still would not). When every paired phone
+has a push key the Mac sends no content fields, also when one box failed or
+its identity key has not arrived (those phones get the generic banner from
+the ids alone); a phone without a push key gets the v2 payload built from the
+content the Mac then sends beside `sealed`. The Worker sends a phone listed
+there `{"aps": {"alert": {"title": "cmux", "body": "New notification from
+<Mac>"}, "mutable-content": 1, "category": "CMUX_MOBILE_SEALED" (no buttons),
+"thread-id": FNV-1a of the v2 thread id, 16 hex digits}, "cmuxMobile": {"v": 3,
+"mac", "macName", "kind", "eventId", "previews", "box", "sig"}}`. The service
+extension checks `sig` against the pinned Mac key, opens `box` with the push
+key, fills in the v2 content, category and thread, and keeps the v3 object
+(`cmuxMobileSealed`) beside them; the app opens that box again before any
+button acts. If it can't open it, the generic banner and no buttons stay. A
+push older than 15 minutes (`postedAt`) shows its text with no buttons.
+
+### Reply mailbox
+
+- Phone → Worker: `POST /v1/devices/:macId/mailbox` `{id (uuid), from (the
+  phone's link device id), sealed}` → `{queued: true, delivered}`. The caller
+  must own `from` (a phone) and `:macId` (a Mac), else `403 not_owner`;
+  `sealed` is base64url of at most 16384 characters (the phone refuses a
+  larger reply itself); at most 32 pending per Mac
+  (`429 rate_limited`) and 60 posts a minute per user. Kept in the user hub for
+  10 minutes. The same `id` with the same blob is the same item (a retried
+  request, answered `{queued: true, delivered: false}`); with another blob it
+  is `409 conflict`.
+- Worker → Mac socket: `{"type":"mailbox","items":[{id, from, sealed, at}]}` at
+  once when the Mac's signaling socket is open, else right after its `hello`.
+  The Mac answers `{"type":"mailbox_ack","results":[{id, applied, reason?, sig}]}`
+  (at most 64; `reason` `[a-z_]{1,32}`, else `refused`) for each item it
+  settled. `sig` is the Mac identity signature over `cmux-mobile-mailbox-ack-v1
+  \0 mac \0 id \0 1|0 \0 reason` (empty reason when applied); the hub keeps it
+  as sent (128 hex digits, else none). An item the Mac could not settle yet
+  (its app has not sent the keys or paired list within 10 s, a service it
+  applies through is not reachable, another copy is being applied) gets no
+  result: it stays queued and the Mac tries it again every 30 s while its
+  socket lives, and on the next delivery. The hub takes it only
+  from a Mac socket (a phone gets `error bad_request`), settles only that Mac's
+  own queued items, clears each blob, and keeps the outcome for 10 more
+  minutes. Removing either device (`DELETE /v1/devices/:id`) deletes its items.
+- Phone → Worker: `GET /v1/devices/:macId/mailbox/:id` → `{state: "queued" |
+  "applied" | "rejected" | "expired", reason?, sig?}`; `404 not_found` for an
+  id it never had or forgot. The phone takes `applied` or `rejected` only with
+  a `sig` that verifies against the Mac's pinned key; otherwise it says "Not
+  confirmed by <Mac>". It asks after 1, 2, 4 and 8 s. A retried `POST` of an
+  id the hub holds with another blob (`409`) counts as queued.
+- The sealed plaintext (canonical JSON, keys in byte order):
+  `{v: 1, id, mac, phone, kind, target: {sessionId?, permissionId?,
+  conversationId?, tabId?, notificationId?}, action: {type: "option" |
+  "answers" | "allow" | "deny" | "text", optionId?, answers?, text?},
+  approval?, nonce, issuedAt, expiresAt, sig}` where `approval` is the acpmux
+  `_meta.acpmux` decision the phone signed after Face ID (Allow, answers) and
+  `sig` is the phone identity signature over `cmux-mobile-reply-v1 \0 mac \0
+  phone \0 sha256(canonical JSON without sig)`. The phone uses a 540 s window
+  from when the person made the reply (a Retry keeps it, never starts a new
+  one); the Mac takes `expiresAt` at most 600 s after `issuedAt` and at most
+  660 s after its own clock (60 s for a phone clock ahead). `nonce` is 16 to
+  128 letters or digits (the phone sends 32 lowercase hex digits); `text` at
+  most 4096 bytes. A `deny` may leave out `optionId`: the Mac then picks the
+  prompt's `reject_once`, else its first reject.
+- hostd applies it only after the checks in `verify/notifications-trust.md`
+  ("What the Mac checks"), and reports `applied` or the first failing check:
+  `unsealed`, `not_paired`, `bad_signature`, `expired`, `replayed`,
+  `not_pending`, `refused`. A repeat of a reply id the Mac already settled
+  (over the link or the mailbox) answers that first outcome again, signed;
+  `replayed` means another reply already used the nonce. hostd keeps each
+  spent id's outcome on disk until it expires, and applies nothing while that
+  file cannot be read.
+
+### Terminal replies
+
+The `daemon` policy allows `notification-reply {notification, text, reply_id?}`
+(a ledger id, 1 to 4096 bytes of text and the reply's id, no other field).
+The daemon has no such command: hostd answers it itself. It finds the
+notification in the session's ledger (`list-notifications`; gone:
+`not_found`) and applies the text only when:
+
+- the row asked for replies (`reply: true`, `cmux notify --reply`);
+- it is at most 15 minutes old;
+- the program that posted it still holds its terminal: the daemon records
+  the terminal's foreground process-group leader and its executable when the
+  row is posted (`list-notifications` `notification`, `poster_pid`,
+  `poster_executable`, memory only; `process-info` adds `foreground_pid`),
+  and both must match now. A program that exited, another program, or a new
+  process of the same name gets nothing (`not_found`); a daemon that records
+  no poster gets no terminal reply.
+
+Then it pastes the text and sends Return, each `send` with `expect_foreground`
+naming that program. For an agent's notification (`source` `agent`, a hook on
+a terminal tab) on a daemon with `send-expect-agent-v1` (manaflow-ai/cmux#24205)
+it sends one `send` with `submit: true` and `expect_agent: {}` instead, so the
+text and Return are written only while the agent waits at its prompt; a daemon
+or host policy without it gets the two writes. The answer is a v12 line,
+`{"id", "ok": true}` or an error. The phone's `cmux.terminal.reply` action
+sends it over the link, or through the mailbox with `kind` `terminal`, whose
+`target` also names the tab (`s<surface>`), which must be the notification's.
+
+hostd keeps phones' push keys in `<state>/push-keys.json` and spent reply
+ids and nonces in `<state>/mailbox-spent.json` (both mode 0600; public keys
+and ids only).

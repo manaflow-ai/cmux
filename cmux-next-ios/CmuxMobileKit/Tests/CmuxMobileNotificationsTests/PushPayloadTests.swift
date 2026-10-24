@@ -83,8 +83,16 @@ import UserNotifications
         p.options.append(PushOption(id: "aa", label: "Always", kind: .allowAlways))
         // Never Always allow (acpmux refuses a lasting grant from a phone).
         #expect(PushActions().plan(for: p).map(\.action) == [.allowOnce, .deny])
-        // A v1 push lists none: Allow once and Deny.
-        #expect(PushActions().plan(for: PushPayload(mac: "m", kind: .permission)).map(\.action) == [.allowOnce, .deny])
+        // None listed (a v1 push, or a sealed one the Mac trimmed to fit): "Answer…" opens the app.
+        #expect(PushActions().plan(for: PushPayload(mac: "m", kind: .permission)).map(\.action) == [.answer])
+    }
+
+    /// The Mac trims a sealed push to fit 3072 characters and may drop the
+    /// questions: the ask then opens the app ("Answer…"), never option buttons.
+    @Test func aTrimmedAskOpensTheApp() {
+        #expect(PushActions().plan(for: PushPayload(mac: "m", kind: .question, permissionId: "q")).map(\.action) == [.answer])
+        let empty = PushPayload(mac: "m", kind: .question, questions: [PushQuestion(question: "Which?", options: [])])
+        #expect(PushActions().plan(for: empty).map(\.action) == [.answer])
     }
 
     @Test func turnsAndChiefGetReplyAndTerminalNothingYet() {

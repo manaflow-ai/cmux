@@ -77,13 +77,13 @@ import { useComposerChrome } from "../composerChrome";
 import { useComposerSettings } from "../composerSettings";
 import { useComposerLook } from "../composerLook";
 import { ComposerFoot } from "../ComposerFoot";
-import { FastToggle, SpeedToggleHost, type SpeedTiers } from "../FastToggle";
 import { useRowFit } from "../composerRowFit";
 import { useMenuPressGuard } from "../menuPressGuard";
 import { useMinuteClock } from "../clock";
 import { usePasteAnywhere } from "../composer/pasteAnywhere";
 import { SlashMenu } from "../SlashMenu";
 import { applyCommand, matchCommands, slashQuery, type SlashCommand } from "../slashCommands";
+import { NewTabExtras } from "./NewTabExtras";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 export type NewTabScreenActions = {
@@ -981,9 +981,6 @@ export function NewTabScreen(props: Props) {
       }
     : undefined;
   const Chips = props.chips;
-  // Codex's speed option, which the chips hand up: the bolt left of the mic (FastToggle.tsx), as
-  // the chat composer draws it. Claude Code's Fast mode stays a row of the model button's menu.
-  const [speed, setSpeed] = useState<SpeedTiers | undefined>(undefined);
   /// The Cards template (u2851): the field is a pill of its own and the chips sit under it. The
   /// split draws the chat composer's box instead.
   const pill = template === "cards" && !chatBox;
@@ -1066,13 +1063,8 @@ export function NewTabScreen(props: Props) {
       <div className="nt-pickers" data-footer-look={plainFooter ? "plain" : undefined} onPointerDownCapture={touch}>
         {/* The folder Enter asks in (screenActions: the picked project, else the tab's), so a pick's
         switch is the one Enter reuses. */}
-        {!split && Chips && (
-          <SpeedToggleHost.Provider value={setSpeed}>
-            <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />
-          </SpeedToggleHost.Provider>
-        )}
+        {!split && Chips && <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />}
         <span className="acpmux-composer-actions">
-          {speed && <FastToggle speed={speed} />}
           {props.accessory}
           {/* Send: a click does what Return does (a prompt, a row, or a shell command). Cards draws
               none, as Aside's New Tab: Return sends. */}
@@ -1237,9 +1229,7 @@ export function NewTabScreen(props: Props) {
         {split && Chips && (
           <div className="nt-foot" onPointerDownCapture={touch}>
             <ComposerFoot ref={foot}>
-              <SpeedToggleHost.Provider value={setSpeed}>
-                <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />
-              </SpeedToggleHost.Provider>
+              <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />
             </ComposerFoot>
           </div>
         )}
@@ -1266,6 +1256,7 @@ export function NewTabScreen(props: Props) {
       now={at}
     />
   );
+  const extras = <NewTabExtras widgets={widgets} now={at} />;
   // The stage's widgets, in the user's order (`tabs.newTabWidgets.order`): Projects and Quick
   // Actions are cards (cards next to each other share a column), Recent Chats is the player and the
   // lists, as before the order; with Recent Chats off the player and the other lists come last.
@@ -1369,6 +1360,7 @@ export function NewTabScreen(props: Props) {
               {!order.includes("chats") && playerAndLists}
             </div>
             {composerCard}
+            {extras}
             {props.notice}
             {environmentPanel}
           </>
@@ -1385,6 +1377,7 @@ export function NewTabScreen(props: Props) {
               headline
             )}
             {composerCard}
+            {extras}
             {ambient}
             {props.notice}
             {environmentPanel}

@@ -7,7 +7,7 @@ use std::io;
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::os::unix::net::UnixStream;
 use std::path::Path;
-use std::sync::mpsc::{SyncSender, sync_channel};
+use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -48,12 +48,36 @@ pub enum LinkEnd {
 }
 
 type SpawnReply = io::Result<Spawned>;
+/// The segment a holder writes an adopted terminal to (`None`: private).
+type AdoptReply = io::Result<Option<OwnedFd>>;
 
 #[derive(Default)]
 struct State {
     sinks: HashMap<u32, Arc<dyn TerminalSink>>,
     spawns: HashMap<u32, SyncSender<SpawnReply>>,
+    /// ADOPTs waiting for the holder's [`Kind::Adopted`] (wire version 5).
+    adopts: HashMap<u32, SyncSender<AdoptReply>>,
     open: bool,
+}
+
+/// A holder's answer to an ADOPT, still on its way ([`HolderLink::adopt`]):
+/// several ADOPTs go out before the first answer is waited for.
+pub struct PendingAdopt(Option<Receiver<AdoptReply>>);
+
+impl PendingAdopt {
+    /// The ring segment the new holder writes the terminal's output to: the
+    /// one the ADOPT carried when the holder continues it, a fresh one when
+    /// it could not, `None` for a private ring or a holder older than wire
+    /// version 5 (which does not say). The daemon keeps exactly this as its
+    /// custody copy. An error when the holder refused the ADOPT, the link
+    /// ended first, or no answer came within the spawn timeout: then nobody
+    /// can say which segment the holder writes.
+    pub fn wait(self) -> io::Result<Option<OwnedFd>> {
+        let Some(answer) = self.0 else { return Ok(None) };
+        answer
+            .recv_timeout(SPAWN_TIMEOUT)
+            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "holder did not answer ADOPT"))?
+    }
 }
 
 /// An authenticated, concurrent link to a holder.
@@ -108,10 +132,12 @@ impl HolderLink {
         self.version
     }
 
-    /// Whether the holder passes and takes ring segments (wire version 4):
-    /// a crash of it then loses no byte it read.
-    pub fn has_rings(&self) -> bool {
-        self.version >= 4
+    /// Whether the holder takes ring segments in an ADOPT and says which
+    /// ring it writes ([`wire::RING_VERSION`]): a crash of it then loses no
+    /// byte it read. A version 4 holder passes layout 1 segments but gets
+    /// none (it cannot read layout 2, and does not answer an ADOPT).
+    pub fn takes_rings(&self) -> bool {
+        self.version >= wire::RING_VERSION
     }
 
     /// Start `request` on `chan`, streaming its output to `sink` from its
@@ -154,12 +180,15 @@ impl HolderLink {
     /// output then streams to `sink` from `resume`.
     ///
     /// With `ring` (the dead holder's segment; only on a link with
-    /// [`Self::has_rings`]) the new holder continues that ring: `base` is
+    /// [`Self::takes_rings`]) the new holder continues that ring: `base` is
     /// the offset the daemon parsed and confirmed, at or before `resume`,
     /// and the bytes from `resume` the dead holder read but never sent come
     /// first. Without it the new holder starts a fresh ring at `resume`, and
     /// `base` must equal `resume` (the prologue then carries what the daemon
-    /// had not parsed).
+    /// had not parsed). Either way the holder's credit counts from `base`.
+    ///
+    /// Returns the holder's answer, to wait for once every ADOPT went out:
+    /// the segment it really writes ([`PendingAdopt::wait`]).
     pub fn adopt(
         &self,
         chan: u32,
@@ -167,49 +196,70 @@ impl HolderLink {
         (pid, base, resume): (i32, u64, u64),
         (master, ring): (&OwnedFd, Option<&OwnedFd>),
         (sink, prologue): (Arc<dyn TerminalSink>, &[u8]),
-    ) -> io::Result<()> {
-        self.lock().sinks.insert(chan, sink);
-        match ring.filter(|_| self.has_rings()) {
+    ) -> io::Result<PendingAdopt> {
+        let (reply, answer) = self.takes_rings().then(|| sync_channel(1)).unzip();
+        {
+            let mut state = self.lock();
+            if !state.open {
+                return Err(lost());
+            }
+            state.sinks.insert(chan, sink);
+            if let Some(reply) = reply {
+                state.adopts.insert(chan, reply);
+            }
+        }
+        let sent = match ring.filter(|_| self.takes_rings()) {
             Some(ring) => {
                 let payload =
                     Out::default().i32(pid).u64(base).bytes(id).u64(resume).bytes(prologue).0;
                 let frame = wire::encode_flagged(Kind::Adopt, wire::FLAG_RING, chan, &payload);
                 let writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
-                wire::send_all(
-                    writer.as_raw_fd(),
-                    &frame,
-                    &[master.as_raw_fd(), ring.as_raw_fd()],
-                )?;
+                wire::send_all(writer.as_raw_fd(), &frame, &[master.as_raw_fd(), ring.as_raw_fd()])
             }
             None => {
                 let payload = Out::default().i32(pid).u64(resume).bytes(id).bytes(prologue).0;
-                self.send(Kind::Adopt, chan, &payload, Some(master))?;
+                self.send(Kind::Adopt, chan, &payload, Some(master))
             }
+        };
+        let attach = Out::default().u64(resume).u64(base).0;
+        if let Err(error) = sent.and_then(|()| self.send(Kind::Attach, chan, &attach, None)) {
+            self.lock().adopts.remove(&chan);
+            return Err(error);
         }
-        self.send(Kind::Attach, chan, &Out::default().u64(resume).0, None)
+        Ok(PendingAdopt(answer))
     }
 
     /// Stream a listed terminal's output to `sink` from `from`, after its
     /// prologue if it has one (a restarted daemon re-attaching).
     pub fn attach(&self, chan: u32, from: u64, sink: Arc<dyn TerminalSink>) -> io::Result<()> {
-        self.attach_flagged(chan, from, sink, wire::FLAG_WITH_PROLOGUE)
+        let payload = Out::default().u64(from).0;
+        self.attach_flagged(chan, &payload, sink, wire::FLAG_WITH_PROLOGUE)
     }
 
-    /// Stream a terminal this daemon already shows to `sink` from `from`,
-    /// without its prologue: the same holder, after the link dropped.
-    pub fn resume(&self, chan: u32, from: u64, sink: Arc<dyn TerminalSink>) -> io::Result<()> {
-        self.attach_flagged(chan, from, sink, 0)
+    /// Stream a terminal this daemon already shows to `sink` from `from`
+    /// (the newest byte it received), without its prologue: the same
+    /// holder, after the link dropped. `parsed` is the offset its parser
+    /// confirmed: the holder's credit counts from there (wire version 5), so
+    /// the bytes still queued stay in the window.
+    pub fn resume(
+        &self,
+        chan: u32,
+        (from, parsed): (u64, u64),
+        sink: Arc<dyn TerminalSink>,
+    ) -> io::Result<()> {
+        let payload = Out::default().u64(from).u64(parsed.min(from)).0;
+        self.attach_flagged(chan, &payload, sink, 0)
     }
 
     fn attach_flagged(
         &self,
         chan: u32,
-        from: u64,
+        payload: &[u8],
         sink: Arc<dyn TerminalSink>,
         flags: u16,
     ) -> io::Result<()> {
         self.lock().sinks.insert(chan, sink);
-        let frame = wire::encode_flagged(Kind::Attach, flags, chan, &Out::default().u64(from).0);
+        let frame = wire::encode_flagged(Kind::Attach, flags, chan, payload);
         let writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
         wire::send_all(writer.as_raw_fd(), &frame, &[])
     }
@@ -281,6 +331,9 @@ impl HolderLink {
         for (_, reply) in state.spawns.drain() {
             let _ = reply.try_send(Err(lost()));
         }
+        for (_, reply) in state.adopts.drain() {
+            let _ = reply.try_send(Err(lost()));
+        }
     }
 }
 
@@ -335,6 +388,16 @@ fn read_loop(
                         && let Some(waiter) = link.lock().spawns.remove(&chan)
                     {
                         let _ = waiter.try_send(Err(io::Error::other(message)));
+                    } else if request == Kind::Adopt as u16
+                        && let Some(waiter) = link.lock().adopts.remove(&chan)
+                    {
+                        let _ = waiter.try_send(Err(io::Error::other(message)));
+                    }
+                }
+                Some(Kind::Adopted) => {
+                    let segment = std::mem::take(&mut frame.fds).into_iter().next();
+                    if let Some(waiter) = link.lock().adopts.remove(&chan) {
+                        let _ = waiter.try_send(Ok(segment));
                     }
                 }
                 Some(Kind::Data) => {
