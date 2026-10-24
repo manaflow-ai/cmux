@@ -91,15 +91,21 @@ enum DebugMouse {
             }
             // A real scroll first meets the layout's event monitor (strip and
             // row scrolls); a windowless synthesized one skips monitors, so
-            // the layout under the point gets it first, then the view.
+            // the layout under the point gets it first, then the view. Both run
+            // inside the app's input dispatch context, as sendEvent's do, so the
+            // scroll is timed to its frame the same way (`key.scroll_frame`).
             let root = sequence(first: target, next: \.superview).lazy.compactMap { $0 as? LayoutRootView }.first
             let movesPointer = params["hover"]?.boolValue != false
-            if let root, root.handleScroll(event, locationInWindow: baseLocation(point, in: window)) {
+            let layoutTook = services.inputDispatch.dispatching(event) { () -> Bool in
+                if let root, root.handleScroll(event, locationInWindow: baseLocation(point, in: window)) { return true }
+                target.scrollWheel(with: event)
+                return false
+            }
+            if layoutTook {
                 if movesPointer { LayoutRootView.setDebugPointer(baseLocation(point, in: window), in: window) }
                 return .object(["window": .string(controller.state.id), "x": .number(point.x), "y": .number(point.y),
                                 "delivered_to": .string("LayoutRootView")])
             }
-            target.scrollWheel(with: event)
             if movesPointer { LayoutRootView.setDebugPointer(baseLocation(point, in: window), in: window) }
             return .object(["window": .string(controller.state.id), "x": .number(point.x), "y": .number(point.y),
                             "delivered_to": .string(String(describing: type(of: target)))])
