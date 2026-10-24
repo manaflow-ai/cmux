@@ -31,6 +31,16 @@ const footer = (id: string) => ({
 const prompt = (id: string) => ({ id, version: 1, at: 0, kind: "user", text: "Next" });
 const heightsOf = (rows: unknown[]) => [...layoutConversation(rows as never, 720).heights];
 
+test("ordered prompt estimates reserve inline thumbnail slots before the DOM mounts", () => {
+  const image = { kind: "image", id: "a", mimeType: "image/png" };
+  const one = { ...prompt("inline-one"), inlineParts: [image, { kind: "text", text: "Caption" }] };
+  const two = { ...prompt("inline-two"), inlineParts: [image, { kind: "text", text: "Caption" }, { ...image, id: "b" }] };
+  const [oneHeight] = heightsOf([one]);
+  const [twoHeight] = heightsOf([two]);
+  expect(oneHeight!).toBeGreaterThan(120);
+  expect(twoHeight! - oneHeight!).toBe(124);
+});
+
 test("a reply over its footer is its text and the 4px meta gap, with no 34px floor", () => {
   const long = "A longer answer that wraps. ".repeat(40);
   const [alone] = heightsOf([reply("a", long)]);
