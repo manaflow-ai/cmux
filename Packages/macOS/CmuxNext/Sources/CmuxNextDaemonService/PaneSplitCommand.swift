@@ -53,13 +53,20 @@ public struct PaneSplitCommand: Sendable {
         options.terminalID = TerminalID(rawValue: provisional.terminalID)
         let pane = pane, direction = direction, sent = options
         let intent = Intent.splitPane(pane: pane, direction: direction, ratio: 0.5, provisional: provisional)
+        // The target at send time: a stand-in (a split pressed on a create in flight) has become the
+        // daemon's pane by then (``DaemonStore/sendTarget(_:)``; the window sends its creates in
+        // press order, each once the store holds the one before). The stand-in's own handle means
+        // nothing to the daemon.
+        let target = daemon.store.sendTarget(pane)
         let send = daemon.intendNow("split", intent, transaction: transaction) { connection in
-            try await connection.split(pane, direction: direction, options: sent)
+            try await connection.split(await target(), direction: direction, options: sent)
         }
         return {
             guard let created = await send() else { throw PaneSplitFailure() }
             daemon.store.creations.noteReply(transaction, surface: created.surface)
             guard !daemon.store.creations.wasCancelled(transaction) else { throw PaneSplitCancelled() }
+            // A create pressed on this one's stand-in sends once the store holds the daemon's pane.
+            await daemon.store.settled(transaction)
             return created
         }
     }

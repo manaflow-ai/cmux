@@ -133,6 +133,8 @@ public final class DaemonStore: StateResourceQueries {
     @ObservationIgnored public var onIntentSettled: ((ClientTransactionID, IntentSettlement) -> Void)?
     /// Settlements of the current lift, reported when it ends.
     @ObservationIgnored var intentSettlements: [(ClientTransactionID, IntentSettlement)] = []
+    /// Callers waiting for an intent to leave the log (``settled(_:)``), by transaction.
+    @ObservationIgnored var settleWaiters: [ClientTransactionID: [@MainActor (IntentSettlement) -> Void]] = [:]
     /// Mirror single-writer violations found by the debug-build check (DaemonStore+MirrorCheck.swift), newest last (bounded).
     @ObservationIgnored public internal(set) var mirrorViolations: [String] = []
     /// Called on the main actor for each new mirror violation.

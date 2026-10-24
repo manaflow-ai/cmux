@@ -69,6 +69,35 @@ extension DaemonStore {
     /// The pending intents in order.
     public var pendingIntents: [Intent] { intentLog.entries.map(\.kind) }
 
+    /// The pane a command about `handle` names when it is sent later: `handle` now, and for a
+    /// stand-in (a create pressed on a create in flight) the daemon's pane that took it over. The
+    /// daemon's pane takes over the stand-in's own model under the same public id (updated in
+    /// place), so the model held from the press names the daemon's handle once the store holds
+    /// that pane (``settled(_:)`` of the create before it). Read on the main actor at send time.
+    ///
+    /// - Parameter handle: The pane the person pressed on.
+    /// - Returns: The handle to send, read when called.
+    public func sendTarget(_ handle: PaneID) -> @MainActor @Sendable () -> PaneID {
+        let model = panesByHandle[handle]
+        return { [weak self] in model?.handle ?? self?.daemonHandle(showing: handle) ?? handle }
+    }
+
+    /// Returns once the intent of `transaction` left the log: the store's records hold what the
+    /// daemon made (a split's pane placed by its layout, so ``daemonHandle(showing:)`` names it)
+    /// or the daemon refused it. At once when no such intent is pending. A create pressed on a
+    /// create in flight sends after this, so it names the daemon's pane; the reply's event
+    /// sequence is not enough, as `pane-added` can come after it.
+    ///
+    /// - Parameter transaction: The intent's transaction.
+    /// - Returns: How it left the log, or nil when it was not pending.
+    @discardableResult
+    public func settled(_ transaction: ClientTransactionID) async -> IntentSettlement? {
+        guard intentLog.contains(transaction) else { return nil }
+        return await withCheckedContinuation { (done: CheckedContinuation<IntentSettlement?, Never>) in
+            settleWaiters[transaction, default: []].append { done.resume(returning: $0) }
+        }
+    }
+
     /// The daemon echoed `transaction`. An echo carried by an event the
     /// store could not apply exactly (it resyncs) settles only once the
     /// snapshot covering `resyncSequence` is applied, so the tab never
@@ -127,7 +156,10 @@ extension DaemonStore {
         // Observers see the visible state with the other intents on it.
         let settled = intentSettlements
         intentSettlements.removeAll()
-        for (transaction, settlement) in settled { onIntentSettled?(transaction, settlement) }
+        for (transaction, settlement) in settled {
+            onIntentSettled?(transaction, settlement)
+            for waiter in settleWaiters.removeValue(forKey: transaction) ?? [] { waiter(settlement) }
+        }
         CancelledCreation.requestCloses(in: self)
         return result
     }
