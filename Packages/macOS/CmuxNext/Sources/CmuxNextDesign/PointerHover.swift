@@ -18,8 +18,14 @@ public import AppKit
 ///   to another under a still pointer (a band button into fullscreen's
 ///   toolbar window, a strip control with Move Tab or Pane to New Window)
 ///   gets no enter there and is still filed under the old window, so it
-///   recomputes its own target. Every owner calls it; a `ChromeHover`
-///   owner calls `ChromeHover.viewDidMoveToWindow()`.
+///   recomputes its own target. An owner must call it (a `ChromeHover`
+///   owner calls `ChromeHover.viewDidMoveToWindow()`); the pre-push rule
+///   `hover-window-move` (scripts/cmux-next/guardrails.py) refuses a new
+///   owner whose file has no such forward. The CmuxNextSidebar owners
+///   (SidebarView, SidebarItemRowView, SidebarPriorityRowView,
+///   SidebarSectionHeaderView, SidebarUpdateCardView, SidebarResizeHandle,
+///   SidebarIconButton) do not call it yet: moved to another window under a
+///   still pointer, they light on the next mouse move or key change.
 ///
 /// The layout's divider hover (`ScreenDividers`) reads the same pointer.
 @MainActor
