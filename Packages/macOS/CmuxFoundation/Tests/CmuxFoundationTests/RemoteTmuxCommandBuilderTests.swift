@@ -116,6 +116,27 @@ struct RemoteTmuxCommandBuilderTests {
         }
     }
 
+    @Test("prune is skipped when PID 1 cannot be identified")
+    func pruneSkipsHostsWhereInitLookupFails() throws {
+        let orphanedControlClient = try spawnOrphanedSleep()
+        defer { kill(orphanedControlClient, SIGKILL) }
+        try withFakeTmux(clients: [(pid: orphanedControlClient, controlMode: true)], failsInitLookup: true) { directory, environment in
+            let builder = RemoteTmuxCommandBuilder(
+                arguments: ["-CC", "attach-session", "-t", "main"],
+                prunesOrphanedControlClients: true
+            )
+            let result = try run(
+                executable: "/bin/sh",
+                arguments: ["-c", builder.remoteShellCommand],
+                environment: environment
+            )
+
+            #expect(result.status == 0)
+            #expect(try capturedArguments(in: directory) == ["-CC", "attach-session", "-t", "main"])
+            #expect(isAlive(pid: orphanedControlClient))
+        }
+    }
+
     /// A `sleep` whose parent has exited, so the kernel reparents it to PID 1.
     private func spawnOrphanedSleep() throws -> pid_t {
         let process = Process()
@@ -169,10 +190,12 @@ struct RemoteTmuxCommandBuilderTests {
 
     /// Installs a fake `tmux` on PATH that answers `list-clients` with `clients` and
     /// records any other argv. `initCommand` is what a fake `ps` reports for PID 1;
-    /// nil keeps the real `ps`.
+    /// nil keeps the real `ps`. `failsInitLookup` makes only the PID 1 lookup fail
+    /// with no output, as on a host with restricted `/proc`.
     private func withFakeTmux(
         clients: [(pid: pid_t, controlMode: Bool)],
         initCommand: String? = nil,
+        failsInitLookup: Bool = false,
         operation: (URL, [String: String]) throws -> Void
     ) throws {
         let rows = clients.map { "\($0.pid):\($0.controlMode ? 1 : 0)" }.joined(separator: "\\n")
@@ -181,11 +204,12 @@ struct RemoteTmuxCommandBuilderTests {
         if [ "$1" = list-clients ]; then printf '\(rows)\\n'; exit 0; fi
         printf '%s\\n' "$@" > "$TMUX_ARGS_FILE"
         """) { directory, environment in
-            if let initCommand {
+            let initReply = failsInitLookup ? "exit 1" : initCommand.map { "echo \($0); exit 0" }
+            if let initReply {
                 let fakePS = directory.appending(path: "ps")
                 try """
                 #!/bin/sh
-                if [ "$1" = -o ] && [ "$2" = comm= ] && [ "$4" = 1 ]; then echo \(initCommand); exit 0; fi
+                if [ "$1" = -o ] && [ "$2" = comm= ] && [ "$4" = 1 ]; then \(initReply); fi
                 exec /bin/ps "$@"
                 """.write(to: fakePS, atomically: true, encoding: .utf8)
                 try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakePS.path)
