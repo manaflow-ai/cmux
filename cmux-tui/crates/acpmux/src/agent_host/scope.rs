@@ -102,10 +102,8 @@ pub(crate) fn busctl_env(
     bus: Option<OsString>,
     uid: u32,
 ) -> Vec<(&'static str, OsString)> {
-    let mut env = vec![(
-        "XDG_RUNTIME_DIR",
-        runtime_dir.unwrap_or_else(|| format!("/run/user/{uid}").into()),
-    )];
+    let mut env =
+        vec![("XDG_RUNTIME_DIR", runtime_dir.unwrap_or_else(|| format!("/run/user/{uid}").into()))];
     if let Some(bus) = bus {
         env.push(("DBUS_SESSION_BUS_ADDRESS", bus));
     }
@@ -176,8 +174,9 @@ mod linux {
             std::fs::read_to_string(format!("/proc/{p}/cgroup"))
                 .is_ok_and(|c| unified(&c) == Some(own))
         };
-        let is_host = std::fs::read(format!("/proc/{pid}/cmdline"))
-            .is_ok_and(|c| c.split(|b| *b == 0).any(|arg| arg == super::super::HOST_ARG.as_bytes()));
+        let is_host = std::fs::read(format!("/proc/{pid}/cmdline")).is_ok_and(|c| {
+            c.split(|b| *b == 0).any(|arg| arg == super::super::HOST_ARG.as_bytes())
+        });
         if !is_host || !in_unit(pid) {
             return;
         }
@@ -291,7 +290,8 @@ mod tests {
     fn a_host_counts_as_placed_only_when_its_cgroup_names_its_own_scope() {
         let unit = scope_unit(4242, "0a1b2c3d");
         assert_eq!(unit, "acpmux-agent-host-4242-0a1b2c3d.scope");
-        let placed = format!("0::/user.slice/user-1000.slice/user@1000.service/{HOST_SLICE}/{unit}\n");
+        let placed =
+            format!("0::/user.slice/user-1000.slice/user@1000.service/{HOST_SLICE}/{unit}\n");
         assert!(names_scope(&placed, &unit));
         // A stale scope of an earlier process with the same pid is not this move's.
         assert!(!names_scope(&placed, &scope_unit(4242, "ffffffff")));

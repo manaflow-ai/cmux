@@ -270,7 +270,8 @@ async fn a_unit_restart_keeps_the_agent_hosts_and_the_new_daemon_reattaches() {
 fn in_own_scope(pid: i64) -> bool {
     let line = cgroup(pid);
     let prefix = format!("/acpmuxhosts.slice/acpmux-agent-host-{pid}-");
-    line.lines().any(|l| l.starts_with("0::") && l.contains(&prefix) && l.trim_end().ends_with(".scope"))
+    line.lines()
+        .any(|l| l.starts_with("0::") && l.contains(&prefix) && l.trim_end().ends_with(".scope"))
 }
 
 /// Waits (test polling, bounded) until `pid` is in its own host scope.
@@ -327,7 +328,10 @@ async fn a_pooled_host_moves_when_a_session_takes_it_and_an_untaken_one_ends_wit
 
     unit.restart();
 
-    assert!(gone_within(untaken, Duration::from_secs(10)), "untaken pooled host {untaken} survived");
+    assert!(
+        gone_within(untaken, Duration::from_secs(10)),
+        "untaken pooled host {untaken} survived"
+    );
     assert!(alive(host) && alive(harness), "the restart ended the taken host or its harness");
     let mut rpc = Rpc::connect(&unit.home).await;
     let reply = rpc.prompt(&taken, "again").await;
