@@ -39,6 +39,9 @@ pub fn status_indicator(summary: &Value) -> Option<&'static str> {
         "waiting" => Some("input"),
         _ if pending => Some("input"),
         "running" => Some("working"),
+        // A prompt whose agent is still starting (a cold spawn, a resume) has its turn before
+        // the session runs: it works from the prompt on (#22995). Every turn's end clears it.
+        _ if !summary["turn"].is_null() => Some("working"),
         _ if last == Some("failed") => Some("failed"),
         "disconnected" | "unreachable" if last.is_some() && !answered => Some("lost"),
         _ if answered => Some("done"),
