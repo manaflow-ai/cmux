@@ -1,3 +1,5 @@
+#if DEBUG
+// The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
 import CmuxNextCompat
 import Darwin
 
@@ -82,3 +84,4 @@ nonisolated struct ChromiumHostWire: Sendable {
     var readFD: Int32
     var writeFD: Int32
 }
+#endif

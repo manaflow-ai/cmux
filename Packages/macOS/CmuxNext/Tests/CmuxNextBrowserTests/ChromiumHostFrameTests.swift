@@ -1,3 +1,5 @@
+#if DEBUG
+// The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
 @testable import CmuxNextBrowser
 import Testing
 
@@ -68,3 +70,4 @@ import Testing
         #expect(decoded.kind == nil)
     }
 }
+#endif

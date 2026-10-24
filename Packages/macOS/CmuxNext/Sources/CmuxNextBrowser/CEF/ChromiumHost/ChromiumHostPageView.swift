@@ -1,3 +1,5 @@
+#if DEBUG
+// The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
 public import AppKit
 import CmuxNextCompat
 import QuartzCore
@@ -227,3 +229,4 @@ nonisolated struct ChromiumHostGeometry: Equatable, Sendable {
         ChromiumHostFrame(.geometry, v: [width, height, screenX, screenY, scaleMilli])
     }
 }
+#endif
