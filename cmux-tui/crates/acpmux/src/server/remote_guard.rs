@@ -60,6 +60,10 @@
 //!   (`mediaRead.remote`). They read a chat's images and videos on this
 //!   machine for the app's pane (`hub/media_read.rs`): the unix socket, the
 //!   app and a peer forwarding for either.
+//! - Web only: no `_acpmux/subagent_transcript` (`transcriptRead.remote`),
+//!   which reads a subagent's transcript from the chat's Claude store
+//!   (`hub/subagent_transcript.rs`): the unix socket, the app and a peer
+//!   forwarding for either.
 //!
 //! The unix socket keeps today's behavior.
 
@@ -347,6 +351,15 @@ pub(super) async fn check(
             "mediaRead.remote: a chat's media is read only for the app or over the local unix socket",
         )
         .with_data(serde_json::json!({"reason": "mediaRead.remote"})));
+    }
+    // And a subagent's transcript (`hub/subagent_transcript.rs`).
+    if m == method::MUX_SUBAGENT_TRANSCRIPT
+        && control_of(origin, auth, params) == crate::hub::Control::Web
+    {
+        return Err(RpcError::invalid_params(
+            "transcriptRead.remote: a subagent's transcript is read only for the app or over the local unix socket",
+        )
+        .with_data(serde_json::json!({"reason": "transcriptRead.remote"})));
     }
     // After the folder checks: what the request starts from, and its mode.
     if web {
