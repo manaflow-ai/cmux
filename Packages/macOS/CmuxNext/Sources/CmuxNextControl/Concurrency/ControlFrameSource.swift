@@ -14,8 +14,9 @@ public protocol ControlFrameSource: Sendable {
     /// charges each request to the automation class and stops a drain when the class may not run.
     /// Nil (the default): the queue keeps its own `frameBudget`.
     @MainActor var mainFrameBudget: MainFrameBudget? { get }
-    /// That budget's board, readable off the main actor: queued injected input is counted there,
-    /// so batches yield to it. Nil by default.
+    /// That budget's board, readable off the main actor: the queue interns each request's method
+    /// there before queuing it, and counts queued injected input there, so batches yield to it.
+    /// Nil by default.
     var mainTaskBoard: MainTaskBoard? { get }
 }
 

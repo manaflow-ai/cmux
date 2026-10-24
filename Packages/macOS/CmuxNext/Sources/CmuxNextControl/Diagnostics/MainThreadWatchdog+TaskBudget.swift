@@ -4,11 +4,19 @@ public import CmuxNextWakeups
 import Foundation
 
 extension MainThreadWatchdog {
-    /// Whether this build records scheduled tasks that run past their class budget, with a stack:
-    /// DEBUG builds, and any launch that lowers the stall threshold (`CMUX_NEXT_HANG_THRESHOLD_MS`,
-    /// the benches). A release launch only names the running task in its stall records.
-    public static var recordsTaskBudgets: Bool {
-        ControlService.isDebugBuild || ProcessInfo.processInfo.environment["CMUX_NEXT_HANG_THRESHOLD_MS"] != nil
+    /// The environment variable that turns on the task diagnostics mode (``recordsTaskBudgets(environment:)``).
+    public static let taskDiagnosticsVariable = "CMUX_NEXT_MAIN_TASK_DIAGNOSTICS"
+
+    /// Whether a launch records scheduled tasks that run past their class budget, with a stack:
+    /// only in the explicit task diagnostics mode (`CMUX_NEXT_MAIN_TASK_DIAGNOSTICS=1`). It
+    /// perturbs what it measures (one cross-thread wake per task, a main-thread suspension per
+    /// over-budget task), so no bench number is taken with it on, and lowering the stall threshold
+    /// (`CMUX_NEXT_HANG_THRESHOLD_MS`) does not turn it on. Every launch names the running task in
+    /// its stall records.
+    ///
+    /// - Parameter environment: The launch's environment (the app passes its process environment).
+    public static func recordsTaskBudgets(environment: [String: String]) -> Bool {
+        environment[taskDiagnosticsVariable] == "1"
     }
 
     /// Reads the main-thread scheduler's board (``MainTaskBoard``): every stall record from now on
@@ -20,9 +28,9 @@ extension MainThreadWatchdog {
     /// task start so it can sample in time (one semaphore signal per task).
     ///
     /// - Parameters:
-    ///   - board: The board of the app's ``MainFrameBudget`` (``FrameScheduler/app``).
-    ///   - recordTaskBudgets: Record over-budget tasks (default ``recordsTaskBudgets``).
-    public func attach(board: MainTaskBoard, recordTaskBudgets: Bool = MainThreadWatchdog.recordsTaskBudgets) {
+    ///   - board: The board of the app's ``MainFrameBudget`` (its ``MainWorkScheduler``).
+    ///   - recordTaskBudgets: Record over-budget tasks (``recordsTaskBudgets(environment:)``).
+    public func attach(board: MainTaskBoard, recordTaskBudgets: Bool) {
         boardSink.withLock { $0 = board }
         guard recordTaskBudgets else { return }
         board.setTaskStartHook { [weak self] in self?.wakeForTask() }

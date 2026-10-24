@@ -5,7 +5,8 @@ import CmuxNextCompat
 /// culprit task, its class and its budget next to the stack (plans/cmux-next/main-thread-budget.md).
 ///
 /// The main thread writes it at every scheduled task's start and end with relaxed and releasing
-/// atomic stores (no lock, no allocation); owner names are interned once per owner. Injected input
+/// atomic stores (no lock, no allocation); owner names are interned once per owner, off the task's
+/// path (``owner(_:)``, ``MainTaskOwner``). Injected input
 /// that waits for the main thread (`debug.key` requests) is counted here too, because it is
 /// enqueued off the main thread: ``MainFrameBudget`` makes every budgeted class yield while the
 /// count is above zero.
@@ -37,7 +38,8 @@ public final class MainTaskBoard: Sendable {
     /// Owner names by index (index 0 is reserved for "no task").
     private let owners = Mutex<(names: [String], indices: [String: UInt32])>(([""], [:]))
     /// Called on the main thread at every task and span start once installed (the watchdog's wake,
-    /// DEBUG and bench builds only), so it can sample work that runs past its budget. Set once
+    /// only in the explicit task-diagnostics mode: it costs a cross-thread wake per task, so bench
+    /// numbers are taken without it), so it can sample work that runs past its budget. Set once
     /// (``setTaskStartHook(_:)``); `hookState` says whether it is, so a board with no watchdog takes
     /// no lock at all. The lock is held only to copy the closure: it is contended only while the
     /// one setter runs, at launch.
@@ -49,6 +51,12 @@ public final class MainTaskBoard: Sendable {
     private let overBudgetSink = Mutex<(@Sendable (Task, _ durationNanos: UInt64) -> Void)?>(nil)
 
     public init() {}
+
+    /// `name` interned on this board (takes the owners lock: call it when the queue or method is
+    /// built, or off the main thread, never per task on the main thread).
+    public func owner(_ name: String) -> MainTaskOwner {
+        MainTaskOwner(name: name, index: ownerIndex(name))
+    }
 
     /// The index `name` is published under (interned on first use).
     func ownerIndex(_ name: String) -> UInt32 {
@@ -125,9 +133,9 @@ public final class MainTaskBoard: Sendable {
 
     // MARK: Watchdog hooks
 
-    /// Installs (or removes, with nil) the call made at every task start. The watchdog installs
-    /// one in DEBUG and bench builds to wake its thread, so it samples a task that runs past its
-    /// budget; it must return at once (a semaphore signal).
+    /// Installs the call made at every task start. The watchdog installs one in the explicit
+    /// task-diagnostics mode to wake its thread, so it samples a task that runs past its budget;
+    /// it must return at once (a semaphore signal).
     /// Set once: a later call is ignored (the one watchdog of a board installs it at launch).
     public func setTaskStartHook(_ hook: @escaping @Sendable () -> Void) {
         guard hookState.compareExchange(expected: 0, desired: 1, ordering: .acquiringAndReleasing).exchanged else { return }
