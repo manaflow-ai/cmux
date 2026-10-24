@@ -128,11 +128,12 @@ public final class MainFrameBudget {
     public func run<T>(_ workClass: MainWorkClass, owner: String, _ body: () throws -> T) rethrows -> T {
         sequence &+= 1
         let index = Self.index(workClass)
-        let task = OpenTask(workClass: workClass, owner: owner, ownerIndex: board.ownerIndex(owner), sequence: sequence,
+        var task = OpenTask(workClass: workClass, owner: owner, ownerIndex: board.ownerIndex(owner), sequence: sequence,
                             start: uptimeNanos(), budgetNanos: budgets.budget(workClass).map(Self.nanos) ?? 0)
         if let index { ranThisFrame[index] = true }
+        task.packed = board.begin(workClass, owner: task.ownerIndex, sequence: task.sequence, startNanos: task.start,
+                                  budgetNanos: task.budgetNanos)
         open.append(task)
-        board.begin(workClass, owner: task.ownerIndex, sequence: task.sequence, startNanos: task.start, budgetNanos: task.budgetNanos)
         let interval = signposts ? Signposter.stall.begin(.stallMainTask, taskClass: workClass.description, owner: owner) : nil
         defer {
             if let interval { Signposter.stall.end(.stallMainTask, interval) }
@@ -160,13 +161,11 @@ public final class MainFrameBudget {
                 }
             }
         }
-        board.end(MainTaskBoard.Task(workClass: task.workClass, owner: task.owner, sequence: task.sequence, startNanos: task.start,
-                                     budgetNanos: task.budgetNanos), durationNanos: own, overBudget: over)
-        // The outer task runs again: the watchdog names it.
-        if let outer = open.last {
-            board.begin(outer.workClass, owner: outer.ownerIndex, sequence: outer.sequence, startNanos: outer.start,
-                        budgetNanos: outer.budgetNanos, notify: false)
-        }
+        // The board then publishes the newest entry still open (the outer task, or an action span
+        // begun inside this task that lasts to its commit), so the watchdog names it.
+        board.end(task.packed, task: MainTaskBoard.Task(workClass: task.workClass, owner: task.owner, sequence: task.sequence,
+                                                        startNanos: task.start, budgetNanos: task.budgetNanos),
+                  durationNanos: own, overBudget: over)
     }
 
     /// One task that started and has not returned.
@@ -177,6 +176,8 @@ public final class MainFrameBudget {
         var sequence: UInt32
         var start: UInt64
         var budgetNanos: UInt64
+        /// Its identity on ``board`` (what ``MainTaskBoard/begin`` returned).
+        var packed: UInt64 = 0
         /// Time spent in tasks nested in this one.
         var childNanos: UInt64 = 0
     }

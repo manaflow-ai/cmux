@@ -4,8 +4,12 @@ import CmuxNextCompat
 /// reads it from its own thread while the main thread is stuck, so a stall record names the
 /// culprit task, its class and its budget next to the stack (plans/cmux-next/main-thread-budget.md).
 ///
-/// The main thread writes it at every scheduled task's start and end with relaxed and releasing
-/// atomic stores (no lock, no allocation); owner names are interned once per owner. Injected input
+/// The main thread writes it at every scheduled task's and action span's start and end with
+/// relaxed and releasing atomic stores (no lock; owner names are interned once per owner). What it
+/// publishes is the newest entry still open: tasks end in LIFO order, but an action span ends at
+/// the commit after it, so spans end in begin order (FIFO) and may outlive the task they began in.
+/// Ending one entry removes exactly that entry, and the board publishes whichever entry is newest
+/// among those still open, never a copy taken when the ended one began. Injected input
 /// that waits for the main thread (`debug.key` requests) is counted here too, because it is
 /// enqueued off the main thread: ``MainFrameBudget`` makes every budgeted class yield while the
 /// count is above zero.
@@ -45,6 +49,17 @@ public final class MainTaskBoard: Sendable {
     /// 0: no hook, 1: being set, 2: set (readable).
     private let hookState = Atomic<Int>(0)
     private let spanSequence = Atomic<UInt32>(0)
+    /// The open entries (scheduled tasks and action spans), oldest first; the last is published.
+    // Main thread only: every writer (begin, end, beginSpan, endSpan) runs on the main thread by
+    // contract, and no other thread reads it (the watchdog reads only the atomics above).
+    private nonisolated(unsafe) var open: [Entry] = []
+
+    /// One open task or span as published.
+    private struct Entry {
+        let packed: UInt64
+        let startNanos: UInt64
+        let budgetNanos: UInt64
+    }
     /// Receives each finished task that ran past its budget, on the main thread.
     private let overBudgetSink = Mutex<(@Sendable (Task, _ durationNanos: UInt64) -> Void)?>(nil)
 
@@ -61,21 +76,50 @@ public final class MainTaskBoard: Sendable {
         }
     }
 
-    /// Publishes a task start (main thread).
-    func begin(_ workClass: MainWorkClass, owner: UInt32, sequence: UInt32, startNanos start: UInt64, budgetNanos budget: UInt64,
-               notify: Bool = true) {
-        startNanos.store(start, ordering: .relaxed)
-        budgetNanos.store(budget, ordering: .relaxed)
+    /// Publishes a task start (main thread) as the newest open entry.
+    ///
+    /// - Returns: The task's packed identity, which ``end(_:task:durationNanos:overBudget:)`` takes.
+    @discardableResult
+    func begin(_ workClass: MainWorkClass, owner: UInt32, sequence: UInt32, startNanos start: UInt64, budgetNanos budget: UInt64) -> UInt64 {
         let packed = UInt64(UInt8(workClass.rawValue)) << 56 | UInt64(owner & 0x00FF_FFFF) << 32 | UInt64(sequence)
-        current.store(packed, ordering: .releasing)
-        if notify, hookState.load(ordering: .acquiring) == 2 { taskStartHook.withLock { $0 }?() }
+        open.append(Entry(packed: packed, startNanos: start, budgetNanos: budget))
+        publish(packed, startNanos: start, budgetNanos: budget)
+        notifyStart()
+        return packed
     }
 
-    /// Publishes the end of the running task (main thread); reports it when it ran past its budget.
-    func end(_ task: @autoclosure () -> Task, durationNanos: UInt64, overBudget: Bool) {
-        current.store(0, ordering: .releasing)
+    /// Ends the open task `packed` (main thread) and publishes the newest entry still open; reports
+    /// the task when it ran past its budget.
+    func end(_ packed: UInt64, task: @autoclosure () -> Task, durationNanos: UInt64, overBudget: Bool) {
+        close(packed)
         guard overBudget, let sink = overBudgetSink.withLock({ $0 }) else { return }
         sink(task(), durationNanos)
+    }
+
+    private func publish(_ packed: UInt64, startNanos start: UInt64, budgetNanos budget: UInt64) {
+        startNanos.store(start, ordering: .relaxed)
+        budgetNanos.store(budget, ordering: .relaxed)
+        current.store(packed, ordering: .releasing)
+    }
+
+    private func notifyStart() {
+        if hookState.load(ordering: .acquiring) == 2 { taskStartHook.withLock { $0 }?() }
+    }
+
+    /// Removes the open entry `packed` (searched newest first: tasks end LIFO, so a task is found at
+    /// once). When it was the published one, the newest entry still open is published instead (or
+    /// nothing), and the watchdog is woken so it times that entry against its own budget; when a
+    /// newer entry is open, what is published does not change. An entry already ended is ignored.
+    private func close(_ packed: UInt64) {
+        guard let index = open.lastIndex(where: { $0.packed == packed }) else { return }
+        open.remove(at: index)
+        guard index == open.count else { return }
+        guard let top = open.last else {
+            publish(0, startNanos: 0, budgetNanos: 0)
+            return
+        }
+        publish(top.packed, startNanos: top.startNanos, budgetNanos: top.budgetNanos)
+        notifyStart()
     }
 
     /// The task running now, or nil between tasks. Safe on any thread; the owner name is looked
@@ -140,12 +184,11 @@ public final class MainTaskBoard: Sendable {
 
     // MARK: Action spans
 
-    /// What ``endSpan(_:nowNanos:)`` needs: the span itself and the task it covered.
+    /// What ``endSpan(_:nowNanos:)`` needs: the span's identity, start and budget.
     public struct SpanToken: Sendable {
         let packed: UInt64
         let startNanos: UInt64
         let budgetNanos: UInt64
-        let previous: (packed: UInt64, startNanos: UInt64, budgetNanos: UInt64)
     }
 
     /// The index `name` is published under: intern an action id once, off the action's path, then
@@ -154,8 +197,10 @@ public final class MainTaskBoard: Sendable {
 
     /// Publishes a person's action (input dispatch to its commit) as the running work, with a
     /// caller-given budget: the watchdog samples it once it runs past that budget and names it in
-    /// a stall. Atomics only, no allocation; main thread. A span inside a scheduled task (an action
-    /// a control request runs) covers it until ``endSpan(_:nowNanos:)`` puts it back.
+    /// a stall. Atomics and one append to the open list (no allocation once it has grown to the
+    /// deepest nesting seen); main thread. A span is the newest open entry until a newer task or
+    /// span begins: a span begun inside a scheduled task (an action a control request runs) covers
+    /// that task, and stays published after the task ends, through the commit it is timed to.
     ///
     /// - Parameters:
     ///   - workClass: Its class (``MainWorkClass/input`` for a person's action).
@@ -164,23 +209,19 @@ public final class MainTaskBoard: Sendable {
     ///   - startNanos: When it began (`CLOCK_UPTIME_RAW` nanoseconds; the input event's time for a key).
     /// - Returns: The token ``endSpan(_:nowNanos:)`` takes.
     public func beginSpan(_ workClass: MainWorkClass, owner: UInt32, budgetNanos: UInt64, startNanos start: UInt64) -> SpanToken {
-        let previous = runningPacked
         let sequence = spanSequence.add(1, ordering: .relaxed).newValue | 0x8000_0000
-        begin(workClass, owner: owner, sequence: sequence, startNanos: start, budgetNanos: budgetNanos)
-        let packed = UInt64(UInt8(workClass.rawValue)) << 56 | UInt64(owner & 0x00FF_FFFF) << 32 | UInt64(sequence)
-        return SpanToken(packed: packed, startNanos: start, budgetNanos: budgetNanos, previous: previous)
+        let packed = begin(workClass, owner: owner, sequence: sequence, startNanos: start, budgetNanos: budgetNanos)
+        return SpanToken(packed: packed, startNanos: start, budgetNanos: budgetNanos)
     }
 
-    /// Ends the span `token` began and puts back the work it covered; a span that ran past its
-    /// budget is reported to the over-budget sink (the watchdog's `over_budget` record, with the
-    /// stack it sampled). Atomics only unless it ran over.
+    /// Ends the span `token` began: removes exactly that span, and the board publishes the newest
+    /// entry still open (a task or a span begun after it, or nothing), whatever order the spans end
+    /// in. A span that ran past its budget is reported to the over-budget sink (the watchdog's
+    /// `over_budget` record, with the stack it sampled). Atomics only unless it ran over.
     ///
     /// - Parameter nowNanos: Its end (`CLOCK_UPTIME_RAW` nanoseconds; an action's commit end).
     public func endSpan(_ token: SpanToken, nowNanos: UInt64) {
-        let previous = token.previous
-        startNanos.store(previous.startNanos, ordering: .relaxed)
-        budgetNanos.store(previous.budgetNanos, ordering: .relaxed)
-        current.store(previous.packed, ordering: .releasing)
+        close(token.packed)
         let elapsed = nowNanos &- token.startNanos
         guard token.budgetNanos > 0, elapsed > token.budgetNanos, let sink = overBudgetSink.withLock({ $0 }),
               let task = task(packed: token.packed, startNanos: token.startNanos, budgetNanos: token.budgetNanos) else { return }
