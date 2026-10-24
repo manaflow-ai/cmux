@@ -24,9 +24,14 @@ enum HomeChiefActions {
         frontHome(context).flatMap { $0.chiefControl.isHosted ? nil : $0 }
     }
 
-    /// The Home in the front window (``frontWindow(_:)``) that shows a Chief.
+    /// The Home in the front window (``frontWindow(_:)``) that shows a Chief: one of the Home views
+    /// in a window (`HomeService.windowedViews`, a handful), so Stop All's reason, read on every
+    /// action catalog refresh, costs no walk of the window's view tree. With two Chief Homes in
+    /// that window the first in its view tree answers, as before.
     private static func frontHome(_ context: AppActionContext) -> HomeHostView? {
-        guard let root = frontWindow(context)?.contentView else { return nil }
+        guard let front = frontWindow(context) else { return nil }
+        let shown = context.services.home.windowedViews.allObjects.filter { $0.window === front && $0.showsChiefOnScreen }
+        guard shown.count > 1, let root = front.contentView else { return shown.first }
         return firstChiefHome(in: root)
     }
 
