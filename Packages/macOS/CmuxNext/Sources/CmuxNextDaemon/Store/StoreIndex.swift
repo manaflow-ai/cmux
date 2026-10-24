@@ -23,6 +23,8 @@ import Foundation
     private(set) var tabsByTerminalResource: [ResourceID: TabModel] = [:]
     private(set) var panesByHandle: [PaneID: PaneModel] = [:]
     private(set) var panesByResource: [ResourceID: PaneModel] = [:]
+    /// By durable id (``PaneModel/id``): a watcher asks about its own panes.
+    private(set) var panesByID: [String: PaneModel] = [:]
     private(set) var screensByHandle: [ScreenID: ScreenModel] = [:]
     private(set) var screensByResource: [ResourceID: ScreenModel] = [:]
     private(set) var workspacesByHandle: [WorkspaceHandle: WorkspaceModel] = [:]
@@ -32,10 +34,10 @@ import Foundation
     private(set) var tabGroupsByID: [TabGroupID: TabGroupModel] = [:]
     /// Indexed tabs the intent overlay shows (``isOverlayTab(id:surface:)``).
     private(set) var provisionalTabCount = 0
-    /// An order-free digest of which tab sits in which pane (XOR of one
-    /// hash per indexed tab and its pane): a remove and re-add of the same
-    /// tab in the same pane leaves it as it was, so a refresh changes it only
-    /// when a tab came, went or moved to another pane.
+    /// An order-free digest of which tab sits in which pane, and which panes there are (XOR of one
+    /// hash per indexed tab and its pane, and one per pane): a remove and re-add of the same tab in
+    /// the same pane leaves it as it was, so a refresh changes it only when a tab came, went or
+    /// moved to another pane, or a pane came or went (with tabs or not).
     private var tabMembership = 0
     private var takenMembership = 0
     /// An order change inside a pane, or of the workspaces, noted by its
@@ -54,7 +56,7 @@ import Foundation
         var keys: Keys
         var parent: ObjectIdentifier?
         var children: Set<ObjectIdentifier> = []
-        /// A tab's share of `tabMembership` (0 for other records).
+        /// A tab's or a pane's share of `tabMembership` (0 for other records).
         var membership = 0
     }
 
@@ -119,6 +121,13 @@ import Foundation
         return hasher.finalize()
     }
 
+    private static func membership(_ pane: PaneModel) -> Int {
+        var hasher = Hasher()
+        hasher.combine("pane")
+        hasher.combine(pane.id)
+        return hasher.finalize()
+    }
+
     mutating func insert(_ workspace: WorkspaceModel) {
         remove(workspace)
         add(workspace, .workspace(handle: workspace.handle, key: workspace.key, id: workspace.id, resource: workspace.resourceID), parent: nil)
@@ -163,6 +172,9 @@ import Foundation
         if let tab = record as? TabModel {
             entry.membership = Self.membership(tab, (parent as? PaneModel)?.handle)
             tabMembership ^= entry.membership
+        } else if let pane = record as? PaneModel {
+            entry.membership = Self.membership(pane)
+            tabMembership ^= entry.membership
         }
         entries[id] = entry
         if let parentID { entries[parentID]?.children.insert(id) }
@@ -186,6 +198,7 @@ import Foundation
             guard let pane = record as? PaneModel else { return }
             panesByHandle[handle] = pane
             if let resource { panesByResource[resource] = pane }
+            panesByID[pane.id] = pane
             for group in groups { tabGroupsByID[group.id] = group }
         case .tab(let surface, let id, let terminal, let resource, let terminalResource):
             guard let tab = record as? TabModel else { return }
@@ -212,6 +225,7 @@ import Foundation
         case .pane(let handle, let resource, let groups):
             Self.drop(handle, from: &panesByHandle, if: record)
             if let resource { Self.drop(resource, from: &panesByResource, if: record) }
+            if let pane = record as? PaneModel { Self.drop(pane.id, from: &panesByID, if: record) }
             for group in groups { Self.drop(group.id, from: &tabGroupsByID, if: group) }
         case .tab(let surface, let id, let terminal, let resource, let terminalResource):
             Self.drop(surface, from: &tabsBySurface, if: record)
