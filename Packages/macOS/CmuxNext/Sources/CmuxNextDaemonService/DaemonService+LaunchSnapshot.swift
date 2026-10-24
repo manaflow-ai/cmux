@@ -39,18 +39,28 @@ extension DaemonService {
     /// Begins the local daemon's first connect attempt off the main thread,
     /// at the top of `main`, so it overlaps AppKit's start; `start(launch:…
     /// prestart:)` takes it over. Nil when the launcher cannot be made (the
-    /// later `start` reports why).
+    /// later `start` reports why). `daemonEnvironment` goes to the daemon
+    /// process only, never to a terminal (``ownerProcessEnvironment(launch:)``).
     public nonisolated static func prestart(launch: LaunchIdentity, terminalEnvironment: [String: String],
+                                     daemonEnvironment: [String: String] = [:],
                                      terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String],
                                      resolvesShellIntegration: Bool = false,
                                      echoesPlacementShift: Bool = false) -> DaemonPrestart? {
         guard let launcher = try? DaemonLauncher.forApp(build: launch.build,
                                                 terminalEnvironment: terminalEnvironment,
-                                                daemonEnvironment: firstPartyAppsEnvironment,
+                                                daemonEnvironment: ownerProcessEnvironment(launch: daemonEnvironment),
                                                 webSocketPageOrigins: pageOrigins) else { return nil }
         return DaemonPrestart(launcher: launcher, configuration: localConfiguration(
             terminalEnvironment: terminalEnvironmentProvider, resolvesShellIntegration: resolvesShellIntegration,
             installKey: launcher.configuration.installKey, echoesPlacementShift: echoesPlacementShift))
+    }
+
+    /// What `server ensure` gives the local daemon on top of its login environment, and no
+    /// terminal gets: ``firstPartyAppsEnvironment`` and `launch`, the app's launch values for its
+    /// daemons (`AppEnvironment.daemonEnvironment`: the open-file limit the app was launched with,
+    /// which the daemon records and removes before any shell starts).
+    nonisolated static func ownerProcessEnvironment(launch: [String: String]) -> [String: String] {
+        firstPartyAppsEnvironment.merging(launch) { firstParty, _ in firstParty }
     }
 
     /// What the local daemon's supervisor needs from this app at launch: the
