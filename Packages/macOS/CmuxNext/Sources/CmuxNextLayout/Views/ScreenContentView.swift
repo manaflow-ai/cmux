@@ -241,8 +241,7 @@ final class ScreenContentView: NSView {
                     existing = AnimatedFrame(handoff.slide.offsetBy(dx: -shift(baseGeometry, pane), dy: 0))
                     carriedShown[pane] = handoff.slide.minX
                 }
-                existing.setTarget(target, alpha: 1)
-                if !animateFrames { existing.snap() }
+                place(&existing, at: target, animated: animateFrames)
                 paneFrames[pane] = existing
             } else {
                 let host = context.host(for: pane)
@@ -302,14 +301,12 @@ final class ScreenContentView: NSView {
                     if carried { carriedDividers[kind] = frame.x.value + before.viewShift(offset: offset) }
                     frame.x.value += drift
                 }
-                frame.setTarget(target.rect, alpha: 1)
-                if !animateFrames { frame.snap() }
+                place(&frame, at: target.rect, animated: animateFrames)
                 dividerFrames[kind] = frame
             } else if case .columnEdge = kind,
                       let index = renamedEdges.firstIndex(where: { abs($0.targetRect.minX - target.rect.minX) < 0.5 && abs($0.targetRect.width - target.rect.width) < 0.5 }) {
                 var frame = renamedEdges.remove(at: index)
-                frame.setTarget(target.rect, alpha: 1)
-                if !animateFrames { frame.snap() }
+                place(&frame, at: target.rect, animated: animateFrames)
                 dividerFrames[kind] = frame
             } else {
                 // A split's new divider starts on the edge of the pane beside it, where that edge shows now
