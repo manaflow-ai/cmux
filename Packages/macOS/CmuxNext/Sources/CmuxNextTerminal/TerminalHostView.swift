@@ -265,6 +265,12 @@ public final class TerminalHostView: NSView {
         return CGRect(x: area.minX, y: area.minY, width: max(0, area.width - scroller.reservedWidth), height: area.height)
     }
 
+    /// The size the surface takes in a host of `hostSize` points: less the accessory's strip and a legacy
+    /// scroller's.
+    func surfaceSize(forHostSize hostSize: CGSize) -> CGSize {
+        CGSize(width: max(0, hostSize.width - scroller.reservedWidth), height: max(0, hostSize.height - accessoryHeight))
+    }
+
     /// The surface's size and edge while its pane's layout spring runs; nil at rest.
     private var surfaceHold: (size: CGSize, anchor: PaneMotionAnchor)?
 
