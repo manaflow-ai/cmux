@@ -682,6 +682,12 @@
 		F3000002A1B2C3D4E5F60718 /* CJKIMEInputTests+DeadKeyComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3000003A1B2C3D4E5F60718 /* CJKIMEInputTests+DeadKeyComposition.swift */; };
 		F3000000A1B2C3D4E5F60718 /* CJKIMEInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */; };
 		D3571002A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3571003A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift */; };
+		048D6AE2EFF502E04C392BC6 /* ClaudeAccountSwitchResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5AFDF72DD77EAF7655583C8 /* ClaudeAccountSwitchResult.swift */; };
+		B01D0A6C050F0B9E5E2BE343 /* ClaudeAccountSwitchResumeInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = 597D7A9A5733ACB4F37C684B /* ClaudeAccountSwitchResumeInput.swift */; };
+		0439A2B4AC821FD668869642 /* ClaudeAccountSwitchResumeInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDE056AD2BDB2A4453B54981 /* ClaudeAccountSwitchResumeInputTests.swift */; };
+		4A12C50828E03CDF56BF4540 /* ClaudeAccountSwitchSurfaceEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AA62D1A631CDA7BC81FF474 /* ClaudeAccountSwitchSurfaceEnvironment.swift */; };
+		418ACF1D3E50FE13434209C7 /* ClaudeAccountSwitchSurfaceEnvironmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 430167DD6946C2D1BC964156 /* ClaudeAccountSwitchSurfaceEnvironmentTests.swift */; };
+		68FA112D3B0FCE5B66034149 /* ClaudeAccountSwitchTrigger.swift in Sources */ = {isa = PBXBuildFile; fileRef = E26CFDA49C9D24045C7D6485 /* ClaudeAccountSwitchTrigger.swift */; };
 		5DD791323C73D4CC4F3EEB57 /* ClaudeBackgroundSessionRestoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74EAD7E619F7F261701CF718 /* ClaudeBackgroundSessionRestoreTests.swift */; };
 		A5D41232A1B2C3D4E5F60718 /* ClaudeBackgroundWorkNotifyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41233A1B2C3D4E5F60718 /* ClaudeBackgroundWorkNotifyTests.swift */; };
 		C13519000000000000000007 /* ClaudeConfigDirectoryPathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13519000000000000000008 /* ClaudeConfigDirectoryPathTests.swift */; };
@@ -4490,6 +4496,7 @@
 		078F2E4F32DC4B2AA5A84A4A /* Workspace+BrowserDuplication.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05CFF7107D1F48BC805549F3 /* Workspace+BrowserDuplication.swift */; };
 		CA52B0150000000000000000 /* Workspace+CanvasLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0150000000000000000 /* Workspace+CanvasLayout.swift */; };
 		C41EFACBE73CD68808192358 /* Workspace+ChiefPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EF5154E74C65D67FF3666 /* Workspace+ChiefPane.swift */; };
+		B7CDCF239EC4B966DB3BA776 /* Workspace+ClaudeAccountSwitch.swift in Sources */ = {isa = PBXBuildFile; fileRef = F26D008C4F7EC4ACCBB875AA /* Workspace+ClaudeAccountSwitch.swift */; };
 		4A83C8FAE42926923935E37A /* Workspace+ClaudeBackgroundSessionRestore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B836EB9A0E8E762A7FFAD0ED /* Workspace+ClaudeBackgroundSessionRestore.swift */; };
 		D86840000000000000000007 /* Workspace+ClosedPanelLayoutRestore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86840000000000000000008 /* Workspace+ClosedPanelLayoutRestore.swift */; };
 		90ECD884E46E7CE63ACB593F /* Workspace+CloudBrowserCreation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8E605219F6DC95A95A101BF /* Workspace+CloudBrowserCreation.swift */; };
@@ -4587,6 +4594,7 @@
 		A5F0C0010000000000000002 /* WorkspaceAttentionFlashRingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F0C0010000000000000001 /* WorkspaceAttentionFlashRingView.swift */; };
 		CA52B0160000000000000000 /* WorkspaceCanvasHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0160000000000000000 /* WorkspaceCanvasHostView.swift */; };
 		B2929B53F4CC4C9D972771EC /* WorkspaceChecklistAttachmentQuickLookController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3981070E40BA4F53B8406CE4 /* WorkspaceChecklistAttachmentQuickLookController.swift */; };
+		6FB22ED6FA9BB49549E2E679 /* WorkspaceClaudeAccountSwitchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B2001FDAFB15CF23EB15AD2 /* WorkspaceClaudeAccountSwitchTests.swift */; };
 		C12524000000000000000001 /* WorkspaceClosePanelFallbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12524000000000000000002 /* WorkspaceClosePanelFallbackTests.swift */; };
 		D7AB3605C10DEF0000000003 /* WorkspaceCloseTabsBatching.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB3605C10DEF0000000004 /* WorkspaceCloseTabsBatching.swift */; };
 		D7AB3605C10DEF0000000001 /* WorkspaceCloseTabsContextMenuTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB3605C10DEF0000000002 /* WorkspaceCloseTabsContextMenuTests.swift */; };
@@ -5525,6 +5533,12 @@
 		F3000003A1B2C3D4E5F60718 /* CJKIMEInputTests+DeadKeyComposition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CJKIMEInputTests+DeadKeyComposition.swift"; sourceTree = "<group>"; };
 		F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CJKIMEInputTests.swift; sourceTree = "<group>"; };
 		D3571003A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CJKIMEMarkedSelectionTests.swift; sourceTree = "<group>"; };
+		D5AFDF72DD77EAF7655583C8 /* ClaudeAccountSwitchResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeAccountSwitchResult.swift; sourceTree = "<group>"; };
+		597D7A9A5733ACB4F37C684B /* ClaudeAccountSwitchResumeInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeAccountSwitchResumeInput.swift; sourceTree = "<group>"; };
+		EDE056AD2BDB2A4453B54981 /* ClaudeAccountSwitchResumeInputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ClaudeAccountSwitchResumeInputTests.swift"; sourceTree = "<group>"; };
+		5AA62D1A631CDA7BC81FF474 /* ClaudeAccountSwitchSurfaceEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeAccountSwitchSurfaceEnvironment.swift; sourceTree = "<group>"; };
+		430167DD6946C2D1BC964156 /* ClaudeAccountSwitchSurfaceEnvironmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ClaudeAccountSwitchSurfaceEnvironmentTests.swift"; sourceTree = "<group>"; };
+		E26CFDA49C9D24045C7D6485 /* ClaudeAccountSwitchTrigger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeAccountSwitchTrigger.swift; sourceTree = "<group>"; };
 		74EAD7E619F7F261701CF718 /* ClaudeBackgroundSessionRestoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ClaudeBackgroundSessionRestoreTests.swift"; sourceTree = "<group>"; };
 		A5D41233A1B2C3D4E5F60718 /* ClaudeBackgroundWorkNotifyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeBackgroundWorkNotifyTests.swift; sourceTree = "<group>"; };
 		C13519000000000000000008 /* ClaudeConfigDirectoryPathTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeConfigDirectoryPathTests.swift; sourceTree = "<group>"; };
@@ -9133,6 +9147,7 @@
 		05CFF7107D1F48BC805549F3 /* Workspace+BrowserDuplication.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+BrowserDuplication.swift"; sourceTree = "<group>"; };
 		CA52C0150000000000000000 /* Workspace+CanvasLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CanvasLayout.swift"; sourceTree = "<group>"; };
 		C41EF5154E74C65D67FF3666 /* Workspace+ChiefPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+ChiefPane.swift"; sourceTree = "<group>"; };
+		F26D008C4F7EC4ACCBB875AA /* Workspace+ClaudeAccountSwitch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+ClaudeAccountSwitch.swift"; sourceTree = "<group>"; };
 		B836EB9A0E8E762A7FFAD0ED /* Workspace+ClaudeBackgroundSessionRestore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+ClaudeBackgroundSessionRestore.swift"; sourceTree = "<group>"; };
 		D86840000000000000000008 /* Workspace+ClosedPanelLayoutRestore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+ClosedPanelLayoutRestore.swift"; sourceTree = "<group>"; };
 		A8E605219F6DC95A95A101BF /* Workspace+CloudBrowserCreation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CloudBrowserCreation.swift"; sourceTree = "<group>"; };
@@ -9230,6 +9245,7 @@
 		A5F0C0010000000000000001 /* WorkspaceAttentionFlashRingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/WorkspaceAttentionFlashRingView.swift; sourceTree = "<group>"; };
 		CA52C0160000000000000000 /* WorkspaceCanvasHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspaceCanvasHostView.swift"; sourceTree = "<group>"; };
 		3981070E40BA4F53B8406CE4 /* WorkspaceChecklistAttachmentQuickLookController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceChecklistAttachmentQuickLookController.swift; sourceTree = "<group>"; };
+		7B2001FDAFB15CF23EB15AD2 /* WorkspaceClaudeAccountSwitchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspaceClaudeAccountSwitchTests.swift"; sourceTree = "<group>"; };
 		C12524000000000000000002 /* WorkspaceClosePanelFallbackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceClosePanelFallbackTests.swift; sourceTree = "<group>"; };
 		D7AB3605C10DEF0000000004 /* WorkspaceCloseTabsBatching.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCloseTabsBatching.swift; sourceTree = "<group>"; };
 		D7AB3605C10DEF0000000002 /* WorkspaceCloseTabsContextMenuTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCloseTabsContextMenuTests.swift; sourceTree = "<group>"; };
@@ -12626,6 +12642,11 @@
 				F1C6800D38EC5F238A2994FC /* DockSplitStore+ChiefPane.swift */,
 				7947118FF892144AE54C82D2 /* ChiefPaneDragPayload.swift */,
 				0D10F73113F55349CE0E475D /* ChiefHomeConversationRows.swift */,
+				D5AFDF72DD77EAF7655583C8 /* ClaudeAccountSwitchResult.swift */,
+				597D7A9A5733ACB4F37C684B /* ClaudeAccountSwitchResumeInput.swift */,
+				5AA62D1A631CDA7BC81FF474 /* ClaudeAccountSwitchSurfaceEnvironment.swift */,
+				E26CFDA49C9D24045C7D6485 /* ClaudeAccountSwitchTrigger.swift */,
+				F26D008C4F7EC4ACCBB875AA /* Workspace+ClaudeAccountSwitch.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -14260,6 +14281,9 @@
 				116A20BE2E7DF60266E43B58 /* ClaudeConfigDirectorySaveCaptureTests.swift */,
 				E4287F92FA9BEFC300BBCD4F /* ClaudeDroppedLaunchCaptureAccountTests.swift */,
 				61AC9ABE65DCA4478C70B938 /* WorkspaceRespawnAccountEnvironmentTests.swift */,
+				EDE056AD2BDB2A4453B54981 /* ClaudeAccountSwitchResumeInputTests.swift */,
+				430167DD6946C2D1BC964156 /* ClaudeAccountSwitchSurfaceEnvironmentTests.swift */,
+				7B2001FDAFB15CF23EB15AD2 /* WorkspaceClaudeAccountSwitchTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -15557,6 +15581,10 @@
 				C41EFA69FDC0B7F2ADA75E9D /* ChiefTurnContextBuilder.swift in Sources */,
 				C41EF69DD6EC14119E2F575D /* ChiefWakeScheduler.swift in Sources */,
 				C41EF8430A1F00A816DB2695 /* ChiefWorkingStatusView.swift in Sources */,
+				048D6AE2EFF502E04C392BC6 /* ClaudeAccountSwitchResult.swift in Sources */,
+				B01D0A6C050F0B9E5E2BE343 /* ClaudeAccountSwitchResumeInput.swift in Sources */,
+				4A12C50828E03CDF56BF4540 /* ClaudeAccountSwitchSurfaceEnvironment.swift in Sources */,
+				68FA112D3B0FCE5B66034149 /* ClaudeAccountSwitchTrigger.swift in Sources */,
 				A9F200000000000000000015 /* ClaudeStreamJSONAccumulator.swift in Sources */,
 				64FC98B1AF19A7558C109173 /* ClickByHintPreview.swift in Sources */,
 				C46790000000000000000003 /* CLIForwardingLaunchRouter.swift in Sources */,
@@ -17691,6 +17719,7 @@
 				078F2E4F32DC4B2AA5A84A4A /* Workspace+BrowserDuplication.swift in Sources */,
 				CA52B0150000000000000000 /* Workspace+CanvasLayout.swift in Sources */,
 				C41EFACBE73CD68808192358 /* Workspace+ChiefPane.swift in Sources */,
+				B7CDCF239EC4B966DB3BA776 /* Workspace+ClaudeAccountSwitch.swift in Sources */,
 				4A83C8FAE42926923935E37A /* Workspace+ClaudeBackgroundSessionRestore.swift in Sources */,
 				D86840000000000000000007 /* Workspace+ClosedPanelLayoutRestore.swift in Sources */,
 				90ECD884E46E7CE63ACB593F /* Workspace+CloudBrowserCreation.swift in Sources */,
@@ -18455,6 +18484,8 @@
 				F3000002A1B2C3D4E5F60718 /* CJKIMEInputTests+DeadKeyComposition.swift in Sources */,
 				F3000000A1B2C3D4E5F60718 /* CJKIMEInputTests.swift in Sources */,
 				D3571002A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift in Sources */,
+				0439A2B4AC821FD668869642 /* ClaudeAccountSwitchResumeInputTests.swift in Sources */,
+				418ACF1D3E50FE13434209C7 /* ClaudeAccountSwitchSurfaceEnvironmentTests.swift in Sources */,
 				5DD791323C73D4CC4F3EEB57 /* ClaudeBackgroundSessionRestoreTests.swift in Sources */,
 				A5D41232A1B2C3D4E5F60718 /* ClaudeBackgroundWorkNotifyTests.swift in Sources */,
 				C13519000000000000000007 /* ClaudeConfigDirectoryPathTests.swift in Sources */,
@@ -19562,6 +19593,7 @@
 				0C62C9D05238D5EF14815F78 /* WorkspaceActivityReorderControllerTests.swift in Sources */,
 				D7AB00000000000000000011 /* WorkspaceAdjacentPaneMoveTests.swift in Sources */,
 				A11EAE000000000000000000 /* WorkspaceAppearanceConfigResolutionTests.swift in Sources */,
+				6FB22ED6FA9BB49549E2E679 /* WorkspaceClaudeAccountSwitchTests.swift in Sources */,
 				C12524000000000000000001 /* WorkspaceClosePanelFallbackTests.swift in Sources */,
 				D7AB3605C10DEF0000000001 /* WorkspaceCloseTabsContextMenuTests.swift in Sources */,
 				970900030000000000000001 /* WorkspaceColorMenuTests.swift in Sources */,
