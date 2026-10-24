@@ -1218,7 +1218,7 @@ pre.cv-math-source {
   border-radius: 8px;
   background: color-mix(in srgb, var(--agent-accent) 8%, transparent);
 }
-.acpmux-row[data-transcript-active="true"]:focus-visible {
+[data-focus-ring-enabled="true"] .acpmux-row[data-transcript-active="true"]:focus-visible {
   outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
   outline-offset: -1.5px;
   border-radius: 8px;
