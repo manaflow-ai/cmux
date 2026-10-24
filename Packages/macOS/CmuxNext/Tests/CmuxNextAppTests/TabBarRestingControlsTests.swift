@@ -91,6 +91,20 @@ import Testing
         #expect(toolbar.view.reservedCount == 0)
     }
 
+    @Test func showInTabBarOnlyOffersControlsForTheSelectedKind() throws {
+        let registry = ActionRegistry.standard()
+        let toolbar = PaneToolbar(registry: { registry }, newTabMenu: { nil })
+        toolbar.update(target: "browser", kind: .browser)
+        let menu = try #require(toolbar.view.moreMenu?())
+        let show = try #require(menu.items.first { $0.title == PaneToolbarStrings.showInTabBar })
+        #expect(Set(show.submenu?.items.map(\.title) ?? []) == Set(["Split Right", "Split Down", "Toggle Pane Zoom"]))
+        toolbar.update(target: "browser", kind: .browser, pinned: ["file.open"])
+        let pinnedMenu = try #require(toolbar.view.moreMenu?())
+        let pinnedShow = try #require(pinnedMenu.items.first { $0.title == PaneToolbarStrings.showInTabBar })
+        #expect(pinnedShow.submenu?.items.map(\.title).contains("Open File…") == true,
+                "an incompatible existing pin stays available so it can be removed")
+    }
+
     /// "…" slides right into its trailing slot as it fades in; Reduce Motion keeps it in place (fade only).
     @Test func moreSlidesRightIntoItsSlotOnReveal() {
         Motion.reduceMotionOverride = false
