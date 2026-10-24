@@ -57,6 +57,16 @@ jobs:
           path: ${{ github.workspace }}
           commit: on-change
 
+      - name: Sanitize persistent checkout metadata
+        working-directory: ${{ github.workspace }}
+        run: |
+          # Keep the sticky disk's Git object store for fetch speed, but never
+          # trust metadata written by a prior command or source snapshot.
+          if [[ -d .git ]]; then
+            rm -rf .git/hooks .git/logs .git/refs
+            rm -f .git/config .git/index .git/packed-refs
+          fi
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.source_sha }}
