@@ -13,7 +13,6 @@ mod daemon_spawn {
     use super::support::open_descriptors;
     use cmux_process::{Command, Stdio};
     use std::io::{Read, Write};
-    #[cfg(target_vendor = "apple")]
     use std::os::fd::AsRawFd;
     use std::os::fd::{AsFd, FromRawFd, OwnedFd};
     use std::time::{Duration, Instant};
@@ -113,7 +112,7 @@ mod daemon_spawn {
         assert!(master >= 0, "posix_openpt: {}", std::io::Error::last_os_error());
         // SAFETY: a new descriptor the test owns.
         let master = unsafe { OwnedFd::from_raw_fd(master) };
-        let raw = std::os::fd::AsRawFd::as_raw_fd(&master);
+        let raw = master.as_raw_fd();
         // SAFETY: plain calls on the master the test owns; ptsname's static
         // buffer is copied at once (one PTY test in this binary).
         let name = unsafe {
@@ -143,7 +142,10 @@ mod daemon_spawn {
         // Read the master until the child's last line (the deadline only
         // fails a child that never writes it).
         let (sent, got) = std::sync::mpsc::channel();
-        let mut reader = std::fs::File::from(master);
+        // The reader gets a copy: the master stays open here until the
+        // child ended (closing a PTY master hangs up its session, so a shell
+        // still exiting would die of SIGHUP).
+        let mut reader = std::fs::File::from(master.try_clone().unwrap());
         std::thread::spawn(move || {
             let mut all = Vec::new();
             let mut chunk = [0u8; 4096];
@@ -163,6 +165,7 @@ mod daemon_spawn {
         let text =
             got.recv_timeout(Duration::from_secs(30)).expect("the child never wrote to its PTY");
         assert!(child.wait().unwrap().success(), "{text}");
+        drop(master);
         let lines: Vec<&str> = text.lines().map(str::trim_end).collect();
         assert_eq!(
             lines.first().copied(),
