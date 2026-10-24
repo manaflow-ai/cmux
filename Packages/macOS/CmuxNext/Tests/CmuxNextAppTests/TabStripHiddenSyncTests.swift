@@ -7,7 +7,7 @@ import Testing
 /// it nothing until it shows, and then it lands at the final state in one sync, with no motion
 /// (CLAUDE.md "Go past Chrome where cmux is scripted").
 @MainActor @Suite(.serialized) struct TabStripHiddenSyncTests {
-    @Test func aHiddenStripSyncsOnceWhenItShows() async {
+    @Test func aHiddenStripSyncsOnceWhenItShows() {
         let model = TabStripModel(tabs: (0..<3).map { TabItem(id: TabID("tab\($0)"), title: "Tab \($0)") }, selectedID: TabID("tab0"))
         let strip = TabStripView(model: model)
         let parked = NSView(frame: NSRect(x: 0, y: 0, width: 700, height: 40))
@@ -21,8 +21,9 @@ import Testing
         parked.isHidden = true
         model.tabs.append(TabItem(id: TabID("tab3"), title: "Tab 3"))
         model.tabs.swapAt(0, 1)
-        for _ in 0..<50 { await Task.yield() } // the strip's model observation runs
-        strip.syncFromModel() // as the App's pane apply calls it
+        // As the App's pane apply calls it; the strip's own model observation calls the same
+        // function on a later turn, and a second call with no change does nothing (I6).
+        strip.syncFromModel()
         #expect(strip.cells[TabID("tab3")] == nil, "a hidden strip laid out a tab it does not show")
 
         parked.isHidden = false
