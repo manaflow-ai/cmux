@@ -985,6 +985,7 @@ fn an_update_that_swaps_the_app_bundle_keeps_every_shell_and_the_new_daemon_adop
 }
 
 /// The executable path of `pid`.
+#[cfg(target_os = "macos")]
 fn exe_path(pid: i32) -> PathBuf {
     #[cfg(target_vendor = "apple")]
     {
