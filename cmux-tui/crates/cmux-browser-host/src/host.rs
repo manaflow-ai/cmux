@@ -72,6 +72,13 @@ pub trait Engines: Send + Sync {
         events: crate::driver::EventSink,
         session: &SessionContext,
     ) -> Result<Arc<dyn Driver>, DriverError>;
+
+    /// What `engine: "auto"` means for a named session now (browser-host.md
+    /// decision 7): in-app Chromium (`cef`) while the app's provider is
+    /// connected and offers it, else `headless` (a Linux VM, no app).
+    fn auto_engine(&self) -> &'static str {
+        "headless"
+    }
 }
 
 /// The session an engine is opened for (lease identity on provider tabs).
@@ -246,16 +253,20 @@ impl Host {
     /// The person's tabs (cef, webkit) carry automation leases keyed by the
     /// session, so the implicit shared `default` session is refused there.
     fn require_named_session(engine: &str, params: &Value) -> Result<(), DriverError> {
-        let named = params
-            .get("session")
-            .and_then(Value::as_str)
-            .is_some_and(|name| !name.is_empty() && name != "default");
-        if matches!(engine, "cef" | "webkit") && !named {
+        if matches!(engine, "cef" | "webkit") && !Self::named(params) {
             return Err(DriverError::invalid(format!(
                 "session: {engine} sessions drive the person's tabs and need an explicit session name"
             )));
         }
         Ok(())
+    }
+
+    /// The request names its session (not the implicit shared `default`).
+    fn named(params: &Value) -> bool {
+        params
+            .get("session")
+            .and_then(Value::as_str)
+            .is_some_and(|name| !name.is_empty() && name != "default")
     }
 
     fn session_name(params: &Value) -> Result<String, DriverError> {
@@ -982,3 +993,7 @@ mod tests {
         assert!(!bundle::GUIDE.is_empty());
     }
 }
+
+#[cfg(test)]
+#[path = "host_codemode_tests.rs"]
+mod codemode_tests;

@@ -1360,6 +1360,7 @@ fn render_shows_a_page_in_the_chat_without_reaching_an_owner() {
 
 mod agent_events;
 mod agent_wait;
+mod browser_host_route;
 
 mod catalog;
 mod machine_catalog;
