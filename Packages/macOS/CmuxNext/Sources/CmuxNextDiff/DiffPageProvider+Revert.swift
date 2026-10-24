@@ -28,7 +28,7 @@ public nonisolated struct DiffRevertPrompt: Equatable, Sendable {
         let files = max(1, request.paths.count - request.paths.filter(sources.contains).count)
         title = files == 1
             ? String(format: DiffPageStrings.revertOneTitle, request.paths[0])
-            : String(format: DiffPageStrings.revertManyTitle, files)
+            : DiffPageStrings.revertManyTitle(files)
         var lines = [request.scope == .uncommitted ? DiffPageStrings.revertUncommittedLine : DiffPageStrings.revertUnstagedLine,
                      DiffPageStrings.revertTrashLine]
         if files > 1 || request.paths.count > 1 {

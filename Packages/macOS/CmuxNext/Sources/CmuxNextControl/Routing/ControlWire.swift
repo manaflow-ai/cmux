@@ -60,7 +60,7 @@ public struct ControlError: Error, Sendable, Hashable {
 
     /// The main-actor work queue is full. The request did not run; retry later.
     public static func busy(pending: Int, limit: Int) -> ControlError {
-        ControlError(code: "busy", message: ControlStrings.format("control.error.busy", "cmux is busy (%1$lld queued requests, limit %2$lld); retry later", pending, limit),
+        ControlError(code: "busy", message: ControlStrings.busy(pending: pending, limit: limit),
                      data: ["pending": JSONValue(pending), "limit": JSONValue(limit)])
     }
 }

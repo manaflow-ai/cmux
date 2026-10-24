@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextDaemon
 public import CmuxNextLayout
 public import Foundation
@@ -157,7 +158,13 @@ public nonisolated enum RefusalStrings {
     public static var noWindowOpen: String { text("handlers.refusal.noWindowOpen", "no window is open") }
     public static var noWindowForRename: String { text("handlers.refusal.noWindowForRename", "no window for the rename prompt") }
     public static var indexRequired: String { text("handlers.refusal.indexRequired", "an index 1-9 is required") }
-    public static func screenCount(_ count: Int) -> String { format("handlers.refusal.screenCount", "the workspace has %lld screens", count) }
+    /// The refusal of a screen index past the workspace's `count` screens. `preferredLocalizations` defaults to
+    /// the module bundle's (the user's choice); tests pass a fixed list.
+    public static func screenCount(_ count: Int, preferredLocalizations: [String]? = nil, locale: Locale = .current) -> String {
+        Bundle.module.localizedString(forKey: "handlers.refusal.screenCount", value: "the workspace has %lld screens", table: "Refusals",
+                                      arguments: [.count(count)],
+                                      preferredLocalizations: preferredLocalizations ?? Bundle.module.preferredLocalizations, locale: locale)
+    }
     public static func noScreen(_ id: String) -> String { text("handlers.refusal.screenGone", "That screen is no longer open.") }
     public static var workspaceHasNoScreen: String { text("handlers.refusal.workspaceHasNoScreen", "the workspace has no screen") }
     public static var workspaceHasOneScreen: String { text("handlers.refusal.workspaceHasOneScreen", "the workspace has one screen") }
