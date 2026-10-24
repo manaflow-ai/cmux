@@ -4341,6 +4341,12 @@
       "de": "\"Tabs\" is the standard German plural for browser or app tabs."
     }
   },
+  "settings.tabs.commandDigits.tabs": {
+    "source": "Tabs",
+    "identityLocales": {
+      "de": "\"Tabs\" is the standard German plural for browser or app tabs."
+    }
+  },
   "accounts.group.anthropic": {
     "class": "brand",
     "source": "Anthropic"
