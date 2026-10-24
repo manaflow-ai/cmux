@@ -47,6 +47,27 @@ impl FakeApp {
             while let Ok(Some(frame)) = read_frame(&mut reader) {
                 thread_frames.lock().unwrap().push(frame.clone());
                 let reply = match frame {
+                    // An app build without content rules answers as the
+                    // WebKit driver does for a method it does not know.
+                    Frame::Call { id, method, params }
+                        if method == "tab.setContentRules"
+                            && params["lists"].as_array().is_some_and(|lists| {
+                                lists.iter().any(|l| {
+                                    l["identifier"]
+                                        .as_str()
+                                        .is_some_and(|i| i.contains("unsupported"))
+                                })
+                            }) =>
+                    {
+                        Some(Frame::Result {
+                            id,
+                            result: None,
+                            error: Some(DriverError::new(
+                                crate::protocol::ErrorCode::Unsupported,
+                                "Unsupported driver method tab.setContentRules",
+                            )),
+                        })
+                    }
                     Frame::Call { id, params, .. } if params["failForTest"] == true => {
                         Some(Frame::Result {
                             id,
@@ -457,7 +478,10 @@ fn a_policy_on_a_provider_session_fails_closed() {
     use crate::policy::{DomainPattern, Layer};
     use crate::vm::VmHost;
     let (app, provider) = FakeApp::start(vec![tab("W", "webkit")]);
-    let gate = Gate::new(Arc::new(engine(&provider, "webkit")), Grants::default());
+    // The fake app refuses content rules for this session, as an app build
+    // without them does (`unsupported`).
+    let gate =
+        Gate::new(Arc::new(session(&provider, "webkit", "unsupported-app")), Grants::default());
     gate.driver_call("tab.info", json!({"targetId": "W"})).unwrap();
     let layer = Layer {
         allowed: Some(vec![DomainPattern::parse("a.test").unwrap()]),
@@ -469,6 +493,67 @@ fn a_policy_on_a_provider_session_fails_closed() {
     let error = gate.driver_call("tab.info", json!({"targetId": "W"})).unwrap_err();
     assert_eq!(error.code, crate::protocol::ErrorCode::Forbidden, "{error}");
     assert_eq!(calls(&app, "tab.info"), before);
+}
+
+/// A domain policy on a WebKit tab: the host compiles it into WebKit
+/// content rule lists (one per active layer) and the app installs them on
+/// the tab before the session's call runs, so requests the page makes
+/// itself are filtered as on Chromium (classic BrowserReplContentRuleLists).
+/// Clearing the policy removes them.
+#[test]
+fn a_policy_on_a_webkit_tab_is_installed_as_content_rules() {
+    use crate::gate::{Gate, Grants};
+    use crate::policy::{DomainPattern, Layer};
+    use crate::vm::VmHost;
+    let (app, provider) = FakeApp::start(vec![tab("W", "webkit")]);
+    let gate = Gate::new(Arc::new(engine(&provider, "webkit")), Grants::default());
+    gate.driver_call("tab.info", json!({"targetId": "W"})).unwrap();
+    let layer = Layer {
+        allowed: Some(vec![DomainPattern::parse("a.test").unwrap()]),
+        prohibited: vec![DomainPattern::parse("ads.a.test").unwrap()],
+        block_ips: false,
+    };
+    gate.set_owner_policy(layer, false).unwrap();
+    gate.driver_call("tab.info", json!({"targetId": "W"})).unwrap();
+    let installs: Vec<Value> = app
+        .frames
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|f| match f {
+            Frame::Call { method, params, .. } if method == "tab.setContentRules" => {
+                Some(params.clone())
+            }
+            _ => None,
+        })
+        .collect();
+    let install = installs.last().expect("the app got the session's content rules");
+    assert_eq!(install["targetId"], "W");
+    let lists = install["lists"].as_array().unwrap();
+    assert_eq!(lists.len(), 1, "{install}");
+    let rules = lists[0]["rules"].to_string();
+    assert!(
+        rules.contains(r#"{"action":{"type":"block"},"trigger":{"url-filter":".*"}}"#),
+        "{rules}"
+    );
+    assert!(rules.contains(r#""type":"ignore-previous-rules""#), "{rules}");
+    assert!(rules.contains(r#"a\\.test"#), "{rules}");
+    gate.set_owner_policy(Layer::default(), false).unwrap();
+    gate.driver_call("tab.info", json!({"targetId": "W"})).unwrap();
+    let last = app
+        .frames
+        .lock()
+        .unwrap()
+        .iter()
+        .rev()
+        .find_map(|f| match f {
+            Frame::Call { method, params, .. } if method == "tab.setContentRules" => {
+                Some(params.clone())
+            }
+            _ => None,
+        })
+        .unwrap();
+    assert!(last["lists"].is_null(), "clearing the policy removes the rules: {last}");
 }
 
 /// Review P1: tabs.open passes only url and background; the app picks
