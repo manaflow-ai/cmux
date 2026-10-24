@@ -1021,19 +1021,29 @@ export function measuredText(tokens: Token[] | undefined, fallback: string): str
 const PREPARED_CACHE_MIN = 64;
 const PREPARED_CACHE_PER_BLOCK = 4;
 
-function trimPreparedCache(prepared: Map<string, PreparedText | null>, blockCount: number): void {
-  const limit = Math.max(PREPARED_CACHE_MIN, PREPARED_CACHE_PER_BLOCK * blockCount);
-  while (prepared.size > limit) {
-    const oldest = prepared.keys().next().value;
-    if (oldest === undefined) break;
-    prepared.delete(oldest);
+function trimPreparedCache(
+  prepared: Map<string, PreparedText | null>,
+  blockCount: number,
+  used: ReadonlySet<string>,
+): void {
+  const limit = Math.max(PREPARED_CACHE_MIN, PREPARED_CACHE_PER_BLOCK * blockCount, used.size);
+  if (prepared.size <= limit) return;
+  for (const key of prepared.keys()) {
+    if (prepared.size <= limit) break;
+    if (!used.has(key)) prepared.delete(key);
   }
 }
 
-function textHeight(text: string, width: number, prepared: Map<string, PreparedText | null>): number {
+function textHeight(
+  text: string,
+  width: number,
+  prepared: Map<string, PreparedText | null>,
+  used?: Set<string>,
+): number {
   const { measureFont, lineHeight } = metrics();
   // Keyed by font too: a new chat font measures the text again.
   const key = `${measureFont}\n${text}`;
+  used?.add(key);
   let measured = prepared.get(key);
   if (measured === undefined) {
     try {
@@ -1054,7 +1064,12 @@ function textHeight(text: string, width: number, prepared: Map<string, PreparedT
 }
 
 /// Each item's text at the list's indent, then any list nested in it a further indent in.
-function listHeight(list: Tokens.List, width: number, prepared: Map<string, PreparedText | null>): number {
+function listHeight(
+  list: Tokens.List,
+  width: number,
+  prepared: Map<string, PreparedText | null>,
+  used?: Set<string>,
+): number {
   const inner = width - LIST_INDENT;
   return list.items.reduce((sum, item) => {
     const nested = item.tokens.filter((token): token is Tokens.List => token.type === "list");
@@ -1063,27 +1078,33 @@ function listHeight(list: Tokens.List, width: number, prepared: Map<string, Prep
       nested.length ? "" : item.text,
     );
     // An empty item (or one still streaming in) still draws its bullet's line.
-    const own = text ? textHeight(text, inner, prepared) : 0;
+    const own = text ? textHeight(text, inner, prepared, used) : 0;
     return (
       sum +
       Math.max(
         metrics().lineHeight,
-        own + nested.reduce((total, child) => total + listHeight(child, inner, prepared), 0),
+        own + nested.reduce((total, child) => total + listHeight(child, inner, prepared, used), 0),
       )
     );
   }, 0);
 }
 
-function blockHeight(block: Token, width: number, prepared: Map<string, PreparedText | null>): number {
+function blockHeight(
+  block: Token,
+  width: number,
+  prepared: Map<string, PreparedText | null>,
+  used?: Set<string>,
+): number {
   switch (block.type) {
     // Prose (lists, quotes, paragraphs, headings) keeps its measure in a wide column (chatWidth.ts).
     case "list":
-      return listHeight(block as Tokens.List, Math.min(width, chatColumn().prose), prepared);
+      return listHeight(block as Tokens.List, Math.min(width, chatColumn().prose), prepared, used);
     case "blockquote":
       return textHeight(
         measuredText((block as Tokens.Blockquote).tokens, (block as Tokens.Blockquote).text),
         Math.min(width, chatColumn().prose) - QUOTE_INDENT,
         prepared,
+        used,
       );
     case "hr":
       return 2;
@@ -1102,10 +1123,11 @@ function blockHeight(block: Token, width: number, prepared: Map<string, Prepared
         measuredText("tokens" in block ? block.tokens : undefined, (block as Tokens.Text).text),
         Math.min(width, chatColumn().prose),
         prepared,
+        used,
       );
     // Anything else is estimated as its source; the drawn height replaces it once mounted.
     default:
-      return textHeight(block.raw, width, prepared);
+      return textHeight(block.raw, width, prepared, used);
   }
 }
 
@@ -1183,6 +1205,7 @@ function measuredRowHeight(
     lexIncrementally(entry, row.text);
   }
   const contentWidth = Math.max(80, row.kind === "user" ? USER_BUBBLE_SHARE * width - USER_BUBBLE_SIDES : width);
+  const usedPrepared = new Set<string>();
   let contentHeight: number;
   if (pasted) {
     // A prompt with pasted blocks: its typed parts, each a line or more, and a chip per paste
@@ -1193,15 +1216,16 @@ function measuredRowHeight(
       contentHeight +=
         part.kind === "paste"
           ? PASTE_CHIP_HEIGHT
-          : Math.max(lineHeight, textHeight(part.text, contentWidth, entry.prepared));
+          : Math.max(lineHeight, textHeight(part.text, contentWidth, entry.prepared, usedPrepared));
   } else {
     if (entry.blocks.length === 0) return fallbackRowHeight(row, width, beforeFooter, lastTurn);
     contentHeight = (entry.blocks.length - 1) * BLOCK_GAP;
-    for (const block of entry.blocks) contentHeight += blockHeight(block, contentWidth, entry.prepared);
+    for (const block of entry.blocks) contentHeight += blockHeight(block, contentWidth, entry.prepared, usedPrepared);
   }
   // A stream changes only its tail block. Preserve prepared entries for the unchanged blocks and
-  // trim stale revisions once per row, never once per token or across the transcript.
-  trimPreparedCache(entry.prepared, entry.blocks.length);
+  // trim stale revisions once per row, never once per token or across the transcript. `usedPrepared`
+  // includes list items, whose text count can be much larger than the block count.
+  trimPreparedCache(entry.prepared, entry.blocks.length, usedPrepared);
   // A long prompt opens collapsed to its first lines over Show more (conversation/UserBubble.tsx); a
   // Chief's draws its own bubble (ChiefPromptBubble.tsx).
   if (row.kind === "user" && row.from !== "chief" && !chiefEnvelope(row.text))
