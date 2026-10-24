@@ -71,11 +71,14 @@ final class FakeStream: BrowserStreamConnection, @unchecked Sendable {
     func send(input: Data, mustDeliver: Bool) throws {
         lock.withLock { inputs.append((try? JSONSerialization.jsonObject(with: input) as? [String: Any]) ?? [:]) }
     }
-    func requestKeyframe() {}
+    var keyframeRequests = 0
+    func requestKeyframe() { lock.withLock { keyframeRequests += 1 } }
     func noteDecode(micros: UInt32) {}
     func stats() -> BrowserStreamStats { BrowserStreamStats() }
     func nowMicros() -> UInt64 { 0 }
     func close() { lock.withLock { closed = true } }
+    var keyframes: Int { lock.withLock { keyframeRequests } }
+    var isClosed: Bool { lock.withLock { closed } }
     var sent: [String] { lock.withLock { messages.compactMap { $0["t"] as? String } } }
 }
 
