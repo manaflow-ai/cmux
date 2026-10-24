@@ -65,11 +65,15 @@ public final class AgentActivitySocketSource: AgentActivitySource {
     private var lastSeq: [String: UInt64] = [:]
     private var fetching: Set<String> = []
 
-    // No deinit: the reconnect task, the subscription and the directory watch each end when
-    // released (OwnedTask, AgentActivityLineConnection, MainDirectoryWatch), on any thread.
     public init(configuration: Configuration) {
         config = configuration
     }
+
+    // cx-t7hu: nonisolated, so a release (inside an action's task-local scope, or off the main
+    // thread) runs no runtime hop; an implicit deinit is isolated in this target. The reconnect task,
+    // the subscription and the directory watch stop on the releasing thread (OwnedTask,
+    // AgentActivityLineConnection, MainDirectoryWatch).
+    nonisolated deinit {}
 
     public func start(_ sink: @escaping @MainActor (AgentActivityUpdate) -> Void) {
         self.sink = sink

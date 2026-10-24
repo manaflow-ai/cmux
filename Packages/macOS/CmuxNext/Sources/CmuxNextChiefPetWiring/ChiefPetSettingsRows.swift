@@ -86,6 +86,11 @@ public final class ChiefPetSettingsRows: NSObject {
         if let shown = Self.shown(settings(), picks: picks, chief: chief) { show(shown) }
     }
 
+    // cx-t7hu: nonisolated, so a release (inside an action's task-local scope, or off the main
+    // thread) runs no runtime hop; an implicit deinit is isolated in this target. The watch (an
+    // OwnedTask) is cancelled on the releasing thread.
+    nonisolated deinit {}
+
     /// The rows' state from the loaded settings and Chief `chief`'s pick. A managed
     /// `home.chiefPetMascot` locks the default Chief's character only.
     static func shown(_ settings: SettingsController?, picks: ChiefMascotPicks, chief: String?) -> Shown? {

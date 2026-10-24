@@ -8,8 +8,9 @@ import Testing
 /// A live `AgentActivityLineConnection` that its owner releases without `cancel()` ends: its socket
 /// closes and the server reads end of file. The owners (AgentActivitySocketSource,
 /// AgentTurnStateFeed) used to cancel their subscription in a deinit that did nothing off the main
-/// thread; they have no deinit now, so the connection's own release closes it. Before it, the
-/// descriptor and its read source stayed open after the release.
+/// thread; their deinit has no body now (`nonisolated deinit {}`), so the connection's own release
+/// closes it, on the releasing thread. Before it, the descriptor and its read source stayed open
+/// after the release.
 @Suite(.timeLimit(.minutes(1)))
 nonisolated struct AgentActivityLineConnectionReleaseTests {
     @Test func releasingALiveConnectionClosesItsSocket() throws {
@@ -40,7 +41,9 @@ nonisolated struct AgentActivityLineConnectionReleaseTests {
 
     /// An owner released off the main thread (the last reference dropped by a background task):
     /// the feed's watch connection closes and acpmux reads end of file. The old deinit returned
-    /// there without cancelling its subscription, so the socket stayed open.
+    /// there without cancelling its subscription, so the socket stayed open. The main thread is
+    /// blocked in the read while the release runs, so the close must happen on the releasing
+    /// thread: an isolated (implicit) deinit would wait for the main actor and the read times out.
     @MainActor @Test func releasingTheTurnStateFeedOffTheMainThreadClosesItsWatch() async throws {
         let server = try ListeningSocket()
         defer { server.close() }
@@ -50,10 +53,18 @@ nonisolated struct AgentActivityLineConnectionReleaseTests {
         let peer = try server.accept(within: 10)
         defer { Darwin.close(peer) }
         #expect(ListeningSocket.read(peer, within: 10)?.isEmpty == false, "the watch is live and sent its request")
-        // The capture list holds the only reference, so the detached task drops the last one.
-        await Task.detached { [feed = Self.handOff(&feed)] in _ = feed }.value
+        // The capture list holds the only reference, so the detached task drops the last one once
+        // it is let go, while this (main) thread is blocked in the read below.
+        let (go, letGo) = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
+        let release = Task.detached { [feed = Self.handOff(&feed)] in
+            for await _ in go { break }
+            _ = feed
+        }
         #expect(feed == nil)
-        #expect(ListeningSocket.readsToEnd(peer, within: 10), "the released feed closed its watch (end of file)")
+        letGo.yield()
+        #expect(ListeningSocket.readsToEnd(peer, within: 10),
+                "the released feed closed its watch on the releasing thread (end of file while the main thread waits)")
+        await release.value
         withExtendedLifetime((turns, lanes)) {}
     }
 
