@@ -270,9 +270,12 @@ async fn a_report_queued_before_a_restart_keeps_its_sender() {
     let hub = durable_hub(&dir);
     let mut c = Client::open(&hub);
     hub.resume_queues();
-    // The person's prompt queues behind the resumed report: once it ran, so did the report.
-    c.call("session/prompt", prompt(&session, "p-after", "after", "person", None)).await;
-    assert!(c.ran(&session, "p-report").await, "the report never ran");
+    // It goes in once the restarted daemon is ready (`wait_startup`): wait for its turn.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while !c.ran(&session, "p-report").await {
+        assert!(std::time::Instant::now() < deadline, "the report never ran");
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
     let ran = c.records(&session, "user_message").await;
     let report = ran.iter().find(|m| m["promptId"] == "p-report").expect("its user_message");
     assert_eq!(report.pointer("/_meta/provenance/fromName"), Some(&json!("lane-a")), "{report}");
