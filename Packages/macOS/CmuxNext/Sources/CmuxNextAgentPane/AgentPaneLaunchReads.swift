@@ -3,15 +3,16 @@ package import Foundation
 
 /// The agent chats' saved files a launch draws or keeps, read and decoded off the main thread from
 /// the top of `main` (#17587): the pages' last images (``AgentPaneLaunchImages``), the new chats'
-/// unsent drafts (``AgentUnsentDrafts``) and the chats' composer states (``AgentPaneRelaunchWake``,
-/// up to 128 MB of attachments read back). The agent tab store, made on the main thread in
-/// `applicationDidFinishLaunching`, only takes them.
+/// unsent drafts (``AgentUnsentDrafts``) and the chats' composer states (``AgentPaneRelaunchWake``:
+/// the list only; each chat reads its chips' contents when its page asks). The agent tab store, made
+/// on the main thread in `applicationDidFinishLaunching`, only takes them.
 package nonisolated struct AgentPaneLaunchReads: Sendable {
     /// The pages' last images, decoded by the reader and handed over without a wait.
     package let pageImages: SavedFrameDirectory
     /// The new chats' unsent drafts, by tab.
     package let unsentDrafts: LaunchRead<[String: String]>
-    /// The last quit's composer states, by tab: their files are gone once read.
+    /// The last quit's composer states, by tab, without their chips' contents (``AgentPaneWakeState/kept``):
+    /// the file is gone once read.
     package let wakeStates: LaunchRead<[String: AgentPaneWakeState]>
 
     /// Starts every read now.

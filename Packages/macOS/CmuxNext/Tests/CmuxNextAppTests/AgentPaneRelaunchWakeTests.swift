@@ -252,11 +252,32 @@ struct AgentPaneRelaunchWakeTests {
         await store.save(["tab_huge": huge, "tab_small": small])
         let left = try FileManager.default.contentsOfDirectory(atPath: folder.path)
         #expect(left.count == 1, "the dropped tab's files stayed: \(left)")
-        #expect(store.take() == ["tab_small": small])
+        let taken = store.take()
+        #expect(taken.keys.sorted() == ["tab_small"])
+        #expect(await taken["tab_small"]?.readingBack() == small, "the kept chip did not come back whole")
 
         let inline = ["tab_old": AgentPaneWakeState(attachments: small.attachments, shell: true, shellText: "ls")]
         try JSONEncoder().encode(inline).write(to: file)
         #expect(store.take() == inline, "a save the last build wrote did not come back")
+    }
+
+    /// A relaunched chat whose page never asked for its chips this run (never shown) still has them
+    /// at the next relaunch: the quit carries their files from the launch's folder into its save.
+    @Test func chipsAChatNeverAskedForComeBackAtTheNextRelaunch() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "relaunch-wake-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: AgentPaneRelaunchWake.fileName)
+        let chip = AgentPaneWakeState.Attachment(id: "a1", kind: "image", name: "shot.png", mimeType: "image/png", size: 3, data: "AAAA")
+        let held = AgentPaneWakeState(attachments: [chip])
+        let store = AgentPaneRelaunchWake(file: file)
+        await store.save(["tab_hidden": held])
+        let first = store.take()
+        #expect(first["tab_hidden"]?.kept != nil, "the launch read the chip's contents")
+        // This run's quit: the tab's page was never made, so its state is saved as the launch took it.
+        await store.save(first)
+        let second = store.take()
+        #expect(await second["tab_hidden"]?.readingBack() == held, "a chip no page asked for was lost at the next quit")
     }
 
     /// A chat whose page holds nothing saves nothing, and with nothing held the file goes.
