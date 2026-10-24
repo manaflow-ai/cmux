@@ -164,7 +164,7 @@ export type PromptImage = {
  */
 export type PromptContentPart =
   | { kind: "text"; text: string; pasted?: readonly PasteRange[] }
-  | (PromptImage & { kind: "image" })
+  | (PromptImage & { kind: "image"; persisted?: false })
   | {
       kind: "file" | "document" | "audio" | "recording" | "pasted";
       id?: string;
@@ -174,6 +174,8 @@ export type PromptContentPart =
       text?: string;
       pageCount?: number;
       uri?: string;
+      start?: number;
+      end?: number;
     };
 /// A queued prompt's image: `src` is its data URL when the pane has its bytes (it sent them, or
 /// the `queued` record carries them), else the row reads it by `id`. acpmux names an image by the
@@ -1246,7 +1248,10 @@ function measuredRowHeight(
     const inlineWidth = Math.max(80, USER_BUBBLE_SHARE * width - USER_BUBBLE_SIDES);
     for (const part of inline) {
       if (part.kind === "text")
-        inlineHeight += Math.max(lineHeight, textHeight(part.text, inlineWidth, cache.get(row.id)?.prepared ?? new Map()));
+        inlineHeight += Math.max(
+          lineHeight,
+          textHeight(part.text, inlineWidth, cache.get(row.id)?.prepared ?? new Map()),
+        );
       else inlineHeight += part.kind === "image" ? 124 : part.kind === "pasted" ? PASTE_CHIP_HEIGHT : 34;
     }
     const height = messageBelow(beforeFooter) + chromeHeight(row) + inlineHeight;

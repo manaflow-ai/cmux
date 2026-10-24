@@ -79,24 +79,73 @@ test("ordered prompt blocks and a delayed echo retain image-caption order", asyn
     undefined,
     () => new DelayedEchoHost() as unknown as WebSocket,
   );
-  const image = (id: string): ComposerAttachment => ({ id, kind: "image", name: `${id}.png`, mimeType: "image/png", size: 3, data: "AQID" });
+  const image = (id: string): ComposerAttachment => ({
+    id,
+    kind: "image",
+    name: `${id}.png`,
+    mimeType: "image/png",
+    size: 3,
+    data: "AQID",
+  });
   try {
-    await client.send(`${INLINE_ATTACHMENT_MARK}caption one${INLINE_ATTACHMENT_MARK}caption two`, [image("one"), image("two")]);
+    await client.send(`${INLINE_ATTACHMENT_MARK}caption one${INLINE_ATTACHMENT_MARK}caption two`, [
+      image("one"),
+      image("two"),
+    ]);
     expect(sent.prompt.map((block: { type: string }) => block.type)).toEqual(["image", "text", "image", "text"]);
+    expect(sent._meta.acpmux.inlineParts).toEqual([
+      { kind: "image", blockIndex: 0, name: "one.png", mimeType: "image/png", size: 3 },
+      { kind: "image", blockIndex: 2, name: "two.png", mimeType: "image/png", size: 3 },
+    ]);
     emit!(sent.sessionId, {
       mux: "user_message",
       msg: {
         promptId: sent._meta.acpmux.promptId,
         text: "caption one\ncaption two",
-        images: [{ id: "durable-one", mimeType: "image/png" }, { id: "durable-two", mimeType: "image/png" }],
+        images: [
+          { id: "durable-one", mimeType: "image/png" },
+          { id: "durable-two", mimeType: "image/png" },
+        ],
+        inlineParts: [
+          { kind: "image", id: "durable-one", mimeType: "image/png" },
+          { kind: "text", text: "caption one" },
+          { kind: "image", id: "durable-two", mimeType: "image/png" },
+          { kind: "text", text: "caption two" },
+        ],
       },
     });
     await settle(() => rows.some((row) => row.inlineParts?.[0]?.kind === "image" && row.id.startsWith("user-")));
     const parts = rows.find((row) => row.id.startsWith("user-") && row.inlineParts)?.inlineParts;
-    expect(parts?.map((part) => part.kind === "text" ? part.text : part.id)).toEqual(["durable-one", "caption one", "durable-two", "caption two"]);
+    expect(parts?.map((part) => (part.kind === "text" ? part.text : part.id))).toEqual([
+      "durable-one",
+      "caption one",
+      "durable-two",
+      "caption two",
+    ]);
   } finally {
     client.close?.();
   }
+});
+
+test("reconciles a failed middle image by durable id instead of ordinal position", async () => {
+  const { reconcileInlineImages } = await import("./direct");
+  const parts = reconcileInlineImages(
+    [
+      { kind: "image", id: "sha-first", mimeType: "image/png" },
+      { kind: "text", text: "caption" },
+      { kind: "image", id: "sha-middle", mimeType: "image/png", persisted: false },
+      { kind: "image", id: "sha-last", mimeType: "image/png" },
+    ],
+    [
+      { id: "sha-first", mimeType: "image/png", name: "first.png" },
+      { id: "sha-last", mimeType: "image/png", name: "last.png" },
+    ],
+  );
+  expect(parts.filter((part) => part.kind === "image").map((part) => part.id)).toEqual([
+    "sha-first",
+    "sha-middle",
+    "sha-last",
+  ]);
 });
 
 test("a prompt goes from sending to delivered to read", async () => {

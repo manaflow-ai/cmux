@@ -146,6 +146,7 @@
 /* New rows can preserve the ACP prompt's text and attachments at the caret. Legacy rows keep the
    separate image band below; this lane only opts into the inline surface when `inlineParts` exists. */
 .cv-user__inline-content {
+  --cv-inline-image-height: 120px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -155,7 +156,7 @@
 .cv-user__inline-image {
   display: inline-block;
   margin: 2px 4px;
-  height: 120px;
+  height: var(--cv-inline-image-height);
   max-width: min(260px, 70vw);
   vertical-align: middle;
   overflow: hidden;
@@ -165,7 +166,7 @@
 .cv-user__inline-image .cv-user__image {
   display: block;
   width: auto;
-  height: 120px;
+  height: var(--cv-inline-image-height);
   max-width: min(260px, 70vw);
   object-fit: cover;
   vertical-align: middle;

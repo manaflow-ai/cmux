@@ -30,6 +30,7 @@ import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
 import {
   INLINE_ATTACHMENT_MARK,
+  attachmentBlocks,
   orderedDraftParts,
   promptBlocks,
   promptText,
@@ -500,18 +501,138 @@ function inlinePromptParts(
       ];
     }
     const kind = attachment.kind === "document" ? "document" : attachment.kind === "audio" ? "audio" : attachment.kind;
-    if (kind === "text" || kind === "link") return [{ kind: "file", id: attachment.id, name: attachment.name, mimeType: attachment.mimeType, size: attachment.size, text: attachment.text }];
-    if (kind === "pasted") return [{ kind: "pasted", id: attachment.id, name: attachment.name, mimeType: attachment.mimeType, size: attachment.size, text: attachment.text }];
-    return [{ kind: kind as "document" | "audio" | "file", id: attachment.id, name: attachment.name, mimeType: attachment.mimeType, size: attachment.size, pageCount: attachment.pageCount }];
+    if (kind === "text" || kind === "link")
+      return [
+        {
+          kind: "file",
+          id: attachment.id,
+          name: attachment.name,
+          mimeType: attachment.mimeType,
+          size: attachment.size,
+          text: attachment.text,
+        },
+      ];
+    if (kind === "pasted")
+      return [
+        {
+          kind: "pasted",
+          id: attachment.id,
+          name: attachment.name,
+          mimeType: attachment.mimeType,
+          size: attachment.size,
+          text: attachment.text,
+        },
+      ];
+    return [
+      {
+        kind: kind as "document" | "audio" | "file",
+        id: attachment.id,
+        name: attachment.name,
+        mimeType: attachment.mimeType,
+        size: attachment.size,
+        pageCount: attachment.pageCount,
+      },
+    ];
   });
 }
 
-function reconcileInlineImages(parts: readonly PromptContentPart[], images: readonly PromptImage[]): PromptContentPart[] {
-  let index = 0;
+type InlineDisplayPart = {
+  kind: "file" | "image" | "document" | "audio" | "pasted";
+  blockIndex: number;
+  name?: string;
+  mimeType?: string;
+  size?: number;
+  pageCount?: number;
+};
+
+/** Display-only metadata for the daemon's durable ordered transcript field. It names no bytes,
+ * paths, URIs or ids: those remain in the ACP blocks and daemon attachment store. */
+function inlineDisplayParts(
+  input: string,
+  attachments: readonly ComposerAttachment[],
+): InlineDisplayPart[] | undefined {
+  if (!input.includes(INLINE_ATTACHMENT_MARK)) return undefined;
+  const parts: InlineDisplayPart[] = [];
+  let blockIndex = 0;
+  for (const part of orderedDraftParts(input, attachments)) {
+    if (part.type === "text") {
+      if (part.text) blockIndex += 1;
+      continue;
+    }
+    const attachment = part.attachment;
+    if (attachment.kind === "text") {
+      if (!promptText("", [attachment])) continue;
+      parts.push({
+        kind: "file",
+        blockIndex,
+        name: attachment.name,
+        mimeType: attachment.mimeType,
+        size: attachment.size,
+      });
+      blockIndex += 1;
+      continue;
+    }
+    if (attachment.kind === "pasted") {
+      if (!attachment.text) continue;
+      parts.push({
+        kind: "pasted",
+        blockIndex,
+        name: attachment.name,
+        mimeType: attachment.mimeType,
+        size: attachment.size,
+      });
+      blockIndex += 1;
+      continue;
+    }
+    const blocks = attachmentBlocks(attachment);
+    const first = blocks[0];
+    if (!first) continue;
+    const kind =
+      attachment.kind === "image"
+        ? "image"
+        : attachment.kind === "document"
+          ? "document"
+          : attachment.kind === "audio"
+            ? "audio"
+            : "file";
+    parts.push({
+      kind,
+      blockIndex,
+      name: attachment.name,
+      ...(attachment.mimeType ? { mimeType: attachment.mimeType } : {}),
+      ...(attachment.size > 0 ? { size: attachment.size } : {}),
+      ...(attachment.pageCount ? { pageCount: attachment.pageCount } : {}),
+    });
+    blockIndex += blocks.length;
+  }
+  return parts.length ? parts : undefined;
+}
+
+export function reconcileInlineImages(
+  parts: readonly PromptContentPart[],
+  images: readonly PromptImage[],
+): PromptContentPart[] {
+  const named = new Map(images.map((image) => [image.id, image]));
+  const consumed = new Set<string>();
+  let legacyIndex = 0;
   return parts.map((part) => {
     if (part.kind !== "image") return part;
-    const named = images[index++];
-    return named ? { ...part, ...named, name: named.name ?? part.name } : part;
+    // Durable inlineParts carry the SHA-256 id for every image block, including one whose bytes
+    // could not be persisted. Match that identity directly; ordinal fallback is only for an old
+    // daemon that supplied no ordered metadata at all (and therefore has no failed-middle slot).
+    const direct = named.get(part.id);
+    if (direct) {
+      consumed.add(direct.id);
+      return { ...part, ...direct, name: direct.name ?? part.name };
+    }
+    if (part.persisted === false) return part;
+    // A durable daemon id is content identity, not an ordinal slot. If its bytes were not kept,
+    // do not let a later image slide into this thumbnail; primeSentImages may still fill it.
+    if (/^[0-9a-f]{64}$/.test(part.id)) return part;
+    while (legacyIndex < images.length && consumed.has(images[legacyIndex]!.id)) legacyIndex += 1;
+    const legacy = images[legacyIndex++];
+    if (legacy) consumed.add(legacy.id);
+    return legacy ? { ...part, ...legacy, name: legacy.name ?? part.name } : part;
   });
 }
 
@@ -2831,7 +2952,15 @@ export class AcpmuxDirectClient {
       // An edit's record names the images the prompt keeps.
       this.queue = this.queue.map((entry) =>
         entry.id === id
-          ? queuedEntry(id, String(msg.text ?? ""), entry.next === true, false, recordImages(msg), undefined, entry.inlineParts)
+          ? queuedEntry(
+              id,
+              String(msg.text ?? ""),
+              entry.next === true,
+              false,
+              msg.images === undefined ? entry.images : recordImages(msg),
+              undefined,
+              recordedInlineParts(msg) ?? entry.inlineParts,
+            )
           : entry,
       );
     } else if (event.kind === "queue_order" && Array.isArray(msg.order)) {
@@ -2848,7 +2977,15 @@ export class AcpmuxDirectClient {
         .map((entry) =>
           next === undefined
             ? entry
-            : queuedEntry(entry.id, entry.prompt, entry.id === next, false, entry.images, entry.message, entry.inlineParts),
+            : queuedEntry(
+                entry.id,
+                entry.prompt,
+                entry.id === next,
+                false,
+                entry.images,
+                entry.message,
+                entry.inlineParts,
+              ),
         );
     } else if (event.kind === "queued") {
       const id = String(msg.promptId ?? "");
@@ -3248,7 +3385,9 @@ export class AcpmuxDirectClient {
         if (steer === "waiting" && promptId) this.steerRows.set(promptId, `user-${event.seq}`);
         const recordedParts = recordedInlineParts(msg);
         const optimisticParts = fallbackPromptId ? this.optimisticPromptInlineParts.get(fallbackPromptId) : undefined;
-        const inlineParts = optimisticParts ?? recordedParts;
+        // The daemon's ordered record has durable content ids and must win once it arrives. The
+        // optimistic draft is only a bridge for old daemons or the brief interval before echo.
+        const inlineParts = recordedParts ?? optimisticParts;
         this.rows.set(`user-${event.seq}`, {
           id: `user-${event.seq}`,
           version: 1,
@@ -3263,9 +3402,7 @@ export class AcpmuxDirectClient {
           ...(continues ? { continues } : {}),
           ...(steer === "waiting" && promptId ? { steerPromptId: promptId } : {}),
           ...(promptImages(msg.images).length > 0 && { images: promptImages(msg.images) }),
-          ...(inlineParts?.length
-            ? { inlineParts: reconcileInlineImages(inlineParts, promptImages(msg.images)) }
-            : {}),
+          ...(inlineParts?.length ? { inlineParts: reconcileInlineImages(inlineParts, promptImages(msg.images)) } : {}),
           // The blocks the composer sent as pastes, by where they sit in the text acpmux recorded;
           // only while the row shows that text as recorded (a harness note it hides moves them).
           ...(shown.text === raw &&
@@ -3942,9 +4079,12 @@ export class AcpmuxDirectClient {
         attachments[mark++]?.kind === "audio" ? "" : INLINE_ATTACHMENT_MARK,
       );
     }
-    const sendAttachments = supportsAudio ? attachments : attachments.filter((attachment) => attachment.kind !== "audio");
+    const sendAttachments = supportsAudio
+      ? attachments
+      : attachments.filter((attachment) => attachment.kind !== "audio");
     const { text, pasted } = shownPrompt(promptText(input, sendAttachments), sendAttachments);
     const inlineParts = sendAttachments.length ? inlinePromptParts(input, sendAttachments) : undefined;
+    const displayParts = sendAttachments.length ? inlineDisplayParts(input, sendAttachments) : undefined;
     const rowId = `local-${promptId}`;
     const at = Date.now();
     this.optimisticPromptRows.set(promptId, rowId);
@@ -4064,6 +4204,7 @@ export class AcpmuxDirectClient {
             promptId,
             ...(steer ? { steer: true } : {}),
             ...(context ? { context } : {}),
+            ...(displayParts ? { inlineParts: displayParts } : {}),
             ...promptSurfaceMeta(),
           },
           ...(ticket ? { cmuxGesture: ticket } : {}),
