@@ -1491,6 +1491,15 @@ def measure_version(sha):
     return _versions_by_blob[blob]
 
 
+def not_measuring_reason(tip, tip_version):
+    """Why the cron's own logic measures no commit at TIP, or None (pure): the tip's split-spring.sh has no
+    measurement version this file can read, so fleet_runs is false for every commit."""
+    if tip_version is None:
+        return (f"the tip {tip[:12]}'s {MEASURE_SCRIPT} has no SPLIT_SPRING_MEASURE_VERSION this cron can read "
+                "(perf-cron.py MEASURE_VERSION_RE), so no commit is measured")
+    return None
+
+
 def fleet_runs(sha, tip_version):
     """The cron measures a commit only when its split-spring.sh measures as the tip's does (the same measurement
     version), so the args it passes are understood there and the rows compare. The fleet itself runs a commit of
@@ -1565,6 +1574,8 @@ def issue_body(state, repo, now):
     good = state.get("last_good")
     last = state.get("last") or {}
     lines = [ISSUE_MARK, ""]
+    if state.get("not_measuring"):
+        lines += [f"**NOT MEASURING:** {state['not_measuring']}. The cron measures nothing until this is fixed.", ""]
     regs = state.get("regressions") or []
     if regs:
         lines.append(f"**{len(regs)} row(s) regressed.** " + (f"Last good {link(repo, good['sha'])} ([run]({good.get('run_url')}))."
@@ -2286,6 +2297,9 @@ def plan(o):
     if o.no_mac:
         no_mac = ("no route for the Mac parts (neither vars.CI_PERF_CRON_GATEWAY nor "
                   "vars.CMUX_NEXT_PERF_CRON_CONTROLLER=1 is set): no Mac part runs")
+    # A refusal of the cron's own making is loud (lead 2026-10-24: 5d4878cf9dd's version line read as none, and
+    # the cron measured nothing for hours with a quiet "nothing new"); only a busy fleet is a quiet wait.
+    state["not_measuring"] = not_measuring_reason(tip, tip_version)
     dead = drop_dead_measurement(state, t, lambda sha: fleet_runs(sha, tip_version))
     if dead:
         print(f"perf-cron: the measurement in flight ended ({dead}); looking for a new commit")
@@ -2337,7 +2351,8 @@ def plan(o):
             # What this file asks the part to measure with: its rows carry it (a later tick may run a newer file).
             state["current"].setdefault("configs", {})[requested] = part_config(requested)
     out = {"action": d["action"], "sha": d.get("sha", ""), "part": d.get("part", ""), "linux_part": d.get("linux_part", ""),
-           "worker": d.get("worker", ""), "reason": d["reason"], "stale_hours": round(stale_hours(state, t), 1)}
+           "worker": d.get("worker", ""), "reason": d["reason"], "stale_hours": round(stale_hours(state, t), 1),
+           "not_measuring": state.get("not_measuring") or ""}
     if d.get("part"):
         p = PART_BY_NAME[d["part"]]
         out["run_seconds"] = p.get("run_seconds", PART_RUN_SECONDS)
@@ -2570,9 +2585,12 @@ def issue_plan(state, event, now, is_open, exists, set_changed):
     no row regressed, review 2 of 8af6ea46de5, finding 8)."""
     stale = stale_hours(state, now) > STALE_HOURS
     regressed = bool(state.get("regressions"))
-    want_open = regressed or stale or bool(unseen_restarts(state))
+    not_measuring = state.get("not_measuring")
+    want_open = regressed or stale or bool(unseen_restarts(state)) or bool(not_measuring)
     if not want_open:
         return {"open": False, "comment": "recovered" if is_open else None}
+    if not_measuring and state.get("not_measuring_noted") != not_measuring:
+        return {"open": True, "comment": "summary" if exists else None}
     restart = "restart" if unnoted_restarts(state) else None
     if not exists:
         return {"open": True, "comment": None}
@@ -2938,12 +2956,22 @@ def report(o):
         changed = True
     before = json.dumps(state, sort_keys=True)
     seen_before = state.get("issue_seen") if isinstance(state.get("issue_seen"), dict) else None
+    not_measuring = state.get("not_measuring")
+    if not not_measuring:
+        state.pop("not_measuring_noted", None)
+    else:
+        line += f"; NOT MEASURING: {not_measuring}"
     try:
         if o.issues and (event or (stale and state.get("stale_noted_for") != stale_basis(state))
-                         or unnoted_restarts(state)):
+                         or unnoted_restarts(state) or (not_measuring and state.get("not_measuring_noted") != not_measuring)):
             set_changed = bool(retry and retry.get("set_changed")) or \
                 sorted(r["name"] for r in state.get("regressions") or []) != before_names
-            line += "; " + manage_issue(o.repo, state, event, t, o.run_url, summary or line, set_changed)
+            noting = not_measuring and state.get("not_measuring_noted") != not_measuring
+            line += "; " + manage_issue(o.repo, state, event, t, o.run_url,
+                                        f"NOT MEASURING: {not_measuring}" if noting and not summary else summary or line,
+                                        set_changed)
+            if noting:
+                state["not_measuring_noted"] = not_measuring
         elif o.issues and state.get("issue"):
             try:
                 rewrote = refresh_issue_body(o.repo, state, t)
@@ -2970,7 +2998,8 @@ def report(o):
         line += "; a measure host is idle: the next tick starts now"
     print(f"perf-cron report: {line}")
     write_outputs(o.output, {"changed": "true" if changed else "false", "line": line.replace("\n", " "),
-                             "next_now": "true" if nxt else "false"})
+                             "next_now": "true" if nxt else "false",
+                             "not_measuring": (not_measuring or "").replace("\n", " ")})
 
 
 def next_now(state, fleet_done):

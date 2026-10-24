@@ -2415,5 +2415,72 @@ class RebaseListTests(OneRunRule):
         self.assertIn("measurement version or part args changed, 1 row(s) (" + self.NAME, body)
 
 
+
+class NotMeasuringTests(unittest.TestCase):
+    """Lead 2026-10-24: a refusal of the cron's own making (here an unreadable measurement version) says NOT MEASURING
+    in the issue's first line at once and fails the tick; a busy fleet stays a quiet wait."""
+
+    def tick(self, d, version, gh):
+        out, rep = os.path.join(d, "plan.out"), os.path.join(d, "report.out")
+        tip = "f" * 40
+
+        def git(*args, check=True):
+            return tip if args[0] == "rev-parse" else tip
+
+        with mock.patch.object(cron, "now_utc", lambda: at(1)), mock.patch.object(cron, "git", git), \
+                mock.patch.object(cron, "measure_version", lambda sha: version), \
+                mock.patch.object(cron, "commit_on_branch", lambda repo, t, known=(): cron.is_sha), \
+                mock.patch.object(cron, "tree_published", lambda sha: True), \
+                mock.patch.object(cron, "github_busy", lambda *a: None), \
+                mock.patch.object(cron, "frame_pacing_runs", lambda repo: []), \
+                mock.patch.object(cron, "is_ancestor", lambda a, b: False), \
+                mock.patch.object(cron, "supported_parts_at", lambda sha: ["motion"]), \
+                mock.patch.object(cron, "gh_request", gh):
+            cron.cmd_plan(argparse.Namespace(repo="o/r", dir=d, tip="HEAD", yield_mode="queued", no_mac=False, output=out))
+            cron.cmd_report(argparse.Namespace(repo="o/r", dir=d, result=[], run_url="u", finish=False, issues=True, output=rep))
+        read = lambda p: dict(line.split("=", 1) for line in open(p).read().splitlines())
+        plan, report = read(out), read(rep)
+        os.remove(out)
+        os.remove(rep)
+        return plan, report
+
+    def test_an_unreadable_version_reopens_the_issue_with_not_measuring_first_and_fails_the_tick(self):
+        issue = {"number": 9, "title": cron.ISSUE_TITLE, "user": {"login": cron.ISSUE_AUTHOR}, "body": cron.ISSUE_MARK,
+                 "state": "closed"}
+        calls = []
+
+        def gh(path, method="GET", body=None, **k):
+            calls.append((method, path, body))
+            if method == "PATCH" and body and "body" in body:
+                issue["body"] = body["body"]
+            if method == "PATCH" and body and body.get("state"):
+                issue["state"] = body["state"]
+            return issue if method == "GET" and "/search/" not in path else ({"items": [issue]} if "/search/" in path else {})
+        with tempfile.TemporaryDirectory() as d:
+            state = cron.empty_state(T0)
+            state["issue"] = 9
+            with open(os.path.join(d, "state.json"), "w") as f:
+                json.dump(state, f)
+            plan, report = self.tick(d, None, gh)
+            self.assertEqual(plan["action"], "none")
+            self.assertIn("SPLIT_SPRING_MEASURE_VERSION", plan["not_measuring"])
+            self.assertIn("SPLIT_SPRING_MEASURE_VERSION", report["not_measuring"], "the workflow fails the tick on it")
+            first = [line for line in issue["body"].split("\n") if line.strip() and line != cron.ISSUE_MARK][0]
+            self.assertTrue(first.startswith("**NOT MEASURING:**"), first)
+            self.assertEqual(issue["state"], "open")
+            comments = [b for m, p, b in calls if m == "POST" and p.endswith("/comments")]
+            self.assertEqual(len(comments), 1)
+            self.assertIn("NOT MEASURING", comments[0]["body"])
+            calls.clear()
+            self.tick(d, None, gh)
+            self.assertFalse([c for c in calls if c[0] == "POST"], "said once, not every tick")
+            plan, report = self.tick(d, 3, gh)
+            self.assertEqual(report["not_measuring"], "", "a readable version clears it")
+            self.assertNotIn("NOT MEASURING", issue["body"])
+
+    def test_a_busy_fleet_is_not_a_refusal(self):
+        self.assertIsNone(cron.not_measuring_reason("f" * 40, 3))
+
+
 if __name__ == "__main__":
     unittest.main()
