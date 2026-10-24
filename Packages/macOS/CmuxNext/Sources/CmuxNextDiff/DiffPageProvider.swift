@@ -23,6 +23,12 @@ public final class DiffPageProvider: PageProvider {
     static let configOp = "cmux.diff.config"
     static let languagesOp = "cmux.diff.languages"
     static let eventsStream = "cmux.diff.events"
+    /// The events stream while its page is frozen: a sidecar `DiffEvent` (`sessionStatus`,
+    /// `patchReady`, `sessionFailed`) is one session's state of that kind, whole, so the newest of
+    /// each kind per session waits for the thaw.
+    nonisolated static let eventsFreezing = PageStreamFreezing.newest(by: { event in
+        "\(event["type"]?.stringValue ?? "")/\(event["sessionId"]?.stringValue ?? "")"
+    })
     static let recentsOp = "cmux.diff.recents"
     static let chooseFolderOp = "cmux.diff.chooseFolder"
     static let openOp = "cmux.diff.open"
@@ -102,13 +108,14 @@ public final class DiffPageProvider: PageProvider {
         case Self.eventsStream:
             let id = UUID()
             events[id] = onEvent
-            // The diff's changes, applied one by one.
-            return PageSubscription(freezing: .every) { [weak self] in self?.events[id] = nil }
+            // A sidecar `DiffEvent` is one session's status, newest patch or failure, whole: the newest
+            // of each kind per session waits for the thaw.
+            return PageSubscription(freezing: Self.eventsFreezing) { [weak self] in self?.events[id] = nil }
         case Self.languagesOp:
             guard let languages else { throw PageError.unknownOp(stream) }
             let stop = languages.listen(onEvent)
-            // One language pack each: each one counts.
-            return PageSubscription(freezing: .every) { stop() }
+            // The whole language pack each time: the newest is the page's.
+            return PageSubscription(freezing: .newest) { stop() }
         case Self.prefsStream:
             guard let stores else { throw PageError.unknownOp(stream) }
             let stop = stores.prefs.listen { prefs in onEvent(["prefs": .object(prefs)]) }
