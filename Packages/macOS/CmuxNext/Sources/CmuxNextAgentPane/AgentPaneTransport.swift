@@ -130,8 +130,9 @@ import CmuxNextCompat
     public var requestModeConfirmation: (@MainActor (_ asked: AgentPaneModeConfirmation, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
     /// `sessions.allowFullAccess`, read per frame: off, a switch into a full-access mode is refused.
     public var allowsFullAccess: @MainActor () -> Bool = { true }
-    /// The app-wide gate: one mode confirmation open at a time, across all panes and windows.
-    public var confirmationGate = AgentPaneConfirmationGate.shared
+    /// The app-wide gate: one mode confirmation open at a time, across all panes and windows. The
+    /// App's agent tab store sets its one gate on every pane it makes; until then this transport's own.
+    public var confirmationGate = AgentPaneConfirmationGate()
     /// acpmux's Enable harness prompt for `id` in `folder` (`_acpmux/harness_enable` without
     /// sha256, over the unix socket); throws when the daemon cannot give one (its refusal, as
     /// ``AcpmuxRPCError``, says why).

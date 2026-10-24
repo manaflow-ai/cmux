@@ -19,6 +19,9 @@ import Observation
 /// One acpmux host is shared by every tab, so opening several at once starts one daemon.
 final class AgentTabStore {
     let host: any AgentPaneHostProviding
+    /// The one native mode confirmation open at a time across every pane this store makes (every
+    /// window's agent tabs, spares and floating chats): each pane's transport asks through it.
+    let confirmationGate = AgentPaneConfirmationGate()
     /// The app's made-ahead open panel for every agent pane's file pickers; nil (tests) shows none.
     private let openPanel: MadeAheadOpenPanel?
     /// The page every agent tab loads: the bundled file, or in Debug builds
@@ -494,6 +497,7 @@ final class AgentTabStore {
     private func makeView(_ model: AgentPaneModel) -> AgentPaneView? {
         AgentPaneNewTabFrame.shared.pageMade(model)
         model.linkScheme = linkScheme
+        model.transport.confirmationGate = confirmationGate
         guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate, pageHost: AgentPaneTunables.pageHost.value || AgentPaneTunables.chromium.value, openPanel: openPanel) else { return nil }
         DebugTimings.markLaunch("agent_pane.view_created")
         view.customization = customization.current
