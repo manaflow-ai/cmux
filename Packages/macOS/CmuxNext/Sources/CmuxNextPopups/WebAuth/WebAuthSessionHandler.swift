@@ -2,9 +2,11 @@ package import AuthenticationServices
 package import Foundation
 
 /// The system's session handler (`ASWebAuthenticationSessionWebBrowserSessionManager`).
-/// macOS calls it on its own queue; every request goes to the broker on the
-/// main actor.
-package final class WebAuthSessionHandler: NSObject, ASWebAuthenticationSessionWebBrowserSessionHandling {
+/// macOS calls it on its own queue (the SDK protocol is not main-actor), so
+/// the type is `nonisolated`: under the package's main-actor default
+/// isolation its `@objc` witnesses would check for the main actor and trap
+/// before the hop. Every request goes to the broker on the main actor.
+package nonisolated final class WebAuthSessionHandler: NSObject, ASWebAuthenticationSessionWebBrowserSessionHandling {
     private let broker: WebAuthSessionBroker
 
     @MainActor
