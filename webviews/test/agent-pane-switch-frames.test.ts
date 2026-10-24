@@ -265,12 +265,15 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
     await page.locator("textarea.nt-field, input.acpmux-newtab-field").first().fill("Docs");
     await page.getByText("Docs pass", { exact: true }).waitFor();
     await page.evaluate(() => {
-      const frames: { at: number; empty: boolean; transcript: boolean }[] = [];
-      (window as unknown as { oldChatFrames: typeof frames }).oldChatFrames = frames;
+      const frames: { at: number; newTab: boolean; empty: boolean; transcript: boolean }[] = [];
+      const state = window as unknown as { oldChatFrames: typeof frames; oldChatFrameStart: number };
+      state.oldChatFrames = frames;
       const start = performance.now();
+      state.oldChatFrameStart = start;
       window.cmuxAfterPaint(() => {
         frames.push({
           at: performance.now() - start,
+          newTab: Boolean(document.querySelector(".acpmux-newtab")),
           empty: Boolean(document.querySelector(".acpmux-empty")),
           transcript: document.body.innerText.includes("Docs updated."),
         });
@@ -278,6 +281,10 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
       });
     });
     await page.getByText("Docs pass", { exact: true }).click();
+    const clickAt = await page.evaluate(() => {
+      const state = window as unknown as { oldChatFrameStart: number };
+      return performance.now() - state.oldChatFrameStart;
+    });
     await page.getByText("Docs updated.", { exact: true }).waitFor();
     await page.waitForFunction(() => {
       const frames = (window as unknown as { oldChatFrames: { at: number }[] }).oldChatFrames;
@@ -285,16 +292,24 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
     });
     const frames = await page.evaluate(
       () =>
-        (window as unknown as { oldChatFrames: { at: number; empty: boolean; transcript: boolean }[] }).oldChatFrames,
+        (
+          window as unknown as {
+            oldChatFrames: { at: number; newTab: boolean; empty: boolean; transcript: boolean }[];
+          }
+        ).oldChatFrames,
     );
     await page.close();
-    const afterOpen = frames.filter((frame) => frame.transcript || frame.empty);
+    const afterOpen = frames.filter((frame) => frame.at >= clickAt);
     const flash = afterOpen.filter((frame) => frame.empty && !frame.transcript);
+    const unclassified = afterOpen.filter((frame) => !frame.newTab && !frame.transcript);
     console.log(
-      `old-chat: ${afterOpen.length} post-open frames, ${flash.length} new-chat hero frames` +
+      `old-chat: ${afterOpen.length} post-open frames, ${flash.length} new-chat hero frames, ` +
+        `${unclassified.length} unclassified frames` +
         (flash.length ? ` (first: ${JSON.stringify(flash[0])})` : ""),
     );
     expect(flash).toEqual([]);
+    expect(unclassified).toEqual([]);
+    expect(afterOpen.some((frame) => frame.transcript)).toBe(true);
   });
 
   test("a stale old-chat select keeps the New Tab hero after a malformed attach", async () => {

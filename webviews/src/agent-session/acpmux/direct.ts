@@ -4783,6 +4783,13 @@ export class AcpmuxDirectClient {
       ...(Array.isArray(summary?.configOptions) ? { configOptions: summary.configOptions } : {}),
     };
   }
+  /// The selected chat's attach has supplied a matching summary for this selection generation.
+  /// A stale or malformed attach can otherwise make `select()` resolve with only its requested id.
+  attachedSession(): string | undefined {
+    return this.attachedGeneration === this.selectionGeneration && this.summary?.sessionId === this.selectedSessionId
+      ? this.selectedSessionId
+      : undefined;
+  }
   /// A turn is running in the shown session.
   turnRunning(): boolean {
     return this.turnOpen || this.summary?.status === "running";
