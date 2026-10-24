@@ -1028,6 +1028,43 @@ sleep_in_loop = matcher_rule(Matcher(SLEEP, POLL_ALLOW, in_loop))
 row_store = matcher_rule(Matcher(ROW_STORE, ROW_ALLOW, in_row))
 
 
+# ---- task-priority (PL-qos)
+# Every off-main task and queue states its priority on purpose (Lawrence's threading items 3 and 5,
+# plans/cmux-next/threading-model.md): a detached or unstructured Task names `priority:`, a global queue its `qos:`,
+# a new serial queue its `qos:` or its `target:`. A Task that only hops to the main actor (`Task { @MainActor`) runs
+# main-thread work, which MainWorkClass orders, so it is not counted. The argument list is read to its closing
+# parenthesis, so a call split over lines counts by what it names.
+TASK_CALL = re.compile(r"\bTask\.detached\s*[({]|(?<![\w.])Task\s*[({]|\bDispatchQueue\.global\(|\bDispatchQueue\(\s*label:")
+STATED = re.compile(r"\b(priority|qos|target):")
+QOS_ALLOW = "qos-allow:"
+TASK_ARGS_MAX_LINES = 8  # an argument list longer than this is not a queue or task init in this codebase
+
+
+def unstated_priority(version: Version, index: int) -> tuple[bool, list[int]]:
+    """Whether the Task or queue call on line INDEX names no priority, QoS or target (and is not a main-actor hop)."""
+    code = code_of(version.lines[index])
+    match = TASK_CALL.search(code)
+    if match is None:
+        return False, []
+    rest = code[min(i for i in (code.find("(", match.start()), code.find("{", match.start())) if i >= 0):]
+    if rest.startswith("{"):
+        return not re.match(r"\{\s*@MainActor\b", rest), []
+    args, depth = "", 0
+    lines = [rest] + [code_of(line) for line in version.lines[index + 1:index + TASK_ARGS_MAX_LINES]]
+    for line in lines:
+        for i, c in enumerate(line):
+            depth += c == "("
+            depth -= c == ")"
+            if depth == 0:
+                args += line[:i + 1]
+                tail = line[i + 1:]
+                if STATED.search(args):
+                    return False, []
+                return not re.match(r"\s*\{\s*@MainActor\b", tail), []
+        args += line + "\n"
+    return not STATED.search(args), []
+
+
 RULES = (
     Rule("unchecked-sendable", "`@unchecked Sendable` / `nonisolated(unsafe)` without a safety argument",
          "it switches off the data-race checker; without a written argument nobody can review it",
@@ -1078,6 +1115,16 @@ RULES = (
          None,
          line_rule(r"CMUX_BENCH_HOOKS|--config[= ]bench\b", None),
          scope=SHIPPED_BUILD + (".xcconfig", "project.pbxproj")),
+    Rule("task-priority", "A Task or dispatch queue without a stated priority",
+         "a task or queue that does not say how much a person waits for it runs at whatever QoS it inherits: work "
+         "nobody waits for competes with typing and frames, and the main thread can wait on work that runs below it "
+         "(priority inversion; plans/cmux-next/threading-model.md)",
+         "say it: `Task(priority: WorkPriority(.background).taskPriority) { ... }` (or `.high`/`.medium`/`.utility`), "
+         "`DispatchQueue.global(qos: .utility)`, `DispatchQueue(label: ..., qos: .utility)`; blocking work (file I/O, a "
+         "process wait, a sync C call, a long parse) goes to `BackgroundWork.run(_:mayBlock:)` or `AsyncProcess`, never "
+         "into a Task on the cooperative pool",
+         "// qos-allow: <why it inherits its caller's priority on purpose>",
+         matcher_rule(Matcher(TASK_CALL, re.compile(r"//\s*" + re.escape(QOS_ALLOW) + r"\s*\S"), unstated_priority))),
     Rule("app-size", f"CmuxNextApp's composition root grows (in source lines: the root's wiring +{ROOT_BUDGET} per "
          f"push, moves into the root and out of it into other App files included, plus one Host file; new App "
          f"files, and new top-level types in existing App files, only as moves; growth of the App and of its "
