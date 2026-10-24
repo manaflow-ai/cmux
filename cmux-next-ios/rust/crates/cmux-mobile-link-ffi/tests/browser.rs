@@ -52,7 +52,14 @@ impl Recorder {
     }
 }
 
-async fn stream_over(transport: Transport, video_lane: bool) {
+/// A link to a hostd with the stand-in browser host; what has to stay alive.
+struct Rig {
+    _server: FakeSignaling,
+    _sockets: tempfile::TempDir,
+    handle: Arc<cmux_mobile_link_ffi::LinkHandle>,
+}
+
+async fn rig(transport: Transport, video_lane: bool) -> Rig {
     let server = FakeSignaling::start(FakeOptions::default()).await;
     let sockets = tempfile::tempdir().unwrap();
     let launches = Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -100,8 +107,14 @@ async fn stream_over(transport: Transport, video_lane: bool) {
     )
     .await
     .expect("connect");
+    Rig { _server: server, _sockets: sockets, handle }
+}
+
+async fn stream_over(transport: Transport, video_lane: bool) {
+    let rig = rig(transport, video_lane).await;
     let recorder = Arc::new(Recorder::default());
-    let stream = handle
+    let stream = rig
+        .handle
         .open_browser(r#"{"tab":"s3","url":"https://example.com/"}"#.into(), recorder.clone())
         .await
         .unwrap();
@@ -487,4 +500,31 @@ async fn real_host_over_the_track() {
     println!("messages: {msgs:?}");
     assert!(recorder.frames.lock().unwrap().len() > 30);
     stream.close();
+}
+
+/// The watchdog half of the 2026-10-24 freeze: a page that stops answering
+/// (its host hung, or the channel stopped moving) left the phone showing the
+/// last frame with every touch going nowhere. Input the host never
+/// acknowledges now ends the stream as `stalled` within seconds, and the app
+/// opens it again ("Reconnecting browser…").
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn input_the_page_never_acknowledges_ends_the_stream_as_stalled() {
+    let rig = rig(Transport::WireGuard, true).await;
+    let recorder = Arc::new(Recorder::default());
+    let stream = rig
+        .handle
+        .open_browser(r#"{"tab":"s5","url":"https://example.com/"}"#.into(), recorder.clone())
+        .await
+        .unwrap();
+    recorder.until("welcome", |r| r.has("welcome", "encoder", "fake")).await;
+    // The stand-in host stops reading: nothing it gets is applied or answered.
+    stream.send_message(r#"{"t":"rb.find","query":"hang"}"#.into()).unwrap();
+    stream
+        .send_input(
+            r#"{"e":"pointer","surface":0,"kind":"down","x":10.0,"y":20.0,"button":0,"buttons":1,"click_count":1,"modifiers":0,"pointer_type":"touch"}"#
+                .into(),
+            true,
+        )
+        .unwrap();
+    recorder.until("stalled", |r| r.closed.lock().unwrap().as_deref() == Some("stalled")).await;
 }
