@@ -68,6 +68,10 @@
   --glass-tint: color-mix(in srgb, var(--acpmux-composer-solid) 50%, transparent);
   --glass-backdrop: var(--surface-blur);
 }
+.acpmux-chat-inspector.ui-glass {
+  /* glass-opaque-allow: the Reduce Transparency fill only, the composer's (glass.css applies it under that setting) */
+  --glass-opaque: var(--acpmux-composer-solid);
+}
 .acpmux-chat-inspector[data-placement] .acpmux-chat-inspector__body {
   /* The card is as tall as its sections; past its max-height, the body scrolls. */
   flex: 0 1 auto;
@@ -79,6 +83,11 @@
 .acpmux-main > .acpmux-stage > .acpmux-scroll,
 .acpmux-main > .acpmux-dock > * {
   translate: calc(-1 * var(--acpmux-chat-shift, 0px)) 0;
+}
+/* A part that joins the stack while the chat is moved rises from below its moved place
+   (bottomStack.css ui-enter), not from the unmoved one. */
+.acpmux-main > .acpmux-dock > * {
+  --ui-enter-x: calc(-1 * var(--acpmux-chat-shift, 0px));
 }
 @media (prefers-reduced-motion: no-preference) {
   .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage > .acpmux-scroll,

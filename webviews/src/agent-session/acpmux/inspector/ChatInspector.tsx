@@ -495,9 +495,10 @@ function InspectorPresence({
     [drawn, asks, views],
   );
   const statuses = useMemo(() => headerStatus(pullRequest), [pullRequest]);
-  // An output's diff opens beside the chat. When that split leaves too little room for a readable
-  // chat beside the Inspector, it steps aside until the toggle opens it again.
-  const roomy = paneWidth <= 0 || paneWidth - pushedWidth(paneWidth, width) - FLOAT_MARGIN >= PUSH_MIN_CHAT;
+  // An output's diff opens beside the chat. Pushing (Settings Push always), when that split leaves too
+  // little room for a readable chat beside the Inspector, it steps aside until the toggle opens it
+  // again. Floating, it takes no room from the chat and stays.
+  const roomy = !push || paneWidth <= 0 || paneWidth - pushedWidth(paneWidth, width) - FLOAT_MARGIN >= PUSH_MIN_CHAT;
   const roomyRef = useRef(roomy);
   useEffect(() => {
     const was = roomyRef.current;

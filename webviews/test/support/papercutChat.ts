@@ -194,12 +194,9 @@ export async function papercutPane(
 /// event sets it (chatDisplay.ts). By default the Inspector floats and never takes a column.
 export async function inspectorPushAlways(page: Page, on = true) {
   await page.evaluate(async (on) => {
-    const url = performance
-      .getEntriesByType("resource")
-      .map((entry) => entry.name)
-      .find((name) => new URL(name).pathname.endsWith("/chatDisplay.ts"));
-    if (!url) throw new Error("chatDisplay.ts is not loaded");
-    const display = (await import(/* @vite-ignore */ url)) as { setChatDisplay(value: unknown): void };
+    // The pane's dev server serves src/agent-session/acpmux at its root (vite.config.acpmux-pane.mjs),
+    // so this is the module the page already loaded.
+    const display = (await import(/* @vite-ignore */ "/chatDisplay.ts")) as { setChatDisplay(value: unknown): void };
     display.setChatDisplay({ "agentPane.display.inspector.placement": on ? "push" : "overlay" });
   }, on);
 }

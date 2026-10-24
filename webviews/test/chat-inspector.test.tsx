@@ -381,6 +381,25 @@ test("an output whose diff split leaves no room to push the chat closes the Insp
   paneWidth = 0;
 });
 
+test("floating, an output's diff split beside the chat leaves the Inspector open", async () => {
+  setChatDisplay({ [INSPECTOR_PLACEMENT_KEY]: "overlay" });
+  const container = installDom(true);
+  paneWidth = 1200;
+  await render(container, localChat);
+  const files = [
+    ...section(container, "outputs")!.querySelectorAll<HTMLButtonElement>("button.acpmux-chat-inspector-row"),
+  ];
+  await click(files[0]!);
+  // The diff opens beside the chat and halves the pane: the floating panel takes no room, so it stays.
+  await act(async () => {
+    paneWidth = 600;
+    for (const observer of observers) observer();
+  });
+  expect(panel(container)?.dataset.placement).toBe("overlay");
+  expect(toggle(container)?.getAttribute("aria-pressed")).toBe("true");
+  paneWidth = 0;
+});
+
 test("Connectors says how many to reconnect, else how many connected; open, each server's status", async () => {
   const container = installDom(true);
   const base = chat([]);
