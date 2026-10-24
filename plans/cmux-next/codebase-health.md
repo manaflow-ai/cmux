@@ -473,3 +473,35 @@ Marked: 12 of 14 path ids (21 markers); 11 of 14 warn at push; 3 of 21 markers n
 - `cmd-tab`: CmuxNextDesign/WindowKeyFamily.swift:89
 - `new-tab`: **no marker** (owner PL-cef-tab)
 
+## 7. Open follow-ups (hand-written; `--write` keeps this section)
+
+Debt that the counts above cannot name: what a slice left for an owner, and who that owner is. Remove an item in
+the commit that fixes it.
+
+- **Main-actor owners of a self-ending handle with no `nonisolated deinit {}`** (check-concurrency.sh, the rule
+  widened in ad35702e8cb; 28 at that commit, 22 fixed in the isolation slice that added this section, so the full
+  `check-concurrency.sh` reports exactly these 6). Each stores a MainActorObservation or OwnedTask, so its implicit
+  deinit is isolated and a release hops to the main actor (cx-t7hu). The fix is one empty `nonisolated deinit {}`.
+  - `CmuxNextBrowser/CEF/CEFRuntime.swift` (CEFRuntime): PL-cef-layer, session cmux-b6.
+  - `CmuxNextDesign/Motion/DisplaySleep.swift` (DisplaySleep): motion (OWNERS.md: Performance Lead; cmux-b6
+    PL-motion-core edits motion).
+  - `CmuxNextApp/Settings/GhosttyDiagnosticsModel.swift` (GhosttyDiagnosticsModel): PL-ghostty, session cmux-b6.
+  - `CmuxNextApp/Control/ControlSnapshotPublisher.swift` (ControlSnapshotPublisher): PL-typing, session cmux-b6.
+  - `CmuxNextApp/Control/DebugWindowTransition.swift` (DebugWindowTransition): the bench config, cmux-b6 PL-arch
+    (87d92025bf6).
+  - `CmuxNextApp/Feed/FeedService.swift` (FeedService): the Feed's acpmux start (71df51392dc); not a cmux-b6 area.
+- **WindowKeyFamily reads its views through `NSHashTable.allObjects`** (`CmuxNextDesign/WindowKeyFamily.swift`:
+  `viewCount`, `remove(_:)`, `forEachView`). `allObjects` loads each weak entry through `objc_loadWeak`, which
+  autoreleases it, so a read keeps every WindowMaterialView alive until the autorelease pool drains: a view
+  released in the same run-loop turn still counts, and `remove` may not stop the observations when the last real
+  view leaves. WindowNotices (same package) holds Swift weak references for this reason. Owner: CmuxNextDesign has
+  no OWNERS.md row, so the Performance Lead.
+- **Views that observe their window's occlusion notice themselves** instead of following the window's
+  WindowNotices (PATTERNS.md P3; the tab strip and the agent pane's probe follow it). Check each: one observer per
+  view moves to WindowNotices; one per app stays.
+  - `CmuxNextSidebar/Views/SidebarListView.swift`, `CmuxNextSidebar/Views/SidebarNoticeCardView.swift`: a590.
+  - `CmuxNextTerminal/TerminalSurfaceView.swift`: PL-ghostty, session cmux-b6.
+  - `CmuxNextDesign/StatusIndicator/StatusIndicatorView.swift`, `CmuxNextDesign/BackdropVideoView.swift`: no
+    OWNERS.md row (Performance Lead).
+  - `CmuxNextPhone/Live/PhoneScreenView.swift`, `CmuxNextHome/NativeTranscript/HomeNativeTranscriptView.swift`,
+    `CmuxNextRemoteBrowser/Pane/RemoteBrowserSurfaces.swift`: no OWNERS.md row (Performance Lead).

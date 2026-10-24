@@ -13,7 +13,7 @@ plans/cmux-next/arch-ratchet.json and the pre-push ratchet hold, so the three re
 observer site is a `MainActorObservation(` wrapper call too, and a call may span lines.
 
   scripts/cmux-next/codebase-health.py           # print the report
-  scripts/cmux-next/codebase-health.py --write   # rewrite plans/cmux-next/codebase-health.md
+  scripts/cmux-next/codebase-health.py --write   # rewrite plans/cmux-next/codebase-health.md (keeps section 7)
 """
 from __future__ import annotations
 
@@ -36,6 +36,9 @@ PKG = "Packages/macOS/CmuxNext"
 SOURCES = PKG + "/Sources/"
 APP = "CmuxNextApp"
 OUT = "plans/cmux-next/codebase-health.md"
+# The one hand-written section of OUT (open follow-ups the counts cannot name: out-of-slice owners and who owns
+# them). `--write` remeasures everything above it and keeps it, from this heading to the end, as it was.
+HAND_WRITTEN = "## 7. Open follow-ups (hand-written; `--write` keeps this section)"
 UPSTREAM = "origin/feat-cmux-next"
 # What the report reads besides the app sources: every Swift file (section 6), the plans, the scripts, the workflows.
 MEASURED = ("*.swift", "plans/cmux-next/", "scripts/cmux-next/", ".github/workflows/", f":(exclude){OUT}")
@@ -736,13 +739,23 @@ def report(repo: Path) -> str:
     return "\n".join(out) + "\n"
 
 
+def hand_written(path: Path) -> str:
+    """The hand-written section at the end of the old report (from HAND_WRITTEN on), or nothing."""
+    try:
+        old = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return ""
+    at = old.find("\n" + HAND_WRITTEN + "\n")
+    return old[at + 1:] if at >= 0 else ""
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--repo", default=None)
     parser.add_argument("--write", action="store_true", help=f"rewrite {OUT}")
     args = parser.parse_args(argv)
     repo = Path(args.repo or git(Path.cwd(), "rev-parse", "--show-toplevel").strip())
-    text = report(repo)
+    text = report(repo) + hand_written(repo / OUT)
     if args.write:
         (repo / OUT).write_text(text, encoding="utf-8")
         print(f"codebase-health: wrote {OUT}")

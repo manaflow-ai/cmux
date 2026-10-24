@@ -256,6 +256,17 @@ class CodebaseHealthPerfHotTests(unittest.TestCase):
                       header)
         self.assertNotIn(local[:11], header)
 
+    def test_write_remeasures_the_report_and_keeps_the_hand_written_section(self):
+        kept = f"{health.HAND_WRITTEN}\n\n- An owner still to fix (its owner).\n"
+        self.write(health.OUT, f"stale numbers\n\n{kept}")
+        for _ in range(2):
+            health.main(["--repo", str(self.repo), "--write"])
+            text = (self.repo / health.OUT).read_text(encoding="utf-8")
+            self.assertTrue(text.startswith("# cmux-next codebase health"))
+            self.assertNotIn("stale numbers", text)
+            self.assertTrue(text.endswith(kept))
+            self.assertEqual(text.count(health.HAND_WRITTEN), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
