@@ -49,8 +49,9 @@ ms (default 50, the watchdog's own stall threshold; measured through
 debug.hangs, so it also catches work no mark reports); or a median
 first_window_frame_committed over --first-frame-budget ms (default 150, the
 launch target in plans/cmux-next/perf-lead.md). Run it light and STRESS:
-`--mode warm --profile realistic --launch-guard` and
-`--mode warm --profile stress --launch-guard`.
+`--mode warm --profile realistic --launch-guard --wake-attachments 128` and
+`--mode warm --profile stress --launch-guard` (the registered guard,
+perf-hot-benches.json `launch-first-window`).
 
 --wake-attachments MB writes, before each measured launch, a last quit's
 composer state holding MB of pasted screenshots (5 MB files) in the tag's
