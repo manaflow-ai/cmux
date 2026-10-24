@@ -177,7 +177,8 @@ public final class AgentSubagentPanes {
     /// Calls `acted` on the next click or key press in the app, or when another window takes the
     /// keyboard or the app resigns active; returns what stops watching.
     public static func watchUser(_ acted: @escaping @MainActor @Sendable () -> Void) -> () -> Void {
-        // A main-actor closure (inferred here): AppKit calls local monitors on the main thread.
+        // main-proof: inferred main-actor closure (watchUser is main-actor); NSEvent.h: AppKit calls local monitors on the main
+        // thread, and Swift checks the main actor on the closure's entry (SE-0423), as at AgentPaneView's gesture monitor.
         let monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]) { event in
             acted()
             return event
