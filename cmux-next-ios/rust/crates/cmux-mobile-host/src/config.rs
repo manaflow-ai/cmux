@@ -266,6 +266,18 @@ pub fn sibling_device_ids(app_support: &Path, own: &str, machine_id: &str) -> Ve
     ids
 }
 
+/// The other builds a registration names: [`sibling_device_ids`], or none
+/// when the machine id is an override. An override (a hidden test rig) says
+/// this build is its own computer; claiming this Mac's folders as its
+/// siblings would make the backend give its id to every same-owner record
+/// that has none yet (old builds, other rigs) and fold them into it for good.
+pub fn registration_siblings(app_support: &Path, own: &str, machine_id: &str, overridden: bool) -> Vec<String> {
+    if overridden {
+        return Vec::new();
+    }
+    sibling_device_ids(app_support, own, machine_id)
+}
+
 /// `~/Library/Application Support` (`CMUX_MOBILE_APP_SUPPORT_DIR` in tests).
 pub fn app_support_dir() -> PathBuf {
     env("CMUX_MOBILE_APP_SUPPORT_DIR")
@@ -295,7 +307,7 @@ impl HostConfig {
         {
             tracing::warn!("could not write the machine marker: {error}");
         }
-        let siblings = sibling_device_ids(&self.app_support, &self.device_id, &id);
+        let siblings = registration_siblings(&self.app_support, &self.device_id, &id, self.machine_id_override.is_some());
         (Some(id), siblings)
     }
 
