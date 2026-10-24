@@ -1,6 +1,7 @@
 #if DEBUG
 // The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
 public import AppKit
+import CmuxNextWakeups
 import Darwin
 import Observation
 
@@ -64,7 +65,7 @@ public final class ChromiumHostSession {
     /// ``open(_:)`` came while the host was quitting: start a new host when it has ended.
     private var reopenWhenEnded = false
     /// SIGKILLs the quitting host at the quit limit; cancelled when it ends.
-    private var quitDeadline: Task<Void, Never>?
+    @ObservationIgnored private let quitDeadline = DemandTimer(owner: "ChromiumHostSession.quit")
     private var geometry: ChromiumHostGeometry?
     private var seq: UInt32 = 0
     private var pongs: [UInt32: CheckedContinuation<ChromiumHostFrame?, Never>] = [:]
@@ -133,10 +134,9 @@ public final class ChromiumHostSession {
         guard let connection, !closing else { return }
         closing = true
         if !send(ChromiumHostFrame(.quit)) { return }  // send ended the host already
-        let launcher = launcher, pid = pid, limit = quitLimit
-        // A bounded, cancellable deadline (CLAUDE.md carve-out): hostEnded cancels it.
-        quitDeadline = Task { [weak self] in
-            do { try await Task.sleep(for: limit) } catch { return }
+        let launcher = launcher, pid = pid
+        // A deadline, not a wait: hostEnded cancels it.
+        quitDeadline.schedule(after: quitLimit) { @MainActor [weak self] in
             guard let self, self.connection === connection else { return }
             launcher.kill(pid)
         }
@@ -293,8 +293,7 @@ public final class ChromiumHostSession {
         pongs = [:]
         for waiter in statsWaiters.values { waiter.resume(returning: nil) }
         statsWaiters = [:]
-        quitDeadline?.cancel()
-        quitDeadline = nil
+        quitDeadline.cancel()
         let ranFor = startedAt.map { now() - $0 } ?? .zero
         if let failure = exit.startFailure {
             // The host could not start (no wire, no framework, an old fork, CefInitialize):
