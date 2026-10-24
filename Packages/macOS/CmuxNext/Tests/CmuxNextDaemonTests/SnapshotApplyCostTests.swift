@@ -52,6 +52,24 @@ import Testing
         #expect(store.index.tabsBySurface[surface]?.title == "t 0")
     }
 
+    @Test func aNewConnectionsFirstSnapshotAppliesInFull() {
+        let store = DaemonStore()
+        store.apply(snapshot: session(30))
+        store.connectionEpoch += 1
+        let before = store.index.indexedRecords
+        store.apply(snapshot: session(30))
+        #expect(store.index.indexedRecords - before == 30 * 6, "nothing the last connection applied is trusted")
+    }
+
+    @Test func aSnapshotDiffComputedAgainstAnOlderMemoIsRecomputed() {
+        let store = DaemonStore()
+        store.apply(snapshot: session(20))
+        let stale = SnapshotDiff(revision: store.snapshotMemo.revision &- 1, changed: [])
+        store.apply(snapshot: session(20, changing: 5), diff: stale)
+        #expect(store.workspaces[5].screens.first?.panes.first?.tabs.first?.title == "renamed 0",
+                "a diff of another memo revision is not trusted")
+    }
+
     @Test func removedAndAddedAndReorderedWorkspacesApply() {
         let store = DaemonStore()
         store.apply(snapshot: session(10))
