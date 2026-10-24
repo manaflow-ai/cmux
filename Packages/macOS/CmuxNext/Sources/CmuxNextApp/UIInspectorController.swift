@@ -40,7 +40,9 @@ final class UIInspectorController {
         observeToggle()
     }
 
-    deinit {
+    // Isolated: the monitor and observer tokens are main-actor state, not
+    // Sendable, so a nonisolated deinit cannot read them (Swift 6).
+    isolated deinit {
         if let contextMonitor { NSEvent.removeMonitor(contextMonitor) }
         if let inspectNotification { NotificationCenter.default.removeObserver(inspectNotification) }
     }
