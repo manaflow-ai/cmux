@@ -30,6 +30,8 @@ impl AttachFrameReceiver {
             match Self::pop_item(queue)? {
                 QueuedFrame::Frame(frame) => return Some(frame),
                 QueuedFrame::LocalReady(_) => {}
+                #[cfg(unix)]
+                QueuedFrame::RingAdvance(_) => {}
             }
         }
     }
@@ -198,12 +200,18 @@ pub(super) enum QueuedFrame {
     /// A local-history READY at a resize cut, after every frame queued before
     /// the resize (`terminal-snapshot-local-history-v1`).
     LocalReady(Arc<LocalReadySnapshot>),
+    /// A ring viewer's bytes up to this offset are in the ring (consecutive
+    /// advances merge into the newest).
+    #[cfg(unix)]
+    RingAdvance(u64),
 }
 
 impl QueuedFrame {
     fn retained_bytes(&self) -> usize {
         match self {
             Self::Frame(frame) => frame.retained_bytes(),
+            #[cfg(unix)]
+            Self::RingAdvance(_) => size_of::<Self>(),
             // The READY bytes are shared between viewers; each viewer's
             // backlog still counts them, so a stuck viewer stays bounded.
             Self::LocalReady(ready) => size_of::<Self>() + ready.frame.data.len(),
@@ -294,7 +302,18 @@ impl AttachLifecycle {
 pub(super) struct AttachTap {
     pub(super) state: Arc<AttachTapState>,
     pub(super) lifecycle: AttachLifecycle,
+    /// The terminal's output ring this viewer reads its bytes from
+    /// (`terminal-output-ring-v1`): its queue then gets the ring's new end
+    /// instead of a copy of the bytes. Every ring viewer of a terminal holds
+    /// the same ring; the output path writes it once.
+    #[cfg(unix)]
+    pub(super) ring: Option<SharedOutputRing>,
 }
+
+/// One terminal's output ring, shared by its ring viewers and written by its
+/// output path (under the taps lock, so one writer at a time).
+#[cfg(unix)]
+pub(crate) type SharedOutputRing = Arc<Mutex<output_ring::OutputRing>>;
 
 pub(super) struct AttachTapState {
     pub(super) queue: Mutex<AttachTapQueue>,
@@ -355,6 +374,9 @@ pub(crate) enum ViewerEvent {
     Snapshot,
     /// Send this local-history READY (no history follows it).
     LocalReady(Arc<LocalReadySnapshot>),
+    /// The ring holds this viewer's bytes up to this offset.
+    #[cfg(unix)]
+    RingAdvance(u64),
 }
 
 /// Lets a command outside the attach worker (`snapshot-request`) ask one
@@ -405,6 +427,8 @@ impl AttachFrameReceiver {
             match Self::pop_item(&mut queue) {
                 Some(QueuedFrame::Frame(frame)) => return Ok(ViewerEvent::Frame(frame)),
                 Some(QueuedFrame::LocalReady(ready)) => return Ok(ViewerEvent::LocalReady(ready)),
+                #[cfg(unix)]
+                Some(QueuedFrame::RingAdvance(end)) => return Ok(ViewerEvent::RingAdvance(end)),
                 None => {}
             }
             if !queue.sender_alive {
@@ -508,7 +532,12 @@ impl AttachTap {
             ready: Condvar::new(),
         });
         (
-            Self { state: state.clone(), lifecycle: lifecycle.clone() },
+            Self {
+                state: state.clone(),
+                lifecycle: lifecycle.clone(),
+                #[cfg(unix)]
+                ring: None,
+            },
             AttachFrameReceiver { state, lifecycle },
         )
     }
@@ -603,6 +632,40 @@ impl AttachTap {
         drop(queue);
         self.lifecycle.mark_overflow();
         false
+    }
+
+    /// A ring viewer's output: the ring holds its bytes up to `end`. Queued
+    /// like output (merged with a pending advance), never as a copy of them.
+    #[cfg(unix)]
+    pub(super) fn try_send_ring_advance(&self, end: u64) -> bool {
+        if self.lifecycle.is_canceled() {
+            return false;
+        }
+        let mut queue = self.state.queue.lock().unwrap();
+        if !queue.receiver_alive {
+            drop(queue); // cancel fires interrupt wakers that lock this queue.
+            self.lifecycle.cancel();
+            return false;
+        }
+        if queue.snapshot_deferred {
+            // Retry the snapshot now that the parser has moved on.
+            queue.snapshot_deferred = false;
+            queue.fall_behind();
+            drop(queue);
+            self.state.ready.notify_one();
+            return true;
+        }
+        if queue.needs_snapshot {
+            // The pending snapshot is taken at or after this end.
+            return true;
+        }
+        if let Some(QueuedFrame::RingAdvance(pending)) = queue.frames.back_mut() {
+            *pending = end;
+            drop(queue);
+            self.state.ready.notify_one();
+            return true;
+        }
+        self.push(queue, QueuedFrame::RingAdvance(end))
     }
 
     pub(super) fn try_send(&self, mut frame: AttachFrame) -> bool {

@@ -66,6 +66,14 @@ impl ClientRegistry {
                 None
             };
         let stream_id = stream.id;
+        if let Some(client_stream) = stream.framing.id {
+            anyhow::ensure!(
+                !record.client_streams.contains_key(&client_stream),
+                "stream_in_use: stream {} is open on this connection",
+                client_stream.get()
+            );
+            record.client_streams.insert(client_stream, (surface, stream_id));
+        }
         let attached = record.attached.entry(surface).or_default();
         attached.pending_streams.insert(stream_id, stream);
         if let Some(lease) = &lease {
@@ -376,11 +384,60 @@ impl ClientRegistry {
         }
     }
 
+    /// The surface and stream of `client`'s open client stream `stream`.
+    pub(super) fn client_stream(
+        &self,
+        client: u64,
+        stream: crate::server::attach_frames::ClientStreamId,
+    ) -> Option<(SurfaceId, OutboundStream)> {
+        let state = self.state.lock().recover_poison();
+        let record = state.clients.get(&client)?;
+        let (surface, id) = *record.client_streams.get(&stream)?;
+        let attached = record.attached.get(&surface)?;
+        let outbound = attached.streams.get(&id).or_else(|| attached.pending_streams.get(&id))?;
+        Some((surface, outbound.clone()))
+    }
+
+    /// Removes one attach stream of `client`. A client stream
+    /// (`attach-streams-v1`) gets its `stream-end` once it is out of the
+    /// registry, so no event routed afterwards can follow the end.
     pub(super) fn detach_surface(
         &self,
         client: u64,
         surface: SurfaceId,
         stream: u64,
+    ) -> DetachedSurface {
+        let mut ended = None;
+        let detached = self.detach_surface_taking_stream(client, surface, stream, &mut ended);
+        if let Some((writer, outbound)) = ended {
+            writer.end_client_stream(&outbound, Some(surface));
+        }
+        detached
+    }
+
+    /// [`Self::detach_surface`] for an attach that failed: its stream closes
+    /// (nothing more is queued for it) but gets no `stream-end` here; the
+    /// failed `attach-surface` ends it after its error reply
+    /// (`cmd_attach::end_failed_stream`), so every attach that named a stream
+    /// ends exactly once.
+    pub(super) fn detach_failed_surface(
+        &self,
+        client: u64,
+        surface: SurfaceId,
+        stream: u64,
+    ) -> DetachedSurface {
+        let mut ended = None;
+        let detached = self.detach_surface_taking_stream(client, surface, stream, &mut ended);
+        drop(ended);
+        detached
+    }
+
+    fn detach_surface_taking_stream(
+        &self,
+        client: u64,
+        surface: SurfaceId,
+        stream: u64,
+        ended: &mut Option<(super::MessageWriter, OutboundStream)>,
     ) -> DetachedSurface {
         let mut state = self.state.lock().recover_poison();
         let Some(record) = state.clients.get_mut(&client) else {
@@ -397,8 +454,28 @@ impl ClientRegistry {
                 geometry_replacement: None,
             };
         };
-        attached.streams.remove(&stream);
-        attached.pending_streams.remove(&stream);
+        let committed = attached.streams.remove(&stream);
+        let pending = attached.pending_streams.remove(&stream);
+        let removed = committed.or(pending);
+        if let Some(outbound) = &removed {
+            // Nothing is queued for a detached stream after this point.
+            outbound.close();
+        }
+        if let Some(outbound) = removed
+            && let Some(client_stream) = outbound.framing.id
+        {
+            if record.client_streams.get(&client_stream).is_some_and(|(_, id)| *id == stream) {
+                record.client_streams.remove(&client_stream);
+            }
+            *ended = Some((record.writer.clone(), outbound));
+        }
+        let Some(attached) = record.attached.get_mut(&surface) else {
+            return DetachedSurface {
+                final_stream: false,
+                rollback: None,
+                geometry_replacement: None,
+            };
+        };
         let removed_lease = attached.lease_by_stream.remove(&stream);
         let removed_geometry_owner = removed_lease
             .as_deref()

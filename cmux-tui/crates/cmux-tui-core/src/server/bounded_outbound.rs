@@ -16,6 +16,8 @@ use super::OUTBOUND_CONTROL_BYTE_RESERVE;
 use super::OUTBOUND_CONTROL_RESERVE;
 use super::OutboundStream;
 use super::RENDER_ATTACH_MAX_BYTES;
+use super::WireMessage;
+use super::attach_frames::BudgetedFrame;
 use crate::panic_free::RecoverPoison;
 use crate::platform::transport;
 use std::collections::HashMap;
@@ -55,18 +57,31 @@ pub(super) struct StreamOutboundUsage {
 }
 
 pub(super) struct RegularOutbound {
-    text: Arc<BudgetedText>,
+    text: WireMessage,
     stream: OutboundStream,
 }
 
 pub(super) enum ControlOutbound {
-    Text(Arc<BudgetedText>),
+    Text(WireMessage),
     Flush(std::sync::mpsc::SyncSender<()>),
 }
 
+/// One item for the connection's writer thread.
 pub(super) enum OutboundItem {
+    /// A JSON line (the writer adds the newline).
     Text(Arc<BudgetedText>),
+    /// A binary attach frame (`attach-frames-v1`), written as is.
+    Frame(Arc<BudgetedFrame>),
     Flush(std::sync::mpsc::SyncSender<()>),
+}
+
+impl From<WireMessage> for OutboundItem {
+    fn from(message: WireMessage) -> Self {
+        match message {
+            WireMessage::Line(text) => Self::Text(text),
+            WireMessage::Frame(frame) => Self::Frame(frame),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -93,7 +108,7 @@ pub(super) fn claim_connection(
 impl BoundedOutbound {
     pub(super) fn push_regular(
         &self,
-        text: Arc<BudgetedText>,
+        text: impl Into<WireMessage>,
         stream: &OutboundStream,
     ) -> std::io::Result<()> {
         self.push_regular_with_priority(text, stream, false)
@@ -101,7 +116,7 @@ impl BoundedOutbound {
 
     pub(super) fn push_initial(
         &self,
-        text: Arc<BudgetedText>,
+        text: impl Into<WireMessage>,
         stream: &OutboundStream,
     ) -> std::io::Result<()> {
         self.push_regular_with_priority(text, stream, true)
@@ -109,12 +124,12 @@ impl BoundedOutbound {
 
     pub(super) fn push_regular_with_priority(
         &self,
-        text: Arc<BudgetedText>,
+        text: impl Into<WireMessage>,
         stream: &OutboundStream,
         initial: bool,
     ) -> std::io::Result<()> {
         let mut state = self.state.lock().recover_poison();
-        let result = Self::push_regular_locked(&mut state, text, stream, initial);
+        let result = Self::push_regular_locked(&mut state, text.into(), stream, initial);
         drop(state);
         self.changed.notify_all();
         result
@@ -122,9 +137,10 @@ impl BoundedOutbound {
 
     pub(super) fn push_regular_backpressured(
         &self,
-        text: Arc<BudgetedText>,
+        text: impl Into<WireMessage>,
         stream: &OutboundStream,
     ) -> std::io::Result<()> {
+        let text = text.into();
         let mut state = self.state.lock().recover_poison();
         loop {
             if state.closed {
@@ -151,7 +167,7 @@ impl BoundedOutbound {
 
     pub(super) fn push_regular_locked(
         state: &mut BoundedOutboundState,
-        text: Arc<BudgetedText>,
+        text: WireMessage,
         stream: &OutboundStream,
         initial: bool,
     ) -> std::io::Result<()> {
@@ -224,9 +240,9 @@ impl BoundedOutbound {
         Ok(())
     }
 
-    pub(super) fn push_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()> {
+    pub(super) fn push_control(&self, text: impl Into<WireMessage>) -> std::io::Result<()> {
         let mut state = self.state.lock().recover_poison();
-        Self::push_control_locked(&mut state, text)?;
+        Self::push_control_locked(&mut state, text.into())?;
         self.changed.notify_one();
         Ok(())
     }
@@ -255,9 +271,10 @@ impl BoundedOutbound {
 
     pub(super) fn push_terminal(
         &self,
-        text: Arc<BudgetedText>,
+        text: impl Into<WireMessage>,
         stream: &OutboundStream,
     ) -> std::io::Result<()> {
+        let text = text.into();
         let mut state = self.state.lock().recover_poison();
         stream.close();
         Self::purge_stream_locked(&mut state, stream.id);
@@ -275,9 +292,10 @@ impl BoundedOutbound {
     /// purges stale items. Successful bounded replay must preserve FIFO order.
     pub(super) fn push_ordered_terminal(
         &self,
-        text: Arc<BudgetedText>,
+        text: impl Into<WireMessage>,
         stream: &OutboundStream,
     ) -> std::io::Result<()> {
+        let text = text.into();
         let bytes = text.len();
         if bytes > OUTBOUND_BYTE_CAPACITY {
             return Err(std::io::Error::new(
@@ -328,6 +346,40 @@ impl BoundedOutbound {
         }
     }
 
+    /// A client stream's `stream-end`: queued after every item already
+    /// admitted for `stream` (FIFO), also when the stream is closed, and never
+    /// refused for the stream's or the connection's caps: it is one small
+    /// item per stream, and the client needs it to reuse the id. At most once
+    /// (`terminal_enqueued`); an overflowed stream's overflow item is its end.
+    pub(super) fn push_stream_end(
+        &self,
+        text: impl Into<WireMessage>,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        let text = text.into();
+        let mut state = self.state.lock().recover_poison();
+        if state.closed {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        stream.close();
+        if stream.terminal_enqueued.swap(true, Ordering::AcqRel) {
+            return Ok(());
+        }
+        let bytes = text.len();
+        state.regular_bytes += bytes;
+        let usage = state.stream_usage.entry(stream.id).or_insert_with(|| StreamOutboundUsage {
+            messages: 0,
+            bytes: 0,
+            stream: stream.clone(),
+        });
+        usage.messages += 1;
+        usage.bytes += bytes;
+        state.regular.push_back(RegularOutbound { text, stream: stream.clone() });
+        drop(state);
+        self.changed.notify_all();
+        Ok(())
+    }
+
     pub(super) fn terminate_stream_locked(
         state: &mut BoundedOutboundState,
         stream: &OutboundStream,
@@ -370,7 +422,7 @@ impl BoundedOutbound {
 
     pub(super) fn push_control_locked(
         state: &mut BoundedOutboundState,
-        text: Arc<BudgetedText>,
+        text: WireMessage,
     ) -> std::io::Result<()> {
         if state.closed {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
@@ -399,6 +451,11 @@ impl BoundedOutbound {
                     drop(state);
                     self.changed.notify_all();
                     return Some(text.to_string());
+                }
+                Some(OutboundItem::Frame(frame)) => {
+                    drop(state);
+                    self.changed.notify_all();
+                    return Some(String::from_utf8_lossy(frame.as_bytes()).into_owned());
                 }
                 Some(OutboundItem::Flush(flushed)) => {
                     drop(state);
@@ -429,21 +486,21 @@ impl BoundedOutbound {
     pub(super) fn pop_locked(state: &mut BoundedOutboundState) -> Option<OutboundItem> {
         if let Some(message) = state.initial.pop_front() {
             Self::record_stream_pop(state, &message);
-            return Some(OutboundItem::Text(message.text));
+            return Some(OutboundItem::from(message.text));
         }
         if let Some(control) = state.control.pop_front() {
             return Some(match control {
                 ControlOutbound::Text(text) => {
                     state.control_messages = state.control_messages.saturating_sub(1);
                     state.control_bytes = state.control_bytes.saturating_sub(text.len());
-                    OutboundItem::Text(text)
+                    OutboundItem::from(text)
                 }
                 ControlOutbound::Flush(flushed) => OutboundItem::Flush(flushed),
             });
         }
         let message = state.regular.pop_front()?;
         Self::record_stream_pop(state, &message);
-        Some(OutboundItem::Text(message.text))
+        Some(OutboundItem::from(message.text))
     }
 
     pub(super) fn record_stream_pop(state: &mut BoundedOutboundState, message: &RegularOutbound) {
@@ -503,6 +560,21 @@ impl BoundedOutbound {
     }
 }
 
+/// [`write_line_outbound_item`] on a connection's stream: a frame that
+/// carries a descriptor (a RING frame) passes it with its first byte.
+pub(super) fn write_stream_outbound_item(
+    stream: &mut dyn transport::Stream,
+    item: OutboundItem,
+) -> std::io::Result<()> {
+    #[cfg(unix)]
+    if let OutboundItem::Frame(frame) = &item
+        && let Some(descriptor) = frame.descriptor()
+    {
+        return stream.write_with_descriptor(frame.as_bytes(), descriptor);
+    }
+    write_line_outbound_item(stream, item)
+}
+
 pub(super) fn write_line_outbound_item<W: Write + ?Sized>(
     writer: &mut W,
     item: OutboundItem,
@@ -512,6 +584,7 @@ pub(super) fn write_line_outbound_item<W: Write + ?Sized>(
             writer.write_all(text.as_bytes())?;
             writer.write_all(b"\n")
         }
+        OutboundItem::Frame(frame) => writer.write_all(frame.as_bytes()),
         OutboundItem::Flush(flushed) => {
             writer.flush()?;
             let _ = flushed.send(());
@@ -677,21 +750,17 @@ impl SinkControl {
 }
 
 impl MessageSink for QueuedSink {
-    fn send_initial(
-        &self,
-        text: Arc<BudgetedText>,
-        stream: &OutboundStream,
-    ) -> std::io::Result<()> {
+    fn send_initial(&self, text: WireMessage, stream: &OutboundStream) -> std::io::Result<()> {
         self.outbound.push_initial(text, stream)
     }
 
-    fn send_stream(&self, text: Arc<BudgetedText>, stream: &OutboundStream) -> std::io::Result<()> {
+    fn send_stream(&self, text: WireMessage, stream: &OutboundStream) -> std::io::Result<()> {
         self.outbound.push_regular(text, stream)
     }
 
     fn send_stream_backpressured(
         &self,
-        text: Arc<BudgetedText>,
+        text: WireMessage,
         stream: &OutboundStream,
     ) -> std::io::Result<()> {
         self.outbound.push_regular_backpressured(text, stream)
@@ -701,20 +770,20 @@ impl MessageSink for QueuedSink {
         self.outbound.push_control(text)
     }
 
-    fn send_terminal(
-        &self,
-        text: Arc<BudgetedText>,
-        stream: &OutboundStream,
-    ) -> std::io::Result<()> {
+    fn send_terminal(&self, text: WireMessage, stream: &OutboundStream) -> std::io::Result<()> {
         self.outbound.push_terminal(text, stream)
     }
 
     fn send_ordered_terminal(
         &self,
-        text: Arc<BudgetedText>,
+        text: WireMessage,
         stream: &OutboundStream,
     ) -> std::io::Result<()> {
         self.outbound.push_ordered_terminal(text, stream)
+    }
+
+    fn send_stream_end(&self, text: WireMessage, stream: &OutboundStream) -> std::io::Result<()> {
+        self.outbound.push_stream_end(text, stream)
     }
 
     fn is_open(&self) -> bool {

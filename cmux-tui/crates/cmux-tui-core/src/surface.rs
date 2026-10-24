@@ -120,6 +120,10 @@ use hosted_reader::HostedReader;
 mod host_kitty_limits;
 #[cfg(any(unix, windows))]
 mod journal_reconnect;
+/// A terminal's output ring in shared memory for local attach streams
+/// (`terminal-output-ring-v1`).
+#[cfg(unix)]
+pub(crate) mod output_ring;
 #[cfg(any(unix, windows))]
 mod prelaunch;
 #[cfg(any(unix, windows))]
@@ -330,6 +334,8 @@ use attach_tap::AttachFrameMerge;
 pub use attach_tap::AttachFrameReceiver;
 pub(crate) use attach_tap::AttachLifecycle;
 use attach_tap::AttachTap;
+#[cfg(unix)]
+pub(crate) use attach_tap::SharedOutputRing;
 pub(crate) use attach_tap::ViewerEvent;
 pub(crate) mod snapshot_attach;
 
