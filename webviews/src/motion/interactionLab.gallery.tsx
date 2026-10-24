@@ -14,13 +14,24 @@ function useCleanupRegistry() {
     cleanups.current.add(cleanup);
     return () => cleanups.current.delete(cleanup);
   };
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    const stopAll = () => {
       for (const cleanup of cleanups.current) cleanup();
       cleanups.current.clear();
-    },
-    [],
-  );
+    };
+    const root = typeof document === "undefined" ? null : document.documentElement;
+    const observer = root
+      ? new MutationObserver(() => {
+          const setting = root.dataset.cmuxMotion;
+          if (setting === "reduced" || setting === "off") stopAll();
+        })
+      : null;
+    if (root && observer) observer.observe(root, { attributes: true, attributeFilter: ["data-cmux-motion"] });
+    return () => {
+      observer?.disconnect();
+      stopAll();
+    };
+  }, []);
   return { add };
 }
 
