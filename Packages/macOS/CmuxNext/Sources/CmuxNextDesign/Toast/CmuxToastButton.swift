@@ -76,6 +76,12 @@ public final class CmuxToastButton: NSButton {
         applyStyle()
     }
 
+    /// Moved with its toast to another window under a still pointer: its hover recomputes there.
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        hover.viewDidMoveToWindow()
+    }
+
     public override func layout() {
         super.layout()
         hover.layout()
