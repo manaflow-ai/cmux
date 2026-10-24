@@ -2,11 +2,14 @@
 """Keep the Linux SwiftPM build cache rolling instead of per-commit."""
 
 from pathlib import Path
+import sys
 import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/swift-packages-linux.yml"
+sys.path.insert(0, str(ROOT / "scripts/ci"))
+from pr_test_lanes import Expression, load_yaml
 
 
 class SwiftPackagesLinuxCacheTests(unittest.TestCase):
@@ -24,6 +27,22 @@ class SwiftPackagesLinuxCacheTests(unittest.TestCase):
         self.assertIn("${{ steps.key.outputs.toolchain }}", key)
         self.assertIn("${{ matrix.group }}", key)
         self.assertIn("${{ hashFiles('Packages/**/Package.swift', 'Packages/**/Package.resolved') }}", key)
+
+    def test_only_successful_pushes_seed_the_immutable_cache(self):
+        steps = load_yaml(WORKFLOW)["jobs"]["packages"]["steps"]
+        condition = next(step["if"] for step in steps if step.get("name") == "Save .build")
+
+        class WithJobStatus(Expression):
+            def call(self, name, args):
+                if name.lower() == "success":
+                    return self.context["job_succeeded"]
+                return super().call(name, args)
+
+        for event, succeeded, expected in [("push", True, True), ("push", False, False),
+                                           ("pull_request", True, False), ("workflow_dispatch", True, False)]:
+            with self.subTest(event=event, job_succeeded=succeeded):
+                context = {"github.event_name": event, "job_succeeded": succeeded}
+                self.assertIs(WithJobStatus(condition, context).evaluate(), expected)
 
     def test_comment_documents_immutable_seed_semantics(self):
         text = WORKFLOW.read_text(encoding="utf-8")
