@@ -395,132 +395,133 @@
       }
     },
     "phone.feedback.inputs": {
+      "comment": "Phone feedback summary: recorded inputs and taps (%1$lld: inputs, %2$lld: taps). Each count follows a label, so no noun has to agree with it; keep that shape.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%lld إدخال، %lld نقرة"
+            "value": "الإدخالات: %1$lld، النقرات: %2$lld"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%lld unosa, %lld dodira"
+            "value": "Unosi: %1$lld, dodiri: %2$lld"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%lld input, %lld tryk"
+            "value": "Input: %1$lld, tryk: %2$lld"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%lld Eingaben, %lld Tipps"
+            "value": "Eingaben: %1$lld, Tipps: %2$lld"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld inputs, %lld taps"
+            "value": "Inputs: %1$lld, taps: %2$lld"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%lld entradas, %lld toques"
+            "value": "Entradas: %1$lld, toques: %2$lld"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%lld saisies, %lld touchers"
+            "value": "Saisies : %1$lld, touchers : %2$lld"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%lld input, %lld tocchi"
+            "value": "Input: %1$lld, tocchi: %2$lld"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "入力 %lld 件、タップ %lld 回"
+            "value": "入力: %1$lld、タップ: %2$lld"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ការបញ្ចូល %lld, ការប៉ះ %lld"
+            "value": "ការបញ្ចូល៖ %1$lld, ការប៉ះ៖ %2$lld"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "입력 %lld개, 탭 %lld회"
+            "value": "입력: %1$lld, 탭: %2$lld"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%lld inndata, %lld trykk"
+            "value": "Inndata: %1$lld, trykk: %2$lld"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%lld wejść, %lld dotknięć"
+            "value": "Wejścia: %1$lld, dotknięcia: %2$lld"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%lld entradas, %lld toques"
+            "value": "Entradas: %1$lld, toques: %2$lld"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ввод: %lld, касания: %lld"
+            "value": "Ввод: %1$lld, касания: %2$lld"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "อินพุต %lld รายการ แตะ %lld ครั้ง"
+            "value": "อินพุต: %1$lld แตะ: %2$lld"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%lld giriş, %lld dokunma"
+            "value": "Girişler: %1$lld, dokunmalar: %2$lld"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Введення: %lld, дотики: %lld"
+            "value": "Введення: %1$lld, дотики: %2$lld"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%lld lần nhập, %lld lần chạm"
+            "value": "Lần nhập: %1$lld, lần chạm: %2$lld"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%lld 次输入，%lld 次轻点"
+            "value": "输入：%1$lld，轻点：%2$lld"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%lld 次輸入，%lld 次點按"
+            "value": "輸入：%1$lld，點按：%2$lld"
           }
         }
       }
