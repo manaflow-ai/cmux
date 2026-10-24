@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>summary glass harness</title>
+  </head>
+  <body>
+    <section class="acpmux-shell">
+      <div class="acpmux-stage" style="position: relative; width: 400px; height: 400px">
+        <aside class="ui-glass ui-glass-floats acpmux-summary-card" id="popover" data-placement="popover">
+          <div class="acpmux-summary-card__head">
+            <span class="acpmux-summary-card__title" id="title">Summary</span>
+            <span class="acpmux-summary-card__counts" id="counts">2 outputs · 1 running</span>
+            <button type="button" class="acpmux-summary-card__close" id="close">×</button>
+          </div>
+          <div class="acpmux-summary-card__body">
+            <section class="acpmux-summary-section">
+              <h3 class="acpmux-summary-title" id="section-title">Outputs</h3>
+              <ul class="acpmux-summary-list">
+                <li class="acpmux-summary-row">
+                  <span class="acpmux-summary-text" id="row-text">report.md</span>
+                  <span class="acpmux-summary-meta" id="row-meta">2 min</span>
+                </li>
+              </ul>
+            </section>
+          </div>
+        </aside>
+      </div>
+    </section>
+    <!-- A chat menu (a slash or mention menu, the model picker): the glass the popover matches. -->
+    <div class="ui-positioner"><div class="ui-popup ui-glass" id="menu"></div></div>
+    <script type="module" src="./summary-glass.harness.ts"></script>
+  </body>
+</html>

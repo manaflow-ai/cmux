@@ -13,7 +13,10 @@ import type { SummaryCardControl } from "./cardState";
 import type { InspectorProcess } from "../inspector/processes";
 import { SummaryCard } from "./SummaryCard";
 
-type Props = Pick<ComponentProps<typeof SummaryCard>, "rows" | "background" | "sessions" | "onAttach">;
+type Props = Pick<ComponentProps<typeof SummaryCard>, "rows" | "background" | "sessions" | "onAttach"> & {
+  /// A narrow pane's popover (glass) instead of the inline column.
+  popover?: boolean;
+};
 
 const none = () => undefined;
 /// The inline column, shown and open.
@@ -28,12 +31,16 @@ const card: SummaryCardControl = {
   fold: none,
 };
 
-function GallerySummaryCard(props: Props) {
+function GallerySummaryCard({ popover, ...props }: Props) {
   return (
-    <div className="acpmux-shell" style={{ justifyContent: "flex-end", height: "100%" }}>
-      <div className="acpmux-main" data-summary="inline" style={{ display: "flex", justifyContent: "flex-end" }}>
+    <div className="acpmux-shell" style={{ justifyContent: "flex-end", height: "100%", position: "relative" }}>
+      <div
+        className="acpmux-main"
+        data-summary={popover ? undefined : "inline"}
+        style={{ display: "flex", justifyContent: "flex-end" }}
+      >
         <SummaryCard
-          card={card}
+          card={popover ? { ...card, column: false } : card}
           subagents={{ views: undefined, current: undefined, asks: new Set(), onOpen: none }}
           onOpenOutput={none}
           {...props}
@@ -105,6 +112,10 @@ export default componentEntry<Props>({
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-summary-task").length === 6);
       },
+    },
+    popover: {
+      note: "A narrow pane's popover: the liquid glass over the chat, never the solid popup card (Leo 2026-10-21), with background work and started chats.",
+      props: { rows, background: background(processes), sessions: { list: sessions, onOpen: none }, popover: true },
     },
     empty: {
       note: "A chat with nothing yet: one quiet line and Attach files or folders, no empty sections.",

@@ -195,7 +195,9 @@ export function SummaryCard({
           panel.current = node;
           presence.props.ref(node);
         }}
-        className="acpmux-summary-card"
+        // The popover is glass that floats over the chat (summary.css; .ui-glass-floats takes the
+        // see-through underlay a menu takes, ui/glass/glass.css); the inline column keeps the page's background.
+        className={card.column ? "acpmux-summary-card" : "ui-glass ui-glass-floats acpmux-summary-card"}
         inert={presence.leaving}
         // ui-allow: focusable from script only, the last place closing the Subagents tab can leave focus.
         tabIndex={-1}
