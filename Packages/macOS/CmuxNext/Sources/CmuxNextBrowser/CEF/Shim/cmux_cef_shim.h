@@ -182,6 +182,12 @@ typedef enum {
   // OnDragEnter); s1 = JSON array of the files' absolute paths. The page
   // still gets the drag.
   CMUX_SHIM_PAGE_DRAG_ENTER = 47,
+  // A page opened a file chooser (<input type=file>, a save picker): browser_id;
+  // request = the dialog id for cmux_shim_file_dialog_answer; a = mode (0 open
+  // one file, 1 open several, 2 a folder, 3 save); s1 = accept types one per
+  // line (MIME types and ".ext"); s2 = the default path or file name. Chromium
+  // shows no panel; a closed or crashed browser cancels it.
+  CMUX_SHIM_FILE_DIALOG = 48,
 } cmux_shim_event_kind_t;
 
 typedef enum {
@@ -284,6 +290,13 @@ CMUX_SHIM_EXPORT int cmux_shim_tab_set_transparent_background(int browser_id, in
 // embedder shows with a CALayerHost in the parent view's layer tree; the page
 // window stays as a transparent input target. 0 turns it off. Returns 0 when
 // off, when the fork lacks the call, or when the browser has no page window.
+// 1: file choosers come to the host as CMUX_SHIM_FILE_DIALOG (it must answer
+// each); 0 (the default): Chromium shows its own panel. UI thread.
+CMUX_SHIM_EXPORT void cmux_shim_set_file_dialogs(int enabled);
+// Answers a CMUX_SHIM_FILE_DIALOG: `paths` are absolute paths, one per line
+// (NULL or "" cancels); `multiple` 0 keeps only the first (open one, save).
+// Returns 0 when the id is unknown or already answered. UI thread.
+CMUX_SHIM_EXPORT int cmux_shim_file_dialog_answer(int dialog_id, int multiple, const char* paths);
 CMUX_SHIM_EXPORT unsigned int cmux_shim_browser_set_layer_hosting(int browser_id, int enabled);
 // Fork API 27: how long (ms) a resize of browser_id's page window may hold
 // this app's Core Animation commit for Chromium's frame at the new size; 0

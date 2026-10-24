@@ -10,6 +10,7 @@
 #include "include/cef_app.h"
 #include "include/cef_browser.h"
 #include "include/cef_client.h"
+#include "include/cef_dialog_handler.h"
 #include "include/cef_context_menu_handler.h"
 #include "include/cef_jsdialog_handler.h"
 #include "include/cef_request_context.h"
@@ -135,6 +136,11 @@ void Emit(int kind,
           int64_t b = 0,
           const std::string& s1 = std::string(),
           const std::string& s2 = std::string());
+
+// The file chooser handler (shim_file_dialog.mm); CancelFileDialogs cancels
+// the pending choosers of a browser that closed or crashed (UI thread).
+CefRefPtr<CefDialogHandler> FileDialogHandlerInstance();
+void CancelFileDialogs(int browser_id);
 
 // Live browsers by identifier (UI thread only).
 std::map<int, CefRefPtr<CefBrowser>>& browsers();
