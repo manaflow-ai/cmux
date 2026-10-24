@@ -43,6 +43,8 @@ extension SettingsPageProvider {
         } catch {
             throw PageError(code: "cmux.settings.invalid", message: "\(url.lastPathComponent) cannot be used as a background")
         }
+        // The grid lists the copy beside the person's other images.
+        backdropsChanged?()
         // concurrency-allow: the settings owner writes through its CmuxConfigFile actor, off the main actor
         try await write(descriptor, .string(selection.id), by: .user)
         return selection.id

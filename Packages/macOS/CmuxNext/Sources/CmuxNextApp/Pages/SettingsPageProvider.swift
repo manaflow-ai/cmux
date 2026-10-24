@@ -56,6 +56,8 @@ final class SettingsPageProvider: PageProvider {
     var themeFiles: SettingsThemeFiles?
     /// The backgrounds folder and its image picker (`cmux.settings.backdrop.choose_image`).
     var backdropImages: SettingsBackdropImages?
+    /// Lists the wallpaper grid's folders again (an image was copied into the backgrounds folder).
+    var backdropsChanged: (@MainActor () -> Void)?
     /// Browse more art: the museum search's results for this page.
     var museumArt: MuseumArtSession?
     var workspaceBackgrounds: SettingsWorkspaceBackgrounds?
