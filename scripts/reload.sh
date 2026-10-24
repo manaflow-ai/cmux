@@ -736,7 +736,7 @@ Options:
   --config <debug|release|bench>
                          debug (default) and release as above. bench: the Release
                          configuration (-O, whole module, the shipped flags) plus
-                         -DCMUX_BENCH_HOOKS (no DEBUG), so the debug.* socket commands
+                         -DCMUX_BENCH_HOOKS -DCMUX_BLOCKING_CHECKS (no DEBUG), so the debug.* socket commands
                          the benches and the STRESS builder drive exist in an
                          optimized app. Never for a shipped product:
                          scripts/cmux-next/check-no-bench-hooks.sh refuses such an
@@ -1696,8 +1696,10 @@ if [[ "$BENCH_HOOKS" -eq 1 ]]; then
   # and the counters it reads (`#if DEBUG || CMUX_BENCH_HOOKS`); every other DEBUG-only block (logging,
   # fixtures, debug-only features) stays out. It also marks the binary so it can never ship
   # (check-no-bench-hooks.sh).
-  SWIFT_OTHER_FLAGS+=" -DCMUX_BENCH_HOOKS"
-  echo "==> bench configuration: Release optimization with -DCMUX_BENCH_HOOKS (no DEBUG)"
+  # CMUX_BLOCKING_CHECKS: the main-thread blocking detector records (never traps) so a bench sees the
+  # blocking it hits (`debug.blocking`, plans/cmux-next/threading-model.md), as a Nightly would.
+  SWIFT_OTHER_FLAGS+=" -DCMUX_BENCH_HOOKS -DCMUX_BLOCKING_CHECKS"
+  echo "==> bench configuration: Release optimization with -DCMUX_BENCH_HOOKS -DCMUX_BLOCKING_CHECKS (no DEBUG)"
 fi
 if [[ "$SWIFT_FRONTEND_WORKAROUND" -eq 1 || "${CMUX_SWIFT_FRONTEND_WORKAROUND:-}" == "1" || "${CMUX_SWIFT_DISABLE_GLOBAL_ISEL:-}" == "1" ]]; then
   SWIFT_FRONTEND_WORKAROUND_EFFECTIVE=1

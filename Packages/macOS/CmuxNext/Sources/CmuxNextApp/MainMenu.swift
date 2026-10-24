@@ -1,12 +1,14 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextCompat
+import CmuxNextDesign
 
 /// Builds the menu bar from the action registry (`mainMenu` placements) so
 /// titles and shortcuts match the palette and key router. Edit keeps the
 /// standard responder-chain items so text fields (rename, omnibox) work;
 /// the Help menu is in MainMenu+Placements.swift.
 enum MainMenu {
-    static func make(registry: ActionRegistry) -> NSMenu {
+    static func make(registry: ActionRegistry, blocking: BlockingDetector) -> NSMenu {
         let mainMenu = NSMenu()
         // About (`about`: the standard panel with the build's credits) comes first, as in every Mac app.
         var app: [NSMenuItem] = registry.makeMenuItem(for: "about").map { [$0, .separator()] } ?? []
@@ -53,7 +55,14 @@ enum MainMenu {
         // Debug (DEV and NIGHTLY, `DevTools`): debug-only actions placed there.
         var debug = DevTools.isEnabled ? registry.makeMainMenuItems(for: .debug) : []
         if DevTools.isEnabled { debug += [.separator(), SidebarToggleIconMenu.shared.makeItem(), StatusIconSetMenu.shared.makeItem()] }
-        if !debug.isEmpty { mainMenu.addItem(submenu(Strings.menuDebug, items: debug)) }
+        if !debug.isEmpty {
+            let debugItem = submenu(Strings.menuDebug, items: debug)
+            #if DEBUG
+            // Main-Thread Blocking (N): the call sites the blocking detector saw (threading-model.md).
+            if let debugMenu = debugItem.submenu { BlockingCallsMenu(detector: blocking).attach(to: debugMenu) }
+            #endif
+            mainMenu.addItem(debugItem)
+        }
         // Help, last as on every Mac: macOS adds its search field to `NSApp.helpMenu`.
         let helpMenu = submenu(Strings.menuHelp, items: helpPlacements(registry))
         mainMenu.addItem(helpMenu)
