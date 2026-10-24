@@ -52,25 +52,22 @@ import Testing
     }
 
     @Test func blockedLaneItemsLeaveTheCooperativePoolFree() async throws {
-        let work = BackgroundWork(cpuWidth: 4, label: "test.pool")
+        // More blocked items than the pool has threads, every one at userBlocking, the burst's own QoS (the
+        // pool is per QoS): on the pool they would hold every userInitiated thread and the burst could not run.
+        let blockers = ProcessInfo.processInfo.activeProcessorCount + 2
+        let work = BackgroundWork(cpuWidth: blockers, label: "test.pool")
         let release = DispatchSemaphore(value: 0)
         let started = Started()
-        let levels = WorkPriority.allCases.count
-        // More blocked items than the pool has threads: on the pool they would starve every task below.
-        let blockers = max(2 * levels, ProcessInfo.processInfo.activeProcessorCount + 2 * levels)
-        for index in 0..<blockers {
-            let lane: BlockingLane = (index / levels) % 2 == 0 ? .files : .system
-            work.post(WorkPriority.allCases[index % levels], mayBlock: lane) {
+        for _ in 0..<blockers {
+            work.post(.userBlocking, mayBlock: .cpu) {
                 started.signal()
                 release.wait()
             }
         }
-        // Wait until at least eight lane threads (files: one per priority; system: up to its width) are blocked.
-        await started.wait(2 * levels)
-        // The pool still runs a burst of short tasks (one per core and more) while every lane slot is blocked.
+        // Every blocker holds its thread before the burst starts.
+        await started.wait(blockers)
         let count = ProcessInfo.processInfo.activeProcessorCount * 4
         let done = await withTaskGroup(of: Int.self) { group in
-            // At userBlocking's priority: the pool is per QoS, and userBlocking items are among the blocked ones.
             for index in 0..<count { group.addTask(priority: .high) { index } }
             var finished = 0
             for await _ in group { finished += 1 }
@@ -120,7 +117,8 @@ import Testing
 
     @Test func anEscalatedWaiterMovesItsQueuedItemUp() async throws {
         guard #available(macOS 26.0, *) else { return }
-        let work = BackgroundWork(label: "test.escalate")
+        let queued = Started()
+        let work = BackgroundWork(label: "test.escalate", onQueued: { _, _ in queued.signal() })
         let release = DispatchSemaphore(value: 0)
         let blocked = Started()
         work.post(.bestEffort, mayBlock: .files) {
@@ -132,6 +130,9 @@ import Testing
         let waiter = Task(priority: .utility) {
             try await work.run(.bestEffort, mayBlock: .files) { Seen.here() }
         }
+        // ... (it is queued, at best effort: its run read the waiter's priority before this escalation, so
+        // the boost at the call cannot be what moves it) ...
+        await queued.wait()
         // ... until a user-blocking task waits for it: the escalation moves the item to the
         // user-blocking slot, so it runs while the best-effort slot is still held.
         let seen = try await Task(priority: .high) { try await waiter.value }.value
@@ -157,7 +158,8 @@ import Testing
     }
 
     @Test func aCancelledQueuedItemNeverRuns() async throws {
-        let work = BackgroundWork(label: "test.cancel")
+        let queued = Started()
+        let work = BackgroundWork(label: "test.cancel", onQueued: { _, _ in queued.signal() })
         let release = DispatchSemaphore(value: 0)
         let blocked = Started()
         work.post(.bestEffort, mayBlock: .files) {
@@ -169,6 +171,9 @@ import Testing
         let waiter = Task(priority: .utility) {
             try await work.run(.bestEffort, mayBlock: .files) { ran.withLock { $0 = true } }
         }
+        // Cancel only once the item is queued, so the cancel handler takes it out of the queue (not the
+        // check at the call).
+        await queued.wait()
         waiter.cancel()
         await #expect(throws: CancellationError.self) { try await waiter.value }
         release.signal()

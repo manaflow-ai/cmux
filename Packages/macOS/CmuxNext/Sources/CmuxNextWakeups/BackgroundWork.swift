@@ -15,9 +15,15 @@ import Dispatch
 /// ``post(_:mayBlock:shutdown:_:)``. A caller that awaits work below its own priority boosts it: at the
 /// call the item runs at the higher of its priority and the caller's (`Task.currentPriority`), and on
 /// macOS 26 and later a later escalation of the caller (another task awaits it) boosts the item too
-/// (a pending item moves up; a running one gets a GCD QoS override). Before macOS 26, only the
-/// boost at the call applies. To keep work low, post it, or await it from a task that is itself low
-/// (`Task(priority: WorkPriority.bestEffort.taskPriority)`).
+/// (a pending item moves up; a running one gets a GCD QoS override).
+///
+/// macOS 14 and 15 exception (accepted by the Performance Lead, 2026-10-24): only the boost at the
+/// call applies. Swift has no escalation hook before macOS 26 (`withTaskPriorityEscalationHandler`),
+/// so when a low task awaits an item and a higher task later awaits that low task, the item stays at
+/// its priority, possibly behind other low work. That is a latency inversion, never a main-thread wait
+/// (nothing here waits synchronously). So start work that a person may wait for at that priority;
+/// do not start it low and count on a later waiter to raise it. To keep work low, post it, or await
+/// it from a task that is itself low (`Task(priority: WorkPriority.bestEffort.taskPriority)`).
 ///
 /// One instance per app, built in the composition root (AppServices) and passed through `init`;
 /// tests build their own.
@@ -33,6 +39,7 @@ public final class BackgroundWork: Sendable {
     /// The label prefix of every lane slot's dispatch queue (`<label>.<lane>.<priority or slot>`).
     public let label: String
     private let lanes: [LaneScheduler]
+    private let onQueued: @Sendable (BlockingLane, WorkPriority) -> Void
     // concurrency-allow: id counter and the shutdown count, read and written synchronously by submitters and lane threads (lock carve-out: a counter, no I/O under it).
     private let state = Mutex(DrainState())
 
@@ -47,9 +54,15 @@ public final class BackgroundWork: Sendable {
     /// - Parameters:
     ///   - cpuWidth: how many ``BlockingLane/cpu`` items run at once; default ``defaultCPUWidth``.
     ///   - label: the dispatch queue label prefix, which shows in traces and crash reports.
-    public init(cpuWidth: Int = BackgroundWork.defaultCPUWidth, label: String = "com.cmuxterm.next.work") {
+    ///   - onQueued: called with the lane and the priority each time an item has to wait for a slot (it
+    ///     did not start at once), after it is queued and before it can start; default nothing. Traces
+    ///     count waits with it; tests use it as the point after which a cancel or an escalation meets a
+    ///     queued item, not the checks at the call.
+    public init(cpuWidth: Int = BackgroundWork.defaultCPUWidth, label: String = "com.cmuxterm.next.work",
+                onQueued: @escaping @Sendable (BlockingLane, WorkPriority) -> Void = { _, _ in }) {
         self.cpuWidth = max(1, cpuWidth)
         self.label = label
+        self.onQueued = onQueued
         lanes = BlockingLane.allCases.map { lane in
             switch lane {
             case .files: LaneScheduler(label: "\(label).\(lane)", policy: .perPriority)
@@ -77,6 +90,9 @@ public final class BackgroundWork: Sendable {
 
     /// Runs `body` on `lane` at `priority` (boosted to the caller's priority) and returns its result.
     ///
+    /// A later escalation of the caller boosts the item too on macOS 26 and later only (see the type's
+    /// macOS 14 and 15 exception).
+    ///
     /// - Parameters:
     ///   - priority: how much a person waits for it; the item runs at the higher of this and the caller's.
     ///   - lane: the kind of blocking work `body` does.
@@ -95,24 +111,25 @@ public final class BackgroundWork: Sendable {
         if #available(macOS 26.0, *) {
             defer { scheduler.forget(id) }
             return try await withTaskPriorityEscalationHandler(operation: {
-                try await enqueue(id, on: scheduler, at: start, shutdown: shutdown, body)
+                try await enqueue(id, on: lane, at: start, shutdown: shutdown, body)
             }, onPriorityEscalated: { _, raised in
                 scheduler.boost(id, to: WorkPriority(raised))
             })
         }
-        return try await enqueue(id, on: scheduler, at: start, shutdown: shutdown, body)
+        return try await enqueue(id, on: lane, at: start, shutdown: shutdown, body)
     }
 
-    private func enqueue<T: Sendable>(_ id: UInt64, on scheduler: LaneScheduler, at priority: WorkPriority,
+    private func enqueue<T: Sendable>(_ id: UInt64, on lane: BlockingLane, at priority: WorkPriority,
                                       shutdown: ShutdownBehavior,
                                       _ body: @escaping @Sendable () throws -> T) async throws -> T {
-        try await withTaskCancellationHandler {
+        let scheduler = lanes[lane.rawValue]
+        return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, any Error>) in
                 let job = makeJob(id: id, shutdown: shutdown,
                                   work: { continuation.resume(with: Result { try body() }) },
                                   abandoned: { continuation.resume(throwing: CancellationError()) })
                 // Checked under the lane's lock, so a cancel either finds the item queued or stops it here.
-                if !scheduler.submit(job, at: priority, unless: { Task.isCancelled }) { job.abandon() }
+                submitted(scheduler.submit(job, at: priority, unless: { Task.isCancelled }), job, on: lane)
             }
         } onCancel: {
             scheduler.remove(id)?.abandon()
@@ -130,7 +147,16 @@ public final class BackgroundWork: Sendable {
     public func post(_ priority: WorkPriority, mayBlock lane: BlockingLane,
                      shutdown: ShutdownBehavior = .skipOnShutdown, _ body: @escaping @Sendable () -> Void) {
         let job = makeJob(id: nextID(), shutdown: shutdown, work: body, abandoned: {})
-        if !lanes[lane.rawValue].submit(job, at: priority, unless: { false }) { job.abandon() }
+        submitted(lanes[lane.rawValue].submit(job, at: priority, unless: { false }), job, on: lane)
+    }
+
+    /// Abandons a refused item and reports a queued one.
+    private func submitted(_ result: LaneScheduler.Submitted, _ job: LaneJob, on lane: BlockingLane) {
+        switch result {
+        case .refused: job.abandon()
+        case .started: break
+        case .queued(let priority): onQueued(lane, priority)
+        }
     }
 
     /// Starts shutdown: drops every item that has not started except ``ShutdownBehavior/blockShutdown``

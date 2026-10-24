@@ -54,19 +54,30 @@ final class LaneScheduler: Sendable {
         state = Mutex(State(busy: Array(repeating: false, count: names.count)))
     }
 
-    /// Queues `job` at `priority`. False when `cancelled` holds (read under the lock, so a concurrent
+    /// What ``submit(_:at:unless:)`` did with an item.
+    enum Submitted {
+        /// Not taken: cancelled, or the lane is shut down.
+        case refused
+        /// It started on a free slot at once.
+        case started
+        /// It waits for a slot, at this priority.
+        case queued(WorkPriority)
+    }
+
+    /// Queues `job` at `priority`. Refused when `cancelled` holds (read under the lock, so a concurrent
     /// ``remove(_:)`` either finds the item or makes this refuse it) or the lane is shut down and `job`
     /// may not run any more (only a ``ShutdownBehavior/blockShutdown`` item is still taken).
-    func submit(_ job: LaneJob, at priority: WorkPriority, unless cancelled: () -> Bool) -> Bool {
-        let starts: [Start]? = state.withLock { state in
+    func submit(_ job: LaneJob, at priority: WorkPriority, unless cancelled: () -> Bool) -> Submitted {
+        let taken: (starts: [Start], level: WorkPriority)? = state.withLock { state in
             let early = state.early.removeValue(forKey: job.id)
             if cancelled() || (state.closed && job.shutdown != .blockShutdown) { return nil }
-            state.pending[max(priority, early ?? priority).rawValue].append(job)
-            return pump(&state)
+            let level = max(priority, early ?? priority)
+            state.pending[level.rawValue].append(job)
+            return (pump(&state), level)
         }
-        guard let starts else { return false }
-        launch(starts)
-        return true
+        guard let taken else { return .refused }
+        launch(taken.starts)
+        return taken.starts.contains { $0.job.id == job.id } ? .started : .queued(taken.level)
     }
 
     /// Raises item `id` to `priority` when it runs below it: a pending item moves to that priority's
