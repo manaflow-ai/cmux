@@ -456,6 +456,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/session_files",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/events",
       "params": {
         "$ref": "#/types/EventsParams"
