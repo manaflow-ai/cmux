@@ -2,7 +2,7 @@ import CmuxNextAgentActivity
 import Foundation
 
 /// ``ComputerUseSessionControlling`` over the CUA host socket the helper runs
-/// (`ComputerUseHelperDaemon.configuration`, which carries the host token user
+/// (`ComputerUseSetup.readerConfiguration(_:)`, which carries the host token user
 /// operations need). While no helper runs, the reason comes from the phase
 /// `computer_use.status` reports (``ComputerUseSetup``).
 @MainActor

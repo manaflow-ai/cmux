@@ -212,7 +212,7 @@ enum AgentHandlers {
         let helper = ComputerUseHelperDaemon.shared
         ComputerUseHandlers.bind(
             into: registry,
-            sessions: CuaComputerUseSessions(configuration: { helper.configuration },
+            sessions: CuaComputerUseSessions(configuration: { ComputerUseSetup.readerConfiguration(helper.endpoint) },
                                              phase: { [weak services] in services?.onboarding.computerUseSetup.phase ?? .off }),
             focus: AppComputerUseFocus(services: services))
     }

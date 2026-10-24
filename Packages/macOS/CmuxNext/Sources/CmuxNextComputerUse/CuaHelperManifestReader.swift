@@ -16,12 +16,12 @@ nonisolated private let manifestLogger = Logger(subsystem: "com.cmuxterm.app.nex
 /// helper), is logged once, and is cached like a success. The manifest runs
 /// with its own small environment; this process's environment is never
 /// written (libghostty keeps a slice of `environ`).
+///
+/// ``ComputerUseHelperDaemon`` owns the app's reader (its `manifestReader`
+/// init parameter); a test passes its own with a short timeout and a test clock.
 nonisolated final class CuaHelperManifestReader: Sendable {
     /// `serve --owner-pid <pid>`: the helper exits and removes its socket when that pid exits.
     static let ownerPIDCapability = "serve.owner-pid"
-
-    /// The app's reader. One cache per process.
-    static let shared = CuaHelperManifestReader()
 
     private struct Key: Hashable {
         var path: String

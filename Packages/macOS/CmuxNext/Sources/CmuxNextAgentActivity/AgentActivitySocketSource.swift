@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextComputerUse
 import CmuxNextWakeups
 import Foundation
 import Network

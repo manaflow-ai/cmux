@@ -91,7 +91,7 @@ final class ComputerUseSetup {
     init(inputs: @escaping @MainActor () -> Inputs,
          configuration: @escaping @MainActor () -> AgentActivitySocketSource.Configuration?,
          read: @escaping @Sendable (AgentActivitySocketSource.Configuration) async -> Read = { await ComputerUseSetup.socketRead($0) },
-         resolveHelper: @escaping @Sendable (URL?) async -> URL? = ComputerUseSetup.signedHelper,
+         resolveHelper: @escaping @Sendable (URL?) async -> URL? = ComputerUseHelperDaemon.signedHelper,
          openURL: @escaping @MainActor (URL) -> Void = { NSWorkspace.shared.openInBackground($0) },
          enableSetting: @escaping @MainActor () -> Void = {},
          notifications: NotificationCenter = .default,
@@ -152,7 +152,7 @@ final class ComputerUseSetup {
     /// Opens the Privacy & Security list for `pane` in System Settings; the
     /// read on the app's next activation picks up the change.
     func open(_ pane: ComputerUsePermissionPane) {
-        guard let url = Self.settingsURL(pane) else { return }
+        guard let url = pane.settingsURL else { return }
         openURL(url)
     }
 
@@ -161,14 +161,6 @@ final class ComputerUseSetup {
     func enable() {
         guard phase == .off else { return }
         enableSetting()
-    }
-
-    static func settingsURL(_ pane: ComputerUsePermissionPane) -> URL? {
-        let anchor = switch pane {
-        case .accessibility: "Privacy_Accessibility"
-        case .screenRecording: "Privacy_ScreenCapture"
-        }
-        return URL(string: "x-apple.systempreferences:com.apple.preference.security?\(anchor)")
     }
 
     /// What the onboarding step shows: the grants, or why they are unknown.
@@ -279,13 +271,6 @@ final class ComputerUseSetup {
         ComputerUsePermissions(accessibility: status["accessibility"] as? Bool ?? false,
                                screenRecording: status["screen_recording"] as? Bool ?? false)
     }
-
-    /// The Developer ID signed helper for `running`, else the installed one that would start.
-    @concurrent nonisolated static func signedHelper(_ running: URL?) async -> URL? {
-        CuaHelperIdentity().resolve(running: running,
-                                    installed: CuaHelperIdentity.installedCandidates(isDevBuild: ComputerUseHelperDaemon.isDevBuild))
-            .helperURL
-    }
 }
 
 extension ComputerUseSetup {
@@ -299,7 +284,7 @@ extension ComputerUseSetup {
                        enabled: services?.settings?.snapshot.computerUse.enabled ?? false,
                        helper: helper.state)
             },
-            configuration: { helper.configuration },
+            configuration: { readerConfiguration(helper.endpoint) },
             enableSetting: { [weak services] in
                 guard let settings = services?.settings else { return }
                 let writer = SettingWriter.currentRun()
@@ -312,6 +297,28 @@ extension ComputerUseSetup {
             })
         setup.start()
         return setup
+    }
+
+    /// The socket and both tokens of the running helper (`endpoint`: its
+    /// ``ComputerUseHelperDaemon/endpoint``), as this app's own readers connect
+    /// with them (onboarding, the Agent Activity pane, `computer_use.*`); nil
+    /// unless it runs. The helper is a service and hands out plain values; the
+    /// reader's configuration is built here.
+    static func readerConfiguration(_ endpoint: ComputerUseHelperDaemon.Endpoint?) -> AgentActivitySocketSource.Configuration? {
+        endpoint.map {
+            AgentActivitySocketSource.Configuration(socketPath: $0.socketPath, authToken: $0.agentToken, hostAuthToken: $0.hostToken, machineName: "")
+        }
+    }
+
+    /// What an acpmux daemon this app spawns gets in its spawn environment
+    /// while the helper runs (`endpoint`: the helper's
+    /// ``ComputerUseHelperDaemon/childEndpoint``): the socket and the agent
+    /// token, keyed as the Agent Activity reader reads them, never the host
+    /// token. Empty while off. The keys are read here, on the main actor; the
+    /// returned reader runs on any thread (spawn paths run off the main actor).
+    static func childEnvironment(_ endpoint: @escaping @Sendable () -> ComputerUseHelperDaemon.Endpoint?) -> @Sendable () -> [String: String] {
+        let (socket, token) = (AgentActivitySocketSource.Configuration.socketEnvironmentKey, AgentActivitySocketSource.Configuration.authTokenEnvironmentKey)
+        return { endpoint().map { [socket: $0.socketPath, token: $0.agentToken] } ?? [:] }
     }
 }
 

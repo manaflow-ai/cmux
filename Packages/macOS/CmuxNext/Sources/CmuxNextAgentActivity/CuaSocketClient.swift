@@ -1,3 +1,4 @@
+import CmuxNextComputerUse
 public import Foundation
 
 /// The local CUA host socket: each request writes a line out, reads one reply

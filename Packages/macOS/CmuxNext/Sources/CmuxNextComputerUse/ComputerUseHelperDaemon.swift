@@ -1,5 +1,4 @@
 public import AppKit
-public import CmuxNextAgentActivity
 public import CmuxNextSettings
 import Darwin
 import Foundation
@@ -50,9 +49,10 @@ final class WorkspaceHelperLauncher: ComputerUseHelperLaunching {
 /// its own. It serves `cmux-cua serve --socket <tag-scoped path>` with token
 /// authorization only (agents run under acpmux, not as this app's
 /// children). The acpmux daemon this app spawns gets the socket and the
-/// agent token as CMUX_NEXT_CUA_SOCKET and CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN
-/// in its spawn environment (`childEnvironment`); the host token stays in
-/// this app. This process's own environment is never written: libghostty
+/// agent token in its spawn environment (`childEndpoint`; the App names the
+/// variables, CMUX_NEXT_CUA_SOCKET and CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN, as
+/// the Agent Activity reader does); the host token stays in this app
+/// (`endpoint`). This process's own environment is never written: libghostty
 /// keeps a slice of `environ` from launch, so a setenv or unsetenv after
 /// launch left it reading a NULL or freed entry (SIGSEGV in
 /// ghostty_config_finalize). Off (the default, or DisabledFeatures) nothing
@@ -68,6 +68,20 @@ public final class ComputerUseHelperDaemon {
         case running(pid_t)
     }
 
+    /// Where the running helper listens and the tokens it accepts, as plain
+    /// values: whoever connects (the App's Agent Activity reader, an acpmux
+    /// child) builds its own configuration or environment from them, so this
+    /// service names no reader.
+    public nonisolated struct Endpoint: Sendable, Equatable {
+        /// The helper's Unix socket (`defaultSocketPath`).
+        public let socketPath: String
+        /// The token agents present (acpmux's children get it).
+        public let agentToken: String
+        /// The token this app's own readers present; nil in
+        /// ``ComputerUseHelperDaemon/childEndpoint``, so it never leaves this app.
+        public let hostToken: String?
+    }
+
     /// The app's helper. One per process.
     public static let shared = ComputerUseHelperDaemon()
 
@@ -79,7 +93,8 @@ public final class ComputerUseHelperDaemon {
     @ObservationIgnored private let launcher: any ComputerUseHelperLaunching
     @ObservationIgnored private let manifestReader: CuaHelperManifestReader
     @ObservationIgnored private let ownerPID: pid_t
-    @ObservationIgnored private let published = Mutex<[String: String]>([:])
+    // Lock carve-out: a synchronous read from off-main spawn paths; only this daemon writes it.
+    @ObservationIgnored private let published = Mutex<Endpoint?>(nil)
     @ObservationIgnored private var agentToken: String?
     @ObservationIgnored private var hostToken: String?
     @ObservationIgnored private var generation = 0
@@ -90,7 +105,7 @@ public final class ComputerUseHelperDaemon {
     init(identity: CuaHelperIdentity = CuaHelperIdentity(),
          candidates: @escaping @Sendable () -> [URL] = { CuaHelperIdentity.installedCandidates(isDevBuild: ComputerUseHelperDaemon.isDevBuild) },
          launcher: any ComputerUseHelperLaunching = WorkspaceHelperLauncher(),
-         manifestReader: CuaHelperManifestReader = .shared,
+         manifestReader: CuaHelperManifestReader = CuaHelperManifestReader(),
          ownerPID: pid_t = getpid(),
          socketPath: String = ComputerUseHelperDaemon.defaultSocketPath(),
          stateDirectory: URL = ComputerUseHelperDaemon.defaultStateDirectory(),
@@ -107,24 +122,18 @@ public final class ComputerUseHelperDaemon {
 
     /// What a child this app spawns for agents (acpmux) gets in its spawn
     /// environment while the helper runs: the socket and the agent token,
-    /// never the host token. Empty while off. Any thread may read it
-    /// (spawn paths run off the main actor); only this daemon writes it.
-    public nonisolated var childEnvironment: [String: String] {
+    /// never the host token (`hostToken` is nil). Nil while off. Any thread
+    /// may read it (spawn paths run off the main actor); only this daemon
+    /// writes it.
+    public nonisolated var childEndpoint: Endpoint? {
         published.withLock { $0 }
     }
 
-    /// The socket and the agent token, keyed as a child reads them.
-    static func childEnvironment(socketPath: String, agentToken: String) -> [String: String] {
-        [AgentActivitySocketSource.Configuration.socketEnvironmentKey: socketPath,
-         AgentActivitySocketSource.Configuration.authTokenEnvironmentKey: agentToken]
-    }
-
     /// The socket and both tokens for this app's own readers (onboarding,
-    /// the Agent Activity pane) while the helper runs.
-    public var configuration: AgentActivitySocketSource.Configuration? {
-        guard case .running = state else { return nil }
-        return AgentActivitySocketSource.Configuration(socketPath: socketPath, authToken: agentToken,
-                                                       hostAuthToken: hostToken, machineName: "")
+    /// the Agent Activity pane) while the helper runs; nil otherwise.
+    public var endpoint: Endpoint? {
+        guard case .running = state, let agentToken else { return nil }
+        return Endpoint(socketPath: socketPath, agentToken: agentToken, hostToken: hostToken)
     }
 
     /// Follows `computerUse.enabled`, `computerUse.driver` (and
@@ -200,7 +209,7 @@ public final class ComputerUseHelperDaemon {
         hostToken = host
         state = .running(pid)
         helperLogger.notice("cmux Computer Use helper started from \(helper.path, privacy: .public)")
-        let exported = Self.childEnvironment(socketPath: socketPath, agentToken: agent)
+        let exported = Endpoint(socketPath: socketPath, agentToken: agent, hostToken: nil)
         published.withLock { $0 = exported }
     }
 
@@ -210,7 +219,7 @@ public final class ComputerUseHelperDaemon {
         state = .off
         agentToken = nil
         hostToken = nil
-        published.withLock { $0 = [:] }
+        published.withLock { $0 = nil }
     }
 
     /// App quit: no further starts, and the helper stops.
@@ -250,6 +259,14 @@ public final class ComputerUseHelperDaemon {
     @concurrent nonisolated static func resolve(_ identity: CuaHelperIdentity,
                                                 _ candidates: @Sendable () -> [URL]) async -> CuaHelperIdentity.Resolution {
         identity.resolve(running: nil, installed: candidates())
+    }
+
+    /// The Developer ID signed helper for `running` (the app of the process
+    /// that answered), else the installed one that would start; nil when this
+    /// build has none. Computer Use Setup names it.
+    @concurrent public nonisolated static func signedHelper(_ running: URL?) async -> URL? {
+        CuaHelperIdentity().resolve(running: running, installed: CuaHelperIdentity.installedCandidates(isDevBuild: isDevBuild))
+            .helperURL
     }
 
     public nonisolated static var isDevBuild: Bool {

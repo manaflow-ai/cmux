@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Shell side of "which cmux Computer Use helper may this build use"
-# (Swift side: Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/CuaHelperIdentity.swift).
+# (Swift side: Packages/macOS/CmuxNext/Sources/CmuxNextComputerUse/CuaHelperIdentity.swift).
 #
 # Source it, or run it:
 #   scripts/cmux-cua-helper-trust.sh check <helper.app>        exit 0 only for a Developer ID helper

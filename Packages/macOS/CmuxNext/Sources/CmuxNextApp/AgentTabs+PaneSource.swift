@@ -52,7 +52,7 @@ import Foundation
         computerUse.upstream.acpmux = { resolve().map { ($0.executable, $0.socketPath) } }
         let upstream = computerUse.upstream
         let host = AcpmuxHost(resolve: resolve,
-                              computerUse: { computerUse.childEnvironment },
+                              computerUse: ComputerUseSetup.childEnvironment { computerUse.childEndpoint },
                               daemonReady: { socket in await upstream.registerAcpmuxDaemon(acpmuxSocket: socket) })
         return (source, host)
     }

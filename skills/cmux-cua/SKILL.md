@@ -61,7 +61,7 @@ or permissions are not a reason to begin setup automatically.
 - The proxy forwards to the **cmux Computer Use** helper (`com.cmuxterm.cua`)
   over its Unix socket. Only a helper signed
   with the cmux Developer ID (team `7WLXT3NR37`) is used
-  (`Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/CuaHelperIdentity.swift`,
+  (`Packages/macOS/CmuxNext/Sources/CmuxNextComputerUse/CuaHelperIdentity.swift`,
   `scripts/cmux-cua-helper-trust.sh`). A release, NIGHTLY or RC cmux carries
   it. With the legacy driver a tagged dev build has no helper of its own
   (`reload.sh` removes an ad-hoc one), so dev builds use the helper of an

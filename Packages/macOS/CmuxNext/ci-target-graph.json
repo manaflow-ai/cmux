@@ -72,6 +72,7 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity",
       "targets": [
         "CmuxNextCompat",
+        "CmuxNextComputerUse",
         "CmuxNextDesign",
         "CmuxNextIcons",
         "CmuxNextWakeups"
@@ -352,6 +353,7 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests",
       "targets": [
         "CmuxNextActions",
+        "CmuxNextAgentActivity",
         "CmuxNextAgentCursor",
         "CmuxNextAgentLanes",
         "CmuxNextAgentUpdates",
@@ -390,6 +392,7 @@
         "CmuxNextLayout",
         "CmuxNextMacScreen",
         "CmuxNextNowPlaying",
+        "CmuxNextOnboarding",
         "CmuxNextPalette",
         "CmuxNextProcessEnvironment",
         "CmuxNextRemote",
@@ -736,7 +739,6 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextComputerUse",
       "targets": [
-        "CmuxNextAgentActivity",
         "CmuxNextCompat",
         "CmuxNextSettings",
         "CmuxNextWakeups"
