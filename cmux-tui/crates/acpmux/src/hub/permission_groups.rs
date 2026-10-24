@@ -19,6 +19,10 @@ const MAX_GROUPS: usize = 64;
 #[derive(Debug, Default)]
 pub(super) struct PermissionState {
     pub pending: HashMap<String, PendingPermission>,
+    /// Request ids withdrawn while their spawned handler is still on the way
+    /// to the permission lock. No cap: ids are process-scoped and are cleared
+    /// when the child exits.
+    pub withdrawn: std::collections::HashSet<String>,
     groups: VecDeque<Group>,
     pub chat_allowed: bool,
 }

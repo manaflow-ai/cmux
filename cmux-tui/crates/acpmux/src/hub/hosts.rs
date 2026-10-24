@@ -36,7 +36,10 @@ pub(super) struct OpenWork {
     requests: Vec<(Value, String, Option<Value>, Option<u64>)>,
     /// `permission_request` records by agent request id: (permissionId,
     /// request, logged decision when there is one).
-    permissions: HashMap<String, (String, Value, Option<Value>)>,
+    pub(super) permissions: HashMap<String, (String, Value, Option<Value>)>,
+    /// Agent request ids withdrawn before their permission request was
+    /// recorded. These are scoped to the adopted host incarnation.
+    pub(super) withdrawn: std::collections::HashSet<String>,
     /// Largest `hostSeq` logged under this incarnation. Every entry kind is
     /// logged in entry order before its ack, so this is the logged prefix.
     last_host_seq: u64,
@@ -463,6 +466,7 @@ impl Hub {
                     answered.clear();
                     asked.clear();
                     by_permission.clear();
+                    work.withdrawn.clear();
                     work.prompt_request = None;
                     work.prompt_response = None;
                     work.steers.clear();
@@ -503,8 +507,25 @@ impl Hub {
                         e.msg.get("agentRequestId").filter(|v| !v.is_null()),
                     ) {
                         let request = e.msg.get("request").cloned().unwrap_or(Value::Null);
-                        asked.insert(aid.to_string(), (pid.to_owned(), request, None));
+                        let decided = work
+                            .withdrawn
+                            .remove(&aid.to_string())
+                            .then(|| json!({"outcome": "cancelled"}));
+                        asked.insert(aid.to_string(), (pid.to_owned(), request, decided));
                         by_permission.insert(pid.to_owned(), aid.to_string());
+                    }
+                }
+                ("mux", "permission_withdrawn") if current => {
+                    if let Some(aid) = e.msg.get("agentRequestId") {
+                        if let Some(entry) = asked.get_mut(&aid.to_string()) {
+                            // A decision already logged won the race before
+                            // the withdrawal reached the hub.
+                            if entry.2.is_none() {
+                                entry.2 = Some(json!({"outcome": "cancelled"}));
+                            }
+                        } else {
+                            work.withdrawn.insert(aid.to_string());
+                        }
                     }
                 }
                 ("mux", "permission_decision") if current => {
@@ -690,6 +711,13 @@ impl Hub {
             .collect();
         for ((id, m, params, _), ask) in work.requests.into_iter().zip(asks) {
             if m == method::SESSION_REQUEST_PERMISSION
+                && work.withdrawn.contains(&id.to_string())
+            {
+                let cancelled = json!({"outcome": {"outcome": "cancelled"}});
+                let _ = child.respond(id, Ok(cancelled)).await;
+                continue;
+            }
+            if m == method::SESSION_REQUEST_PERMISSION
                 && let Some((permission_id, request, decided)) =
                     work.permissions.get(&id.to_string()).cloned()
             {
@@ -742,6 +770,7 @@ impl Hub {
                 decision_nonce: decision_nonce.clone(),
                 // Settled by the task below, from a turn or none (`status_after_ask`).
                 prev_status: SessionStatus::Waiting,
+                agent_request: Some(agent_request_id.clone()),
             },
         );
         // The prompt's new nonce under this daemon run, for a relayed allow

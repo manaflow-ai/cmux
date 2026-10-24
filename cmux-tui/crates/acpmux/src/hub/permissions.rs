@@ -13,12 +13,33 @@ impl Hub {
     ) {
         while let Some(item) = rx.recv().await {
             match item {
-                Inbound::Notification { method: m, params } => {
+                Inbound::Notification { method: m, params, host_seq } => {
                     if m == method::SESSION_UPDATE {
                         self.on_update(&session, params.as_ref());
+                    } else if m == method::CANCEL_REQUEST
+                        && let Some(id) = params.as_ref().and_then(|p| p.get("requestId"))
+                    {
+                        // Requests are spawned so a prompt can wait without
+                        // blocking the wire reader. Wait for every ask that
+                        // was read before this notification to register; the
+                        // cancellation then cannot race its insertion.
+                        let hub = self.clone();
+                        let session = session.clone();
+                        let id = id.clone();
+                        tokio::spawn(async move {
+                            wait_for_permission_asks(&session).await;
+                            hub.append_with_host_seq(
+                                &session,
+                                "mux",
+                                "permission_withdrawn",
+                                json!({"agentRequestId": id}),
+                                host_seq,
+                            );
+                            hub.withdraw_permission(&session, &id);
+                        });
                     }
                 }
-                Inbound::Request { id, method: m, params } => {
+                Inbound::Request { id, method: m, params, host_seq: _ } => {
                     let hub = self.clone();
                     let s = session.clone();
                     let epoch = session.permission_epoch.load(Ordering::SeqCst);
@@ -432,6 +453,11 @@ impl Hub {
             {
                 return json!({"outcome":{"outcome":"cancelled"}});
             }
+            if let Some(agent_request_id) = agent_request_id
+                && state.withdrawn.remove(&agent_request_id.to_string())
+            {
+                return json!({"outcome":{"outcome":"cancelled"}});
+            }
             // The remote floor (`remote_floor.rs`): a Web turn whose mode left
             // the asking table is cancelled, and nothing in it approves itself.
             let web_turn = Self::web_turn(session);
@@ -562,6 +588,7 @@ impl Hub {
                     reply: tx,
                     decision_nonce: decision_nonce.clone(),
                     prev_status: prev,
+                    agent_request: agent_request_id.cloned(),
                 },
             );
             self.append(session,"mux","permission_request",json!({"permissionId":permission_id,"decisionNonce":decision_nonce,"personInstance":self.person.instance(),"request":request,"groupId":grouping.as_ref().map(|(id,_)|id),"turnId":turn_id,"agentRequestId":agent_request_id,"remoteFloor":floored}));
@@ -780,10 +807,36 @@ impl Hub {
         Ok(())
     }
 
+    /// Withdraw the pending prompt raised by one agent request. The caller
+    /// has already waited for all earlier asks to land. A request whose task
+    /// has not reached the lock yet is retained in the process-scoped set.
+    pub(super) fn withdraw_permission(&self, session: &Session, agent_request: &Value) {
+        let withdrawn = {
+            let mut state = session.permissions.lock().unwrap();
+            let id = state
+                .pending
+                .iter()
+                .find(|(_, p)| p.agent_request.as_ref() == Some(agent_request))
+                .map(|(id, _)| id.clone());
+            let Some(id) = id else {
+                state.withdrawn.insert(agent_request.to_string());
+                return;
+            };
+            if let Some(group) = state.finish_item(&session.id, &id, true) {
+                self.append(session, "mux", "permission_group", json!({"group": group}));
+            }
+            state.pending.remove(&id)
+        };
+        if let Some(p) = withdrawn {
+            let _ = p.reply.send(json!({"outcome": "cancelled"}));
+        }
+    }
+
     pub(super) fn cancel_pending_permissions(&self, session: &Session) {
         let drained: Vec<_> = {
             let mut state = session.permissions.lock().unwrap();
             session.permission_epoch.fetch_add(1, Ordering::SeqCst);
+            state.withdrawn.clear();
             let drained: Vec<_> = state.pending.drain().collect();
             for (id, _) in &drained {
                 if let Some(group) = state.finish_item(&session.id, id, true) {
@@ -797,6 +850,21 @@ impl Hub {
         }
         // A secret card waits on the same turn (`secrets.rs`).
         self.cancel_pending_secrets(session);
+    }
+}
+
+/// Wait until every permission request read before a cancellation has reached
+/// its registration lock. Requests read later cannot be spawned until this
+/// notification handler returns, so they do not enter this wait.
+async fn wait_for_permission_asks(session: &Session) {
+    loop {
+        let landed = session.asks_landed.notified();
+        tokio::pin!(landed);
+        landed.as_mut().enable();
+        if session.asks_in_flight.load(Ordering::SeqCst) == 0 {
+            return;
+        }
+        landed.await;
     }
 }
 
