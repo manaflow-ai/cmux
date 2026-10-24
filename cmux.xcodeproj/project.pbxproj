@@ -312,6 +312,7 @@
 				"$(SRCROOT)/cmux-tui/crates/cmux-git",
 				"$(EXPANDED_CODE_SIGN_IDENTITY)",
 				"$(CODE_SIGNING_ALLOWED)",
+				"$(ARCHS)",
 			);
 			name = "Build Diff Sidecar";
 			outputFileListPaths = (
@@ -372,6 +373,7 @@
 				"$(CMUX_TUI_TREE_KEY)",
 				"$(CMUX_TUI_CLIENT_CACHE)",
 				"$(CONFIGURATION)",
+				"$(NATIVE_ARCH_ACTUAL)",
 			);
 			name = "Bundle cmux-tui";
 			outputFileListPaths = (
@@ -536,6 +538,8 @@
 				"$(CMUX_TIMESTAMP)",
 				"$(CMUX_STRIP_TOOL)",
 				"$(CMUX_UBLOCK_CACHE)",
+				"$(CMUX_CEF_CACHE_DIR)",
+				"$(CMUX_CEF_FLEET_CACHE_PARENT)",
 			);
 			name = "Embed CEF";
 			outputFileListPaths = (
