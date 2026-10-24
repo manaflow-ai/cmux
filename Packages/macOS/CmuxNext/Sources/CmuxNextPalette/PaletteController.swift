@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDesign
 
 /// Which page the palette opens on.
@@ -298,7 +299,7 @@ public final class PaletteController {
         contentView?.animateIn()
         if let onPresented {
             let presented = ContinuousClock.now
-            CATransaction.setCompletionBlock {
+            CATransaction.setMainCompletion {
                 let committed = ContinuousClock.now
                 onPresented(PaletteOpenTiming(
                     input: input, model: started.duration(to: modelDone), panel: modelDone.duration(to: panelDone),

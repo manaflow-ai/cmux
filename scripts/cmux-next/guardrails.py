@@ -747,6 +747,29 @@ def app_size(changes: list[FileChange], moved: collections.Counter) -> list[Adde
     return hits
 
 
+# A main-thread callback written by hand: a block or observer on a run loop, or a Core Animation completion.
+# The CmuxNextCompat adapters (MainRunLoopBlock, MainRunLoopObserver, CATransaction.setMainCompletion) are the one
+# path for these callbacks: they prove main once and take a plain `@MainActor` closure. A hand-written site is a
+# second path, whether or not its body needs the main actor today (a block that only resumes a continuation
+# gains its own `assumeIsolated` the first time it touches main-actor state).
+# Known gap: the match is textual, so an alias (`let loop = RunLoop.main; loop.perform { }`) or
+# `RunLoop.current.perform` on the main thread passes. Review catches those; the ratchet stops the common forms.
+# The APIs match whatever run loop they get: `let main = CFRunLoopGetMain()` then `CFRunLoopPerformBlock(main, ...)`
+# is the same debt. `RunLoop.main.perform` counts with a closure (trailing or `inModes:`), not in its
+# `#selector` form, which runs an Objective-C method and needs no assumeIsolated.
+RAW_MAIN_CALLBACK = re.compile(r"\bCFRunLoopPerformBlock\(|\bCFRunLoopObserverCreate(WithHandler)?\("
+                               r"|\bCATransaction\.setCompletionBlock\b|\bRunLoop\.main\.perform\b(?!\s*\(\s*#selector)")
+RAW_MAIN_CALLBACK_ALLOW = re.compile(r"//\s*callback-seam-allow:\s*\S")
+# The adapters themselves, by path: any other CmuxNextCompat file is read like the rest of Sources.
+CALLBACK_SEAMS = frozenset(f"{SOURCES}CmuxNextCompat/{name}" for name in (
+    "MainRunLoopBlock.swift", "MainRunLoopObserver.swift", "CATransaction+MainCompletion.swift"))
+
+
+def outside_callback_seams(version: Version, index: int) -> tuple[bool, list[int]]:
+    """A raw main-thread callback is debt everywhere but in the three CmuxNextCompat adapters."""
+    return version.path not in CALLBACK_SEAMS, []
+
+
 # A generic class whose deinit is implicit. In a main-actor target (the default of every UI and test
 # target, `.defaultIsolation(MainActor.self)`) that deinit is isolated, and swift-frontend 6.3.3 (Xcode 26.6)
 # crashes on it in -O: signal 11 in EarlyPerfInliner, isCallerAndCalleeLayoutConstraintsCompatible, on the
@@ -846,6 +869,17 @@ RULES = (
          "// generic-class-allow: <why this class is not main-actor isolated, e.g. its target's default isolation>",
          matcher_rule(Matcher(GENERIC_CLASS, GENERIC_CLASS_ALLOW, implicit_deinit)),
          scope=(SOURCES, TESTS)),
+    Rule("raw-main-callback", "A hand-written main run loop or Core Animation callback",
+         "the CmuxNextCompat adapters are the one main-thread path for run loop and Core Animation callbacks; a "
+         "hand-written one is a second path that proves main on its own, with an `assumeIsolated` now or later "
+         "(290 assumeIsolated in 2026-10; the target is 0 outside small callback adapters, perf-lead.md "
+         "Architecture targets)",
+         "CmuxNextCompat's adapters take a plain `@MainActor` closure: `MainRunLoopBlock.perform { }`, "
+         "`MainRunLoopObserver(activities:order:) { }` (keep the token; released, it stops), "
+         "`MainRunLoopObserver.once(activities:order:) { }` (one call, no token), "
+         "`CATransaction.setMainCompletion { }`",
+         "// callback-seam-allow: <why no adapter fits (a run loop other than main's, a mode list)>",
+         matcher_rule(Matcher(RAW_MAIN_CALLBACK, RAW_MAIN_CALLBACK_ALLOW, outside_callback_seams))),
     Rule("bench-hooks-shipped", "The bench configuration in a shipped build's settings",
          "CMUX_BENCH_HOOKS (reload.sh --config bench) keeps the debug.* control commands in an optimized app for "
          "the fleet benches; in a release, nightly or RC build's settings it would ship them to users",

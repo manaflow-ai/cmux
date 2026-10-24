@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// Requests one main-actor callback per display frame. The App passes its
@@ -24,7 +25,7 @@ public struct MainQueueFrameSource: ControlFrameSource {
     public init() {}
 
     public func scheduleFrame(_ work: @escaping @MainActor @Sendable () -> Void) {
-        MainRunLoopHop().perform(work)
+        MainRunLoopBlock.perform(work)
     }
 }
 
@@ -34,15 +35,15 @@ public struct MainQueueFrameSource: ControlFrameSource {
 /// main-queue callout; GCD does not drain the main queue (nor main-actor
 /// jobs) again there, but the run loop still runs these blocks. So control
 /// requests and frame batches keep moving while a menu is open.
+///
+/// A forward to CmuxNextCompat's `MainRunLoopBlock`, which holds the one
+/// main-thread proof; new code calls `MainRunLoopBlock.perform` directly.
+/// It stays only for `FrameBatcher` (CmuxNextDaemonService), whose change is
+/// routed to its owner; delete it with that last caller.
 public struct MainRunLoopHop: Sendable {
     public init() {}
 
     public func perform(_ work: @escaping @MainActor @Sendable () -> Void) {
-        let main = CFRunLoopGetMain()
-        CFRunLoopPerformBlock(main, CFRunLoopMode.commonModes.rawValue) {
-            // main-proof: a CFRunLoopGetMain() block runs on the main thread
-            MainActor.assumeIsolated { work() }
-        }
-        CFRunLoopWakeUp(main)
+        MainRunLoopBlock.perform(work)
     }
 }
