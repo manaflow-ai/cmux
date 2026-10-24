@@ -557,6 +557,9 @@ impl Hub {
                 self.save_meta(session);
             }
         }
+        // What the turn added to Claude's transcript is the chat's too, past
+        // Claude's retention (claude_keep.rs), however the turn ended.
+        self.keep_claude_transcript(session);
         // Quit Everything already recorded this turn as cancelled.
         if self.settled_by_shutdown.lock().unwrap().contains(turn_id) {
             return result;
