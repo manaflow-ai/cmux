@@ -1,4 +1,4 @@
-import CmuxNextSignposts
+@testable import CmuxNextSignposts
 import CoreFoundation
 import Foundation
 import QuartzCore
@@ -153,6 +153,25 @@ struct SignpostsTests {
         // pool pop at INT_MAX.
         #expect(audit.late.map(\.order) == [2_100_000, 2_200_000], "\(audit.late)")
         #expect(audit.late.allSatisfy { String(describing: $0).contains("valid = Yes") }, "a late observer prints its full dump text")
+    }
+
+    /// The main run loop's observers at the boundary's order, once per mode the dump lists them in.
+    private func boundaryObserverEntries() -> Int {
+        let dump = CFCopyDescription(CFRunLoopGetMain()) as String
+        return dump.components(separatedBy: "order = \(CommitBoundary.order),").count - 1
+    }
+
+    /// `key.frame` runs on every key-down in Release: typing a burst of keys in one turn (a paste of key events, key
+    /// repeat behind a slow frame) adds no run-loop observer per key; the one installed at the first key ends them all.
+    @Test("Key-frame intervals add one run-loop observer for any number of keys")
+    func keyFramesShareOneObserver() throws {
+        try #require(Signposter.key.isEnabled, "the key category is off in this process's logging profile")
+        let keyFrames = KeyFrameSignpost()
+        keyFrames.begin(target: .view, eventTimestamp: 0)
+        let afterFirstKey = boundaryObserverEntries()
+        for _ in 0..<50 { keyFrames.begin(target: .terminal, eventTimestamp: 0) }
+        #expect(boundaryObserverEntries() == afterFirstKey, "each key added its own run-loop observer")
+        pollingTurn()
     }
 
     @Test("An interval runs its body and returns its value, with a text or an action message")
