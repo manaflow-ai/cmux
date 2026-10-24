@@ -101,7 +101,7 @@ external tester can install it. Subsequent external builds of the same version
 ship without re-review. External cuts reuse
 `CMUX_IOS_BETA_MARKETING_VERSION` from `ios/Config/Shared.xcconfig`; bump it
 only when you want a fresh Beta App Review cycle. The upload path assigns the
-processed build to both the Founder's Edition and Pro external beta groups. It
+processed build to both the existing external beta groups. It
 uses `CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID` /
 `CMUX_TESTFLIGHT_EXTERNAL_GROUP_NAME` for the primary group and
 `CMUX_TESTFLIGHT_PRO_GROUP_ID` for Pro. GitHub Actions maps the repository
@@ -125,8 +125,8 @@ entitlements omit `aps-environment=production`. That upload is intentionally
 blocked because TestFlight push would silently fail. Scheduled `main` uploads
 ship only to the internal TestFlight group. A manual run with
 `marketing_version_override` switches to the external beta bundle, installs its
-provisioning profile, and assigns the processed build to both the Founder's
-Edition and Pro groups. That external override reuses an already approved
+provisioning profile, and assigns the processed build to the configured external
+beta and Pro groups. That external override reuses an already approved
 marketing version and auto-submits the first build when Apple reports that Beta
 App Review is required.
 

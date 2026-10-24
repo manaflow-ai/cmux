@@ -1111,7 +1111,7 @@ jobs:
             echo "- signing: manual (CI-imported iOS distribution cert + beta profile)"
             if [ -n "${INPUT_MARKETING_VERSION_OVERRIDE:-}" ]; then
               echo "- marketing version override: \`${INPUT_MARKETING_VERSION_OVERRIDE}\`"
-              echo "- external groups: Founder's Edition and cmux Pro"
+              echo "- external groups: existing beta audiences and cmux Pro"
             else
               echo "- marketing version: checked-in beta marketing version"
             fi
@@ -1221,7 +1221,7 @@ jobs:
         run: python3 ios/scripts/apply-deferred-testflight-notes.py "${{ runner.temp }}/testflight-notes/testflight-notes.json"
 
   # Normal and demo runs assign their internal group after upload. A manual
-  # external marketing-version override assigns Founder's Edition and Pro
+  # external marketing-version override assigns the existing beta audiences and Pro
   # inline in cloud-testflight.sh, so it must skip this internal-app lookup.
   assign-internal-group:
     # Production secrets: GitHub releases them only to protected refs (the

@@ -148,14 +148,14 @@ final class NewMachineModel {
     /// The plan that sells the ladder's 64 GB row and the larger pool
     /// (`MEMORY_UPGRADE_PLAN_ID` on the server).
     nonisolated static let maxPlanId = "max"
-    /// The largest machine Pro, Team, and Founder's Edition may start
+    /// The largest machine Pro and Team may start
     /// (16 GB / 8 vCPU, the `lg` row).
     nonisolated static let standardPlanMaxMemoryMb = 16384
     /// The largest machine a free or unknown plan may start, where an operator
     /// opens free provisioning (`PLAN_MAX_MEMORY_MB` on the server).
     nonisolated static let freePlanMaxMemoryMb = 8192
     /// Mirrors `maxMemoryMbForPlan` without its env overrides: Max gets the
-    /// whole ladder (64 GB), Pro, Team, and Founder's Edition stop at 16 GB,
+    /// whole ladder (64 GB), Pro and Team stop at 16 GB,
     /// Go at 4 GB, and a free or unknown plan at 8 GB.
     /// The server's `limits.lockedMemoryOptionsMb` wins whenever it is sent;
     /// this mirror only covers a control plane that predates that field.
