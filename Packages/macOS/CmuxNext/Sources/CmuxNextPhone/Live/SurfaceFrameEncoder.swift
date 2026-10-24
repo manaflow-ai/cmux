@@ -43,6 +43,7 @@ final class SurfaceFrameEncoder {
               let transfer else { return nil }
         VTSessionSetProperty(transfer, key: kVTPixelTransferPropertyKey_ScalingMode, value: kVTScalingMode_Normal)
         self.transfer = transfer
+        teardown.transfer = transfer
         let attributes: [CFString: Any] = [
             kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
             kCVPixelBufferWidthKey: width, kCVPixelBufferHeightKey: height,
@@ -63,6 +64,7 @@ final class SurfaceFrameEncoder {
         }
         guard let created else { return nil }
         session = created
+        teardown.session = created
         let properties: [(CFString, CFTypeRef)] = [
             (kVTCompressionPropertyKey_RealTime, kCFBooleanTrue),
             (kVTCompressionPropertyKey_AllowFrameReordering, kCFBooleanFalse),
@@ -82,11 +84,21 @@ final class SurfaceFrameEncoder {
         VTCompressionSessionCompleteFrames(session, untilPresentationTimeStamp: .invalid)
     }
 
-    // The sessions are CF objects owned only by this encoder; tearing them down needs no actor.
-    nonisolated deinit {
-        VTCompressionSessionCompleteFrames(session, untilPresentationTimeStamp: .invalid)
-        VTCompressionSessionInvalidate(session)
-        VTPixelTransferSessionInvalidate(transfer)
+    /// Completes pending frames and invalidates the sessions when the encoder goes: a pending
+    /// encode is answered (an access unit or a skip) before its session ends.
+    private let teardown = Teardown()
+
+    private final class Teardown {
+        var session: VTCompressionSession?
+        var transfer: VTPixelTransferSession?
+
+        deinit {
+            if let session {
+                VTCompressionSessionCompleteFrames(session, untilPresentationTimeStamp: .invalid)
+                VTCompressionSessionInvalidate(session)
+            }
+            if let transfer { VTPixelTransferSessionInvalidate(transfer) }
+        }
     }
 
     /// The media engine's target (it follows the path's congestion feedback).
