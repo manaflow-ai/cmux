@@ -186,7 +186,8 @@ final class WindowManager {
         let store = services.daemon.store
         // A launch whose daemon does not answer restores nothing: the panes' last frames go then rather
         // than stay for the session (`LaunchFiles`; a later connect shows each pane's live content).
-        if let launchFiles = services.environment.launchFiles, !restored {
+        if !restored {
+            let launchFiles = services.launchFiles
             let daemon = services.daemon
             unavailableObservation?.cancel()
             // task-owner: one observation per launch; it ends at the first unavailable startup or the restore (cancelled there)
@@ -283,8 +284,8 @@ final class WindowManager {
     private func releaseLaunchFramesWhenShown() {
         guard restoredAwaitingContent?.isEmpty == true else { return }
         restoredAwaitingContent = nil
-        let launchFiles = services.environment.launchFiles
-        services.presentation.whenIdle { launchFiles?.release() }
+        let launchFiles = services.launchFiles
+        services.presentation.whenIdle { launchFiles.release() }
     }
 
     /// The launch window takes the frontmost saved window's identity and

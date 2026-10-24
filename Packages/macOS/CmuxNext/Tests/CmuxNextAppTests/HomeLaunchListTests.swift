@@ -179,25 +179,33 @@ import UniformTypeIdentifiers
     }
 
     /// #17587: the launch reads the list's file off the main thread from the top of `main`
-    /// (`LaunchFiles.homeList`) before the account is known; the Home list then adopts it for its
-    /// account and reads no file. Its first frame is the same list, and another account's read
-    /// is never shown.
+    /// (`LaunchFiles.home`, `HomeLaunchReads`) before the account is known; the Home list then adopts
+    /// it for its account (`HomeLaunchReads.lastList`, the one path `HomeService.primeHomeList` takes)
+    /// and reads no file. Its first frame is the same list, and another account's read is never shown.
     @Test func aListReadOffTheMainThreadIsTheSameFirstFrame() async throws {
-        let cache = try Self.lastSession()
-        let url = cache.url
-        let read = await Task.detached { HomeSidebarLaunchCache(url: url).read() }.value
-        #expect(read != nil, "the read keeps any account's list; the account is checked when it is adopted")
+        let owner = "home-launch-list-test-\(UUID().uuidString)"
+        let standard = HomeSidebarLaunchCache.standard(owner: owner)
+        defer { try? FileManager.default.removeItem(at: standard.url.deletingLastPathComponent()) }
+        let last = Launch()
+        _ = try last.settle()
+        standard.save(last.source.launchSnapshot(archivedChiefs: last.archived))
+        standard.flush()
         let loaded = Launch()
-        loaded.prime(cache)
-        try FileManager.default.removeItem(at: url)  // nothing is read from here on
-        #expect(cache.adopt(read, account: "acct_someone_else") == nil)
+        loaded.prime(HomeSidebarLaunchCache(url: standard.url))
+
+        let otherAccount = HomeLaunchReads(owner: owner, readOnMain: { _ in Issue.record("the list was read on the main thread") })
+        let reads = HomeLaunchReads(owner: owner, readOnMain: { _ in Issue.record("the list was read on the main thread") })
+        await otherAccount.list.backgroundReadFinished()
+        await reads.list.backgroundReadFinished()
+        try FileManager.default.removeItem(at: standard.url)  // nothing is read from here on
+        #expect(otherAccount.lastList(HomeSidebarLaunchCache(url: standard.url), account: "acct_someone_else") == nil)
         let adopted = Launch()
-        let last = try #require(HomeSidebarLaunchCache(url: url).adopt(read, account: Self.account))
-        last.seed([adopted.local, adopted.cloud])
-        adopted.archived = last.archivedChiefs
-        adopted.avatars = last.chiefAvatars
-        adopted.harnesses = last.chiefHarnesses
-        adopted.lastRoster = last.roster
+        let list = try #require(reads.lastList(HomeSidebarLaunchCache(url: standard.url), account: Self.account))
+        list.seed([adopted.local, adopted.cloud])
+        adopted.archived = list.archivedChiefs
+        adopted.avatars = list.chiefAvatars
+        adopted.harnesses = list.chiefHarnesses
+        adopted.lastRoster = list.roster
         #expect(adopted.model() == loaded.model())
     }
 
