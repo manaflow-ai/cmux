@@ -35,7 +35,6 @@ final class ControlSnapshotPublisher {
         self.services = services
         pacer = ControlPublishPacer(frames: frames)
         pacer.publish = { [weak self] in self?.publishNow() }
-        pacer.isUrgent = { [weak router] in router?.snapshots.hasWaiters ?? false }
     }
 
     func start() {
@@ -43,6 +42,8 @@ final class ControlSnapshotPublisher {
         // Read-your-writes for local state: a CLI mutation's effect on focus
         // or selection is in the snapshot before the next request is read.
         router.workQueue.setAfterFrame { [weak self] in self?.publishNow() }
+        // A read that starts waiting for the topology does not wait out a model change's delay.
+        pacer.follow(waiters: router.snapshots.waiterAdditions())
         let center = NotificationCenter.default
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification, NSWindow.willCloseNotification,
                      NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification] {
