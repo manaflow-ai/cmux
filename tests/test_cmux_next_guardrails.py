@@ -922,12 +922,10 @@ class AppSizeTests(Fixture):
         view = f"{APP}/TextBox/TextBoxView.swift"
         quit_type = swift_type("QuitSteps", 40)
         self.rebase_on({f"{APP}/Quit/QuitSteps.swift": quit_type,
-                        f"{KIT}/KitModel.swift": swift_type("KitModel", 40),
                         f"{APP}/TextBox/TextBoxStyle.swift": "struct TextBoxStyle {\n    let size = 1\n}\n"},
                        "types to move")
         cases = {
             "a type moved in from another App file": ({f"{APP}/Quit/QuitSteps.swift": None}, quit_type),
-            "a type moved in from a package": ({f"{KIT}/KitModel.swift": None}, swift_type("KitModel", 40)),
             "a private helper of 15 source lines": ({}, swift_type("Row", 16, head="private ")),
             "a fileprivate helper of 15 source lines": ({}, swift_type("Cell", 16, head="fileprivate ")),
             "an extension": ({}, "extension TextBoxStyle {\n" + swift_body(30, "ext") + "}\n"),
@@ -967,6 +965,23 @@ class AppSizeTests(Fixture):
         self.write(f"{APP}/TextBox/TextBoxStyle.swift", "struct TextBoxLook {\n    let size = 1\n}\n")
         self.commit("an old type renamed in place")
         self.assertEqual([h.text for h in self.hits()], [], "a rename in place adds no new code")
+
+    def test_code_moved_from_a_package_into_the_app_is_new_app_code(self):
+        # The App-size rule moves code out of the App; a package's code moved into the App is the wrong direction,
+        # so it is not a move: a new App file or a new type built from package lines is refused like new code.
+        model = swift_type("KitModel", 40)
+        self.rebase_on({f"{KIT}/KitModel.swift": model}, "a package type")
+        (self.repo / KIT / "KitModel.swift").unlink()
+        self.write(f"{APP}/TextBox/KitModel.swift", model)
+        self.commit("a 40-line package file deleted and added as a new App file")
+        found = self.assertRefused(f"new App file, {code(model)} source lines ({code(model)} not moved)")
+        self.assertEqual([h.bucket for h in found], [f"new:{APP}/TextBox/KitModel.swift"])
+        self.reset()
+        (self.repo / KIT / "KitModel.swift").unlink()
+        self.append(f"{APP}/TextBox/TextBoxView.swift", model)
+        self.commit("the same package type appended to an existing App file")
+        refused = [h for rule, found in self.check()[0] for h in found if h.bucket.startswith(f"new:{APP}/TextBox/")]
+        self.assertEqual([h.bucket for h in refused], [f"new:{APP}/TextBox/TextBoxView.swift:KitModel"])
 
     def test_root_lines_moved_into_other_app_files_give_no_root_shrink_and_no_root_growth(self):
         # A pure move of root code into another App file is neutral for the root (the lead's ruling: pure moves
