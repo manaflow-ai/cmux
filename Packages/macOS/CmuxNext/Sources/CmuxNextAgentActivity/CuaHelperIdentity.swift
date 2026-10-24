@@ -84,6 +84,7 @@ public nonisolated struct CuaHelperIdentity: Sendable {
         guard SecRequirementCreateWithString(requirement as CFString, [], &compiled) == errSecSuccess,
               let compiled else { return false }
         let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate | kSecCSCheckNestedCode)
+        // concurrency-allow: resolved off main (ComputerUseHelperDaemon.resolve and ComputerUseSetup.signedHelper are @concurrent)
         return SecStaticCodeCheckValidity(code, flags, compiled) == errSecSuccess
     }
 
