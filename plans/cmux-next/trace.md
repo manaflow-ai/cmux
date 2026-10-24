@@ -163,7 +163,7 @@ counts them (`flow records dropped` in the summary). The app's hops are `key.flo
 | Hop | Process, thread | Carries |
 |---|---|---|
 | `app.key.dispatch` | app main (`CmuxApplication.sendEvent`, `debug.key`) | flow id, key age |
-| `app.key.terminal` | app main (`TerminalSurfaceView.keyDown`) | flow id |
+| `app.key.terminal` (optional: drawn when emitted, not needed for a complete press) | app main (`TerminalSurfaceView.keyDown`) | flow id |
 | `app.io_write` | Ghostty IO thread (`io_write_cb`) | flow id |
 | `app.send` | the same thread (`TerminalAttachment.enqueueInput`; the `send` request gets `flow`) | flow id |
 | `daemon.send.write`, `daemon.send.written` | daemon `mux-control-dispatch` (`cmd_terminal_io::send`) | flow id |
@@ -176,11 +176,19 @@ counts them (`flow records dropped` in the summary). The app's hops are `key.flo
 | `app.frame.contents` | app main (`setContents:` of the terminal layer: Ghostty's frame) | flow id |
 | `app.frame.commit` | app main (the run-loop end after it: the Core Animation commit to the screen) | flow id |
 
-A hop with no flow id joins the press as the first record of that hop on the same terminal after the hop that
-causes it (the daemon's `send.write` for a PTY write; the PTY write for the echo read; the read for the
-daemon's output; the output for the attach). So keys must go to a terminal whose only output is their echo:
-`stress-storm` focuses a pane whose terminal is not one of the 10 busy ones. Presses that never reach a
-terminal (a chord the key router ran as an action) are not flows. The summary lists, per hop, the time since
+A hop with no flow id is placed by windows on the terminal the press was sent to. The presses on one terminal
+are taken in send order; for each such hop, a press's window runs from the hop that causes it (the daemon's
+`send.write` for a PTY write; the PTY write for the echo read; the read for the daemon's output; the output for
+the attach) up to the next press's cause on that terminal, and no later than the press's own `app.output.decoded`.
+The press takes the record only when its window holds exactly one and the press before placed its own record of
+that hop. A window with none or two records, or one record while the press before found none (it may be that
+press's late echo: keys typed faster than their echo), leaves the hop missing, and the summary names it
+`ambiguous` with the reason. A record joins one press at most. So keys must go to a terminal whose only output is
+their echo: `stress-storm` focuses a pane whose terminal is not one of the 10 busy ones. Presses that never reach
+a terminal (no `app.key.terminal`, `app.io_write` or `app.send` hop: a chord the key router ran as an action) are
+not flows. When the recording has flow records but nothing assembles, the summary says why (`WARNING` under
+`Key-press flows`): no app `key.flow` signpost (the app's flow hops are not in the build), or no daemon record
+carrying a press's flow id (the app's `send` request has no `flow`). The summary lists, per hop, the time since
 the previous hop (p50/p95/max over complete presses), key to the echo frame's commit, and each incomplete
 press with the hops it misses. `check-import` also checks that every flow arrow imports (`flow` table).
 

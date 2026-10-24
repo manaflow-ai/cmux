@@ -78,7 +78,7 @@ Usage (a fleet GUI host, never Lawrence's Mac):
 
 Docs: plans/cmux-next/trace.md (how to record, open in ui.perfetto.dev, read it). Not a CI gate.
 """
-import argparse, collections, contextlib, gzip, importlib.util, json, os, re, select, shutil, signal, statistics, \
+import argparse, bisect, collections, contextlib, gzip, importlib.util, json, os, re, select, shutil, signal, statistics, \
     subprocess, sys, tempfile, threading, time
 import xml.etree.ElementTree as ET
 
@@ -2084,15 +2084,24 @@ FLOW_HOPS = [
     ("host.pty.read", "holder.pty.read"), ("daemon.output.host", "daemon.output.holder"), ("daemon.output.attach",),
     ("app.output.decoded",), ("app.output.received",), ("app.output.parsed",), ("app.frame.contents",), ("app.frame.commit",),
 ]
-# For each flow-0 hop: the hop whose time it must follow (the cause), so the first record after it on the same
-# terminal is this press's. `daemon.send.written` is not a cause of the host's write: the daemon's send returns
-# when the frame is on the host's socket, before or after the host writes the PTY.
+# For each flow-0 hop: the hop whose time it must follow (the cause): a press's window for the hop starts there
+# and ends at the next press's cause on the same terminal (assemble_flows). `daemon.send.written` is not a cause
+# of the host's write: the daemon's send returns when the frame is on the host's socket, before or after the
+# host writes the PTY.
 FLOW_ANCHOR = {"host.pty.write": "daemon.send.write", "daemon.pty.write": "daemon.send.write",
                "host.pty.read": "pty.write", "holder.pty.read": "pty.write",
                "daemon.output.host": "pty.read", "daemon.output.holder": "pty.read",
                "daemon.output.attach": "output"}
 FLOW_GROUP = {"host.pty.write": "pty.write", "daemon.pty.write": "pty.write", "host.pty.read": "pty.read",
               "holder.pty.read": "pty.read", "daemon.output.host": "output", "daemon.output.holder": "output"}
+# Hops a complete press may lack. `app.key.terminal` (TerminalSurfaceView.keyDown) is drawn when the app emits it,
+# but a key can reach Ghostty's IO thread without it, so `app.io_write` / `app.send` also say "reached a terminal".
+FLOW_OPTIONAL = {"app.key.terminal"}
+# The hops that say the key router handed the press to a terminal (else it ran a chord: not a flow).
+FLOW_AT_TERMINAL = ("app.key.terminal", "app.io_write", "app.send")
+# The flow-0 stages in causal order: (group, alternatives, the group or hop each one's window starts at).
+FLOW0_STAGES = [(FLOW_GROUP.get(alternatives[0], alternatives[0]), alternatives, FLOW_ANCHOR[alternatives[0]])
+                for alternatives in FLOW_HOPS if alternatives[0] in FLOW_ANCHOR]
 
 
 def read_flow_records(out):
@@ -2116,8 +2125,17 @@ def read_flow_records(out):
 
 
 def assemble_flows(app_events, records):
-    """One entry per key press the app opened: its hops in causal order, each {hop, at_us, pid, tid}, the hops
-    it misses, and whether it is complete (every hop of FLOW_HOPS, one alternative each)."""
+    """One entry per key press the app opened that reached a terminal: its hops in causal order, each {hop, at_us,
+    pid, tid}, the hops it misses, the flow-0 hops it could not place (`ambiguous`), and whether it is complete
+    (every hop of FLOW_HOPS but FLOW_OPTIONAL, one alternative each).
+
+    A flow-0 record carries only its terminal, so it is placed by windows. The presses sent to one terminal
+    (daemon.send.write with their flow id) are taken in send order; for each flow-0 stage, a press's window runs
+    from its own anchor (the stage's cause) up to the next press's anchor on that terminal, and no later than the
+    press's own decoded output. The press takes the record only when the window holds exactly one and the press
+    before placed its own record of that stage; otherwise (none, two, or one that may be the press before's late
+    one: keys typed faster than their echo) the stage stays missing and `ambiguous` says why. A record goes to one
+    press at most."""
     app_hops = collections.defaultdict(dict)
     for event in app_events:
         fields = signposts_lib.fields(event.get("message") or "")
@@ -2136,46 +2154,83 @@ def assemble_flows(app_events, records):
             by_flow[record["flow"]].setdefault(record["hop"], record)
         else:
             by_terminal[(record["hop"], record["terminal"])].append(record)
-    for rows in by_terminal.values():
-        rows.sort(key=lambda r: r["at_us"])
-    import bisect
-    times = {key: [r["at_us"] for r in rows] for key, rows in by_terminal.items()}
-    flows = []
+    presses = []
     for flow in sorted(app_hops, key=lambda f: app_hops[f].get("app.key.dispatch", {"at_us": 0})["at_us"]):
+        hops = app_hops[flow]
         # A press that never reached a terminal (a chord the key router ran as an action) has no echo to follow.
-        if "app.key.dispatch" not in app_hops[flow] or "app.key.terminal" not in app_hops[flow]:
+        if "app.key.dispatch" not in hops or not (any(h in hops for h in FLOW_AT_TERMINAL) or flow in by_flow):
             continue
-        found = dict(app_hops[flow])
+        found = dict(hops)
         for hop, record in by_flow.get(flow, {}).items():
             found.setdefault(hop, {"hop": hop, "at_us": record["at_us"], "pid": record["pid"], "tid": record["tid"]})
         terminal = (by_flow.get(flow, {}).get("daemon.send.write") or {}).get("terminal")
-        groups = {}
-        bound = (found.get("app.output.decoded") or {}).get("at_us", float("inf"))
-        for alternatives in FLOW_HOPS:
-            for hop in alternatives:
-                anchor_name = FLOW_ANCHOR.get(hop)
-                if not anchor_name or not terminal:
+        presses.append({"flow": flow, "terminal": terminal, "found": found, "groups": {}, "ambiguous": {},
+                        "bound": (found.get("app.output.decoded") or {}).get("at_us", float("inf"))})
+    on_terminal = collections.defaultdict(list)
+    for press in presses:
+        if press["terminal"]:
+            on_terminal[press["terminal"]].append(press)
+    for terminal, sent in on_terminal.items():
+        sent.sort(key=lambda p: p["found"]["daemon.send.write"]["at_us"])
+        for group, alternatives, anchor_name in FLOW0_STAGES:
+            rows = sorted((r for hop in alternatives for r in by_terminal.get((hop, terminal), [])),
+                          key=lambda r: r["at_us"])
+            times = [r["at_us"] for r in rows]
+            anchors = [(p["groups"].get(anchor_name) or p["found"].get(anchor_name) or {}).get("at_us") for p in sent]
+            taken, previous_placed = set(), True
+            for index, press in enumerate(sent):
+                anchor = anchors[index]
+                if anchor is None:
+                    previous_placed = False
                     continue
-                anchor = groups.get(anchor_name) or found.get(anchor_name)
-                if not anchor:
+                upper = next((a for a in anchors[index + 1:] if a is not None), float("inf"))
+                lo, hi = bisect.bisect_left(times, anchor), bisect.bisect_left(times, upper)
+                candidates = [r for r in rows[lo:hi] if r["at_us"] <= press["bound"] and id(r) not in taken]
+                if len(candidates) == 1 and previous_placed:
+                    record = candidates[0]
+                    taken.add(id(record))
+                    entry = {"hop": record["hop"], "at_us": record["at_us"], "pid": record["pid"], "tid": record["tid"]}
+                    press["found"][record["hop"]] = press["groups"][group] = entry
+                    previous_placed = True
                     continue
-                rows = by_terminal.get((hop, terminal)) or []
-                index = bisect.bisect_left(times.get((hop, terminal)) or [], anchor["at_us"])
-                if index < len(rows) and rows[index]["at_us"] <= bound:
-                    record = rows[index]
-                    found[hop] = {"hop": hop, "at_us": record["at_us"], "pid": record["pid"], "tid": record["tid"]}
-                    groups[FLOW_GROUP.get(hop, hop)] = found[hop]
-                    break
+                if candidates:
+                    press["ambiguous"]["|".join(alternatives)] = {"candidates": len(candidates),
+                                                                  "earlier_unplaced": not previous_placed}
+                previous_placed = False
+    flows = []
+    for press in presses:
+        found = press["found"]
         chain, missing = [], []
         for alternatives in FLOW_HOPS:
             present = [found[hop] for hop in alternatives if hop in found]
             if present:
                 chain.append(present[0])
-            else:
+            elif not set(alternatives) <= FLOW_OPTIONAL:
                 missing.append("|".join(alternatives))
         chain.sort(key=lambda h: h["at_us"])
-        flows.append({"flow": flow, "terminal": terminal, "hops": chain, "missing": missing, "complete": not missing})
+        flows.append({"flow": press["flow"], "terminal": press["terminal"], "hops": chain, "missing": missing,
+                      "ambiguous": press["ambiguous"], "complete": not missing})
     return flows
+
+
+def flow_warnings(app_events, records, flows):
+    """Why a recording with flow data assembled no (or no joined) press, in words for the summary: the app's
+    key.flow hops absent, no press at a terminal, or no daemon record carrying a press's flow id."""
+    warnings = []
+    if records and not app_events:
+        warnings.append(f"{len(records)} daemon/host/holder flow records but no app `key.flow` signpost: the app's "
+                        f"flow hops (TypingLatencyProbe key.flow, CMUX_TRACE_FLOWS) are not in this build, so no "
+                        f"press can assemble")
+    elif app_events and not flows:
+        warnings.append(f"{len(app_events)} app `key.flow` events but no press reached a terminal (no "
+                        f"{' / '.join(FLOW_AT_TERMINAL)} hop)")
+    pressed = {f["flow"] for f in flows}
+    if flows and not any(r["flow"] in pressed for r in records):
+        sends = sum(1 for r in records if r["hop"] == "daemon.send.write")
+        warnings.append(f"{len(flows)} presses but no daemon record carries a press's flow id ({sends} "
+                        f"daemon.send.write records with flow 0: the app's `send` request has no `flow`), so "
+                        f"nothing past the app joins a press")
+    return warnings
 
 
 def flow_events(flows, tracks, lane_names):
@@ -2203,22 +2258,25 @@ def flow_events(flows, tracks, lane_names):
     return events
 
 
-def flow_summary(flows, dropped):
-    """Per hop: the time from the previous hop of the press (FLOW_HOPS order) over the complete presses; key to
-    the frame's commit; the incomplete presses with what they miss."""
+def flow_summary(flows, dropped, warnings=()):
+    """Per hop: the time from the previous hop the press has (FLOW_HOPS order) over the complete presses; key to
+    the frame's commit; the incomplete presses with what they miss and which flow-0 hops were ambiguous; and
+    `warnings` (flow_warnings) when the recording's flow data could not assemble."""
     complete = [f for f in flows if f["complete"]]
     steps = collections.defaultdict(list)
     totals = []
     for entry in complete:
         at = {h["hop"]: h["at_us"] for h in entry["hops"]}
-        ordered = [next(hop for hop in alternatives if hop in at) for alternatives in FLOW_HOPS]
+        ordered = [next(hop for hop in alternatives if hop in at) for alternatives in FLOW_HOPS
+                   if any(hop in at for hop in alternatives)]
         for previous, hop in zip(ordered, ordered[1:]):
             steps[hop].append((at[hop] - at[previous]) / 1000)
         totals.append((at["app.frame.commit"] - at["app.key.dispatch"]) / 1000)
     return {"presses": len(flows), "complete": len(complete), "key_to_commit_ms": pct(totals),
             "hop_ms": {hop: pct(values) for hop, values in steps.items()},
-            "incomplete": [{"flow": f"0x{f['flow']:x}", "missing": f["missing"]} for f in flows if not f["complete"]][:10],
-            "dropped_records": dropped,
+            "incomplete": [{"flow": f"0x{f['flow']:x}", "missing": f["missing"], "ambiguous": f.get("ambiguous") or {}}
+                           for f in flows if not f["complete"]][:10],
+            "dropped_records": dropped, "warnings": list(warnings),
             "flows": [{"flow": f"0x{f['flow']:x}", "terminal": f["terminal"], "complete": f["complete"],
                        "hops": [{"hop": h["hop"], "at_us": round(h["at_us"], 1), "pid": h["pid"]} for h in f["hops"]]}
                       for f in flows[:60]]}
@@ -2356,7 +2414,9 @@ def build(out):
                        "cat": "driver", "name": item["name"], "args": item.get("args") or {}})
     # Key-press flows: the app's key.flow hops and the daemon's, hosts' and holder's flow records.
     flow_records, flow_dropped = read_flow_records(out)
-    key_flows = assemble_flows([e for e in signposts["events"] if e["name"] == "key.flow"], flow_records)
+    flow_signposts = [e for e in signposts["events"] if e["name"] == "key.flow"]
+    key_flows = assemble_flows(flow_signposts, flow_records)
+    flow_gaps = flow_warnings(flow_signposts, flow_records, key_flows)
     events += flow_events(key_flows, tracks, lane_names)
     for pid in {r["pid"] for r in flow_records if r.get("pid")}:
         roles.setdefault(pid, (known.get(pid) or {}).get("role") or "bundle-other")
@@ -2391,7 +2451,7 @@ def build(out):
                                                                             "recorder")}) + "}\n")
     summary = summarize(meta, roles, app_pid, samples, offset_us, signposts, stall_records, blocked, span_rows, chrome,
                         chrome_info, threads_by_pid)
-    summary["key_flows"] = flow_summary(key_flows, flow_dropped)
+    summary["key_flows"] = flow_summary(key_flows, flow_dropped, flow_gaps)
     summary["sources"] = {
         "trace": trace_path, "trace_bytes": os.path.getsize(trace_path), "events": len(events),
         "samples": len(samples), "sampled_processes": len(names), "xctrace_clock": offset_how,
@@ -2468,8 +2528,6 @@ def summarize(meta, roles, app_pid, samples, offset_us, signposts, stalls, block
             if thread.get("pid") == app_pid and thread.get("tid") == main_tid]
     main.sort(key=lambda r: r[0])
     main_times = [r[0] for r in main]
-
-    import bisect
 
     def main_samples(a, b):
         lo, hi = bisect.bisect_left(main_times, a), bisect.bisect_right(main_times, b)
@@ -2727,17 +2785,25 @@ def summary_text(s):
                      f"perform {perform.get('p50_ms', '-')}/{perform.get('p95_ms', '-')}"
                      + (f"  missed {rows['action.commit.missed']['count']}" if rows.get("action.commit.missed") else ""))
     flows = s.get("key_flows") or {}
-    if flows.get("presses"):
+    if flows.get("presses") or flows.get("warnings"):
         total = flows.get("key_to_commit_ms") or {}
-        lines.append(f"Key-press flows: {flows['complete']} of {flows['presses']} presses complete; key to the echo frame's "
-                     f"commit p50 {total.get('p50')} p95 {total.get('p95')} max {total.get('max')} ms")
+        if flows.get("presses"):
+            lines.append(f"Key-press flows: {flows['complete']} of {flows['presses']} presses complete; key to the echo "
+                         f"frame's commit p50 {total.get('p50')} p95 {total.get('p95')} max {total.get('max')} ms")
+        else:
+            lines.append("Key-press flows: 0 presses assembled")
+        for warning in flows.get("warnings") or []:
+            lines.append(f"  WARNING: {warning}")
         for alternatives in FLOW_HOPS[1:]:
             for hop in alternatives:
                 row = (flows.get("hop_ms") or {}).get(hop)
                 if row:
                     lines.append(f"  {hop:24} +{row['p50']}/{row['p95']}/{row['max']} ms (p50/p95/max, n={row['n']})")
         for entry in flows.get("incomplete") or []:
-            lines.append(f"  incomplete {entry['flow']}: missing {', '.join(entry['missing'])}")
+            why = "".join(f"; ambiguous {hop} ({row['candidates']} candidate(s)"
+                          + (", the press before has none of its own" if row.get("earlier_unplaced") else "") + ")"
+                          for hop, row in (entry.get("ambiguous") or {}).items())
+            lines.append(f"  incomplete {entry['flow']}: missing {', '.join(entry['missing'])}{why}")
         if flows.get("dropped_records"):
             lines.append(f"  flow records dropped (queue full): {flows['dropped_records']}")
     lines.append("Cross-process waits (main thread off CPU):")
