@@ -11,11 +11,14 @@ runs on a cron instead, only on idle fleet capacity, behind every nightly and de
                     published (a fleet build needs it) when it is newer than the last measured one (commits
                     in between are skipped), else one bisect step of an open regression. Skips while a
                     nightly or dev build waits for a Mac on GitHub.
-  measure (gateway) runs only on its own runner label (vars.CI_PERF_CRON_GATEWAY; unset: every Mac part is recorded as not run),
-                    skips unless the bench host is idle and no dev build waits in the controller queue, then
-                    runs ONE part (its run_seconds: 15 minutes, the build 20, STRESS and sidebar 25) as a background (lowest priority)
-                    measurement step on the bench host, and cancels it when a foreground job queues that the
-                    host could run (its labels, its name, or a target worker).
+  measure (gateway) runs only on its own runner label (vars.CI_PERF_CRON_GATEWAY), skips unless the part's host
+                    (the measurement's, else cmux20-bench) is idle and no dev build waits in the controller queue,
+                    then runs ONE part (its run_seconds: 15 minutes, the build 20, STRESS and sidebar 25) as a
+                    background (lowest priority) measurement step on that host, and cancels it when a foreground
+                    job queues that the host could run (its labels, its name, or a target worker).
+  request (controller) with no gateway label and vars.CMUX_NEXT_PERF_CRON_CONTROLLER=1: a job named for the part;
+                    the build controller queues it on an idle measure worker and dispatches a result run.
+                    Neither route set: every Mac part is recorded as not run.
   report (Linux)    stores the part; after the last part compares every row with the last good run, and opens,
                     updates or closes the one issue "cmux-next perf regression". No check fails on a
                     regression; a missing measurement for 24 h is noted in the issue.
@@ -56,9 +59,22 @@ HOST_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$")
 # this class (the linux job's runs-on: vars.LINUX_RUNNER is blacksmith-4vcpu-ubuntu-2404 on 2026-10-24, so the job
 # took blacksmith-32vcpu-ubuntu-2404); rename_legacy_rows names those rows with it.
 LEGACY_LINUX_CLASS = "blacksmith-32vcpu-ubuntu-2404"
-# A host a measurement pinned to it could not run on (abandoned with no Mac part done there) is not asked again for
-# this long: the tip goes to any idle measure host meanwhile, and that host's culprit ranges wait.
+# A host the fleet check reported offline (not a controller worker, not healthy, not seen: OFFLINE_REASONS) is not
+# asked again for this long: the tip goes to any idle measure host meanwhile, and that host's culprit ranges wait. A
+# host that is only busy is never marked so (HOST_WAIT_HOURS covers it).
 HOST_RETRY_HOURS = 24
+OFFLINE_REASONS = ("is not a controller worker", "is not healthy", "has not been seen for over")
+# A measurement pinned to a host (the host that built its app, a regressed row's host, or a bisect step's rows'
+# host) gives the host up when it took none of the measurement's parts for this long since the first request to it:
+# four 20-minute dispatcher ticks past the longest part (25 min) and the controller's 5-minute queue limit, so a host
+# that is only between two of the cron's own parts is never given up. A tip measurement goes on on any idle measure
+# host (its rows are host-keyed; split-spring.sh --app-cache builds on a cache miss); a bisect step ends without
+# blaming its commit (its rows are judged only on that host). The host is not pinned again for as long.
+HOST_WAIT_HOURS = 2
+# A Mac host that ran no part for this long while Mac parts ran on other hosts is gone (it left the fleet, or it is
+# never idle): its open regressions close as not judged, since it can neither confirm nor clear them (12 tip
+# measurements at TIP_EVERY_HOURS went to other hosts meanwhile).
+HOST_GONE_HOURS = 72
 LATENCY_TARGET_MS = 10.0
 STALE_HOURS = 24
 ABANDON_HOURS = 12          # of active time: the hours a measurement spent yielding to the fleet do not count
@@ -90,8 +106,6 @@ HISTORY_DAYS = 14
 HISTORY_MAX = 120
 # The issue is the cron's own only when the bot opened it and its body carries ISSUE_MARK.
 ISSUE_AUTHOR = "github-actions[bot]"
-# The bench host's macOS (2026-10-23): shown for a host whose report carried no macOS version.
-BENCH_MACOS = "27"
 # A measure job's step: fleet-check (`cmux-ci status`, up to 300 s), the queue (PART_QUEUE_SECONDS), the part (its
 # run_seconds), the artifact download (600 s) and the watch loop's last round and slack.
 FLEET_CHECK_SECONDS = 300
@@ -100,7 +114,7 @@ STEP_SLACK_SECONDS = 180
 NIGHTLY_WORKFLOWS = ("nightly.yml", "nightly-next-train.yml")
 DEV_DAILY_TITLE = "cmux NEXT DEV daily"
 
-# One fleet part = one step through the allowlisted scripts/measure/split-spring.sh on the bench host. The first
+# One fleet part = one step through the allowlisted scripts/measure/split-spring.sh on a measure host. The first
 # part builds the app once per measurement (--build-only) and leaves it in the host's app cache; every other fleet
 # part reuses it (--app-cache) and asks for a 120 Hz virtual display as the main display (--vdisplay=120; the
 # report's `display` says whether it came up; after a VDISPLAY-FALLBACK it carries the real main display's measured
@@ -211,6 +225,7 @@ def migrate_state(state):
     state.setdefault("row_ok", {})
     state.setdefault("last_tried", None)
     rename_legacy_rows(state)
+    name_legacy_parts(state.get("current"))
     # Regressions opened before the confirmation rule (2026-10-24): one with fewer than CONFIRM_SAMPLES baseline values
     # becomes unconfirmed (diff.stream.p95 opened against one good value).
     kept = []
@@ -231,7 +246,7 @@ def migrate_state(state):
 def sanitize_state(state, ok):
     """Drop every part of the state that names a commit `ok(sha)` rejects (not 40 hex characters, or not on the
     measured branch), and unknown part names: a sha from the state goes to `git rev-list` and to `cmux-ci run
-    --ref` on the bench host. Returns what was dropped."""
+    --ref` on a measure host. Returns what was dropped."""
     dropped = []
     cur = state.get("current")
     if cur is not None:
@@ -337,6 +352,20 @@ def rename_legacy_rows(state):
         for r in state.get(key) or []:
             if isinstance(r, dict) and isinstance(r.get("name"), str):
                 r["name"] = legacy_row_name(r["name"])
+
+
+def name_legacy_parts(cur):
+    """Give each done part of the measurement in flight that was stored before host keys its host, as
+    rename_legacy_rows does for rows: every Mac part then ran on BENCH_WORKER and the Linux part on LEGACY_LINUX_CLASS.
+    Since host keys the report stores the worker with every done part (one without is refused, not stored), so a done
+    part with no worker is one of those. Its later parts are asked for on BENCH_WORKER (its app cache)."""
+    if not isinstance(cur, dict) or not isinstance(cur.get("parts"), dict):
+        return
+    for name, p in cur["parts"].items():
+        if isinstance(p, dict) and p.get("state") == "done" and not p.get("worker") and name in PART_BY_NAME:
+            p["worker"] = LEGACY_LINUX_CLASS if is_linux_part(name) else BENCH_WORKER
+            if not is_linux_part(name):
+                cur.setdefault("host", BENCH_WORKER)
 
 
 # ---------- rows and targets (pure) ----------
@@ -576,7 +605,7 @@ def new_measurement(sha, kind, parts, t, bisect_range=None):
 
 def part_args(part, run_seconds):
     """split-spring.sh's args for a part: a part on the virtual display holds it no longer than the part may run,
-    so a step killed outright does not leave it as the bench host's main display."""
+    so a step killed outright does not leave it as its host's main display."""
     args = list(part["args"])
     if any(a.startswith("--vdisplay=") for a in args):
         args.append(f"--vdisplay-hold={int(run_seconds)}")
@@ -626,10 +655,54 @@ def disable_mac_parts(cur, reason):
         cur["parts_todo"].remove(name)
 
 
+def host_info(state, host):
+    """What the state keeps about a Mac host (pure): macos, at and last_part_at (its newest done part),
+    unreachable_since (the fleet check reported it offline), waited_at (a measurement gave it up), absent_since (the
+    first time the cron missed it with no part on record)."""
+    hosts = state.get("hosts") if isinstance(state.get("hosts"), dict) else {}
+    info = hosts.get(host)
+    return info if isinstance(info, dict) else {}
+
+
+def mark_host(state, host, **fields):
+    """Update the state's entry of a host (other keys kept)."""
+    hosts = state["hosts"] = state.get("hosts") if isinstance(state.get("hosts"), dict) else {}
+    hosts[host] = {**host_info(state, host), **fields}
+
+
+def _within(state, host, key, hours, t):
+    since = parse_iso(host_info(state, host).get(key) or None)
+    return since is not None and hours_between(since, t) < hours
+
+
 def host_unreachable(state, host, t):
-    """A measurement pinned to host was abandoned with no Mac part done there less than HOST_RETRY_HOURS ago (pure)."""
-    since = parse_iso((((state.get("hosts") or {}).get(host) or {}).get("unreachable_since")) or None)
-    return since is not None and hours_between(since, t) < HOST_RETRY_HOURS
+    """The fleet check reported host offline less than HOST_RETRY_HOURS ago (pure)."""
+    return _within(state, host, "unreachable_since", HOST_RETRY_HOURS, t)
+
+
+def host_avoided(state, host, t):
+    """No measurement is pinned to host now (pure): it was reported offline (host_unreachable), or a measurement gave
+    it up for taking no part less than HOST_WAIT_HOURS ago."""
+    return host_unreachable(state, host, t) or _within(state, host, "waited_at", HOST_WAIT_HOURS, t)
+
+
+def host_last_seen(state, host):
+    """When the cron last knew of host (pure): its newest done part, else the first time the cron missed it."""
+    info = host_info(state, host)
+    return parse_iso(info.get("last_part_at") or info.get("at") or info.get("absent_since") or None)
+
+
+def host_gone(state, host, t):
+    """host ran no part for HOST_GONE_HOURS (pure; the caller checks that Mac parts ran elsewhere meanwhile)."""
+    seen = host_last_seen(state, host)
+    return seen is not None and hours_between(seen, t) > HOST_GONE_HOURS
+
+
+def note_host_offline(state, host, reason, t):
+    """Mark host unreachable when the fleet check's reason says it cannot take work at all (OFFLINE_REASONS), never
+    when it is only busy, wanted or held: a busy host keeps its pin and its ranges (HOST_WAIT_HOURS bounds the wait)."""
+    if isinstance(host, str) and HOST_RE.match(host) and any(f"{host} {why}" in (reason or "") for why in OFFLINE_REASONS):
+        mark_host(state, host, unreachable_since=iso(t))
 
 
 def needs_mac(cur):
@@ -643,10 +716,12 @@ def drop_dead_measurement(state, t, measurable):
     measurement version than the tip's). Returns why, or None. The plan calls it before it looks for a new commit, so
     a dropped measurement is replaced in the same tick (cmd_plan then deletes its part files).
 
-    An abandoned bisect step's commit goes into its range's skip list (`git bisect skip`), so the next step picks
-    another commit instead of the same one for another ABANDON_HOURS. A measurement pinned to a host that ran none of
-    its Mac parts marks that host unreachable for HOST_RETRY_HOURS (host_unreachable): the tip is not pinned to it
-    and its ranges are not bisected meanwhile, so a host that left the fleet stalls nothing."""
+    An abandon blames neither the commit nor a host unless the commit itself could not be judged: a bisect step's
+    commit goes into its range's skip list (`git bisect skip`) only when one of its parts failed on it (its build, or a
+    part that ran and failed), never when its parts were only waiting for the fleet (that commit is still measurable,
+    and skipping it could keep the range from narrowing to the culprit). No host is marked: only the fleet check's
+    offline report does that (note_host_offline), and a pinned measurement gives a busy host up after HOST_WAIT_HOURS
+    (give_up_host)."""
     cur = state.get("current")
     why = None
     if cur and (active_hours(cur, t) > ABANDON_HOURS or hours_between(parse_iso(cur["started_at"]), t) > ABANDON_WALL_HOURS):
@@ -654,31 +729,66 @@ def drop_dead_measurement(state, t, measurable):
     elif cur and needs_mac(cur) and not measurable(cur["sha"]):
         why = "unmeasurable"
     if why:
-        state.setdefault("history", []).append({"sha": cur["sha"], "kind": cur["kind"], "status": why,
-                                                "at": iso(t), "parts": sorted(cur.get("parts", {}))})
+        entry = {"sha": cur["sha"], "kind": cur["kind"], "status": why, "at": iso(t), "parts": sorted(cur.get("parts", {}))}
+        if why == "abandoned":
+            entry["cause"] = "a part failed on the commit" if commit_failed(cur) else "its parts waited for the fleet"
+        state.setdefault("history", []).append(entry)
         state["current"] = None
-    if why == "abandoned":
-        if cur["kind"] == "bisect":
-            for r in state.get("regressions") or []:
-                rng = r.get("range")
-                if same_range(rng, cur.get("bisect_range")) and cur["sha"] not in rng.setdefault("skip", []):
-                    rng["skip"].append(cur["sha"])
-        host = cur.get("host")
-        mac_done = any(p.get("state") == "done" and not is_linux_part(n) for n, p in (cur.get("parts") or {}).items())
-        if host and not mac_done:
-            state.setdefault("hosts", {}).setdefault(host, {})["unreachable_since"] = iso(t)
+    if why == "abandoned" and cur["kind"] == "bisect" and commit_failed(cur):
+        for r in state.get("regressions") or []:
+            rng = r.get("range")
+            if same_range(rng, cur.get("bisect_range")) and cur["sha"] not in rng.setdefault("skip", []):
+                rng["skip"].append(cur["sha"])
+    return why
+
+
+def commit_failed(cur):
+    """A part of the measurement failed on its commit (pure): its build failed, or a part ran and failed. A part
+    refused for its host (it carries a reason: another host, or no host on record) is the fleet's, not the commit's."""
+    return any(isinstance(p, dict) and (p.get("state") == "build_failed" or (p.get("state") == "failed" and not p.get("reason")))
+               for p in (cur.get("parts") or {}).values())
+
+
+def give_up_host(state, t):
+    """End the pin of the measurement in flight when its host took none of its parts for HOST_WAIT_HOURS since the
+    first request to it (cur['host_asked_since'], cleared by every Mac part result), or when the fleet check reported
+    the host offline. A tip measurement goes on on any idle measure host; a bisect step ends ('waited': no skip, its
+    commit is still measurable). The host is not pinned again for HOST_WAIT_HOURS (host_avoided). Returns why, or None.
+
+    The cron cannot tell a busy host from a fleet that is busy everywhere (the controller route answers a request only
+    with a result), so the bound is on the host's silence, not on a reason."""
+    cur = state.get("current")
+    host = (cur or {}).get("host")
+    if not host or not needs_mac(cur):
+        return None
+    asked = parse_iso(cur.get("host_asked_since") or None)
+    offline = host_unreachable(state, host, t)
+    if not offline and not (asked and hours_between(asked, t) > HOST_WAIT_HOURS):
+        return None
+    why = f"{host} is offline" if offline else f"{host} took no part for {HOST_WAIT_HOURS} h"
+    if not offline:
+        mark_host(state, host, waited_at=iso(t))
+    cur.pop("host_asked_since", None)
+    if cur["kind"] == "bisect":
+        state.setdefault("history", []).append({"sha": cur["sha"], "kind": "bisect", "status": "waited", "at": iso(t),
+                                                "parts": sorted(cur.get("parts", {})), "note": why})
+        state["current"] = None
+    else:
+        cur.pop("host")
+        cur.setdefault("gave_up", []).append({"host": host, "at": iso(t), "why": why})
     return why
 
 
 def tip_pin_host(state, t):
     """The Mac host a new tip measurement is pinned to (pure): the host of the earliest open regression of a Mac row,
-    unless that host is unreachable now. A host's rows are judged only on that host, so a tip measured elsewhere can
-    never clear them. None: any idle measure host."""
+    unless that host is avoided now (offline, or a measurement just gave it up: host_avoided) or gone (host_gone). A
+    host's rows are judged only on that host, so a tip measured elsewhere can never clear them. None: any idle measure
+    host."""
     regs = [r for r in state.get("regressions") or [] if isinstance(r, dict) and isinstance(r.get("name"), str)]
     regs.sort(key=lambda r: (str((r.get("first_bad") or {}).get("measured_at") or ""), r["name"]))
     for r in regs:
         host = mac_host(r["name"])
-        if host and HOST_RE.match(host) and not host_unreachable(state, host, t):
+        if host and HOST_RE.match(host) and not host_avoided(state, host, t) and not host_gone(state, host, t):
             return host
     return None
 
@@ -692,7 +802,8 @@ def tip_due(state, t):
     return not times or hours_between(max(times), t) >= TIP_EVERY_HOURS
 
 
-def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable=lambda sha: True, mac_disabled=None):
+def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable=lambda sha: True, mac_disabled=None,
+           controller_route=False):
     """The tick's work: {'action': 'part'|'none'|'finish', 'part': a fleet part or '', 'linux_part': '' or one}.
     May set state['current'] (a new measurement). With both a candidate and a bisect step, the bisect goes first
     unless a tip measurement is due (tip_due): a newer tip always exists, so 'bisect when idle' would never bisect.
@@ -703,8 +814,11 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
     back the Mac parts only; the Linux part takes no Mac). measurable(sha): the fleet would still run the commit
     (its scripts/measure/split-spring.sh is the reviewed one). mac_disabled: why no Mac part can run at all (no
     gateway runner label), or None: a tip measurement records its Mac parts as not run (so it is incomplete), and a
-    bisect step measures only Linux rows."""
+    bisect step measures only Linux rows. controller_route: the Mac part goes to the build controller as a request
+    that has no answer until the part's result run, so the time from the request to the result is the fleet's wait
+    (start_yield; record_part ends it), not the measurement's active time."""
     drop_dead_measurement(state, t, measurable)
+    give_up_host(state, t)
     cur = state.get("current")
     if not cur and bisect and not (candidate and tip_due(state, t)):
         regressed = {part_for_row(name) for name in bisect["rows"]}
@@ -734,6 +848,10 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
         start_yield(cur, t)  # the wait does not count against ABANDON_HOURS
     if not fleet and not linux:
         return {"action": "none", "sha": cur["sha"], "reason": github_busy, "yielded": True}
+    if fleet and cur.get("host"):
+        cur.setdefault("host_asked_since", iso(t))  # give_up_host's clock: cleared by the host's next part result
+    if fleet and controller_route:
+        start_yield(cur, t)
     what = " and ".join(x for x in (fleet, linux) if x)
     return {"action": "part", "sha": cur["sha"], "kind": cur["kind"], "part": fleet, "linux_part": linux,
             "worker": (cur.get("host") or "") if fleet else "",
@@ -845,10 +963,10 @@ def fleet_verdict(status, workers, jobs, worker, yield_mode, mine=()):
 
 
 def wanted_by_other(status, mine, jobs=None, worker=BENCH_WORKER):
-    """A queued foreground job that could run on the bench host, or None: the perf cron yields to it.
+    """A queued foreground job that could run on `worker` (the part's host), or None: the perf cron yields to it.
     status: /v1/status (queue entries carry labels, `background`, blocked and placement_wait, but no target worker;
     workers carry their labels). jobs: `cmux-ci status` (/v1/jobs, with target_worker), or None when not read this
-    round. A job wants the bench host when it carries the `bench` label, when every label it needs is one the host
+    round. A job wants the host when it carries the `bench` label, when every label it needs is one the host
     has, when its blocked or placement_wait text names the host, or when it targets the host."""
     host_labels = set()
     for w in (status or {}).get("workers") or []:
@@ -1370,12 +1488,21 @@ def issue_body(state, repo, now):
                       "or not every regressed row; it is not the last measurement."]
     if stale_hours(state, now) > STALE_HOURS:
         lines += ["", f"**Stale:** no finished measurement since {stale_basis(state)} ({round(stale_hours(state, now))} h): "
-                      "the bench host had no idle time, a nightly or dev build kept waiting for a Mac, the commits did not "
+                      "no measure host had idle time, a nightly or dev build kept waiting for a Mac, the commits did not "
                       "build, the regressed rows' parts kept failing, or the tick failed."]
     hosts = state.get("hosts") if isinstance(state.get("hosts"), dict) else {}
-    seen = ", ".join(f"{h} (macOS {(v or {}).get('macos') or '?'})" for h, v in sorted(hosts.items()))
-    coverage = ("Coverage: each Mac part runs on an idle measure worker of the build controller, every part of one "
-                "measurement on one host; a row (named row@host) is compared only with values of the same host. "
+    def host_line(h):
+        info, last = host_info(state, h), host_last_seen(state, h)
+        flags = [f"macOS {info.get('macos') or '?'}"]
+        flags += [f"last part {info['last_part_at']}"] if info.get("last_part_at") else []
+        flags += ["offline"] if host_unreachable(state, h, now) else []
+        flags += [f"gone: no part for over {HOST_GONE_HOURS} h, its regressions closed"] \
+            if last and host_gone(state, h, now) else []
+        return f"{h} ({', '.join(flags)})"
+    seen = ", ".join(host_line(h) for h in sorted(hosts))
+    coverage = ("Coverage: each Mac part runs on an idle measure worker of the build controller, the parts of one "
+                "measurement on the host that built its app (or that holds a regressed row) unless that host takes no part "
+                f"for {HOST_WAIT_HOURS} h; a row (named row@host) is compared only with values of the same host and macOS. "
                 + (f"Hosts measured so far: {seen}." if seen else "No Mac part has run yet."))
     if state.get("mac_off"):
         coverage += f" **Mac parts disabled:** {state['mac_off']}; each measurement records them as not run."
@@ -1705,7 +1832,26 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
         notes.append(note_list(f"the Linux runner class is now {', '.join(sorted(map(str, linux_classes)))}, not judged",
                                class_gone))
     elsewhere = sorted(n for n in old if n not in judged and n not in class_gone and row_host(n) not in ran_on)
-    missing = sorted(n for n in old if n not in judged and n not in class_gone and n not in elsewhere)
+    # A Mac host that ran no part for HOST_GONE_HOURS while this measurement ran Mac parts elsewhere has left the
+    # fleet or is never idle: its regressions can never be confirmed or cleared, so they close (not judged). A host
+    # with nothing on record starts its clock here. A measurement with no Mac part (the Mac route is down) retires none.
+    mac_ran = {mac_host(n) for n in part_rows} - {None}
+    for h in mac_ran:
+        mark_host(state, h, last_part_at=iso(t))
+    host_gone_rows = []
+    if mac_ran:
+        for h in sorted({mac_host(n) for n in elsewhere} - {None}):
+            if host_last_seen(state, h) is None:
+                mark_host(state, h, absent_since=iso(t))
+            elif host_gone(state, h, t):
+                host_gone_rows += [n for n in elsewhere if mac_host(n) == h]
+    if host_gone_rows:
+        gone_hosts = sorted({mac_host(n) for n in host_gone_rows})
+        notes.append(note_list(f"host gone ({', '.join(gone_hosts)}: no part for over {HOST_GONE_HOURS} h while other "
+                               "hosts measured), not judged", sorted(host_gone_rows)))
+        elsewhere = [n for n in elsewhere if n not in host_gone_rows]
+    missing = sorted(n for n in old if n not in judged and n not in class_gone and n not in elsewhere
+                     and n not in host_gone_rows)
     for name in missing + elsewhere:
         regressions.append({**old[name], "unmeasured_at": cur["sha"]})
     regressions.sort(key=lambda r: r["name"])
@@ -1832,8 +1978,9 @@ def plan(o):
     if not state.get("current") and not (candidate and tip_due(state, t)):
         for group in bisect_groups(state):
             rng = group["range"]
-            if any(host_unreachable(state, h, t) for h in {mac_host(n) for n in group["rows"]} - {None}):
-                print(f"perf-cron: the range {rng['good'][:12]}...{rng['bad'][:12]} waits: its host was unreachable")
+            if any(host_avoided(state, h, t) for h in {mac_host(n) for n in group["rows"]} - {None}):
+                print(f"perf-cron: the range {rng['good'][:12]}...{rng['bad'][:12]} waits: its host was offline or "
+                      "took no part lately")
                 continue
             between = range_commits(rng["good"], rng["bad"])
             if between is None:
@@ -1847,7 +1994,8 @@ def plan(o):
     busy, busy_known = None, False
     if not no_mac and (candidate or bisect or state.get("current")):
         busy, busy_known = github_busy(o.repo, o.yield_mode), True
-    d = decide(state, t, candidate, bisect, supported_parts_at, busy, lambda sha: fleet_runs(sha, tip_version), no_mac)
+    d = decide(state, t, candidate, bisect, supported_parts_at, busy, lambda sha: fleet_runs(sha, tip_version), no_mac,
+               controller_route=bool(getattr(o, "controller", False)) and not no_mac)
     state["mac_off"] = no_mac  # the issue says why no Mac row is measured
     if measurement_id(state.get("current")) != loaded_id:
         clear_parts(o.dir)  # a dropped or replaced measurement's part files must never be read as the new one's
@@ -1904,7 +2052,7 @@ def cmd_fleet_check(o):
     if reason and o.not_started:
         os.makedirs(os.path.dirname(os.path.abspath(o.not_started)), exist_ok=True)
         with open(o.not_started, "w") as f:
-            json.dump({"reason": reason}, f)
+            json.dump({"reason": reason, "worker": o.worker}, f)
     write_outputs(o.output, {"ok": "false" if reason else "true", "reason": reason or ""})
 
 
@@ -1935,14 +2083,36 @@ def part_state(code, yielded_to):
     return "yielded" if yielded_to or code in STEP_YIELD_EXITS else "failed"
 
 
+def step_labels(status, worker):
+    """A perf step's labels on worker, as the controller gives them (perf_cron.go perfCronLabels): measure, and bench
+    only on a host with the bench label (a bench worker runs only steps that ask for it; any other host never takes a
+    step that asks for bench). None when /v1/status does not list the worker (pure)."""
+    for w in (status or {}).get("workers") or []:
+        if w.get("name") == worker:
+            return ["bench", "measure"] if "bench" in (w.get("labels") or []) else ["measure"]
+    return None
+
+
 def cmd_run_part(o):
-    """Run one part through `cmux-ci run` (background class, the bench host) and watch the queue: a foreground
-    job that could run on the bench host cancels it (the part runs again on a later tick, at most MAX_YIELDS
-    times)."""
+    """Run one part through `cmux-ci run` (background class, pinned to o.worker) and watch the queue: a foreground
+    job that could run on that host cancels it (the part runs again on a later tick, at most MAX_YIELDS times). The
+    step's labels are the worker's (step_labels); a worker the controller does not list starts no step (not an
+    attempt: NOT_STARTED, as when the fleet check says no)."""
     if not is_sha(o.sha):
         raise SystemExit(f"perf-cron: --sha must be a full commit sha, not {o.sha!r}")
     os.makedirs(o.out, exist_ok=True)
-    argv = [o.client, "run", "--class", "exclusive", "--background", "--measurement", "--label", "bench", "--label", "measure",
+    try:
+        labels = step_labels(http_json(controller_url() + "/v1/status"), o.worker)
+        why = None if labels else f"{o.worker} is not a controller worker now"
+    except (OSError, ValueError, urllib.error.URLError) as error:
+        labels, why = None, f"the controller did not answer ({error!r})"
+    if why:
+        with open(os.path.join(o.out, NOT_STARTED), "w") as f:
+            json.dump({"reason": why, "worker": o.worker}, f)
+        print(f"perf-cron part: not started: {why}")
+        return
+    argv = [o.client, "run", "--class", "exclusive", "--background", "--measurement",
+            *[x for label in labels for x in ("--label", label)],
             "--target-worker", o.worker, "--no-supersede", "--script", "scripts/measure/split-spring.sh", "--ref", o.sha, "--key", o.key,
             "--artifact", o.artifact, "--timeout", str(o.run_seconds), "--queue-timeout", str(PART_QUEUE_SECONDS),
             *[f"--arg={a}" for a in json.loads(o.args)]]
@@ -2168,6 +2338,8 @@ def record_part(cur, part, result, run_url, t=None):
     failure: the next part builds the app itself (split-spring.sh --app-cache builds on a cache miss)."""
     if t is not None and not is_linux_part(part):
         end_yield(cur, t)
+    if not is_linux_part(part) and result.get("worker") in (None, cur.get("host")):
+        cur.pop("host_asked_since", None)  # the host answered (any result): give_up_host's wait starts again
     entry = dict(cur["parts"].get(part) or {"yields": 0})
     entry.update({"state": result["state"], "step_id": result.get("step_id"), "run_url": run_url,
                   "seconds": result.get("seconds")})
@@ -2189,11 +2361,13 @@ def record_part(cur, part, result, run_url, t=None):
 
 
 def not_started_reason(part_dir):
+    """(reason, worker) of a part the fleet check did not start; worker is the host it checked, or None."""
     try:
         with open(os.path.join(part_dir, NOT_STARTED)) as f:
-            return str((json.load(f) or {}).get("reason") or "")
+            value = json.load(f) or {}
+        return str(value.get("reason") or ""), (value.get("worker") if isinstance(value.get("worker"), str) else None)
     except (OSError, ValueError, AttributeError):
-        return ""
+        return "", None
 
 
 def part_host_refusal(cur, part, result):
@@ -2254,11 +2428,13 @@ def report(o):
         except (OSError, ValueError):
             result = missing_result(part_dir)
         if result is None and not is_linux_part(part):
-            # The fleet check said no: no attempt, but the wait does not count against ABANDON_HOURS, and the issue
-            # says when the bench host is gone from the controller.
+            # The fleet check said no: no attempt, but the wait does not count against ABANDON_HOURS, the issue
+            # says when the bench host is gone from the controller, and a host it found offline is not pinned.
             changed = True
             start_yield(cur, t)
-            note_bench_host(state, not_started_reason(part_dir), t)
+            reason, worker = not_started_reason(part_dir)
+            note_bench_host(state, reason, t)
+            note_host_offline(state, worker, reason, t)
             continue
         if not isinstance(result, dict) or result.get("state") not in ("done", "failed", "yielded"):
             continue
@@ -2278,7 +2454,9 @@ def report(o):
                 fleet_done = True
                 # The host that ran the part: the measurement's later parts are asked for on it (its app cache).
                 cur.setdefault("host", result["worker"])
-                (state.setdefault("hosts", {}).get(result["worker"]) or {}).pop("unreachable_since", None)
+                mark_host(state, result["worker"], last_part_at=iso(t))
+                for key in ("unreachable_since", "waited_at", "absent_since"):
+                    state["hosts"][result["worker"]].pop(key, None)  # it ran a part: online, not silent, not absent
             os.makedirs(os.path.join(o.dir, "parts"), exist_ok=True)
             report = os.path.join(part_dir, "report.json")
             try:
@@ -2288,7 +2466,7 @@ def report(o):
                 value = None
             if isinstance(value, dict) and isinstance(value.get("macos"), str) and not is_linux_part(part):
                 cur["macos"] = entry["macos"] = value["macos"][:16]
-                state.setdefault("hosts", {})[result["worker"]] = {"macos": cur["macos"], "at": iso(t)}
+                mark_host(state, result["worker"], macos=cur["macos"], at=iso(t))
             if value is not None:
                 with open(os.path.join(o.dir, "parts", f"{part}.json"), "w") as dst:
                     json.dump({"measurement": measurement_id(cur), "report": value}, dst)
@@ -2385,14 +2563,14 @@ def report(o):
     json.dump(state, open(os.path.join(o.dir, "state.json"), "w"), indent=1)
     nxt = next_now(state, fleet_done)
     if nxt:
-        line += "; the bench host is idle: the next tick starts now"
+        line += "; a measure host is idle: the next tick starts now"
     print(f"perf-cron report: {line}")
     write_outputs(o.output, {"changed": "true" if changed else "false", "line": line.replace("\n", " "),
                              "next_now": "true" if nxt else "false"})
 
 
 def next_now(state, fleet_done):
-    """Start the next tick at once (pure): a Mac part finished this tick (so the bench host was idle and stayed
+    """Start the next tick at once (pure): a Mac part finished this tick (so its host was idle and stayed
     free for the whole part) and Mac work is left: a fleet part of the measurement in flight, or an open culprit
     range to bisect. The next tick plans and checks the fleet itself, so it still yields; the chain ends at the first
     tick whose Mac part does not finish (yield, fleet check no, failure) or when no Mac work is left."""
@@ -2405,8 +2583,9 @@ def next_now(state, fleet_done):
 
 
 # The controller route (cmuxterm-hq build-fleet/cmd/controller/perf_cron.go, CMUX_CI_PERF_CRON=1): the plan's job
-# `perf cron request <sha> <part>` asks the controller for the part; it queues the background step on the bench host
-# only when that host is idle, and dispatches this workflow with perf_result when the step ends.
+# `perf cron request <sha> <part>[ on <worker>]` asks the controller for the part; it queues the background step on an
+# idle measure worker (the named one, else cmux20-bench first, then the others), and dispatches this workflow with
+# perf_result when the step ends. A request it does not queue gets no answer: decide counts the wait as a yield.
 RESULT_STATES = ("done", "failed", "yielded")
 
 
@@ -2502,15 +2681,18 @@ def main(argv=None):
     s.add_argument("--tip", default="HEAD")
     s.add_argument("--yield-mode", default="queued", choices=["queued", "running"])
     s.add_argument("--no-mac", action="store_true", help="no route for the Mac parts: plan only the Linux part")
+    s.add_argument("--controller", action="store_true",
+                   help="the Mac parts go through the build controller's request route: a request has no answer until "
+                        "its result run, so that wait is a yield, not active time")
     s.add_argument("--perf-result", default="", help="the controller's perf_result: plan nothing, the report stores it")
     s.add_argument("--output")
-    s = sub.add_parser("fleet-check", help="may a part run on the bench host now (gateway)")
+    s = sub.add_parser("fleet-check", help="may a part run on its host now (gateway)")
     s.add_argument("--worker", default=BENCH_WORKER)
     s.add_argument("--client", default=os.path.expanduser("~/.local/bin/cmux-ci"))
     s.add_argument("--yield-mode", default="queued", choices=["queued", "running"])
     s.add_argument("--output")
     s.add_argument("--not-started", help=f"when the answer is no, write {NOT_STARTED} with the reason here")
-    s = sub.add_parser("run-part", help="run one part on the bench host (gateway)")
+    s = sub.add_parser("run-part", help="run one part on its host (gateway)")
     s.add_argument("--sha", required=True)
     s.add_argument("--args", required=True, help="JSON list of split-spring.sh args")
     s.add_argument("--artifact", required=True)
@@ -2539,7 +2721,7 @@ def main(argv=None):
     s = sub.add_parser("fetch-result", help="write a controller result's result.json and report.json (report job)")
     s.add_argument("--result", required=True, help="the perf_result JSON")
     s.add_argument("--out", required=True)
-    s = sub.add_parser("dispatch-next", help="start the next tick now (report, when the bench host stayed idle)")
+    s = sub.add_parser("dispatch-next", help="start the next tick now (report, when a measure host stayed idle)")
     s.add_argument("--repo", required=True)
     o = ap.parse_args(argv)
     {"fetch-state": cmd_fetch_state, "plan": cmd_plan, "fleet-check": cmd_fleet_check, "run-part": cmd_run_part,

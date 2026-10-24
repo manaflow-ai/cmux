@@ -1155,7 +1155,7 @@ class HostTests(OneRunRule):
         self.assertEqual(state["hosts"]["aws-m4pro-9"]["macos"], "26.4.1")
         body = cron.issue_body(state, "o/r", at(1))
         self.assertIn("on aws-m4pro-9 (macOS 26.4.1)", body)
-        self.assertIn("aws-m4pro-9 (macOS 26.4.1)", body.split("Coverage:")[1])
+        self.assertIn("aws-m4pro-9 (macOS 26.4.1, last part ", body.split("Coverage:")[1])
         with tempfile.TemporaryDirectory() as d:
             state = self.report_tick(d, {"motion": motion}, base, host="cmux20-bench",
                                      result={"state": "done", "worker": "cmux20-bench"})

@@ -385,6 +385,10 @@ esac
 """
 
 
+# The bench host as /v1/status lists it (run-part takes the step's labels from it).
+BENCH_WORKERS = [{"name": cron.BENCH_WORKER, "labels": ["bench", "measure", "macos-27"]}]
+
+
 class RunPartTests(unittest.TestCase):
     """cmd_run_part with a fake cmux-ci: step id parse, cancel on a foreground job, exit-code mapping."""
 
@@ -400,7 +404,7 @@ class RunPartTests(unittest.TestCase):
         env = {"FAKE_LOG": log, "FAKE_EXIT": str(exit_code), "FAKE_SECONDS": seconds}
         real_sleep = cron.time.sleep
         with mock.patch.dict(os.environ, env), mock.patch.object(cron.time, "sleep", lambda s: real_sleep(0.3)), \
-                mock.patch.object(cron, "http_json", lambda url, timeout=30: status or {"queue": []}), \
+                mock.patch.object(cron, "http_json", lambda url, timeout=30: {**(status or {"queue": []}), "workers": BENCH_WORKERS}), \
                 mock.patch("sys.stdout", io.StringIO()):
             cron.cmd_run_part(argparse.Namespace(sha=sha(5), args='["--suite=budgets"]', artifact="a/report.json", key="k",
                                                  run_seconds=900, out=out, worker=cron.BENCH_WORKER, client=client))
@@ -416,7 +420,8 @@ class RunPartTests(unittest.TestCase):
         self.assertTrue(any(c.startswith("artifact abcdef1234567890") for c in calls))
         self.assertTrue(os.path.exists(os.path.join(out, "report.json")))
         run = next(c for c in calls if c.startswith("run "))
-        for flag in ("--background", "--measurement", f"--target-worker {cron.BENCH_WORKER}", f"--ref {sha(5)}", "--arg=--suite=budgets"):
+        for flag in ("--background", "--measurement", "--label bench --label measure", f"--target-worker {cron.BENCH_WORKER}",
+                     f"--ref {sha(5)}", "--arg=--suite=budgets"):
             self.assertIn(flag, run)
 
     def test_fleet_exits_yield_and_a_timeout_fails(self):
