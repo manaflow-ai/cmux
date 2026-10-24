@@ -484,6 +484,7 @@
         "CmuxNextDesign",
         "CmuxNextIcons",
         "CmuxNextRemoteFetch",
+        "CmuxNextRemoteLayer",
         "CmuxNextWakeups"
       ],
       "packages": []
@@ -1423,6 +1424,12 @@
       "targets": [
         "CmuxNextCompat"
       ],
+      "packages": []
+    },
+    "CmuxNextRemoteLayer": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteLayer",
+      "targets": [],
       "packages": []
     },
     "CmuxNextRemoteLocalhost": {
