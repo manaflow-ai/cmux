@@ -149,6 +149,10 @@ path = "tests/test_build_metrics.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_swift_typecheck_diagnostics.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_check_package_resolved_policy.py"
 lane = "linux-guard"
 
