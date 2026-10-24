@@ -13,7 +13,10 @@ Two rules refuse a push:
    passes. In the rows whose sites have an identity (globals by owner and name or by type, broadcasts by
    literal, an assumeIsolated outside an adapter by the type and function around it), a new site that no
    removed site accounts for is refused even when the total holds: a swap (remove one singleton or unproved
-   call, add another) adds debt. A new layer edge or unplaced target is the layer gate's refusal
+   call, add another) adds debt. The owner type is part of that identity on purpose: a typeless static or an
+   unproved call moved to another type (a renamed owner, a static extracted into a new Coordinator) counts as
+   new debt there, so the move fixes it or carries a dated exception (arch_counts "Site identity"). A new
+   layer edge or unplaced target is the layer gate's refusal
    (arch_rules/layer_gate.py): the layer rows hold the total only, and the unit of a layer row's rise that
    a gate refusal answers is not refused again (one refusal, one dated entry per edge). Rows: layer_hard, layer_soft,
    layer_upward, layer_unplaced, stateful_singletons, global_mutable_statics,
@@ -25,8 +28,11 @@ Two rules refuse a push:
    and it refuses a rise no pending exception covers, unless commits already on origin/feat-cmux-next made
    it (a GitHub merge, --no-verify, a clone with an old hook): that debt is not the runner's, so --update
    warns, names the commits and records the rise with a generated applied entry (`raised_by`: the commits),
-   which this rule re-checks (each commit on origin/feat-cmux-next, their rises at least its allow) and
-   which allows no rise in any push's code.
+   which allows no rise in any push's code. This rule re-derives such an entry as --update does
+   (generated_allowance): each commit is on origin/feat-cmux-next, after the old record's measured_sha and
+   in the new one's, named by no earlier applied entry and by no second open entry, and the allowance is at
+   most both the commits' rises and the net rise where the new measured_sha meets origin/feat-cmux-next. A
+   hand-written or copied generated entry therefore lets the totals take no rise the record missed.
 
 The one escape: a dated entry the push adds to the json's `exceptions`
 ({"date": "YYYY-MM-DD", "row": "<row>", "allow": <n>, "why": "..."}) lets that push raise the row by n
@@ -313,12 +319,16 @@ def added_exceptions(old: dict | None, new: dict | None, known) -> tuple[dict[st
     return allow, notes
 
 
-def applied_exceptions(old: dict | None, new: dict | None, known, verify=None) -> dict[str, int]:
+def applied_exceptions(old: dict | None, new: dict | None, known, derive=None) -> dict[str, int]:
     """{row: allowance} of the valid entries NEW has applied that are not OLD's applied entries (multiset):
-    what an --update in the range folded into the totals. A generated entry counts only when VERIFY(entry)
-    holds (none: it does not)."""
-    return allowance([e for e in open_entries(old, new) if isinstance(e, dict) and e.get("applied_sha")
-                      and (not generated(e) or (verify is not None and verify(e)))], known)
+    what an --update in the range folded into the totals. The generated entries among them give what
+    DERIVE(generated entries) re-derives ({row: n}; none: they give nothing)."""
+    opened = [e for e in open_entries(old, new) if isinstance(e, dict) and e.get("applied_sha")]
+    out = allowance([e for e in opened if not generated(e)], known)
+    if derive is not None:
+        for row, n in derive([e for e in opened if generated(e)]).items():
+            out[row] = out.get(row, 0) + n
+    return out
 
 
 def changed_applied(old: dict | None, new: dict | None) -> list[str]:
@@ -383,7 +393,7 @@ def count_rule(per_range: list[Changes], answered: dict[str, int] | None = None)
             head += f", {by_module} answered by a rule module's refusal"
         if len(new) > max(total, 0):
             head += (f", {len(new)} new site(s) that replace none the push removes (a swap adds debt even when the "
-                     "total holds)")
+                     "total holds; a static or unproved call moved to another type counts as new debt)")
         lines = [head + (f", {allowed} allowed by the exceptions this push adds" if allowed else "")]
         for site in (new or delta.new_sites(row.id))[:12]:
             place = f"{site.path}:{site.line}" if site.line else site.path
@@ -471,29 +481,104 @@ def keyed_refusal(item, rule_id: str) -> tuple[str, str, tuple, str | None]:
     return row, text, (row, key if isinstance(key, (str, tuple)) else repr(key)), counted
 
 
-def upstream_entry_holds(repo: Path, entry: dict, upstream_ref: str) -> bool:
-    """Whether a generated entry is what --update writes: every `raised_by` commit is on UPSTREAM_REF, and
-    their per-commit rises of the entry's row add up to at least its `allow`."""
+class Derivation:
+    """What generated_allowance reads from git for one push, each once: full counts, per-commit rises, ancestry."""
+
+    def __init__(self, repo: Path, upstream_ref: str):
+        self.repo, self.upstream_ref = repo, upstream_ref
+        self._totals: dict[str, dict[str, int] | None] = {}
+        self._rises: dict[str, object] = {}
+        self._ancestor: dict[tuple[str, str], bool] = {}
+        self._parents: dict[str, int] = {}
+
+    def ancestor(self, sha: str, of: str) -> bool:
+        """Whether commit SHA is OF or an ancestor of it (OF a sha or a ref)."""
+        if (sha, of) not in self._ancestor:
+            self._ancestor[(sha, of)] = git(self.repo, "merge-base", "--is-ancestor", sha, of)[0] == 0
+        return self._ancestor[(sha, of)]
+
+    def parents(self, sha: str) -> int:
+        """The number of parents of SHA (-1: no such commit)."""
+        if sha not in self._parents:
+            code, out = git(self.repo, "rev-list", "--parents", "-n", "1", sha)
+            self._parents[sha] = len(out.split()) - 1 if code == 0 and out else -1
+        return self._parents[sha]
+
+    def rise(self, sha: str, row: str) -> int:
+        """ROW's rise in commit SHA over its first parent, from git objects only (as raised_by counts it)."""
+        if sha not in self._rises:
+            try:
+                self._rises[sha] = load_counts().delta_count(self.repo, f"{sha}^1", sha, use_worktree=False)
+            except RuntimeError:
+                self._rises[sha] = None
+        delta = self._rises[sha]
+        return max(0, delta.total(row)) if delta is not None else 0
+
+    def totals_where_met(self, sha: str) -> dict[str, int] | None:
+        """The full-count totals where SHA meets UPSTREAM_REF (what --update's upstream_rises counts), or None."""
+        if sha not in self._totals:
+            code, meet = git(self.repo, "merge-base", sha, self.upstream_ref)
+            self._totals[sha] = load_counts().full_count(self.repo, meet)[1].totals() if code == 0 and meet else None
+        return self._totals[sha]
+
+
+def generated_allowance(old: dict, new: dict, entries: list, derivation: Derivation) -> dict[str, int]:
+    """{row: n} the generated ENTRIES (the ones NEW applies over OLD) allow, re-derived as --update derives
+    them, so a hand-written or copied `raised_by` entry gives no more than the upstream rise it names.
+
+    An entry counts only when it is well formed (a valid exception of a count row, `raised_by` a non-empty
+    list of full shas) and every commit it names is a non-merge commit on UPSTREAM_REF that NEW's
+    measured_sha contains and OLD's measured_sha does not (a commit before the old record was counted
+    there already), that no applied entry of OLD names, and that no other entry of ENTRIES names for the
+    same row (a verbatim copy of an entry names the same commits as the original, so neither counts). Per
+    row the allowance is the smallest of: the counted entries' `allow` sum, the sum of their commits' rises
+    of the row over each first parent, and the net rise over OLD's total where NEW's measured_sha meets
+    UPSTREAM_REF (a rise a later upstream commit undid is none). Only a push whose json brings a generated
+    entry pays the full count and the per-commit counts (from FactsCache when warm).
+    """
     counts = load_counts()
-    shas, row = entry.get("raised_by"), entry.get("row")
-    if (row not in counts.ROW_IDS or not isinstance(shas, list) or not shas
-            or not all(isinstance(x, str) and counts.SHA.fullmatch(x) for x in shas)):
-        return False
-    if not all(on_upstream(repo, x, upstream_ref) for x in shas):
-        return False
-    try:
-        rise = sum(max(0, counts.delta_count(repo, f"{x}^1", x, use_worktree=False).total(row)) for x in set(shas))
-    except RuntimeError:
-        return False
-    return isinstance(entry.get("allow"), int) and rise >= entry["allow"]
+    since, until = old.get("measured_sha"), new.get("measured_sha")
+    before = old.get("totals") if isinstance(old.get("totals"), dict) else {}
+    if (not entries or not all(isinstance(x, str) and counts.SHA.fullmatch(x) for x in (since, until))
+            or derivation.parents(since) < 0):
+        return {}  # no old record to bound the commits by (a missing commit is no ancestor of anything)
+    named_before = {x for e in exceptions_of(old) if isinstance(e, dict) and e.get("applied_sha")
+                    and isinstance(e.get("raised_by"), list) for x in e["raised_by"] if isinstance(x, str)}
+    named = collections.Counter((e["row"], x) for e in entries if isinstance(e.get("row"), str)
+                                and isinstance(e.get("raised_by"), list) for x in e["raised_by"] if isinstance(x, str))
+
+    def holds(entry: dict) -> bool:
+        shas, row = entry.get("raised_by"), entry.get("row")
+        if (row not in counts.ROW_IDS or not valid_exception(entry, counts.ROW_IDS) or not isinstance(shas, list)
+                or not shas or not all(isinstance(x, str) and counts.SHA.fullmatch(x) for x in shas)):
+            return False
+        return all(named[(row, x)] == 1 and x not in named_before and derivation.parents(x) == 1
+                   and derivation.ancestor(x, derivation.upstream_ref) and derivation.ancestor(x, until)
+                   and not derivation.ancestor(x, since) for x in shas)
+
+    claimed: dict[str, int] = {}
+    commits: dict[str, set[str]] = collections.defaultdict(set)
+    for entry in entries:
+        if holds(entry):
+            claimed[entry["row"]] = claimed.get(entry["row"], 0) + entry["allow"]
+            commits[entry["row"]].update(entry["raised_by"])
+    out = {}
+    for row, n in claimed.items():
+        met = derivation.totals_where_met(until)
+        if met is None or not isinstance(before.get(row), int):
+            continue
+        n = min(n, sum(derivation.rise(x, row) for x in sorted(commits[row])), met[row] - before[row])
+        if n > 0:
+            out[row] = n
+    return out
 
 
 def record_rule(per_range: list[Changes], upstream_ref: str = UPSTREAM) -> tuple[list[tuple[str, str]], list[str]]:
     """Rule 2: the push may not raise a ratcheted total of arch-ratchet.json beyond the exceptions it newly
     applies, delete the file, change or drop an applied exception, or change method_version without the
     arch_counts.py change that makes it. A merge counts a rise only when every range shows it (PER_RANGE as
-    count_rule's). A generated entry (--update's record of a rise already on UPSTREAM_REF) covers a rise only
-    when upstream_entry_holds."""
+    count_rule's). A generated entry (--update's record of a rise already on UPSTREAM_REF) covers only what
+    generated_allowance re-derives for it."""
     counts = per_range[0].counts
     rel = counts.RATCHET_JSON
     if not all(any(path == rel for _, path in c.files) for c in per_range):
@@ -524,17 +609,10 @@ def record_rule(per_range: list[Changes], upstream_ref: str = UPSTREAM) -> tuple
         return [], [f"arch-ratchet: {rel} changes method v{olds[0].get('method_version')} -> "
                     f"v{new.get('method_version')} with {counts.METHOD_FILE}: its totals are not compared (review "
                     "the row definitions)"]
-    checked: dict[str, bool] = {}
-
-    def verify(entry: dict) -> bool:
-        key = exception_key(entry)
-        if key not in checked:
-            checked[key] = upstream_entry_holds(per_range[0].repo, entry, upstream_ref)
-        return checked[key]
-
+    derivation = Derivation(per_range[0].repo, upstream_ref)
     rises: list[dict[str, tuple[int, int, int]]] = []
     for old in olds:
-        allow = applied_exceptions(old, new, known, verify)
+        allow = applied_exceptions(old, new, known, lambda entries, old=old: generated_allowance(old, new, entries, derivation))
         found = {}
         for row in counts.ROWS:
             was, now = (old.get("totals") or {}).get(row.id), (new.get("totals") or {}).get(row.id)
@@ -547,7 +625,8 @@ def record_rule(per_range: list[Changes], upstream_ref: str = UPSTREAM) -> tuple
         refusals.append((RECORD_ROW, f"arch-ratchet: [{RECORD_ROW}] {rel} raises {row_id} from {was} to {now} "
                                      f"(+{now - was}; the exceptions it applies allow {allowed}). Only "
                                      "scripts/cmux-next/arch-ratchet.py --update writes the totals, and it refuses a "
-                                     "rise no pending exception covers: add "
+                                     "rise no pending exception covers (a generated `raised_by` entry covers only the "
+                                     "rise its commits made on origin/feat-cmux-next after the old record): add "
                                      f"{exception_form(row_id, now - was - allowed)} to its exceptions and rerun it."))
     return refusals, []
 

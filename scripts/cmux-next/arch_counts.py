@@ -82,9 +82,14 @@ codebase-health.py imports these patterns, analyze(), count_texts() and layers()
 one definition of every row (arch-layers.py, PL-arch's, keeps its own grep counts).
 
 Site identity (Delta.unpartnered, the ratchet's swap rule): a counted global keeps its identity by its owner
-and name (`Store.shared`; the file and name for a file-scope global) or by its primary type, a broadcast by
-its literal (or its message type), an assumeIsolated outside an adapter by the type and function around it,
-a layer edge by its two targets.
+and name (static_name: `Store.shared`; `<package>:<name>` for a file-scope global, so a file moved or renamed
+within its package keeps its globals) or by its primary type, a broadcast by its literal (or its message
+type), an assumeIsolated outside an adapter by the type and function around it, a layer edge by its two
+targets. The owner is part of the identity on purpose: a static or an unproved assumeIsolated call moved to
+another type (a renamed owner, or a static extracted from a god type into a new Coordinator) is another site,
+new debt in that type. A typed global still finds its partner by its type; a typeless static (`static var
+hook: ((String) -> Void)?`) and an unproved call have no other key, so their move is a swap: fix the debt in
+the move (an injected instance; the call in a seam adapter with its `main-proof:`) or carry a dated exception.
 
 Delta mode (the pre-push hook) reads only the files a range changes, at both ends, and gives the same
 numbers as two full counts subtracted (tests/test_arch_ratchet.py checks it). Statics that keep their
@@ -109,8 +114,9 @@ Usage:
   scripts/cmux-next/arch_counts.py [--rev REV] [--json]     full count at REV (default HEAD)
   scripts/cmux-next/arch_counts.py --sites ROW [--rev REV]  the sites of ROW
   scripts/cmux-next/arch_counts.py --delta BASE HEAD [--json]
-The one writer of plans/cmux-next/arch-ratchet.json is `arch-ratchet.py --update` (it refuses a rise that
-no dated exception covers).
+The one writer of plans/cmux-next/arch-ratchet.json is `arch-ratchet.py --update`: it refuses a rise that
+no dated exception covers, except one that commits already on origin/feat-cmux-next made, which it records
+with a generated applied entry naming them (`raised_by`).
 """
 
 from __future__ import annotations
@@ -128,6 +134,7 @@ import sqlite3
 import subprocess
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 # v2: file-scope globals, weak/unowned statics, closure and factory initializers, held struct state, any link
 # depth, one main-proof per call, KVO and CFNotificationCenter observers, no composition-root exemption.
@@ -1103,17 +1110,23 @@ def lookup_name(name: str | None) -> bool:
     return bool(name) and (name.startswith(FUNC) or repo_type_name(name))
 
 
-def static_site(row: str, path: str, static: Static) -> Site:
-    """The site of a counted static: it keeps its identity through a rename (by its type) or a retype (by
-    its owner and name).
+def static_name(package: str, static: Static) -> str:
+    """The owner-qualified name of a counted static: `Store.shared` for a static of `Store` (or of an
+    `extension Store`), `<package>:cache` for a file-scope global of PACKAGE.
 
-    The name key is owner-qualified: `name:Store.shared` for a static of `Store` (or of an `extension
-    Store`), `name:<path>:cache` for a file-scope global. A bare name would make every `shared` the partner
-    of every other `shared`, so removing `Store.shared = Store()` and adding `Hub.shared = Cache()` would
-    read as a retype instead of a swap.
+    The one name identity of a static: static_site's `name:` key (the swap rule) and _static_identity (the
+    delta cancel) both use it. A bare name would make every `shared` the partner of every other `shared`, so
+    removing `Store.shared = Store()` and adding `Hub.shared = Cache()` would read as a retype instead of a
+    swap. The owner stays in it when the owner is renamed or the static moves to another type: that is
+    another static (see the module docstring, "Site identity").
     """
-    ident = f"{static.owner}.{static.name}" if static.owner else f"{path}:{static.name}"
-    keys = (f"name:{ident}",) + ((f"type:{static.types[0]}",) if static.types else ())
+    return f"{static.owner}.{static.name}" if static.owner else f"{package}:{static.name}"
+
+
+def static_site(row: str, package: str, path: str, static: Static) -> Site:
+    """The site of a counted static of PACKAGE at PATH: it keeps its identity through a rename (by its type)
+    or a retype (by its owner and name, static_name)."""
+    keys = (f"name:{static_name(package, static)}",) + ((f"type:{static.types[0]}",) if static.types else ())
     return Site(row, path, static.line, static.text, keys)
 
 
@@ -1794,7 +1807,7 @@ def count_facts(counts: Counts, facts: FileFacts, table: TypeTable) -> None:
     for st in facts.statics:
         row = classify(st, facts.path, table)
         if row:
-            counts.add_site(static_site(row, facts.path, st), facts.package)
+            counts.add_site(static_site(row, facts.package, facts.path, st), facts.package)
     if facts.package == APP_PACKAGE:
         counts.rows["app_lines"][APP_PACKAGE] += facts.lines
 
@@ -2129,17 +2142,28 @@ def _may_flip(a: collections.Counter | None, b: collections.Counter | None) -> b
     return False
 
 
-def _static_identity(f: FileFacts, st: Static) -> tuple:
-    """What makes a static at one end the same static at the other: its package, owner and name (the
-    `name:` key of static_site, without the file for a file-scope global, so a file moved or renamed within
-    its package keeps its globals), and the types, keyword and container that classify() reads.
+class StaticIdentity(NamedTuple):
+    """What makes a static at one end of a range the same static at the other (_static_identity)."""
+
+    package: str
+    name: str  # static_name: the owner-qualified name, `<package>:<name>` at file scope
+    types: tuple[str, ...]
+    keyword: str
+    container: bool
+
+
+def _static_identity(f: FileFacts, st: Static) -> StaticIdentity:
+    """A static's package, its name as static_site's `name:` key has it (static_name: the owner and name, or
+    the package and name for a file-scope global, so a file moved or renamed within its package keeps its
+    globals), and the types, keyword and container that classify() reads.
 
     Only statics equal by all of these cancel unseen in delta mode. Every other static the range changes is
     classified at its end, so its site carries its own line and Delta.unpartnered judges it: a typeless
-    `static var` removed from one type and added to another of the same package is a swap there, and the
-    refusal names the static the push added, not the first one of the same shape in the file.
+    `static var` removed from one type and added to another of the same package (a renamed owner too) is a
+    swap there, and the refusal names the static the push added, not the first one of the same shape in the
+    file.
     """
-    return (f.package, st.owner, st.name, st.types, st.keyword, st.container)
+    return StaticIdentity(f.package, static_name(f.package, st), st.types, st.keyword, st.container)
 
 
 def delta_count(repo: Path, base: str, head: str, use_worktree: bool = True, cache: bool = True) -> Delta:
@@ -2220,7 +2244,7 @@ def _delta(git: Git, base: str, head: str, worktree: Path | None, dirty_proc: su
     keys = {r: collections.Counter(_static_identity(f, st) for f in facts[r].values() if f for st in f.statics)
             for r in (base, head)}
     net = {base: keys[base] - keys[head], head: keys[head] - keys[base]}
-    wanted = {t for r in (base, head) for k in net[r] for t in k[3]}
+    wanted = {t for r in (base, head) for k in net[r] for t in k.types}
     if not any(lookup_name(n) for n in wanted | redeclared):
         table = TypeTable(lambda name: [])
         tables = {base: table, head: table}
@@ -2291,7 +2315,7 @@ def _count_statics(base, head, files, facts, net, redeclared, tables, lookup, be
                     left[key] -= 1
                 row = classify(st, f.path, tables[r])
                 if row:
-                    counts.add_site(static_site(row, f.path, st), f.package)
+                    counts.add_site(static_site(row, f.package, f.path, st), f.package)
 
     if lookup is not None and flips:
         overlay_paths = set(lookup.overlay[head])
@@ -2303,7 +2327,7 @@ def _count_statics(base, head, files, facts, net, redeclared, tables, lookup, be
                     if flips.intersection(st.types):
                         row = classify(st, f.path, tables[r])
                         if row:
-                            counts.add_site(static_site(row, f.path, st), f.package)
+                            counts.add_site(static_site(row, f.package, f.path, st), f.package)
     return Delta(base, head, files, before, after)
 
 
@@ -2326,7 +2350,12 @@ def record(sha: str, counts: Counts, lay: Layers, exceptions: list | None = None
                  "one escape is a dated exception: add {\"date\": \"YYYY-MM-DD\", \"row\": \"<row>\", \"allow\": <n>, "
                  "\"why\": \"...\"} to exceptions; the push that adds it may raise that row by n, and the next "
                  "--update folds it into the totals and marks it with applied_sha (an applied entry is never edited "
-                 "or removed). --update refuses a rise that no pending exception covers. Never CI."),
+                 "or removed). --update refuses a rise that no pending exception covers, except a rise that "
+                 "commits already on origin/feat-cmux-next made past the hook (a GitHub merge, --no-verify): it "
+                 "records that one with a generated applied entry whose raised_by names those commits. A generated "
+                 "entry allows no rise in any push's code, and the push that brings it is re-checked: its commits "
+                 "must be on origin/feat-cmux-next, after the old measured_sha and in the new one, named by no "
+                 "other entry, and its allow at most their rise. Never CI."),
         "method": "arch_counts",
         "method_version": METHOD_VERSION,
         "measured_sha": sha,
