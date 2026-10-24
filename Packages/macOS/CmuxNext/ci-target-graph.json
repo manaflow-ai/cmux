@@ -1768,6 +1768,24 @@
       "targets": [],
       "packages": []
     },
+    "CmuxNextUiLayerPreview": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextUiLayerPreview",
+      "targets": [
+        "CmuxNextDesign",
+        "CmuxNextIcons"
+      ],
+      "packages": []
+    },
+    "CmuxNextUiLayerPreviewTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextUiLayerPreviewTests",
+      "targets": [
+        "CmuxNextUiLayerPreview"
+      ],
+      "packages": [],
+      "reads": []
+    },
     "CmuxNextUpdater": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater",
