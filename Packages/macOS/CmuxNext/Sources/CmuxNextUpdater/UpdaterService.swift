@@ -267,6 +267,7 @@ public final class UpdaterService {
     public func start() {
         guard !started else { return }
         started = true
+        if presentUpdateUI != nil { KillSwitchReader.start(updater: self) }
         observeFlowPhase()
         refreshAnnouncements()
         refreshTip()
