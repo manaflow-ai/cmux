@@ -228,8 +228,7 @@ pub(crate) fn holder_local_launch(
             let end = waited.sink.wait_end();
             if end != SinkEnd::Detached {
                 // Ended: the holder may forget it.
-                let _ = waited.service.close(waited.chan, 0);
-                waited.service.untrack(waited.chan);
+                waited.service.end(waited.chan);
             }
             terminal_end(end)
         }),

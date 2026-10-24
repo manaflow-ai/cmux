@@ -7,7 +7,9 @@
 //! this daemon, by an entry kept for a re-attach (the startup pass's, or a
 //! terminal this daemon left for the next one at its shutdown), or it is
 //! ended. A spawn or re-attach in flight finishes before a new link decides
-//! ([`HolderService::claimed_link`]), so what it claims is live by then.
+//! ([`HolderService::claimed_link`]), so what it claims is live by then,
+//! and a terminal that ends gives up its claim at one instant
+//! ([`HolderService::end`]).
 
 use std::collections::{HashMap, HashSet};
 use std::io::{self, BufRead, BufReader, Write};
@@ -78,9 +80,11 @@ pub(crate) struct HolderService {
     next_chan: AtomicU32,
     owned: Mutex<Owned>,
     /// Held shared by a spawn or re-attach from the moment it takes the
-    /// link until the terminal it claims is live (or it failed), and
-    /// exclusively by a new link's ownership pass: that pass never ends or
-    /// misses a terminal an operation in flight is about to claim.
+    /// link until the terminal it claims is live (or it failed), and by a
+    /// terminal's end while it gives up its claim; exclusively by a new
+    /// link's ownership pass: that pass never ends or misses a terminal an
+    /// operation in flight is about to claim, and never resumes one whose
+    /// CLOSE was just dropped.
     claims: RwLock<()>,
     /// Another daemon of the session took the holder: this one never
     /// connects again, so the two do not take it from each other in turn.
@@ -422,9 +426,10 @@ impl HolderService {
 
     /// Hang up `chan`'s terminal; SIGKILL its groups after `grace_ms`.
     /// Never connects or starts a holder, so a surface may call it under
-    /// its own locks. The CLOSE is kept until `chan` is untracked and each
-    /// new link (a holder restart) sends it again; without an open link
-    /// this returns an error, so the caller can signal the shell itself.
+    /// its own locks. The CLOSE is kept until the terminal ends
+    /// ([`Self::end`]) and each new link (a holder restart) sends it again;
+    /// without an open link this returns an error, so the caller can signal
+    /// the shell itself.
     pub(crate) fn close(&self, chan: u32, grace_ms: u32) -> io::Result<()> {
         let link = {
             let mut slot = self.link.lock().recover_poison();
@@ -490,8 +495,21 @@ impl HolderService {
         }
     }
 
-    /// Stop tracking `chan` (its terminal ended or its surface left).
-    pub(crate) fn untrack(&self, chan: u32) {
+    /// This daemon is done with `chan`: its terminal ended, or its surface
+    /// never came to be. CLOSE it (now, or on the next link) and stop
+    /// tracking it, under a claim, so a new link's pass sees it either still
+    /// live (and the CLOSE goes to that link once it is published) or gone
+    /// (and the pass ends it as nobody's). Before, a pass could resume it
+    /// in between and its CLOSE was dropped: the ended terminal and its ring
+    /// stayed on the holder.
+    pub(crate) fn end(&self, chan: u32) {
+        let _claim = self.claims.read().recover_poison();
+        let _ = self.close(chan, 0);
+        self.untrack(chan);
+    }
+
+    /// Stop tracking `chan` ([`Self::end`]).
+    fn untrack(&self, chan: u32) {
         self.owned.lock().recover_poison().live.remove(&chan);
         let link = {
             let mut slot = self.link.lock().recover_poison();

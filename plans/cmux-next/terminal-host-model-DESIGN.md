@@ -190,8 +190,9 @@ processes and ~2,000 threads fewer.
   it on the same holder and hands it to a new holder unattached, never CLOSEs it, and gets its
   DETACH after the pass. Every other terminal reconnects as before (before: the first DETACH set
   a service-wide mode that stopped every reconnect, so the terminals not detached yet stopped
-  streaming and a holder crash during the shutdown lost them). Tests:
-  `holder_runtime/service/tests.rs` against a real holder behind a frame proxy.
+  streaming and a holder crash during the shutdown lost them). A terminal that ends CLOSEs and
+  untracks under a claim (`HolderService::end`), so a pass never resumes it after dropping its
+  CLOSE. Tests: `holder_runtime/service/tests.rs` against a real holder behind a frame proxy.
 - Holder crash: the daemon still has every master and its parsed state; it starts a new holder
   and ADOPTs every fd. Output written while no holder reads waits in the kernel's PTY buffer (the
   shell blocks, nothing is lost). Exit statuses of shells whose parent died read

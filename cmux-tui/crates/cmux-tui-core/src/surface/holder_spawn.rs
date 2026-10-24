@@ -86,8 +86,7 @@ impl Surface {
         );
         if launched.is_err() {
             // The surface never existed: its shell must not outlive it.
-            let _ = service.close(terminal.chan, 0);
-            service.untrack(terminal.chan);
+            service.end(terminal.chan);
         }
         launched
     }
@@ -119,8 +118,7 @@ impl Surface {
         {
             Ok(reservation) => reservation,
             Err(error) => {
-                let _ = service.close(terminal.chan, 0);
-                service.untrack(terminal.chan);
+                service.end(terminal.chan);
                 return Err(error);
             }
         };
@@ -156,8 +154,7 @@ impl Surface {
         if adopted.is_err() {
             // No surface shows it, and the startup pass no longer lists it:
             // end it rather than leave it on the holder for ever.
-            let _ = service.close(terminal.chan, 0);
-            service.untrack(terminal.chan);
+            service.end(terminal.chan);
         }
         adopted.map(Some)
     }
