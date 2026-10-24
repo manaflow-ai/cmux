@@ -237,6 +237,14 @@ Filtering the log data using "subsystem == ..."
 {"eventType":"signpostEvent","subsystem":"com.cmuxterm.app.next","category":"action","signpostName":"action.gate","signpostID":12,"signpostType":"end","processID":1,"machTimestamp":5000500000,"timestamp":"2026-10-23 04:55:45.000500-0700","eventMessage":""}
 {"eventType":"signpostEvent","subsystem":"com.cmuxterm.app.next","category":"action","signpostName":"action.perform","signpostID":13,"signpostType":"begin","processID":1,"machTimestamp":6000000000,"timestamp":"2026-10-23 04:55:46.000000-0700","eventMessage":"id=tab.new origin=user input_age_ms=0.20"}
 {"eventType":"signpostEvent","subsystem":"com.cmuxterm.app.next","category":"action","signpostName":"action.perform","signpostID":13,"signpostType":"end","processID":1,"machTimestamp":8000000000,"timestamp":"2026-10-23 04:55:48.000000-0700","eventMessage":"loop=nested"}
+{"eventType":"signpostEvent","subsystem":"com.cmuxterm.app.next","category":"key","signpostName":"key.scroll_frame","signpostID":20,"signpostType":"begin","processID":1,"machTimestamp":9000000000,"timestamp":"2026-10-23 04:55:49.000000-0700","eventMessage":"phase=changed age_ms=2.00"}
+{"eventType":"signpostEvent","subsystem":"com.cmuxterm.app.next","category":"key","signpostName":"key.scroll_frame","signpostID":20,"signpostType":"end","processID":1,"machTimestamp":9004000000,"timestamp":"2026-10-23 04:55:49.004000-0700","eventMessage":"target=layout"}
+{"eventType":"signpostEvent","subsystem":"com.cmuxterm.app.next","category":"key","signpostName":"key.scroll_frame","signpostID":21,"signpostType":"begin","processID":1,"machTimestamp":9100000000,"timestamp":"2026-10-23 04:55:49.100000-0700","eventMessage":"phase=changed age_ms=1.00"}
+{"eventType":"signpostEvent","subsystem":"com.cmuxterm.app.next","category":"key","signpostName":"key.scroll_frame","signpostID":21,"signpostType":"end","processID":1,"machTimestamp":9101000000,"timestamp":"2026-10-23 04:55:49.101000-0700","eventMessage":"target=content"}
+{"eventType":"signpostEvent","subsystem":"com.cmuxterm.app.next","category":"key","signpostName":"key.scroll_frame","signpostID":22,"signpostType":"begin","processID":1,"machTimestamp":9200000000,"timestamp":"2026-10-23 04:55:49.200000-0700","eventMessage":"phase=wheel age_ms=-1.00"}
+{"eventType":"signpostEvent","subsystem":"com.cmuxterm.app.next","category":"key","signpostName":"key.scroll_frame","signpostID":22,"signpostType":"end","processID":1,"machTimestamp":9203000000,"timestamp":"2026-10-23 04:55:49.203000-0700","eventMessage":"target=layout"}
+{"eventType":"signpostEvent","subsystem":"com.cmuxterm.app.next","category":"key","signpostName":"key.scroll_frame","signpostID":23,"signpostType":"begin","processID":1,"machTimestamp":9300000000,"timestamp":"2026-10-23 04:55:49.300000-0700","eventMessage":"phase=began age_ms=0.50"}
+{"eventType":"signpostEvent","subsystem":"com.cmuxterm.app.next","category":"key","signpostName":"key.scroll_frame","signpostID":23,"signpostType":"end","processID":1,"machTimestamp":9400000000,"timestamp":"2026-10-23 04:55:49.400000-0700","eventMessage":"commit=missed target=layout"}
 {"eventType":"lossEvent","eventMessage":"lost 3 unreliable messages","timestamp":"2026-10-23 04:55:44.100000-0700"}
 {"eventType":"signpostEvent","subsystem":"other","category":"action","signpostName":"action.commit","signpostID":7,"signpostType":"end","processID":1,"machTimestamp":1009000000,"timestamp":"2026-10-23 04:55:41.259635-0700","eventMessage":""}
 """
@@ -272,6 +280,14 @@ def self_test() -> int:
     assert not missing_input_age(parsed["intervals"])
     assert parsed["lost"] == 1 and parsed["unpaired"] == 1, parsed
     assert parse(["Dropped 12 messages"], None)["lost"] == 1
+    # key.scroll_frame groups by who took the event (the end's target=), and input to frame adds the begin's
+    # age_ms for events with an age; a missed commit stays out of both, as for action.commit.
+    assert rows[("key.scroll_frame", "layout")]["count"] == 2, rows
+    assert rows[("key.scroll_frame", "content")]["count"] == 1, rows
+    assert rows[("key.scroll_frame.missed", "layout")]["count"] == 1, rows
+    assert abs(rows[("key.scroll_input_to_frame", "layout")]["p50_ms"] - 6.0) < 1e-6, rows
+    assert rows[("key.scroll_input_to_frame", "layout")]["count"] == 1, rows
+    assert abs(rows[("key.scroll_input_to_frame", "content")]["p50_ms"] - 2.0) < 1e-6, rows
     print("self-test ok")
     return 0
 
