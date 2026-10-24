@@ -28,6 +28,7 @@ pub mod output;
 pub mod pairing;
 pub mod process;
 pub mod run;
+pub mod sender;
 pub mod session_folder;
 pub mod session_limits;
 pub mod shutdown;

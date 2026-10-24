@@ -1028,10 +1028,18 @@ async fn dispatch_request(
                 }
                 (provenance, _) => provenance,
             };
+            let declared = crate::hub::declared_sender(&params)?;
+            // A sender that named itself, with neither (`--from`, `ACPMUX_FROM`, a peer daemon
+            // forwarding its own session's prompt): that agent's message,
+            // so the transcript never shows it as the person's. Not a note a session sends itself.
+            let provenance = provenance.or_else(|| {
+                let own = s.meta().name;
+                let name = declared.as_deref().filter(|name| *name != own)?;
+                Some(crate::prompt_provenance::named_sender(name, &s.id))
+            });
             // Another agent's message with no provenance (`hub/digest.rs`): one that names its
             // sender, or one from a connection that proved it runs in an acpmux session.
-            let agent = crate::hub::declared_sender(&params)?
-                .or_else(|| conn.caller().map(|id| hub.session_name(id)));
+            let agent = declared.or_else(|| conn.caller().map(|id| hub.session_name(id)));
             let flag = |k| mux_meta(&params).and_then(|m| m.get(k)).and_then(Value::as_bool);
             let steer = flag("steer").or_else(|| params.get("steer").and_then(Value::as_bool));
             let steer = steer.unwrap_or(false);
