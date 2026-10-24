@@ -4,7 +4,7 @@
 // together so a review can compare the same live work in a pinned panel, after the latest message,
 // a compact pill and a side panel. The real app owns the process/session lifecycle; this board is
 // data-only and never starts a process or sends a session request.
-import { useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { componentEntry, type ComponentVariant } from "../../../gallery/format";
 
 type Surface = "pinned-live-tail" | "after-latest-message";
@@ -14,6 +14,9 @@ type Props = {
   surface: Surface;
   mode: Mode;
 };
+
+type ActivityState = { stopped: Set<string>; stop: (id: string) => void };
+const ActivityStateContext = createContext<ActivityState>({ stopped: new Set(), stop: () => {} });
 
 type Command = {
   id: string;
@@ -94,7 +97,8 @@ function CommandTail({ item, initialOpen = false }: { item: Command; initialOpen
   const [revision, setRevision] = useState(0);
   const [lines, setLines] = useState(() => COMMAND_OUTPUTS[item.id] ?? []);
   const [terminalOpened, setTerminalOpened] = useState(false);
-  const [stopped, setStopped] = useState(false);
+  const activity = useContext(ActivityStateContext);
+  const stopped = activity.stopped.has(item.id);
   const tailRef = useRef<HTMLPreElement>(null);
   useEffect(() => {
     if (open && tailRef.current) tailRef.current.scrollTop = tailRef.current.scrollHeight;
@@ -107,7 +111,7 @@ function CommandTail({ item, initialOpen = false }: { item: Command; initialOpen
   return (
     <details
       className="bg-gallery__command"
-      data-command-state={item.state}
+      data-command-state={stopped ? "stopped" : item.state}
       open={open}
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
@@ -134,7 +138,7 @@ function CommandTail({ item, initialOpen = false }: { item: Command; initialOpen
           <button
             type="button"
             className="bg-gallery__text-button"
-            onClick={() => setStopped(true)}
+            onClick={() => activity.stop(item.id)}
             disabled={stopped}
             aria-label={`Stop ${item.command}`}
           >
@@ -179,13 +183,18 @@ function DoneSummary({ compact = false }: { compact?: boolean }) {
 }
 
 function ActivityHeader({ placement }: { placement: string }) {
+  const { stopped } = useContext(ActivityStateContext);
+  const running = COMMANDS.filter((item) => item.state === "running" && !stopped.has(item.id)).length;
+  const stoppedCount = COMMANDS.filter((item) => item.state === "running" && stopped.has(item.id)).length;
   return (
     <header className="bg-gallery__header">
       <div>
         <span className="bg-gallery__eyebrow">Background activity</span>
         <h2>{placement}</h2>
       </div>
-      <span className="bg-gallery__count-badge">2 running</span>
+      <span className="bg-gallery__count-badge">
+        {running} running{stoppedCount ? ` · ${stoppedCount} stopped` : ""}
+      </span>
     </header>
   );
 }
@@ -219,11 +228,15 @@ function TranscriptSurface() {
 }
 
 function BackgroundActivityGallery({ surface, mode }: Props) {
+  const [stopped, setStopped] = useState<Set<string>>(() => new Set());
+  const activity: ActivityState = { stopped, stop: (id) => setStopped((current) => new Set(current).add(id)) };
   return (
-    <div className="bg-gallery" data-bg-gallery data-mode={mode} data-surface={surface}>
-      {surface === "pinned-live-tail" && <PinnedSurface />}
-      {surface === "after-latest-message" && <TranscriptSurface />}
-    </div>
+    <ActivityStateContext.Provider value={activity}>
+      <div className="bg-gallery" data-bg-gallery data-mode={mode} data-surface={surface}>
+        {surface === "pinned-live-tail" && <PinnedSurface />}
+        {surface === "after-latest-message" && <TranscriptSurface />}
+      </div>
+    </ActivityStateContext.Provider>
   );
 }
 
