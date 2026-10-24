@@ -77,8 +77,12 @@ public nonisolated final class MainRunLoopObserver {
     /// one call, then removes it, so the work cannot be cancelled.
     ///
     /// It does not wake the main run loop. Called on the main thread, `body` runs when the
-    /// pass in progress reaches that stage. Called off the main thread while the main run loop
-    /// sleeps, `body` waits for a pass that other work starts; use
+    /// pass in progress reaches that stage. If it is called inside a callout of a stage in
+    /// `activities` (for example from AppKit's display cycle or a Core Animation commit at
+    /// `.beforeWaiting`), `body` runs at that stage of the next pass, which other work must
+    /// start: the run loop collects a stage's observers before it calls them, so an observer
+    /// added during that stage misses the current pass. Called off the main thread while the
+    /// main run loop sleeps, `body` waits for a pass that other work starts; use
     /// ``MainRunLoopBlock/perform(mode:_:)`` for work that must run promptly.
     ///
     /// ```swift
