@@ -20,8 +20,17 @@ Per mode:
   pacing   the page's requestAnimationFrame intervals during a 3 s CSS animation (`raf_ms`: p50/p95/max,
            `long_frames`: intervals over 1.5 refresh periods), with the display refresh rate.
   ping     helper only: N round trips cmux -> host UI thread -> cmux over the wire (`ping_us`).
-  kill     helper only, last: SIGKILL to the host. Pass when the cmux app's pid is unchanged and answers, a new host
+  kill     helper only: SIGKILL to the host. Pass when the cmux app's pid is unchanged and answers, a new host
            starts by itself (restart policy) and loads the saved page, and the in-process tab still answers.
+  pixels   helper only: the share of screen samples in the probe's background color (a `screencapture` of the main
+           display) before the host page opens (only the in-process page shows it) and after it shows, and again
+           after the kill's restart. Pass when the host page adds at least 2 % of the screen: its pixels really
+           composite through the CALayerHost (the host's page window is never ordered in, and its alpha 0 must not
+           stop the hosted context from drawing).
+  lifetime helper only, after every other row (it kills cmux): `debug.chromium_host close` ends and reaps the host
+           within the quit limit and does not restart it; a host stopped with SIGSTOP (its UI thread never reads
+           `quit`) and then closed is SIGKILLed at the quit limit (15 s); SIGKILL to cmux itself ends the host
+           within the quit limit (it reads EOF on the wire).
   pump     the baseline the move removes: the share of cmux's main thread spent inside Chromium's pump passes
            (CefDoMessageLoopWork and every CEF callback it runs, `debug.cef` pump.work_ms over wall time), in process
            only: `pump_share` idle (page shown, nothing happens) and while the page scrolls (one wheel event per frame),
@@ -34,7 +43,7 @@ Not a gate: exit 1 only when a mode could not run (no host app, refused fork API
 On a fleet GUI host:
   python3 scripts/cmux-next/chromium-host-bench.py --app "<cmux DEV tag.app>" --out DIR [--count 60]
 """
-import argparse, json, os, pathlib, sys, time
+import argparse, json, os, pathlib, signal, struct, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -96,6 +105,54 @@ def main_display_hz():
 
 
 TAB = {}
+# ChromiumHostFrame.quitLimit: how long a host may take to end after `quit` or EOF before it is SIGKILLed / ends itself.
+QUIT_LIMIT_S = 15.0
+# The probe's background (#204080), with room for the display's color conversion.
+PROBE_RGB, PROBE_TOLERANCE = (0x20, 0x40, 0x80), 24
+
+
+def probe_color_share():
+    """The share of main-display samples in the probe's background color, or None when the screen cannot be read
+    (no Screen Recording permission, no display). A BMP capture, read without an imaging library."""
+    with tempfile.TemporaryDirectory() as scratch:
+        path = os.path.join(scratch, "screen.bmp")
+        done = subprocess.run(["/usr/sbin/screencapture", "-x", "-m", "-t", "bmp", path], capture_output=True, timeout=30)
+        if done.returncode != 0 or not os.path.exists(path):
+            return None
+        data = open(path, "rb").read()
+    if data[:2] != b"BM" or len(data) < 54:
+        return None
+    offset = struct.unpack_from("<I", data, 10)[0]
+    width, height = struct.unpack_from("<ii", data, 18)
+    bpp, compression = struct.unpack_from("<HI", data, 28)
+    if bpp not in (24, 32) or compression not in (0, 3) or width <= 0 or height == 0:
+        return None
+    step = bpp // 8
+    stride = (width * step + 3) & ~3
+    rows = abs(height)
+    hits = total = 0
+    for y in range(0, rows, 4):
+        base = offset + y * stride
+        for x in range(0, width, 4):
+            i = base + x * step
+            if i + 3 > len(data):
+                break
+            b, g, r = data[i], data[i + 1], data[i + 2]  # BI_RGB and the BGRA bitfields screencapture writes
+            total += 1
+            if all(abs(c - w) <= PROBE_TOLERANCE for c, w in zip((r, g, b), PROBE_RGB)):
+                hits += 1
+    return round(hits / total, 4) if total else None
+
+
+def pid_gone(pid):
+    """True once `pid` no longer exists; a zombie (ended, not reaped) still counts as there."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return True
+    except PermissionError:
+        return False
+    return False
 
 
 def page_eval(rpc, script):
@@ -147,6 +204,8 @@ def main():
             ok = run_helper(rpc, url, inproc_tab) and ok
         if opts.stress:
             run_stress_pump(rpc)
+        if "helper" in modes and RESULT["modes"].get("helper", {}).get("kill"):
+            ok = run_lifetime(app, url) and ok
     except LaunchError as error:
         RESULT["error"] = error.reason
         ok = False
@@ -252,6 +311,7 @@ def run_helper(rpc, url, inproc_tab):
     # A pane of its own (the in-process page keeps the left one).
     rpc("action.run", {"action": "splitRight", "focus": True, "origin": "script"}, timeout=60)
     time.sleep(1)  # test harness: the split settles
+    pixels = {"before_open": probe_color_share()}
     reply = rpc("debug.chromium_host", {"op": "open", "url": url, "focus": True}) or {}
     if reply.get("error"):
         RESULT["modes"]["helper"] = {"error": reply["error"]}
@@ -261,6 +321,8 @@ def run_helper(rpc, url, inproc_tab):
     if not state:
         RESULT["modes"]["helper"] = {"error": "the host page never showed", "state": rpc("debug.chromium_host")}
         return False
+    time.sleep(0.5)  # test harness: the shown context's first frame reaches the screen
+    pixels["shown"] = probe_color_share()
     title = lambda: (rpc("debug.chromium_host") or {}).get("title")
     # The pane is the focused one; the host page view covers its content: click points are the page's own layout
     # (the probe's elements are at fixed fractions of the viewport), turned into window points by the app.
@@ -303,6 +365,72 @@ def run_helper(rpc, url, inproc_tab):
         "inproc_tab_answers": inproc_alive,
     }
     row["kill"]["pass"] = bool(after) and row["kill"]["app_answers"] and app_pid == (after or {}).get("app_pid")
+    if after:
+        time.sleep(0.5)  # test harness: as above, for the restarted host's context
+        pixels["after_restart"] = probe_color_share()
+    if None in (pixels["before_open"], pixels["shown"]):
+        pixels["error"] = "the screen could not be read (screencapture)"
+    else:
+        added = lambda key: pixels.get(key) is not None and pixels[key] - pixels["before_open"] >= 0.02
+        pixels["pass"] = added("shown") and (not after or added("after_restart"))
+    row["pixels"] = pixels
+    return True
+
+
+def run_lifetime(app, url):
+    """close, SIGSTOP + close and SIGKILL to cmux (the last row: cmux is gone after it)."""
+    rpc = app.rpc
+    row = {}
+    RESULT["modes"]["helper"]["lifetime"] = row
+
+    def shown_host(not_pid):
+        return wait(lambda: (lambda r: r if r.get("shown_context_id") and r.get("pid") and r.get("pid") != not_pid else None)(
+            rpc("debug.chromium_host") or {}), 90, 0.25)
+
+    def timed_end(pid, limit):
+        start = time.monotonic()
+        gone = wait(lambda: pid_gone(pid), limit, 0.05)
+        return bool(gone), round(time.monotonic() - start, 2)
+
+    # 1. close: quit over the wire, the host ends by itself and is reaped; no restart.
+    state = rpc("debug.chromium_host") or {}
+    pid, restarts = state.get("pid"), state.get("restarts")
+    rpc("debug.chromium_host", {"op": "close"})
+    ended, seconds = timed_end(pid, QUIT_LIMIT_S + 10)
+    time.sleep(1)  # test harness: a wrong restart would have started by now
+    after = rpc("debug.chromium_host") or {}
+    row["close"] = {"pid": pid, "ended": ended, "seconds": seconds, "phase": after.get("phase"),
+                    "restarts_before": restarts, "restarts_after": after.get("restarts")}
+    row["close"]["pass"] = ended and seconds < QUIT_LIMIT_S and after.get("phase") == "idle" and after.get("restarts") == restarts
+
+    # 2. a host whose UI thread never reads quit (SIGSTOP; a child of the cmux this bench started) is SIGKILLed at the limit.
+    rpc("debug.chromium_host", {"op": "open", "url": url})  # over the focused pane
+    state = shown_host(pid)
+    if not state:
+        row["stop_close"] = {"error": "no host after the reopen", "state": rpc("debug.chromium_host")}
+        return False
+    pid = state["pid"]
+    os.kill(pid, signal.SIGSTOP)
+    rpc("debug.chromium_host", {"op": "close"})
+    ended, seconds = timed_end(pid, QUIT_LIMIT_S + 15)
+    row["stop_close"] = {"pid": pid, "ended": ended, "seconds": seconds,
+                         "exits": (rpc("debug.chromium_host") or {}).get("exits")}
+    row["stop_close"]["pass"] = ended and QUIT_LIMIT_S - 1 <= seconds <= QUIT_LIMIT_S + 5
+
+    # 3. SIGKILL to cmux: the host reads EOF and ends itself within the limit (launchd reaps the orphan).
+    rpc("debug.chromium_host", {"op": "open", "url": url})
+    state = shown_host(pid)
+    if not state:
+        row["cmux_killed"] = {"error": "no host after the second reopen", "state": rpc("debug.chromium_host")}
+        return False
+    pid = state["pid"]
+    app.process.kill()  # the cmux process this bench started
+    app.process.wait(30)
+    ended, seconds = timed_end(pid, QUIT_LIMIT_S + 15)
+    row["cmux_killed"] = {"pid": pid, "ended": ended, "seconds": seconds}
+    row["cmux_killed"]["pass"] = ended and seconds <= QUIT_LIMIT_S + 1
+    if not ended:
+        os.kill(pid, signal.SIGKILL)  # leave no host behind on the measure host (a grandchild of this bench)
     return True
 
 
