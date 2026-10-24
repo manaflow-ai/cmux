@@ -59,7 +59,7 @@ import AppKit
         // line view, the same shape and color, painted in the scope the card lands in.
         for line in lines(list, rows) {
             let view = GroupLineView()
-            view.logicalFrame = line.frame.offsetBy(dx: -block.minX, dy: -block.minY)
+            view.frame = line.frame.offsetBy(dx: -block.minX, dy: -block.minY)
             view.color = line.color
             view.strength = SidebarGroupLine.opacity(level: line.level)
             container.addSubview(view)

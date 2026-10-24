@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 1e8ed8d1c9488496f61ce39773888417486f7d9a3ecf0469f4e801cd383fe3bd. */
+/* cmux-tui mux protocol 12, IR cb12b489fcaad8bfa7cd1979fdcc27eaff578f0f3540c961896abdc0c61eeea0. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -484,6 +484,11 @@ export type GetCellPixelsResult = {
   "width_px": number;
 };
 
+export type GetHostSizePolicyResult = {
+  "mac_participants": Array<string>;
+  "policy": HostSizePolicy;
+};
+
 export type GetSizeStateResult = {
   "self_participant": (string) | null;
   "state": SizeState;
@@ -540,6 +545,18 @@ export type HomeInboxRow = {
   "pinned": boolean;
   "preview"?: string;
   "unread": bigint;
+};
+
+export type HostSizeMode = "smallest" | "mac" | "latest" | "priority";
+
+export type HostSizePolicy = {
+  "mode": HostSizeMode;
+  "order": Array<string>;
+};
+
+export type HostSizePolicyRequest = {
+  "mode": HostSizeMode;
+  "order"?: (Array<string>) | null;
 };
 
 export type Id = bigint;
@@ -1090,6 +1107,10 @@ export type ServerStatsWriterPhase = "idle" | "waiting_lock" | "committing";
 export type SetCellPixelsResult = {
   "failures": Array<CellPixelFailure>;
   "resizes": Array<CellPixelResize>;
+};
+
+export type SetHostSizePolicyResult = {
+  "policy": HostSizePolicy;
 };
 
 export type SetSizeCountsResult = {

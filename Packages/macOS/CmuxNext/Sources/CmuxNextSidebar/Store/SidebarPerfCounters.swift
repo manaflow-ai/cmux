@@ -7,7 +7,7 @@ import Foundation
 /// status tick shows as row patches and row configures, never as rebuilds.
 ///
 /// - `rebuilds`: structural sidebar rebuilds (the App maps every row again).
-/// - `section_sets`: structural `SidebarModel.sections` sets.
+/// - `section_sets`: structural `SidebarModel.setSections` calls (each arranges and compares every row).
 /// - `list_reloads`: full list layouts (`SidebarLayout.make` + apply).
 /// - `row_patches`: workspace rows updated in place.
 /// - `row_configures`: row views configured (any path).

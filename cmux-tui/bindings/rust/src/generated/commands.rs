@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 1e8ed8d1c9488496f61ce39773888417486f7d9a3ecf0469f4e801cd383fe3bd.
+// cmux-tui mux protocol 12, IR cb12b489fcaad8bfa7cd1979fdcc27eaff578f0f3540c961896abdc0c61eeea0.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1823,6 +1823,13 @@ pub struct GetFrontendProjectionRequest {
 pub type GetFrontendProjectionResult = T::FrontendProjection;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct GetHostSizePolicyRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub surface: Optional<T::Id>,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GetSizeStateRequest {
     pub surface: T::Id,
@@ -3270,6 +3277,8 @@ pub struct SetClientInfoRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub name: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub remote: Optional<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub user_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub version: Optional<String>,
@@ -3349,6 +3358,12 @@ pub struct SetFrontendBrowserHistoryRequest {
 
 #[rustfmt::skip]
 pub type SetFrontendBrowserHistoryResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetHostSizePolicyRequest {
+    pub policy: T::HostSizePolicyRequest,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -4681,6 +4696,10 @@ impl CmuxClient {
         self.execute(&GET_FRONTEND_PROJECTION_METADATA, &request)
     }
 
+    pub fn get_host_size_policy(&mut self, request: GetHostSizePolicyRequest) -> Result<T::GetHostSizePolicyResult> {
+        self.execute(&GET_HOST_SIZE_POLICY_METADATA, &request)
+    }
+
     pub fn get_size_state(&mut self, request: GetSizeStateRequest) -> Result<T::GetSizeStateResult> {
         self.execute(&GET_SIZE_STATE_METADATA, &request)
     }
@@ -5344,6 +5363,10 @@ impl CmuxClient {
         if !request.install.is_missing() {
             self.require_protocol_field("set-client-info", 12)?;
         }
+        if !request.remote.is_missing() {
+            self.require_protocol_field("set-client-info", 12)?;
+            self.require_capability_field("set-client-info", "host-size-policy-v1")?;
+        }
         if !request.user_id.is_missing() {
             self.require_protocol_field("set-client-info", 12)?;
             self.require_capability_field("set-client-info", "shared-sizing-v1")?;
@@ -5397,6 +5420,10 @@ impl CmuxClient {
 
     pub fn set_frontend_browser_history(&mut self, request: SetFrontendBrowserHistoryRequest) -> Result<SetFrontendBrowserHistoryResult> {
         self.execute(&SET_FRONTEND_BROWSER_HISTORY_METADATA, &request)
+    }
+
+    pub fn set_host_size_policy(&mut self, request: SetHostSizePolicyRequest) -> Result<T::SetHostSizePolicyResult> {
+        self.execute(&SET_HOST_SIZE_POLICY_METADATA, &request)
     }
 
     pub fn set_personal_terminal(&mut self, request: SetPersonalTerminalRequest) -> Result<SetPersonalTerminalResult> {

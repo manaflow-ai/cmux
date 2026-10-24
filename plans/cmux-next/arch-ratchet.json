@@ -1,8 +1,8 @@
 {
-  "_doc": "Architecture counts the pre-push ratchet holds (scripts/cmux-next/arch-ratchet.py; the method is scripts/cmux-next/arch_counts.py, whose docstring defines every row). A push may not raise a ratcheted row's total; when one drops, rerun `scripts/cmux-next/arch-ratchet.py --update`. exceptions: [{\"date\": \"YYYY-MM-DD\", \"row\": \"<row>\", \"allow\": <n>, \"why\": \"...\"}] lets the push that adds the entry raise that row by n; never CI.",
+  "_doc": "Architecture counts the pre-push ratchet holds (scripts/cmux-next/guardrails.py runs scripts/cmux-next/arch-ratchet.py; the method is scripts/cmux-next/arch_counts.py, whose docstring defines every row). A push may not raise a ratcheted row's total, in the code or in this file's totals, nor swap a counted global, broadcast or layer edge for another; when one drops, rerun `scripts/cmux-next/arch-ratchet.py --update` (the only writer). The one escape is a dated exception: add {\"date\": \"YYYY-MM-DD\", \"row\": \"<row>\", \"allow\": <n>, \"why\": \"...\"} to exceptions; the push that adds it may raise that row by n, and the next --update folds it into the totals and marks it with applied_sha (an applied entry is never edited or removed). --update refuses a rise that no pending exception covers, except a rise that commits already on origin/feat-cmux-next made past the hook (a GitHub merge, --no-verify): it records that one with a generated applied entry whose raised_by names those commits. A generated entry allows no rise in any push's code, and the push that brings it is re-checked: its commits must be on origin/feat-cmux-next, after the old measured_sha and in the new one, named by no other entry, and its allow at most their rise. Never CI.",
   "method": "arch_counts",
-  "method_version": 1,
-  "measured_sha": "4495b5f123656042f1675ec9677914a7c9c4eb95",
+  "method_version": 3,
+  "measured_sha": "25f625c2105f9a6dc9b448bbc938969684e01a15",
   "measured_date": "2026-10-23",
   "rows": {
     "layer_hard": {
@@ -22,11 +22,11 @@
       "ratchet": true
     },
     "stateful_singletons": {
-      "title": "stateful singletons (stored static of a stateful type)",
+      "title": "stateful singletons (stored static or file-scope global of a stateful type)",
       "ratchet": true
     },
     "global_mutable_statics": {
-      "title": "global mutable statics (static var, static lock/cache)",
+      "title": "global mutable statics (static or file-scope var, lock, cache)",
       "ratchet": true
     },
     "assume_isolated_outside_adapters": {
@@ -55,18 +55,19 @@
     "layer_soft": 12,
     "layer_upward": 3,
     "layer_unplaced": 0,
-    "stateful_singletons": 158,
-    "global_mutable_statics": 262,
-    "assume_isolated_outside_adapters": 175,
-    "assume_isolated_total": 235,
+    "stateful_singletons": 177,
+    "global_mutable_statics": 281,
+    "assume_isolated_outside_adapters": 189,
+    "assume_isolated_total": 238,
     "app_broadcast_names": 12,
-    "observer_sites": 169,
-    "app_lines": 142081
+    "observer_sites": 188,
+    "app_lines": 142413
   },
   "packages": {
     "CmuxNextActions": {
       "global_mutable_statics": 2,
-      "assume_isolated_total": 1
+      "assume_isolated_total": 1,
+      "observer_sites": 1
     },
     "CmuxNextAgentActivity": {
       "stateful_singletons": 2,
@@ -91,9 +92,10 @@
     },
     "CmuxNextAgentPane": {
       "stateful_singletons": 22,
-      "global_mutable_statics": 25,
-      "assume_isolated_outside_adapters": 4,
+      "global_mutable_statics": 26,
+      "assume_isolated_outside_adapters": 3,
       "assume_isolated_total": 4,
+      "app_broadcast_names": 1,
       "observer_sites": 6
     },
     "CmuxNextAgentUpdates": {
@@ -101,12 +103,12 @@
       "layer_soft": 1
     },
     "CmuxNextApp": {
-      "stateful_singletons": 28,
-      "global_mutable_statics": 69,
-      "assume_isolated_outside_adapters": 50,
-      "assume_isolated_total": 59,
-      "observer_sites": 58,
-      "app_lines": 142081
+      "stateful_singletons": 33,
+      "global_mutable_statics": 76,
+      "assume_isolated_outside_adapters": 49,
+      "assume_isolated_total": 60,
+      "observer_sites": 59,
+      "app_lines": 142413
     },
     "CmuxNextApps": {
       "stateful_singletons": 1,
@@ -117,22 +119,23 @@
     },
     "CmuxNextBridge": {
       "layer_hard": 4,
-      "stateful_singletons": 4,
+      "stateful_singletons": 5,
       "global_mutable_statics": 1
     },
     "CmuxNextBrowser": {
-      "stateful_singletons": 18,
+      "stateful_singletons": 19,
       "global_mutable_statics": 21,
-      "assume_isolated_outside_adapters": 20,
+      "assume_isolated_outside_adapters": 24,
       "assume_isolated_total": 29,
       "app_broadcast_names": 2,
-      "observer_sites": 5
+      "observer_sites": 13
     },
     "CmuxNextBrowserAutomation": {
       "layer_hard": 1,
       "global_mutable_statics": 1,
       "assume_isolated_outside_adapters": 1,
-      "assume_isolated_total": 1
+      "assume_isolated_total": 1,
+      "observer_sites": 2
     },
     "CmuxNextBrowserHistory": {
       "layer_hard": 1,
@@ -160,7 +163,7 @@
     "CmuxNextCompat": {
       "stateful_singletons": 1,
       "global_mutable_statics": 3,
-      "assume_isolated_outside_adapters": 2,
+      "assume_isolated_outside_adapters": 3,
       "assume_isolated_total": 3,
       "observer_sites": 2
     },
@@ -172,15 +175,13 @@
     "CmuxNextControl": {
       "layer_soft": 1,
       "stateful_singletons": 1,
-      "assume_isolated_outside_adapters": 1,
-      "assume_isolated_total": 1,
-      "app_broadcast_names": 1
+      "assume_isolated_total": 1
     },
     "CmuxNextCookieImport": {
       "observer_sites": 2
     },
     "CmuxNextCrashReporting": {
-      "global_mutable_statics": 1
+      "global_mutable_statics": 11
     },
     "CmuxNextDaemon": {
       "stateful_singletons": 3,
@@ -194,12 +195,12 @@
       "observer_sites": 1
     },
     "CmuxNextDesign": {
-      "stateful_singletons": 25,
+      "stateful_singletons": 26,
       "global_mutable_statics": 66,
-      "assume_isolated_outside_adapters": 31,
-      "assume_isolated_total": 38,
+      "assume_isolated_outside_adapters": 32,
+      "assume_isolated_total": 40,
       "app_broadcast_names": 5,
-      "observer_sites": 38
+      "observer_sites": 42
     },
     "CmuxNextDesignTokens": {
       "stateful_singletons": 2,
@@ -230,7 +231,7 @@
       "observer_sites": 2
     },
     "CmuxNextFocusUI": {
-      "stateful_singletons": 1,
+      "stateful_singletons": 2,
       "assume_isolated_total": 1
     },
     "CmuxNextHome": {
@@ -260,7 +261,7 @@
     },
     "CmuxNextLayout": {
       "global_mutable_statics": 3,
-      "assume_isolated_outside_adapters": 4,
+      "assume_isolated_outside_adapters": 5,
       "assume_isolated_total": 5,
       "observer_sites": 1
     },
@@ -277,7 +278,7 @@
     "CmuxNextNowPlaying": {
       "layer_hard": 3,
       "global_mutable_statics": 3,
-      "observer_sites": 2
+      "observer_sites": 4
     },
     "CmuxNextPages": {
       "stateful_singletons": 7,
@@ -289,7 +290,7 @@
     "CmuxNextPalette": {
       "stateful_singletons": 1,
       "global_mutable_statics": 2,
-      "assume_isolated_outside_adapters": 2,
+      "assume_isolated_outside_adapters": 3,
       "assume_isolated_total": 4,
       "observer_sites": 1
     },
@@ -330,6 +331,9 @@
     "CmuxNextServer": {
       "global_mutable_statics": 1
     },
+    "CmuxNextServerHelperDaemon": {
+      "stateful_singletons": 2
+    },
     "CmuxNextSettings": {
       "layer_hard": 1,
       "global_mutable_statics": 1,
@@ -347,7 +351,7 @@
       "observer_sites": 11
     },
     "CmuxNextSignposts": {
-      "stateful_singletons": 1,
+      "stateful_singletons": 9,
       "assume_isolated_total": 1
     },
     "CmuxNextStash": {
@@ -366,11 +370,11 @@
     },
     "CmuxNextTerminal": {
       "stateful_singletons": 1,
-      "global_mutable_statics": 22,
-      "assume_isolated_outside_adapters": 11,
+      "global_mutable_statics": 23,
+      "assume_isolated_outside_adapters": 20,
       "assume_isolated_total": 20,
       "app_broadcast_names": 1,
-      "observer_sites": 7
+      "observer_sites": 8
     },
     "CmuxNextUpdater": {
       "observer_sites": 2
@@ -450,5 +454,46 @@
     ],
     "unplaced": []
   },
-  "exceptions": []
+  "exceptions": [
+    {
+      "date": "2026-10-23",
+      "row": "assume_isolated_outside_adapters",
+      "allow": 1,
+      "why": "generated by --update: the rise landed on origin/feat-cmux-next past the hook",
+      "raised_by": [
+        "274ef5c1a5e73135f8b39d2ef871758710879596"
+      ],
+      "applied_sha": "91d4ac2fea5d628468f6e69ab62d6b6c3257226c"
+    },
+    {
+      "date": "2026-10-23",
+      "row": "global_mutable_statics",
+      "allow": 1,
+      "why": "generated by --update: the rise landed on origin/feat-cmux-next past the hook",
+      "raised_by": [
+        "16332dd2ced8e83b3359aa38b04a6c09797434e0"
+      ],
+      "applied_sha": "91d4ac2fea5d628468f6e69ab62d6b6c3257226c"
+    },
+    {
+      "date": "2026-10-23",
+      "row": "assume_isolated_outside_adapters",
+      "allow": 1,
+      "why": "generated by --update: the rise landed on origin/feat-cmux-next past the hook",
+      "raised_by": [
+        "697207923231265a321d075bd66591e377ba2b7c"
+      ],
+      "applied_sha": "6c37fe3168afd5e8c75d4b1b242afd2dcd4eaaea"
+    },
+    {
+      "date": "2026-10-23",
+      "row": "observer_sites",
+      "allow": 1,
+      "why": "generated by --update: the rise landed on origin/feat-cmux-next past the hook",
+      "raised_by": [
+        "697207923231265a321d075bd66591e377ba2b7c"
+      ],
+      "applied_sha": "6c37fe3168afd5e8c75d4b1b242afd2dcd4eaaea"
+    }
+  ]
 }

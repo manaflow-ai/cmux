@@ -8,6 +8,7 @@ import CmuxMobileLive
 import CmuxMobileModel
 import CmuxMobileSettings
 import CmuxMobileTerminal
+import CmuxMobileVoice
 import Observation
 import OSLog
 import SwiftUI
@@ -66,12 +67,16 @@ final class ShellModel {
     var live: LiveCoordinator?
     /// Settings → Connection's device list and account deletion (live mode).
     private(set) var deviceDirectory: (any SettingsDeviceDirectory)?
+    /// The Macs' terminal sizing policies (Settings and Connected Devices).
+    var sizingService: (any TerminalSizingService)? { live }
     /// DEBUG mock mode (Settings → Developer → Mock): sample content only.
-    private let mockMode: Bool
+    let mockMode: Bool
     /// The team an email invite is being written for (live mode).
     var invitingTeam: Team?
     var isFetchingInvite = false
     var shareURL: ShareItem?
+    /// Connected Devices for the terminal on screen (its title menu).
+    var connectedDevices: ConnectedDevicesItem?
     /// Debug-driven scroll target for the Settings list.
     var settingsScrollTarget: String?
     /// Where the user was, kept across launches (design/terminal P10).
@@ -86,6 +91,14 @@ final class ShellModel {
     struct ShareItem: Identifiable {
         let id = UUID()
         let url: URL
+    }
+
+    /// One terminal's Connected Devices sheet.
+    struct ConnectedDevicesItem: Identifiable {
+        let id = UUID()
+        let live: TerminalSizingLive
+        let macID: String
+        let surface: Int
     }
 
     init(store: AppStore, auth: CmuxMobileAuthModel, settings: SettingsStore, sidebar: SidebarModel, lastOpen: LastOpenMemory = .standard) {
@@ -169,6 +182,9 @@ final class ShellModel {
             terminalTabs.sessionProvider = { [weak live] tab, macID in
                 live?.terminalSession(tabID: tab.id, programName: tab.title, macID: macID)
             }
+            terminalTabs.showConnectedDevices = { [weak self] session, macID in
+                self?.connectedDevices = ConnectedDevicesItem(live: session.sizing, macID: macID, surface: session.surface)
+            }
             terminalTabs.hasLiveSession = { [weak live] id, macID in live?.hasLiveSession(tabID: id, macID: macID) ?? false }
             terminalTabs.workspaceLookup = { [weak store] id in store?.workspace(id: id) }
             terminalTabs.artifactSourceProvider = { [weak live] tab, macID in live?.terminalArtifactSource(tabID: tab.id, macID: macID) }
@@ -197,6 +213,7 @@ final class ShellModel {
             FeedRouting.shared.clearAllNotifications = nil
             FeedRouting.shared.replyToTerminal = nil
             terminalTabs.sessionProvider = nil
+            terminalTabs.showConnectedDevices = nil
             terminalTabs.hasLiveSession = nil
             terminalTabs.artifactSourceProvider = nil
             terminalTabs.uploaderProvider = nil
@@ -417,6 +434,18 @@ final class ShellModel {
                 theme.haptics.error()
             }
         }
+    }
+
+    /// Call Chief from anywhere: the live call, or Settings → Chief Calls
+    /// when this account has no OpenAI API key yet.
+    func callChief() {
+        guard !ChiefLiveCall.shared.start() else { return }
+        openChiefCallSettings()
+    }
+
+    func openChiefCallSettings() {
+        tab = .settings
+        settingsPath = [.chiefCalls]
     }
 
     func invite(to team: Team) {

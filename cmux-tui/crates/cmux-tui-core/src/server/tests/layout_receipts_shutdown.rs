@@ -300,6 +300,7 @@ fn creation_receipts_replay_exact_surfaces_across_control_connections() {
                 api_revision: None,
                 version: None,
                 install: None,
+                remote: None,
             },
             writer,
         )
@@ -409,6 +410,7 @@ fn browser_receipt_targets_an_exact_empty_workspace_without_focus_state() {
             api_revision: None,
             version: None,
             install: None,
+            remote: None,
         },
         &writer,
     )
@@ -504,6 +506,7 @@ fn creation_selector_fallbacks_are_negotiated_atomic_and_durably_replayed() {
                 api_revision: None,
                 version: None,
                 install: None,
+                remote: None,
             },
             writer,
         )
@@ -967,6 +970,7 @@ fn daemon_shutdown_force_preserves_the_identity_fence() {
             api_revision: None,
             version: None,
             install: None,
+            remote: None,
         },
         &owner_writer,
     )
@@ -1033,6 +1037,7 @@ fn daemon_shutdown_atomically_fences_native_browser_ownership() {
             api_revision: None,
             version: None,
             install: None,
+            remote: None,
         },
         &owner_writer,
     )
@@ -1089,6 +1094,7 @@ fn daemon_shutdown_atomically_fences_native_browser_ownership() {
             api_revision: None,
             version: None,
             install: None,
+            remote: None,
         },
         &late_writer,
     )

@@ -80,6 +80,9 @@ public final class TerminalSurfaceView: NSView {
     var leadSurrogate: UTF16.CodeUnit?
     var lastPerformKeyEventTimestamp: TimeInterval?
     var previousPressureStage = 0
+    /// The left press went to Ghostty as a link click in a program that has the mouse
+    /// (``TerminalPointerMods``): its drags and release go the same way.
+    var linkPressInCapture = false
 
     /// Keyboard copy mode (``TerminalCopyMode``).
     private(set) lazy var copyMode = TerminalCopyMode(view: self)

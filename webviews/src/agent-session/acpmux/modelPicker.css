@@ -168,6 +168,13 @@
 }
 .acpmux-quick-sub .acpmux-quick-value + .ui-submenu-chevron { margin-inline-start: 6px; }
 .acpmux-quick-sub .ui-submenu-chevron { margin-inline-start: auto; }
+/* Fast mode names its state where Effort and Account name theirs (Leo 2026-10-21): Off in secondary
+   ink, On in the accent the checks use. The words replace the check. */
+.acpmux-quick-fast .ui-menu-check { display: none; }
+.ui-menu-item.acpmux-quick-item.acpmux-quick-fast .acpmux-quick-value { margin-inline-start: auto; padding-inline-start: 20px; }
+.ui-menu-item.acpmux-quick-fast[data-checked] .acpmux-quick-value {
+  color: var(--agent-lit-glyph, var(--agent-accent, var(--agent-text)));
+}
 .acpmux-quick-note.ui-menu-item[data-disabled] {
   opacity: 1;
   color: var(--agent-muted);

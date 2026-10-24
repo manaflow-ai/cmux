@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 1e8ed8d1c9488496f61ce39773888417486f7d9a3ecf0469f4e801cd383fe3bd.
+// cmux-tui mux protocol 12, IR cb12b489fcaad8bfa7cd1979fdcc27eaff578f0f3540c961896abdc0c61eeea0.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -817,6 +817,13 @@ pub struct GetCellPixelsResult {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GetHostSizePolicyResult {
+    pub mac_participants: Vec<String>,
+    pub policy: HostSizePolicy,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GetSizeStateResult {
     pub self_participant: Nullable<String>,
     pub state: SizeState,
@@ -912,6 +919,34 @@ pub struct HomeInboxRow {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub preview: Option<String>,
     pub unread: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HostSizeMode {
+    #[serde(rename = "smallest")]
+    Smallest,
+    #[serde(rename = "mac")]
+    Mac,
+    #[serde(rename = "latest")]
+    Latest,
+    #[serde(rename = "priority")]
+    Priority,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HostSizePolicy {
+    pub mode: HostSizeMode,
+    pub order: Vec<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HostSizePolicyRequest {
+    pub mode: HostSizeMode,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub order: Optional<Vec<String>>,
 }
 
 #[rustfmt::skip]
@@ -1761,6 +1796,12 @@ pub enum ServerStatsWriterPhase {
 pub struct SetCellPixelsResult {
     pub failures: Vec<CellPixelFailure>,
     pub resizes: Vec<CellPixelResize>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetHostSizePolicyResult {
+    pub policy: HostSizePolicy,
 }
 
 #[rustfmt::skip]

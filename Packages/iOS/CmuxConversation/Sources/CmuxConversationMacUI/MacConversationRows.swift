@@ -374,8 +374,6 @@ extension NSAttributedString.Key {
 }
 
 extension MacMessageLayout {
-    nonisolated(unsafe) static let linkDetector = try? NSDataDetector(types: ConversationDataDetection.types)
-
     static func attributedBody(
         _ text: String,
         outgoing: Bool,
@@ -393,10 +391,9 @@ extension MacMessageLayout {
             ConversationRichText.apply(runs, to: result)
             ConversationRichTextStyler.applyDisplayAttributes(to: result, baseFont: t.bodyFont, lineHeight: t.lineHeight)
         }
-        linkDetector?.enumerateMatches(in: text, range: NSRange(text.startIndex..., in: text)) { match, _, _ in
-            guard let match else { return }
-            result.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: match.range)
-            if let url = ConversationDataDetection.actionURL(for: match) { result.addAttribute(.macConversationLink, value: url, range: match.range) }
+        for item in ConversationDataDetection.items(in: text) {
+            result.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: item.range)
+            if let url = item.url { result.addAttribute(.macConversationLink, value: url, range: item.range) }
         }
         MacMentionStyle.apply(to: result, mentions: mentions, meID: meID, outgoing: outgoing, font: t.bodyFont)
         return result

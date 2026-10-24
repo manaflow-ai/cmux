@@ -63,6 +63,9 @@ test("Mobile is its own category with the allow switch; Accounts has no iPhone c
   await act(async () => page.provider.setHost({ ...page.provider.host, iphone: state }));
   await settle();
   expect(page.container.querySelector('[data-row-key="mobile.allowIPhoneConnections"]')).not.toBeNull();
+  // The terminal sizing policy row; its priority order is set on the phone and stays hidden here.
+  expect(page.container.querySelector('[data-row-key="mobile.terminalSizing"]')).not.toBeNull();
+  expect(page.container.querySelector('[data-row-key="mobile.terminalSizingOrder"]')).toBeNull();
   expect(card(page.container)).not.toBeNull();
   page.unmount();
   const accounts = await renderPage({ path: "/settings/accounts" });

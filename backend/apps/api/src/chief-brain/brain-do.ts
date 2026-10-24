@@ -28,8 +28,9 @@ import * as turnLoop from "./brain-turn.ts"
 import { ccRoute } from "../chief-brain-cc/vm.ts"
 import { ccNotes } from "../chief-brain-cc/turn.ts"
 import { toolFiles, toolsCall } from "../chief-brain-cc/tools.ts"
+import { wakeFire } from "../chief-brain-cc/wake.ts"
 import { githubCall, githubDump, type GithubHost, githubPoll, type GithubStatus, githubTurn } from "../chief-brain-cc/github.ts"
-import { ccSandbox, ccSandboxRetire } from "../chief-brain-cc/sandbox.ts"
+import { ccSandbox, ccSandboxPurge, ccSandboxRetire } from "../chief-brain-cc/sandbox.ts"
 import { IMPORT_SCHEMA, type ImportBody, type ImportFail, type ImportStatus, importBatch, importing, importStatus } from "./memory-import.ts"
 
 /**
@@ -494,6 +495,11 @@ export class ChiefBrainDO extends DurableObject<Env> {
     return ccSandboxRetire(this)
   }
 
+  /** The Chief was deleted: its sandboxes are deleted and its Freestyle identity goes. */
+  async ccSandboxPurge(): Promise<{ deleted: number; left: number; revoked: boolean }> {
+    return ccSandboxPurge(this)
+  }
+
   /** MuxDO forwards a committed wake here. Pulls the conversation's new messages as the chief and starts a turn. */
   async wake(w: { agent: string; owner: string; conversation: string; seq: number; reason: string; at?: number }): Promise<{ queued: number } | { skipped: string }> {
     return turnLoop.wake(this, w)
@@ -764,6 +770,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
       return next === null ? undefined : { rescheduleAt: next }
     }
     if (job.fn === "drain") return void this.kick()
+    if (job.fn === "self-wake") return wakeFire(this, String(job.id))
     if (job.fn === "gh-poll") {
       const next = await githubPoll(this.githubHost())
       return next === null ? undefined : { rescheduleAt: next }

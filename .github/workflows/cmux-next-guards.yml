@@ -267,6 +267,9 @@ jobs:
   # #20223 added 3 unwraps unchecked (2026-10-13). The change's own ratchet script and baseline run
   # on its tree and on the base tree (a pull request's merge-commit first parent; a push's previous
   # tip); the job is red when the change turns the ratchet red, or makes an already red base worse.
+  # The change's baseline is also judged against the base's copy, so it may only go down: a raised
+  # counted row is red (a hit that moved to another module carries its row), and a recorded waiver
+  # (a raised waived row) is a warning annotation.
   crash-ratchet:
     name: cmux-next crash ratchet
     # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
@@ -284,30 +287,7 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           BEFORE: ${{ github.event.before }}
-        run: |
-          base_ref=""
-          if [[ "$EVENT_NAME" == pull_request ]]; then
-            base_ref=HEAD^1
-          elif [[ "$BEFORE" =~ ^[0-9a-f]{40}$ && ! "$BEFORE" =~ ^0+$ ]] \
-            && git fetch --no-tags --depth=1 origin "$BEFORE"; then
-            base_ref="$BEFORE"
-          fi
-          if [[ -z "$base_ref" ]]; then
-            echo "::warning::no previous tip to compare with; running the plain ratchet"
-            python3 scripts/cmux-next/crash_ratchet.py
-            exit 0
-          fi
-          base_dir="$RUNNER_TEMP/crash-ratchet-base"
-          mkdir -p "$base_dir"
-          paths=()
-          for p in Packages cmux-tui/crates scripts/cmux-next; do
-            if git cat-file -e "$base_ref:$p" 2>/dev/null; then paths+=("$p"); fi
-          done
-          if [[ ${#paths[@]} -gt 0 ]]; then
-            git archive --format=tar "$base_ref" "${paths[@]}" | tar -x -C "$base_dir"
-          fi
-          python3 scripts/ci/crash_ratchet_compare.py --script scripts/cmux-next/crash_ratchet.py \
-            --head "$GITHUB_WORKSPACE" --base "$base_dir"
+        run: scripts/ci/crash-ratchet-against-base.sh
 
   # cmux NEXT's catalogs hold translation debt from before the parity check covered them
   # (42,072 errors in 118 catalogs on 2026-10-21). scripts/localization-debt-baseline.json

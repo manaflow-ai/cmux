@@ -87,6 +87,23 @@ public nonisolated struct Signposter: Sendable {
         return SignpostInterval(state: state, metricKitID: mirror.begin(name))
     }
 
+    /// Begins an interval named `name` for one scheduled main-thread task (``SignpostName/stallMainTask``),
+    /// with its class and owner formatted by the log system only when something reads them
+    /// (`class=<class> owner=<owner>`): the scheduler opens one per task, so no `String` is built per call.
+    ///
+    /// - Parameters:
+    ///   - name: A catalog name of this signposter's category.
+    ///   - taskClass: The task's priority class name (`visible`, `automation`, ...).
+    ///   - owner: The batch owner or control method that scheduled the task.
+    /// - Returns: The state to pass to ``end(_:_:)``.
+    public func begin(_ name: SignpostName, taskClass: String, owner: String) -> SignpostInterval {
+        assert(name.category == category, "\(name) is not in category \(category)")
+        let id = signposter.makeSignpostID()
+        let state = signposter.beginInterval(name.staticName, id: id,
+                                             "class=\(taskClass, privacy: .public) owner=\(owner, privacy: .public)")
+        return SignpostInterval(state: state, metricKitID: mirror.begin(name))
+    }
+
     /// Ends an interval begun with ``begin(_:_:)`` under the same name.
     public func end(_ name: SignpostName, _ interval: SignpostInterval) {
         signposter.endInterval(name.staticName, interval.state)

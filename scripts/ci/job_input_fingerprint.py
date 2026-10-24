@@ -116,7 +116,10 @@ JOBS = {
                       SWIFT_TEST, web=True),
     "generated-files": Job(MAC_TOOLCHAIN + ("web_bundles",), ("mini", "xcode_app"), GENERATED, web=True,
                            base_inputs=SETTINGS_BASE),
-    "release-compile": Job(MAC_TOOLCHAIN, ("mini", "xcode_app"), ()),
+    "release-compile": Job(MAC_TOOLCHAIN, ("mini", "xcode_app"), (
+        "LICENSE", "cmux-tui/build-support/notices", "cmux-tui/crates/ghostty-vt-sys/build.rs",
+        "cmux-tui/rust-toolchain.toml", "scripts/verify-app-bundle-licenses.sh",
+    )),
 }
 GRAPH = route.GRAPH
 

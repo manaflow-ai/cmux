@@ -38,6 +38,7 @@ impl Mux {
                 sizing.terminal_size_policies.remove(&runtime);
             } else {
                 sizing.note_size_state(runtime, changed);
+                self.refresh_host_policy_locked(&mut sizing, runtime);
                 self.apply_terminal_grid(&sizing, runtime);
             }
         }
