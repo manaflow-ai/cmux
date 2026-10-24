@@ -54,6 +54,11 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     private(set) var isParked = false
     /// When its window parked it (`WindowController.mountedContents` order).
     private(set) var parkedSerial: UInt64 = 0
+    /// Parked and not on screen beside the shown workspace: it draws nothing, so its panes do no
+    /// work for it (PL-script A2). They record what changed and show it once when it draws again
+    /// (`PaneController.suspend` / `resume`). A companion on screen beside the shown workspace
+    /// (`sidebar.multiView`) is parked but draws, so its panes keep working.
+    private(set) var drawsNothing = false
 
     /// Parks this content before its window shows another workspace. Its attention rings draw
     /// nothing while parked, so it stops following them (a global change wakes no parked workspace).
@@ -61,17 +66,32 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         parkedSerial = serial
         isParked = true
         attentionObservation?.cancel()
+        setDrawsNothing(true)
     }
 
     /// Shows this parked content again: its observation kept the tree current, so no re-map or apply;
-    /// the attention rings are read now (this frame) and followed again.
+    /// each pane maps its strip once and shows its selection (`PaneController.resume`), and the
+    /// attention rings are read now (this frame) and followed again.
     func unpark() {
         isParked = false
+        setDrawsNothing(false)
         observeAttention()
     }
 
     /// Parked but on screen beside the shown workspace (`sidebar.multiView`): its attention rings draw, so it follows them.
-    func followAttention() { observeAttention() }
+    func followAttention() {
+        setDrawsNothing(false)
+        observeAttention()
+    }
+
+    /// Suspends or resumes every pane's strip and content work (`drawsNothing`).
+    private func setDrawsNothing(_ value: Bool) {
+        guard drawsNothing != value else { return }
+        drawsNothing = value
+        for controller in panes.values {
+            if value { controller.suspend() } else { controller.resume() }
+        }
+    }
 
     /// Installed: one topology (the coordinator restores its pane), whose ring draws in this frame.
     func didShow() {
