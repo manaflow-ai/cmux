@@ -140,6 +140,23 @@ fn spent_tickets_older_than_a_day_are_dropped_and_open_ones_kept() {
 }
 
 #[test]
+fn ticket_hint_is_safe_for_setup_receipts() {
+    let t = Ticket {
+        url: "wss://box.example".into(),
+        minter: "box".into(),
+        role: Role::Client,
+        expires_ms: T0,
+        secret: SECRET.into(),
+    };
+    let encoded = t.encode();
+    let hint = Ticket::hint(&encoded);
+    assert!(hint.starts_with(TICKET_PREFIX));
+    assert!(hint.ends_with('…'));
+    assert!(!hint.contains(SECRET));
+    assert_eq!(Ticket::hint("not-a-ticket"), "invalid");
+}
+
+#[test]
 fn a_ticket_round_trips_and_damage_is_refused() {
     let t = Ticket {
         url: "wss://box.example/acp".into(),
