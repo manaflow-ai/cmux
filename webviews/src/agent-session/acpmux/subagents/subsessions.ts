@@ -41,7 +41,7 @@ export function waitingLine(t: Translate, waiting: SessionWaiting): string {
 /// Each state's word.
 export const SUBSESSION_STATE_LABEL: Record<SubsessionState, StringKey> = {
   working: "subsession.state.working",
-  input: "home.needsInput",
+  input: "subsession.state.input",
   failed: "subagents.state.failed",
   done: "subagents.state.completed",
 };

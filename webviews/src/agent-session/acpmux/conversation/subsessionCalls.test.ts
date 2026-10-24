@@ -43,6 +43,7 @@ test("start_session names the sub-session it started, from its text or its struc
     running: false,
     sessionId: "0199a-child",
     name: "tests",
+    prompt: "Run the tests",
   });
   const structured = { sessionId: "0199b-child", name: "claude-sr2/lint", shortName: "lint", depth: 1 };
   expect(subsessionCall(codex("start_session", { prompt: "Lint" }, structured, said))).toEqual({
@@ -50,12 +51,70 @@ test("start_session names the sub-session it started, from its text or its struc
     running: false,
     sessionId: "0199b-child",
     name: "lint",
+    prompt: "Lint",
   });
   // Still running: the name it asked for, if any.
   expect(subsessionCall(claude("start_session", { prompt: "x", name: "docs" }, undefined, "in_progress"))).toEqual({
     tool: "start",
     running: true,
     name: "docs",
+    prompt: "x",
+  });
+});
+
+// As the cmux server serves the tools as its own (cli/mcp/upstream.rs), with the result as Claude
+// Code hands it over: the structured result's JSON (a recorded call, its prompt shortened).
+test("the cmux server's subsessions_* tools read as the server's own", () => {
+  const structured = {
+    depth: 1,
+    harness: "claude",
+    mode: "bypassPermissions",
+    name: "claude-sr2/update-toggle",
+    session: { children: 0, depth: 1, doing: "Working on: You are update-toggle…", harness: "claude", state: "idle" },
+    sessionId: "01a16f99-6033",
+    shortName: "update-toggle",
+    turnId: "01a16f99-634c",
+    waitsForSlot: false,
+  };
+  const args = { name: "update-toggle", harness: "claude", model: "opus", prompt: 'You are "update-toggle".\n\nStep 1' };
+  const viaCmux = (name: string, input: unknown, output?: string, status = "completed"): Tool => ({
+    id: `call-${(ids += 1)}`,
+    title: `mcp__cmux__subsessions_${name}`,
+    status,
+    inputSummary: JSON.stringify(input),
+    ...(output !== undefined && { output }),
+  });
+  expect(subsessionCall(viaCmux("start_session", args, JSON.stringify(structured)))).toEqual({
+    tool: "start",
+    running: false,
+    sessionId: "01a16f99-6033",
+    name: "update-toggle",
+    prompt: args.prompt,
+    model: "opus",
+    harness: "claude",
+  });
+  // Codex's shape through the cmux server.
+  const codexCall: Tool = {
+    id: "codex-cmux",
+    title: "cmux.subsessions_start_session call",
+    kind: "execute",
+    status: "completed",
+    inputSummary: JSON.stringify({ server: "cmux", tool: "subsessions_start_session", arguments: args }),
+    output: JSON.stringify({ content: [{ type: "text", text: "Started" }], structuredContent: structured }),
+  };
+  expect(subsessionCall(codexCall)).toMatchObject({ tool: "start", sessionId: "01a16f99-6033", model: "opus" });
+  // Other cmux tools keep the generic row.
+  expect(subsessionCall(viaCmux("workspace_list", {}, "{}"))).toBeUndefined();
+  const listed = { sessions: [{ sessionId: "s-1", shortName: "lint", state: "working", harness: "codex" }], self: {} };
+  expect(subsessionCall(viaCmux("list_sessions", {}, JSON.stringify(listed)))).toEqual({
+    tool: "list",
+    running: false,
+    sessions: [{ sessionId: "s-1", name: "lint", state: "working", harness: "codex" }],
+  });
+  expect(subsessionCall(viaCmux("list_sessions", {}, undefined, "in_progress"))).toEqual({
+    tool: "list",
+    running: true,
+    sessions: [],
   });
 });
 
