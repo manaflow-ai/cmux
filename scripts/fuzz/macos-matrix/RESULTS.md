@@ -14,6 +14,14 @@ vm.sh (the fleet step needs the runner landed). Smoke times are "VM, not compara
 | 2026-10-24 | perf-1023-2138-v1 | 14.8.7          | PASS   | -            | 0       | 0            | 0      | second run, hardened smoke (engine check, exit status 0 at quit, required steps) |
 | 2026-10-24 | perf-1023-2138-v1 | 15.7.7          | PASS   | -            | 0       | 0            | 0      | second run, hardened smoke |
 
+## Exec (OS probes)
+
+| Date (UTC) | Probe           | macOS  | Exit | Output | Note |
+|------------|-----------------|--------|------|--------|------|
+| 2026-10-24 | url-root-parent | 14.8.7 | 0    | `"/.."` | issue #4529 behavior |
+| 2026-10-24 | url-root-parent | 15.7.7 | 0    | `"/.."` | issue #4529 behavior |
+| 2026-10-24 | url-root-parent | 26.6.2 | 0    | `"/"`   | fixed by Apple |
+
 ## Fuzz (fuzz.py)
 
 One line per run. Steps include the 16-step feature tour. "Dead" counts app deaths (each one restarts the app).

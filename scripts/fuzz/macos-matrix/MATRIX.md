@@ -72,6 +72,23 @@ tab loads a page served in the guest, and `debug.cef` says ready with no `unavai
 fallback), `webkit` (a WebKit tab loads the same page), `settings` (Settings opens and paints), `alive`, `quit`
 (`quitEndEverything` ends the process within 30 s; else a `sample` and a kill). A crash report fails the run.
 
+### Exec suite (OS probes)
+
+`os-matrix.sh --build JOB --os 14,15,26 --suite exec:NAME` runs one OS probe, `probes/NAME.swift`, in each guest.
+A probe is one self-contained Swift file (Foundation and system frameworks only). vm.sh compiles it on the Tart
+host with the host's Xcode (`swiftc -O -target arm64-apple-macos14.0`, an ad hoc signature, 5 min bound),
+copies only the binary into each guest and runs it there as the guest user `admin` with a 5 min bound. It
+never runs on the host. Exit 0 is PASS, 1 is FAIL, and anything else (a crash, a timeout, exit 2 "cannot
+test") is no verdict. A probe that does not compile is no verdict for that step only. `result.json` per major
+has the exit code, stdout, stderr, the runner commit (`runner_ref`) and the source's sha256.
+
+- The source comes from the runner ref, not from the build: a probe tests the OS. It is review-gated like the
+  rest of this folder: the fleet runs only a reviewed `scripts/fuzz/macos-matrix/` tree.
+- NAME is a-z, 0-9 and `-`; `probes/` and `probes/NAME.swift` must be a real folder and a regular file, not
+  links. `test_probe_names.sh` checks each refusal (run it on a fleet host).
+- `CMUX_MATRIX_APP` holds the build's app path in the guest, for a later probe that needs the app.
+- Probes: `url-root-parent` (issue #4529): `"/.."` on 14.8.7 and 15.7.7, `"/"` on 26.6.2 (2026-10-24).
+
 ### cmux-unit and xctrace in the guest
 
 Not supported by the pinned base images: they have no Xcode, so neither Swift Testing (`swift test`,
