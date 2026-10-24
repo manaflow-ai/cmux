@@ -176,8 +176,7 @@ class CompileTrailerTests(unittest.TestCase):
         refused, lines = ct.check(self.repo, [(self.base, head)], fetch=lambda i: None)
         self.assertFalse(refused)
         self.assertIn("did not answer", lines[0])
-        # The real fetch against a port nothing listens on: down, within the 2 s bound.
-        self.assertIsNone(ct.fetch_job("a" * 24, timeout=0.5, url="http://127.0.0.1:9"))
+        self.assertTrue(lines[0].startswith("!!! COMPILE TRAILER NOT CHECKED"), lines)
 
     def test_compiled_skip_passes_loudly(self):
         self.swift_edit()
@@ -268,7 +267,8 @@ class CompileTrailerTests(unittest.TestCase):
         self.receipts[job] = ct.StoreDown("the artifact store did not answer")
         refused, lines = self.check(self.amended_with(job))
         self.assertFalse(refused)
-        self.assertIn("verdict was not checked", lines[0])
+        self.assertTrue(lines[0].startswith("!!! COMPILE TRAILER NOT CHECKED"), lines)
+        self.assertIn("the artifact store did not answer", lines[0])
         down = {"id": "x", "artifact": "sha256:" + "0" * 64}
         with self.assertRaises(ct.StoreDown):
             ct.fetch_receipts(down, timeout=0.5, url="http://127.0.0.1:9")
@@ -304,6 +304,138 @@ class CompileTrailerTests(unittest.TestCase):
     def test_the_manifest_parser_reads_one_line_and_multi_line_targets(self):
         deps = ct.module_deps(MANIFEST)
         self.assertEqual(deps, {"Base": set(), "Kit": {"Base"}, "Other": set()})
+
+    # Holes found after PL-instant's push c4a98974c65..8a9d03d646e (cmux-b6, 2026-10-24).
+    def rebased_push(self, own, upstream, edit_after=None):
+        """Topic commits OWN {path: text}, compiled; upstream commits UPSTREAM; topic rebased on it (and EDIT_AFTER
+        {path: text} applied after the compile). Returns check()'s answer for the push over the new upstream."""
+        self.git("checkout", "-q", "-b", "topic")
+        for rel, text in own.items():
+            self.write(rel, text)
+        job = self.job(self.commit("own change"))
+        self.git("checkout", "-q", "feat-cmux-next")
+        if upstream:
+            for rel, text in upstream.items():
+                self.write(rel, text)
+            self.commit("upstream")
+        self.git("checkout", "-q", "topic")
+        self.git("rebase", "-q", "feat-cmux-next")
+        for rel, text in (edit_after or {}).items():
+            self.write(rel, text)
+        self.git("add", "-A")
+        self.git("commit", "-q", "--allow-empty", "-m", f"own change, newest\n\nCompiled: {job}")
+        return self.check(self.git("rev-parse", "HEAD"), base=self.git("rev-parse", "feat-cmux-next"))
+
+    def with_manifest(self, manifest):
+        self.write(f"{PKG}/Package.swift", manifest)
+        self.base = self.commit("manifest")
+
+    def test_a_test_file_edited_after_the_compile_is_refused(self):
+        test = f"{PKG}/Tests/KitTests/KitTests.swift"
+        self.with_manifest(MANIFEST.replace('.target(name: "Other"),',
+                                            '.target(name: "Other"),\n        .testTarget(name: "KitTests", dependencies: ["Kit"]),'))
+        refused, lines = self.rebased_push({test: "import Kit\nlet a = 1\n"}, {},
+                                           edit_after={test: "import Kit\nlet a = Kit.missing\n"})
+        self.assertTrue(refused, lines)
+        self.assertIn("KitTests", lines[0])
+
+    def test_rule_b_a_test_only_push_is_refused_when_upstream_changed_the_module_it_tests(self):
+        self.with_manifest(MANIFEST.replace('.target(name: "Other"),',
+                                            '.target(name: "Other"),\n        .testTarget(\n            name: "KitTests",\n'
+                                            '            dependencies: ["Kit"]\n        ),'))
+        refused, lines = self.rebased_push({f"{PKG}/Tests/KitTests/KitTests.swift": "import Kit\nlet a = Kit()\n"},
+                                           {f"{PKG}/Sources/Kit/Kit.swift": "public struct Renamed {}\n"})
+        self.assertTrue(refused, lines)
+        self.assertIn("Kit", lines[0])
+
+    def test_rule_b_an_upstream_change_in_another_package_the_module_uses_is_refused(self):
+        shared = "Packages/Shared/CmuxShared"
+        self.write(f"{shared}/Package.swift", 'let package = Package(name: "CmuxShared", targets: [.target(name: "CmuxShared")])\n')
+        self.write(f"{shared}/Sources/CmuxShared/Shared.swift", "public struct Shared {}\n")
+        self.with_manifest(MANIFEST.replace('dependencies: ["Base"]',
+                                            'dependencies: ["Base", .product(name: "CmuxShared", package: "CmuxShared")]'))
+        refused, lines = self.rebased_push({f"{PKG}/Sources/Kit/Kit.swift": "public struct Kit { let s = Shared() }\n"},
+                                           {f"{shared}/Sources/CmuxShared/Shared.swift": "public struct Renamed {}\n"})
+        self.assertTrue(refused, lines)
+        self.assertIn("CmuxShared", lines[0])
+
+    def test_rule_b_an_upstream_change_in_a_module_a_dependency_re_exports_is_refused(self):
+        self.write(f"{PKG}/Sources/Tokens/Tokens.swift", "public struct Tokens {}\n")
+        self.write(f"{PKG}/Sources/Base/Export.swift", "@_exported public import Tokens\n")
+        self.with_manifest(MANIFEST.replace('.target(name: "Base"),',
+                                            '.target(name: "Tokens"),\n        .target(name: "Base", dependencies: ["Tokens"]),'))
+        refused, lines = self.rebased_push({f"{PKG}/Sources/Kit/Kit.swift": "public struct Kit { let t = Tokens() }\n"},
+                                           {f"{PKG}/Sources/Tokens/Tokens.swift": "public struct Renamed {}\n"})
+        self.assertTrue(refused, lines)
+        self.assertIn("Tokens", lines[0])
+
+    def test_rule_b_upstream_changes_in_modules_the_push_does_not_use_still_pass(self):
+        self.write(f"{PKG}/Sources/Tokens/Tokens.swift", "public struct Tokens {}\n")
+        self.write(f"{PKG}/Sources/Base/Export.swift", "@_exported public import Tokens\n")
+        self.with_manifest(MANIFEST.replace('.target(name: "Base"),',
+                                            '.target(name: "Tokens"),\n        .target(name: "Base", dependencies: ["Tokens"]),'))
+        refused, lines = self.rebased_push({f"{PKG}/Sources/Kit/Kit.swift": "public struct Kit { let x = 3 }\n"},
+                                           {f"{PKG}/Sources/Other/Other.swift": "public struct Other { let y = 2 }\n"})
+        self.assertFalse(refused, lines)
+
+    def test_a_silent_controller_uses_the_job_record_an_earlier_push_read(self):
+        # PL-instant's push: refused twice, then let through when the controller missed the bound on the third try.
+        self.git("checkout", "-q", "-b", "topic")
+        self.swift_edit()
+        job = self.job(self.commit("kit change"))
+        self.git("checkout", "-q", "feat-cmux-next")
+        self.swift_edit("Base", "public struct Renamed {}\n")
+        upstream = self.commit("upstream base rename")
+        self.git("checkout", "-q", "topic")
+        self.git("rebase", "-q", "feat-cmux-next")
+        head = self.amended_with(job)
+        refused, _ = self.check(head, base=upstream)  # the controller answers: refused, and the job is remembered
+        self.assertTrue(refused)
+        def silent(_job_id):
+            raise ct.ControllerDown("timed out after 5.0 s")
+        refused, lines = ct.check(self.repo, [(upstream, head)], fetch=silent,
+                                  receipts=lambda job: (_ for _ in ()).throw(ct.StoreDown("down")))
+        self.assertTrue(refused, lines)
+        self.assertIn("Base", lines[-1])
+
+    def test_a_silent_controller_with_no_record_passes_loudly_and_logs_the_reason(self):
+        self.swift_edit()
+        head = self.commit("kit change\n\nCompiled: " + "b" * 24)
+        def silent(_job_id):
+            raise ct.ControllerDown("timed out after 5.0 s")
+        refused, lines = ct.check(self.repo, [(self.base, head)], fetch=silent)
+        self.assertFalse(refused)
+        loud = [line for line in lines if line.startswith("!!! COMPILE TRAILER NOT CHECKED")]
+        self.assertTrue(loud, lines)
+        self.assertIn("timed out after 5.0 s", loud[0])
+        record = Path(self.git("rev-parse", "--git-common-dir"))
+        record = (record if record.is_absolute() else self.repo / record) / ct.FAIL_OPEN_LOG
+        self.assertIn(head, record.read_text())
+
+    def test_the_controller_bound_is_5_s(self):
+        import http.server
+        import json
+        import threading
+        import time
+
+        class Slow(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                time.sleep(2.5)  # slower than the old 2 s bound, inside the lead's 5 s
+                body = json.dumps({"id": "c" * 24}).encode()
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *a):
+                pass
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Slow)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.shutdown)
+        self.assertGreaterEqual(ct.CONTROLLER_TIMEOUT, 5.0)
+        job = ct.fetch_job("c" * 24, url=f"http://127.0.0.1:{server.server_address[1]}")
+        self.assertEqual(job, {"id": "c" * 24})
+        with self.assertRaises(ct.ControllerDown):
+            ct.fetch_job("a" * 24, timeout=0.5, url="http://127.0.0.1:9")
 
 
 if __name__ == "__main__":
