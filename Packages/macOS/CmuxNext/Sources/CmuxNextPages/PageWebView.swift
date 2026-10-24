@@ -4,7 +4,7 @@ public import CmuxNextSettings
 import CmuxNextCompat
 import Observation
 import os
-import CmuxNextErrorJournal
+public import CmuxNextErrorJournal
 public import WebKit
 import CmuxNextWakeups
 
@@ -70,6 +70,10 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// The app's made-ahead open panel for a page's `<input type="file">`; the app sets it once at startup with
     /// ``chromiumHosting`` (its composition root). Nil: a file input does nothing (tests).
     public static var openPanel: MadeAheadOpenPanel?
+    /// The app's error journal, which every page's console errors go into when they happen
+    /// (``ConsoleErrorCapture``); the app sets it once at startup with ``chromiumHosting`` (its
+    /// composition root), before the first page. Nil: reports go to the unified log only (tests).
+    public static var errorJournal: ErrorJournal?
     /// This page's file chooser (its web view holds the UI delegate weakly).
     private var fileChooser: PageOpenPanel?
     var loaded = false
@@ -328,7 +332,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         if Self.rendersWhenCovered(ProcessInfo.processInfo.environment) { keepRenderingWhenCovered() }
         #endif
         // Console errors, uncaught errors and rejections go to the error journal (`cmux errors`).
-        ConsoleErrorCapture(page: descriptor.id).install(in: webView.configuration.userContentController)
+        ConsoleErrorCapture(page: descriptor.id, journal: Self.errorJournal).install(in: webView.configuration.userContentController)
         PagePaintProbe.install(in: webView.configuration.userContentController) { [weak self] in
             self?.notePainted()
         }

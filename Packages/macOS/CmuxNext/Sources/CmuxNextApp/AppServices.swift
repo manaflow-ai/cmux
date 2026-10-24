@@ -102,6 +102,9 @@ final class AppServices {
     let updater = UpdaterService()
     /// The file picker made ahead of the click, the app's one: agent panes, page file inputs and Home's "+" take it.
     let openPanel = MadeAheadOpenPanel()
+    /// The error journal (`cmux errors`), the app's one: pages record console errors into it as they happen
+    /// (`PageWebView.errorJournal`), and it reads the logs at launch and at quit. Making it touches no disk.
+    private(set) lazy var errorJournal = ErrorJournalService.make(environment: environment)
     /// "Restart cmux-tui to use new features" (plans/cmux-next/server-updates-DESIGN.md).
     private(set) lazy var serverUpdates = ServerUpdatePresenter(daemon: daemon, defaults: .standard,
                                                                  activeWindow: { [weak self] in self?.windows.active?.window })

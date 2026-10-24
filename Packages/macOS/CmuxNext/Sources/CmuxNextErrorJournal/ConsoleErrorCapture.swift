@@ -2,12 +2,14 @@ public import WebKit
 import OSLog
 
 /// Catches an app page's `console.error`, `console.warn`, uncaught errors and unhandled promise
-/// rejections and writes them, redacted, to the unified log under ``subsystem`` with the page
-/// name as category, where ``OSLogErrorSource`` harvests them into the journal. Nothing flows
-/// back into the page; the page script drops all but 20 reports a second.
+/// rejections and records each, redacted, in the ``ErrorJournal`` when it happens (source
+/// `page:<page>`), so a crash loses none and no log harvest is needed for them. Each also goes to
+/// the unified log under ``subsystem`` with the page name as category, for Console.app;
+/// ``OSLogErrorSource`` leaves that subsystem out, so nothing counts twice. Nothing flows back
+/// into the page; the page script drops all but 20 reports a second.
 ///
 /// ```swift
-/// ConsoleErrorCapture(page: "settings").install(in: configuration.userContentController)
+/// ConsoleErrorCapture(page: "settings", journal: journal).install(in: configuration.userContentController)
 /// ```
 @MainActor
 public struct ConsoleErrorCapture {
@@ -18,10 +20,17 @@ public struct ConsoleErrorCapture {
 
     /// The page's name: the log category and the journal source `page:<page>`.
     public let page: String
+    /// The app's journal, which each report goes into when it happens. Nil only where no journal
+    /// exists (a view made in a test): the report then goes to the unified log alone.
+    public let journal: ErrorJournal?
 
     /// Makes a capture for one page.
-    public init(page: String) {
+    /// - Parameters:
+    ///   - page: The page's name (log category, journal source `page:<page>`).
+    ///   - journal: The app's journal (its composition root makes the one journal).
+    public init(page: String, journal: ErrorJournal?) {
         self.page = page
+        self.journal = journal
     }
 
     /// The document-start script that reports console errors to ``handlerName``.
@@ -77,23 +86,38 @@ public struct ConsoleErrorCapture {
     public func install(in controller: WKUserContentController) {
         controller.addUserScript(WKUserScript(source: Self.script, injectionTime: .atDocumentStart,
                                               forMainFrameOnly: true, in: .page))
-        controller.add(ConsoleErrorReceiver(page: page), contentWorld: .page, name: Self.handlerName)
+        controller.add(ConsoleErrorReceiver(capture: self), contentWorld: .page, name: Self.handlerName)
+    }
+
+    /// Records one message of ``script``: WebKit's handler calls it, and so does a Chromium page's
+    /// binding, which reaches the host another way.
+    ///
+    /// - Parameter body: The posted object (`level`, `message`, `stack`).
+    /// - Returns: The journal's record of it (tests await it); nil for a body that is not a report
+    ///   or with no journal.
+    @discardableResult
+    public func record(_ body: Any) -> Task<Void, Never>? {
+        guard let body = body as? [String: Any] else { return nil }
+        return report(level: body["level"] as? String ?? "error", message: body["message"] as? String ?? "",
+                      stack: body["stack"] as? String ?? "")
+    }
+
+    /// Logs one report and records it in the journal now. The journal gets the same event the log
+    /// harvest made of the log line (``OSLogErrorSource/event(subsystem:category:isFault:message:date:)``),
+    /// so its fingerprint is the one earlier launches kept.
+    private func report(level: String, message: String, stack: String) -> Task<Void, Never>? {
+        let text = Self.logText(level: level, message: message, stack: stack)
+        // Redacted above, so public: Console.app shows it as the journal keeps it.
+        Logger(subsystem: Self.subsystem, category: page).error("\(text, privacy: .public)")
+        guard let journal else { return nil }
+        let event = OSLogErrorSource.event(subsystem: Self.subsystem, category: page, isFault: false, message: text,
+                                           date: Date())
+        // task-owner: one record; the journal actor folds it and appends it in its next batched write
+        return Task { await journal.record(event) }
     }
 
     /// The log line for one report: `[warn] ` for warnings, then the message, then the top
     /// stack frame as an `at …` line.
-    /// Logs one message of ``script`` that reached the host another way than WebKit's handler (a
-    /// Chromium page's binding): the same redacted line the WebKit receiver logs.
-    ///
-    /// - Parameter body: The posted object (`level`, `message`, `stack`).
-    public func record(_ body: Any) {
-        guard let body = body as? [String: Any] else { return }
-        let text = Self.logText(level: body["level"] as? String ?? "error", message: body["message"] as? String ?? "",
-                                stack: body["stack"] as? String ?? "")
-        // Redacted above, so public: the journal must read the text back.
-        Logger(subsystem: Self.subsystem, category: page).error("\(text, privacy: .public)")
-    }
-
     public nonisolated static func logText(level: String, message: String, stack: String) -> String {
         let redactor = ErrorRedactor()
         let prefix = level == "warn" ? "[warn] " : ""
@@ -114,20 +138,17 @@ public struct ConsoleErrorCapture {
     }
 }
 
-/// Receives the page's reports and logs them; main-frame reports only.
+/// Receives the page's reports and hands them to its capture; main-frame reports only.
+@MainActor
 private final class ConsoleErrorReceiver: NSObject, WKScriptMessageHandler {
-    let logger: Logger
+    let capture: ConsoleErrorCapture
 
-    init(page: String) {
-        logger = Logger(subsystem: ConsoleErrorCapture.subsystem, category: page)
+    init(capture: ConsoleErrorCapture) {
+        self.capture = capture
     }
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard message.frameInfo.isMainFrame, let body = message.body as? [String: Any] else { return }
-        let text = ConsoleErrorCapture.logText(level: body["level"] as? String ?? "error",
-                                               message: body["message"] as? String ?? "",
-                                               stack: body["stack"] as? String ?? "")
-        // Redacted above, so public: the journal must read the text back.
-        logger.error("\(text, privacy: .public)")
+        guard message.frameInfo.isMainFrame else { return }
+        capture.record(message.body)
     }
 }

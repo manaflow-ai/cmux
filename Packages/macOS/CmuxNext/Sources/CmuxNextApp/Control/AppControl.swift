@@ -21,7 +21,6 @@ final class AppControl {
     private let terminalDisplayProbe = DebugTerminalDisplayProbe()
     private(set) var service: ControlService?
     private var publisher: ControlSnapshotPublisher?
-    private(set) var errorJournal: ErrorJournalService?
 
     var socketPath: String? { service?.socketPath }
 
@@ -59,9 +58,8 @@ final class AppControl {
         service.router.register(NotificationsControl.methods(services: services))
         service.router.register(SessionTransferControl.methods(services: services))
         // The error journal (`cmux errors`): app log, page consoles, acpmux, Chief, crash reports.
-        let errors = ErrorJournalService.make(environment: services.environment)
+        let errors = services.errorJournal
         errors.start()
-        errorJournal = errors
         service.router.register(ErrorJournalControl(journal: errors.journal, sources: errors.sources).methods)
         service.router.register([
             // CPU and memory per tab and workspace, two samples `interval_ms` apart.
