@@ -127,8 +127,10 @@ enum TabMoves {
     }
 
     /// New strip column after `afterColumn` (nil = after the screen's last column, the daemon's default).
+    /// `focusInTurn`: the focus moves to the tab in its new column in the input's turn (a keyboard or menu run that may
+    /// change the view); a drag keeps its own focus handling and passes false.
     static func toNewColumn(_ tab: TabModel, anchor pane: PaneModel, afterColumn: DaemonColumnID? = nil, services: AppServices, keepFocus: Bool = false,
-                            transaction: ClientTransactionID = .generate(), completion: @escaping Completion = { _ in }) {
+                            focusInTurn: Bool = false, transaction: ClientTransactionID = .generate(), completion: @escaping Completion = { _ in }) {
         let daemon = services.machines.daemon(forTab: tab)
         // Workspaces never mix machines: a drop onto another machine's pane is refused.
         guard services.daemon(for: pane) === daemon else { return refuseOtherMachine(services, completion) }
@@ -145,13 +147,19 @@ enum TabMoves {
                                               widths: spawn.widths, treeWidth: spawn.treeWidth)
             let intent = Intent.splitPane(pane: paneHandle, direction: .right, ratio: 0.5, provisional: provisional)
             let paneID = provisional.paneID, splitID = provisional.splitID
+            let sourceKey = services.locateTab(tab.id).flatMap { services.paneController(for: $0.1)?.paneKey }
             let send = daemon.intendNowReporting("move-tab-to-column", intent, transaction: transaction) { connection in
                 try await connection.moveTabToColumn(surface, target: .pane(paneHandle), width: width, keepFocus: keepFocus,
                                                      transaction: transaction, paneID: paneID, splitID: splitID)
             }
             // Laid out and mounted in this turn (the window follows the store a turn later otherwise), so the
             // moved tab shows in its column in the input's frame; the action's revealer keeps the keyboard on it.
-            services.paneController(for: pane)?.workspace?.applyCurrent()
+            let content = services.paneController(for: pane)?.workspace
+            // The tab keeps its id in the stand-in column, so the expectation lands on the topology this layout sends.
+            if focusInTurn, !keepFocus, let content {
+                content.expectFocus(on: surface, awayFrom: sourceKey, generation: content.beginFocusIntent())
+            }
+            content?.applyCurrent()
             services.registry.track(Task {
                 let failure: ActionWorkFailure?
                 switch await send() {

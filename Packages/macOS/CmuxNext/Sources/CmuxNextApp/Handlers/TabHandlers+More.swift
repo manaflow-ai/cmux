@@ -44,7 +44,8 @@ extension TabHandlers {
         registry.bind("tab.moveToNewColumn", invoke: { invocation in
             guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
             let reveal = revealer(ctx, tab: tab, outcome: .newColumn(screenID: "", afterColumnID: ""), workspaceID: nil)
-            TabMoves.toNewColumn(tab, anchor: pane, services: ctx.services, keepFocus: invocation["keep_focus"]?.boolValue == true, completion: reveal)
+            TabMoves.toNewColumn(tab, anchor: pane, services: ctx.services, keepFocus: invocation["keep_focus"]?.boolValue == true,
+                                 focusInTurn: invocation.allowsViewChange, completion: reveal)
         })
         registry.bind("tab.moveToWorkspace", invoke: { invocation in
             guard let (tab, _) = ctx.daemonTab(invocation), let workspace = ctx.workspaceArgument(invocation) else { return }
