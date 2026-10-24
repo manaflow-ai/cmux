@@ -148,10 +148,15 @@ impl MediaManager {
                 // An intentional, bounded dev delay on the runtime's clock.
                 tokio::time::sleep(Duration::from_secs(every)).await;
                 let Some(kill) = kill.upgrade() else { return };
+                // The session that came up may have ended meanwhile: a permit
+                // stored now would kill the next one the moment it is up.
+                if !matches!(*status.borrow(), MediaStatus::Up { .. }) {
+                    continue;
+                }
                 tracing::info!(every_s = every, "dev: killing the media session");
                 // A permit, not notify_waiters: the hold loop may be in another
                 // arm right now (the RTT ticker), and a wake-up only for parked
-                // waiters would be lost. The session is up, so it is this one's.
+                // waiters would be lost.
                 kill.notify_one();
                 if status.wait_for(|s| !matches!(s, MediaStatus::Up { .. })).await.is_err() {
                     return;
