@@ -67,10 +67,15 @@ cadence, not a throttle: work over budget runs on the next frame, never later.
   input included). An injected key at the head of its connection runs on the next run loop turn, ahead of other
   connections, and makes every budgeted class yield while it waits (`MainTaskBoard` count); each input turn runs
   only the input queued before it, and input counts in the per-connection limit.
-- `DaemonStore.drain`: applies a batch in slices of 32 events while the visible class may run; the rest goes back
-  to the front of `EventInbox`. The inbox coalesces whole-value surface events (title, size, scroll, agent status,
-  agent presence): the newest per surface replaces an older one in the buffer. Workspace, screen, pane and tab
-  deltas carry consecutive revisions and are never coalesced.
+- `DaemonStore.drain`: a frame-class batcher (`DaemonService.drainScheduler`, a frame client on the
+  `MainWorkScheduler`'s link, so it ticks before the budgeted classes of the same frame) applies everything
+  buffered as one batch, never split across frames. The batch holds the echoes of the person's own actions, and most actions have no
+  intent (close other tabs, close a workspace, duplicate, move to a new window, reopen), so the echo is when the
+  change first shows; a budgeted class held it behind pending input and other visible work, split a transaction
+  across frames, and let the backlog grow under steady churn (review 2 of pl-main-bc). Its cost is what changed:
+  the inbox coalesces whole-value surface events (title, size, scroll, agent presence): the newest per surface
+  replaces an older one in the buffer. Workspace, screen, pane and tab deltas carry consecutive revisions and agent
+  statuses are transitions; they are never coalesced. A snapshot applies only what differs (SnapshotDiff).
 - Pending input (`SessionInputPending`, behind the `SessionInputEvents` seam; `WindowServerInputEvents` in the app,
   a fake in SessionInputPendingTests): the window server's time of the last key-down or mouse-button event against
   the last such event AppKit dispatched in this app (a local monitor). Mouse moves and scroll are left out (they
