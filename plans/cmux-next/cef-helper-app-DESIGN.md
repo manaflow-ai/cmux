@@ -145,7 +145,12 @@ daemon talks CDP to the host through `--remote-debugging-pipe`), crash reports (
   signed by `sign-cef.sh`). One Chrome-style page per host.
   Its parent view sits in a transparent, click-through, floating window of the host at the pane's screen rect; its
   `-cmuxOcclusionRects` covers the page, so the fork's tracker never lets the page window take the mouse. It calls
-  `cmux_browser_set_layer_hosting` (API 26) and sends the context id. It refuses forks below API 26.
+  `cmux_browser_set_layer_hosting` (API 26) and sends the context id. It refuses forks below API 27 (layer hosting and
+  the resize sync; exit 66), so cmux always starts it with the API 27 switch set. Exits 64-67 mean the host could not
+  start (no wire, no framework, an old fork, `CefInitialize`): cmux does not restart such a host. The parent view has
+  alpha 0 for the host's whole life, so the floating window never shows Chromium's pixels over other apps (the page's
+  layers live in the context). At most 4,096 frames wait for the host's UI thread; more and the host stops reading and
+  ends, so a hung UI thread ends the host instead of queueing every mouse move.
   The host window must stay ordered in and visible: the fork's tracker hides the page when its parent window is not
   visible, and observes the parent's occlusion state (a covered window throttles the renderer), so the prototype puts
   it at the floating level, click-through, with no pixels. The page window is an `addChildWindow` child of the host's
@@ -161,8 +166,10 @@ daemon talks CDP to the host through `--remote-debugging-pipe`), crash reports (
   `ChromiumHostProcessTests` (a real child process: round trip, SIGKILL reported with its signal, the pid not reused
   before reap, a host that stops reading ends the connection without blocking the sender; this test found that macOS
   ignores `MSG_DONTWAIT` on Unix sockets), `ChromiumHostSessionTests` (a host that ends restarts
-  with the last committed URL and shows no stale context; a second quick end stays ended; a host closed on purpose
-  does not restart).
+  with the last committed URL and shows no stale context, also with frames of the dead host still buffered; a second
+  quick end stays ended; a host that could not start stays ended; a host closed on purpose does not restart).
+  `ChromiumHostPrototype` closes the session when the page view leaves its window (its pane closed) and when the
+  tunable goes off.
 - Bench: `scripts/cmux-next/chromium-host-bench.py` (same probe page in process and in the host; key and click to the
   page's next animation frame, frame pacing, wire round trips, the host's input hop, SIGKILL check).
 
