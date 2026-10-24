@@ -57,10 +57,10 @@ struct StatusRunNotificationTests {
         let store = try Self.store(entries: "[\(Self.run(state: "busy", updated: 1))]")
         let service = NotificationCenterService()
         var tracker = FinishedStatusRunTracker()
-        let busy = service.statusRunNotices(in: store, tracker: &tracker, behavior: behavior, visibility: { _ in visibility })
+        let busy = service.statusRunNotices(in: store.workspaces.compactMap(\.status), store: store, tracker: &tracker, behavior: behavior, visibility: { _ in visibility })
         #expect(busy.isEmpty, "a running command notified")
         try Self.upsert("[\(Self.run(state: state, exitCode: exitCode, durationMs: durationMs, updated: 2))]", in: store)
-        return service.statusRunNotices(in: store, tracker: &tracker, behavior: behavior, visibility: { _ in visibility })
+        return service.statusRunNotices(in: store.workspaces.compactMap(\.status), store: store, tracker: &tracker, behavior: behavior, visibility: { _ in visibility })
     }
 
     @Test func aLongRunInAHiddenTerminalNotifiesOnItsTab() throws {
@@ -93,7 +93,7 @@ struct StatusRunNotificationTests {
     @Test func aRunThatWasNeverSeenRunningDoesNotNotify() throws {
         let store = try Self.store(entries: "[\(Self.run(state: "success", exitCode: 0, durationMs: 60_000, updated: 2))]")
         var tracker = FinishedStatusRunTracker()
-        let notices = NotificationCenterService().statusRunNotices(in: store, tracker: &tracker, behavior: Self.behavior(),
+        let notices = NotificationCenterService().statusRunNotices(in: store.workspaces.compactMap(\.status), store: store, tracker: &tracker, behavior: Self.behavior(),
                                                                    visibility: { _ in .hidden })
         #expect(notices.isEmpty)
     }
@@ -104,11 +104,11 @@ struct StatusRunNotificationTests {
         let service = NotificationCenterService()
         var tracker = FinishedStatusRunTracker()
         let behavior = Self.behavior()
-        _ = service.statusRunNotices(in: store, tracker: &tracker, behavior: behavior, visibility: { _ in .hidden })
+        _ = service.statusRunNotices(in: store.workspaces.compactMap(\.status), store: store, tracker: &tracker, behavior: behavior, visibility: { _ in .hidden })
         let finished = Self.run(state: "success", exitCode: 0, durationMs: 30_000, updated: 2)
         try Self.upsert("[\(finished)]", in: store)
-        #expect(service.statusRunNotices(in: store, tracker: &tracker, behavior: behavior, visibility: { _ in .hidden }).count == 1)
+        #expect(service.statusRunNotices(in: store.workspaces.compactMap(\.status), store: store, tracker: &tracker, behavior: behavior, visibility: { _ in .hidden }).count == 1)
         try Self.upsert(#"[\#(finished),{"key":"lint","text":"Lint ok"}]"#, in: store)
-        #expect(service.statusRunNotices(in: store, tracker: &tracker, behavior: behavior, visibility: { _ in .hidden }).isEmpty)
+        #expect(service.statusRunNotices(in: store.workspaces.compactMap(\.status), store: store, tracker: &tracker, behavior: behavior, visibility: { _ in .hidden }).isEmpty)
     }
 }
