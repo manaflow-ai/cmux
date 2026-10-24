@@ -157,7 +157,7 @@ struct Session {
     pty: TestPty,
     output: Vec<u8>,
     #[cfg(target_os = "macos")]
-    watch: super::fork_watch::ForkWatch,
+    watch: fork_watch::ForkWatch,
     /// The watch's exec count before the gate opened.
     #[cfg(target_os = "macos")]
     gate_execs: u32,
@@ -195,7 +195,7 @@ impl Session {
         let pty = TestPty::spawn(size, pty_command);
         #[cfg(target_os = "macos")]
         let (session, start) = {
-            let watch = super::fork_watch::ForkWatch::new(pty.pid());
+            let watch = fork_watch::ForkWatch::new(pty.pid());
             // The spawn returned after the gate's own exec, so nothing has
             // exec'd since the watch started; the gate forks nothing.
             let gate = watch.counts();
