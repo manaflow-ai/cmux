@@ -117,8 +117,8 @@ public final class HoverCardCoordinator {
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
     // Reads Sendable state only: the timer cancels on any thread; the event monitors leave, and a shown
-    // card's parent gets its mouse-move setting back, on the main thread (inline when released there;
-    // a release elsewhere skipped them before, and no release restored the parent's setting).
+    // card's parent gets its mouse-move setting back, on the main thread, inline when the coordinator
+    // is released there, otherwise on the next turn of the main queue.
     nonisolated deinit {
         timer.cancel()
         let monitor = monitor, moveWatch = moveWatch
