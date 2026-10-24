@@ -23,7 +23,7 @@ export type BackgroundTaskOutput = {
 /// completed process can retain its full tail in the reader without growing the row indefinitely.
 export function tailLines(output: string | undefined, maxLines = 10): string | undefined {
   if (!output || maxLines <= 0) return undefined;
-  const lines = output.replace(/\r\n/g, "\n").split("\n");
+  const lines = output.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "").replace(/\r\n/g, "\n").split("\n");
   while (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
   return lines.slice(-maxLines).join("\n");
 }

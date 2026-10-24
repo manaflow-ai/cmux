@@ -16,6 +16,7 @@ import {
   BACKGROUND_TAIL_BYTES,
   BackgroundTaskOutputContext,
   readBackgroundTaskOutput,
+  tailLines,
   type BackgroundTaskOutputReader,
 } from "./backgroundTaskOutput";
 import { resetTranscriptDisclosure } from "./transcriptDisclosure";
@@ -324,4 +325,8 @@ test("a known process id wins over a reused tool call id", async () => {
   };
   const output = await readBackgroundTaskOutput(reader, "bg", "s1/old");
   expect(output.output).toBe("s1/old");
+});
+
+test("a live tail keeps the last lines and removes terminal color escapes", () => {
+  expect(tailLines("first\n\u001b[31msecond\u001b[0m\nthird\n", 2)).toBe("second\nthird");
 });
