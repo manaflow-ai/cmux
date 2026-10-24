@@ -230,7 +230,7 @@ public final class TerminalSurfaceView: NSView {
     /// Shown in a window, not hidden or parked (``syncWindowState()``). A layout change of a terminal
     /// that is not shown records its size only (PL-script A3: a hidden workspace's layout sized every
     /// warm terminal's surface and resized its PTY); showing it applies the last size once.
-    private var isShown = false
+    private(set) var isShown = false
 
     private func observeWindow(_ observe: Bool) {
         guard observe == windowObservers.isEmpty else { return }
