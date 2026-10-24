@@ -32,7 +32,7 @@ public final class FeedHostView: NSView {
     ///   - layoutOverride: Pins a prototype (demos and screenshots); nil follows the Debug Settings switch `feed.layout`.
     ///   - surface: Where the feed is shown; a page tab by default.
     public init(model: FeedModel, layoutOverride: FeedLayout? = nil, surface: Surface = .page,
-                onReportsReply: (@MainActor (String, String) -> Bool)? = nil) {
+                onReportsReply: (@MainActor (String, String) async -> Bool)? = nil) {
         self.model = model
         self.surface = surface
         super.init(frame: .zero)
