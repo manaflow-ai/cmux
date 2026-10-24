@@ -48,7 +48,8 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextActions",
       "targets": [
-        "CmuxNextSignposts"
+        "CmuxNextSignposts",
+        "CmuxNextWakeups"
       ],
       "packages": []
     },
