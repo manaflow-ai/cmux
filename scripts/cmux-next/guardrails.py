@@ -1642,8 +1642,8 @@ RULES = (
     Rule("undo-text-write", "Undo turned on for a text view (`allowsUndo = true`)",
          "AppKit's `string` setter replaces the text without telling the undo manager: a typing action keeps its "
          "range into the old text and Cmd-Z raises NSRangeException (#24912)",
-         "give the view a `replaceText(_:)` that sets the text and clears the undo history (TextBoxTextView, "
-         "ShareCmuxMessageTextView), write text from code only through it, then mark the line "
+         "write text from code only through CmuxNextDesign's `replaceAllTextUndoably(_:)` (one undo step; "
+         "TextBoxTextView.replaceText, ShareCmuxMessageTextView.replaceText), then mark the line "
          "`// undo-safe: <the view's replaceText>`",
          "// undo-safe: <the view's replaceText>",
          line_rule(r"\ballowsUndo\s*=\s*true\b", "undo-safe:")),
