@@ -297,6 +297,14 @@ impl Host {
             }
             return Ok(json!({"session": name, "engine": existing.engine, "created": false}));
         }
+        // `auto` on a named session drives the app's in-app browser when the
+        // app is connected; the implicit `default` session stays headless
+        // (the person's tabs need a named session).
+        let engine = if engine == "auto" && Self::named(params) {
+            self.engines.auto_engine().to_owned()
+        } else {
+            engine
+        };
         let raw_cdp = params.get("rawCdp").and_then(Value::as_bool).unwrap_or(false);
         if raw_cdp && caller.origin != "user" {
             return Err(DriverError::new(ErrorCode::Forbidden, "raw CDP needs a user grant"));

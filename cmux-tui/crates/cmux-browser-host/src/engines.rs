@@ -174,6 +174,13 @@ fn unavailable(engine: &str, reason: &str) -> DriverError {
 }
 
 impl crate::host::Engines for HostEngines {
+    #[cfg(unix)]
+    fn auto_engine(&self) -> &'static str {
+        let slot = self.provider.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let live = slot.as_ref().filter(|provider| provider.closed_reason().is_none());
+        if live.is_some_and(|provider| provider.offers("cef")) { "cef" } else { "headless" }
+    }
+
     fn driver(
         &self,
         engine: &str,
