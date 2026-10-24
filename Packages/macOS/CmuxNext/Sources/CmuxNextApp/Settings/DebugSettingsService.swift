@@ -160,6 +160,9 @@ final class DebugSettingsService: InternalPageProvider {
     var title: String { DebugSettingsModel.paneTitle }
     var symbol: String { "slider.horizontal.3" }
 
+    /// Built just after the commit that shows the tab (placeholder first): its opener reads no view in the key's turn.
+    var buildsViewAfterCommit: Bool { true }
+
     func makeView(for key: String, in window: WindowController?) -> NSView {
         let model = sharedModel ?? DebugSettingsModel(store: TunableStore.shared, descriptors: TunableCatalog.all)
         sharedModel = model

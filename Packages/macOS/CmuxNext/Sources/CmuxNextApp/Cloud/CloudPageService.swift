@@ -24,13 +24,16 @@ final class CloudPageService: InternalPageProvider {
               let view = services.pages.show(.cloud, in: window, focus: focus) else {
             throw ActionFailure(message: RefusalStrings.noWindowOpen)
         }
-        if let route, let page = view.content as? PageWebView { page.open(route: route) }
+        if let route { view.whenContent { ($0 as? PageWebView)?.open(route: route) } }
     }
 
     var page: InternalPageID { .cloud }
     var title: String { String(localized: "cloud.page.title", defaultValue: "Cloud", table: "Cloud", bundle: .module) }
     var symbol: String { "cloud" }
     var icon: IconName? { .cloud }
+
+    /// Built just after the commit that shows the tab (placeholder first): its opener reads no view in the key's turn.
+    var buildsViewAfterCommit: Bool { true }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
         guard let services, let page = PageFactory(services: services).cloudWebPage() else { return NSView() }

@@ -43,6 +43,9 @@ final class ChiefInspectorPageService: InternalPageProvider {
         return services?.pages.show(.chiefInspector, in: window, focus: focus) != nil
     }
 
+    /// Built just after the commit that shows the tab (placeholder first): its opener reads no view in the key's turn.
+    var buildsViewAfterCommit: Bool { true }
+
     func makeView(for key: String, in window: WindowController?) -> NSView {
         // Each tab keeps the server it was opened for; a tab restored at
         // launch (no open request yet) takes the first server that serves

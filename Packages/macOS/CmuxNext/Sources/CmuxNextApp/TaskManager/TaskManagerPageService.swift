@@ -83,6 +83,9 @@ final class TaskManagerPageService: InternalPageProvider {
     var title: String { TaskManagerModel.title }
     var symbol: String { "gauge.with.dots.needle.33percent" }
 
+    /// Built just after the commit that shows the tab (placeholder first): its opener reads no view in the key's turn.
+    var buildsViewAfterCommit: Bool { true }
+
     func makeView(for key: String, in window: WindowController?) -> NSView {
         let model = self.model ?? TaskManagerModel(source: source, kill: { [weak services] key in
             // The row menu and the button run the action, which asks first.

@@ -38,6 +38,9 @@ final class KeybindingsPageService: InternalPageProvider {
     var symbol: String { "keyboard" }
     var icon: IconName? { .keyboard }
 
+    /// Built just after the commit that shows the tab (placeholder first): its opener reads no view in the key's turn.
+    var buildsViewAfterCommit: Bool { true }
+
     func makeView(for key: String, in window: WindowController?) -> NSView {
         let provider = KeybindingsPageProvider(services: services)
         let routes = [PageRoute(prefix: "cmux.keybindings.", provider: provider)]

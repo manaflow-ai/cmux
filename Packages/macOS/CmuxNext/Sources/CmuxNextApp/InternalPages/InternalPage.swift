@@ -76,6 +76,12 @@ protocol InternalPageProvider: AnyObject {
     /// A native bar shown above tab `key`'s view (the Markdown omnibar),
     /// asked once right after ``makeView(for:in:)``. Default: none.
     func makeTopBar(for key: String) -> NSView?
+    /// Whether a tab's view is built just after the commit that shows the tab, not in the key's turn
+    /// (``InternalPageView/init(key:page:topBar:makeContent:)``): the tab and an empty area show at once.
+    /// Only for a provider whose ``makeView(for:in:)`` reads no state its opener sets and clears in the
+    /// same turn, and whose openers reach the view through ``InternalPageView/whenContent(_:)``.
+    /// Default: false.
+    var buildsViewAfterCommit: Bool { get }
 }
 
 extension InternalPageProvider {
@@ -87,4 +93,5 @@ extension InternalPageProvider {
     func restore(_ route: String, for key: String) {}
     func title(forRoute route: String) -> String? { nil }
     func makeTopBar(for key: String) -> NSView? { nil }
+    var buildsViewAfterCommit: Bool { false }
 }
