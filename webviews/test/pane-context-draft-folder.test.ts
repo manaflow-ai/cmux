@@ -17,3 +17,7 @@ test("a started chat's session cwd wins over a stale pick", () => {
   const started = { rows: [], sessions: [{ sessionId: "s1", cwd: "/work/session" }], sessionId: "s1" };
   expect(paneContext(started as never, "/work/draft").cwd).toBe("/work/session");
 });
+
+test("a New Tab page's project chip wins before a chat starts", () => {
+  expect(paneContext(sessionless, { shown: "/work/page", draft: "/work/draft" }).cwd).toBe("/work/page");
+});
