@@ -6359,6 +6359,89 @@ extension SessionPersistenceTests {
         XCTAssertNil(batch.effectiveDecision)
     }
 
+    @MainActor
+    func testSurfaceResumeRunPromptBatchClaimsEachAgentCheckpointOncePerPass() {
+        let batch = SurfaceResumeRunPromptBatch.shared
+        batch.reset()
+        defer { batch.reset() }
+
+        // Outside a restore pass nothing is tracked.
+        XCTAssertEqual(batch.claimAgentRestore(kind: "codex", sessionID: "session-a"), .unscoped)
+        XCTAssertEqual(batch.claimAgentRestore(kind: "codex", sessionID: "session-a"), .unscoped)
+
+        batch.beginRestorePass()
+        // Every distinct checkpoint has an owner, however many there are.
+        for index in 0..<20 {
+            XCTAssertEqual(batch.claimAgentRestore(kind: "codex", sessionID: "session-\(index)"), .owner)
+        }
+        // A second claim for the same checkpoint is always a duplicate,
+        // including whitespace around the kind.
+        XCTAssertEqual(batch.claimAgentRestore(kind: "codex", sessionID: "session-19"), .duplicate)
+        XCTAssertEqual(batch.claimAgentRestore(kind: " codex ", sessionID: "session-0"), .duplicate)
+        // Another agent kind with the same id is a different checkpoint.
+        XCTAssertEqual(batch.claimAgentRestore(kind: "claude", sessionID: "session-0"), .owner)
+
+        // Releasing an owned claim lets a later panel own the checkpoint.
+        batch.releaseAgentRestore(kind: "codex", sessionID: "session-3")
+        XCTAssertEqual(batch.claimAgentRestore(kind: "codex", sessionID: "session-3"), .owner)
+        batch.endRestorePass()
+
+        // Claims do not outlive the pass.
+        batch.beginRestorePass()
+        XCTAssertEqual(batch.claimAgentRestore(kind: "codex", sessionID: "session-0"), .owner)
+        batch.endRestorePass()
+    }
+
+    func testAgentRestoreIdentityKeysAgentsAndHookBindingsButNotMultiplexers() {
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "codex-session",
+            workingDirectory: "/tmp/identity",
+            launchCommand: nil
+        )
+        let hookBinding = SurfaceResumeBindingSnapshot(
+            name: "Pi",
+            kind: "pi",
+            command: "pi --session pi-session",
+            cwd: "/tmp/identity",
+            checkpointId: "pi-session",
+            source: "agent-hook",
+            autoResume: true,
+            updatedAt: 1
+        )
+        var tmuxBinding = hookBinding
+        tmuxBinding.kind = "tmux"
+        tmuxBinding.checkpointId = "shared-tmux-session"
+        tmuxBinding.source = "process"
+
+        let fromAgent = SurfaceResumeRunPromptBatch.agentRestoreIdentity(
+            restorableAgent: agent, agentMayAutoResume: true,
+            resumeBinding: nil, bindingWillLaunch: false
+        )
+        XCTAssertEqual(fromAgent?.kind, "codex")
+        XCTAssertEqual(fromAgent?.sessionID, "codex-session")
+        XCTAssertNil(SurfaceResumeRunPromptBatch.agentRestoreIdentity(
+            restorableAgent: agent, agentMayAutoResume: false,
+            resumeBinding: nil, bindingWillLaunch: false
+        ))
+        let fromHook = SurfaceResumeRunPromptBatch.agentRestoreIdentity(
+            restorableAgent: nil, agentMayAutoResume: false,
+            resumeBinding: hookBinding, bindingWillLaunch: true
+        )
+        XCTAssertEqual(fromHook?.kind, "pi")
+        XCTAssertEqual(fromHook?.sessionID, "pi-session")
+        // A hook binding that won't launch, and any multiplexer binding,
+        // never takes a claim.
+        XCTAssertNil(SurfaceResumeRunPromptBatch.agentRestoreIdentity(
+            restorableAgent: nil, agentMayAutoResume: false,
+            resumeBinding: hookBinding, bindingWillLaunch: false
+        ))
+        XCTAssertNil(SurfaceResumeRunPromptBatch.agentRestoreIdentity(
+            restorableAgent: nil, agentMayAutoResume: false,
+            resumeBinding: tmuxBinding, bindingWillLaunch: true
+        ))
+    }
+
     func testSurfaceResumeApprovalAutoPolicyAppliesSignedPrefix() throws {
         let storeURL = try makeSurfaceResumeApprovalStoreURL()
         let secret = Data("approval-secret".utf8)
