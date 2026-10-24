@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """perf-stress-session.py against a fake app socket (no app): the builder's background Chromium load, the
-measured grid when focus does not follow a new workspace, and the shape check (even grid, Chromium
-running, window on its screen, the virtual display really main).
+measured grid and the light session (every-action-sweep.py) when focus does not follow a new workspace,
+the window placed on a screen with a Dock, agent chats that open late or are refused, and the shape check
+(even grid, Chromium running, window on its screen, the virtual display really main).
 Run: python3 -I scripts/cmux-next/tests/test_perf_stress_session.py"""
 import importlib.util, os, sys, unittest
 
@@ -11,7 +12,11 @@ stress = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(stress)
 
 AREA = (1600.0, 1000.0)  # the fake layout area, window points
-VISIBLE = [0, 0, 1920, 1050]  # the fake screen's visible frame
+SCREEN = [0, 0, 1920, 1080]  # the fake main screen (the fleet's 1920 x 1080 virtual display)
+VISIBLE = [0, 0, 1920, 1050]  # its visible frame: a menu bar, the Dock hidden
+BOTTOM_DOCK = [0, 70, 1920, 986]  # the default Dock at the bottom: under 1000 pt of visible height
+SIDE_DOCK = [70, 0, 1850, 1056]  # the Dock on the left
+BUILDERS = []  # every builder a test made: its pages' server is stopped in tearDown
 
 
 class FakeClock:
@@ -42,8 +47,15 @@ class FakeApp:
 
     Each workspace is columns side by side, each column rows stacked: {"width": f, "rows": [[pane, f]]}."""
 
-    def __init__(self, takes_focus=True, cef=None, window_frame=None):
+    def __init__(self, takes_focus=True, cef=None, window_frame=None, visible=None, screen=None, legacy=False, chat="opens"):
+        """`visible`/`screen`: the main screen's frames (VISIBLE, SCREEN); `legacy`: an app before the screen
+        fields (debug.window_frame and debug.layers give no visible or screen frame); `chat`: `opens`, `late`
+        (the chat tab shows 9 s after the action's reply), `refused` (a typed refusal) or `transport` (the
+        socket times out, no typed refusal)."""
         self.takes_focus = takes_focus
+        self.visible, self.screen, self.legacy, self.chat = visible or VISIBLE, screen or SCREEN, legacy, chat
+        self.clock = None  # the builder's FakeClock (builder())
+        self.pending = []  # (due, pane, tab): late chat tabs
         self.workspaces, self.layout = [], {}
         self.shown = None
         self.focus = {"workspace": None, "pane": None}
@@ -119,12 +131,31 @@ class FakeApp:
                 rings.append({"pane": pane, "frame_in_window": [x, y, width, share * AREA[1]]})
                 y += share * AREA[1]
             x += width
-        return {"windows": [{"id": "win_1", "frame": list(self.window_frame), "screen_visible_frame": VISIBLE,
-                             "divider_areas_in_window": dividers, "planes": [{"rings": rings}], "browsers": []}]}
+        window = {"id": "win_1", "frame": list(self.window_frame), "divider_areas_in_window": dividers,
+                  "planes": [{"rings": rings}], "browsers": []}
+        if not self.legacy:
+            window.update(screen_visible_frame=list(self.visible), screen_frame=list(self.screen))
+        return {"windows": [window]}
+
+    def set_frame(self, params):
+        """debug.window_frame: `frame` as given (setFrame), or `screen` centers the size on the visible frame."""
+        if params.get("frame"):
+            self.window_frame = list(params["frame"])
+        elif "screen" in params:
+            vx, vy, vw, vh = self.visible
+            w, h = self.window_frame[2:]
+            self.window_frame = [vx + (vw - w) / 2, vy + (vh - h) / 2, w, h]
+        reply = {"frame": list(self.window_frame), "screen": "fake"}
+        if not self.legacy:
+            reply.update(visible_frame=list(self.visible), screen_frame=list(self.screen))
+        return reply
 
     def rpc(self, method, params=None, timeout=60):
         params = params or {}
         if method == "snapshot.get":
+            for due, pane, tab in [p for p in self.pending if p[0] <= self.clock.now]:
+                self.pending.remove((due, pane, tab))
+                self.add(pane, tab)
             return {"topology": {"workspaces": self.workspaces, "focus": dict(self.focus),
                                  "windows": [{"key": "win_1", "workspace": self.shown}]}}
         if method == "debug.layers":
@@ -132,7 +163,7 @@ class FakeApp:
         if method == "debug.cef":
             return dict(self.cef)
         if method == "debug.window_frame":
-            return {"frame": list(self.window_frame), "screen": "fake", "visible_frame": VISIBLE}
+            return self.set_frame(params)
         if method != "action.run":
             return {}
         action, target = params.get("action"), params.get("target") or ""
@@ -169,19 +200,34 @@ class FakeApp:
             self.browsers.append((pane["id"], not hidden))
             self.add(pane, self.tab("browser"))
         elif action == "palette.newAgentChat":
-            self.add(pane, self.tab("conversation"))
+            if self.chat == "refused":
+                return {"error": {"code": "unavailable", "data": {"reason": "agent launch denied"}}}
+            if self.chat == "transport":
+                return {"error": "timed out"}
+            if self.chat == "late":
+                self.pending.append((self.clock.now + 9, pane, self.tab("conversation")))
+            else:
+                self.add(pane, self.tab("conversation"))
         elif action == "newTab.page":
             self.add(pane, self.tab("page", page="new-tab"))
         return {}
 
 
 def builder(app, **options):
-    stress.time = FakeClock()  # the fake answers at once; a wait that never succeeds ends at once too
+    stress.time = app.clock = FakeClock()  # the fake answers at once; a wait that never succeeds ends at once too
     # No web-dev.json: the developer's own file on this Mac must not decide the test.
-    return stress.Stress(app.rpc, log=lambda line: None, settle=0, web_dev_config=os.path.join(HERE, "no-such-web-dev.json"), **options)
+    made = stress.Stress(app.rpc, log=lambda line: None, settle=0, web_dev_config=os.path.join(HERE, "no-such-web-dev.json"), **options)
+    BUILDERS.append(made)
+    return made
 
 
-class BackgroundChromiumTests(unittest.TestCase):
+class Case(unittest.TestCase):
+    def tearDown(self):
+        while BUILDERS:
+            BUILDERS.pop().close()
+
+
+class BackgroundChromiumTests(Case):
     def test_each_background_workspace_gets_its_chromium_pages_when_focus_stays_elsewhere(self):
         app = FakeApp(takes_focus=False)
         made = builder(app).build_background(count=3, chromium=2)
@@ -203,7 +249,7 @@ class BackgroundChromiumTests(unittest.TestCase):
         self.assertEqual(summary["background_chromium"], [0, 2])
 
 
-class MeasuredGridTests(unittest.TestCase):
+class MeasuredGridTests(Case):
     def build(self, takes_focus):
         app = FakeApp(takes_focus=takes_focus)
         session = builder(app)
@@ -228,7 +274,7 @@ class MeasuredGridTests(unittest.TestCase):
         self.assertEqual((summary["layout_refusals"], summary["grid_problems"], summary["pane_problems"]), ([], [], []))
 
 
-class ShapeCheckTests(unittest.TestCase):
+class ShapeCheckTests(Case):
     def test_uneven_rows_are_a_wrong_shape(self):
         # A grid split while hidden: rows 1/2, 1/4, 1/4 (and 1/2, 1/4, 1/8, 1/8 in the nested columns).
         def column(x, shares):
@@ -268,10 +314,14 @@ class ShapeCheckTests(unittest.TestCase):
         self.assertTrue(any("chat tab" in problem for problem in session.summary()["pane_problems"]))
 
     def test_a_window_past_its_screen_or_resized_after_the_build_is_not_stress(self):
-        self.assertIsNone(stress.window_problem({"frame": [80, 40, 1600, 1000], "visible_frame": VISIBLE}))
-        self.assertIn("past", stress.window_problem({"frame": [800, 40, 1600, 1000], "visible_frame": VISIBLE}))
-        self.assertIn("not", stress.window_problem({"frame": [80, 40, 1600, 675], "visible_frame": VISIBLE}))
-        self.assertIn("visible frame", stress.window_problem({"frame": [80, 40, 1600, 1000]}))
+        on = {"visible_frame": VISIBLE, "screen_frame": SCREEN}
+        self.assertIsNone(stress.window_problem({"frame": [80, 40, 1600, 1000], **on}))
+        self.assertIn("past", stress.window_problem({"frame": [800, 40, 1600, 1000], **on}))  # past the right edge
+        self.assertIn("past", stress.window_problem({"frame": [80, 60, 1600, 1000], **on}))  # under the menu bar
+        self.assertIn("past", stress.window_problem({"frame": [80, -20, 1600, 1000], **on}))  # below the screen
+        self.assertIn("not", stress.window_problem({"frame": [80, 40, 1600, 675], **on}))
+        # An app without the screen fields: only the size is checked (the grid check reads the pane frames).
+        self.assertIsNone(stress.window_problem({"frame": [80, 40, 1600, 1000]}))
         app = FakeApp()
         session = builder(app)
         session.build_measured()
@@ -287,6 +337,88 @@ class ShapeCheckTests(unittest.TestCase):
         self.assertIn("main display is 1", stress.vdisplay_problem("ready 7 8.33 main=1\n"))
         self.assertIsNotNone(stress.vdisplay_problem("error: CGVirtualDisplay unavailable\n"))
         self.assertIsNotNone(stress.vdisplay_problem(None))
+
+
+class WindowPlacementTests(Case):
+    def measured(self, app):
+        session = builder(app)
+        session.build_measured()
+        return session.summary()
+
+    def test_a_bottom_dock_leaves_the_window_on_its_screen(self):
+        # The default Dock on the fleet's 1920 x 1080 main display: 986 pt of visible height.
+        app = FakeApp(visible=BOTTOM_DOCK)
+        summary = self.measured(app)
+        self.assertIsNone(summary["window_problem"])
+        self.assertEqual(summary["window_on_screen"], "yes")
+        self.assertEqual(app.window_frame, [160, 56, 1600, 1000], "not under the menu bar, centered")
+        self.assertEqual(summary["dock_overlap_pt"], 14, "the Dock's overlap is recorded as a bench condition")
+
+    def test_a_side_dock_or_no_dock_centers_the_window_in_the_visible_frame(self):
+        for visible, frame in ((SIDE_DOCK, [195, 56, 1600, 1000]), (VISIBLE, [160, 50, 1600, 1000])):
+            app = FakeApp(visible=visible)
+            summary = self.measured(app)
+            self.assertEqual((app.window_frame, summary["window_problem"], summary["dock_overlap_pt"]), (frame, None, 0))
+
+    def test_a_screen_too_small_refuses_before_building(self):
+        app = FakeApp(visible=[0, 0, 1440, 875], screen=[0, 0, 1440, 900])
+        with self.assertRaisesRegex(stress.StressShapeError, "past its screen"):
+            builder(app).build_measured()
+        self.assertFalse(any(action.startswith("split") for action, _, _ in app.log), "something was built")
+
+    def test_an_app_without_the_screen_fields_is_measured_with_the_screen_unknown(self):
+        app = FakeApp(legacy=True)
+        summary = self.measured(app)
+        self.assertEqual(app.window_frame, [*stress.LEGACY_ORIGIN, *stress.WINDOW_SIZE])
+        self.assertEqual((summary["window_problem"], summary["window_on_screen"]), (None, "unknown"))
+        self.assertEqual(summary["grid_problems"], [], "the grid check still reads the pane frames")
+
+
+class ChatTests(Case):
+    def test_a_chat_that_opens_after_a_slow_reply_is_kept_and_no_page_is_added(self):
+        app = FakeApp(chat="late")
+        session = builder(app)
+        session.build_measured()
+        summary = session.summary()
+        self.assertEqual(summary["chat_fallbacks"], 0, "a slow chat was replaced by the New Tab page")
+        self.assertEqual(summary["pane_problems"], [])
+        self.assertFalse(any(action == "newTab.page" for action, _, _ in app.log))
+
+    def test_only_a_typed_refusal_falls_back(self):
+        app = FakeApp(chat="transport")
+        session = builder(app)
+        session.build_measured()
+        self.assertEqual(session.chat_fallbacks, 0)
+        self.assertTrue(any("chat tab None" in problem for problem in session.summary()["pane_problems"]),
+                        "a chat that never came is named, not hidden by a stand-in page")
+
+    def test_refused_chats_are_not_stress_unless_asked(self):
+        for allow in (False, True):
+            app = FakeApp(chat="refused")
+            session = builder(app, allow_chat_fallback=allow)
+            session.build_measured()
+            summary = session.summary()
+            self.assertEqual(summary["chat_fallbacks"], len(session.panes(session.workspace(session.measured))))
+            with self.assertRaises(stress.StressShapeError) as raised:
+                session.check(summary)  # also refused for the missing background half
+            self.assertEqual("agent chats were refused" in str(raised.exception), not allow, str(raised.exception))
+
+
+class LightSessionTests(Case):
+    def test_the_light_session_splits_its_own_workspace_when_focus_stays_elsewhere(self):
+        for takes_focus in (False, True):
+            app = FakeApp(takes_focus=takes_focus)
+            session = builder(app)
+            start = session.new_workspace()  # the launch workspace, shown and focused
+            app.shown, app.focus = start, {"workspace": start, "pane": app.panes_of(app.workspaces[0])[0]["id"]}
+            workspace, panes = session.build_light()
+            self.assertEqual(len(panes), 2, f"the light workspace has {len(panes)} panes (takes_focus={takes_focus})")
+            self.assertEqual(len(session.panes(session.workspace(start))), 1, "the launch workspace was split instead")
+            tabs = session.tabs(workspace, panes[0])
+            self.assertEqual(sorted(t["kind"] for t in tabs),
+                             ["browser", "browser", "browser", "conversation", "terminal", "terminal"])
+            self.assertTrue(all(shown for _, shown in app.browsers), "a page opened in a hidden workspace")
+            self.assertEqual(session.chat_fallbacks, 0)
 
 
 if __name__ == "__main__":
