@@ -228,7 +228,12 @@
    icon tabs on a hairline; the chosen tab keeps the row wash. The list keeps Claude Code's rows. */
 .acpmux-quick-railed { max-width: min(360px, var(--available-width, calc(100vw - 24px))); padding: 0; overflow: hidden; }
 /* A rail or list taller than the room scrolls on its own; the other stays put. */
-.acpmux-quick-layout { display: flex; align-items: stretch; min-height: 0; max-height: 100%; }
+.acpmux-quick-layout {
+  display: flex;
+  align-items: stretch;
+  min-height: 0;
+  max-height: min(var(--available-height, 100vh), calc(100vh - 16px));
+}
 .acpmux-quick-rail,
 .acpmux-quick-body { min-height: 0; overflow-y: auto; }
 .acpmux-quick-rail {
