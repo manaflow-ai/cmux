@@ -62,7 +62,7 @@ const row: AcpmuxRow = {
 };
 const parts = structuredClone(row.inlineParts);
 
-async function draw(actions: object = {}) {
+async function draw(actions: object = {}, drawn: AcpmuxRow = row) {
   const { createRoot } = await import("react-dom/client");
   const { UserBubble } = await import("../src/agent-session/acpmux/conversation/UserBubble");
   const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
@@ -70,7 +70,7 @@ async function draw(actions: object = {}) {
   await act(async () =>
     root!.render(
       <TurnActionsContext.Provider value={actions}>
-        <UserBubble row={row} text={row.text ?? ""} />
+        <UserBubble row={drawn} text={drawn.text ?? ""} />
       </TurnActionsContext.Provider>,
     ),
   );
@@ -131,4 +131,45 @@ test("an open edit and its draft stay open across a switch", async () => {
   expect(field.value).toBe("draft kept");
   await view("inline");
   expect(host.querySelector<HTMLTextAreaElement>(".cv-user__edit-field")?.value).toBe("draft kept");
+});
+
+// A prompt whose last part is an attachment (text, then what was added after it) reads in that order
+// too: Inline puts the attachment after its text in the bubble, never above it; Strip puts it in the
+// row above. A prompt of attachments alone draws them with no empty bubble, in either view.
+const trailing = (id: string, inlineParts: AcpmuxRow["inlineParts"], text = ""): AcpmuxRow => ({
+  id,
+  version: 1,
+  at: Date.now(),
+  kind: "user",
+  seq: 9,
+  text,
+  inlineParts,
+});
+
+for (const [name, last, part] of [
+  ["an image", { kind: "image", id: "shot-c", mimeType: "image/png", name: "c.png", src: PNG }, "image:shot-c"],
+  ["a file", { kind: "file", id: "log", name: "build.log", mimeType: "text/plain" }, "file:build.log"],
+] as const) {
+  test(`text then ${name}: Inline in the bubble after the text, Strip above it`, async () => {
+    await draw({}, trailing("user-9", [{ kind: "text", text: "See this: " }, last], "See this:"));
+    expect(items(bubble())).toEqual(["text:See this: ", part]);
+    expect(strip()).toBeNull();
+    // Never the old band of images above the bubble.
+    expect(host.querySelector(".cv-user__images:not([data-attachment-view])")).toBeNull();
+    await view("strip");
+    expect(items(strip())).toEqual([part]);
+    expect(items(bubble())).toEqual(["text:See this: "]);
+    await view("inline");
+    expect(items(bubble())).toEqual(["text:See this: ", part]);
+  });
+}
+
+test("an image alone draws the image and no bubble, in either view", async () => {
+  const only = { kind: "image", id: "shot-d", mimeType: "image/png", name: "d.png", src: PNG } as const;
+  await draw({}, trailing("user-10", [only]));
+  expect(bubble()).toBeNull();
+  expect(items(strip())).toEqual(["image:shot-d"]);
+  await view("strip");
+  expect(bubble()).toBeNull();
+  expect(items(strip())).toEqual(["image:shot-d"]);
 });
