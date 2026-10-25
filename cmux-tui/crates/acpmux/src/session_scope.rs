@@ -436,12 +436,10 @@ mod tests {
     #[cfg(target_os = "linux")]
     fn a_real_user_manager_takes_the_slice_limits() {
         use std::process::Command;
-        let running = Command::new("systemctl")
-            .args(["--user", "is-system-running"])
-            .output()
-            .is_ok_and(|o| {
-                matches!(String::from_utf8_lossy(&o.stdout).trim(), "running" | "degraded")
-            });
+        let running =
+            Command::new("systemctl").args(["--user", "is-system-running"]).output().is_ok_and(
+                |o| matches!(String::from_utf8_lossy(&o.stdout).trim(), "running" | "degraded"),
+            );
         let runner = std::path::Path::new("/usr/bin/systemd-run");
         if !running || !runner.is_file() {
             eprintln!("no user systemd manager here: skipped");
