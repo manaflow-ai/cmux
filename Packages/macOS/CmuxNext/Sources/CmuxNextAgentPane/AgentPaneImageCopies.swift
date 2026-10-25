@@ -99,7 +99,7 @@ extension AgentPaneImageCopies {
             guard model.replyLinks.mouseHeld() else { return AgentPaneModel.replyFailure(.gestureRequired) }
             switch await copy(src, name: name, in: model.replyLinks.imageFolder) {
             case .success(let file):
-                return model.replyLinks.startDrag(file) ? AgentPaneReply.success() : AgentPaneModel.replyFailure(.openFailed)
+                return await model.replyLinks.startDrag(file) ? AgentPaneReply.success() : AgentPaneModel.replyFailure(.openFailed)
             case .failure(let error):
                 return AgentPaneModel.replyFailure(error)
             }
@@ -108,7 +108,7 @@ extension AgentPaneImageCopies {
             guard let file = draggedFile(path, in: model) else { return AgentPaneModel.replyFailure(.pathInvalid) }
             let out = handedOut(file, in: model.replyLinks.imageFolder)
             if out != file, await !rebuild(file, to: out) { return AgentPaneModel.replyFailure(.imageRefused) }
-            return model.replyLinks.startDrag(out) ? AgentPaneReply.success() : AgentPaneModel.replyFailure(.openFailed)
+            return await model.replyLinks.startDrag(out) ? AgentPaneReply.success() : AgentPaneModel.replyFailure(.openFailed)
         case .quickLookImage(let src, let name):
             return await withCopy(src, name: name, in: model) { model.replyLinks.quickLookFile($0) }
         default: return AgentPaneModel.replyFailure(.openFailed)

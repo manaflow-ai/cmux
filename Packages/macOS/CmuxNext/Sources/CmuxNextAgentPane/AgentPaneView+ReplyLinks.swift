@@ -9,7 +9,9 @@ extension AgentPaneView {
         let drag = AgentPaneFileDrag()
         model.replyLinks.startDrag = { [weak self] file in
             guard let self, self.window != nil else { return false }
-            return drag.start(file, contents: AgentPaneFileDrag.contents(of: file), from: self)
+            // The file is read off the main actor; the drag starts with what the read gave.
+            let contents = await AgentPaneFileDrag.contents(of: file)
+            return drag.start(file, contents: contents, from: self)
         }
         model.replyLinks.confirmOutside = { [weak self] path, answer in
             guard let self, self.window != nil, !self.isHiddenOrHasHiddenAncestor else { return answer(false) }
