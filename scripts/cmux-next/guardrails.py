@@ -1629,30 +1629,45 @@ def module_of(path: str) -> str:
     return path[len(SOURCES):].split("/", 1)[0] if path.startswith(SOURCES) else ""
 
 
-# ---- task-priority (PL-qos)
-# Every off-main task and queue states its priority on purpose (Lawrence's threading items 3 and 5,
-# plans/cmux-next/PATTERNS.md P14): a detached Task names `priority:`, a global queue its `qos:`, a new serial
-# queue its `qos:` or its `target:`. A plain `Task { }` is not counted: it inherits its caller's priority and actor,
-# which is right in almost every case (lead, 2026-10-24). The argument list is read to its closing parenthesis, so a
-# call split over lines counts by what it names.
-TASK_CALL = re.compile(r"\bTask\.detached\s*[({]|\bDispatchQueue\.global\(|\bDispatchQueue\(\s*label:")
+# ---- task-priority (PL-qos, p02-threads-011)
+# Every off-main task, queue and thread states its priority on purpose (Lawrence's threading items 3 and 5,
+# plans/cmux-next/PATTERNS.md P14; Chromium base/task/task_traits.h: every posted task names its TaskPriority, and
+# base/threading/platform_thread.h: every thread is created with a ThreadType). Per form:
+# - `Task.detached` only in CmuxNextWakeups, the owner of off-main tasks (elsewhere `work.task(priority) { }`, which
+#   quit can drain, or a plain `Task { }`); there it names `priority:`.
+# - `DispatchQueue.global(` only in CmuxNextWakeups (a root queue has no name, lane or shutdown: `work.run`
+#   elsewhere); there it names `qos:`.
+# - `DispatchQueue(label:` names `qos:` or `target:`.
+# - `Thread {` / `Thread(block:` / `Thread(target:` sets `.qualityOfService =` within THREAD_QOS_LINES (its closure
+#   body comes first); `Thread.detachNewThread` starts at once and cannot, so it is refused.
+# - `OperationQueue()` sets `.qualityOfService =` and `.name =` within OPERATION_QUEUE_LINES.
+# - `delegateQueue: nil` is refused: URLSession then makes an unnamed queue at default QoS.
+# A plain `Task { }` is not counted: it inherits its caller's priority and actor, which is right in almost every case
+# (lead, 2026-10-24). An argument list is read to its closing parenthesis, so a call split over lines counts by what
+# it names. `// qos-allow: <why>` escapes every form.
+TASK_CALL = re.compile(r"(?P<detached>\bTask\.detached\s*[({])|(?P<global>\bDispatchQueue\.global\()"
+                       r"|(?P<queue>\bDispatchQueue\(\s*label:)"
+                       r"|(?:^\s*|[=(,]\s*|\breturn\s+)(?P<thread>Thread\s*(?:\{|\(block:|\(target:))"
+                       r"|(?P<detach_thread>\bThread\.detachNewThread\b)"
+                       r"|(?P<operation_queue>\bOperationQueue\(\))"
+                       r"|(?P<delegate_nil>\bdelegateQueue:\s*nil\b)")
 STATED = re.compile(r"\b(priority|qos|target):")
 RESERVED_LEVEL = re.compile(r"\b(priority|qos):\s*(\.|\w+\.)?(userInteractive|unspecified|background)\b")
 QOS_ALLOW = "qos-allow:"
 TASK_ARGS_MAX_LINES = 8  # an argument list longer than this is not a queue or task init in this codebase
+TASK_OWNER = SOURCES + "CmuxNextWakeups/"  # the one module that may detach a Task or use a root queue
+THREAD_QOS_LINES = 40  # lines from `Thread {` to its `.qualityOfService =`
+OPERATION_QUEUE_LINES = 10  # lines from `OperationQueue()` to its `.qualityOfService =` and `.name =`
+CREATED_BINDING = re.compile(r"\b(?:let|var)\s+(\w+)\s*(?::\s*[\w.]+\s*)?=\s*$")
 
 
-def unstated_priority(version: Version, index: int) -> tuple[bool, list[int]]:
-    """Whether the detached Task or queue call on line INDEX names no priority, QoS or target, or names a level the
-    model keeps for other work: `.userInteractive` (the main thread and the threads a frame waits for only),
+def unstated_args(version: Version, index: int, code: str, start: int) -> bool:
+    """Whether the call at CODE[START:] (line INDEX) names no priority, QoS or target, or names a level the model
+    keeps for other work: `.userInteractive` (the main thread and the threads a frame waits for only),
     `.unspecified` (unstated in effect) or `.background` (work nothing ever waits for: say so in the escape)."""
-    code = code_of(version.lines[index])
-    match = TASK_CALL.search(code)
-    if match is None:
-        return False, []
-    rest = code[min(i for i in (code.find("(", match.start()), code.find("{", match.start())) if i >= 0):]
+    rest = code[min(i for i in (code.find("(", start), code.find("{", start)) if i >= 0):]
     if rest.startswith("{"):
-        return True, []
+        return True
     args, depth = "", 0
     lines = [rest] + [code_of(line) for line in version.lines[index + 1:index + TASK_ARGS_MAX_LINES]]
     for line in lines:
@@ -1661,9 +1676,53 @@ def unstated_priority(version: Version, index: int) -> tuple[bool, list[int]]:
             depth -= c == ")"
             if depth == 0:
                 args += line[:i + 1]
-                return not STATED.search(args) or bool(RESERVED_LEVEL.search(args)), []
+                return not STATED.search(args) or bool(RESERVED_LEVEL.search(args))
         args += line + "\n"
-    return not STATED.search(args) or bool(RESERVED_LEVEL.search(args)), []
+    return not STATED.search(args) or bool(RESERVED_LEVEL.search(args))
+
+
+def unset_properties(version: Version, index: int, code: str, start: int, properties: tuple[str, ...],
+                     window: int) -> tuple[bool, list[int]]:
+    """(the thread or operation queue created at CODE[START:] on line INDEX leaves one of PROPERTIES unset in the
+    WINDOW lines from it, the 1-based lines that set them). A bound one (`let t = Thread {`) sets them on its name
+    (`t.qualityOfService = ...`); an unbound one on any receiver."""
+    bound = CREATED_BINDING.search(code[:start])
+    receiver = r"\b" + re.escape(bound.group(1)) if bound else ""
+    missing, setters = False, []
+    for name in properties:
+        setter = re.compile(receiver + r"\." + name + r"\s*=(?!=)")
+        found = next((j for j in range(index, min(len(version.lines), index + window))
+                      if setter.search(code[start:] if j == index else code_of(version.lines[j]))), None)
+        if found is None:
+            missing = True
+        else:
+            setters.append(found + 1)
+    return missing, setters
+
+
+def unstated_priority(version: Version, index: int) -> tuple[bool, list[int]]:
+    """(a task, queue, thread or URLSession delegate queue created on line INDEX does not state its priority the way
+    its form must (see the section comment), the 1-based lines that state it: a push that edits or deletes one of
+    them rejudges the unchanged creation line)."""
+    code = code_of(version.lines[index])
+    debt, setters = False, []
+    owner = version.path.startswith(TASK_OWNER)
+    for match in TASK_CALL.finditer(code):
+        kind = match.lastgroup
+        if kind in ("detached", "global"):
+            debt |= not owner or unstated_args(version, index, code, match.start(kind))
+        elif kind == "queue":
+            debt |= unstated_args(version, index, code, match.start(kind))
+        elif kind in ("detach_thread", "delegate_nil"):
+            debt = True
+        else:
+            thread = kind == "thread"
+            missing, lines = unset_properties(version, index, code, match.start(kind),
+                                              ("qualityOfService",) if thread else ("qualityOfService", "name"),
+                                              THREAD_QOS_LINES if thread else OPERATION_QUEUE_LINES)
+            debt |= missing
+            setters += lines
+    return debt, setters
 
 
 RULES = (
@@ -1725,15 +1784,21 @@ RULES = (
          None,
          line_rule(r"CMUX_BENCH_HOOKS|--config[= ]bench\b", None),
          scope=SHIPPED_BUILD + (".xcconfig", "project.pbxproj")),
-    Rule("task-priority", "A detached Task or dispatch queue without a stated priority, or at a reserved level",
-         "a task or queue that does not say how much a person waits for it runs at whatever QoS it inherits: work "
-         "nobody waits for competes with typing and frames, and the main thread can wait on work that runs below it "
-         "(priority inversion; plans/cmux-next/PATTERNS.md P14). .userInteractive is for the main thread and the "
-         "threads a frame waits for; .unspecified states nothing; .background may wait without limit",
-         "say it: `Task.detached(priority: WorkPriority.bestEffort.taskPriority) { ... }` (or `.high`/`.medium`/`.utility`), "
-         "`DispatchQueue.global(qos: .utility)`, `DispatchQueue(label: ..., qos: .utility)`; blocking work (file I/O, a "
-         "process wait, a sync C call, a long parse) goes to `BackgroundWork.run(_:mayBlock:)` or `AsyncProcess`, never "
-         "into a Task on the cooperative pool",
+    Rule("task-priority", "A task, queue or thread without a stated priority, or at a reserved level: a `Task.detached` "
+         "or `DispatchQueue.global(` outside CmuxNextWakeups, a queue with no `qos:`/`target:`, a `Thread` with no "
+         "`.qualityOfService =`, `Thread.detachNewThread`, an `OperationQueue()` with no `.qualityOfService =` and "
+         "`.name =`, or `delegateQueue: nil`",
+         "a task, queue or thread that does not say how much a person waits for it runs at whatever QoS it inherits or "
+         "the default: work nobody waits for competes with typing and frames, and the main thread can wait on work that "
+         "runs below it (priority inversion; plans/cmux-next/PATTERNS.md P14). A detached Task or root-queue block has "
+         "no owner quit can drain. .userInteractive is for the main thread and the threads a frame waits for; "
+         ".unspecified states nothing; .background may wait without limit",
+         "off-main async work: `work.task(.userVisible) { ... }` (BackgroundWork.task: stated priority, drained at quit), "
+         "or a plain `Task { }` that inherits its caller's; blocking work (file I/O, a process wait, a sync C call, a "
+         "long parse): `work.run(_:mayBlock:)` or `AsyncProcess`, never a root queue or the cooperative pool; "
+         "`DispatchQueue(label: ..., qos: .utility)`; a Thread: `thread.name = ...` and `thread.qualityOfService = "
+         ".utility` before `start()` (not `Thread.detachNewThread`); an OperationQueue: set `.name` and "
+         "`.qualityOfService`, and pass it as a URLSession's `delegateQueue:`",
          "// qos-allow: <why: a frame waits for it (userInteractive), it inherits on purpose, or nothing ever waits for it (background)>",
          matcher_rule(Matcher(TASK_CALL, re.compile(r"//\s*" + re.escape(QOS_ALLOW) + r"\s*\S"), unstated_priority))),
     Rule("appkit-index", "A raw AppKit row or column index read (`.clickedRow`, `.clickedColumn`, `.selectedColumn`, "
