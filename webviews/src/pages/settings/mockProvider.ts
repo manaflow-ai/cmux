@@ -818,6 +818,9 @@ export class MockSettingsProvider {
           detail: null,
           state: "offline",
           removable: true,
+          // A phone paired with this Mac has its own acpmux record (role phone), so the same switch.
+          full_access: false,
+          full_access_help: "Its chats edit files and run commands here without asking",
         },
       ],
       activity: [{ time: "2026-10-22T07:12:00Z", what: "Added", subject: "mini-7" }],
