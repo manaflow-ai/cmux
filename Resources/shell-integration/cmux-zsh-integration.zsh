@@ -1671,7 +1671,7 @@ _cmux_report_pr_for_path() {
     fi
 
     if [[ "$force_probe" != "1" && "$cache_no_pr_branch" == "$branch" && "$cache_repo" == "$repo_path" \
-        && "$cache_timestamp" == <-> ]] && (( cache_timestamp <= now && now - cache_timestamp < _CMUX_PR_NO_PR_BACKOFF )); then
+        && "$cache_timestamp" == <-> && "$now" == <-> ]] && (( cache_timestamp <= now && now - cache_timestamp < _CMUX_PR_NO_PR_BACKOFF )); then
         _cmux_pr_debug_log "$branch" "cache-hit:no-pr"
         _CMUX_PR_LAST_BRANCH="$branch"
         _CMUX_PR_NO_PR_BRANCH="$branch"
@@ -1708,30 +1708,20 @@ _cmux_report_pr_for_path() {
     fi
 
     if (( gh_status != 0 )) || [[ -z "$gh_output" ]]; then
-        if (( gh_status == 0 )) && [[ -z "$gh_output" ]]; then
+        if (( gh_status == 0 )) && [[ -z "$gh_output" ]] \
+            || _cmux_pr_output_indicates_no_pull_request "$gh_error"; then
+            local no_pr_stamp=""
+            # Stamp the backoff only once the clear is sent, so a dropped clear is retried next poll.
+            _cmux_clear_pr_for_panel && [[ "$now" == <-> ]] && no_pr_stamp="$now"
             if [[ -n "$prefix" ]]; then
                 print -r -- "$branch" >| "$branch_file"
                 print -r -- "$repo_path" >| "$repo_file"
-                print -r -- "$now" >| "$timestamp_file"
+                print -r -- "$no_pr_stamp" >| "$timestamp_file"
                 print -r -- "none" >| "$result_file"
                 print -r -- "$branch" >| "$no_pr_branch_file"
             fi
             _CMUX_PR_LAST_BRANCH="$branch"
             _CMUX_PR_NO_PR_BRANCH="$branch"
-            _cmux_clear_pr_for_panel
-            return 0
-        fi
-        if _cmux_pr_output_indicates_no_pull_request "$gh_error"; then
-            if [[ -n "$prefix" ]]; then
-                print -r -- "$branch" >| "$branch_file"
-                print -r -- "$repo_path" >| "$repo_file"
-                print -r -- "$now" >| "$timestamp_file"
-                print -r -- "none" >| "$result_file"
-                print -r -- "$branch" >| "$no_pr_branch_file"
-            fi
-            _CMUX_PR_LAST_BRANCH="$branch"
-            _CMUX_PR_NO_PR_BRANCH="$branch"
-            _cmux_clear_pr_for_panel
             return 0
         fi
 
