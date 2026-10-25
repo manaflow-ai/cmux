@@ -2,7 +2,8 @@
 // After a model pick the keyboard is in the prompt (Lawrence 2026-10-22: "after selecting a model my
 // keyboard should be focused in text area"), whatever had focus before the menu opened and however
 // the pick was made: a press, a key or a search in the model button's menu, a press or Enter in
-// the full picker. Escape and a press outside still behave as menu-pointer-close-focus.test.ts says.
+// the full picker. Escape and a press outside still behave as menu-pointer-close-focus.test.ts says,
+// a full picker reopened before a pick's focus lands included.
 // Real Chromium and WebKit (the app's engine) on the gallery stage, the chat's composer and the New
 // Tab's. CI fails the file when it cannot launch them (requireBrowserLane). Locally:
 // CMUX_BROWSER_TESTS=1 bun test test/model-pick-prompt-focus.test.ts
@@ -211,6 +212,46 @@ await requireBrowserLane("model-pick-prompt-focus.test.ts", async () => {
         await page.locator(QUICK).first().waitFor();
         await page.keyboard.press("Escape");
         await page.locator(QUICK).first().waitFor({ state: "detached" });
+        await settled(page);
+        expect(
+          await page.evaluate((selector) => document.activeElement === document.querySelector(selector), MODEL),
+        ).toBe(true);
+        await page.close();
+      });
+
+      test(`${engine}: ${stage.name}: a full picker reopened before a pick's focus lands still closes to the model button`, async () => {
+        const page = await open(engine, stage);
+        await openFull(page);
+        // Hold the page's animation frames, so the pick's deferred focus has not run when the
+        // picker opens again (Cmd-Ctrl-M) and Escape closes it. Both are window and document
+        // key listeners, so they need no frame; the held frames run once Escape has closed it.
+        await page.evaluate(() => {
+          const held = new Map<number, FrameRequestCallback>();
+          const real = { request: window.requestAnimationFrame, cancel: window.cancelAnimationFrame };
+          let next = 1e9;
+          window.requestAnimationFrame = (callback) => {
+            held.set(++next, callback);
+            return next;
+          };
+          window.cancelAnimationFrame = (id) => {
+            if (!held.delete(id)) real.cancel.call(window, id);
+          };
+          (window as unknown as { releaseFrames: () => void }).releaseFrames = () => {
+            window.requestAnimationFrame = real.request;
+            window.cancelAnimationFrame = real.cancel;
+            for (const callback of held.values()) real.request.call(window, callback);
+            held.clear();
+          };
+        });
+        await page.keyboard.press("ArrowDown");
+        await page.keyboard.press("Enter");
+        await page.waitForTimeout(100);
+        await page.keyboard.press("Meta+Control+KeyM");
+        await page.waitForTimeout(100);
+        await page.keyboard.press("Escape");
+        await page.waitForTimeout(100);
+        await page.evaluate(() => (window as unknown as { releaseFrames: () => void }).releaseFrames());
+        await page.locator(FULL).first().waitFor({ state: "detached" });
         await settled(page);
         expect(
           await page.evaluate((selector) => document.activeElement === document.querySelector(selector), MODEL),
