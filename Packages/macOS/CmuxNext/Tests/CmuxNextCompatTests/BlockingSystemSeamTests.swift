@@ -6,12 +6,15 @@ import Foundation
 import Security
 import ServiceManagement
 import Testing
+import UniformTypeIdentifiers
 
 /// The checked seams over synchronous system calls (Security, Accessibility, host resolution, window
-/// lists, NSWorkspace queries, SMAppService): on the main thread each one records exactly one site at its
-/// caller's line with its kind; off the main thread none records. Each test binds its own table
-/// (``BlockingViolationTable/scoped``). The calls are chosen to change nothing on the host: keychain calls
-/// name a data-protection item that does not exist, AX calls name no real attribute or action, the
+/// lists and captures, NSWorkspace queries, SMAppService): on the main thread each one records exactly one
+/// site at its caller's line with its kind; on a named serial queue none records. Each test binds its own
+/// table (``BlockingViolationTable/scoped``). The calls are chosen to change nothing on the host: the
+/// keychain calls name an access group no test runner is entitled to, so securityd refuses the add
+/// (`errSecMissingEntitlement`) and nothing is written; the AX calls go to this process's own element, with
+/// its own short timeout, and name no real attribute or action; the captures name no window; the
 /// SMAppService agent has no plist.
 @Suite(.serialized)
 struct BlockingSystemSeamTests {
@@ -28,17 +31,18 @@ struct BlockingSystemSeamTests {
         let expected = try BlockingViolationTable.$scoped.withValue(table) { try callEachSystemSeam() }
         await table.flush()
 
-        #expect(expected.count == 19)
+        #expect(expected.count == 28)
         #expect(Set(expected.map(\.location)).count == expected.count)
         #expect(BlockingDetector(table: table).sites == expected)
     }
 
-    @MainActor @Test func theSameSeamsOffTheMainThreadRecordNothing() async throws {
+    @MainActor @Test func theSameSeamsOnANamedSerialQueueRecordNothing() async throws {
         let table = BlockingViolationTable(mode: .record)
-        let called = try await BlockingViolationTable.$scoped.withValue(table) { try await callEachSystemSeamOffMain() }
+        let (onMain, called) = try await callEachSystemSeamOnNamedQueue(table)
         await table.flush()
 
-        #expect(called == 19)
+        #expect(!onMain)
+        #expect(called == 28)
         #expect(BlockingDetector(table: table).sites.isEmpty)
     }
     #endif
@@ -55,6 +59,7 @@ private nonisolated func callEachSystemSeam() throws -> [BlockingSite] {
     }
 
     let attributes: [CFString: Any] = [kSecClass: kSecClassGenericPassword, kSecUseDataProtectionKeychain: true,
+                                       kSecAttrAccessGroup: "com.cmuxterm.tests.no-such-access-group",
                                        kSecAttrService: "com.cmuxterm.tests.blocking-seam.\(UUID().uuidString)"]
     let item = attributes as CFDictionary
     seam(.systemCall) { _ = blockingSecItemCopyMatching(item, nil) }
@@ -76,21 +81,33 @@ private nonisolated func callEachSystemSeam() throws -> [BlockingSite] {
     _ = SecStaticCodeCreateWithPath(URL(fileURLWithPath: "/usr/bin/true") as CFURL, [], &madeCode)
     let code = try #require(madeCode)
     seam(.systemCall) { _ = blockingSecStaticCodeCheckValidity(code, [], nil) }
+    var information: CFDictionary?
+    seam(.systemCall) { _ = blockingSecCodeCopySigningInformation(code, [], &information) }
+
+    var madeSelf: SecCode?
+    seam(.systemCall) { _ = blockingSecCodeCopySelf([], &madeSelf) }
+    let selfCode = try #require(madeSelf)
+    var selfOnDisk: SecStaticCode?
+    seam(.systemCall) { _ = blockingSecCodeCopyStaticCode(selfCode, [], &selfOnDisk) }
+    var guest: SecCode?
+    let guestAttributes = [kSecGuestAttributePid: getpid()] as CFDictionary
+    seam(.systemCall) { _ = blockingSecCodeCopyGuestWithAttributes(nil, guestAttributes, [], &guest) }
 
     var madeAuthorization: AuthorizationRef?
     _ = AuthorizationCreate(nil, nil, [], &madeAuthorization)
     let authorization = try #require(madeAuthorization)
     defer { AuthorizationFree(authorization, []) }
     var noRights = AuthorizationRights(count: 0, items: nil)
-    seam(.ipcReply) { _ = blockingAuthorizationCopyRights(authorization, &noRights, nil, [], nil) }
+    seam(.systemCall) { _ = blockingAuthorizationCopyRights(authorization, &noRights, nil, [], nil) }
 
-    let systemWide = AXUIElementCreateSystemWide()
-    _ = AXUIElementSetMessagingTimeout(systemWide, 0.25)
+    // This element's own timeout: the system-wide element's would change every later AX call in the process.
+    let ownApp = AXUIElementCreateApplication(getpid())
+    _ = AXUIElementSetMessagingTimeout(ownApp, 0.25)
     let unknown = "AXCmuxBlockingSeamTest" as CFString
     var value: CFTypeRef?
-    seam(.systemCall) { _ = blockingAXCopyAttributeValue(systemWide, unknown, &value) }
-    seam(.systemCall) { _ = blockingAXSetAttributeValue(systemWide, unknown, kCFBooleanFalse) }
-    seam(.systemCall) { _ = blockingAXPerformAction(systemWide, unknown) }
+    seam(.systemCall) { _ = blockingAXCopyAttributeValue(ownApp, unknown, &value) }
+    seam(.systemCall) { _ = blockingAXSetAttributeValue(ownApp, unknown, kCFBooleanFalse) }
+    seam(.systemCall) { _ = blockingAXPerformAction(ownApp, unknown) }
 
     var hints = addrinfo()
     hints.ai_flags = AI_NUMERICHOST
@@ -99,25 +116,37 @@ private nonisolated func callEachSystemSeam() throws -> [BlockingSite] {
     freeaddrinfo(info)
 
     seam(.systemCall) { _ = blockingWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) }
+    seam(.systemCall) { _ = blockingWindowListCreateImage(.null, .optionIncludingWindow, kCGNullWindowID, []) }
+    seam(.systemCall) { _ = blockingWindowListCreateImageFromArray(.null, [], []) }
 
     let workspace = NSWorkspace.shared
     let hosts = URL(fileURLWithPath: "/etc/hosts")
     seam(.systemCall) { _ = workspace.blockingURLForApplication(withBundleIdentifier: "com.apple.finder") }
     seam(.systemCall) { _ = workspace.blockingURLForApplication(toOpen: hosts) }
+    seam(.systemCall) { _ = workspace.blockingURLForApplication(toOpen: UTType.plainText) }
     seam(.systemCall) { _ = workspace.blockingURLsForApplications(toOpen: hosts) }
+    seam(.systemCall) { _ = workspace.blockingURLsForApplications(toOpen: UTType.plainText) }
     seam(.systemCall) { _ = workspace.blockingIcon(forFile: hosts.path) }
+    seam(.systemCall) { _ = workspace.blockingIcon(for: UTType.plainText) }
 
     let missingAgent = SMAppService.agent(plistName: "com.cmuxterm.tests.blocking-seam.plist")
-    seam(.ipcReply) { _ = missingAgent.blockingStatus() }
-    seam(.ipcReply) { _ = try? missingAgent.blockingRegister() }
-    seam(.ipcReply) { _ = try? missingAgent.blockingUnregister() }
+    seam(.ipcReply) { _ = blockingSMAppServiceStatus(missingAgent) }
+    seam(.ipcReply) { _ = try? blockingSMAppServiceRegister(missingAgent) }
+    seam(.ipcReply) { _ = try? blockingSMAppServiceUnregister(missingAgent) }
     return expected
 }
 
-/// The same calls on a thread of the global executor, in the caller's task (its task-local table applies).
-@concurrent
-private nonisolated func callEachSystemSeamOffMain() async throws -> Int {
-    #expect(pthread_main_np() == 0)
-    return try callEachSystemSeam().count
+/// The same calls on a named serial queue, a context where blocking is allowed (not the cooperative pool
+/// or a GCD root queue), with `table` bound there. Returns whether they ran on the main thread and how many
+/// seams they called.
+private nonisolated func callEachSystemSeamOnNamedQueue(_ table: BlockingViolationTable) async throws -> (Bool, Int) {
+    let queue = DispatchQueue(label: "com.cmuxterm.tests.blocking-system-seams")
+    return try await withCheckedThrowingContinuation { continuation in
+        queue.async {
+            continuation.resume(with: Result {
+                try BlockingViolationTable.$scoped.withValue(table) { (pthread_main_np() != 0, try callEachSystemSeam().count) }
+            })
+        }
+    }
 }
 #endif
