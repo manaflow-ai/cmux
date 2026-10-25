@@ -17,15 +17,22 @@
    check, and its report says so.
 7. After a signal exit the crash-report wait wakes on the report folder, also for an account that never crashed (no
    report folder yet), and says when it could watch no folder instead of returning at once in silence.
+8. `BenchApp.record` writes a valid cmux-perf-result/v1 line with a non-empty build and host, the display Hz, the
+   app's resolved features (features.list) and its safe-mode state; perf_result.py is loaded by file path, and every
+   bench that imports bench_launch still does under `python3 -I`.
+9. bench_env.py names a Swift read site for every switch the bench app gets, the launch passes exactly its fixed
+   switches and config keys, and no live switch is one the app strips at launch.
 
 Runs on any Mac, no GUI session or build needed (the session read is injected or the check is `--socket-only`, and a
-copy of /bin/sleep stands in for the app's executable). Signals only the processes it starts.
+copy of /bin/sleep stands in for the app's executable). Signals only the processes it starts. On Linux, 8 and 9 and
+the tests that need no macOS tool run; the rest are skipped.
 
-    python3 scripts/cmux-next/tests/test_bench_launch.py
+    python3 -m unittest scripts/cmux-next/tests/test_bench_launch.py
 """
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import resource
@@ -45,6 +52,9 @@ HERE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HERE))
 import bench_launch as bl  # noqa: E402
 
+ROOT = HERE.parent.parent
+# sw_vers, launchctl, pmset, kqueue and a copy of /bin/sleep as the app: macOS only.
+ON_MAC = unittest.skipUnless(sys.platform == "darwin", "needs macOS tools")
 # No test changes the host's sound output: osascript answers nothing unless a test gives its own fake.
 os.environ["BENCH_LAUNCH_OSASCRIPT"] = "/usr/bin/false"
 # No test moves a real tag's saved state (bench_launch.start_fresh): every tag root is under a temporary base.
@@ -68,6 +78,7 @@ NO_SESSION = {"ok": False, "user": "worker", "console_user": None, "screen_locke
               "detail": "nobody is logged in on the console (login window); worker has no GUI session"}
 
 
+@ON_MAC
 class SessionGateTests(unittest.TestCase):
     """No environment variable turns the GUI-session gate off (deep review of fleet-gui, findings 3 and 7): a step
     that exported BENCH_LAUNCH_ANY_SESSION=1 got past it, and every bench in that environment then measured a display
@@ -116,6 +127,7 @@ class TagInUseTests(unittest.TestCase):
                 process.wait()
         shutil.rmtree(self.folder, ignore_errors=True)
 
+    @ON_MAC
     def test_a_check_refused_as_tag_in_use_leaves_the_running_app_alive(self):
         app = fake_bundle(self.folder, self.tag)
         live = subprocess.Popen([os.path.join(app, "Contents/MacOS/cmux DEV"), "300"])
@@ -134,6 +146,7 @@ class TagInUseTests(unittest.TestCase):
         self.assertIs(report.get("socket_only"), True, "a socket-only check's report does not say so")
         self.assertIn("ok", report.get("gui_session") or {}, "a socket-only check's report has no gui_session")
 
+    @ON_MAC
     def test_a_launch_with_an_injected_session_is_refused_as_tag_in_use_and_stops_nothing(self):
         app_path = fake_bundle(self.folder, self.tag)
         live = subprocess.Popen([os.path.join(app_path, "Contents/MacOS/cmux DEV"), "300"])
@@ -183,6 +196,7 @@ LAUNCHCTL_SAMPLE = """\tcpu         unlimited      unlimited
 """
 
 
+@ON_MAC
 class FinderLimitsTests(unittest.TestCase):
     """The caller raises its soft open-file limit above launchd's, as the fleet job shells do."""
 
@@ -323,6 +337,7 @@ class LowPowerModeTests(unittest.TestCase):
             bench.launch(timeout=5)
         return caught.exception.reason
 
+    @ON_MAC
     def test_host_facts_record_low_power_mode_and_null_without_the_key(self):
         self.set_state("1")
         self.assertIs(bl.host_facts()["low_power_mode"], True)
@@ -331,6 +346,7 @@ class LowPowerModeTests(unittest.TestCase):
         self.set_state("none")
         self.assertIsNone(bl.host_facts()["low_power_mode"])
 
+    @ON_MAC
     def test_a_launch_in_low_power_mode_is_refused_unless_the_bench_allows_it(self):
         self.set_state("1")
         bench = self.bench()
@@ -347,6 +363,7 @@ class LowPowerModeTests(unittest.TestCase):
         self.assertEqual(caught.exception.reason, "low-power-mode-switch")
         self.assertEqual(self.state(), "0")
 
+    @ON_MAC
     def test_a_switch_is_undone_at_exit_and_proved(self):
         os.environ["CMUX_CI_STEP_CLASS"] = "exclusive"
         with bl.LowPowerModeSwitch(True):
@@ -379,6 +396,7 @@ class LowPowerModeTests(unittest.TestCase):
             self.assertEqual(self.state(), "0", f"Low Power Mode stayed on after {sig.name}")
             self.assertFalse(os.path.exists(os.environ["BENCH_LAUNCH_LPM_MARKER"]))
 
+    @ON_MAC
     def test_a_switch_nobody_proved_undone_refuses_later_launches(self):
         os.environ["CMUX_CI_STEP_CLASS"] = "exclusive"
         open(os.path.join(self.folder, "stuck"), "w").close()  # the switch back does not take
@@ -407,6 +425,7 @@ esac
 """
 
 
+@ON_MAC
 class SoundTests(unittest.TestCase):
     def setUp(self):
         self.folder = os.path.realpath(tempfile.mkdtemp(prefix="bench-launch-sound-"))
@@ -456,6 +475,7 @@ class SoundTests(unittest.TestCase):
         self.assertEqual(self.muted(), "false")
 
 
+@ON_MAC
 class CrashReportWaitTests(unittest.TestCase):
     """The crash-report wait after a signal exit (deep review of fleet-gui, fix review): with no folder it could watch
     it returned at once, so on an account that never crashed (no ~/Library/Logs/DiagnosticReports yet; ReportCrash
@@ -590,6 +610,7 @@ class CrashReportWaitTests(unittest.TestCase):
                          "the report does not say which folders the wait could not watch")
 
 
+@ON_MAC
 class FreshStateTests(unittest.TestCase):
     def setUp(self):
         self.folder = os.path.realpath(tempfile.mkdtemp(prefix="bench-launch-fresh-"))
@@ -635,6 +656,316 @@ class FreshStateTests(unittest.TestCase):
         os.environ["BENCH_LAUNCH_KEEP_STATE"] = "1"
         self.launch()
         self.assertTrue(os.path.exists(os.path.join(self.root, "tui", "session.json")))
+
+
+# A stand-in for scripts/perf-lab/perf_result.py (p12-perf-process-001) with its spec'd interface and checks: a
+# Result dataclass, validate() (raises on empty samples, no unit, an unknown config or engine), write_ndjson(dir,
+# results) and read_dir(dir). The real module is tested below once it exists.
+FAKE_PERF_RESULT = '''
+import dataclasses, json, os
+
+SCHEMA = "cmux-perf-result/v1"
+
+
+@dataclasses.dataclass
+class Result:
+    story: str
+    metric: str
+    unit: str
+    better: str
+    samples: list
+    target_ref: object
+    build: dict
+    host: dict
+    engine: str
+    session: str
+    features: dict
+    features_hash: object
+    safe_mode: object
+    attachments: list
+    schema: str = SCHEMA
+
+
+def validate(result):
+    if not result.samples:
+        raise ValueError("samples: at least one")
+    if not result.unit:
+        raise ValueError("unit: required")
+    if result.better not in ("lower", "higher"):
+        raise ValueError("better: lower or higher")
+    if result.engine not in ("chromium", "webkit", "none"):
+        raise ValueError("engine: chromium, webkit or none")
+    if result.build.get("config") not in ("debug", "bench", "bench-checks", "release"):
+        raise ValueError("build.config: unknown")
+    for key in ("sha", "measure_version"):
+        if not result.build.get(key):
+            raise ValueError("build." + key + ": required")
+    if not result.host.get("fingerprint") or not result.host.get("class"):
+        raise ValueError("host: fingerprint and class required")
+
+
+def write_ndjson(directory, results):
+    path = os.path.join(directory, "results.ndjson")
+    with open(path, "a") as f:
+        for result in results:
+            f.write(json.dumps(dataclasses.asdict(result)) + "\\n")
+    return path
+
+
+def read_dir(directory):
+    with open(os.path.join(directory, "results.ndjson")) as f:
+        return [Result(**json.loads(line)) for line in f if line.strip()]
+'''
+
+HOST = bl.host_record("Apple M4 Pro", 48 * 2**30, "26.1", "25B78", 120)
+
+
+def record_bundle(folder: str, tag: str, commit=None, marker=False, debug_dylib=False) -> str:
+    """A `cmux DEV <tag>.app` that is never started: an Info.plist and a main executable that may carry the
+    bench-hooks marker."""
+    import plistlib
+    app = os.path.join(os.path.realpath(folder), f"cmux DEV {tag}.app")
+    os.makedirs(os.path.join(app, "Contents/MacOS"))
+    info = {"CFBundleIdentifier": f"com.cmuxterm.app.debug.{tag}", "CFBundleExecutable": "cmux DEV"}
+    if commit:
+        info["CMUXCommit"] = commit
+    with open(os.path.join(app, "Contents/Info.plist"), "wb") as f:
+        plistlib.dump(info, f)
+    with open(os.path.join(app, "Contents/MacOS/cmux DEV"), "wb") as f:
+        f.write(b"\xcf\xfa\xed\xfe" + b"\0" * 4096 + (bl.BENCH_HOOKS_MARKER if marker else b"") + b"\0" * 64)
+    if debug_dylib:
+        open(os.path.join(app, "Contents/MacOS/cmux DEV.debug.dylib"), "wb").close()
+    return app
+
+
+class RunningApp:
+    """A launched app as record() sees it: a process that has not ended."""
+    pid = 1
+
+    def poll(self):
+        return None
+
+
+class RecordTests(unittest.TestCase):
+    """BenchApp.record writes cmux-perf-result/v1 with its build, host, Hz, features and safe mode filled in
+    (p12-perf-process-162)."""
+
+    def setUp(self):
+        self.folder = tempfile.mkdtemp(prefix="bench-record-")
+        self.out = os.path.join(self.folder, "out")
+        lab = os.path.join(self.folder, "lab")
+        os.makedirs(lab)
+        self.fake_path = os.path.join(lab, "perf_result.py")
+        with open(self.fake_path, "w") as f:
+            f.write(FAKE_PERF_RESULT)
+        self.writer = bl.load_by_path("fake_perf_result_for_tests", self.fake_path)
+
+    def tearDown(self):
+        shutil.rmtree(self.folder, ignore_errors=True)
+
+    def bench(self, app, **kwargs):
+        return bl.BenchApp(app, out=self.out, teardown=False, host=lambda: dict(HOST), perf_result=self.writer,
+                           **kwargs)
+
+    def lines(self):
+        with open(os.path.join(self.out, "results.ndjson")) as f:
+            return [json.loads(line) for line in f]
+
+    def test_record_writes_a_valid_result_with_a_build_and_a_host(self):
+        app = self.bench(record_bundle(self.folder, "rec", commit="a" * 40), perf_session="stress")
+        result = app.record("tab-switch", "key_to_frame_ms", "ms", [4.1, 3.9, 5.2], "lower", "chromium",
+                            target_ref="tab-switch-p95")
+        self.writer.validate(result)
+        [line] = self.lines()
+        self.assertEqual(line["schema"], "cmux-perf-result/v1")
+        self.assertEqual((line["story"], line["metric"], line["unit"], line["better"], line["engine"]),
+                         ("tab-switch", "key_to_frame_ms", "ms", "lower", "chromium"))
+        self.assertEqual(line["samples"], [4.1, 3.9, 5.2], "raw samples, not a summary")
+        self.assertEqual(line["target_ref"], "tab-switch-p95")
+        self.assertEqual(line["session"], "stress")
+        self.assertEqual(line["build"]["sha"], "a" * 40)
+        self.assertEqual(line["build"]["config"], "release")
+        self.assertRegex(line["build"]["measure_version"], r"^[0-9a-f]{16}$")
+        self.assertEqual(line["host"], HOST)
+        self.assertEqual(line["host"]["display_hz"], 120)
+        self.assertEqual(line["host"]["class"], "apple-m4-pro-48gb-120hz")
+        self.assertRegex(line["host"]["fingerprint"], r"^[0-9a-f]{16}$")
+        # The app is not running: no features.list answer, and the result says so.
+        self.assertEqual((line["features"], line["features_hash"], line["safe_mode"]), ({}, None, "unknown"))
+
+    def test_the_host_class_leaves_out_the_macos_build_and_the_fingerprint_does_not(self):
+        updated = bl.host_record("Apple M4 Pro", 48 * 2**30, "26.2", "25C10", 120)
+        self.assertEqual(updated["class"], HOST["class"])
+        self.assertNotEqual(updated["fingerprint"], HOST["fingerprint"])
+        at_60 = bl.host_record("Apple M4 Pro", 48 * 2**30, "26.1", "25B78", 60)
+        self.assertNotEqual(at_60["class"], HOST["class"])
+        self.assertEqual(bl.host_record("Apple M4 Pro", 48 * 2**30, "26.1", "25B78", 120), HOST, "stable")
+
+    def test_the_build_config_comes_from_the_bundle(self):
+        cases = {"release": {}, "bench": {"marker": True}, "debug": {"debug_dylib": True}}
+        for want, kwargs in cases.items():
+            app = record_bundle(os.path.join(self.folder, want), f"cfg-{want}", commit="b" * 40, **kwargs)
+            self.assertEqual(bl.build_config(app, os.path.join(app, "Contents/MacOS/cmux DEV")), want)
+
+    def test_the_build_sha_falls_back_to_the_fleet_step_then_the_checkout(self):
+        app = record_bundle(self.folder, "sha")
+        self.assertEqual(bl.build_sha(app, environ={"CMUX_CI_SHA": "c" * 40}), "c" * 40)
+        head = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+        if not head:
+            self.skipTest("not a git checkout")
+        self.assertEqual(bl.build_sha(app, environ={}), head)
+
+    def test_a_running_apps_features_and_safe_mode_are_read_once(self):
+        app = self.bench(record_bundle(self.folder, "feat", commit="d" * 40))
+        app.process = RunningApp()
+        reply = {"features": [{"name": "perfLabKillProbe", "state": "off", "source": "remote"},
+                              {"name": "tabSwitchFastPath", "state": "on", "source": "default"}],
+                 "safe_mode": "off"}
+        with mock.patch.object(app, "rpc", return_value=reply) as rpc:
+            app.record("launch", "cold_ms", "ms", [800], "lower", "none")
+            app.record("launch", "warm_ms", "ms", [300], "lower", "none")
+        rpc.assert_called_once_with("features.list", timeout=10)
+        first, second = self.lines()
+        self.assertEqual(first["features"], {"perfLabKillProbe": {"state": "off", "source": "remote"},
+                                             "tabSwitchFastPath": {"state": "on", "source": "default"}})
+        self.assertEqual(first["safe_mode"], "off")
+        self.assertRegex(first["features_hash"], r"^[0-9a-f]{16}$")
+        self.assertEqual(first["features_hash"], second["features_hash"])
+
+    def test_an_app_without_features_list_is_asked_once_and_an_unreachable_one_again(self):
+        app = self.bench(record_bundle(self.folder, "nofeat", commit="e" * 40))
+        app.process = RunningApp()
+        with mock.patch.object(app, "rpc", return_value={"error": {"code": "method_not_found"}}) as rpc:
+            app.record("s", "m", "ms", [1], "lower", "none")
+            app.record("s", "m", "ms", [1], "lower", "none")
+        self.assertEqual(rpc.call_count, 1)
+        self.assertEqual(self.lines()[0]["safe_mode"], "unknown")
+        other = self.bench(record_bundle(os.path.join(self.folder, "u"), "unreach", commit="e" * 40))
+        other.process = RunningApp()
+        with mock.patch.object(other, "rpc", return_value={"error": "refused", "unreachable": True}) as rpc:
+            other.record("s", "m", "ms", [1], "lower", "none")
+            other.record("s", "m", "ms", [1], "lower", "none")
+        self.assertEqual(rpc.call_count, 2, "a socket that did not answer is no answer")
+
+    def test_an_invalid_result_raises_and_writes_nothing(self):
+        app = self.bench(record_bundle(self.folder, "bad", commit="f" * 40))
+        with self.assertRaises(ValueError):
+            app.record("s", "m", "ms", [], "lower", "chromium")
+        with self.assertRaises(ValueError):
+            app.record("s", "m", "ms", [1.0], "lower", "gecko")
+        self.assertFalse(os.path.exists(os.path.join(self.out, "results.ndjson")))
+
+    def test_record_loads_perf_result_by_file_path_under_isolated_mode(self):
+        """The default writer is scripts/perf-lab/perf_result.py loaded by path; here PERF_LAB points at the fake."""
+        app = record_bundle(self.folder, "iso", commit="1" * 40)
+        code = ("import json, sys; sys.path.insert(0, sys.argv[1]); import bench_launch as bl; bl.PERF_LAB = sys.argv[2]; "
+                "host = bl.host_record('Apple M4', 16 * 2**30, '26.1', '25B78', 60); "
+                "app = bl.BenchApp(sys.argv[3], out=sys.argv[4], teardown=False, host=lambda: host); "
+                "app.record('s', 'm', 'ms', [2.5], 'lower', 'webkit'); "
+                "print(json.dumps({'loaded': sys.modules['perf_result'].__file__}))")
+        done = subprocess.run([sys.executable, "-I", "-c", code, str(HERE), os.path.dirname(self.fake_path), app,
+                               self.out], cwd="/", capture_output=True, text=True, timeout=60)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(json.loads(done.stdout)["loaded"], self.fake_path)
+        [line] = self.lines()
+        self.assertEqual((line["engine"], line["host"]["display_hz"], line["build"]["sha"]), ("webkit", 60, "1" * 40))
+
+    @unittest.skipUnless((ROOT / "scripts/perf-lab/perf_result.py").exists(),
+                         "perf_result.py (p12-perf-process-001) is not on this branch yet")
+    def test_record_with_the_real_perf_result_round_trips_and_has_the_schemas_required_keys(self):
+        real = bl.load_by_path("perf_result", str(ROOT / "scripts/perf-lab/perf_result.py"))
+        app = bl.BenchApp(record_bundle(self.folder, "real", commit="2" * 40), out=self.out, teardown=False,
+                          host=lambda: dict(HOST))
+        result = app.record("tab-switch", "key_to_frame_ms", "ms", [4.0, 4.5], "lower", "chromium")
+        real.validate(result)
+        [back] = real.read_dir(self.out)
+        line = dataclasses.asdict(back)
+        self.assertTrue(line["build"]["sha"] and line["host"]["fingerprint"])
+        schema_path = ROOT / "schemas/perf/result-v1.schema.json"
+        for key in json.loads(schema_path.read_text()).get("required", []) if schema_path.exists() else []:
+            self.assertIn(key, line)
+
+    def test_every_bench_that_imports_bench_launch_still_does_under_isolated_mode(self):
+        import ast
+        wanted = set()
+        benches = []
+        for path in sorted(HERE.glob("*.py")):
+            if path.name == "bench_launch.py" or "bench_launch" not in path.read_text(errors="replace"):
+                continue
+            benches.append(path.name)
+            for node in ast.walk(ast.parse(path.read_text())):
+                if isinstance(node, ast.ImportFrom) and node.module == "bench_launch":
+                    wanted.update(alias.name for alias in node.names)
+        self.assertTrue(benches)
+        code = ("import json, sys; sys.path.insert(0, sys.argv[1]); import bench_launch as bl; "
+                "print(json.dumps([n for n in json.loads(sys.argv[2]) if not hasattr(bl, n)]))")
+        done = subprocess.run([sys.executable, "-I", "-c", code, str(HERE), json.dumps(sorted(wanted))], cwd="/",
+                              capture_output=True, text=True, timeout=60)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(json.loads(done.stdout), [], f"names {len(benches)} benches import that bench_launch lacks")
+
+
+class BenchEnvTests(unittest.TestCase):
+    """Every switch the bench app gets has a Swift read site (scripts/perf-lab/bench_env.py), and the launch passes
+    exactly those switches (p12-perf-process-162)."""
+
+    def setUp(self):
+        self.folder = tempfile.mkdtemp(prefix="bench-env-")
+        self.env = bl.bench_env
+
+    def tearDown(self):
+        shutil.rmtree(self.folder, ignore_errors=True)
+
+    def test_every_switch_names_a_read_site_that_reads_it(self):
+        self.assertEqual(self.env.read_site_problems(str(ROOT)), [])
+        for switch in self.env.SWITCHES:
+            self.assertTrue(switch.read_site.endswith(".swift"), switch)
+            self.assertIn(switch.kind, self.env.KINDS, switch)
+
+    def test_the_check_names_a_read_site_that_lost_its_switch(self):
+        broken = self.env.Switch("CMUX_NEXT_NOT_READ_ANYWHERE", "env", "1", "test",
+                                 self.env.SWITCHES[0].read_site)
+        pending = self.env.Switch("CMUX_NEXT_PENDING", "env", "1", "test", "Packages/none/Missing.swift",
+                                  pending="p12-perf-process-999")
+        with mock.patch.object(self.env, "SWITCHES", (broken, pending)):
+            problems = self.env.read_site_problems(str(ROOT))
+        self.assertEqual(len(problems), 1)
+        self.assertIn("CMUX_NEXT_NOT_READ_ANYWHERE", problems[0])
+
+    def test_the_check_runs_under_isolated_mode(self):
+        done = subprocess.run([sys.executable, "-I", str(ROOT / "scripts/perf-lab/bench_env.py"), "--check"], cwd="/",
+                              capture_output=True, text=True, timeout=60)
+        self.assertEqual(done.returncode, 0, done.stderr)
+
+    def test_no_live_switch_is_one_the_app_strips_at_launch(self):
+        for switch in self.env.SWITCHES:
+            if switch.kind.startswith("env") and not switch.pending:
+                self.assertFalse(self.env.stripped_at_launch(switch.name),
+                                 f"{switch.name}: LaunchIdentity strips inherited CMUX_* that are not CMUX_NEXT_*")
+        self.assertTrue(self.env.stripped_at_launch("CMUX_DEV_BACKEND_MODE"))
+        self.assertFalse(self.env.stripped_at_launch("CMUX_NEXT_NO_ACTIVATE"))
+
+    def test_the_launch_passes_the_fixed_switches_and_the_config_keys_and_no_unset_one(self):
+        app = bl.BenchApp(record_bundle(self.folder, "env"), out=os.path.join(self.folder, "out"), teardown=False)
+        env = app.environment()
+        for name, value in self.env.fixed_env().items():
+            self.assertEqual(env.get(name), value, name)
+        launch_names = {s.name for s in self.env.SWITCHES if s.kind == "env-launch"}
+        self.assertEqual(launch_names - set(env), set())
+        for name in self.env.unset_env():
+            self.assertNotIn(name, env)
+        self.assertNotIn("CMUX_DEV_BACKEND_MODE", env, "the app strips it and nothing reads it")
+        with open(env["CMUX_NEXT_CONFIG_FILE"]) as f:
+            config = json.load(f)
+        self.assertIs(config["updates"]["checkAutomatically"], False)
+        self.assertEqual(config["appearance"], {"backgroundOpacity": 1}, "the bench's own config stays")
+
+    def test_a_benchs_own_config_value_wins(self):
+        app = bl.BenchApp(record_bundle(self.folder, "own"), out=os.path.join(self.folder, "out"), teardown=False,
+                          config={"updates": {"checkAutomatically": True, "channel": "nightly"}})
+        with open(app.environment()["CMUX_NEXT_CONFIG_FILE"]) as f:
+            config = json.load(f)
+        self.assertEqual(config["updates"], {"checkAutomatically": True, "channel": "nightly"})
 
 
 if __name__ == "__main__":

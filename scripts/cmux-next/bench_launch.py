@@ -45,6 +45,12 @@ Use from a bench:
     finally:
         app.stop()                        # debug.quit, then the tag's daemons (tag_teardown.py)
 
+A bench writes each measured series as one `cmux-perf-result/v1` line through ``BenchApp.record`` (the build,
+host, display Hz, resolved features and safe mode filled in; scripts/perf-lab/perf_result.py loaded by file path):
+
+    app.record("tab-switch", "key_to_frame_ms", "ms", samples, better="lower", engine="chromium",
+               target_ref="tab-switch-p95")
+
 Check a host by hand or from a fleet step (exit 0 when the socket answered and a window is up; one
 `BENCH-LAUNCH {json}` line either way):
 
@@ -62,25 +68,35 @@ caller's. A script or step that starts an app on its own can run under the same 
     python3 scripts/cmux-next/bench_launch.py finder-exec -- python3 scripts/cmux-next/my-bench.py ...
     python3 scripts/cmux-next/bench_launch.py limits     # launchd's soft limits and this shell's, one JSON line
 """
-import argparse, atexit, contextlib, glob, json, os, platform, pwd, re, resource, select, shutil, signal, socket, subprocess, sys, tempfile, time
+import argparse, atexit, contextlib, glob, hashlib, importlib.util, json, os, platform, pwd, re, resource, select, shutil, signal, socket, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(HERE))
+PERF_LAB = os.path.join(ROOT, "scripts", "perf-lab")
 
-# Variables a bench launch always gets. SHELL: the daemon starts terminals with it (a step has none).
-# CMUX_DEV_BACKEND_MODE: local backend for a DEV build (no dev web server on a fleet host).
-# CMUX_NEXT_AGENT_PANE_MOCK: the agent pane needs no agent login. NO_ACTIVATE: never take focus.
-# SOCKET_MODE automation: a process of the same account (this script) may connect.
-# CHIEF_ISOLATED: the launch never touches the account's Chief state. ACPMUX_AGENT_LAUNCH deny: no real agent.
-BASE_ENV = {
-    "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-    "SHELL": "/bin/zsh",
-    "CMUX_DEV_BACKEND_MODE": "local",
-    "CMUX_NEXT_AGENT_PANE_MOCK": "1",
-    "CMUX_NEXT_NO_ACTIVATE": "1",
-    "CMUX_NEXT_SOCKET_MODE": "automation",
-    "CMUX_NEXT_CHIEF_ISOLATED": "1",
-    "ACPMUX_AGENT_LAUNCH": "deny",
-}
+
+def load_by_path(name, path):
+    """The module at `path`, imported as `name` once per process. A bench runs under `python3 -I`, which puts no
+    script folder on sys.path, so the perf-lab modules are loaded by file path."""
+    if name in sys.modules:
+        return sys.modules[name]
+    spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None:
+        raise ImportError(f"bench-launch: no module at {path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module  # before exec: a dataclass resolves its module through sys.modules
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        del sys.modules[name]
+        raise
+    return module
+
+
+# Every switch the bench app gets, with the Swift line that reads it: scripts/perf-lab/bench_env.py. PATH is the
+# process's search path, not a switch.
+bench_env = load_by_path("bench_env", os.path.join(PERF_LAB, "bench_env.py"))
+BASE_ENV = {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", **bench_env.fixed_env()}
 # Never passed to the app: NX_REMOTE makes it act as an nx-remote job; the rest name another cmux.
 DROPPED_ENV = ("NX_REMOTE", "CMUX_SOCKET_PATH", "CMUX_SOCKET", "CMUX_TAG", "CMUX_BUNDLE_ID", "CMUX_WORKSPACE_ID",
                "CMUX_SURFACE_ID", "CMUX_PANEL_ID", "CMUX_TAB_ID")
@@ -202,12 +218,128 @@ def tag_of(app):
 def bundle_id(app):
     """The app's own bundle id (Info.plist): `scripts/reload.sh --tag split-spring` makes
     `com.cmuxterm.app.debug.split.spring`, not `...debug.split-spring`, so a script never builds it from the tag."""
+    return info_plist(app).get("CFBundleIdentifier")
+
+
+def info_plist(app):
+    """The app's Info.plist as a dict; {} when it is missing or unreadable."""
     import plistlib
     try:
         with open(os.path.join(os.path.realpath(app), "Contents/Info.plist"), "rb") as f:
-            return plistlib.load(f).get("CFBundleIdentifier")
+            info = plistlib.load(f)
     except (OSError, ValueError):
+        return {}
+    return info if isinstance(info, dict) else {}
+
+
+# The text check-no-bench-hooks.sh finds in a bench build's main executable (BenchHooksMarker.swift).
+BENCH_HOOKS_MARKER = b"CMUX_BENCH_HOOKS_BUILD"
+
+
+def build_config(app, binary):
+    """result-v1's build config of the bundle: `bench` when its main executable carries the bench-hooks marker,
+    `debug` when Xcode's `<name>.debug.dylib` is beside it (a Debug build keeps its code there), else `release`."""
+    if glob.glob(os.path.join(app, "Contents/MacOS/*.debug.dylib")):
+        return "debug"
+    import mmap
+    with open(binary, "rb") as f:
+        if os.fstat(f.fileno()).st_size == 0:
+            return "release"
+        with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as data:
+            return "bench" if data.find(BENCH_HOOKS_MARKER) >= 0 else "release"
+
+
+def build_sha(app, environ=None):
+    """The commit the app was built from: its Info.plist `CMUXCommit` (nightly and release builds), else the fleet
+    step's `CMUX_CI_SHA`, else this checkout's HEAD (a DEV build carries no CMUXCommit; a fleet step builds and
+    measures the same checkout). Exits when none answers: a result without its build cannot be placed in a
+    series."""
+    environ = os.environ if environ is None else environ
+    sha = info_plist(app).get("CMUXCommit") or environ.get("CMUX_CI_SHA")
+    if not sha:
+        try:
+            sha = subprocess.run(["git", "-C", ROOT, "rev-parse", "HEAD"], capture_output=True, text=True,
+                                 timeout=30).stdout.strip()
+        except (OSError, subprocess.TimeoutExpired):
+            sha = ""
+    if not sha:
+        raise SystemExit(f"bench-launch: no build sha: {app} has no CMUXCommit, CMUX_CI_SHA is unset and {ROOT} is "
+                         "not a git checkout")
+    return sha
+
+
+def measure_version(paths):
+    """A digest of the measuring code (this file, bench_env, perf_result and the bench script): it changes exactly
+    when the harness does, so a step in a series can be told from a harness change. Missing files are skipped."""
+    digest = hashlib.sha256()
+    for path in paths:
+        try:
+            with open(path, "rb") as f:
+                digest.update(os.path.basename(path).encode() + b"\0" + f.read())
+        except OSError:
+            continue
+    return digest.hexdigest()[:16]
+
+
+def main_display_hz():
+    """The main display's refresh rate in Hz (CoreGraphics), or None when CoreGraphics does not answer."""
+    try:
+        import ctypes
+        cg = ctypes.CDLL("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")
+    except OSError:
         return None
+    cg.CGMainDisplayID.restype = ctypes.c_uint32
+    cg.CGDisplayCopyDisplayMode.restype = ctypes.c_void_p
+    cg.CGDisplayCopyDisplayMode.argtypes = [ctypes.c_uint32]
+    cg.CGDisplayModeGetRefreshRate.restype = ctypes.c_double
+    cg.CGDisplayModeGetRefreshRate.argtypes = [ctypes.c_void_p]
+    cg.CGDisplayModeRelease.argtypes = [ctypes.c_void_p]
+    mode = cg.CGDisplayCopyDisplayMode(cg.CGMainDisplayID())
+    if not mode:
+        return None
+    hz = cg.CGDisplayModeGetRefreshRate(mode)
+    cg.CGDisplayModeRelease(mode)
+    return round(hz) if hz > 0 else None
+
+
+def host_record(chip, memory_bytes, macos, macos_build, display_hz):
+    """result-v1's host block. The fingerprint is sha256 of (chip, macOS build, Hz, memory); the class, the host part
+    of a series key, is chip + memory + Hz without the macOS build, so an OS update is a step inside one series."""
+    memory_gb = round((memory_bytes or 0) / 2**30)
+    fingerprint = hashlib.sha256("\0".join(str(v) for v in (chip, macos_build, display_hz, memory_bytes)).encode())
+    slug = re.sub(r"[^a-z0-9]+", "-", (chip or "unknown").lower()).strip("-")
+    return {"fingerprint": fingerprint.hexdigest()[:16], "class": f"{slug}-{memory_gb}gb-{display_hz or 0}hz",
+            "chip": chip, "macos": macos, "macos_build": macos_build, "display_hz": display_hz}
+
+
+def read_host():
+    """This Mac's host block (``host_record``) from sysctl, sw_vers and CoreGraphics."""
+    def out(*cmd):
+        try:
+            return subprocess.run(cmd, capture_output=True, text=True, timeout=10).stdout.strip()
+        except (OSError, subprocess.TimeoutExpired):
+            return ""
+    memory = out("/usr/sbin/sysctl", "-n", "hw.memsize")
+    return host_record(out("/usr/sbin/sysctl", "-n", "machdep.cpu.brand_string") or None,
+                       int(memory) if memory.isdigit() else None,
+                       out("/usr/bin/sw_vers", "-productVersion") or None,
+                       out("/usr/bin/sw_vers", "-buildVersion") or None, main_display_hz())
+
+
+def features_from(reply):
+    """({name: {state, source}}, features_hash, safe_mode) from a `features.list` reply ({"features": [{name, state,
+    source}], "features_hash"?, "safe_mode"?}), or None when the app has no such method (before
+    p12-perf-process-096) or did not answer."""
+    if not isinstance(reply, dict) or reply.get("error") or not isinstance(reply.get("features"), list):
+        return None
+    features = {f["name"]: {"state": f.get("state"), "source": f.get("source")}
+                for f in reply["features"] if isinstance(f, dict) and f.get("name")}
+    digest = reply.get("features_hash") or hashlib.sha256(json.dumps(features, sort_keys=True).encode()).hexdigest()[:16]
+    return features, digest, reply.get("safe_mode", "unknown")
+
+
+# What a result says when the app reports no features (no features.list yet, or the app is not running).
+NO_FEATURES = ({}, None, "unknown")
 
 
 def socket_candidates(tag):
@@ -676,11 +808,18 @@ class BenchApp:
     tests pass a stub). `socket_only=True` launches without a GUI session for a check that reads only the socket
     and the window list: its failure reports carry `socket_only` and `gui_session`, and its crash or exit is
     reported as such, not as no-gui-session. A bench that measures frames never passes it.
+    For ``record``: `perf_session` is result-v1's session (light, stress or corpus:<id>), `host` reads the host block
+    (default ``read_host``) and `perf_result` is the writer module (default scripts/perf-lab/perf_result.py, loaded
+    by file path); tests pass their own.
     """
 
     def __init__(self, app, out=None, env=None, config=None, window=(40, 40, 1440, 900), screen="0",
                  log_name=None, teardown=True, low_power_mode_ok=False, session=None, socket_only=False,
-                 fresh_state=True):
+                 fresh_state=True, perf_session="light", host=None, perf_result=None):
+        self.perf_session = perf_session
+        self.read_host = host or read_host
+        self.perf_result = perf_result
+        self._build = self._host = self._features = None
         self.low_power_mode_ok = low_power_mode_ok
         self.fresh_state = fresh_state
         self.app = os.path.realpath(app).rstrip("/")
@@ -740,7 +879,7 @@ class BenchApp:
     def environment(self):
         config_path = os.path.join(self.scratch, "cmux.json")
         with open(config_path, "w") as f:
-            json.dump(self.config, f)
+            json.dump(bench_env.with_config_defaults(self.config), f)  # the bench's own keys win
         ghostty = os.path.join(self.scratch, "ghostty")
         open(ghostty, "a").close()
         env = {"HOME": os.environ.get("HOME", account_home()), "USER": pwd.getpwuid(os.getuid()).pw_name,
@@ -758,6 +897,35 @@ class BenchApp:
 
     def rpc(self, method, params=None, timeout=60):
         return rpc_at(self.socket, method, params, timeout)
+
+    def record(self, story, metric, unit, samples, better, engine, target_ref=None):
+        """Writes one `cmux-perf-result/v1` line (perf_result.write_ndjson) into the out folder and returns the Result.
+
+        The build (sha, config, measure_version), the host block with its display Hz, the resolved features and the
+        safe-mode state are filled in here, so no bench reads them on its own. The features come from the app's
+        `features.list` once per run (the snapshot is immutable after launch), read while the app runs; when the app
+        has no such method or is not running the result says ``NO_FEATURES``. Raises
+        what perf_result.validate raises on a bad result (empty samples, no unit, an unknown engine)."""
+        writer = self.perf_result or load_by_path("perf_result", os.path.join(PERF_LAB, "perf_result.py"))
+        if self._build is None:
+            caller = getattr(sys.modules.get("__main__"), "__file__", None)  # the bench script
+            code = [os.path.abspath(__file__), bench_env.__file__, writer.__file__] + ([caller] if caller else [])
+            self._build = {"sha": build_sha(self.app), "config": build_config(self.app, self.binary),
+                           "measure_version": measure_version(code)}
+        if self._host is None:
+            self._host = self.read_host()
+        if self._features is None and self.process is not None and self.process.poll() is None:
+            reply = self.rpc("features.list", timeout=10)
+            if not (isinstance(reply, dict) and reply.get("unreachable")):  # an answer, even "no such method", is final
+                self._features = features_from(reply) or NO_FEATURES
+        features, features_hash, safe_mode = self._features or NO_FEATURES
+        result = writer.Result(story=story, metric=metric, unit=unit, better=better, samples=list(samples),
+                               target_ref=target_ref, build=dict(self._build), host=dict(self._host), engine=engine,
+                               session=self.perf_session, features=dict(features), features_hash=features_hash,
+                               safe_mode=safe_mode, attachments=[])
+        writer.validate(result)
+        writer.write_ndjson(self.out, [result])
+        return result
 
     def state_root(self):
         """The tag's saved state: `~/Library/Application Support/cmux/tags/<tag>` (BuildIdentity
