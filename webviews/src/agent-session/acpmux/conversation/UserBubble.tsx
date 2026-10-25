@@ -24,7 +24,8 @@ import { ChevronLeft, ChevronRight, ImageIcon, Pencil, Spinner } from "./icons";
 import { ImageViewerContext } from "./imageViewerContext";
 import { useStableImage } from "./imageEntries";
 import { PromptText } from "./PromptText";
-import { InlinePromptContent } from "./InlinePromptContent";
+import { InlinePromptContent, StripPromptAttachments } from "./InlinePromptContent";
+import { useComposerSettings } from "../composerSettings";
 import { promptContentParts, isInterleaved } from "./promptContent";
 import {
   ForkButton,
@@ -58,6 +59,14 @@ export function UserBubble({ row, text, pending }: { row: AcpmuxRow; text: strin
   const orderedParts = useMemo(() => promptContentParts(row), [row]);
   // Text alone keeps the plain bubble (PromptText's collapse and height); media makes it ordered.
   const hasOrderedParts = isInterleaved(orderedParts);
+  // The Strip view draws them in a row above the text, in the same order; Inline (the default) in the
+  // text, as iMessage on the Mac does (Leo). Only the look: the row's parts are the same in both.
+  const strip = useComposerSettings().attachmentView === "strip" && hasOrderedParts;
+  const shownParts = useMemo(
+    () => (strip ? orderedParts.filter((part) => part.kind === "text") : orderedParts),
+    [strip, orderedParts],
+  );
+  const renderImage = useCallback((image: PromptImage) => <SentImage image={image} />, []);
   const editable = useMemo(() => (editing ? liftInlineImages(row.text ?? text).text : ""), [editing, row.text, text]);
   // An open editor stays while the chat changes under it (a reconnect, a turn starting), so the
   // draft is kept; Send waits until the prompt can be forked before again. A resend that fails
@@ -78,17 +87,15 @@ export function UserBubble({ row, text, pending }: { row: AcpmuxRow; text: strin
   return (
     <>
       {!hasOrderedParts && row.images && row.images.length > 0 && <SentImages images={row.images} />}
+      {strip && <StripPromptAttachments rowId={row.id} parts={orderedParts} show={show} renderImage={renderImage} />}
       {/* No text to read draws no bubble: a prompt of images alone is its images (an empty glass
           bubble under them read as a lost message; Leo 2026-10-21). */}
-      {(hasOrderedParts || text.trim()) && (
+      {(strip
+        ? shownParts.some((part) => part.kind === "text" && part.text.trim())
+        : hasOrderedParts || text.trim()) && (
         <div className="ui-glass cv-user__bubble selectable">
           {hasOrderedParts ? (
-            <InlinePromptContent
-              rowId={row.id}
-              parts={orderedParts}
-              show={show}
-              renderImage={(image) => <SentImage image={image} />}
-            />
+            <InlinePromptContent rowId={row.id} parts={shownParts} show={show} renderImage={renderImage} />
           ) : (
             <PromptText rowId={row.id} text={text} pasted={row.pasted} show={show} />
           )}

@@ -11,6 +11,7 @@ import type { PlayContext } from "../../../gallery/play";
 import { assistant, chat, session, summary, user } from "../../../gallery/fixtures/acpmux";
 import type { AcpmuxSnapshot } from "../model";
 import { LOGIN_SCREENSHOT_PNG } from "../../../gallery/fixtures/toolImages";
+import { setComposerSettings } from "../composerSettings";
 
 const claude = (snapshot: AcpmuxSnapshot): AcpmuxSnapshot => ({
   ...snapshot,
@@ -125,6 +126,18 @@ const hoverTooltip = (label: string) => async (ctx: PlayContext) => {
   );
 };
 
+const SENT_IMAGE = `data:image/png;base64,${LOGIN_SCREENSHOT_PNG}`;
+const SENT_TEXT = "The login page before the fix, the spec, and after it.";
+/// A prompt's ordered parts as acpmux records them: text, a screenshot, text, a PDF, a screenshot, text.
+const SENT_PARTS = [
+  { kind: "text" as const, text: "The login page before the fix " },
+  { kind: "image" as const, id: "view-before", mimeType: "image/png", name: "before.png", src: SENT_IMAGE },
+  { kind: "text" as const, text: ", the spec " },
+  { kind: "document" as const, id: "view-spec", name: "login-spec.pdf", mimeType: "application/pdf" },
+  { kind: "text" as const, text: ", and after it. " },
+  { kind: "image" as const, id: "view-after", mimeType: "image/png", name: "after.png", src: SENT_IMAGE },
+];
+
 export default agentPaneEntry({
   id: "agent-pane.user-bubble",
   title: "Prompt bubble",
@@ -163,6 +176,24 @@ export default agentPaneEntry({
           }),
         ]),
       ),
+    },
+    // Leo: "the actual input, as a default, I don't think it's gonna be worse to put the things
+    // inline, like how iMessage on Mac does it." The same sent prompt in each attachment view.
+    "attachment-view-inline": {
+      note: "Inline (the default): a screenshot, a PDF and a second screenshot sit in the sent prompt's text where each was added.",
+      snapshot: claude(chat([user(SENT_TEXT, 1, { inlineParts: SENT_PARTS })])),
+      play: async (ctx) => {
+        setComposerSettings({ attachmentView: "inline" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-user__bubble [data-part^='image:']"));
+      },
+    },
+    "attachment-view-strip": {
+      note: "Strip: the same prompt's screenshot, PDF and screenshot in a row above its bubble, in the order they were added; the bubble keeps the text. Only the look changes.",
+      snapshot: claude(chat([user(SENT_TEXT, 1, { inlineParts: SENT_PARTS })])),
+      play: async (ctx) => {
+        setComposerSettings({ attachmentView: "strip" });
+        await ctx.waitFor(() => ctx.document.querySelector("[data-attachment-view=strip] [data-part^='image:']"));
+      },
     },
     claude: {
       note: "A Claude chat: hover a later prompt for Copy and Edit; the first prompt has Copy only.",
