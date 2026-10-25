@@ -47,12 +47,13 @@ import Testing
         }
     }
 
-    /// A row stops short of the sidebar's right edge: more room than its left inset.
-    @Test func aRowEndsShortOfTheSidebarsRightEdge() throws {
+    /// A row ends its trailing trim short of the inset on the right: none since Leo's full-length
+    /// rows (cd84bc62d13, `SidebarStyle.rowTrailingTrim`), so its right edge mirrors its left.
+    @Test func aRowEndsItsTrimShortOfTheSidebarsRightEdge() throws {
         let (list, window, rows) = Self.list()
         defer { window.orderOut(nil) }
         let frame = list.frame(for: try #require(rows.first))
         let left = frame.minX, right = list.bounds.maxX - frame.maxX
-        #expect(right >= left + 8, "the row ends \(right) pt from the right edge, \(left) pt from the left")
+        #expect(right == left + SidebarStyle.rowTrailingTrim, "the row ends \(right) pt from the right edge, \(left) pt from the left")
     }
 }

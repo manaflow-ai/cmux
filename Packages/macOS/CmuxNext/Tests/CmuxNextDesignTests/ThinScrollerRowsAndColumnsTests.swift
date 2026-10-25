@@ -24,9 +24,11 @@ struct ThinScrollerRowsAndColumnsTests {
 
     /// A sideways scroller in a 240 x 200 host, along its bottom edge, its content four times as wide.
     private static func sideways(in host: NSView) -> ThinScroller {
-        let scroller = ThinScroller(frame: .zero, clock: ManualClock(), notificationCenter: NotificationCenter())
+        // Made at its sideways frame, as NSScrollView makes its horizontal bar: AppKit reads a scroller's
+        // axis from the frame it is made with, so one made at .zero lays its knob slot out as a vertical bar.
         let y = host.isFlipped ? host.bounds.maxY - ThinScroller.width : host.bounds.minY
-        scroller.frame = NSRect(x: 0, y: y, width: host.bounds.width, height: ThinScroller.width)
+        let scroller = ThinScroller(frame: NSRect(x: 0, y: y, width: host.bounds.width, height: ThinScroller.width),
+                                    clock: ManualClock(), notificationCenter: NotificationCenter())
         host.addSubview(scroller)
         scroller.scrollerStyle = .overlay
         scroller.isEnabled = true
@@ -61,7 +63,8 @@ struct ThinScrollerRowsAndColumnsTests {
         scrollView.documentView = table
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
-        #expect(table.cornerView != nil) // AppKit makes one
+        // AppKit makes one when the table has a header view; some hosts make none, so give it one.
+        if table.cornerView == nil { table.cornerView = NSView(frame: NSRect(x: 0, y: 0, width: 11, height: 17)) }
         SystemScrollers.follow(scrollView)
         #expect(table.cornerView == nil)
     }

@@ -180,13 +180,18 @@ import Testing
     }
 
     /// The sections are the Priority classifier's (`AgentPriorityRanking.state` through `SidebarLaneStatus`), not one
-    /// of the sidebar's own: acpmux lanes in, the rows the row feed maps, laid out under their states.
+    /// of the sidebar's own: acpmux lanes in, the rows the row feed maps, laid out under their states. The row feed
+    /// carries a row's state only with `sidebar.rowStatus` on (off by default since 8f4e8f04d45); the fixture's
+    /// workspaces have no key, so a row is drawn by its title here.
     @Test func theSectionsComeFromThePriorityClassifier() throws {
         defer { Self.toggle(nil) }
         let fixture = try SidebarRowStatusTests.Fixture()
         Self.toggle(true)
-        let sidebar = Sidebar(fixture.rows())
-        #expect(sidebar.drawn == [
+        var rows: [SidebarWorkspace] = []
+        SidebarRowStatusTests.withRowStatus(true) { rows = fixture.rows() }
+        let titles = Dictionary(uniqueKeysWithValues: rows.map { ($0.id.rawValue, $0.title) })
+        let sidebar = Sidebar(rows)
+        #expect(sidebar.drawn.map { titles[$0] ?? $0 } == [
             "Needs you, 1 workspaces", "waiting",
             "Done, 1 workspaces", "finished",
             "Failed, 1 workspaces", "failed",

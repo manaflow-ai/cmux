@@ -52,11 +52,11 @@ import Testing
     }
 
     /// Where the row's content starts (its leading icon slot, empty when the row has no icon)
-    /// and where its last trailing mark ends.
-    private static func insets(_ row: WorkspaceRowView) throws -> (leading: CGFloat, trailing: CGFloat) {
+    /// and the center x of its last trailing mark (nil: no mark shows).
+    private static func insets(_ row: WorkspaceRowView) throws -> (leading: CGFloat, lastMarkMidX: CGFloat?) {
         let marks = [try badge(row), try glyph(row), row.mutedMark, row.presenceDots, row.disclosureButton] as [NSView]
-        let end = marks.filter { !$0.isHidden && $0.frame.width > 0 }.map(\.frame.maxX).max() ?? row.title.frame.maxX
-        return (row.icon.frame.minX, row.bounds.width - end)
+        let last = marks.filter { !$0.isHidden && $0.frame.width > 0 }.max { $0.frame.maxX < $1.frame.maxX }
+        return (row.icon.frame.minX, last?.frame.midX)
     }
 
     @Test func selectedAndUnselectedRowsHaveEqualLeadingAndTrailingInsets() throws {
@@ -65,8 +65,13 @@ import Testing
         #expect(selected.isSelected && !unread.isSelected)
         let gutter = SidebarStyle.horizontalInset
         for (name, row) in [("unselected", unread), ("selected", selected)] {
-            let (leading, trailing) = try Self.insets(row)
-            #expect(leading == trailing, "\(name): icon slot \(leading) pt in, marks \(trailing) pt in")
+            let (leading, lastMarkMidX) = try Self.insets(row)
+            // The last mark centers on the trailing column, the group header chevron's x (10990df76a7),
+            // which ends `horizontalInset` from the row's right edge as the content starts from its left.
+            if let lastMarkMidX {
+                let column = SidebarStyle.trailingColumnCenterX(rowWidth: row.bounds.width)
+                #expect(abs(lastMarkMidX - column) < 0.5, "\(name): last mark at \(lastMarkMidX), column at \(column)")
+            }
             #expect(row.title.frame.minX == gutter, "\(name): the title at the inset (no empty icon slot)")
             // The pill's own inset from the list's edges is the same token, plus the trim on the right.
             #expect(leading == gutter, "\(name): text \(leading) pt in, pill inset \(gutter)")
