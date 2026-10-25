@@ -79,28 +79,41 @@ export function trayItems(
 const liveSession = (session: StartedSession) => session.state === "running" || session.state === "waiting";
 
 /// The chat's subagents and started chats that ended, for the tray's bounded status cards: the
-/// subagents that ended last first (nested ones under their parent), so the few the tray shows
-/// under what runs are the latest; then the chats, newest first.
+/// subagents that ended last first, so the few the tray shows under what runs are the latest. A
+/// nested one stays under its parent, and a parent's place is its subtree's latest end, so a child
+/// that ended after the others is never hidden behind older ones. Then the chats, newest first
+/// (their end is not known here), those with no creation time last.
 export function finishedTrayItems(agents: readonly Subagent[], sessions: readonly StartedSession[]): TrayItem[] {
-  const ended = agents
-    .filter((agent) => agent.state !== "running")
-    .sort(
-      (a, b) =>
-        (b.endedAt ?? b.startedAt) - (a.endedAt ?? a.startedAt) ||
-        b.startedAt - a.startedAt ||
-        a.id.localeCompare(b.id),
-    );
+  const ended = agents.filter((agent) => agent.state !== "running");
+  const byId = new Map(ended.map((agent) => [agent.id, agent]));
+  const latest = new Map<string, number>();
+  for (const agent of ended) {
+    const end = agent.endedAt ?? agent.startedAt;
+    // Up the parent chain within what ended; a loop stops where it meets itself.
+    const seen = new Set<string>();
+    for (let at: Subagent | undefined = agent; at && !seen.has(at.id); at = byId.get(at.parent ?? "")) {
+      seen.add(at.id);
+      latest.set(at.id, Math.max(latest.get(at.id) ?? -Infinity, end));
+    }
+  }
+  ended.sort(
+    (a, b) =>
+      latest.get(b.id)! - latest.get(a.id)! || b.startedAt - a.startedAt || a.id.localeCompare(b.id),
+  );
   const items: TrayItem[] = nestAgents(ended).map(({ agent, depth }) => ({
     kind: "agent",
     id: agent.id,
     agent,
     depth,
   }));
-  // A chat's end time is not known here: the newest chat (sessions come oldest first) goes first.
-  for (let index = sessions.length - 1; index >= 0; index -= 1) {
-    const session = sessions[index]!;
-    if (!liveSession(session)) items.push({ kind: "session", id: session.sessionId, session });
-  }
+  const chats = sessions
+    .filter((session) => !liveSession(session))
+    .sort((a, b) =>
+      a.createdAt === undefined || b.createdAt === undefined
+        ? Number(a.createdAt === undefined) - Number(b.createdAt === undefined)
+        : b.createdAt - a.createdAt,
+    );
+  for (const session of chats) items.push({ kind: "session", id: session.sessionId, session });
   return items;
 }
 

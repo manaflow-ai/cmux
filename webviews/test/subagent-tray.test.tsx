@@ -928,6 +928,66 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
     }
   });
 
+  test("words stay words: prose that starts like a program, a quoted separator, an ended agent", async () => {
+    const { trayDetail, isShellLine } = await import("../src/agent-session/acpmux/subagents/trayDetail");
+    const t = (key: string, values?: Record<string, unknown>) =>
+      key === "tools.runningCommand" ? `Running ${String(values?.command)}` : key;
+    for (const prose of ["Find the bug in the fold", "Make a plan", "Open the file", "go ahead", "Check the card's line"])
+      expect(isShellLine(prose)).toBe(false);
+    for (const command of ["find . -name '*.ts'", "cd repo && terraform plan", "ls -la", "FOO=1 make test"])
+      expect(isShellLine(command)).toBe(true);
+    expect(trayDetail(t as never, "Check the card's line · Read AgentCard.tsx")).toBe(
+      "Check the card's line · Read AgentCard.tsx",
+    );
+    expect(trayDetail(t as never, 'echo "a · b"')).toBe('Running echo "a · b"');
+    // An ended agent keeps its kind, never a "Running …" of its last call.
+    const now = Date.now();
+    const ended = agent("Linter", {
+      state: "completed",
+      kind: "Explore",
+      action: "git status",
+      startedAt: now - 9000,
+      endedAt: now - 1000,
+    });
+    const { root, done } = await render(
+      createElement(SubagentTray, {
+        items: [],
+        finished: finishedTrayItems([ended], NONE),
+        working: true,
+        waiting: new Set<string>(),
+        onOpen: () => {},
+      }),
+    );
+    try {
+      expect(root.querySelector(".acpmux-summary-agent__kind")?.textContent).toBe("Explore");
+    } finally {
+      await done();
+    }
+  });
+
+  test("what ended last leads: a late nested child lifts its parent; a chat with no time goes last", () => {
+    const agents = [
+      agent("old", { state: "completed", startedAt: at(0), endedAt: at(10) }),
+      agent("parent", { state: "completed", startedAt: at(0), endedAt: at(5) }),
+      agent("child", { parent: "parent", state: "completed", startedAt: at(1), endedAt: at(30) }),
+      agent("mid", { state: "completed", startedAt: at(0), endedAt: at(20) }),
+    ];
+    const chats: StartedSession[] = [
+      { sessionId: "untimed", title: "Untimed", state: "idle" },
+      { sessionId: "first", title: "First", state: "idle", createdAt: at(1) },
+      { sessionId: "second", title: "Second", state: "idle", createdAt: at(2) },
+    ];
+    expect(finishedTrayItems(agents, chats).map((item) => item.id)).toEqual([
+      "parent",
+      "child",
+      "mid",
+      "old",
+      "second",
+      "first",
+      "untimed",
+    ]);
+  });
+
   test("a line says what the agent does in words, never a raw shell line", async () => {
     const chats: StartedSession[] = [
       {

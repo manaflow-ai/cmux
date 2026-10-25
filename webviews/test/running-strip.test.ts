@@ -119,7 +119,7 @@ await requireBrowserLane("running-strip.test.ts", async () => {
   });
 
   // Leo 2026-10-25: the collapse at the top "disappears for some reason at the top ... sometimes".
-  for (const height of [400, 120]) {
+  for (const height of [400, 120, 40]) {
     test(`with 118 agents the header stays in view while the list scrolls (dock ${height}px)`, async () => {
       const page = await browser!.newPage({ viewport: { width: 760, height: 600 } });
       try {
@@ -137,7 +137,8 @@ await requireBrowserLane("running-strip.test.ts", async () => {
           () => document.querySelectorAll(".acpmux-running-tray li[data-finished]").length === 116,
         );
         // Scroll everything that can scroll to its end, the tray itself included, as a wheel would.
-        await page.hover(".acpmux-running-tray__list");
+        const listHeight = await page.$eval(".acpmux-running-tray__list", (list) => list.clientHeight);
+        await page.hover(listHeight > 0 ? ".acpmux-running-tray__list" : ".acpmux-running-tray__head");
         for (let step = 0; step < 20; step += 1) await page.mouse.wheel(0, 800);
         const state = await page.evaluate(() => {
           const tray = document.querySelector<HTMLElement>(".acpmux-running-tray")!;
@@ -147,8 +148,10 @@ await requireBrowserLane("running-strip.test.ts", async () => {
           const box = tray.getBoundingClientRect();
           const rect = head.getBoundingClientRect();
           const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+          const more = tray.querySelector<HTMLElement>(".acpmux-running-tray__finished")!.getBoundingClientRect();
           return {
-            listScrolled: list.scrollTop > 0,
+            moreInside: more.height > 20 && more.bottom <= box.bottom + 0.5,
+            listScrolled: list.scrollHeight <= list.clientHeight || list.scrollTop > 0,
             trayScroll: tray.scrollTop,
             headTop: rect.top - box.top,
             headHeight: rect.height,
@@ -160,6 +163,8 @@ await requireBrowserLane("running-strip.test.ts", async () => {
         expect(state.headTop).toBeCloseTo(0, 0);
         expect(state.headHeight).toBeGreaterThan(20);
         expect(state.headDrawn).toBe(true);
+        // View all stays whole at the tray's foot, even where the list has no room left.
+        expect(state.moreInside).toBe(true);
       } finally {
         await page.close();
       }

@@ -194,7 +194,7 @@ export const SubagentTray = memo(function SubagentTray({
       return (
         <AgentLine
           name={item.agent.name}
-          detail={trayDetail(t, item.agent.action) ?? item.agent.kind}
+          detail={(item.agent.state === "running" ? trayDetail(t, item.agent.action) : undefined) ?? item.agent.kind}
           mark={item.agent.harness}
           status={subagentStatus(item.agent, waiting)}
           state={t(subagentStatusLabel(item.agent, waiting))}
@@ -271,7 +271,7 @@ export const SubagentTray = memo(function SubagentTray({
     return (
       <AgentLine
         name={item.session.title}
-        detail={trayDetail(t, item.session.doing)}
+        detail={liveSession(item.session) ? trayDetail(t, item.session.doing) : undefined}
         title={item.session.doing}
         kind={t("tray.kind.subagent")}
         chevron
@@ -285,6 +285,9 @@ export const SubagentTray = memo(function SubagentTray({
 });
 
 const NO_ITEMS: readonly TrayItem[] = [];
+
+/// What a line says it does now is only for what still runs: an ended one never reads "Running …".
+const liveSession = (session: StartedSession) => session.state === "running" || session.state === "waiting";
 
 /// A started chat's line: its turn runs, it waits on the person, its turn failed, or it is done.
 const SESSION_STATUS: Record<StartedSession["state"], SubagentStatus> = {
