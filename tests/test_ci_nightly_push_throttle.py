@@ -353,8 +353,10 @@ def test_what_the_nightly_ships_is_read_back_from_the_project() -> None:
     # The resolver's path list decides which client gets bundled.
     tui = nightly.tui_client_paths(ROOT)
     assert {"cmux-tui", ".github/workflows/cmux-tui-artifacts.yml",
-            ".github/workflows/cmux-tui-build-package.yml"} <= tui
-    for path in (".github/workflows/cmux-tui-artifacts.yml", "cmux-tui/src/main.rs"):
+            ".github/workflows/cmux-tui-build-package.yml",
+            "scripts/build-tui-musl.sh"} <= tui
+    for path in (".github/workflows/cmux-tui-artifacts.yml", "cmux-tui/src/main.rs",
+                 "scripts/build-tui-musl.sh"):
         assert nightly.build_inputs_changed([path])[0], f"{path} must rebuild"
 
     consumer = "scripts/build_remote_daemon_release_assets.sh"

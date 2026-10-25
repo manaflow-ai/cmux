@@ -61,6 +61,36 @@ if [[ "$got" != "$C3" ]]; then
   exit 1
 fi
 
+# A linker-helper-only change changes the Linux payload even if cmux-tui is
+# untouched. Exact mode must reject the old artifact until the new one exists.
+git init -q "$TMP/helper"
+mkdir -p "$TMP/helper/cmux-tui" "$TMP/helper/scripts"
+echo tui >"$TMP/helper/cmux-tui/main.rs"
+echo old-linker >"$TMP/helper/scripts/build-tui-musl.sh"
+git -C "$TMP/helper" add -A
+git -C "$TMP/helper" commit -q -m 'initial client and linker'
+HELPER_OLD_SHA="$(git -C "$TMP/helper" rev-parse HEAD)"
+echo new-linker >"$TMP/helper/scripts/build-tui-musl.sh"
+git -C "$TMP/helper" commit -q -am 'change only release linker'
+HELPER_NEW_SHA="$(git -C "$TMP/helper" rev-parse HEAD)"
+mkdir -p "$STORE/$HELPER_OLD_SHA" "$STORE/$HELPER_NEW_SHA"
+printf '{"commit":"%s"}\n' "$HELPER_OLD_SHA" >"$STORE/$HELPER_OLD_SHA/manifest.json"
+if (cd "$TMP/helper" && "$RESOLVER" >/dev/null 2>&1); then
+  echo "FAIL: a linker-only change must not reuse an older artifact in exact mode"
+  exit 1
+fi
+got="$(cd "$TMP/helper" && "$RESOLVER" --max-fallback 1 2>/dev/null)"
+if [[ "$got" != "$HELPER_OLD_SHA" ]]; then
+  echo "FAIL: explicit fallback must still allow the older linker payload"
+  exit 1
+fi
+printf '{"commit":"%s"}\n' "$HELPER_NEW_SHA" >"$STORE/$HELPER_NEW_SHA/manifest.json"
+got="$(cd "$TMP/helper" && "$RESOLVER")"
+if [[ "$got" != "$HELPER_NEW_SHA" ]]; then
+  echo "FAIL: exact mode must select the published linker-only change"
+  exit 1
+fi
+
 # The newest cmux-tui commit lost its artifacts (failed or still-running artifacts run).
 rm "$STORE/$C3/manifest.json"
 if (cd "$TMP/work" && "$RESOLVER" >/dev/null 2>&1); then
