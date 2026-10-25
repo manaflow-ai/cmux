@@ -1316,6 +1316,16 @@ class OutsideTheDiff(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "which this pull request changes"):
             self.judge()
 
+    # Seventh review round of #25036.
+    def test_build_scripts_and_cmake_descriptions_are_guarded(self):
+        for path in ("cmux-tui/bindings/cpp/CMakeLists.txt", "cmux-tui/crates/cmux-tui-core/build.rs",
+                     "cmux-tui/build-support/embed.rs"):
+            self.assertTrue(excuse.guarded(path), path)
+
+    def test_an_absolute_windows_path_is_a_file(self):
+        self.assertEqual(excuse.file_paths(r"error: C:\a\cmux\src\foo.rs:3:5: x"), {"/a/cmux/src/foo.rs"})
+        self.assertIsNotNone(excuse.touched("/a/cmux/src/foo.rs", {"src/foo.rs"}))
+
     def test_a_pr_changing_a_build_input_blocks(self):
         for path in ("web/vercel.json", "Dockerfile", "cmux-tui/scripts/requirements-windows-conpty.txt",
                      "webviews/package.json", "webviews/bun.lock", "Packages/macOS/CmuxNext/Package.swift",

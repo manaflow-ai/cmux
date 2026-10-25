@@ -184,8 +184,8 @@ SOURCE_EXTENSIONS = frozenset(
     "swift m mm h c cc cpp hpp rs zig go py rb js mjs cjs jsx ts tsx mts cts css scss html vue svelte md "
     "png jpg jpeg gif svg pdf webp ico ttf otf xcstrings strings xib storyboard".split())
 GUARDED = re.compile(
-    r"^(?:\.github|config)/|test|spec|fixture|snapshot|mock|(?:^|/)scripts/|(?:^|/)\.|baseline|allowlist|(?:^|/)(?:Package\.swift|"
-    r"[^/]*\.config\.[cm]?[jt]s|build\.zig|setup\.py|conftest\.py|noxfile\.py|Rakefile|Fastfile)$",
+    r"^(?:\.github|config)/|(?:^|/)build[-_]support/|test|spec|fixture|snapshot|mock|(?:^|/)scripts/|(?:^|/)\.|baseline|allowlist|(?:^|/)(?:Package\.swift|"
+    r"[^/]*\.config\.[cm]?[jt]s|build\.zig|build\.rs|setup\.py|conftest\.py|noxfile\.py|Rakefile|Fastfile)$",
     re.IGNORECASE)
 
 
@@ -544,10 +544,12 @@ def file_paths(text: str) -> set[str]:
     """The files a line names, each token taken whole (`assets/Foo@2x.png`, never `2x.png`)."""
     found = set()
     for token in TOKEN.findall(text) + QUOTED.findall(text):
+        # Windows paths (the cmux-tui Windows lane prints `src\foo.rs`, or `C:\a\cmux\src\foo.rs`)
+        # compare with forward slashes, the drive letter dropped (the suffix match finds the file).
+        token = re.sub(r"^[A-Za-z]:(?=[\\/])", "", token).replace("\\", "/")
         if URL_LIKE.search(token):
             continue  # a URL is somewhere else, not a file of this repository
-        # Windows paths (the cmux-tui Windows lane prints `src\foo.rs`) compare with forward slashes.
-        token = re.sub(r":\d+(?::\d+)?:?$", "", token.replace("\\", "/").rstrip(".:")).removeprefix("./")
+        token = re.sub(r":\d+(?::\d+)?:?$", "", token.rstrip(".:")).removeprefix("./")
         name = token.rsplit("/", 1)[-1]
         if "." not in name.strip("."):
             continue
