@@ -8,11 +8,18 @@ public struct BlockingSite: Sendable, Equatable {
     public var location: String
     /// How many times this site blocked since launch (or since ``BlockingDetector/resetCounts()``).
     public var count: Int
+    /// The wall time those calls blocked the main thread, in nanoseconds: measured for the calls that ran
+    /// through ``blockingCall(_:fileID:line:_:)``; 0 for a site that only counts (a ``Mutex`` lock wait).
+    public var totalNanos: UInt64
+    /// The longest of those calls, in nanoseconds (0 as for ``totalNanos``).
+    public var maxNanos: UInt64
 
     /// Makes the value from its parts.
-    public init(kind: BlockingKind, location: String, count: Int) {
+    public init(kind: BlockingKind, location: String, count: Int, totalNanos: UInt64 = 0, maxNanos: UInt64 = 0) {
         self.kind = kind
         self.location = location
         self.count = count
+        self.totalNanos = totalNanos
+        self.maxNanos = maxNanos
     }
 }

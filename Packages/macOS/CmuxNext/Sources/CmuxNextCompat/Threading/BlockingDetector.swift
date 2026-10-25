@@ -80,8 +80,8 @@ public struct BlockingDetector: Sendable {
         #endif
     }
 
-    /// Zeroes every site's count (between sweep steps); the sites stay known, so a site that blocks again
-    /// is counted, not sent to the sink again.
+    /// Zeroes every site's count and wall times (between sweep steps); the sites stay known, so a site that
+    /// blocks again is counted, not sent to the sink again.
     public func resetCounts() {
         #if DEBUG || CMUX_BLOCKING_CHECKS
         table.resetCounts()

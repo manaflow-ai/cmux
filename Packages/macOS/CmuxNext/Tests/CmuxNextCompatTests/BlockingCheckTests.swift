@@ -374,6 +374,71 @@ struct BlockingCheckTests {
         #expect(BlockingDetector(table: table).sites.count == 1)
     }
 
+    // MARK: wall time (blockingCall)
+
+    /// A 5 ms sleep inside `blockingCall` on the main thread reports at least 5 ms as the site's maximum
+    /// and total (the real clock: `debug.blocking` prints these as `max_ms` and `total_ms`).
+    @MainActor @Test func aFiveMillisecondSleepOnTheMainThreadReportsItsWallTime() async {
+        let table = BlockingViolationTable(mode: .record)
+        BlockingViolationTable.$scoped.withValue(table) {
+            blockingCall(.syncWait) { _ = usleep(5_000) }
+        }
+        await table.flush()
+
+        let sites = BlockingDetector(table: table).sites
+        #expect(sites.map(\.count) == [1])
+        #expect(sites.first.map { $0.maxNanos >= 5_000_000 } == true)
+        #expect(sites.first.map { $0.totalNanos >= $0.maxNanos } == true)
+    }
+
+    /// Each recorded call at a site adds its time to the site's total and keeps the longest as its maximum;
+    /// two clock reads per call.
+    @MainActor @Test func repeatedCallsAddToTheTotalAndKeepTheMaximum() async {
+        let clock = StepClock(durations: [3_000_000, 7_000_000, 2_000_000])
+        let table = BlockingViolationTable(mode: .record, uptimeNanos: { clock.read() })
+        BlockingViolationTable.$scoped.withValue(table) {
+            for _ in 0..<3 { blockingCall(.fileIO) {} }  // one site
+        }
+        await table.flush()
+
+        let sites = BlockingDetector(table: table).sites
+        #expect(sites.map(\.count) == [3])
+        #expect(sites.map(\.totalNanos) == [12_000_000])
+        #expect(sites.map(\.maxNanos) == [7_000_000])
+        #expect(clock.reads == 6)
+        BlockingDetector(table: table).resetCounts()
+        #expect(BlockingDetector(table: table).sites.map { [$0.count, Int($0.totalNanos), Int($0.maxNanos)] } == [[0, 0, 0]])
+    }
+
+    /// Off the main thread, and on it inside an allowance, a blocking call is not a violation and reads no
+    /// clock (the off-main path is one `pthread_main_np()` and one branch).
+    @MainActor @Test func callsThatAreNotViolationsReadNoClock() async {
+        let clock = StepClock(durations: [1_000_000])
+        let table = BlockingViolationTable(mode: .record, uptimeNanos: { clock.read() })
+        await BlockingViolationTable.$scoped.withValue(table) { await blockingCallsOffTheMainThread() }
+        BlockingViolationTable.$scoped.withValue(table) {
+            allowBlocking(BlockingAllowance(reviewed: "test")) { blockingCall(.fileIO) {} }
+        }
+        await table.flush()
+
+        #expect(clock.reads == 0)
+        #expect(BlockingDetector(table: table).sites.isEmpty)
+    }
+
+    /// `blockingCall` returns its body's value and throws its body's typed error, recorded or not.
+    @MainActor @Test func aBlockingCallPassesOnItsBodysValueAndTypedError() async {
+        let table = BlockingViolationTable(mode: .record)
+        BlockingViolationTable.$scoped.withValue(table) {
+            #expect(blockingCall(.fileIO) { 42 } == 42)
+            #expect(throws: BodyFailure.self) {
+                _ = try blockingCall(.fileIO) { () throws(BodyFailure) -> Int in throw BodyFailure() }
+            }
+        }
+        await table.flush()
+
+        #expect(BlockingDetector(table: table).sites.map(\.count) == [1, 1])
+    }
+
     // MARK: helpers
 
     private static func recordingTable() -> (BlockingViolationTable, Recorder) {
@@ -414,6 +479,7 @@ struct BlockingCheckTests {
     @MainActor @Test func releaseBuildsCheckNothing() {
         _ = try? Data(blockingContentsOf: URL(fileURLWithPath: "/etc/hosts"))
         _ = FileManager.checked.fileExists(atPath: "/")
+        #expect(blockingCall(.fileIO) { 42 } == 42)
         #expect(!BlockingDetector.forProcess().isCompiledIn)
         #expect(BlockingDetector.forProcess().sites.isEmpty)
     }
@@ -505,6 +571,30 @@ private nonisolated final class FakeClock: Sendable {
         return UInt64(index / 2) * 3 * step + UInt64(index % 2) * step
     }
 }
+
+/// A clock for timed blocking calls: each call reads it twice (start, end), and call `n` measures
+/// `durations[n % durations.count]`.
+private nonisolated final class StepClock: Sendable {
+    private let state = Mutex((reads: 0, now: UInt64(1_000)))
+    private let durations: [UInt64]
+
+    init(durations: [UInt64]) {
+        self.durations = durations
+    }
+
+    var reads: Int { state.withLock { $0.reads } }
+
+    func read() -> UInt64 {
+        state.withLock { state in
+            defer { state.reads += 1 }
+            if state.reads % 2 == 1 { state.now += durations[(state.reads / 2) % durations.count] }
+            return state.now
+        }
+    }
+}
+
+/// The typed error a blocking call's body throws.
+private nonisolated struct BodyFailure: Error {}
 
 /// A table and the clock its contended `Mutex` waits are measured with.
 private nonisolated struct LockFixture: Sendable {

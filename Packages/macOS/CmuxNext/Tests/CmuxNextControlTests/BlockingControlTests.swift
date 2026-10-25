@@ -25,6 +25,22 @@ struct BlockingControlTests {
         #expect(detector.sites.map(\.count) == [0])
     }
 
+    /// A 5 ms sleep in `blockingCall` on the main thread shows as `max_ms` >= 5 (and `total_ms` >= `max_ms`).
+    @MainActor @Test func reportsTheWallTimeOfATimedSite() async throws {
+        let table = BlockingViolationTable(mode: .record)
+        BlockingViolationTable.$scoped.withValue(table) {
+            blockingCall(.syncWait) { _ = usleep(5_000) }
+        }
+        await table.flush()
+
+        let report = BlockingControl.report([:], detector: BlockingDetector(table: table))
+        let site = try #require(report.objectValue?["sites"]?.arrayValue?.first?.objectValue)
+        let maxMs = try #require(site["max_ms"]?.doubleValue)
+        let totalMs = try #require(site["total_ms"]?.doubleValue)
+        #expect(maxMs >= 5)
+        #expect(totalMs >= maxMs)
+    }
+
     /// The report shows the table's mode, and the method reads only `reset`: a `mode` parameter changes
     /// nothing (trap mode comes only from `CMUX_BLOCKING_TRAP=1` at launch).
     @Test func theReportShowsTheModeAndReadsOnlyReset() async {

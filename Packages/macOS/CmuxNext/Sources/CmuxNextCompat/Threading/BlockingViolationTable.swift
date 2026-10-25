@@ -17,9 +17,11 @@ internal import os
 /// bind their own table with ``scoped``.
 ///
 /// Threads. Every violation happens on the main thread, so the main thread is the only writer of the
-/// call-site index, the open allowance and the pending ring: the violation path takes no lock and calls nothing
-/// it does not own. It probes the index and adds 1 to the site's atomic count; for a new site it writes one
-/// ring slot, then records the site in the index, and signals a user-data dispatch source. The drain queue
+/// call-site index, the open allowance, the pending ring and the sites' wall times: the violation path takes no
+/// lock and calls nothing it does not own. It probes the index and adds 1 to the site's atomic count; for a new
+/// site it writes one ring slot, then records the site in the index, and signals a user-data dispatch source.
+/// A ``blockingCall(_:fileID:line:_:)`` violation then times its body and adds the time to the site's atomic
+/// total and maximum. The drain queue
 /// (`com.cmuxterm.app.next.blocking-drain`, utility) empties the ring: it resolves the stack to image UUID +
 /// offset frames, publishes the site, writes the Debug log line and calls the sink, so the sink never runs on
 /// the thread that blocked or inside that thread's locks.
@@ -51,6 +53,9 @@ final class BlockingViolationTable: Sendable {
     nonisolated(unsafe) private var nesting = BlockingRunLoopNesting() // crash-allow: main thread only (allowBlocking and the main run loop's observer, which runs on it)
     /// One atomic count per site id; written on the main thread, read anywhere.
     nonisolated(unsafe) private let counts: UnsafeMutablePointer<UnsafeAtomic<Int>.Storage> // crash-allow: fixed allocation of atomics; every access is an atomic operation
+    /// One atomic wall-time total and one maximum (nanoseconds) per site id; written on the main thread, read anywhere.
+    nonisolated(unsafe) private let totalNanos: UnsafeMutablePointer<UnsafeAtomic<UInt64>.Storage> // crash-allow: fixed allocation of atomics; every access is an atomic operation
+    nonisolated(unsafe) private let maxNanos: UnsafeMutablePointer<UnsafeAtomic<UInt64>.Storage> // crash-allow: fixed allocation of atomics; every access is an atomic operation
     private let ring: BlockingPendingRing
     private let overflowCount = UnsafeAtomic<Int>.create(0)
 
@@ -75,7 +80,8 @@ final class BlockingViolationTable: Sendable {
     ///   - environment: Read for `CMUX_BLOCKING_TRAP=1` (Debug builds only: every other build records).
     ///   - mode: A test's mode; nil reads `environment`.
     ///   - lockWaitLimitNanos: The longest main-thread ``Mutex`` wait that is not a violation.
-    ///   - uptimeNanos: The clock a contended ``Mutex`` wait is measured with.
+    ///   - uptimeNanos: The clock a contended ``Mutex`` wait and a ``blockingCall(_:fileID:line:_:)`` violation are
+    ///     measured with.
     ///   - startsDrain: False holds the drain until ``startDrain()`` (tests fill the ring).
     init(environment: [String: String] = ProcessInfo.processInfo.environment, mode: BlockingMode? = nil,
          lockWaitLimitNanos: UInt64 = BlockingKind.lockWaitLimitNanos,
@@ -89,7 +95,13 @@ final class BlockingViolationTable: Sendable {
         self.lockWaitLimitNanos = lockWaitLimitNanos
         self.uptimeNanos = uptimeNanos
         counts = .allocate(capacity: Self.siteLimit)
-        for slot in 0..<Self.siteLimit { (counts + slot).initialize(to: UnsafeAtomic<Int>.Storage(0)) }
+        totalNanos = .allocate(capacity: Self.siteLimit)
+        maxNanos = .allocate(capacity: Self.siteLimit)
+        for slot in 0..<Self.siteLimit {
+            (counts + slot).initialize(to: UnsafeAtomic<Int>.Storage(0))
+            (totalNanos + slot).initialize(to: UnsafeAtomic<UInt64>.Storage(0))
+            (maxNanos + slot).initialize(to: UnsafeAtomic<UInt64>.Storage(0))
+        }
         ring = BlockingPendingRing(capacity: Self.pendingLimit)
         wake = DispatchSource.makeUserDataAddSource(queue: drainQueue)
         wake.setEventHandler { [weak self] in self?.drain() }
@@ -101,6 +113,10 @@ final class BlockingViolationTable: Sendable {
         wake.activate()  // a source that never ran must be activated to be released
         counts.deinitialize(count: Self.siteLimit)
         counts.deallocate()
+        totalNanos.deinitialize(count: Self.siteLimit)
+        totalNanos.deallocate()
+        maxNanos.deinitialize(count: Self.siteLimit)
+        maxNanos.deallocate()
         overflowCount.destroy()
     }
 
@@ -111,10 +127,23 @@ final class BlockingViolationTable: Sendable {
 
     // MARK: the violation path (main thread)
 
-    /// A blocking seam ran on the main thread (``assertBlockingAllowed(_:fileID:line:)``).
+    /// A blocking call that is not a closure ran on the main thread (``assertBlockingAllowed(_:fileID:line:)``).
     @usableFromInline @inline(never)
     static func mainThreadBlocked(_ kind: BlockingKind, fileID: StaticString, line: UInt) {
         active.blocked(kind, fileID: fileID, line: line)
+    }
+
+    /// ``blockingCall(_:fileID:line:_:)`` on the main thread: checks the call like ``mainThreadBlocked(_:fileID:line:)``
+    /// and, only when it is a recorded violation, times `body` and adds the time to the site.
+    @usableFromInline @inline(never)
+    static func mainThreadBlockingCall<Result, Failure: Error>(
+        _ kind: BlockingKind, fileID: StaticString, line: UInt, _ body: () throws(Failure) -> Result
+    ) throws(Failure) -> Result {
+        let table = active
+        guard let site = table.blocked(kind, fileID: fileID, line: line) else { return try body() }
+        let start = table.uptimeNanos()
+        defer { table.addWallTime(table.uptimeNanos() &- start, site: site) }
+        return try body()
     }
 
     /// The main thread waited longer than ``lockWaitLimitNanos`` for a contended ``Mutex`` at the `withLock`
@@ -125,8 +154,11 @@ final class BlockingViolationTable: Sendable {
         blocked(.lockWait, fileID: fileID, line: line)
     }
 
-    private func blocked(_ kind: BlockingKind, fileID: StaticString, line: UInt) {
-        guard allowance == nil else { return }
+    /// Records the call and returns its site id, or nil when it is allowed or not recorded (the table or
+    /// the ring was full).
+    @discardableResult
+    private func blocked(_ kind: BlockingKind, fileID: StaticString, line: UInt) -> Int? {
+        guard allowance == nil else { return nil }
         #if DEBUG
         if mode == .trap && kind != .lockWait {
             fatalError("blocking \(kind.rawValue) on the main thread at \(fileID):\(line): move it off the main thread, or "
@@ -136,21 +168,34 @@ final class BlockingViolationTable: Sendable {
         let key = BlockingSiteKey(fileID: fileID, line: line)
         if let id = index.find(key) {
             UnsafeAtomic<Int>(at: counts + id).wrappingIncrement(ordering: .relaxed)
-            return
+            return id
         }
         guard let id = index.nextID else {
             overflowCount.wrappingIncrement(ordering: .relaxed)
-            return
+            return nil
         }
         var pending = BlockingPendingCall(kind: kind, site: id, fileID: fileID, line: line)
         pending.captureStack()
         guard ring.push(pending) else {
             overflowCount.wrappingIncrement(ordering: .relaxed)
-            return
+            return nil
         }
         UnsafeAtomic<Int>(at: counts + id).store(1, ordering: .relaxed)
         index.insert(key)
         wake.add(data: 1)
+        return id
+    }
+
+    /// Adds one timed call of `nanos` to `site`'s total and maximum.
+    private func addWallTime(_ nanos: UInt64, site: Int) {
+        UnsafeAtomic<UInt64>(at: totalNanos + site).wrappingIncrement(by: nanos, ordering: .relaxed)
+        let maximum = UnsafeAtomic<UInt64>(at: maxNanos + site)
+        var seen = maximum.load(ordering: .relaxed)
+        while nanos > seen {
+            let (exchanged, original) = maximum.weakCompareExchange(expected: seen, desired: nanos, ordering: .relaxed)
+            if exchanged { return }
+            seen = original
+        }
     }
 
     // MARK: allowance (main thread)
@@ -218,14 +263,20 @@ final class BlockingViolationTable: Sendable {
     var sites: [BlockingSite] {
         published.withLock { $0 }.map { site in
             BlockingSite(kind: site.kind, location: site.location,
-                         count: UnsafeAtomic<Int>(at: counts + site.id).load(ordering: .relaxed))
+                         count: UnsafeAtomic<Int>(at: counts + site.id).load(ordering: .relaxed),
+                         totalNanos: UnsafeAtomic<UInt64>(at: totalNanos + site.id).load(ordering: .relaxed),
+                         maxNanos: UnsafeAtomic<UInt64>(at: maxNanos + site.id).load(ordering: .relaxed))
         }
     }
 
     var overflow: Int { overflowCount.load(ordering: .relaxed) }
 
     func resetCounts() {
-        for slot in 0..<Self.siteLimit { UnsafeAtomic<Int>(at: counts + slot).store(0, ordering: .relaxed) }
+        for slot in 0..<Self.siteLimit {
+            UnsafeAtomic<Int>(at: counts + slot).store(0, ordering: .relaxed)
+            UnsafeAtomic<UInt64>(at: totalNanos + slot).store(0, ordering: .relaxed)
+            UnsafeAtomic<UInt64>(at: maxNanos + slot).store(0, ordering: .relaxed)
+        }
     }
 }
 #endif
