@@ -33,8 +33,7 @@ class TestMutationObserver {
 }
 
 function installDom() {
-  for (const key of ["ResizeObserver", "MutationObserver"])
-    saved.set(key, scope[key]);
+  for (const key of ["ResizeObserver", "MutationObserver"]) saved.set(key, scope[key]);
   Object.assign(scope, {
     ResizeObserver: TestResizeObserver,
     MutationObserver: TestMutationObserver,
@@ -70,13 +69,27 @@ test("tracks only changed children when a large scroller mutates, then disconnec
   const child = makeChild();
   node.children.push(child);
   mutations[0]!.callback([
-    { type: "childList", target: node, addedNodes: [child], removedNodes: [], previousSibling: null, nextSibling: null } as unknown as MutationRecord,
+    {
+      type: "childList",
+      target: node,
+      addedNodes: [child],
+      removedNodes: [],
+      previousSibling: null,
+      nextSibling: null,
+    } as unknown as MutationRecord,
   ]);
   expect(observed).toBe(192_002);
 
   node.children.pop();
   mutations[0]!.callback([
-    { type: "childList", target: node, addedNodes: [], removedNodes: [child], previousSibling: null, nextSibling: null } as unknown as MutationRecord,
+    {
+      type: "childList",
+      target: node,
+      addedNodes: [],
+      removedNodes: [child],
+      previousSibling: null,
+      nextSibling: null,
+    } as unknown as MutationRecord,
   ]);
   expect(unobserved).toBe(1);
 
