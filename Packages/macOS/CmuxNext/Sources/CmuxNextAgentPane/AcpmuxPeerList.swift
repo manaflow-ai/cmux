@@ -29,26 +29,35 @@ public nonisolated struct AcpmuxPeerList: Sendable {
         /// Cores busy (the 1-minute load, at most `cores`) and cores.
         public var coresBusy: Int
         public var cores: Int
-        /// Disk free where acpmux keeps its home, in GB.
-        public var diskFreeGB: Int
+        /// Disk free where acpmux keeps its home, in GB; nil when the reading has none.
+        public var diskFreeGB: Int?
         /// The machine's own budget says it is over (load, memory pressure, swap).
         public var over: Bool
 
-        public init(ramFreeGB: Int, coresBusy: Int, cores: Int, diskFreeGB: Int, over: Bool) {
+        public init(ramFreeGB: Int, coresBusy: Int, cores: Int, diskFreeGB: Int?, over: Bool) {
             (self.ramFreeGB, self.coresBusy, self.cores, self.diskFreeGB, self.over) = (ramFreeGB, coresBusy, cores, diskFreeGB, over)
         }
 
-        /// From a peer row's `health` (`_acpmux/host_health` fields); nil when it has no RAM or load.
+        /// From a peer row's `health` (`_acpmux/host_health` fields); nil for an older build's
+        /// `{"unsupported": true}` or a reading without free RAM, load and a core count. A value that
+        /// is not a finite, non-negative number counts as missing, never as 0.
         static func parse(_ health: Any?) -> Resources? {
-            guard let h = health as? [String: Any], h["unsupported"] == nil,
-                  let ram = (h["ram"] as? [String: Any])?["freeBytes"] as? NSNumber,
-                  let load = (h["load"] as? [NSNumber])?.first else { return nil }
+            guard let h = health as? [String: Any], (h["unsupported"] as? Bool) != true else { return nil }
             let pressure = h["pressure"] as? [String: Any]
-            let cores = (pressure?["cores"] as? NSNumber ?? h["cpus"] as? NSNumber)?.intValue ?? 0
-            let disk = ((h["disk"] as? [String: Any])?["freeBytes"] as? NSNumber)?.doubleValue ?? 0
-            let gb = { (bytes: Double) in Int((bytes / 1e9).rounded()) }
-            return Resources(ramFreeGB: gb(ram.doubleValue), coresBusy: min(cores, Int(load.doubleValue.rounded())), cores: cores,
-                             diskFreeGB: gb(disk), over: (pressure?["ok"] as? Bool) == false)
+            guard let ram = whole((h["ram"] as? [String: Any])?["freeBytes"], per: 1e9),
+                  let load = whole((h["load"] as? [Any])?.first),
+                  let cores = whole(pressure?["cores"]) ?? whole(h["cpus"]), cores > 0 else { return nil }
+            return Resources(ramFreeGB: ram, coresBusy: min(cores, load), cores: cores,
+                             diskFreeGB: whole((h["disk"] as? [String: Any])?["freeBytes"], per: 1e9),
+                             over: (pressure?["ok"] as? Bool) == false)
+        }
+
+        /// `value / per` rounded to a whole number when it is a finite, non-negative number that fits an Int.
+        static func whole(_ value: Any?, per: Double = 1) -> Int? {
+            guard let n = value as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID() else { return nil }
+            let x = (n.doubleValue / per).rounded()
+            guard x.isFinite, x >= 0, x < Double(Int.max) else { return nil }
+            return Int(x)
         }
     }
 

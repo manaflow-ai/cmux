@@ -252,6 +252,7 @@ public final class RemoteMachinesSidebar {
             if let room, style == .row {
                 var row = SidebarItemInfo(title: RemoteMachinesStrings.resources(room), symbol: "gauge.with.dots.needle.33percent")
                 row.indent = 1
+                row.accessibilityTitle = RemoteMachinesStrings.resourcesLabel(name, room)
                 add(resourcesPrefix + machine.peer, row)
             }
             let shown = pageSize * max(1, pages[machine.peer] ?? 1)
@@ -280,17 +281,23 @@ enum RemoteMachinesStrings {
     static func offline(_ name: String) -> String {
         String(format: String(localized: "sidebar.remoteMachines.offline", defaultValue: "%@ · Offline", bundle: .module), name)
     }
-    /// A machine's room on one line that fits the sidebar: "31 GB free · 12/32 cores", led by "Busy"
+    /// A machine's room on one line that fits the sidebar: "31 GB free · CPU 12/32", led by "Busy"
     /// when its own budget says it is over, and ending with its free disk only when that is low.
+    /// "CPU n/m" names no counted noun, so it reads right for any count.
     static func resources(_ r: AcpmuxPeerList.Resources) -> String {
         var parts = [ramFree(r.ramFreeGB),
-                     String(format: String(localized: "sidebar.remoteMachines.cores", defaultValue: "%1$lld/%2$lld cores", bundle: .module),
+                     String(format: String(localized: "sidebar.remoteMachines.cpu", defaultValue: "CPU %1$lld/%2$lld", bundle: .module),
                             r.coresBusy, r.cores)]
-        if r.diskFreeGB < lowDiskGB {
-            parts.append(String(format: String(localized: "sidebar.remoteMachines.disk", defaultValue: "%lld GB disk", bundle: .module), r.diskFreeGB))
+        if let disk = r.diskFreeGB, disk < lowDiskGB {
+            parts.append(String(format: String(localized: "sidebar.remoteMachines.disk", defaultValue: "%lld GB disk", bundle: .module), disk))
         }
         if r.over { parts.insert(String(localized: "sidebar.remoteMachines.overBudget", defaultValue: "Busy", bundle: .module), at: 0) }
         return parts.joined(separator: " · ")
+    }
+    /// What VoiceOver reads for a machine's room row: the machine, then its room.
+    static func resourcesLabel(_ name: String, _ r: AcpmuxPeerList.Resources) -> String {
+        String(format: String(localized: "sidebar.remoteMachines.resourcesLabel", defaultValue: "%1$@: %2$@", bundle: .module),
+               name, resources(r))
     }
     /// Free disk under this many GB shows on the row (lane hosts' usual floor in fleet-registry.json).
     static let lowDiskGB = 20

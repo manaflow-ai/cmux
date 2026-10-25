@@ -5,7 +5,7 @@ public import CoreGraphics
 /// busy and free disk, from the reading acpmux's link keeps (Leo 2026-10-24: "how much RAM do you
 /// have before you start ... how much CPU utilization").
 public nonisolated enum RemoteMachineResourcesStyle: String, Sendable, CaseIterable, Hashable, TunableChoice {
-    /// An unfolded group's first row: "31 GB free · 12/32 cores" (free disk too when it is low).
+    /// An unfolded group's first row: "31 GB free · CPU 12/32" (free disk too when it is low).
     case row
     /// The header after the name: "huge-blue · 31 GB free", folded or not.
     case header

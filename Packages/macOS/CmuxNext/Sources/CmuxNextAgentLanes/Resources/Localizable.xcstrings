@@ -787,133 +787,133 @@
         }
       }
     },
-    "sidebar.remoteMachines.cores": {
+    "sidebar.remoteMachines.cpu": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld/%2$lld cores"
+            "value": "CPU %1$lld/%2$lld"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld/%2$lld أنوية"
+            "value": "المعالج %1$lld/%2$lld"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld/%2$lld jezgara"
+            "value": "CPU %1$lld/%2$lld"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld/%2$lld kerner"
+            "value": "CPU %1$lld/%2$lld"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld/%2$lld Kerne"
+            "value": "CPU %1$lld/%2$lld"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld/%2$lld núcleos"
+            "value": "CPU %1$lld/%2$lld"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld/%2$lld cœurs"
+            "value": "CPU %1$lld/%2$lld"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld/%2$lld core"
+            "value": "CPU %1$lld/%2$lld"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld/%2$lld コア"
+            "value": "CPU %1$lld/%2$lld"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ស្នូល %1$lld/%2$lld"
+            "value": "CPU %1$lld/%2$lld"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "코어 %1$lld/%2$lld"
+            "value": "CPU %1$lld/%2$lld"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld/%2$lld kjerner"
+            "value": "CPU %1$lld/%2$lld"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld/%2$lld rdzeni"
+            "value": "CPU %1$lld/%2$lld"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld/%2$lld núcleos"
+            "value": "CPU %1$lld/%2$lld"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld/%2$lld ядер"
+            "value": "ЦП %1$lld/%2$lld"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld/%2$lld คอร์"
+            "value": "CPU %1$lld/%2$lld"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld/%2$lld çekirdek"
+            "value": "CPU %1$lld/%2$lld"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld/%2$lld ядер"
+            "value": "ЦП %1$lld/%2$lld"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld/%2$lld nhân"
+            "value": "CPU %1$lld/%2$lld"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld/%2$lld 核"
+            "value": "CPU %1$lld/%2$lld"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld/%2$lld 核"
+            "value": "CPU %1$lld/%2$lld"
           }
         }
       }
@@ -1307,6 +1307,137 @@
           "stringUnit": {
             "state": "translated",
             "value": "可用 %lld GB"
+          }
+        }
+      }
+    },
+    "sidebar.remoteMachines.resourcesLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ : %2$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：%2$@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：%2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：%2$@"
           }
         }
       }
