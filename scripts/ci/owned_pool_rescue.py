@@ -153,7 +153,10 @@ re-run, keeping the jobs that had already finished. That re-run takes the
 lane's configured retry route, so the watch ends there or continues on
 cmux-next's owned label. A
 stuck run that finished some other way (a newer push cancelled it) is not
-re-run. Its watch lasts SIDE_WATCH_LIMIT_SECONDS. Side lanes upload no marker
+re-run. Its watch lasts SIDE_WATCH_LIMIT_SECONDS. A nightly's watch does not
+end when its accepted jobs are all that exist: prepare-nightly-variant takes
+the side label only after build-nightly-app finishes, so it lasts until the
+run finishes, within NIGHTLY_WATCH_LIMIT_SECONDS. Side lanes upload no marker
 (cmux-next.yml aside), so the sweeper finds one's run by path once it has
 failed (GitHub.failed_runs()), which a refused job makes it: its failed jobs
 are re-run then. A failed job of such a run that is not a refusal keeps it
@@ -420,6 +423,9 @@ E2E_WATCH_LIMIT_SECONDS = 150 * 60
 # (cloud-machine-tests), which can wait in a busy Linux queue; a watch that
 # ended before the job existed would leave it on the fleet unwatched.
 SIDE_WATCH_LIMIT_SECONDS = WATCH_LIMIT_SECONDS
+# A nightly's owned jobs run one after another: the app build (about 20 min
+# on a mini, longer cold), then prepare-nightly-variant (up to 40 min).
+NIGHTLY_WATCH_LIMIT_SECONDS = E2E_WATCH_LIMIT_SECONDS
 READ_ATTEMPTS = 3
 READ_RETRY_SECONDS = 10
 MARKER_PREFIX = "macos-pool-persistent"
@@ -1136,6 +1142,8 @@ class Target:
 
     @property
     def watch_limit(self) -> int:
+        if self.nightly:
+            return NIGHTLY_WATCH_LIMIT_SECONDS
         if self.side:
             return SIDE_WATCH_LIMIT_SECONDS
         return E2E_WATCH_LIMIT_SECONDS if self.e2e else WATCH_LIMIT_SECONDS
@@ -1349,8 +1357,11 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                         and all(accepted(job, seen_at) for job in owned)):
                     # The fleet took the retry; later attempts never come back to it.
                     return "stop", "the fleet accepted the retry"
-                if target.side and owned and all(accepted(job, seen_at) for job in owned):
+                if target.side and not target.nightly and owned and all(accepted(job, seen_at) for job in owned):
                     # A side lane's jobs are all created by now, and none can be refused any more.
+                    # Not a nightly's: prepare-nightly-variant takes the side label only once
+                    # build-nightly-app has finished, and its runner can refuse it then
+                    # (run 40144317744), so that watch lasts until the run finishes.
                     return "stop", "the fleet accepted the side-lane jobs"
         if now() >= deadline:
             if target.nightly:

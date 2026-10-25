@@ -1880,14 +1880,19 @@ class Nightly(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("no job of the run asked for a persistent pool", summary)
 
-    def test_the_watch_ends_once_a_trusted_mini_takes_the_build(self):
+    def test_a_build_a_trusted_mini_takes_is_watched_until_the_run_finishes(self):
+        # A later owned job (prepare-nightly-variant) can still be refused, so
+        # an accepted build does not end the watch.
         clock = Clock()
         api = NightlyAPI(clock, nightly_run(started_at=30))
         code, summary = run_main(api, clock, payload=nightly_event())
         self.assertEqual(code, 0)
         self.assertIn("main's nightly build", summary)
-        self.assertIn("the fleet accepted", summary)
+        self.assertNotIn("the fleet accepted", summary)
+        self.assertIn("stopped: watch limit reached", summary)
+        self.assertGreaterEqual(clock.seconds, rescue.NIGHTLY_WATCH_LIMIT_SECONDS)
         self.assertNotIn("cancel", api.calls)
+        self.assertNotIn("rerun-failed", api.calls)
 
     def test_the_budget_is_the_configured_one_with_no_copied_allowance(self):
         # CI_OWNED_POOL_RESCUE_SECONDS alone: no nightly-only round on top (it was 930 s at 30).
