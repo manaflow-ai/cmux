@@ -279,6 +279,12 @@ impl Peer {
         Ok((remote.token, peer))
     }
 
+    /// Whether the peer said at its last handshake that it serves this daemon as a peer (it
+    /// took the peer token), not as a remote Web client.
+    pub fn served_as_peer(&self) -> bool {
+        self.served_as.lock().unwrap_or_else(|e| e.into_inner()).as_deref() == Some("peer")
+    }
+
     pub fn remote_build(&self) -> Option<String> {
         self.remote_version.lock_or_recover().as_ref().map(|(_, b)| b.clone())
     }
