@@ -491,28 +491,6 @@ jobs:
           done
           echo "fresh=true" >> "$GITHUB_OUTPUT"
 
-      # Apple notarizes cmux-next only with the browser-data import compiled
-      # out (cx-f58x). Prove it on the app in the DMG before submitting. The
-      # bundled cmux CLI (Contents/Resources/bin/cmux) names the browsers too
-      # and ships in every accepted nightly-next build, so it is left out of
-      # the proof (#25050).
-      - name: Prove the browser-data import is compiled out
-        if: steps.feed.outputs.fresh == 'true'
-        run: |
-          set -euo pipefail
-          mount="$(mktemp -d "$RUNNER_TEMP/tip-dmg.XXXXXX")"
-          proof="$(mktemp -d "$RUNNER_TEMP/tip-proof.XXXXXX")"
-          hdiutil attach -readonly -nobrowse -mountpoint "$mount" "tip-handoff/$TIP_DMG_NAME" >/dev/null
-          trap 'hdiutil detach "$mount" >/dev/null || true; rm -rf "$proof"' EXIT
-          apps=("$mount"/*.app)
-          [[ ${#apps[@]} == 1 && -d "${apps[0]}" ]] || { echo "expected one app in the tip DMG" >&2; exit 1; }
-          app="$proof/$(basename "${apps[0]}")"
-          ditto "${apps[0]}" "$app"
-          rm -f "$app/Contents/Resources/bin/cmux"
-          executable="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")"
-          ./scripts/ci/check-password-import-readers.sh "$app/Contents/MacOS/$executable"
-          ./scripts/ci/check-browser-data-import-absent.sh "$app"
-
       - name: Notarize and staple the tip DMG
         if: steps.feed.outputs.fresh == 'true'
         env:

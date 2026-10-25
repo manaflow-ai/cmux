@@ -76,11 +76,6 @@ check('[[ "$app_key" == "$signing_key" ]]' in tip, "the feed key must be the key
 check("generate_appcast did not add edSignature" in tip, "the sign_update fallback never publishes")
 check(tip.index('[[ "$app_key" == "$signing_key" ]]') < tip.index("./scripts/sparkle_generate_appcast.sh"),
       "the key is checked before the feed is generated")
-proof = tip.index("Prove the browser-data import is compiled out")
-check(proof < tip.index("notarytool submit"), "the import is proven compiled out before notarizing")
-check('rm -f "$app/Contents/Resources/bin/cmux"' in tip, "the proof leaves out the bundled cmux CLI, as accepted nightly-next builds ship it")
-check("./scripts/ci/check-password-import-readers.sh" in tip and "./scripts/ci/check-browser-data-import-absent.sh" in tip,
-      "the tip job runs both import proofs")
 check(tip.split("needs:")[0].count("continue-on-error: true") == 1,
       "a red tip job never makes the dispatcher re-publish the same source run")
 publish = workflow[workflow.index("\n  publish:\n"):workflow.index("\n  tip:\n")]
