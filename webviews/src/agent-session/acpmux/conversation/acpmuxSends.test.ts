@@ -30,7 +30,7 @@ describe("acpmuxSend", () => {
 
   test("options before, between and after the words, per acpmux send --help", () => {
     expect(
-      acpmuxSend(
+      read(
         "acpmux send --no-wait --steer --from palette-audit --prompt-id 01a15c51 --timeout=30 claude-sr2 'done' --json",
       ),
     ).toEqual({ target: "claude-sr2", text: "done", noWait: true });
@@ -220,7 +220,7 @@ describe("acpmuxSend", () => {
 
   test("a send anywhere in a compound command, with the other work counted", () => {
     expect(
-      acpmuxSend(
+      read(
         "cd ~/wt/base && git fetch -q origin && acpmux send --no-wait --from claude-sr2 coord-deputy 'Restore base first.'; reach studio-mac 'df -h'",
       ),
     ).toEqual({ target: "coord-deputy", text: "Restore base first.", noWait: true, others: 2 });
@@ -236,7 +236,7 @@ describe("acpmuxSend", () => {
       noWait: true,
     });
     expect(
-      acpmuxSend("git push -q && acpmux send --no-wait --from net-retries coord-deputy - <<'EOF'\n## Pushed\nEOF"),
+      read("git push -q && acpmux send --no-wait --from net-retries coord-deputy - <<'EOF'\n## Pushed\nEOF"),
     ).toEqual({ target: "coord-deputy", text: "## Pushed\n", noWait: true, others: 1 });
     // Mentions are not sends, wherever they are.
     expect(read("acpmux ls; echo acpmux send")).toBeUndefined();
