@@ -965,7 +965,15 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
     // ACP titles other calls in capitalized words; a shell call's title is the command as typed.
     for (const title of ["Read AgentCard.tsx", "Run cargo test -p acpmux", "Edit 2 files", "Grep retries"])
       expect(isCommandTitle(title)).toBe(false);
-    for (const command of ["git status", "ls", "cat -n README.md", "make test -j4", "./x.sh", "FOO=1 bun test", "~/bin/x"])
+    for (const command of [
+      "git status",
+      "ls",
+      "cat -n README.md",
+      "make test -j4",
+      "./x.sh",
+      "FOO=1 bun test",
+      "~/bin/x",
+    ])
       expect(isCommandTitle(command)).toBe(true);
     // Without shell provenance a lowercase title needs a known program or shell structure.
     for (const prose of ["find the issue", "make a plan", "go ahead", "cat README.md"])
