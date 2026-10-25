@@ -1,4 +1,5 @@
 import Foundation
+@testable import CmuxNextApp
 @testable import CmuxNextSidebar
 import Testing
 
@@ -10,7 +11,7 @@ import Testing
         let remote = HostGroupRefusingRemote()
         let store = SidebarDocStore(remote: remote)
         store.refresh()
-        for _ in 0..<100 where !store.isActive { await Task.yield() }
+        await RapidWorkspaceCreateTests.wait(within: .seconds(10)) { store.isActive }
         try #require(store.isActive, "the host-group test document did not load")
 
         store.markHostGroup(session: "mini", title: "Cloud machine")
@@ -58,7 +59,7 @@ import Testing
     }
 
     func get() async throws -> Data {
-        let hostGroup = documentHostGrouped ? #",\"host_group\":true"# : ""
+        let hostGroup = documentHostGrouped ? #", "host_group": true"# : ""
         return Data(#"{"revision":"1","sections":[{"id":"sec_m_mini","kind":{"type":"machine","session_id":"mini"}"# + hostGroup + #"}],"items":[]}"#.utf8)
     }
 
