@@ -126,7 +126,8 @@ public final class DaemonStore: StateResourceQueries {
     @ObservationIgnored var stage: StoreStage?
     /// Read-your-writes waits by sequence, counted (``beginAppliedWait(_:)``): a stage holds no event
     /// one of them needs.
-    @ObservationIgnored var sequenceWaits: [UInt64: Int] = [:]
+    /// Observed (tests wait for a wait to start); it changes only when a wait starts or ends.
+    var sequenceWaits: [UInt64: Int] = [:]
     /// The one model of each pending split's provisional pane, by public pane id: every overlay
     /// restore shows it, and the daemon's pane takes it over in place (`confirmedPane`).
     @ObservationIgnored var provisionalPanes: [String: PaneModel] = [:]
@@ -139,7 +140,8 @@ public final class DaemonStore: StateResourceQueries {
     /// (``daemonTarget(for:)``), with the handle each one waits on: resumed after every overlay
     /// lift, when that can have changed, and the create each one waits for (a script stage holding
     /// its pane-added commits).
-    @ObservationIgnored var standInWaiters: [(handle: PaneID, transaction: ClientTransactionID, resume: CheckedContinuation<Void, Never>)] = []
+    // Observed (tests wait for a create to start waiting); it changes only when a wait starts or resumes.
+    var standInWaiters: [(handle: PaneID, transaction: ClientTransactionID, resume: CheckedContinuation<Void, Never>)] = []
     /// The handles creates are looking up now (``daemonTarget(for:)``), with how many: each stays
     /// known while one does (``releaseStandIns()``).
     @ObservationIgnored var standInLookups: [PaneID: Int] = [:]

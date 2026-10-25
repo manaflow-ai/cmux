@@ -298,7 +298,7 @@ struct StoreStageTests {
 
     /// Review 1: a read-your-writes waiter that starts before its event arrives (the usual order: the
     /// command's reply, then its echo) never waits on the stage: the event it needs commits the stage.
-    @Test func aWaiterThatStartsBeforeItsEventCommitsTheStage() async {
+    @Test func aWaiterThatStartsBeforeItsEventCommitsTheStage() async throws {
         let store = Self.store()
         let scope = DaemonCommandScope()
         _ = store.openStage(for: scope, until: .now + .seconds(600))
@@ -317,8 +317,8 @@ struct StoreStageTests {
             store.intend(.renameTab(surface: 6, name: "batch"), transaction: .generate())
         }
         let through = Task { await store.applied(through: 2) }
-        await Task.yield() // the main actor runs the task up to its wait
-        #expect(store.sequenceWaits[2] == 1, "the wait did not start before its event")
+        // The wait records its sequence (observed) before it suspends: wait for that, not for a turn.
+        try await store.waitUntil("the read-your-writes wait starts") { store.sequenceWaits[2] == 1 }
         _ = store.apply(batch: [DaemonEventEnvelope(sequence: 2, event: Self.renamed(6, "batch", workspace: 1, pane: 10, screen: 100))])
         await through.value
         #expect(store.stage == nil, "applied(through:) waited on the script's stage")

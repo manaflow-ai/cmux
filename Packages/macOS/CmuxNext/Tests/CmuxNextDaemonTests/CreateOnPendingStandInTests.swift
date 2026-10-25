@@ -58,8 +58,7 @@ struct CreateOnPendingStandInTests {
         #expect(store.createTarget(for: Self.pane) == .pane(Self.pane), "a daemon pane is its own target")
 
         let target = Task { try await store.daemonTarget(for: split.handle) }
-        await Task.yield()
-        #expect(store.standInWaiters.count == 1, "the column's send did not wait for the split's daemon pane")
+        try await store.waitUntil("the create waits for its stand-in's daemon pane") { store.standInWaiters.count == 1 }
 
         // The split's pane-added: the column's send goes, naming the daemon's pane.
         let splitPane = PaneID(rawValue: 9)
@@ -144,8 +143,7 @@ struct CreateOnPendingStandInTests {
 
         // Split Left's send on the stand-in: no intent of its own.
         let target = Task { try await store.daemonTarget(for: column.handle) }
-        await Task.yield()
-        #expect(store.standInWaiters.count == 1, "the split's send did not wait for the column's daemon pane")
+        try await store.waitUntil("the create waits for its stand-in's daemon pane") { store.standInWaiters.count == 1 }
 
         // The column's reply settles it with the next snapshot, which also brings its pane.
         store.noteSettledAtNextSnapshot(transaction)
@@ -178,8 +176,7 @@ struct CreateOnPendingStandInTests {
         let split = ProvisionalPane()
         store.intend(.splitPane(pane: Self.pane, direction: .right, ratio: 0.5, provisional: split), transaction: .generate())
         let target = Task { try await store.daemonTarget(for: split.handle) }
-        await Task.yield()
-        #expect(store.standInWaiters.count == 1)
+        try await store.waitUntil("the create waits for its stand-in's daemon pane") { store.standInWaiters.count == 1 }
         _ = store.apply(.disconnected(reason: "socket closed"))
         await #expect(throws: CreateTargetGone.self) { try await target.value }
         #expect(store.standInWaiters.isEmpty)
@@ -193,13 +190,13 @@ struct CreateOnPendingStandInTests {
         let refusedTransaction = ClientTransactionID.generate()
         store.intend(.splitPane(pane: Self.pane, direction: .right, ratio: 0.5, provisional: refused), transaction: refusedTransaction)
         let first = Task { try await store.daemonTarget(for: refused.handle) }
-        await Task.yield()
+        try await store.waitUntil("the first create waits") { store.standInWaiters.count == 1 }
         store.rejectIntent(refusedTransaction)
         #expect(try await first.value == Self.pane)
 
         store.intend(.splitPane(pane: Self.pane, direction: .down, ratio: 0.5, provisional: closed), transaction: .generate())
         let second = Task { try await store.daemonTarget(for: closed.handle) }
-        await Task.yield()
+        try await store.waitUntil("the second create waits") { store.standInWaiters.count == 1 }
         #expect(store.creations.cancel(pane: closed.handle))
         #expect(try await second.value == Self.pane)
         #expect(store.standInWaiters.isEmpty)
@@ -214,8 +211,7 @@ struct CreateOnPendingStandInTests {
         let transaction = ClientTransactionID.generate()
         store.intend(.splitPane(pane: Self.pane, direction: .right, ratio: 0.5, provisional: split), transaction: transaction)
         let target = Task { try await store.daemonTarget(for: split.handle) }
-        await Task.yield()
-        #expect(store.standInWaiters.count == 1, "the create did not wait for the split's daemon pane")
+        try await store.waitUntil("the create waits for its stand-in's daemon pane") { store.standInWaiters.count == 1 }
         store.noteSettledAtNextSnapshot(transaction)
         let daemonPane = PaneID(rawValue: 11)
         var tree = Self.base
@@ -243,8 +239,7 @@ struct CreateOnPendingStandInTests {
         let transaction = ClientTransactionID.generate()
         store.intend(.splitPane(pane: Self.pane, direction: .right, ratio: 0.5, provisional: split), transaction: transaction)
         let target = Task { try await store.daemonTarget(for: split.handle) }
-        await Task.yield()
-        #expect(store.standInWaiters.count == 1, "the create did not wait for the split's daemon pane")
+        try await store.waitUntil("the create waits for its stand-in's daemon pane") { store.standInWaiters.count == 1 }
 
         let daemonPane = PaneID(rawValue: 9)
         _ = store.apply(batch: [Self.paneAdded(daemonPane, taking: split, surface: 7, sequence: 1, echoing: transaction)])
