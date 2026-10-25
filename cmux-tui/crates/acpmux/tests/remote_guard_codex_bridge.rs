@@ -353,7 +353,10 @@ async fn a_paired_device_without_the_setting_stays_refused_while_one_with_it_is_
     // Nor do they change its turn or queue.
     for (m, params) in [
         ("session/cancel", json!({"sessionId": mine})),
-        ("_acpmux/queue_edit", json!({"sessionId": mine, "promptId": "p", "op": "move", "index": 0})),
+        (
+            "_acpmux/queue_edit",
+            json!({"sessionId": mine, "promptId": "p", "op": "move", "index": 0}),
+        ),
         ("_acpmux/queue_edit", json!({"sessionId": mine, "promptId": "p", "op": "resume"})),
         ("_acpmux/queue_remove", json!({"sessionId": mine, "promptId": "p"})),
     ] {
