@@ -189,10 +189,17 @@ def main_thread_profile(path):
     import xml.etree.ElementTree as ET
     if not os.path.exists(path):
         return None
-    toc = subprocess.run(["xcrun", "xctrace", "export", "--input", path, "--toc"], capture_output=True, text=True).stdout
-    schema = "time-profile" if 'schema="time-profile"' in toc else "time-sample"
-    xml = subprocess.run(["xcrun", "xctrace", "export", "--input", path, "--xpath",
-                          f'/trace-toc/run[@number="1"]/data/table[@schema="{schema}"]'], capture_output=True, text=True).stdout
+    # Each export is bounded (10602b697b5): an `xctrace export` that never returned held cmux20-bench silent.
+    try:
+        toc = subprocess.run(["xcrun", "xctrace", "export", "--input", path, "--toc"], capture_output=True, text=True,
+                             timeout=300).stdout
+        schema = "time-profile" if 'schema="time-profile"' in toc else "time-sample"
+        xml = subprocess.run(["xcrun", "xctrace", "export", "--input", path, "--xpath",
+                              f'/trace-toc/run[@number="1"]/data/table[@schema="{schema}"]'], capture_output=True, text=True,
+                             timeout=300).stdout
+    except subprocess.TimeoutExpired:
+        note(f"trace export timed out after 300 s: {path}")
+        return {"error": "export timed out after 300 s"}
     try:
         root = ET.fromstring(xml)
     except ET.ParseError as error:
