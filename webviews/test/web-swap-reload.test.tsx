@@ -285,9 +285,9 @@ test("going back to a chat whose chip the host refused shows it again and keeps 
   act(() => page.current!.attach(screenshot(1)));
   await settle();
   await openPage("chat-b", flaky);
-  await openPage("chat-a", flaky);
+  const back = await openPage("chat-a", flaky);
   // The host has nothing for chat A, but the page still shows the chip and waits for it.
-  expect(chips(page).map((chip) => chip.id)).toEqual(["shot-1"]);
+  expect(chips(back).map((chip) => chip.id)).toEqual(["shot-1"]);
   expect(hold()).toBe("composer.attachments-unsaved");
   refuse = false;
   await act(async () => {});
