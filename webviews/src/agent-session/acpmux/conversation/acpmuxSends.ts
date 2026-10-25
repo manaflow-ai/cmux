@@ -262,7 +262,7 @@ function expansionEnd(line: string, from: number, runs: string[] = []): number {
 /// The scripts of the command substitutions in an unquoted here-document's body.
 function substitutions(body: string): string[] {
   const runs: string[] = [];
-  for (let index = 0; index < body.length; ) {
+  for (let index = 0; index < body.length;) {
     const char = body[index]!;
     if (char === "\\") index += 2;
     else if (char === "`" || (char === "$" && body[index + 1] === "(")) index = expansionEnd(body, index, runs);
