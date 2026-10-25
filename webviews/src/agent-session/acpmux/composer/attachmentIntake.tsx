@@ -238,7 +238,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       batches.current.delete(batch);
       // A file intake said nothing of (it threw) is not left loading.
       shown.forEach((chip, index) => {
-        if (sources.current.has(chip.id) && !marked.has(index)) failed(index, { name: chip.name, reason: "unsupported" });
+        if (sources.current.has(chip.id) && !marked.has(index))
+          failed(index, { name: chip.name, reason: "unsupported" });
       });
     }
   });
@@ -409,12 +410,7 @@ export function AttachmentStrip({
         />
       ))}
       {pending.map((chip) => (
-        <PendingChip
-          key={chip.id}
-          chip={chip}
-          {...(onCancel ? { onCancel } : {})}
-          {...(onRetry ? { onRetry } : {})}
-        />
+        <PendingChip key={chip.id} chip={chip} {...(onCancel ? { onCancel } : {})} {...(onRetry ? { onRetry } : {})} />
       ))}
       {error && <output className="acpmux-attachment-note">{error}</output>}
     </fieldset>
@@ -451,7 +447,10 @@ function PendingChip({
   if (chip.failed)
     return (
       <div className={`acpmux-attachment ${kind} acpmux-attachment-failed`} aria-label={name}>
-        <span className="acpmux-attachment-failed-text" /* tooltip-allow: the note is cut to the tile; the tooltip has all of it */ title={chip.failed}>
+        <span
+          className="acpmux-attachment-failed-text"
+          /* tooltip-allow: the note is cut to the tile; the tooltip has all of it */ title={chip.failed}
+        >
           {chip.failed}
         </span>
         {onRetry && (
