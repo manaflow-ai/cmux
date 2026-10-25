@@ -156,23 +156,26 @@ STRING_SET = re.compile(r"(?<=not found in )\{'[^'\n]*'(?:, '[^'\n]*')*\}")
 # folder and an extension, or is a bare file name with a source or config extension (so
 # docs.example.com is not one).
 TOKEN = re.compile(r"[^\s'\"`()<>\[\]{},;|=]+")
+# A quoted file name, which may hold spaces ('webviews/src/My File.ts').
+QUOTED = re.compile(r"['\"`]([^'\"`\n]*\.[A-Za-z][A-Za-z0-9]{0,9})['\"`]")
 FILE_EXTENSIONS = frozenset(
     "swift m mm h c cc cpp hpp rs zig go py rb js mjs cjs jsx ts tsx mts cts css scss html vue svelte json "
     "jsonc toml yaml yml plist xcstrings strings xib storyboard sh bash zsh md txt tsv csv lock lockb "
     "xcconfig entitlements pbxproj resolved png jpg jpeg gif svg pdf ttf otf wasm".split())
 # Any line that says a test failed: it names the test, not the file with the bug.
-TEST_MARK = re.compile(r"\bfail(?:s|ed|ure|ing)?\b|\(fail\)|\bnot ok\b|assert|traceback|panick|✘|✗|\bexpected\b",
-                       re.IGNORECASE)
+TEST_MARK = re.compile(r"\bfail\w*|\(fail\)|\bnot ok\b|assert|traceback|panick|✘|✗|✕|×", re.IGNORECASE)
 # Any line that reports an error; each must name a file.
-ERRORISH = re.compile(r"##\[error\]|\berror\b|\bfatal\b|\bexception\b", re.IGNORECASE)
+ERRORISH = re.compile(r"##\[error\]|\berrors?\b|\bfatal\b|\bexceptions?\b", re.IGNORECASE)
 # Check code, workflows, baselines and allowlists decide what a check reports without the
-# report naming them, and build inputs (manifests, lockfiles, project and tool config) change
-# what every file compiles to: a pull request changing one is never excused by files.
+# report naming them, and build inputs (manifests, lockfiles, project, container and tool
+# config) change what every file builds to: a pull request changing one is never excused by files.
 GUARDED = re.compile(
-    r"^(?:scripts|\.github|tests|config)/|baseline|allowlist|(?:^|/)(?:package\.json|Package\.swift|"
-    r"Package\.resolved|Cargo\.toml|Cargo\.lock|go\.(?:mod|sum)|Makefile|project\.yml|Gemfile(?:\.lock)?|"
-    r"Podfile(?:\.lock)?|tsconfig[^/]*\.json|[^/]*\.config\.[cm]?[jt]s)$|\.(?:lock|lockb|toml|ya?ml|xcconfig|"
-    r"pbxproj|entitlements)$|-lock\.(?:json|ya?ml)$|\.xcodeproj/|\.xcworkspace/",
+    r"^(?:\.github|tests|config)/|(?:^|/)scripts/|baseline|allowlist|(?:^|/)(?:package\.json|Package\.swift|"
+    r"Package\.resolved|Cargo\.toml|Cargo\.lock|go\.(?:mod|sum)|Makefile|CMakeLists\.txt|project\.yml|"
+    r"Gemfile(?:\.lock)?|Podfile(?:\.lock)?|tsconfig[^/]*\.json|[^/]*\.config\.[cm]?[jt]s|vercel\.json|"
+    r"Dockerfile[^/]*|[^/]*requirements[^/]*\.txt|pyproject\.toml|setup\.(?:py|cfg)|\.npmrc|\.nvmrc|"
+    r"\.tool-versions|build\.zig(?:\.zon)?)$|\.(?:lock|lockb|toml|ya?ml|xcconfig|pbxproj|entitlements)$|"
+    r"-lock\.(?:json|ya?ml)$|\.xcodeproj/|\.xcworkspace/",
     re.IGNORECASE)
 EXIT_LINE = re.compile(r"##\[error\]Process completed with exit code")
 RED_CHECK = re.compile(r"##\[error\]red check: ")
@@ -309,12 +312,15 @@ def printed(job: dict, log: str) -> Counter[str]:
         if step not in failed:
             continue
         text = ANSI.sub("", STAMP.sub("", raw.lstrip("\ufeff"))).strip()
-        if text.startswith("##[group]"):
+        if text.startswith("##[group]Run "):
             echo.add(step)
             continue
         if text.startswith("##[endgroup]"):
             echo.discard(step)
             continue
+        # Only a step's own `Run` echo is its script: a nested group (a script's own
+        # `##[group]test x: failed`) is output, so a finding inside one is compared too.
+        text = text.removeprefix("##[group]")
         if step in echo or not text or WARNING.search(text) or GENERIC.search(text):
             continue
         if CUT_SHORT.match(text):
@@ -496,7 +502,9 @@ def touched(path: str, changed: set[str]) -> str | None:
     """The changed file a named path may be: the same, or one a suffix of the other (a bare
     file name, an absolute runner path), so a doubt counts as changed."""
     for name in changed:
-        if path == name or name.endswith("/" + path) or path.endswith("/" + name):
+        # A bare name matches any changed file ending in it: a token cut at a space
+        # (`My File.ts` read as `File.ts`) still counts as the changed file.
+        if path == name or name.endswith(path if "/" not in path else "/" + path) or path.endswith("/" + name):
             return name
     return None
 
@@ -504,7 +512,7 @@ def touched(path: str, changed: set[str]) -> str | None:
 def file_paths(text: str) -> set[str]:
     """The files a line names, each token taken whole (`assets/Foo@2x.png`, never `2x.png`)."""
     found = set()
-    for token in TOKEN.findall(text):
+    for token in TOKEN.findall(text) + QUOTED.findall(text):
         token = re.sub(r":\d+(?::\d+)?:?$", "", token.rstrip(".:")).removeprefix("./")
         name = token.rsplit("/", 1)[-1]
         if "." not in name.strip("."):
@@ -520,8 +528,9 @@ def outside_the_diff(job: dict, log: str, changed: set[str]) -> list[str]:
 
     Raises Refused when a failed step cannot be pinned to files: any line saying a test
     failed (it names the test, not where the bug is), an error line naming no file, or a
-    step naming none. A step's own script and env (its `##[group]Run` echo) count as named,
-    and a pull request changing check code, workflows, baselines, allowlists or build inputs
+    step whose output (warnings aside) names none. A step's own script and env (its
+    `##[group]Run` echo) and its warnings must be outside the diff too, but never pin a red
+    to files by themselves: a step naming files only there refuses. A pull request changing check code, workflows, baselines, allowlists or build inputs
     is never excused this way. The summary step that only lists the other steps' reds
     (`red check: X`) is skipped."""
     name = job.get("name", "")
@@ -568,10 +577,12 @@ def outside_the_diff(job: dict, log: str, changed: set[str]) -> list[str]:
                           "not the file with the bug")
         if unpinned := [text for text in errors if not file_paths(text)]:
             raise Refused(f"step '{step}' has an error naming no file: {unpinned[0][:200]}")
-        paths = {found for text in said for found in file_paths(text)}
+        # The findings are what the step printed, warnings aside; its script, env and warnings
+        # only widen what must be outside the diff, never pin the red to files themselves.
+        paths = {found for text in said if not WARNING.search(text) for found in file_paths(text)}
         if not paths:
-            raise Refused(f"step '{step}' failed naming no file")
-        for path in sorted(paths | {found for text in echo.get(step, []) for found in file_paths(text)}):
+            raise Refused(f"step '{step}' failed naming no file outside its warnings and script")
+        for path in sorted({found for text in said + echo.get(step, []) for found in file_paths(text)}):
             if hit := touched(path, changed):
                 raise Refused(f"step '{step}' names {path}, which this pull request changes ({hit})")
         pinned += 1

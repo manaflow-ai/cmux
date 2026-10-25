@@ -1144,7 +1144,7 @@ class OutsideTheDiff(unittest.TestCase):
 
     def test_a_named_file_a_bare_name_or_a_renamed_file_the_pr_changes_blocks(self):
         for changed in ({"filename": "webviews/src/summary/WorkflowCard.css"},
-                        {"filename": "webviews/scripts/build-agent-pane-web.sh"},
+                        {"filename": "webviews/build-agent-pane-web.sh"},
                         {"filename": "webviews/src/summary/Card.css",
                          "previous_filename": "webviews/src/summary/WorkflowCard.css"}):
             self.files = [changed]
@@ -1208,8 +1208,36 @@ class OutsideTheDiff(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "which this pull request changes"):
             self.judge()
 
+    # Second review round of #25036.
+    def test_plural_failures_and_errors_still_block(self):
+        for line in ("2 test failures in webviews/src/old.css", "3 errors"):
+            self.gh.logs[1] = self.web_log(line)
+            with self.assertRaises(excuse.Refused):
+                self.judge()
+
+    def test_a_compile_error_saying_expected_is_still_pinned_to_its_file(self):
+        self.gh.logs[1] = self.web_log("error: expected expression in webviews/src/Foo.ts")
+        self.assertIn("Foo.ts", "\n".join(self.judge()))
+
+    def test_a_quoted_name_with_a_space_is_matched_to_the_changed_file(self):
+        self.gh.logs[1] = self.web_log("error: 'webviews/src/My File.ts' imports a missing module")
+        self.files = [{"filename": "webviews/src/My File.ts"}]
+        with self.assertRaisesRegex(excuse.Refused, "which this pull request changes"):
+            self.judge()
+
+    def test_paths_only_in_warnings_or_the_script_do_not_pin_a_red(self):
+        self.gh.logs[1] = self.web_log("warning: webviews/src/Old.ts is deprecated", "3 findings")
+        with self.assertRaisesRegex(excuse.Refused, "naming no file"):
+            self.judge()
+
+    def test_a_new_finding_inside_a_nested_group_is_compared_with_the_base(self):
+        job = failed_job(1, 10, HEAD, name=CHECKS, step=L10N)
+        nested = l10n_log(1, "##[group]check-x: 1 finding", f"{XCSTRINGS}:new.key: missing uk", "##[endgroup]")
+        self.assertIn(f"{XCSTRINGS}:new.key: missing uk", excuse.printed(job, nested))
+
     def test_a_pr_changing_a_build_input_blocks(self):
-        for path in ("webviews/package.json", "webviews/bun.lock", "Packages/macOS/CmuxNext/Package.swift",
+        for path in ("web/vercel.json", "Dockerfile", "cmux-tui/scripts/requirements-windows-conpty.txt",
+                     "webviews/package.json", "webviews/bun.lock", "Packages/macOS/CmuxNext/Package.swift",
                      "webviews/vite.config.ts", "webviews/tsconfig.app.json", "cmux-tui/Cargo.toml"):
             self.files = [{"filename": path}]
             with self.assertRaisesRegex(excuse.Refused, "a build input"):
