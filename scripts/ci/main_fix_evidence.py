@@ -119,7 +119,7 @@ class GitHub:
         route = f"repos/{repo}/actions/jobs/{job['id']}/logs"
         try:
             # gh 2.70+ refuses to print a log's colour codes without this flag; older gh lacks it.
-            return self.run(["api", "--allow-escape-sequences", route])
+            return self.run(["api", route, "--allow-escape-sequences"])
         except RateLimited:
             raise
         except Refused as error:

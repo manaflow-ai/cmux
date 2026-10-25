@@ -1077,7 +1077,7 @@ class LogOfARunStillGoing(unittest.TestCase):
     def test_a_job_whose_run_is_still_going_is_read_from_its_raw_log(self):
         gh = self.Recorder([("--log", "run 9 is still in progress; logs will be available when it is complete")])
         self.assertIn("job\tUNKNOWN STEP\t2026-10-24T00:00:00.0000000Z hello", gh.log(REPO, self.JOB))
-        self.assertEqual(gh.calls[-1], ["api", "--allow-escape-sequences", f"repos/{REPO}/actions/jobs/5/logs"])
+        self.assertEqual(gh.calls[-1], ["api", f"repos/{REPO}/actions/jobs/5/logs", "--allow-escape-sequences"])
 
     def test_an_older_gh_without_the_escape_flag_is_asked_without_it(self):
         gh = self.Recorder([("--log", "run 9 is still in progress"),
