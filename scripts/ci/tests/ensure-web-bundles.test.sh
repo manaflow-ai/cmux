@@ -90,12 +90,19 @@ rm -rf "$WORK/state"; mkdir -p "$WORK/state"
 if CMUX_WEB_BUNDLES_NO_INSTALL=1 run > "$WORK/out" 2>&1; then fail "NO_INSTALL with the wrong bun must fail"; fi
 [ ! -e "$WORK/curl" ] || fail "NO_INSTALL must never run curl"
 grep -q "CMUX_WEB_BUNDLES_NO_INSTALL" "$WORK/out" || fail "NO_INSTALL failure must say why: $(cat "$WORK/out")"
-# A newer bun than the pin passes the minimum check (the fake answers its -e with the
-# verdict check-webviews-bun-version.sh reads) and builds without a curl.
-printf '#!/bin/sh\n[ "$1" = -e ] && { echo "%s ok"; exit 0; }\necho 99.0.0\n' "$BUN_PIN" > "$WORK/bin/bun"
-rm -rf "$WORK/state" "$WORK/cache"; mkdir -p "$WORK/state"
+# A newer minor of the pinned major passes the minimum check (check-webviews-bun-version.sh,
+# tested on its own in scripts/cmux-next/tests/check-webviews-bun-version.test.sh) and builds
+# without a curl, into a cache entry keyed by its bun, never the pinned bun's entry.
+newer="${BUN_PIN%%.*}.999.0"
+printf '#!/bin/sh\necho %s\n' "$newer" > "$WORK/bin/bun"
+rm -rf "$WORK/state" "$WORK/cache"; mkdir -p "$WORK/state"; : > "$WORK/calls"
 CMUX_WEB_BUNDLES_NO_INSTALL=1 run > "$WORK/out" 2>&1 || fail "NO_INSTALL with a newer bun must build: $(cat "$WORK/out")"
 [ ! -e "$WORK/curl" ] || fail "NO_INSTALL must never run curl"
+grep -qx -- "--from $WORK/cache/web-bundles/k1-bun$newer" "$WORK/calls" || fail "a newer bun must use its own cache key: $(cat "$WORK/calls")"
+# An older bun still fails under NO_INSTALL.
+printf '#!/bin/sh\necho %s.0.0\n' "$(( ${BUN_PIN%%.*} - 1 ))" > "$WORK/bin/bun"
+rm -rf "$WORK/state"; mkdir -p "$WORK/state"
+if CMUX_WEB_BUNDLES_NO_INSTALL=1 run > "$WORK/out" 2>&1; then fail "NO_INSTALL with an older bun must fail"; fi
 rm -f "$WORK/bin/curl"
 printf '#!/bin/sh\necho %s\n' "$BUN_PIN" > "$WORK/bin/bun"
 

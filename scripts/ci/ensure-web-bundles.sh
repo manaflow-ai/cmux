@@ -36,12 +36,15 @@ no_install() {
 }
 # The cache's builds come from the pinned bun, so a host with another bun gets the pin
 # installed next to the cache. Under NO_INSTALL a newer bun of the same major on PATH
-# (scripts/check-webviews-bun-version.sh) builds instead of failing the lane.
+# (scripts/check-webviews-bun-version.sh) builds instead of failing the lane, under a cache
+# key that names its bun, so a pinned job never installs bundles another bun built.
+key_bun=""
 if [ "$(bun --version 2>/dev/null || true)" != "$bun_pin" ]; then
   if [ -x "$tools/bun-$bun_pin/bin/bun" ]; then
     export PATH="$tools/bun-$bun_pin/bin:$PATH"
   elif [ "${CMUX_WEB_BUNDLES_NO_INSTALL:-0}" = 1 ]; then
     scripts/check-webviews-bun-version.sh --quiet || no_install "bun $bun_pin or newer"
+    key_bun="-bun$(bun --version)"
     echo "using $(command -v bun) (bun $(bun --version)), newer than the pinned bun $bun_pin"
   else
     echo "installing bun $bun_pin into $tools/bun-$bun_pin"
@@ -63,7 +66,7 @@ if ! node -e 'const [a, b] = process.versions.node.split(".").map(Number); proce
   export PATH="$node_dir/bin:$PATH"
 fi
 
-key="${CMUX_WEB_BUNDLES_KEY:-$(python3 scripts/cmux-next/web-bundle-key.py . --source)}"
+key="${CMUX_WEB_BUNDLES_KEY:-$(python3 scripts/cmux-next/web-bundle-key.py . --source)}$key_bun"
 entry="$CACHE/web-bundles/$key"
 if [ ! -d "$entry" ]; then
   echo "building the web bundles for source key ${key:0:12}"
