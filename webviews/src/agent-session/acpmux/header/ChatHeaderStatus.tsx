@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 import { Icon } from "../icons/Icon";
 
-/** The slot stays in place; the problem label cannot resize it or move the header tools. Without
- * a problem, it holds `children` (the Environment line, EnvironmentLine.tsx). */
+/** The slot stays in place; the problem label cannot resize it or move the header tools. The
+ * Environment line now lives in its own row below the tab row; children remain for gallery callers. */
 export function ChatHeaderStatus({
   status,
   detail,

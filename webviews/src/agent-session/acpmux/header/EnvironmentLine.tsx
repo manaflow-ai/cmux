@@ -6,10 +6,9 @@
 // section (so a click with it already in view still answers); with the Inspector off (Debug Settings
 // `agent.inspector`) it opens the chat folder's Files tree instead (`environmentOpener`).
 //
-// A header with its own row has it in the status slot, which it never sizes: a long name ends in an
-// ellipsis and the tools stay put. A header in the pane's tab row (`compact`) leads the tools with
-// it instead, its width capped, as the connection warning does there. A connection problem's label
-// takes its place in either (ChatHeaderStatus.tsx).
+// The App keeps it in a small row below the tab row, aligned by the user's placement setting. The
+// compact form remains for embedded previews and tests; a connection problem's label takes the
+// header's status slot instead (ChatHeaderStatus.tsx).
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxSnapshot } from "../model";
