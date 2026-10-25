@@ -120,6 +120,8 @@ export function subsessionCall(tool: Tool, call: McpCall | undefined = mcpCall(t
         const more = { ...(waiting && { waiting }), ...(harness && { harness }) };
         return [{ sessionId: id, ...(name && { name }), state, ...(reply && { reply }), ...more }];
       });
+      // Rows it cannot read are not "no sub-sessions": the generic row shows what came back.
+      if (rows.length > 0 && sessions.length === 0) return undefined;
       return { tool: kind, running, timedOut: result!.value!.timedOut === true, sessions };
     }
     default:
@@ -127,9 +129,10 @@ export function subsessionCall(tool: Tool, call: McpCall | undefined = mcpCall(t
   }
 }
 
-/// A family row's state (`subsession_row`): its lane, `working`, `input`, `failed`, `lost` or `idle`.
+/// A family row's state (`subsession_row`): its lane, `working`, `input`, `failed`, `lost` or `idle`,
+/// else (a session with no lane yet) its status dot, as the session list reads one (subsessionState).
 function rowState(row: Record<string, unknown>): SubsessionReply["state"] {
-  switch (row.state) {
+  switch (row.state ?? row.indicator) {
     case "working":
       return "working";
     case "input":
