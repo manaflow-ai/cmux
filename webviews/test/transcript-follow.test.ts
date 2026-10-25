@@ -174,7 +174,7 @@ await requireBrowserLane("transcript-follow.test.ts", async () => {
         "wheel",
         () => {
           node.scrollTop = target;
-          (window as unknown as { __showRows(rows: unknown): void }).__showRows(rows);
+          (window as unknown as { __showRowsSync(rows: unknown): void }).__showRowsSync(rows);
         },
         { capture: true, once: true },
       );
