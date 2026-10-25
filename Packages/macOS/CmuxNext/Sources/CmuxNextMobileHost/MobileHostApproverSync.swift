@@ -70,11 +70,11 @@ final class MobileHostApproverSync {
         }
     }
 
-    /// The paired phones the account lists now (``MobileHostPairedDevices/listed(in:)``): each
-    /// gets its own credential; one that left has its record revoked.
-    func updatePhones(_ phones: Set<String>) {
-        guard phones != credentials.phones else { return }
-        run(credentials.setPhones(phones, ids: &nextID))
+    /// The paired phones (link ids) and, once the account's list is read, the ones it lists
+    /// (``MobileHostPairedDevices/listed(in:)``): each listed one gets its own credential; one that
+    /// left has its record revoked.
+    func updatePhones(paired: Set<String>, listed: Set<String>?) {
+        run(credentials.update(paired: paired, listed: listed, ids: &nextID))
         if !proven, connection == nil, reconnect == nil, needed { connect() }
     }
 
@@ -160,15 +160,19 @@ final class MobileHostApproverSync {
                 return lost(line)
             }
             proven = true
-            backoff.reset()
+            // A refusal retried on this connection keeps the backoff growing.
+            if !credentials.refused { backoff.reset() }
             run(credentials.connected(ids: &nextID))
             send()
         default:
             if let requests = credentials.reply(id: id, message, ids: &nextID) {
-                if let error = message["error"] as? [String: Any] {
-                    logger.error("acpmux refused a phone credential request: \(String(describing: error["message"]), privacy: .public)")
-                }
-                return run(requests)
+                guard credentials.refused else { return run(requests) }
+                let error = message["error"] as? [String: Any]
+                logger.error("acpmux refused a phone credential request: \(String(describing: error?["message"]), privacy: .public); retrying")
+                // A new connection retries it, after the backoff.
+                run([])
+                line.cancel()
+                return lost(line)
             }
             if let error = message["error"] as? [String: Any] {
                 logger.error("acpmux refused a person update: \(String(describing: error["message"]), privacy: .public)")

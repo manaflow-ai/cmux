@@ -106,6 +106,8 @@ public final class IPhoneHostService {
     private(set) var state = MobileHostState()
     /// The account's phones on the mobile service (Settings > Mobile's list with Remove).
     private(set) var knownPhones: [MobileHostKnownPhone] = []
+    /// ``knownPhones`` is the signed-in account's list, read since it signed in.
+    @ObservationIgnored private(set) var phonesRead = false
     /// Why the last list read or removal failed, shown under the list; nil when it worked.
     private(set) var phonesError: String?
     /// The phones the signed-in user allowed on this Mac (cmux-next-ios verify/phone-approvals.md).
@@ -174,6 +176,7 @@ public final class IPhoneHostService {
         listing?.cancel()
         guard allowed, account != nil, let dependencies else {
             knownPhones = []
+            phonesRead = false
             phonesError = nil
             return pushListedPhones()
         }
@@ -184,6 +187,7 @@ public final class IPhoneHostService {
                 let phones = try await directory.phones(token: dependencies.accessToken(false))
                 guard !Task.isCancelled else { return }
                 self?.knownPhones = phones
+                self?.phonesRead = true
                 self?.phonesError = nil
                 self?.pushListedPhones()
             } catch {
@@ -225,6 +229,7 @@ public final class IPhoneHostService {
             clearRemoval()
         }
         self.account = account
+        phonesRead = false
         loadPaired(signedOut: signedOut)
         reconcile()
         refreshPhones()

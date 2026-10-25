@@ -234,8 +234,11 @@ extension IPhoneHostService {
     }
 
     /// The paired phones the account lists get their own acpmux credential (their Full-access
-    /// setting); every other phone's record is revoked.
+    /// setting); every other phone's record is revoked. Until the account's list is read, none
+    /// gets one and none is revoked for being unlisted.
     func pushListedPhones() {
-        approverSync?.updatePhones(paired?.listed(in: knownPhones) ?? [])
+        let paired = paired ?? MobileHostPairedDevices(userID: "")
+        approverSync?.updatePhones(paired: Set(paired.devices.map(\.id)),
+                                   listed: phonesRead ? paired.listed(in: knownPhones) : nil)
     }
 }
