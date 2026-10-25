@@ -28,7 +28,10 @@ private final class ChangeFlag: Sendable {
 /// A script batch's changes show once (CLAUDE.md "Go past Chrome where cmux is scripted": a burst
 /// of scripted changes coalesces to one model update and at most one frame per window), and never
 /// delay what the person sees elsewhere or does themselves.
-@MainActor
+///
+/// A wait that hangs (on a stage that should have committed) fails at the suite's time limit; the
+/// stages' deadlines lie past it.
+@MainActor @Suite(.timeLimit(.minutes(1)))
 struct StoreStageTests {
     /// Workspace 1 (handle 1): pane 10 with surfaces 1...8. Workspace 2 (handle 2): pane 20 with surfaces 21, 22.
     private static func tree() -> DaemonTree {
@@ -218,5 +221,110 @@ struct StoreStageTests {
         for _ in 0..<100 where store.stage != nil { await Task.yield() }
         #expect(store.stage == nil, "the stage outlived its deadline")
         #expect(store.tab(surface: 4)?.name == "batch")
+    }
+
+    // MARK: Review of d41d2d3a232..d2849fdd7c9 (lead cmux-ad)
+
+    /// Review 1: a read-your-writes waiter that starts before its event arrives (the usual order: the
+    /// command's reply, then its echo) never waits on the stage: the event it needs commits the stage.
+    @Test func aWaiterThatStartsBeforeItsEventCommitsTheStage() async {
+        let store = Self.store()
+        let scope = DaemonCommandScope()
+        _ = store.openStage(for: scope, until: .now + .seconds(600))
+        DaemonCommandScope.$current.withValue(scope) {
+            store.intend(.renameTab(surface: 5, name: "batch"), transaction: .generate())
+        }
+        var ran = false
+        store.whenApplied(.generate(), reaching: 1) { ran = true }
+        _ = store.apply(batch: [DaemonEventEnvelope(sequence: 1, event: Self.renamed(5, "batch", workspace: 1, pane: 10, screen: 100))])
+        #expect(ran, "a whenApplied waiter for sequence 1 waited on the script's stage")
+        #expect(store.stage == nil)
+
+        // The async form, waiting before its event arrives.
+        _ = store.openStage(for: scope, until: .now + .seconds(600))
+        DaemonCommandScope.$current.withValue(scope) {
+            store.intend(.renameTab(surface: 6, name: "batch"), transaction: .generate())
+        }
+        let through = Task { await store.applied(through: 2) }
+        await Task.yield()
+        _ = store.apply(batch: [DaemonEventEnvelope(sequence: 2, event: Self.renamed(6, "batch", workspace: 1, pane: 10, screen: 100))])
+        await through.value
+        #expect(store.stage == nil, "applied(through:) waited on the script's stage")
+        #expect(store.appliedSequence >= 2)
+    }
+
+    /// Review 2: workspace revisions do not commute: a held rename (revision 2) and a later change of
+    /// another workspace (revision 3) apply in order at the commit, never revision 3 first (a resync).
+    @Test func aHeldWorkspaceRevisionHoldsEveryLaterWorkspaceDelta() {
+        let store = Self.store()
+        let scope = DaemonCommandScope()
+        let stage = store.openStage(for: scope, until: .now + .seconds(600))
+        DaemonCommandScope.$current.withValue(scope) {
+            store.intend(.renameWorkspace(key: WorkspaceKey(rawValue: "w1"), name: "renamed"), transaction: .generate())
+        }
+        let tree = Self.tree()
+        var renamed = tree.workspaces[0]
+        renamed.name = "renamed"
+        let followup = store.apply(batch: [
+            DaemonEventEnvelope(sequence: 1, event: .workspaceRenamed(WorkspaceDelta(workspace: 1, index: nil, entity: renamed, workspaceRevision: 2))),
+            DaemonEventEnvelope(sequence: 2, event: .workspaceChanged(WorkspaceDelta(workspace: 2, index: nil, entity: tree.workspaces[1], workspaceRevision: 3))),
+        ])
+        #expect(followup != .resync, "revision 3 applied before the held revision 2")
+        stage.commit()
+        #expect(store.workspaceRevision == 3)
+        #expect(store.workspace(handle: 1)?.name == "renamed")
+    }
+
+    /// Review 3: the events of a tab or a screen whose add the stage holds wait with it: a title set
+    /// right after a held tab-added is not dropped, and a layout of a held new screen does not resync.
+    @Test func eventsOfATabOrScreenTheStageHoldsWaitForIt() {
+        let store = Self.store()
+        let scope = DaemonCommandScope()
+        let stage = store.openStage(for: scope, until: .now + .seconds(600))
+        DaemonCommandScope.$current.withValue(scope) {
+            store.intend(.renameTab(surface: 1, name: "batch"), transaction: .generate())
+        }
+        let added = TabSnapshot(surface: 9, title: "new")
+        let screen = ScreenSnapshot(id: 300, active: false, activePane: 30, layout: .leaf(30),
+                                    panes: [PaneSnapshot(id: 30, tabs: [TabSnapshot(surface: 31, title: "s")])])
+        let followup = store.apply(batch: [
+            DaemonEventEnvelope(sequence: 1, event: .tabAdded(TabDelta(workspace: 1, screen: 100, pane: 10, surface: 9, index: nil, entity: added))),
+            DaemonEventEnvelope(sequence: 2, event: .titleChanged(surface: 9, title: "late")),
+            DaemonEventEnvelope(sequence: 3, event: .screenAdded(ScreenDelta(workspace: 1, screen: 300, index: nil, entity: screen))),
+            DaemonEventEnvelope(sequence: 4, event: .layoutChanged(screen: 300, layout: ScreenLayoutDelta(activePane: 30, layout: .leaf(30)),
+                                                                   transaction: nil)),
+        ])
+        #expect(followup != .resync, "a held new screen's layout applied before the screen")
+        stage.commit()
+        #expect(store.tab(surface: 9)?.title == "late", "the title set after the held tab-added was dropped")
+        #expect(store.screen(300) != nil)
+    }
+
+    /// Review 5: a new connection ends the stage: no held intent stays hidden, and no later commit
+    /// moves the applied sequence back to the old connection's numbers.
+    @Test func aNewConnectionEndsTheStage() {
+        let store = Self.store()
+        let scope = DaemonCommandScope()
+        let stage = store.openStage(for: scope, until: .now + .seconds(600))
+        DaemonCommandScope.$current.withValue(scope) {
+            store.intend(.renameTab(surface: 7, name: "batch"), transaction: .generate())
+        }
+        _ = store.apply(batch: [DaemonEventEnvelope(sequence: 5, event: Self.renamed(7, "batch", workspace: 1, pane: 10, screen: 100))])
+        store.beginConnection()
+        #expect(store.stage == nil, "the stage outlived its connection")
+        #expect(!store.intentLog.hasHeld)
+        stage.commit()
+        #expect(store.appliedSequence == 0, "a commit after the new connection moved the applied sequence to \(store.appliedSequence)")
+    }
+
+    /// Review 7: one batch's commit ends only its own part: a second commit from the same batch does
+    /// not close a stage another batch still has open.
+    @Test func aSecondCommitOfOneBatchKeepsTheOtherBatchsStage() {
+        let store = Self.store()
+        let first = store.openStage(for: DaemonCommandScope(), until: .now + .seconds(600))
+        _ = store.openStage(for: DaemonCommandScope(), until: .now + .seconds(600))
+        first.commit()
+        first.commit()
+        #expect(store.stage != nil, "the first batch's second commit closed the second batch's stage")
     }
 }
