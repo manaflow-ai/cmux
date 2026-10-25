@@ -87,7 +87,7 @@ const fourOptions: AcpmuxPermission = {
 
 function GalleryPermissionCard({ permission, harness, scopeStyle }: Props) {
   return (
-    <div className="acpmux-shell" data-scope-style={scopeStyle}>
+    <div className="acpmux-shell" data-scope-style={scopeStyle} style={{ paddingTop: 12 }}>
       {scopeStyle && scopeStyle !== "under" && <style>{scopeStyles[scopeStyle]}</style>}
       <div className="acpmux-main">
         <div className="acpmux-permission acpmux-asks-stack">
