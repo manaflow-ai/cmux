@@ -981,7 +981,14 @@ export default agentPaneEntry({
         const chips = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-attachment-image")];
         const from = chips[0]!.getBoundingClientRect();
         const to = chips[1]!.getBoundingClientRect();
-        const at = (x: number) => ({ clientX: x, clientY: from.top + from.height / 2, pointerId: 1, button: 0, buttons: 1, bubbles: true });
+        const at = (x: number) => ({
+          clientX: x,
+          clientY: from.top + from.height / 2,
+          pointerId: 1,
+          button: 0,
+          buttons: 1,
+          bubbles: true,
+        });
         chips[0]!.dispatchEvent(new view.PointerEvent("pointerdown", at(from.left + from.width / 2)));
         chips[0]!.dispatchEvent(new view.PointerEvent("pointermove", at(from.left + from.width / 2 + 8)));
         chips[0]!.dispatchEvent(new view.PointerEvent("pointermove", at(to.right - 4)));

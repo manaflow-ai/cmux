@@ -117,7 +117,9 @@ await requireBrowserLane("agent-pane-attach-reorder.test.ts", async () => {
     expect(await order(page)).toEqual(["400", "500", "300"]);
     expect(await page.locator(".acpmux-attachment-slot[data-dragging]").count()).toBe(0);
     // Assistive technology hears where it went.
-    expect(await page.locator(".acpmux-attachments output[aria-live]").textContent()).toBe("Shot 300.png moved to 3 of 3");
+    expect(await page.locator(".acpmux-attachments output[aria-live]").textContent()).toBe(
+      "Shot 300.png moved to 3 of 3",
+    );
     // The press that ended the drag opened no viewer.
     expect(await page.locator(".acpmux-image-viewer, [role=dialog]").count()).toBe(0);
     await page.close();
