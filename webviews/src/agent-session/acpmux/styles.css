@@ -729,7 +729,7 @@ fieldset.acpmux-question[hidden]{display:none}
 /* A permission ask (PermissionCard.tsx), after Claude Code desktop's prompt: a compact glass card
    (.ui-glass, src/ui/glass/glass.css) with the tool's glyph and what the call does, the command in
    mono clamped to two lines (Show full command opens it in a scrolling block), and one row of short
-   buttons of one size: Allow once filled with the accent, Always allow, Deny and any other option
+   buttons of one size (equal cells, a full row only when it cannot hold them all): Allow once filled with the accent, Always allow, Deny and any other option
    quiet. What they cover is one muted line under them, cut with an ellipsis (its title has it whole). */
 .acpmux-permission-card.acpmux-permission-ask{border:0;border-radius:12px;padding:12px;background:var(--glass-tint);--glass-elevation:var(--elevation-1)}
 .acpmux-permission-request{display:flex;flex-direction:column;gap:6px;min-width:0}
@@ -745,7 +745,7 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-permission-command-toggle{all:unset;color:var(--agent-muted);font-size:var(--text-caption);line-height:1.3;cursor:default}
 .acpmux-permission-command-toggle:hover{color:var(--agent-text)}
 .acpmux-permission-command-toggle:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px;border-radius:3px}
-.acpmux-permission-ask .acpmux-permission-buttons{display:inline-grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);max-width:100%;align-items:center;gap:6px;margin-top:10px}
+.acpmux-permission-ask .acpmux-permission-buttons{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,10em),1fr));max-width:calc(var(--permission-answers,3)*10.5em);align-items:center;gap:6px;margin-top:10px}
 .acpmux-permission-ask .acpmux-permission-buttons button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:0;min-height:26px;box-sizing:border-box;border:0;border-radius:6px;padding:4px 10px;background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text);font:inherit;font-size:var(--text-control);line-height:1.25}
 .acpmux-permission-ask .acpmux-permission-buttons button:hover{background:color-mix(in srgb,var(--agent-text) 13%,transparent)}
 .acpmux-permission-ask .acpmux-permission-buttons button.acpmux-permission-primary{background:var(--agent-accent);color:var(--agent-on-accent,var(--acpmux-base));font-weight:500}

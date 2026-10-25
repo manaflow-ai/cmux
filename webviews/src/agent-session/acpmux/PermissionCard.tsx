@@ -310,7 +310,14 @@ export function PermissionCard({
         )}
       </div>
       {!writing && (
-        <div className="acpmux-permission-buttons">
+        <div
+          className="acpmux-permission-buttons"
+          style={
+            {
+              "--permission-answers": [allowOnce, allowAlways, denyOption].filter(Boolean).length + others.length,
+            } as React.CSSProperties
+          }
+        >
           {allowOnce && (
             <PermissionActionButton
               label={t("permission.allowOnce")}
