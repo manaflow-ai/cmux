@@ -72,7 +72,9 @@ class OneListOfTheExports(unittest.TestCase):
         for script in ("scripts/cmux-next/regenerate-settings-exports.sh",
                        "scripts/cmux-next/check-settings-exports.sh"):
             body = (ROOT / script).read_text(encoding="utf-8")
-            self.assertIn(self.LIST, body, script)
+            # The exporter names it as its default (CMUX_SETTINGS_EXPORTS_LIST overrides it for the
+            # base export), so the file name, not the whole path, is what both have in common.
+            self.assertIn("settings-exports.txt", body, script)
             # No second, hard-coded copy of the export paths. Comments may name one as prose.
             code = [line for line in body.splitlines() if not line.lstrip().startswith("#")]
             for path in self.paths():
@@ -91,6 +93,7 @@ class OneListOfTheExports(unittest.TestCase):
         "scripts/ci/next_batch.py",                           # knows only a mini can rebuild them
         "scripts/cmux-next/pr-autofix-apply.sh",              # lets a repair push them
         "scripts/cmux-next/swift-exports-key.py",             # keys the export cache on them
+        "scripts/ci/generated_files_guard.py",                # hands it to generated_outputs.py
     )
 
     # A test's own fixture may name the exports it drives: a short copy there weakens that test,
@@ -295,11 +298,15 @@ class ExportsAreComparedWithAFreshExport(unittest.TestCase):
         (fake / "settings-exports.txt").write_text("".join(f"{path}\n" for path in listed))
         # `$1` is OUT, whose basename says which call this is; the restore's is settings-head-exports.
         # The legacy export is written only while its source is there, as the real export tests do.
+        # Like the real exporter, it reads its list (CMUX_SETTINGS_EXPORTS_LIST overrides it) and
+        # REFUSES a file the export wrote that the list does not name: without that refusal a test
+        # of a removed export cannot see the real failure.
         (fake / "regenerate-settings-exports.sh").write_text(
             "#!/bin/sh\nset -e\nsrc=Packages/macOS/CmuxNext/Sources/CmuxNextSettings\n"
             'case "${CMUX_TEST_EXPORT_FAILS_ON_RESTORE:-}${1##*/}" in\n'
             '  1settings-head-exports) echo "the export blew up" >&2; exit 7 ;;\n'
             "esac\n"
+            'list="${CMUX_SETTINGS_EXPORTS_LIST:-scripts/cmux-next/settings-exports.txt}"\n'
             'cp "$src/A.swift" schemas/settings/settings-schema.json\n'
             'cp "$src/B.swift" docs/mdm/managed-preferences.md\n'
             'written="schemas/settings/settings-schema.json docs/mdm/managed-preferences.md"\n'
@@ -308,6 +315,10 @@ class ExportsAreComparedWithAFreshExport(unittest.TestCase):
             '  written="$written docs/mdm/legacy.md"\n'
             "fi\n"
             'for f in $written; do\n'
+            '  if ! grep -qxF "$f" "$list"; then\n'
+            '    echo "::error::the settings export wrote $f, which the list does not name" >&2\n'
+            "    exit 1\n"
+            "  fi\n"
             '  git diff --quiet -- "$f" || echo "regenerated: $f"\n'
             "done\n")
         (fake / "regenerate-settings-exports.sh").chmod(0o755)

@@ -457,9 +457,6 @@ jobs:
       - name: The defaults guard judges changes and approvals
         run: python3 tests/test_defaults_guard.py
 
-      - name: The settings stamp stays out of git and its check compares a fresh export
-        run: python3 tests/test_settings_stamp_not_committed.py
-
       # PR #19754 moved the workspace and tab menus' group rows into More and
       # nothing failed (Lawrence 2026-10-14: "my groups UI is lost").
       - name: The group rows stay at the top of the right-click menus

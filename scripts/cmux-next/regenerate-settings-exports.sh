@@ -47,10 +47,15 @@ else
   out="$(mkdir -p "$1" && cd "$1" && pwd)"
 fi
 root="$(git rev-parse --show-toplevel)"
+# CMUX_SETTINGS_EXPORTS_LIST is the list to use instead of the one beside this script: the only
+# caller is check-settings-exports.sh's export from the BASE parent's settings sources, which write
+# what the base listed. With HEAD's list, an export the pull request removes is written by those
+# sources and then refused below as unlisted, which fails the check on the removal itself
+# (review of #23915).
+list="${CMUX_SETTINGS_EXPORTS_LIST:-$(dirname "${BASH_SOURCE[0]}")/settings-exports.txt}"
 exports=()
-while IFS= read -r path; do exports+=("$path"); done < <(
-  sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "$(dirname "${BASH_SOURCE[0]}")/settings-exports.txt")
-(( ${#exports[@]} )) || { echo "::error::scripts/cmux-next/settings-exports.txt lists no export" >&2; exit 1; }
+while IFS= read -r path; do exports+=("$path"); done < <(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "$list")
+(( ${#exports[@]} )) || { echo "::error::$list lists no export" >&2; exit 1; }
 
 cd "$root/Packages/macOS/CmuxNext"
 swift build --build-tests

@@ -62,11 +62,12 @@ while IFS= read -r path; do inputs+=("$path"); done < <(
 # the checkout for the "Regenerate stale files" step's `docs/mdm/*` glob to collect and push back --
 # the removal undone by the repair (review of #23915). HEAD's copy if it still tracks one (a file
 # that stopped being an export but stayed committed), otherwise gone.
+base_list="$temp/settings-exports-base.txt"
+git show "HEAD^1:$(git ls-files --full-name -- "$list")" > "$base_list" 2>/dev/null || cp "$list" "$base_list"
 gone=()
 while IFS= read -r path; do
   printf '%s\n' "${exports[@]}" | grep -qxF "$path" || gone+=("$path")
-done < <(git show "HEAD^1:$(git ls-files --full-name -- "$list")" 2>/dev/null |
-  sed -e 's/#.*//' -e '/^[[:space:]]*$/d')
+done < <(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "$base_list")
 
 # A path HEAD does not have. `git checkout HEAD^1 -- path` below STAGES it, so deleting the file
 # alone leaves the index holding it (`AD` in git status), which is a staged addition for anything
@@ -115,7 +116,10 @@ trap 'restore || true' EXIT
 for path in "${inputs[@]}"; do
   if git cat-file -e "HEAD^1:$path" 2>/dev/null; then git checkout -q HEAD^1 -- "$path"; else rm -f "$path"; fi
 done
-scripts/cmux-next/regenerate-settings-exports.sh "$temp/settings-base-exports" > "$temp/settings-base-exported.txt"
+# The base parent's own list: these sources write what the base listed, and HEAD's list would refuse
+# an export the pull request removed as unlisted, failing the check on the removal (review of #23915).
+CMUX_SETTINGS_EXPORTS_LIST="$base_list" \
+  scripts/cmux-next/regenerate-settings-exports.sh "$temp/settings-base-exports" > "$temp/settings-base-exported.txt"
 based="$temp/settings-based"
 for file in "${stale[@]}"; do mkdir -p "$based/${file%/*}" && cp "$file" "$based/$file"; done
 
