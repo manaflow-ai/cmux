@@ -123,6 +123,14 @@ pub struct Session {
     /// requests, its harness's model lines; not its own bookkeeping, `tap.rs`
     /// `from_the_model`); a turn that hears none is silent (`silent_turn.rs`).
     pub(super) heard: AtomicU64,
+    /// The hub clock's time (`Hub::clock_now`, ns) of the running turn's last sign of its model,
+    /// or of its prompt going out if none since; an adopted turn's comes from its log, so it may
+    /// be before this daemon started (negative). A turn that hears nothing for `stalledTurnMs`
+    /// from it ends (`stalled_turn.rs`).
+    pub(super) heard_at: std::sync::atomic::AtomicI64,
+    /// The hub clock's time before which a turn held at its stalled deadline is not looked at
+    /// again (`stalled_turn.rs`); 0 for none.
+    pub(super) stalled_recheck: AtomicU64,
     /// The turn that logged `turn_silent` and has not heard its model since (`silent_turn.rs`).
     pub(super) silent_turn: StdMutex<Option<String>>,
     /// The hub clock's time (`Hub::clock_now`) of the last record or

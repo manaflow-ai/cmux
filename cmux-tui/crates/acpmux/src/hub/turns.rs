@@ -427,6 +427,8 @@ impl Hub {
             drop(guard);
             return Err(e);
         }
+        // Its stalled count starts before it reads running (`stalled_turn.rs`).
+        self.watch_stalled_turn(session, None);
         self.set_status(session, SessionStatus::Running);
         self.watch_silent_turn(session, &turn_id).await;
         // Start title generation after the first prompt is written to the harness, while its
@@ -564,6 +566,11 @@ impl Hub {
         if self.settled_by_shutdown.lock().unwrap().contains(turn_id) {
             return result;
         }
+        // acpmux ended a turn whose model said nothing for `stalledTurnMs`: it failed.
+        let stalled = result.as_ref().ok().and_then(Self::stalled_error);
+        if let Some(e) = stalled {
+            result = Err(e);
+        }
         // Apply queued stderr before classifying a dead process (a limit never resumes).
         Self::drain_inbound(session).await;
         if let Err(e) = &mut result {
@@ -672,6 +679,12 @@ impl Hub {
                     o.extend(self.turn_error_fields(session, agent_error));
                     if let Some(Value::Object(info)) = &route_info {
                         o.extend(info.clone());
+                    }
+                    // Ended by acpmux, not the agent (`stalled_turn.rs`).
+                    if let Some(data) = e.data.as_ref().filter(|d| d["detail"] == "stalled") {
+                        o.insert("detail".into(), data["detail"].clone());
+                        o.insert("stalledMs".into(), data["stalledMs"].clone());
+                        o.insert("errorSource".into(), json!("acpmux"));
                     }
                 }
                 self.write_turn_result(session, msg, git);

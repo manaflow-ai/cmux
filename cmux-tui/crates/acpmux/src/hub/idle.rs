@@ -8,6 +8,9 @@
 //! harness is then stopped through `detach_child`: the record and the
 //! agent session id stay, so the next prompt resumes it (`session/load`).
 //!
+//! The same task ends a running turn whose model has said nothing for
+//! `stalledTurnMs` (`stalled_turn.rs`).
+//!
 //! One task per hub waits on the injected clock for the earliest deadline
 //! and on a wake signal for a new child; it never polls, so idle costs no
 //! CPU. Activity only moves deadlines later, so the task wakes at most once
@@ -65,7 +68,14 @@ impl Hub {
             let (next, clock) = {
                 let Some(hub) = weak.upgrade() else { return };
                 let clock = hub.clock.lock().unwrap().clone();
-                (hub.next_idle_deadline(), clock)
+                // The same task ends stalled turns (`stalled_turn.rs`).
+                let stalled = hub.config.read().await.stalled_turn();
+                let stalled = stalled.and_then(|s| hub.next_stalled_deadline(s));
+                let next = match (hub.next_idle_deadline(), stalled) {
+                    (Some(a), Some(b)) => Some(a.min(b)),
+                    (a, b) => a.or(b),
+                };
+                (next, clock)
             };
             match next {
                 Some(at) => {
@@ -77,6 +87,9 @@ impl Hub {
                 None => wake.notified().await,
             }
             let Some(hub) = weak.upgrade() else { return };
+            if let Some(stalled) = hub.config.read().await.stalled_turn() {
+                hub.settle_stalled_turns(stalled);
+            }
             hub.stop_idle_children().await;
         }
     }

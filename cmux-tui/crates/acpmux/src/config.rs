@@ -812,6 +812,13 @@ pub struct Config {
     /// Default 90000; 0 turns it off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub silent_turn_ms: Option<u64>,
+    /// `stalledTurnMs`: how long a running turn may go with no sign of its model at work (as
+    /// `silentTurnMs` counts them, also across a daemon restart) before acpmux ends it as failed,
+    /// `detail` `stalled` (`hub/stalled_turn.rs`). Only a turn nobody holds: no client attached,
+    /// no permission waiting, and its recorded owner (a sub-session's parent, a `spawnedBy` tag)
+    /// gone or not busy. Default 21600000 (6 h); 0 turns it off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stalled_turn_ms: Option<u64>,
     /// `autoResumeDelaysMs`: the wait before each automatic continuation of a turn a
     /// connection error cut off (`hub/auto_resume.rs`), one entry per attempt. Default
     /// `[10000, 60000, 300000, 1200000]`; `[]` turns it off. Checked on load: at most 4
@@ -931,6 +938,14 @@ impl Config {
     /// `silentTurnMs`, or its 90 s default; None when it is 0 (off).
     pub fn silent_turn(&self) -> Option<std::time::Duration> {
         match self.silent_turn_ms.unwrap_or(90_000) {
+            0 => None,
+            ms => Some(std::time::Duration::from_millis(ms)),
+        }
+    }
+
+    /// `stalledTurnMs`, or its 6 h default; None when it is 0 (off).
+    pub fn stalled_turn(&self) -> Option<std::time::Duration> {
+        match self.stalled_turn_ms.unwrap_or(6 * 60 * 60 * 1000) {
             0 => None,
             ms => Some(std::time::Duration::from_millis(ms)),
         }

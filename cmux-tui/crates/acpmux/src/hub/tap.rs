@@ -59,6 +59,16 @@ fn from_the_model(msg: &Message) -> bool {
     }
 }
 
+/// Whether a logged record shows the model at work, as `from_the_model` judged it when it came
+/// in (`stalled_turn.rs` reads an adopted turn's last one): the update and line kinds above, or a
+/// request the agent made. A history replay (`*.replay`) is not.
+pub(super) fn logged_from_the_model(e: &crate::store::EventRecord) -> bool {
+    e.dir == "in"
+        && (MODEL_UPDATES.contains(&e.kind.as_str())
+            || MODEL_LINES.contains(&e.kind.as_str())
+            || (e.msg.get("id").is_some() && e.msg.get("method").is_some()))
+}
+
 impl Hub {
     /// Make sure a live child process exists for the session. Spawns, runs
     /// `initialize`, and either creates or loads the agent session.
@@ -72,6 +82,7 @@ impl Hub {
         Arc::new(move |dir: Direction, msg: &Message, host_seq: Option<u64>| -> bool {
             if matches!(dir, Direction::In) && from_the_model(msg) {
                 tap_session.heard.fetch_add(1, Ordering::SeqCst);
+                tap_session.heard_at.store(tap_hub.clock_now() as i64, Ordering::Relaxed);
                 tap_hub.heard_after_silence(&tap_session);
             }
             let (d, kind) = match (dir, msg) {
