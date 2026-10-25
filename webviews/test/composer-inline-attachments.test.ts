@@ -298,6 +298,35 @@ await requireBrowserLane("composer-inline-attachments.test.ts", async () => {
     await page.close();
   });
 
+  test("a draft read back after a reload has its attachments' places, never their tokens as text", async () => {
+    const page = await open();
+    await page.keyboard.type("keep ");
+    await paste(page, 300);
+    await page.keyboard.type(" here");
+    // The chat's draft is kept as the person leaves it (composerDraft.ts), with the place by id.
+    await page.waitForFunction(() =>
+      Object.keys(localStorage).some((key) => (localStorage.getItem(key) ?? "").includes("\uFFFC")),
+    );
+    await page.reload();
+    await page.getByText("Send me screenshots.").waitFor();
+    await page.waitForFunction(() => document.querySelector(".acpmux-composer-prompt .ProseMirror p")?.textContent);
+    // The editor's first content: the place is its node again, the words around it as typed.
+    expect(await page.locator(".acpmux-md .acpmux-md-inline").count()).toBe(1);
+    const words = await page
+      .locator(".acpmux-composer-prompt .ProseMirror p")
+      .evaluate((paragraph) =>
+        [...paragraph.childNodes]
+          .filter((node) => !(node instanceof HTMLElement && node.classList.contains("acpmux-md-inline")))
+          .map((node) => node.textContent)
+          .join(""),
+      );
+    expect(words).toBe("keep  here");
+    await page.locator(".acpmux-composer-prompt [contenteditable=true]").click();
+    await page.keyboard.press("ControlOrMeta+a");
+    await page.keyboard.press("Backspace");
+    await page.close();
+  });
+
   /// Settings' attachment view, as the host pushes it (composerSettings.ts `composer` event).
   const view = (page: Page, attachmentView: "inline" | "strip") =>
     page.evaluate(
