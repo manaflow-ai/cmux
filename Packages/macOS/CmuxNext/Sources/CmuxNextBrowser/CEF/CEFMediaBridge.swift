@@ -23,9 +23,13 @@ final class CEFMediaBridge {
     /// The document phase the binding was last added for.
     private var gate = CEFDocumentGate()
     /// The deadline of a media roll call after a frame detached (`BrowserMediaFrames`).
-    private let rollCallDeadline = DemandTimer(owner: "CEFMediaBridge.rollCall")
+    let rollCall: CEFMediaRollCall
 
-    init(tab: CEFTab) { self.tab = tab }
+    /// - Parameter rollCall: The roll call's deadline (tests pass one on a manual clock).
+    init(tab: CEFTab, rollCall: CEFMediaRollCall = CEFMediaRollCall()) {
+        self.tab = tab
+        self.rollCall = rollCall
+    }
 
     /// The tab's browser exists (`CEFAgentRelay.browserAttached`).
     func attach(_ browser: Int32) {
@@ -56,6 +60,8 @@ final class CEFMediaBridge {
     private func documentChanged() {
         guard let tab, let browser = tab.browserID,
               gate.admits(document: tab.committedDocument, phase: tab.state.phase) else { return }
+        // A new document's commit reset the frames: a roll call of the old one has nothing left to drop.
+        if tab.state.phase == .committed { rollCall.cancel() }
         run(Self.documentCalls, browser)
     }
 
@@ -100,10 +106,15 @@ final class CEFMediaBridge {
         Task { [weak tab] in
             _ = try? await tab?.evaluate(BrowserMediaState.rollCallScript, world: .isolated, gesture: .cmux)
         }
-        // A bounded, cancellable deadline: the answers come within it, a gone frame never does.
-        rollCallDeadline.schedule(after: BrowserMediaState.rollCallDeadline) { @MainActor [weak self] in
-            self?.tab?.machine.apply(.mediaRollCallEnded)
+        rollCall.start { [weak self] in
+            guard let tab = self?.tab, !tab.isClosed else { return }
+            tab.machine.apply(.mediaRollCallEnded)
         }
+    }
+
+    /// The tab's browser closed: a pending roll call ends with nothing dropped.
+    func browserEnded() {
+        rollCall.cancel()
     }
 
     /// One frame's media report (a binding call's payload, or a page channel post): untrusted JSON,

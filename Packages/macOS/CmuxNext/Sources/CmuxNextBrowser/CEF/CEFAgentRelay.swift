@@ -149,6 +149,7 @@ public final class CEFAgentRelay {
     /// The browser closed: waiters fail and the relay hears the end once.
     func browserEnded() {
         resumeWaiters(false)
+        media?.browserEnded()
         let end = onEnd
         sink = nil
         onEnd = nil
